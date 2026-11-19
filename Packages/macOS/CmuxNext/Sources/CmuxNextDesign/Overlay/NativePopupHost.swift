@@ -37,12 +37,17 @@ public final class NativePopupHost {
     public private(set) var isClosing = false
     /// Bumped by every show and hide: a close whose fade ends after a new show keeps the panel.
     private var generation = 0
-    /// The dismiss rules run before the popup shows (``watchBeforeShowing(_:)``).
-    private var isArmed = false
     private var observers: [NSObjectProtocol] = []
     /// The menus AppKit tracks while the popup shows (``MenuTracking``), for ``childMenus``.
     private var menus: MenuTracking?
     private var monitors: [Any] = []
+    /// A popup of ``PopupRowView`` rows that a page opens on a press (``DeclarativePopupHost``,
+    /// ``WebPopupHost``): opened under a held press, it follows that press to its release
+    /// (``PopupPressRelease``). Glass menus follow their own press (GlassMenu).
+    public var followsOpeningPress = false
+    /// The held press the popup opened under, followed to its release (``PopupPressRelease``).
+    private var press: PopupPressRelease?
+    private var pressMonitor: Any?
     /// The menus opened from inside the popup that are tracking now (their top menus).
     private var childMenus: Set<ObjectIdentifier> = []
     /// Where the host observes the app's and windows' notices (tests inject their own).
@@ -175,7 +180,6 @@ public final class NativePopupHost {
             side = placed.side
         }
         generation += 1
-        isArmed = false
         // A fresh open, or a reopen during the close (whose fade runs on the card, not the alpha).
         let opening = !panel.isVisible || isClosing
         isClosing = false
@@ -194,12 +198,50 @@ public final class NativePopupHost {
             if tooltipEntrance { panel.openTooltipWithEntrance(pivot: pivot) } else { panel.openPopup(pivot: pivot) }
         }
         watch(dismissalWindow ?? window)
+        if opening, followsOpeningPress { followHeldPress(buttons: NSEvent.pressedMouseButtons) }
         return (frame, side)
+    }
+
+    /// The popup opened while the left or right button is held outside it (a page menu button's
+    /// press, a right-click): drags over its rows highlight them and the release picks one
+    /// (``PopupPressRelease``). The release still reaches the window the press began in.
+    func followHeldPress(buttons: Int, at start: CGPoint = NSEvent.mouseLocation,
+                         time: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        stopFollowingPress()
+        guard buttons & 0b11 != 0, !contains(NSApp.currentEvent?.window) else { return }
+        press = PopupPressRelease(panel: panel, start: start, startedAt: time)
+        pressMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDragged, .rightMouseDragged, .leftMouseUp, .rightMouseUp]
+        ) { [weak self] event in
+            guard let self, !self.contains(event.window) else { return event }
+            let point = event.window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? NSEvent.mouseLocation
+            switch event.type {
+            case .leftMouseDragged, .rightMouseDragged: self.pressDragged(to: point)
+            default: self.pressReleased(at: point, time: event.timestamp)
+            }
+            return event
+        }
+    }
+
+    func pressDragged(to point: CGPoint) { press?.dragged(to: point) }
+
+    func pressReleased(at point: CGPoint, time: TimeInterval) {
+        guard let press else { return }
+        stopFollowingPress()
+        // A release on a submenu's panel (a child window, following the same press) is the
+        // submenu's: the popup stays for it.
+        let onChild = panel.childWindows?.contains { $0.isVisible && $0.frame.contains(point) } ?? false
+        if press.released(at: point, time: time) == .closes, !onChild { dismiss() }
+    }
+
+    private func stopFollowingPress() {
+        press = nil
+        if let pressMonitor { NSEvent.removeMonitor(pressMonitor) }
+        pressMonitor = nil
     }
 
     /// Closes the popup (fading toward its anchor) without calling ``onDismiss``.
     public func hide() {
-        isArmed = false
         unwatch()
         guard panel.isVisible, !isClosing else { return }
         generation += 1
@@ -230,17 +272,9 @@ public final class NativePopupHost {
         panel.close()
     }
 
-    /// Runs the dismiss rules over `window` while the popup's content is still getting ready to
-    /// show (a page measuring itself): a dismiss before ``show`` calls ``onDismiss``, so the owner
-    /// drops the pending open instead of showing it later.
-    public func watchBeforeShowing(_ window: NSWindow) {
-        isArmed = true
-        watch(dismissalWindow ?? window)
-    }
-
     /// Closes the popup by a dismiss rule: ``hide()``, then ``onDismiss``.
     public func dismiss(reason: String = "outside") {
-        guard isShown || isArmed else { return unwatch() }
+        guard isShown else { return unwatch() }
         dismissalReason = reason
         hide()
         onDismiss?()
@@ -277,12 +311,6 @@ public final class NativePopupHost {
         // Escape in the popup closes it (a text field in it would otherwise take it as cancel);
         // with a menu of the popup open, Escape closes only that menu.
         let escape = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
-            // Escape while the popup is still getting ready (the keys are still the window's)
-            // drops the open.
-            if let self, self.isArmed, !self.isShown, event.keyCode == 53 {
-                self.dismiss(reason: "escape")
-                return nil
-            }
             guard let self, event.window === self.panel, event.keyCode == 53, self.isShown, self.childMenus.isEmpty else { return event }
             // The input method owns Escape while cancelling marked text. Closing the popup
             // here would discard the composition before the editor sees the key.
@@ -294,6 +322,7 @@ public final class NativePopupHost {
     }
 
     private func unwatch() {
+        stopFollowingPress()
         observers.forEach(center.removeObserver)
         observers = []
         monitors.forEach(NSEvent.removeMonitor)

@@ -27,6 +27,15 @@ export {};
   writeDesignScale({ log: () => {} });
 }
 
+// React's scheduler keeps its queue private, and react-dom copies its entry points when it first
+// loads: count the tasks it queues from here on, before anything loads react-dom, so a teardown can
+// wait for them (support/domTeardown.ts: a scheduler task that runs after a file deletes its DOM
+// globals fails the file with "window is not defined" between tests).
+{
+  const { trackReactScheduler } = await import("./support/domTeardown");
+  trackReactScheduler();
+}
+
 // react-dom picks the animationend event name once, when it first loads: without
 // window.AnimationEvent it listens for the prefixed webkitAnimationEnd for the rest of the run,
 // and onAnimationEnd handlers never fire (the agent pane's Search chats sheet exit). WebKit has
@@ -45,6 +54,13 @@ export {};
   });
   await import("react-dom");
   await import("react-dom/client");
+  // Floating UI's React bindings (under every Base UI tooltip, menu and popover) make the same
+  // once-only check as Base UI above: loaded with no global `document`, their layout effects are a
+  // no-op, so a popup never positions and its positioner keeps Base UI's `opacity: 0` for the rest
+  // of the run. session-info-subagent-card-stays failed so behind session-info-motion in one
+  // `bun test` process, and passed alone. Loaded here, after react-dom, which it imports: the copy
+  // Base UI itself resolves (a dependency of @base-ui/react, not of this package).
+  await import(Bun.resolveSync("@floating-ui/react-dom", Bun.resolveSync("@base-ui/react/tooltip", import.meta.path)));
   for (const [key, had, value] of saved)
     if (had) scope[key] = value;
     else delete scope[key];
@@ -99,4 +115,11 @@ if (!("Element" in scope)) {
   const { chromium, firefox, webkit } = await import("playwright");
   useSystemChrome(chromium as unknown as Parameters<typeof useSystemChrome>[0]);
   refusePlaywrightOnMacs([chromium, webkit, firefox]);
+}
+
+// Cross-file leaks: a test file that leaves module state, a timer, a listener or a global behind
+// for the next file fails, naming what it left (support/leakDetector.ts says how).
+{
+  const { installLeakDetector } = await import("./support/leakDetector");
+  installLeakDetector();
 }

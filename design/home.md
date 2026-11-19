@@ -5,6 +5,10 @@ conversation's transcript and composer on the right, and the panels and sheets t
 AppKit (`Packages/macOS/CmuxNext/Sources/CmuxNextHome`, `CmuxNextApp/Home`, `TopPages/TopHomePageView`,
 about 19,600 lines). It moves to the shared React web under `webviews/`, a seam at a time.
 
+> Reverted (2026-11-09): Home is Swift (`plans/cmux-next/language-layers.md`). The native Home is back
+> (#40756) and Chat Colors is the AppKit panel again. The text below is the plan that was reverted; only
+> the Chat Colors section still describes what ships.
+
 ## The ask (Leo, 2026-11-06)
 
 > "we ought to have a lot of that ui in react and not swift"
@@ -46,7 +50,7 @@ in the same PR. A seam never switches a working Swift path off before its React 
 
 1. **Chat Colors** (`ChatColors/`): the app's floating panel, opened from a chat row's menu, the
    palette and `home.chatColors`. It opens apart from the Messages view, so it moves on its own and
-   sets the bridge pattern.
+   sets the bridge pattern. Reverted: it is AppKit again (`HomeChatColorsPanel`).
 2. **The Messages view** (`Sidebar/`, `Conversations/`, `NewMessage/`, `NativeTranscript/`,
    `LinkChips/`, `McpConnect/`, `Dock/`, `TopHomePageView`, `HomeHostView`, `HomeNewMessageView`):
    the list, the transcript, the composer, the sheets it opens (Requests, Group Info, New Chief, Team
@@ -64,27 +68,6 @@ in the same PR. A seam never switches a working Swift path off before its React 
    One PR then hosts the page in the dock in place of `TopHomePageView` and deletes the AppKit
    views. The engine models the engine itself reads (`HomePins`, `HomeChiefAvatar`, `ChiefBackend`,
    `HomeGroupOutcome` and the rest) move into `CmuxNextHomeEngine` first.
-
-## Messages
-
-The Messages view is React: the docked Home, classic Home's top page and a Home pane tab all host
-`home-messages` (`HomeMessagesPage`, one page kept and reused per host). The AppKit list, sheets and
-New Message are deleted. Conversation tabs and the Chief panel host the same page for one
-conversation (`HomeConversationPage`, `#/conversation/<id>`: no list column, no compose button), and
-the native transcript (`HomeHostView`, `NativeTranscript/`) is deleted.
-
-- **Chief.** The name pill of a Chief chat sends its box (`chief.settings {conversation, anchor}`), and
-  the app's Chief settings popover opens under it (`HomeChiefSurface`, the same popover and rows). While
-  the Chief answers, the composer's emoji button is Stop (`chief.stop {all}`; Option-click stops all its
-  agents), as the native compose bar's was.
-- **First run.** The app streams the empty Chief chat's facts (`firstRun`: intro, memory offer,
-  shortcuts, agents, switch keys, starter facts) and runs its rows (`HomeMessagesFirstRunProvider`); the
-  welcome still plays in the chat itself.
-- **Links.** On a one-conversation page every link, a conversation link too, is the app's to open, so
-  the tab never turns into another conversation.
-
-Picked list: `messages` (a neutral selection slab and hairlines between rows), over `accent` and `quiet`.
-Picked transcript: `imessage` (blue mine, grey theirs, tails on each group's last bubble), over `theme` and `outline`.
 
 ## Chat Colors
 
@@ -106,13 +89,10 @@ the app. Opening it for another chat switches the panel to that chat.
   the panel. Escape closes it too.
 - **Width and order.** 340 pt wide. The panel's height follows its content, and nothing moves while
   you pick: the preview and every row keep their place, and only colours change.
-- **Keys.** Full keyboard access tabs through the swatches; Space and Return press them.
+- **Keys.** Full keyboard access tabs through the swatches; Space presses one.
 
-Gallery: `home.chat-colors` (variants: default, custom colours on both sides, a chat with only text
-colours, dark and light). The picked layout is recorded here when it lands.
-
-Picked: `rows` (the AppKit panel's layout: each row's label in a 48 pt column beside its swatches),
-over `caption-labels` and `grouped`, on the 4 pt grid: 340 x 340 pt.
+It is AppKit: `HomeChatColorsPanel` and `HomeChatColorsView` (`CmuxNextHome/ChatColors/`), tested by
+`HomeChatColorsPanelTests`. Each row's label sits in a 48 pt column beside its swatches.
 
 ## Rules every seam keeps
 

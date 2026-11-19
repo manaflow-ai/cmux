@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextAgentPane
 public import CmuxNextCompat
+public import CmuxNextDesign
 import CmuxNextDaemon
 import CmuxNextKeepAwake
 import CmuxNextWakeups
@@ -45,6 +46,14 @@ public final class IPhoneHostService {
         var stackProjectID: String
         /// Per-bundle state (device id, hostd log).
         var stateDirectory: URL
+        /// The name this Mac's identity key is kept under in the Keychain
+        /// (``MobileHostPairedStore/sealName(bundleID:storageNamespace:adHocCode:)`` without the code): the
+        /// bundle id, and a dev build's Cloud backend namespace with it. A re-signed build that may not read
+        /// it keeps its key in the state folder's file instead (``MobileHostMacIdentityStore``).
+        var keychainName: String?
+        /// The name the paired list is sealed under: ``keychainName``, and an ad hoc build's own code with
+        /// it, so each ad hoc build reads the seal it made (``MobileHostPairedStore/sealName(bundleID:storageNamespace:adHocCode:)``).
+        var pairingSealName: String?
         var accessToken: @Sendable (_ forceRefresh: Bool) async throws -> String
         /// The app's own cmux-tui daemon socket.
         var daemonSocket: @MainActor () async throws -> String
@@ -140,7 +149,6 @@ public final class IPhoneHostService {
     public let pairedStore: MobileHostPairedStore
     /// The app's one guard of the Keychain UI switch (this Mac's identity key).
     private let loginKeychain: LoginKeychain
-    @ObservationIgnored var phoneAdmission: PhoneAdmission?
     /// The owner removed this Mac from the account's devices (from a phone or the API).
     /// hostd stays stopped until the person allows iPhone connections again: Allow Again,
     /// the setting off and on, or signing in again. Then it registers as a new device.
@@ -167,6 +175,8 @@ public final class IPhoneHostService {
     /// The pre-approval behind this Mac's pairing code (``pairInvite()``): a phone presenting the
     /// live one pairs without the prompt, once.
     @ObservationIgnored var pairTokens = MobileHostPairTokens()
+    /// Pair requests that came before the paired list was in, answered once it is (``MobileHostHeldPairRequests``).
+    @ObservationIgnored var heldPairRequests = MobileHostHeldPairRequests()
     /// This Mac's identity public key, as hostd proves it to phones (nil until hostd started).
     @ObservationIgnored private(set) var macPublicKey: Data?
     /// The open "Allow … to connect?" dialog: its dialog id and the request it shows.
@@ -183,6 +193,8 @@ public final class IPhoneHostService {
     /// The folders acpmux gets (``followWorkspaceFolders()``).
     @ObservationIgnored private let folders = MobileHostWorkspaceFolders()
     @ObservationIgnored private var followingPicks: Task<Void, Never>?
+    /// This Mac's theme and wallpaper for the phones (`followAppearance(of:)`).
+    @ObservationIgnored var followingAppearance: Task<Void, Never>?
     @ObservationIgnored private var pairingWatch: Task<Void, Never>?
     /// App-lifetime wake observer; released on stop or deinit.
     @ObservationIgnored private var wakeObserver: MainActorObservation?
@@ -224,7 +236,8 @@ public final class IPhoneHostService {
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone")
 
     /// A host that runs nothing until it is wired and an account with the setting on arrives.
-    public init(loginKeychain: LoginKeychain, pairedStore: MobileHostPairedStore? = nil) {
+    /// `appearance`: the scope whose theme and wallpaper the phones get (the app's; ask-87d30da8e5).
+    public init(loginKeychain: LoginKeychain, pairedStore: MobileHostPairedStore? = nil, appearance: ThemeScope? = nil) {
         self.loginKeychain = loginKeychain
         let pairedStore = pairedStore ?? MobileHostPairedStore(loginKeychain: loginKeychain)
         self.pairedStore = pairedStore
@@ -234,6 +247,7 @@ public final class IPhoneHostService {
                 guard let self else { return }
                 paired = self.pairedStore.current
                 pushPaired()
+                answerHeldPairRequests()
             }
         }
         wakeObserver = MainActorObservation(NSWorkspace.didWakeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
@@ -275,6 +289,7 @@ public final class IPhoneHostService {
                 self?.pairingEvent(event)
             }
         }
+        if let appearance { followAppearance(of: appearance) }
     }
 
     /// The app Feed's open requests for the phones (#33818), from `user`'s feed: handed to hostd,
@@ -282,6 +297,12 @@ public final class IPhoneHostService {
     /// set for that account's hostd only.
     public func setNeedsYou(_ requests: [MobileHostNeedsYouRequest], user: String) async {
         await supervisor.setNeedsYou(requests, user: user)
+    }
+
+    /// This Mac's theme and wallpaper for the phones (ask-87d30da8e5): handed to hostd, which
+    /// serves it (`appearance.rs`). One hop to the supervisor; it keeps the newest for each hostd.
+    public func setAppearance(_ appearance: MobileHostAppearance) async {
+        await supervisor.setAppearance(appearance)
     }
 
     /// The feed's account changed or signed out: the kept set is forgotten, so no hostd gets it.
@@ -322,7 +343,6 @@ public final class IPhoneHostService {
     /// when it next connects.
     public func removePhone(id: String) async {
         if id.hasPrefix("iroh:") {
-            phoneAdmission?.remove(phoneDeviceID: String(id.dropFirst(5)))
             pairedStore.forget(id: String(id.dropFirst(5)), transport: .iroh)
             phonesError = nil
             return
@@ -483,6 +503,7 @@ public final class IPhoneHostService {
         pairingWatch?.cancel()
         folders.stop()
         followingPicks?.cancel()
+        followingAppearance?.cancel()
         approverSync?.stop()
         quietAttention()
         let supervisor = supervisor
@@ -613,7 +634,11 @@ public final class IPhoneHostService {
                 // The key phones pin for this Mac (Keychain; created on first use), read off the
                 // main actor: a Keychain call must never hold launch (a re-signed rig app's access
                 // prompt did, and the watchdog killed it).
-                let store = MobileHostMacIdentityStore(bundleID: dependencies.stateDirectory.deletingLastPathComponent().lastPathComponent,
+                // Named for this build (keychainName), never for the folder above the state folder: with a
+                // backend namespace that folder is the namespace, one login item every dev build on that
+                // backend shared, readable only by the build that made it (-25293 for the others).
+                let store = MobileHostMacIdentityStore(bundleID: dependencies.keychainName
+                                                       ?? dependencies.stateDirectory.deletingLastPathComponent().lastPathComponent,
                                                 stateDirectory: dependencies.stateDirectory, loginKeychain: loginKeychain)
                 // task-owner: one Keychain read per hostd start; awaited here
                 if self?.identityRefusalsKey != key { self?.identityRefusals = 0; self?.identityBackoff.reset() }

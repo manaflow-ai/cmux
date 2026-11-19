@@ -1,0 +1,11 @@
+{
+  "date": "2026-11-12",
+  "row": "app_lines",
+  "allow": 69,
+  "why": "Toggle Terminal and Chat's chat-to-terminal swap (Leo 2026-11-12, 'we can toggle it, like from the terminal into the GUI, or vice versa, back and forth'), a follow-up to #41954 agreed with its lane: the handler stops the chat's acpmux run, opens the resume terminal and closes the chat, which needs AppServices, AgentTabStore, PaneController, HomeDockOpens and QuitAgents.environment, all App-only types; the Handlers folder has no domain package yet (architecture-refactor-DESIGN.md B5). The route, including the hand-off record's rules, is Rust (cmux-window-rules tabs::terminal_chat_toggle).",
+  "author": "terminal-chat-resume lane (claude opus 5.5)",
+  "owner": "terminal-chat-resume lane",
+  "receipt": "Review (claude opus subagent d9860cc8): SHIP at 50affafa63547449150cc7a308a1907efa457135",
+  "expiry": "2026-11-26",
+  "applied_sha": "a85ec3631770a91c48265f27288b53ceaaec5b2d"
+}

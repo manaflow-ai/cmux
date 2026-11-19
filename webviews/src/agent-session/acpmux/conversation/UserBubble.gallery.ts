@@ -259,7 +259,7 @@ export default agentPaneEntry({
       })(),
     },
     "answer-hover": {
-      note: "Hovering an answer shows its row under its left edge: Copy, Fork, Pin, Read aloud, its age.",
+      note: "Hovering an answer shows its row under its left edge: Copy, Fork, Pin, Read aloud; no age (Codex parity).",
       snapshot: turns(claude),
       play: async (ctx) => ctx.hover({ text: /uploader\.retry\.test\.ts/ }),
     },
@@ -269,20 +269,18 @@ export default agentPaneEntry({
       play: hoverTime("time.cv-user__time"),
     },
     "answer-time-tooltip": {
-      note: "Play: point at an answer's footer; its age (15 hours ago) shows at the row's end, after the buttons (hidden at rest: #31609), as a prompt's does; its tooltip the exact date and time, the turn's time and tokens under it.",
+      note: "Play: point at an answer's footer; its buttons show and no age does (Codex parity, 2026-11-11 standup: a time on hover at the row's end read as noise). A prompt keeps its age and tooltip.",
       snapshot: yesterday(),
       play: async (ctx) => {
-        const selector = "time.cv-turn-time";
-        await ctx.waitFor(() => ctx.document.querySelector(selector));
-        await ctx.hover({ selector });
+        const footer = ".acpmux-turnSummary .cv-turn-actions";
+        await ctx.waitFor(() => ctx.document.querySelector(footer));
+        await ctx.hover({ selector: footer });
         await ctx.waitFor(() => {
-          const time = ctx.document.querySelector<HTMLElement>(selector);
-          return (
-            time !== null &&
-            (time.textContent ?? "").endsWith(" ago") &&
-            ctx.document.defaultView!.getComputedStyle(time).opacity === "1"
-          );
+          const row = ctx.document.querySelector<HTMLElement>(footer);
+          return row !== null && ctx.document.defaultView!.getComputedStyle(row).opacity === "1";
         });
+        if (ctx.document.querySelector(`${footer} time.cv-turn-time`))
+          throw new Error("the answer's footer draws an age");
       },
     },
     other: {

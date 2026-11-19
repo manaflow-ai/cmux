@@ -16,12 +16,15 @@ import type { MarkdownFieldElement } from "../MarkdownField";
 import { proseMirrorGlobals } from "../promptFieldTesting";
 import { inlineToken, type ComposerAttachment } from "../attachments";
 import { translate } from "../i18n";
+import { CMUX_PASS_THROUGH } from "../cmuxCommands";
 import { seedLastPicks } from "../lastPick";
 import { EMPTY_OMNIBAR } from "../omnibar";
 import { CloudTypingPrewarm, CLOUD_TYPING_PREWARM_REFRESH_MS, cloudTypingMachineID } from "../cloudTypingPrewarm";
 import type { CloudMachine } from "../cloudMachines";
 import { setNativeHost } from "../native";
 import { resetToastAvoidanceReports } from "../toastAvoidance";
+import { settleReact } from "../../../../test/support/domTeardown";
+import { Popover } from "../../../ui/Popover";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -74,9 +77,10 @@ beforeEach(() => {
   root = createRoot(container);
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;
@@ -100,10 +104,12 @@ async function typePrompt(text: string) {
   return field;
 }
 
-async function press(field: MarkdownFieldElement, key: string) {
+async function press(field: MarkdownFieldElement, key: string, modifiers: KeyboardEventInit = {}) {
   const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
   await act(async () => {
-    editor.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+    editor.dispatchEvent(
+      new dom!.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...modifiers }),
+    );
   });
 }
 
@@ -125,6 +131,146 @@ async function openMachines(button: HTMLElement) {
 function promptValue(field = container.querySelector<MarkdownFieldElement>(".nt-field")) {
   return (field?.acpmuxMarkdownField?.plainText() ?? "").replace(/\n$/, "");
 }
+
+test.each(["minimal", "default"] as const)("%s home offers creation only as matching suggestions", async (template) => {
+  const creates: string[] = [];
+  const asks: unknown[][] = [];
+  await act(async () =>
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat()}
+        template={template}
+        onCreate={(kind) => creates.push(kind)}
+        onAsk={(...args) => asks.push(args)}
+      />,
+    ),
+  );
+  expect(container.querySelector("[data-create]")).toBeNull();
+  expect(document.querySelector(".nt-popover")).toBeNull();
+  await typePrompt("unrelated question");
+  for (const kind of ["terminal", "browser", "chat"] as const)
+    expect(document.querySelector(".nt-popover")?.textContent).not.toContain(translateNewTab(`create.${kind}`));
+  for (const kind of ["terminal", "browser", "chat"] as const) {
+    const field = await typePrompt(translateNewTab(`create.${kind}`));
+    const rows = [...document.querySelectorAll<HTMLElement>(".nt-row")];
+    const index = rows.findIndex((row) => row.textContent?.includes(translateNewTab(`create.${kind}`)));
+    expect(index).toBeGreaterThanOrEqual(0);
+    if (kind !== "chat") continue;
+    for (let i = 0; i < index; i++) await press(field, "ArrowDown");
+    await press(field, "Enter");
+  }
+  expect(asks.length).toBe(1);
+  expect(asks[0]?.[1]).toBe("");
+  expect(creates).toEqual([]);
+});
+
+test.each(["terminal", "browser", "chat"] as const)(
+  "Enter on %s with staged attachments runs the creation command",
+  async (kind) => {
+    const creates: string[] = [];
+    const asks: unknown[][] = [];
+    const attachment: ComposerAttachment = {
+      id: "staged",
+      kind: "text",
+      name: "notes.txt",
+      mimeType: "text/plain",
+      size: 5,
+      text: "hello",
+    };
+    await act(async () =>
+      root!.render(
+        <NewTabScreen
+          {...firstRunProps}
+          snapshot={noChat()}
+          takeDraft={() => ({
+            text: translateNewTab(`create.${kind}`) + inlineToken(attachment.id),
+            attachments: [attachment],
+          })}
+          onCreate={(value) => creates.push(value)}
+          onAsk={(...args) => asks.push(args)}
+        />,
+      ),
+    );
+    const field = await promptField();
+    await settleReact();
+    const rows = [...document.querySelectorAll<HTMLElement>(".nt-row")];
+    const index = rows.findIndex(
+      (row) => row.dataset.type === "create" && row.textContent?.includes(translateNewTab(`create.${kind}`)),
+    );
+    expect(index).toBeGreaterThanOrEqual(0);
+    for (let i = 0; i < index; i++) await press(field, "ArrowDown");
+    await press(field, "Enter");
+    expect(creates).toEqual(kind === "chat" ? [] : [kind]);
+    expect(asks.length).toBe(kind === "chat" ? 1 : 0);
+    if (kind === "chat") {
+      expect(asks[0]?.[1]).toBe("");
+      expect(asks[0]?.[5]).toEqual([attachment]);
+    }
+  },
+);
+
+test("Add harness keeps the typed draft through setup", async () => {
+  const asks: unknown[][] = [];
+  let resume: ((harness: string) => void) | undefined;
+  await act(async () =>
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        chips={({ onAddAgent }) => (
+          <button className="acpmux-add-harness" onClick={onAddAgent}>
+            Add harness
+          </button>
+        )}
+        onAsk={(...args) => asks.push(args)}
+        onSetup={(continuation) => {
+          resume = continuation;
+        }}
+      />,
+    ),
+  );
+  await typePrompt("keep my draft");
+  await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-add-harness")!.click());
+  expect(resume).toBeDefined();
+  await act(async () => resume!("claude"));
+  expect(asks[0]?.[1]).toBe("keep my draft");
+});
+
+test("New Tab suggestions keep the composer's page glass", async () => {
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+      />,
+    );
+  });
+  await typePrompt("fix the flaky test");
+  const popover = document.querySelector(".nt-popover");
+  expect(popover).toBeTruthy();
+  expect(popover!.hasAttribute("data-host-glass")).toBe(false);
+  expect(popover!.hasAttribute("data-host-glass-cover")).toBe(false);
+});
+
+test("other popovers keep native popup glass", async () => {
+  await act(async () => {
+    root!.render(
+      <Popover open onOpenChange={() => {}} anchor={container} label="Details" initialFocus={false}>
+        Details
+      </Popover>,
+    );
+  });
+  const popover = document.querySelector(".ui-popover");
+  expect(popover).toBeTruthy();
+  expect(popover!.getAttribute("data-host-glass")).toBe("popover");
+  expect(popover!.hasAttribute("data-host-glass-cover")).toBe(true);
+});
 
 test("New Tab exposes the chat composer attachment menu", async () => {
   await act(async () => {
@@ -206,7 +352,7 @@ test("New Tab + offers Search chats and Search pages as app actions, and no Sear
 });
 
 const firstRunProps = {
-  // The stage's environment card and create row are the Default template's; an unset template is Minimal.
+  // An unset template is Minimal.
   template: "default" as const,
   snapshot: noChat([], { catalog: [] }),
   onAsk: () => {},
@@ -462,7 +608,7 @@ test("with a chat on this Mac, New Tab draws no starters", async () => {
   expect(container.querySelector(".nt-starters")).toBeNull();
 });
 
-test("No folder, then a remote machine with a folder: headline, location and send name that folder", async () => {
+test("No folder, then a remote machine with a folder: location and send name that folder", async () => {
   const remoteFolder = "/remote/project";
   const asks: unknown[][] = [];
   await act(async () => {
@@ -483,7 +629,6 @@ test("No folder, then a remote machine with a folder: headline, location and sen
         cwd="/Users/you/src/cmux"
         startCwd="/Users/you/src/cmux"
         projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
-        pageWidgets={new Set(["greeting"])}
         machineName="This Mac"
         environments
         onAsk={(...args) => asks.push(args)}
@@ -505,15 +650,12 @@ test("No folder, then a remote machine with a folder: headline, location and sen
   );
   expect(noProject).toBeTruthy();
   await act(async () => noProject!.click());
-  expect(container.querySelector(".nt-headline-text")?.textContent).toBe("What should we work on at This Mac?");
+  expect(container.querySelector(".nt-location")?.textContent).toContain("No folder");
 
   await openMachines(container.querySelector<HTMLButtonElement>('[data-kind="computer"] button')!);
   await act(async () => document.querySelector<HTMLElement>('.acpmux-env-row[data-kind="ssh"]')!.click());
 
-  // The machine pick took its known folder: the chat starts there, so all three name it.
-  const headline = container.querySelector(".nt-headline-text")?.textContent ?? "";
-  expect(headline).toContain("project");
-  expect(headline).toContain("build-box");
+  // The machine pick took its known folder: the chat starts there, so the location row names it.
   expect(container.querySelector(".nt-location")?.textContent).toContain("project");
   expect(container.querySelector(".nt-location")?.textContent).not.toContain("No folder");
   await typePrompt("fix it");
@@ -521,6 +663,57 @@ test("No folder, then a remote machine with a folder: headline, location and sen
   expect(asks.length).toBe(1);
   expect(asks[0]?.[2]).toBe(remoteFolder);
   expect(asks[0]?.[6]).toEqual({ peer: "build-box" });
+});
+
+// cmux#46019: Cmd-N's new workspace opens a new page; the machine picked on the last one is where it starts.
+test("a page started on the last picked machine sends there, and a machine pick is kept for the next page", async () => {
+  const asks: unknown[][] = [];
+  const page = (startMachine?: string) => (
+    <NewTabScreen
+      snapshot={noChat([], { peers: ["build-box", "gpu-box"], peerKinds: { "build-box": "ssh", "gpu-box": "ssh" } })}
+      cwd="/Users/you/src/cmux"
+      startCwd="/Users/you/src/cmux"
+      projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
+      machineName="This Mac"
+      environments
+      {...(startMachine ? { startMachine } : {})}
+      onAsk={(...args) => asks.push(args)}
+      onOpen={() => {}}
+      onSearch={() => {}}
+      onShell={() => {}}
+      onJump={() => {}}
+      onOpenSession={() => {}}
+      onShowAll={() => {}}
+    />
+  );
+  const had = "localStorage" in scope;
+  const before = scope.localStorage;
+  scope.localStorage = dom!.window.localStorage;
+  try {
+    await act(async () => root!.render(page("build-box")));
+    expect(container.querySelector(".nt-location")?.textContent).toContain("build-box");
+    await typePrompt("fix it");
+    await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+    expect(asks.length).toBe(1);
+    expect(asks[0]?.[6]).toEqual({ peer: "build-box" });
+
+    // A machine picked on a page is what the next page starts on (lastNewChatPlace.ts).
+    await act(async () => root!.render(<div />));
+    await act(async () => root!.render(page()));
+    await openMachines(container.querySelector<HTMLButtonElement>('[data-kind="computer"] button')!);
+    const gpu = [...document.querySelectorAll<HTMLElement>('.acpmux-env-row[data-kind="ssh"]')].find((row) =>
+      row.textContent?.includes("gpu-box"),
+    );
+    expect(gpu).toBeTruthy();
+    await act(async () => gpu!.click());
+    expect(JSON.parse(dom!.window.localStorage.getItem("cmux.agentPane.lastNewChatPlace") ?? "null")).toEqual({
+      kind: "machine",
+      peer: "gpu-box",
+    });
+  } finally {
+    if (had) scope.localStorage = before;
+    else delete scope.localStorage;
+  }
 });
 
 test.each(["", "Implement a todo list"])("Return without a harness opens setup for typed draft %j", async (draft) => {
@@ -598,6 +791,32 @@ test("Return on a typed address still opens it without a harness", async () => {
   } finally {
     unregister();
   }
+});
+
+// Lawrence 2026-11-11: Return on a typed address or search navigates the New Tab page's own tab (the host
+// replaces the page in place); Option-Return, as in Chrome's omnibox, asks for a new tab where links go.
+test("Return navigates the page's tab and Option-Return asks for a new tab beside it", async () => {
+  // Each call's arguments: the address (or search) and where it opens.
+  const opens: unknown[][] = [];
+  const searches: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        onOpen={(...args: unknown[]) => void opens.push(args)}
+        onSearch={(...args: unknown[]) => void searches.push(args)}
+      />,
+    );
+  });
+  const field = await typePrompt("https://example.com/");
+  await press(field, "Enter");
+  await typePrompt("https://example.org/");
+  await press(field, "Enter", { altKey: true });
+  expect(opens.map(([url, how]) => [url, (how as { beside?: boolean } | undefined)?.beside === true])).toEqual([
+    ["https://example.com/", false],
+    ["https://example.org/", true],
+  ]);
+  expect(searches).toEqual([]);
 });
 
 // A last pick names the chip's harness before acpmux lists its harnesses (or when that read failed
@@ -984,6 +1203,39 @@ test("with Cloud picked, a send goes to onCloud with its prompt, not a new chat;
   expect(promptValue()).toBe("fix the flaky test");
 });
 
+// The app's own handler passes `/customize` through here, as it does for a New Tab whose chat (and
+// so its host) does not exist yet: the page itself knows where the chat would start.
+for (const mode of ["cloud", "sandboxed"] as const)
+  test(`/customize with ${mode} picked is refused: the chat would not start on this machine`, async () => {
+    const asks: unknown[][] = [];
+    const elsewhere: unknown[][] = [];
+    await act(async () => {
+      root!.render(
+        <NewTabScreen
+          snapshot={noChat()}
+          onAsk={(...args) => asks.push(args)}
+          onOpen={() => {}}
+          onSearch={() => {}}
+          onShell={() => {}}
+          onJump={() => {}}
+          onOpenSession={() => {}}
+          onShowAll={() => {}}
+          environments
+          onCmuxCommand={() => CMUX_PASS_THROUGH}
+          runMode={{ mode, onMode: () => {} }}
+          onCloud={(...args) => (elsewhere.push(args), true)}
+          onSandbox={(...args) => (elsewhere.push(args), true)}
+        />,
+      );
+    });
+    await typePrompt("/customize make the sidebar compact");
+    await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+    expect(elsewhere).toEqual([]);
+    expect(asks).toEqual([]);
+    // The refusal keeps what was typed.
+    expect(promptValue()).toBe("/customize make the sidebar compact");
+  });
+
 test("with Cloud picked and No folder, a send names no folder: not even the tab's inherited one", async () => {
   const clouded: unknown[][] = [];
   await act(async () => {
@@ -992,7 +1244,7 @@ test("with Cloud picked and No folder, a send names no folder: not even the tab'
         snapshot={noChat()}
         cwd="/repo/A"
         startCwd="/repo/A"
-        pageWidgets={new Set(["projects"])}
+        template="default"
         onAsk={() => {}}
         onOpen={() => {}}
         onSearch={() => {}}
@@ -1019,6 +1271,36 @@ test("with Cloud picked and No folder, a send names no folder: not even the tab'
   // The App starts Cloud with nothing copied, preserving the base behavior.
   expect(clouded.length).toBe(1);
   expect(clouded[0]?.[1]).toBe("fix the flaky test");
+  expect(clouded[0]?.[2]).toBeUndefined();
+});
+
+// cmux#45946: a tab that inherited a folder the chip does not show (no start folder from the host) reads
+// "No folder"; its Cloud send copied that folder anyway ("tmp" on the start card).
+test("with Cloud picked and the chip reading No folder, a send names no folder, not the tab's unshown folder", async () => {
+  const clouded: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        cwd="/tmp/inherited"
+        template="default"
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        environments
+        runMode={{ mode: "cloud", onMode: () => {} }}
+        onCloud={(...args) => (clouded.push(args), false)}
+      />,
+    );
+  });
+  expect(container.querySelector(".nt-location")?.textContent).toContain("No folder");
+  await typePrompt("1+1");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(clouded.length).toBe(1);
   expect(clouded[0]?.[2]).toBeUndefined();
 });
 
@@ -1232,8 +1514,17 @@ test.each(
       />,
     );
   await act(async () => render("sandboxed"));
-  const create = (kind: string) => container.querySelector<HTMLButtonElement>(`[data-create="${kind}"]`)!;
-  await act(async () => create("chat").click());
+  const create = async (kind: "chat" | "terminal" | "browser") => {
+    await typePrompt(translateNewTab(`create.${kind}`));
+    const row = [...document.querySelectorAll<HTMLElement>('.nt-row[data-type="create"]')].find((item) =>
+      item.textContent?.includes(translateNewTab(`create.${kind}`)),
+    );
+    expect(row).toBeTruthy();
+    await act(async () =>
+      row!.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
+    );
+  };
+  await create("chat");
   if (setup) {
     expect(resume).toBeDefined();
     await act(async () => resume!("claude"));
@@ -1241,7 +1532,7 @@ test.each(
   expect(sandboxed.length).toBe(1);
   expect(asks).toEqual([]);
   await act(async () => render("persistent"));
-  await act(async () => create(kind).click());
+  await create(kind);
   expect(asks.length).toBe(kind === "chat" ? 1 : 0);
   expect(creates).toEqual(kind === "chat" ? [] : [kind]);
 });
@@ -1334,7 +1625,6 @@ test("Add folder… is the host's folder panel: a second one while it is open as
     root!.render(
       <NewTabScreen
         {...firstRunProps}
-        pageWidgets={new Set(["projects"])}
         projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
         onBrowseProject={(request) => {
           // The folder menu commits the pick itself (deferPick), so a folder picked meanwhile wins.
@@ -1437,7 +1727,6 @@ test.each(["project", "saved"] as const)(
           {...firstRunProps}
           snapshot={noChat()}
           cwd="/repo/original"
-          pageWidgets={new Set(["projects"])}
           projects={[{ cwd: "/repo/local", label: "Local project" }]}
           environments
           savedEnvironments={{
@@ -1674,7 +1963,7 @@ test("New project: the name follows the prompt until edited; the send makes that
   expect(container.querySelector('[role="alert"]')).toBeNull();
 });
 
-test("New project refused: the reason shows above the card, no chat starts and the prompt stays", async () => {
+test("New project refused: plain words show above the card, no chat starts and the prompt stays", async () => {
   const asks: unknown[][] = [];
   const names: string[] = [];
   const reason = "a folder named habit-tracker can't be made";
@@ -1689,13 +1978,179 @@ test("New project refused: the reason shows above the card, no chat starts and t
 
   expect(names).toEqual(["habit-tracker"]);
   expect(asks).toHaveLength(0);
-  expect(container.querySelector('[role="alert"]')?.textContent).toBe(
-    translate("project.new.failedBecause", { reason }),
-  );
+  // acpmux's own words go to the log, never the notice.
+  expect(container.querySelector('[role="alert"]')?.textContent).toBe(translate("project.new.failed"));
   expect(promptValue()).toBe("a habit tracker web app");
   // Still New project, so a second send tries again.
   expect(projectNameField()?.value).toBe("habit-tracker");
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   expect(names).toEqual(["habit-tracker", "habit-tracker"]);
+});
+
+test("a start refused because the agent is not installed says so in plain words, with Install, Retry and Dismiss", async () => {
+  const asks: unknown[][] = [];
+  const setups: Array<(harness: string) => void> = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={(...args) => {
+          asks.push(args);
+          return Promise.reject(new Error("spawn claude-agent-acp ENOENT"));
+        }}
+        onSetup={(resume) => setups.push(resume)}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+      />,
+    );
+  });
+  await typePrompt("fix the build");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(asks).toHaveLength(1);
+  const harness = String(asks[0]?.[0]);
+  const name = noChat().catalog.find((entry) => entry.id === harness)?.name ?? harness;
+  const card = () => container.querySelector<HTMLElement>(".acpmux-start-failure");
+  // Plain words, never the spawn error itself; the raw words wait under Details.
+  expect(card()?.querySelector("[role=alert]")?.textContent).toBe(translate("switch.notInstalled", { agent: name }));
+  expect(card()?.querySelector("[data-error-detail]")?.textContent).toBe("spawn claude-agent-acp ENOENT");
+  const button = (label: string) =>
+    [...card()!.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === label);
+  // The draft stays for every way out.
+  expect(promptValue()).toBe("fix the build");
+
+  // Retry sends the same request again.
+  await act(async () => button(translate("switch.retry"))!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(asks).toHaveLength(2);
+  expect(asks[1]).toEqual(asks[0]);
+
+  // Install opens Agents setup, which continues this draft once the agent can run.
+  await act(async () => button(translate("switch.action.install"))!.click());
+  expect(setups).toHaveLength(1);
+  expect(card()).toBeNull();
+
+  // Dismiss clears a card that is shown again.
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  await act(async () => button(translate("worktree.dismiss"))!.click());
+  expect(card()).toBeNull();
+
+  // Retry is Send again: a draft edited after the failure goes, not the one that failed.
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  await typePrompt("fix the build on main");
+  const before = asks.length;
+  await act(async () => button(translate("switch.retry"))!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(asks).toHaveLength(before + 1);
+  expect(asks.at(-1)?.[1]).toBe("fix the build on main");
+  expect(asks.at(-1)?.[0]).toBe(harness);
+
+  // An emptied field (a failed New chat) still retries: the chat starts empty, never a no-op.
+  await typePrompt("");
+  await act(async () => button(translate("switch.retry"))!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(asks).toHaveLength(before + 2);
+  expect(asks.at(-1)?.[1]).toBe("");
+});
+
+// Cmd-T, then typing at once: the app holds the keys and replays them into the page when the field
+// reports ready. A Chromium page shown a moment ago is often not focused yet, and its renderer drops
+// keys replayed then: after a cold launch Cmd-T then "hello" left the field empty, about one try in
+// five (cmux-lawrence-2, 2026-11-11). The readiness waits until the page has focus.
+test("Cmd-T then typing at once: the field reports ready only once its page has focus", async () => {
+  let pageFocused = false;
+  Object.defineProperty(dom!.window.document, "hasFocus", { configurable: true, value: () => pageFocused });
+  const ready: { token: string; pageFocused: boolean; fieldFocused: boolean }[] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        inputToken="cmd-t-1"
+        onInputReady={(token) => {
+          const editor = container.querySelector(".nt-field [contenteditable]");
+          ready.push({ token, pageFocused, fieldFocused: !!editor && editor.contains(document.activeElement) });
+        }}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+      />,
+    );
+  });
+  await promptField();
+  expect(ready, "the field reported ready while its page had no focus: the held keys would be lost").toEqual([]);
+
+  // The page gets focus (Chromium's grant lands): the readiness goes now, with the field focused.
+  pageFocused = true;
+  await act(async () => dom!.window.dispatchEvent(new dom!.window.FocusEvent("focus")));
+  expect(ready).toEqual([{ token: "cmd-t-1", pageFocused: true, fieldFocused: true }]);
+
+  // The held keys, replayed into the focused field, are typed into it.
+  await typePrompt("hello");
+  expect(promptValue()).toBe("hello");
+});
+
+test("a page that has focus already reports its field ready at once, and only once per token", async () => {
+  Object.defineProperty(dom!.window.document, "hasFocus", { configurable: true, value: () => true });
+  const ready: string[] = [];
+  const render = (token: string) =>
+    act(async () => {
+      root!.render(
+        <NewTabScreen
+          snapshot={noChat()}
+          inputToken={token}
+          onInputReady={(reported) => ready.push(reported)}
+          onAsk={() => {}}
+          onOpen={() => {}}
+          onSearch={() => {}}
+          onShell={() => {}}
+          onJump={() => {}}
+          onOpenSession={() => {}}
+          onShowAll={() => {}}
+        />,
+      );
+    });
+  await render("cmd-t-1");
+  await promptField();
+  expect(ready).toEqual(["cmd-t-1"]);
+  await render("cmd-t-1");
+  await act(async () => dom!.window.dispatchEvent(new dom!.window.FocusEvent("focus")));
+  expect(ready).toEqual(["cmd-t-1"]);
+  await render("cmd-t-2");
+  expect(ready).toEqual(["cmd-t-1", "cmd-t-2"]);
+});
+
+test("Return runs a typed shell command in a terminal; Cmd-Return still asks the agent", async () => {
+  const shells: string[] = [];
+  const asks: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        template="minimal"
+        snapshot={noChat([])}
+        onShell={(command) => void shells.push(command)}
+        onAsk={(...args) => void asks.push(args)}
+      />,
+    );
+  });
+  let field = await typePrompt("git status");
+  expect(document.querySelector('.nt-row[data-type="run"]')?.getAttribute("aria-selected")).toBe("true");
+  await press(field, "Enter");
+  expect(shells).toEqual(["git status"]);
+  expect(asks).toEqual([]);
+  field = await typePrompt("git status");
+  await press(field, "Enter", { metaKey: true });
+  expect(shells).toEqual(["git status"]);
+  expect(asks.map((ask) => ask[1])).toEqual(["git status"]);
 });

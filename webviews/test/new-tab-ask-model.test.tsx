@@ -11,6 +11,7 @@ import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -76,12 +77,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   for (const key of added) delete scope[key];
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const noop = () => {};
@@ -311,9 +309,10 @@ test("Return during a sign-in check that never answers asks at once", async () =
 });
 
 test("an Ask row click and New chat during the sign-in check ask at once", async () => {
-  for (const selector of ['.nt-row[data-type="ask"]', '[data-create="chat"]']) {
+  for (const selector of ['.nt-row[data-type="ask"]', '.nt-row[data-type="create"]']) {
     const page = await newTabPage();
     try {
+      if (selector.includes("create")) await page.type("new chat");
       const target = window.document.querySelector(selector);
       expect(target).not.toBeNull();
       await act(async () => {
@@ -321,7 +320,10 @@ test("an Ask row click and New chat during the sign-in check ask at once", async
         target!.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }));
       });
       expect(page.asks).toHaveLength(1);
-      expect(page.asks[0]?.slice(0, 2)).toEqual(["codex", "fix the flaky upload test"]);
+      expect(page.asks[0]?.slice(0, 2)).toEqual([
+        "codex",
+        selector.includes("create") ? "" : "fix the flaky upload test",
+      ]);
     } finally {
       await act(async () => page.root.unmount());
     }
@@ -373,7 +375,11 @@ test("a chat start that fails says why over the kept draft, and Return tries aga
     await page.pressReturn();
     expect(page.asks).toHaveLength(1);
     expect(page.status()).toBeUndefined();
-    expect(page.alert()).toContain("no harness session within 90s");
+    // Plain words over the box; the raw words wait under Details (newtab/StartFailure.tsx).
+    expect(page.alert()).toBeTruthy();
+    expect(host.querySelector(".nt-composer [data-error-detail]")?.textContent).toContain(
+      "no harness session within 90s",
+    );
     expect(page.field.value).toBe("fix the flaky upload test");
     fail = false;
     await page.pressReturn();

@@ -20,6 +20,7 @@ import { SUBSESSION_STATUS, subagentStatus, waitingSubagents } from "./subagentS
 import { sessionStatus } from "../session-info/childSessionRowsModel";
 import { sessionRetry } from "../subagents/retryState";
 import { SubagentsTab } from "./SubagentsTab";
+import type { ResumeActions } from "../subagents/ResumeControl";
 import { startedChatsOutsideSubsessions } from "./startedChatsOutsideSubsessions";
 import { SummaryBody, type SummaryChanges } from "./SummaryBody";
 import type { ChatToolsControl } from "./SourcesAddMenu";
@@ -106,6 +107,8 @@ export function SummaryCard({
     onOpen: (id: string) => void;
     /// Whether new subagents open in panes of their own, and its switch; none where no pane opens.
     autoOpen?: { on: boolean; set: (on: boolean) => void };
+    /// Resume on a stopped subagent's row (subagents/ResumeControl.tsx); none where the chat can't.
+    resume?: ResumeActions;
   };
   /// The chat's sub-sessions (subagents/subsessions.ts `subsessionRows`), listed after its
   /// subagents, and how a row opens one's chat beside this one.
@@ -362,7 +365,7 @@ export function SummaryCard({
               <h3 className="acpmux-summary-title">{t("rail.environment")}</h3>
               {environment && <EnvironmentSection {...environment} />}
             </section>
-            <SubagentsTab agents={agents} waiting={waiting} onOpen={subagents.onOpen} />
+            <SubagentsTab agents={agents} waiting={waiting} onOpen={subagents.onOpen} resume={subagents.resume} />
           </div>
         )}
         {open && !onSubagents && (
@@ -388,6 +391,7 @@ export function SummaryCard({
                 sessions={children}
                 onOpenSession={sessions?.onOpen ?? subsessions?.onOpen}
                 stack={agents.length === 0 ? summary?.subagents : undefined}
+                resume={subagents.resume}
               />
             )}
             {summary && (

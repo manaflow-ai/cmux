@@ -47,6 +47,7 @@ pub const EXAMPLES: &[(&str, &str)] = &[
     ("muse-terminal", include_str!("../../harnesses/muse-terminal.toml")),
     ("unii", include_str!("../../harnesses/unii.toml")),
     ("hermes", include_str!("../../harnesses/hermes.toml")),
+    ("openclaw", include_str!("../../harnesses/openclaw.toml")),
 ];
 
 /// The guide an agent follows to integrate a harness (`cmux harness guide`).
@@ -207,6 +208,7 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
                 timeout: Duration::from_secs(timeout.max(5)),
                 lookup_env: Box::new(|var| std::env::var(var).ok()),
                 lookup_keychain: Box::new(profiles::keychain_lookup),
+                extra_env: BTreeMap::new(),
             };
             let report = doctor(&cfg, &id, &opts).await;
             if json_out {
@@ -674,8 +676,7 @@ pub fn add(req: &AddRequest, sources: &ProfileSources) -> Result<Added> {
     }
     #[cfg(unix)]
     {
-        use std::os::unix::fs::DirBuilderExt;
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
+        crate::home_fs::create_dir_all(&dir, 0o700)?;
     }
     #[cfg(windows)]
     crate::owner_only::create_dir_all(&dir)?;
@@ -761,6 +762,9 @@ pub struct DoctorOptions {
     pub timeout: Duration,
     pub lookup_env: Box<dyn Fn(&str) -> Option<String> + Send + Sync>,
     pub lookup_keychain: Box<dyn Fn(&str, Option<&str>) -> Result<String, String> + Send + Sync>,
+    /// Env the check's harness gets on top of its profile's, after the references resolve:
+    /// a Chief brain check's own brain home (`chief_builtins::brain_check_env`).
+    pub extra_env: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -936,6 +940,7 @@ pub async fn doctor(cfg: &Config, id: &str, opts: &DoctorOptions) -> DoctorRepor
         })
         .collect();
     let resolved = profiles::resolve_env_refs(&mut env, &*opts.lookup_env, &*opts.lookup_keychain);
+    env.extend(opts.extra_env.clone());
     r.masks = env.values().filter(|v| v.len() >= 6).cloned().collect();
     r.masks.sort_by_key(|m| std::cmp::Reverse(m.len()));
     match resolved {

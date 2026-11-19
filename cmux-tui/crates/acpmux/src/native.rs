@@ -122,9 +122,9 @@ pub fn copy_into_from(src: &Path, dest: &Path, label: &str, home: &Path) -> Resu
     let rel = src.strip_prefix(home).unwrap_or(src);
     let target = dest.join(label).join(rel);
     if let Some(parent) = target.parent() {
-        std::fs::create_dir_all(parent)?;
+        crate::home_fs::create_dirs(parent)?;
     }
-    std::fs::copy(src, &target)?;
+    crate::home_fs::copy(src, &target)?;
     if target.extension().is_some_and(|e| e == "jsonl") {
         complete_lines(&target)?;
     }
@@ -138,7 +138,7 @@ fn complete_lines(path: &Path) -> Result<()> {
     let bytes = std::fs::read(path)?;
     if bytes.last().is_some_and(|b| *b != b'\n') {
         let keep = bytes.iter().rposition(|b| *b == b'\n').map(|i| i + 1).unwrap_or(0);
-        std::fs::OpenOptions::new().write(true).open(path)?.set_len(keep as u64)?;
+        crate::home_fs::OpenOptions::new().write(true).open(path)?.set_len(keep as u64)?;
     }
     Ok(())
 }
@@ -228,9 +228,9 @@ pub fn restore_in(bundle: &Path, meta: &SessionMeta, home: &Path) -> Result<usiz
                 continue;
             }
             if let Some(parent) = target.parent() {
-                std::fs::create_dir_all(parent)?;
+                crate::home_fs::create_dirs(parent)?;
             }
-            std::fs::copy(&file, &target)?;
+            crate::home_fs::copy(&file, &target)?;
             n += 1;
         }
     }
@@ -253,9 +253,10 @@ fn replace_with(src: &Path, target: &Path) -> Result<()> {
     let parent = target.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
     let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let part = parent.join(format!(".{name}.{}.part", uuid::Uuid::now_v7()));
-    let placed = std::fs::copy(src, &part).and_then(|_| std::fs::rename(&part, target));
+    let placed =
+        crate::home_fs::copy(src, &part).and_then(|_| crate::home_fs::rename(&part, target));
     if placed.is_err() {
-        let _ = std::fs::remove_file(&part);
+        let _ = crate::home_fs::remove_file(&part);
     }
     Ok(placed?)
 }
@@ -367,20 +368,20 @@ pub fn restore_guarded(plan: &[(PathBuf, PathBuf)], replace: bool) -> Result<usi
 
 fn restore_one(src: &Path, target: &Path, replace: bool) -> Result<()> {
     let parent = target.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
-    std::fs::create_dir_all(parent)?;
+    crate::home_fs::create_dirs(parent)?;
     let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let part = parent.join(format!(".{name}.{}.part", uuid::Uuid::now_v7()));
     let placed = write_without_mode(src, &part).and_then(|()| {
         if replace {
-            std::fs::rename(&part, target)?;
+            crate::home_fs::rename(&part, target)?;
         } else {
-            std::fs::hard_link(&part, target)?;
-            std::fs::remove_file(&part)?;
+            crate::home_fs::hard_link(&part, target)?;
+            crate::home_fs::remove_file(&part)?;
         }
         Ok(())
     });
     if placed.is_err() {
-        let _ = std::fs::remove_file(&part);
+        let _ = crate::home_fs::remove_file(&part);
     }
     placed
 }
@@ -388,7 +389,7 @@ fn restore_one(src: &Path, target: &Path, replace: bool) -> Result<()> {
 fn write_without_mode(src: &Path, dest: &Path) -> Result<()> {
     use std::io::Write;
     let text = std::fs::read(src)?;
-    let file = std::fs::OpenOptions::new().write(true).create_new(true).open(dest)?;
+    let file = crate::home_fs::OpenOptions::new().write(true).create_new(true).open(dest)?;
     let mut out = std::io::BufWriter::new(file);
     for line in text.split(|b| *b == b'\n') {
         if let Some(kept) = without_mode(line) {
@@ -532,7 +533,7 @@ pub fn export_opencode_with(
         _ => anyhow::bail!("opencode export did not answer session {sid}"),
     };
     let dir = native_dir.join(OPENCODE_EXPORT);
-    std::fs::create_dir_all(&dir)?;
+    crate::home_fs::create_dirs(&dir)?;
     let name = opencode_export_name(sid);
     crate::agent_login::write_private(&dir.join(&name), json)?;
     Ok(Some(format!("{OPENCODE_EXPORT}/{name}")))

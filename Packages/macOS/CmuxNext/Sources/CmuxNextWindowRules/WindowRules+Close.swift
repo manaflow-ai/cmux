@@ -41,17 +41,17 @@ extension WindowRules {
     public nonisolated enum Toast: Decodable, Equatable, Sendable {
         case show
         case skip
-        /// Shows only if one of these live terminals (indices into the closing tabs) runs a program.
-        case askTerminals([Int])
 
-        private enum CodingKeys: String, CodingKey { case decision, terminals }
+        private enum CodingKeys: String, CodingKey { case decision }
 
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             switch try container.decode(String.self, forKey: .decision) {
             case "show": self = .show
             case "skip": self = .skip
-            case "askTerminals": self = .askTerminals(try container.decode([Int].self, forKey: .terminals))
+            // Transitional: the FFI pinned before cmux-window-rules dropped `AskTerminals` answers it for exactly
+            // the tabs the new rule closes with no toast (one tab, none working). Remove after the re-pin.
+            case "askTerminals": self = .skip
             case let other: throw DecodingError.dataCorruptedError(forKey: .decision, in: container, debugDescription: "toast \(other)")
             }
         }
@@ -78,6 +78,25 @@ extension WindowRules {
         public init(agents: [String?], others: [Int]) {
             self.agents = agents
             self.others = others
+        }
+
+        /// Whether the close's question is known before the daemon's read: an agent at work in a closing terminal (with
+        /// `warnAgent`; `agents` lists them whatever the setting says), or a read terminal known to run a program in front
+        /// (``runsKnownProgram(_:)``). Such a close keeps its tabs in place through the read and the question, and they
+        /// leave only on Close (a tab that left, then came back with the question, read as closed). A shell at its prompt
+        /// or without integration is not known: only the read can tell, so that close still takes its tabs out in the
+        /// key's turn (SL-3, #31875).
+        @MainActor public func knownToAsk(_ tabs: [TabModel], _ warnings: Warnings) -> Bool {
+            warnings.warnAgent && !agents.isEmpty || others.contains { tabs.indices.contains($0) && Self.runsKnownProgram(tabs[$0]) }
+        }
+
+        /// A terminal known to run a program in front: its shell reported a running command (OSC 133 C,
+        /// `commandSinceMs`), or an agent reports from it (hooks: `agent`, idle between turns too but not `done`, its
+        /// session's end; OSC 7501 `programStatus`) while no prompt shows. An agent launched as the terminal's program (cmux's agent
+        /// terminals, a resumed session) has no shell to report a command; a shell back at its prompt after its agent
+        /// quit shows the prompt.
+        @MainActor public static func runsKnownProgram(_ tab: TabModel) -> Bool {
+            tab.commandSinceMs != nil || tab.promptSinceMs == nil && (tab.agent.map { $0.state != .done } ?? false || !tab.programStatus.isEmpty)
         }
     }
 

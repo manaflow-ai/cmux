@@ -21,6 +21,7 @@ import { useEscapingPopup, type AnchorBox } from "./popupHost";
 import { useNativePopup, type NativePopupDescription, type NativePopupEvent } from "./nativePopup";
 import { popupAction } from "./popupDescriptors";
 import { cx } from "./cx";
+import { MenuCheckGlyph } from "./MenuCheckGlyph";
 import { useScrollEdges } from "./scrollEdges";
 import { UI_ANCHOR_GAP } from "./anchor";
 import { popupCollision, type UiPopupFlip } from "./openSide";
@@ -104,9 +105,10 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, native, childre
     if (open === undefined) setInternalOpen(next);
     onOpenChange?.(next);
   };
+  const nativeAvailable = native !== undefined && nativePopup.available;
   const context: MenuContextValue = {
     isOpen,
-    nativeAvailable: native !== undefined && nativePopup.available,
+    nativeAvailable,
     trigger,
     opener,
     keyed,
@@ -132,6 +134,13 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, native, childre
         handled: false,
       };
       setMenuOpen(true);
+      // The App draws this menu (a native popup): its panel follows the held press and picks the
+      // row the release lands on (NativePopupHost's press-release). The page sees only that
+      // release; a page row under the panel must not run, and the menu must not close on it.
+      if (nativeAvailable) {
+        session.current = null;
+        return;
+      }
       pointerCleanup.current = trackPressRelease(event, {
         hover: (row) => row.focus({ preventScroll: true }),
         // Base UI items act on the click.
@@ -224,6 +233,10 @@ export interface MenuButtonProps {
   buttonRef?: RefObject<HTMLButtonElement | null>;
   /** A field-like trigger (a select, a host field): its menu opens as wide as it (`matchTrigger`). */
   fieldTrigger?: boolean;
+  /** With the `ui-btn` class: a `Button`'s variant and size, so the trigger takes its hover, press
+   *  and open fills (controls.css). */
+  variant?: "ghost" | "subtle" | "solid";
+  size?: "sm" | "md" | "lg";
   children: ReactNode;
 }
 
@@ -237,6 +250,8 @@ export function MenuButton({
   "data-menu": dataMenu,
   buttonRef,
   fieldTrigger,
+  variant,
+  size,
   children,
 }: MenuButtonProps) {
   const context = use(MenuContext);
@@ -253,6 +268,8 @@ export function MenuButton({
       aria-haspopup={ariaHasPopup}
       data-menu={dataMenu}
       data-field-trigger={fieldTrigger ? "" : undefined}
+      data-variant={variant}
+      data-size={size}
       data-popup-open={context?.isOpen ? "" : undefined}
       disabled={disabled}
       onKeyUp={(event) => {
@@ -329,6 +346,10 @@ export interface MenuPopupProps {
    * drop-down (leo-workspace design/menus.md). The trigger says so with `data-field-trigger`.
    */
   matchTrigger?: boolean;
+  /** False for a custom layout with its own scrolling columns. */
+  scroll?: boolean;
+  /** Pinned below the scrolling rows, outside their edge fade. */
+  footer?: ReactNode;
   children: ReactNode;
 }
 
@@ -353,6 +374,8 @@ export function MenuPopup({
   boundary,
   escapes = true,
   matchTrigger = false,
+  scroll = true,
+  footer,
   children,
 }: MenuPopupProps) {
   const container = usePortalContainer();
@@ -377,11 +400,10 @@ export function MenuPopup({
   const edges = useScrollEdges();
   const attachPopup = useCallback(
     (node: HTMLElement | null) => {
-      edges(node);
       if (node) popupNode.current = node;
       if (host) setPopup(node);
     },
-    [host, edges],
+    [host],
   );
   // No room above or below in the page: past the window's edge (popupHost.ts). Side menus stay.
   useEscapingPopup(
@@ -419,7 +441,8 @@ export function MenuPopup({
           data-host-glass="menu"
           data-host-glass-cover=""
           className={cx(
-            "ui-popup ui-glass ui-menu ui-scroll-edge-fade",
+            "ui-popup ui-glass ui-menu",
+            scroll && "ui-popup-scroll-shell",
             matchTrigger && "ui-menu-match-trigger",
             className,
           )}
@@ -445,7 +468,16 @@ export function MenuPopup({
         >
           <InPopup value>
             <PopupBoundary value={collisionBoundary}>
-              <PopupSurface value={className}>{children}</PopupSurface>
+              <PopupSurface value={className}>
+                {scroll ? (
+                  <div ref={edges} className="ui-popup-scroll ui-scroll-edge-fade">
+                    {children}
+                  </div>
+                ) : (
+                  children
+                )}
+                {footer}
+              </PopupSurface>
             </PopupBoundary>
           </InPopup>
         </BaseMenu.Popup>
@@ -603,7 +635,9 @@ export function MenuCheckboxItem({ className, disabled, checked, onCheckedChange
       }}
     >
       <span className="ui-menu-check" aria-hidden="true">
-        <BaseMenu.CheckboxItemIndicator>✓</BaseMenu.CheckboxItemIndicator>
+        <BaseMenu.CheckboxItemIndicator>
+          <MenuCheckGlyph />
+        </BaseMenu.CheckboxItemIndicator>
       </span>
       {children}
     </BaseMenu.CheckboxItem>
@@ -659,7 +693,9 @@ export function MenuRadioItem({
       }}
     >
       <span className="ui-menu-check" aria-hidden="true">
-        <BaseMenu.RadioItemIndicator>✓</BaseMenu.RadioItemIndicator>
+        <BaseMenu.RadioItemIndicator>
+          <MenuCheckGlyph />
+        </BaseMenu.RadioItemIndicator>
       </span>
       {children}
       {shortcut ? <span className="ui-menu-shortcut">{shortcut}</span> : null}

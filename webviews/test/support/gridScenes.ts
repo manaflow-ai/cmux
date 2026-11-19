@@ -1,5 +1,6 @@
 import { sessionInfoGridScenes } from "./sessionInfoGridScenes";
 import type { GridLine, GridMetric, GridPoint, GridScene } from "./gridLines";
+import { MODEL_PICKER, PLUS_PICKER } from "../../src/agent-session/acpmux/composerSelectors";
 
 // Roles identify ink targets; selectors remain available while surfaces migrate.
 const selectorRoles: Record<string, string> = {
@@ -67,7 +68,7 @@ const scene = (surface: string, entry: string, variant: string, root: string, li
   rootRole: ["composer.box", "composer.foot", "stack.strip", "stack.trust"].includes(surface) ? surface : undefined,
   lines,
 });
-const plus = ".acpmux-composer-plus .acpmux-picker-button";
+const plus = PLUS_PICKER;
 
 const placeholder = ".acpmux-md-placeholder";
 const composer = (variant: string, text = placeholder, entry = "agent-pane.composer-row") => {
@@ -203,12 +204,14 @@ export const gridScenes: GridScene[] = [
       point(".acpmux-composer-box", "left"),
       token("composer-lead-center"),
     ),
+    // The context ring stands half a base step before the model button (composerLocation.css
+    // --acpmux-ring-gap), so the row ends on the model button's effort.
     from(
-      "trail",
-      ".acpmux-composer-box",
-      "right",
-      point(".acpmux-context-ring svg", "cx"),
-      token("composer-trail-center"),
+      "ring: before the model",
+      MODEL_PICKER,
+      "left",
+      point(".acpmux-context-ring", "right"),
+      "calc(var(--grid-base) / 2)",
     ),
     value("mid: mode mark", ".acpmux-access-trigger svg", "cy", point(":scope", "cy")),
     mid(".acpmux-model-detail:not(.acpmux-fit-label)", ":scope"),
@@ -224,12 +227,14 @@ export const gridScenes: GridScene[] = [
       point(".acpmux-composer-box", "left"),
       token("composer-lead-center"),
     ),
+    // The context ring stands half a base step before the model button (composerLocation.css
+    // --acpmux-ring-gap), so the row ends on the model button's effort.
     from(
-      "trail",
-      ".acpmux-composer-box",
-      "right",
-      point(".acpmux-context-ring svg", "cx"),
-      token("composer-trail-center"),
+      "ring: before the model",
+      MODEL_PICKER,
+      "left",
+      point(".acpmux-context-ring", "right"),
+      "calc(var(--grid-base) / 2)",
     ),
     value("mid: mode mark", ".acpmux-access-trigger svg", "cy", point(":scope", "cy")),
     mid(".acpmux-model-detail:not(.acpmux-fit-label)", ":scope"),
@@ -339,7 +344,8 @@ export const gridScenes: GridScene[] = [
     mid(".cv-tool__text, .cv-command__text", ".cv-tool__icon"),
   ]),
   // The turn footer's action row (TurnRows.tsx TurnFooter): Copy, Pin, Read aloud and More in Claude's
-  // 28 buttons in ChatGPT's 32 line (design/transcript-spacing.md "Reply footer"), then its time. A reply no longer draws its own row (#29740: model.ts hasReplyActions is false, and the
+  // 28 buttons in ChatGPT's 32 line (design/transcript-spacing.md "Reply footer"), and no time (the
+  // Codex app shows none; Lawrence, 2026-11-11 standup). A reply no longer draws its own row (#29740: model.ts hasReplyActions is false, and the
   // agent-pane.reply-actions gallery entry is gone), so the footer under the first turn, which the
   // `footer` variant points at, is the one action row the transcript draws.
   scene(
@@ -350,7 +356,6 @@ export const gridScenes: GridScene[] = [
     [
       value("action control", ".cv-iconbtn", "width", token("transcript-action-control")),
       ...centered(".cv-iconbtn svg", ".cv-iconbtn"),
-      mid(".cv-turn-time", ".cv-iconbtn"),
     ],
   ),
   card(
@@ -420,14 +425,15 @@ export const gridScenes: GridScene[] = [
     level: "fail",
   },
   // HostError.tsx's folder harness card is the shared inline notice (ui/Notice.tsx), on the same
-  // card grid (grid.md 5.6): padding 12, radius 12, its action row 8 under the text.
+  // card grid (grid.md 5.6): padding 12, its action row 8 under the text. Its corner is concentric with
+  // its buttons (ui/notice.css): the button corner plus the card padding, not the card radius.
   {
     ...scene("cards.notice", "agent-pane.host-error", "enable", ".acpmux-host-error .ui-notice", [
       value("edge: padding", ":scope", "padding", token("cards-padding")),
       value("edge: padding top", ":scope", "padding-top", token("cards-padding")),
       value("edge: padding bottom", ":scope", "padding-bottom", token("cards-padding")),
       from("action row", ".ui-notice-actions > :first-child", "top", point(".ui-notice-text", "bottom"), token("gap")),
-      value("radius", ":scope", "radius", token("cards-radius")),
+      value("radius", ":scope", "radius", `calc(var(--ds-radius-control) + ${token("cards-padding")})`),
     ]),
     level: "fail" as const,
   },

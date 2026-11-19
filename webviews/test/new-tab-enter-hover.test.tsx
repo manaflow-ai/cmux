@@ -17,6 +17,7 @@ import { classicField } from "./support/classicNewTabField";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import type { SuggestionOrder } from "../src/agent-session/acpmux/newtab/suggestionOrder";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -64,12 +65,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const noop = () => {};
@@ -83,6 +81,7 @@ async function render(calls: unknown[][], order?: SuggestionOrder) {
   await act(async () =>
     root!.render(
       <NewTabScreen
+        template="cards"
         snapshot={noChat()}
         lastAgent="claude"
         {...(order ? { suggestionOrder: order } : {})}
@@ -116,6 +115,7 @@ async function type(text: string) {
 const rows = () => [...window.document.querySelectorAll<HTMLElement>('[role="option"]')];
 const title = (row: HTMLElement) => row.querySelector(".nt-row-title")?.textContent ?? "";
 const row = (name: string) => rows().find((option) => title(option) === name)!;
+const browserRow = () => row("New browser tab");
 const returnTarget = () =>
   rows()
     .filter((option) => option.getAttribute("aria-selected") === "true")
@@ -136,20 +136,22 @@ async function press(field: HTMLElement, key: string, init: KeyboardEventInit = 
 }
 
 for (const order of [undefined, "chat"] as const) {
-  const where = order === "chat" ? "rows" : "strip";
-  test(`Return sends the prompt to Claude while the pointer rests on New browser tab (${where})`, async () => {
-    const calls: unknown[][] = [];
-    await render(calls, order);
-    const field = await type("helo");
-    expect(title(rows()[0]!)).toBe("Ask Claude Code");
-    await hover(row("New browser tab"));
-    // The hovered row is not Return's: the Ask row keeps the highlight the keyboard reads.
-    expect(returnTarget()).toEqual(["Ask Claude Code"]);
-    expect(field.getAttribute("aria-activedescendant")).toBe(rows()[0]!.id);
-    const enter = await press(field, "Enter");
-    expect(enter.defaultPrevented).toBe(true);
-    expect(calls).toEqual([ASK_HELO]);
-  });
+  for (const target of ["create row", "palette row"] as const) {
+    test(`Return sends the prompt to Claude while the pointer rests on another ${target} (${order ?? "intent"})`, async () => {
+      const calls: unknown[][] = [];
+      await render(calls, order);
+      const text = target === "create row" ? "new browser" : "helo";
+      const field = await type(text);
+      expect(title(rows()[0]!)).toBe("Ask Claude Code");
+      await hover(target === "create row" ? browserRow() : row("Search the web for helo"));
+      // Hover leaves the Ask row as the keyboard's Return target.
+      expect(returnTarget()).toEqual(["Ask Claude Code"]);
+      expect(field.getAttribute("aria-activedescendant")).toBe(rows()[0]!.id);
+      const enter = await press(field, "Enter");
+      expect(enter.defaultPrevented).toBe(true);
+      expect(calls).toEqual([["ask", "claude", text, undefined, "claude-opus-5-5"]]);
+    });
+  }
 }
 
 test("Return sends after the pointer swept over every row", async () => {
@@ -199,7 +201,7 @@ test("a keyboard pick stands while the pointer rests on another row", async () =
   await render(calls, "chat");
   const field = await type("helo");
   await press(field, "ArrowDown");
-  await hover(row("New browser tab"));
+  await hover(row("Ask Claude Code"));
   expect(returnTarget()).toEqual(["Search the web for helo"]);
   await press(field, "Enter");
   expect(calls).toEqual([["search", "helo"]]);
@@ -209,24 +211,35 @@ test("Ctrl-N and Ctrl-P move the highlight, and Return runs the row they reached
   const calls: unknown[][] = [];
   await render(calls, "chat");
   const field = await type("helo");
-  const order = rows().map(title);
-  const terminal = order.indexOf("New terminal");
-  expect(terminal).toBeGreaterThan(0);
-  for (let step = 0; step < terminal + 1; step += 1) await press(field, "n", { ctrlKey: true });
-  expect(returnTarget()).toEqual([order[terminal + 1]]);
+  await press(field, "n", { ctrlKey: true });
+  expect(returnTarget()).toEqual(["Search the web for helo"]);
   await press(field, "p", { ctrlKey: true });
-  expect(returnTarget()).toEqual(["New terminal"]);
+  expect(returnTarget()).toEqual(["Ask Claude Code"]);
+  await press(field, "n", { ctrlKey: true });
+  expect(returnTarget()).toEqual(["Search the web for helo"]);
   await hover(row("Ask Claude Code"));
   await press(field, "Enter");
-  expect(calls).toEqual([["create", "terminal"]]);
+  expect(calls).toEqual([["search", "helo"]]);
 });
 
 test("a click still runs the row it presses", async () => {
   const calls: unknown[][] = [];
   await render(calls, "chat");
   await type("helo");
-  const browser = row("New browser tab");
+  const search = row("Search the web for helo");
+  await hover(search);
+  expect(returnTarget()).toEqual(["Ask Claude Code"]);
+  await act(async () => search.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, cancelable: true })));
+  expect(calls).toEqual([["search", "helo"]]);
+});
+
+test("a click on a create row still runs its action with suggestions open", async () => {
+  const calls: unknown[][] = [];
+  await render(calls, "chat");
+  await type("new browser");
+  const browser = browserRow();
   await hover(browser);
+  expect(returnTarget()).toEqual(["Ask Claude Code"]);
   await act(async () => browser.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, cancelable: true })));
   expect(calls).toEqual([["create", "browser"]]);
 });

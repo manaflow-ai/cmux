@@ -8,11 +8,16 @@ import Testing
 /// Lawrence 2026-11-08 (cmux-ad i5): "one more bug is behavior when closing a tab, it should always
 /// focus the tab before it if it exists."
 ///
-/// The rule (`FocusAfterClose.tab`, cmux-focus-core `close_focus::tab`): closing the selected tab
-/// selects the visible tab immediately before it in its pane; only the first tab's close selects the
-/// tab after it. Closing a tab that is not selected keeps the selection. Every entry point uses it:
-/// the close button, middle-click, the tab menu, Cmd-W and the CLI's close (a daemon tree change), so
-/// each case here runs the app's own action or strip intent against a same-tree cmux-tui daemon.
+/// That rule (#38316, #38328, #38419) is REPLACED by the one close-selection rule
+/// (/work/wt/handoff/tasks/close-selection-rule.md; Lawrence 2026-11-10: "tabs also follow Chrome's
+/// rule"), and these cases are changed to it: closing the selected tab selects a tab of its opener
+/// family, else the NEXT visible tab of its pane, and the previous one only when it was the last.
+/// The tabs here are made by the socket, so none has an opener (R2): the pick is by position (R1
+/// rank 4; the opener rows are in `TabCloseSelectionTests`). Closing a tab that is not selected
+/// keeps the selection (R0). Every entry point uses it: the close button, middle-click, the tab
+/// menu, Cmd-W and the CLI's close (a daemon tree change), so each case here runs the app's own
+/// action or strip intent against a same-tree cmux-tui daemon. The suite keeps its name: other
+/// suites use its helpers.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct TabCloseSelectsBeforeTests {
     /// One pane: its terminal tab, then `count` browser tabs. Returns the pane and the tab ids in strip order.
@@ -60,60 +65,65 @@ struct TabCloseSelectsBeforeTests {
         services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user))
     }
 
-    /// The close button, the tab menu, the CLI and Cmd-W each select the tab before the closed one;
-    /// an unselected close keeps the selection; a browser tab's close selects the terminal before it.
-    @Test func everyEntryPointSelectsTheTabBefore() async throws {
+    /// The close button, the CLI and Cmd-W each select the next tab, and the tab before only at the
+    /// end of the strip; an unselected close keeps the selection (close-selection-rule.md R0, R1).
+    @Test func everyEntryPointSelectsTheNextTab() async throws {
         try await PinnedPageTests.withApp { services, connection in
             let (pane, ids, surface) = try await Self.pane(services, connection, browsers: 4) // T b0 b1 b2 b3
-            try await Self.select(ids[3], in: pane)
-            pane.stripModel.send(.close(TabID(ids[3]), source: .mouse)) // the close button on b2
-            try await Self.expect(pane, services, closed: [ids[3]], selects: ids[2], "the close button")
+            try await Self.select(ids[1], in: pane)
+            pane.stripModel.send(.close(TabID(ids[1]), source: .mouse)) // the close button on b0
+            try await Self.expect(pane, services, closed: [ids[1]], selects: ids[2], "the close button")
             pane.stripModel.send(.close(TabID(ids[4]), source: .contextMenu)) // the tab menu on b3, not selected
             try await Self.expect(pane, services, closed: [ids[4]], selects: ids[2], "an unselected close")
             try await connection.closeTab(try #require(surface[ids[2]])) // the CLI's close of the selected b1
-            try await Self.expect(pane, services, closed: [ids[2]], selects: ids[1], "the CLI's close")
-            #expect(Self.cmdW(services)) // Cmd-W on b0: the terminal before it
-            try await Self.expect(pane, services, closed: [ids[1]], selects: ids[0], "Cmd-W")
+            try await Self.expect(pane, services, closed: [ids[2]], selects: ids[3], "the CLI's close")
+            #expect(Self.cmdW(services)) // Cmd-W on b2, now the last tab: the terminal before it
+            try await Self.expect(pane, services, closed: [ids[3]], selects: ids[0], "Cmd-W on the last tab")
         }
     }
 
-    /// Only the first tab's close selects the tab after it; closing the first unpinned tab selects
-    /// the last pinned tab before it.
-    @Test func theFirstTabSelectsTheTabAfterAndTheFirstUnpinnedTheLastPinned() async throws {
+    /// Pinned tabs follow the same rule (close-selection-rule.md R1): the first unpinned tab's close
+    /// selects the tab after it, not the last pinned tab; the first tab's close selects the tab after it.
+    @Test func pinnedTabsFollowTheSameRule() async throws {
         try await PinnedPageTests.withApp { services, connection in
             let (pane, ids, surface) = try await Self.pane(services, connection, browsers: 3) // T b0 | b1 b2
             for id in ids.prefix(2) { try await connection.setTabPinned(try #require(surface[id]), true) }
             try await PinnedPageTests.until({ pane.stripModel.orderedTabs.prefix(2).allSatisfy(\.isPinned) && pane.orderedIDs.map(\.rawValue) == ids })
             try await Self.select(ids[2], in: pane)
             pane.stripModel.send(.close(TabID(ids[2]), source: .middleClick)) // the first unpinned tab
-            try await Self.expect(pane, services, closed: [ids[2]], selects: ids[1], "the first unpinned tab")
+            try await Self.expect(pane, services, closed: [ids[2]], selects: ids[3], "the first unpinned tab")
+            pane.stripModel.send(.close(TabID(ids[3]), source: .mouse)) // the last tab: pinned b0 before it
+            try await Self.expect(pane, services, closed: [ids[3]], selects: ids[1], "the last tab")
             try await Self.select(ids[0], in: pane)
             pane.stripModel.send(.close(TabID(ids[0]), source: .contextMenu)) // the first tab
             try await Self.expect(pane, services, closed: [ids[0]], selects: ids[1], "the first tab")
         }
     }
 
-    /// The tab before is selected also when it is in another group; a collapsed group's tabs are
-    /// skipped to the nearest visible tab before.
-    @Test func groupsGiveTheTabBeforeAndSkipCollapsedOnes() async throws {
+    /// A group's edge does not change the pick (close-selection-rule.md, DECISION 14:20Z: no group
+    /// preference): the group's last tab selects the tab after the group. A collapsed group's tabs
+    /// are skipped to the next visible tab.
+    @Test func groupsGiveTheNextTabAndSkipCollapsedOnes() async throws {
         try await PinnedPageTests.withApp { services, connection in
-            let (pane, ids, surface) = try await Self.pane(services, connection, browsers: 4) // T [b0 b1] b2 b3
-            let group = try #require(try await connection.createTabGroup(tabs: [surface[ids[1]], surface[ids[2]]].compactMap { $0 }).groupID)
+            let (pane, ids, surface) = try await Self.pane(services, connection, browsers: 6) // T b0 [b1 b2 b3] b4 b5
+            let group = try #require(try await connection.createTabGroup(tabs: [surface[ids[2]], surface[ids[3]], surface[ids[4]]].compactMap { $0 }).groupID)
             try await PinnedPageTests.until({ pane.stripModel.groups.count == 1 && pane.orderedIDs.map(\.rawValue) == ids })
-            try await Self.select(ids[3], in: pane)
-            pane.stripModel.send(.close(TabID(ids[3]), source: .mouse)) // b2: b1 in the group before it
-            try await Self.expect(pane, services, closed: [ids[3]], selects: ids[2], "the tab before in another group")
             try await Self.select(ids[4], in: pane)
+            pane.stripModel.send(.close(TabID(ids[4]), source: .mouse)) // b3, the group's last: b4 after the group, not b2
+            try await Self.expect(pane, services, closed: [ids[4]], selects: ids[5], "the next tab outside the group")
+            try await Self.select(ids[1], in: pane)
             try await connection.updateTabGroup(group, collapsed: true)
             try await PinnedPageTests.until({ pane.stripModel.groups.first?.isCollapsed == true })
-            pane.stripModel.send(.close(TabID(ids[4]), source: .mouse)) // b3: the collapsed b0 b1 are skipped
-            try await Self.expect(pane, services, closed: [ids[4]], selects: ids[0], "past a collapsed group")
+            pane.stripModel.send(.close(TabID(ids[1]), source: .mouse)) // b0: the collapsed b1 b2 are skipped
+            try await Self.expect(pane, services, closed: [ids[1]], selects: ids[5], "past a collapsed group")
         }
     }
 
-    /// Close Tabs to the Right closing the selected tab selects the tab before it (the kept one);
-    /// Close Other Tabs keeps the selected tab it keeps.
-    @Test func closeToTheRightAndCloseOthersKeepTheRule() async throws {
+    /// Close Tabs to the Right and Close Other Tabs are NOT changed by the one rule
+    /// (close-selection-rule.md, "Close Others / Close to the Left / Right keep their rule"): Close
+    /// Tabs to the Right closing the selected tab selects the tab the person acted on; Close Other
+    /// Tabs keeps the selected tab it keeps.
+    @Test func closeToTheRightAndCloseOthersKeepTheirRule() async throws {
         try await PinnedPageTests.withApp { services, connection in
             let (pane, ids, _) = try await Self.pane(services, connection, browsers: 3) // T b0 b1 b2
             try await Self.select(ids[3], in: pane)
@@ -124,15 +134,16 @@ struct TabCloseSelectsBeforeTests {
         }
     }
 
-    /// Rapid Cmd-W: each press closes the tab the close before it selected (the tab before), with no
-    /// stale index: from b2 of T b0 b1 b2 b3, three presses close b2, b1 and b0 and leave T selected.
-    @Test func rapidCmdWClosesTheTabsBeforeInTurn() async throws {
+    /// Rapid Cmd-W: each press closes the tab the close before it selected (the next tab,
+    /// close-selection-rule.md R1 rank 4), with no stale index: from b0 of T b0 b1 b2 b3, three
+    /// presses close b0, b1 and b2 and leave b3 selected.
+    @Test func rapidCmdWClosesTheNextTabsInTurn() async throws {
         try await PinnedPageTests.withApp { services, connection in
             let (pane, ids, _) = try await Self.pane(services, connection, browsers: 4)
-            try await Self.select(ids[3], in: pane)
+            try await Self.select(ids[1], in: pane)
             for _ in 0..<3 { #expect(Self.cmdW(services)) }
-            try await Self.expect(pane, services, closed: [ids[3], ids[2], ids[1]], selects: ids[0], "three quick Cmd-W")
-            #expect(services.daemon.store.tab(id: ids[4]) != nil, "a quick Cmd-W closed the tab after the selection")
+            try await Self.expect(pane, services, closed: [ids[1], ids[2], ids[3]], selects: ids[4], "three quick Cmd-W")
+            #expect(services.daemon.store.tab(id: ids[0]) != nil, "a quick Cmd-W closed the tab before the selection")
         }
     }
 }

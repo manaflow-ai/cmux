@@ -346,8 +346,9 @@ enum ToHost {
 ///
 /// Writes run on their own, as `bridge_raw_stream`'s two directions do: a
 /// viewer that stops reading stdout never holds its own feedback and input
-/// back from the host (the host drops a session after three seconds without
-/// feedback), nor the link's polling. A full queue to the viewer pauses
+/// back from the host (the host keeps a session alive for a bounded 90-second
+/// reattach grace without feedback), nor the link's polling. A full queue to
+/// the viewer pauses
 /// reading the stream and drops the link's datagrams, which FEC and NACKs
 /// already cover; a full queue to the host pauses reading the viewer.
 pub(super) async fn bridge<S, R, W>(

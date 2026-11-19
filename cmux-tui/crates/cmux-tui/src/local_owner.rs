@@ -917,9 +917,7 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
         }
     }
     configure_detached_owner_environment(&mut command);
-    for (key, value) in &spec.carried_env {
-        command.env(key, value);
-    }
+    command.envs(carried_launch::launch_env(&spec.carried_env));
     if let Some(tools) = &spec.chief_tools_socket {
         command.env("CMUX_TUI_CHIEF_TOOLS_SOCKET", tools);
     }

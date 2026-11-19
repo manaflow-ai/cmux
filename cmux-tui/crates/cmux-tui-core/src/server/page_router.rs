@@ -75,7 +75,7 @@ pub(super) fn try_handle(
                 Ok(result) => ResponseEnvelope::success(id, result),
                 Err(error) => ResponseEnvelope::failure(id, error),
             };
-            let response = serde_json::to_value(response).unwrap_or_else(|_| json!({}));
+            let response = response.into_value().unwrap_or_else(|_| json!({}));
             writer.send_control(&response).is_ok()
         };
     match answer {

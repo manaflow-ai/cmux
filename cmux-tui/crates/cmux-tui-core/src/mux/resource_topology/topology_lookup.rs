@@ -115,6 +115,9 @@ pub(super) fn set_active_screen(
     }
 }
 
+/// The stored row of the live workspace at `index`. `session` is the session's name
+/// (`Mux::session`): the group key that the projection and each create state. A plan that passed
+/// the session's public id wrote the row in another form, which the next projection wrote again.
 pub(super) fn registry_workspace(state: &State, index: usize, session: &str) -> RegistryWorkspace {
     let workspace = &state.workspaces[index];
     RegistryWorkspace {

@@ -18,6 +18,11 @@ public nonisolated extension LinkHintSession {
       const selector = 'a[href],area[href],button,input:not([type=hidden]),select,textarea,summary,label[for],' +
         '[role=button],[role=link],[role=checkbox],[role=radio],[role=switch],[role=tab],[role=menuitem],[role=option],' +
         '[onclick],[contenteditable=""],[contenteditable=true],[tabindex]:not([tabindex="-1"])';
+      // A node's visible text, or nothing when it is or holds a field: a field's text is what the person
+      // typed (a password, a draft), never a name.
+      const shown = (node) => !node || node.tagName === 'INPUT' || node.tagName === 'TEXTAREA' || node.isContentEditable ||
+        /^(textbox|searchbox|combobox)$/.test(node.getAttribute('role') || '') ||
+        node.querySelector('textarea,[contenteditable]:not([contenteditable=false]),[role=textbox],[role=searchbox],[role=combobox]') ? '' : node.innerText || '';
       const width = innerWidth, height = innerHeight, out = [];
       for (const element of document.querySelectorAll(selector)) {
         if (element.disabled || element.closest('[inert],[aria-hidden=true]')) continue;
@@ -32,9 +37,11 @@ public nonisolated extension LinkHintSession {
         if (!hit || !(hit === element || element.contains(hit) || hit.contains(element))) continue;
         const href = typeof element.href === 'string' ? element.href : null;
         const named = (element.getAttribute('aria-labelledby') || '').split(/\\s+/)
-          .map((id) => document.getElementById(id)?.innerText || '').join(' ').trim();
-        const text = (element.getAttribute('aria-label') || named || element.labels?.[0]?.innerText || element.title ||
-          element.innerText || element.value || '').toString().trim().slice(0, 80);
+          .map((id) => shown(document.getElementById(id))).join(' ').trim();
+        // Only a button-type input's value is its visible caption.
+        const caption = element.tagName === 'INPUT' && /^(button|submit|reset)$/i.test(element.type) ? element.value : '';
+        const text = (element.getAttribute('aria-label') || named || shown(element.labels?.[0]) || element.title ||
+          shown(element) || caption || '').toString().trim().slice(0, 80);
         out.push({ x: Math.round(x), y: Math.round(y), left: Math.round(left), top: Math.round(top), href, text });
         if (out.length >= 1000) break;
       }
@@ -79,10 +86,18 @@ public nonisolated extension LinkHintSession {
           host.style.cssText = 'all:initial;position:fixed;inset:0;z-index:2147483647;pointer-events:none;';
           const root = host.attachShadow({ mode: 'open' });
           const style = document.createElement('style');
-          style.textContent = `span{position:absolute;font:700 11px/14px ui-monospace,Menlo,monospace;` +
-            `letter-spacing:.04em;padding:0 3px;color:#16130a;background:#ffd84d;border:1px solid #8a6d00;` +
-            `border-radius:2px;box-shadow:0 1px 3px rgba(0,0,0,.35);white-space:pre}` +
-            `span[hidden]{display:none}b{color:#9a7b00;font-weight:700}`;
+          // Legible on any page, light or dark: one warm yellow with a hairline ring and a soft lift,
+          // crisp text, digits of one width, and a 90ms rise (none under reduced motion).
+          style.textContent = `span{position:absolute;box-sizing:border-box;min-width:16px;height:16px;` +
+            `font:650 11px/16px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.06em;text-align:center;` +
+            `font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;padding:0 4px;color:#1f1700;` +
+            `background:#ffd84d;border-radius:4px;white-space:pre;user-select:none;` +
+            `box-shadow:0 0 0 1px rgba(110,84,0,.55),0 1px 2px rgba(0,0,0,.25),0 2px 6px rgba(0,0,0,.18);` +
+            `transform-origin:top left;animation:cmux-hint-in 90ms cubic-bezier(.2,.8,.2,1)}` +
+            `@keyframes cmux-hint-in{from{opacity:0;transform:scale(.96)}}` +
+            `@media (prefers-reduced-motion:reduce){span{animation:none}}` +
+            `@media (prefers-color-scheme:dark){span{box-shadow:0 0 0 1px rgba(0,0,0,.6),0 2px 8px rgba(0,0,0,.5)}}` +
+            `span[hidden]{display:none}b{color:rgba(31,23,0,.42);font-weight:650}`;
           root.append(style);
           for (const hint of hints) {
             const label = document.createElement('span');
@@ -117,6 +132,21 @@ public nonisolated extension LinkHintSession {
           }
           return true;
         })(\(scriptLiteral(prefix)))
+        """
+    }
+
+    /// Clicks the element at `target`'s center (an engine with no trusted host click, WebKit):
+    /// a field or other focusable element takes the keyboard, then gets the click.
+    package static func clickScript(_ target: LinkHintTarget) -> String {
+        """
+        (() => {
+          const hit = document.elementFromPoint(\(target.x), \(target.y));
+          if (!hit) return false;
+          const element = hit.closest('a[href],area[href],button,input,select,textarea,summary,label,[role],[onclick],[tabindex],[contenteditable]') || hit;
+          if (typeof element.focus === 'function') element.focus({ preventScroll: true });
+          if (typeof element.click === 'function') element.click();
+          return true;
+        })()
         """
     }
 

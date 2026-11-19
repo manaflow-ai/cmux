@@ -49,7 +49,7 @@ struct HomeHeaderPanelContext {
 @MainActor
 enum HomeHeaderPanels {
     /// Every header toggle, left to right.
-    static let all: [HomeHeaderPanel] = [screenShare, memory, rightSidebar]
+    static let all: [HomeHeaderPanel] = [screenShare, memory]
 
     /// Share Screen with Chief (docs/chief-screen-share.md): on this Mac's own Chief only, lit while
     /// the Chief can see the screen; a click starts or stops sharing.
@@ -76,12 +76,6 @@ enum HomeHeaderPanels {
             return memory.isShown(in: window)
         })
 
-    /// The window's right sidebar (Sessions, Files, Feed, Dock, Machines): its own toggle action.
-    static let rightSidebar = HomeHeaderPanel(
-        id: "rightSidebar", symbol: "sidebar.right", label: { HomeHeaderPanelStrings.rightSidebar },
-        action: "toggleRightSidebar",
-        isOpen: { $0.window?.rightSidebar.isVisible ?? false })
-
     /// The cluster's buttons for `context` (only the ``HomeHeaderPanel/alwaysShown`` ones while Debug
     /// Settings > Home > Home header panel toggles is off): an observable read, so a watch redraws them when any panel opens or closes.
     static func items(_ context: HomeHeaderPanelContext, panels: [HomeHeaderPanel] = all,
@@ -104,8 +98,5 @@ enum HomeHeaderPanels {
 enum HomeHeaderPanelStrings {
     static var memory: String {
         String(localized: "home.headerPanels.memory", defaultValue: "Memory Inspector", table: "MiscHandlers", bundle: .module)
-    }
-    static var rightSidebar: String {
-        String(localized: "home.headerPanels.rightSidebar", defaultValue: "Right Sidebar", table: "MiscHandlers", bundle: .module)
     }
 }

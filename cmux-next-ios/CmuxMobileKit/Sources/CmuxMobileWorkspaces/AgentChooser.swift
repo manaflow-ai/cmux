@@ -100,7 +100,7 @@ struct AgentChooser: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .disabled(!harness.canStart)
         .accessibilityIdentifier("agentChooser.harness.\(harness.id)")
     }
@@ -127,7 +127,7 @@ struct AgentChooser: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .disabled(reason != nil)
         .accessibilityIdentifier("agentChooser.model.\(id ?? "default")")
     }
@@ -159,7 +159,7 @@ struct AgentChooser: View {
             modelID = nil
             phase = .loaded(catalog)
         } catch {
-            phase = .failed((error as? LocalizedError)?.errorDescription ?? String(describing: error))
+            phase = .failed(UserFacingError.message(error, fallback: "Couldn't load the agents. Try again."))
         }
     }
 }

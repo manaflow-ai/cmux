@@ -208,7 +208,7 @@ impl RemoteSession {
             // The server may have accepted a press whose reply was lost.
             // Closing the connection removes this client from the server
             // registry and wakes every browser worker to balance its capture.
-            self.disconnect_transport();
+            self.fail_transport("a pointer press got no answer in time");
         }
         result
     }
@@ -346,8 +346,18 @@ impl RemoteSession {
         }
     }
 
+    /// Close the connection as a deliberate local end: the app takes the
+    /// closed event stream as a clean exit. A close because something failed
+    /// is [`Self::fail_transport`].
     pub(super) fn disconnect_transport(&self) {
         self.disconnect_transport_with_reason(None);
+    }
+
+    /// Close the connection because something failed. The reason is kept,
+    /// so the app reports a lost session instead of exiting as if the
+    /// session had ended (`on_mux_empty` reads it).
+    pub(super) fn fail_transport(&self, reason: &str) {
+        self.disconnect_transport_with_reason(Some(reason.to_owned()));
     }
 
     pub(in crate::session) fn disconnect_transport_with_reason(&self, reason: Option<String>) {

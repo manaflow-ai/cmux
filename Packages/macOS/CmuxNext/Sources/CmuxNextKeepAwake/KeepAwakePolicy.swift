@@ -14,9 +14,7 @@ nonisolated struct KeepAwakePolicy: Equatable, Sendable {
     var commandsRunning = 0
     /// `sessions.keepAwakeForCommands`: those commands count, as `agents` allows.
     var commands = SessionSettings.keepAwakeForCommandsDefault
-    /// Phones can reach this Mac (signed in, `phone.allowConnections` on).
-    var phoneServing = false
-    /// NEXT iPhone connections are enabled for a signed-in account. Independent of Iroh.
+    /// iPhone connections (`mobile.allowIPhoneConnections`) are on for a signed-in account.
     var iPhoneServing = false
     /// `phone.keepAwake`.
     var phone: PhoneKeepAwakeSetting = SessionSettings.phoneKeepAwakeDefault
@@ -46,7 +44,7 @@ nonisolated struct KeepAwakePolicy: Equatable, Sendable {
     }
 
     private var phoneHolds: Bool {
-        (phoneServing || iPhoneServing) && Self.allows(SessionKeepAwakeSetting(rawValue: phone.rawValue) ?? .off, onBattery: onBattery)
+        iPhoneServing && Self.allows(SessionKeepAwakeSetting(rawValue: phone.rawValue) ?? .off, onBattery: onBattery)
     }
 
     /// Whether a keep-awake choice applies on the current power source.

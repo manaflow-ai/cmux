@@ -36,7 +36,6 @@ protected ref.
 
 from __future__ import annotations
 
-import json
 import re
 import sys
 from pathlib import Path
@@ -44,6 +43,9 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
+
 WORKFLOWS = ROOT / ".github/workflows"
 
 RELEASE_ENVIRONMENTS = {"release", "release-next"}
@@ -66,8 +68,6 @@ SIGNING_SECRET = re.compile(
     r"|CMUX_FFI_RELEASE_APP_[A-Z0-9_]+"
     r"|CONTENT_SIGNING_[A-Z0-9_]+)$"
 )
-SECRET_REFERENCE = re.compile(r"secrets\.([A-Za-z0-9_]+)|secrets\[\s*['\"]([A-Za-z0-9_]+)['\"]\s*\]")
-DYNAMIC_REFERENCE = re.compile(r"secrets\[\s*(?!['\"])")
 QUOTED = re.compile(r"'([^']*)'")
 # In `cond && 'a' || 'b'` the results are the literals after && or ||; the
 # literals inside the condition ('refs/heads/main') are not environment names.
@@ -96,16 +96,16 @@ def allowed_for(secret: str, reader: tuple[str, str] | None = None) -> set[str]:
 
 
 def referenced_secrets(node: object) -> tuple[set[str], bool]:
-    text = json.dumps(node)
-    names = {a or b for a, b in SECRET_REFERENCE.findall(text)}
-    return {name for name in names if SIGNING_SECRET.match(name)}, bool(DYNAMIC_REFERENCE.search(text))
+    """The signing secrets a node reads (tests/workflow_jobs.py: secrets.X, secrets['X'], any case), and
+    whether it can read every secret at once (a computed index, toJSON(secrets), secrets: inherit)."""
+    names = workflow_jobs.secret_names(node)
+    return {name for name in names if SIGNING_SECRET.match(name)}, workflow_jobs.ALL_SECRETS in names
 
 
 def environment_values(document: dict, job: dict) -> set[str] | None:
     """The environment names a job can enter, or None when it cannot be resolved."""
-    environment = job.get("environment")
-    if isinstance(environment, dict):
-        environment = environment.get("name")
+    spec = workflow_jobs.resolve(job).environment  # None, or {"name": ..., ...} however it is written
+    environment = spec.get("name") if spec is not None else None
     if environment is None:
         return {""}
     environment = str(environment).strip()
@@ -197,7 +197,7 @@ def main() -> int:
                 continue
             values = environment_values(document, job)
             if values is None:
-                failures.append(f"{where}: environment {job.get('environment')!r} cannot be resolved to literal names")
+                failures.append(f"{where}: environment {workflow_jobs.resolve(job).environment!r} cannot be resolved to literal names")
                 continue
             entered = values - {""}
             for secret in sorted(secrets):

@@ -7,7 +7,7 @@ import CmuxNextLayout
 import Foundation
 import Testing
 
-/// WORKSPACE LIST 800 (SESSION 800, 2026-11-10): in the person's session (826 workspaces) each new workspace blocked
+/// WORKSPACE LIST 800 (SESSION 800, 2026-11-10): in a large session (826 workspaces) each new workspace blocked
 /// the main thread two times for about 110 ms; at 60 workspaces nothing blocked. One sample of 20 new workspaces at
 /// 826 had 76 samples in `WindowManager.applyPendingPlacements`, 53 of them in `SidebarBridge.place`: after the
 /// document took the move, `resync()` mapped EVERY row of the window from its store again, with no row feed.
@@ -48,7 +48,7 @@ import Testing
     static let rowBound = 128
     /// The most rows one placement may map from their stores: measured 1 (its own row); `resync()` mapped rows + 1.
     static let madeBound = 2
-    /// The most observed registry entries one new workspace may write: measured 2 (its window kind and its owner).
+    /// The most observed registry entries one new workspace may write: measured 2 at 60 and at 826 (its window kind and its owner).
     static let answerBound = 4
     static let printed = ["rows_made", "slot_rows", "doc_reshows", "row_maps", "rebuilds", "section_sets", "ffi_calls", "list_reloads", "layout_rows"]
 

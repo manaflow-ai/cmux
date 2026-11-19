@@ -13,9 +13,13 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import web_validation as gate
-sys.path.insert(0, str(ROOT / "tests"))
-from runs_on_labels import unwrap_fork_pool_reads  # noqa: E402
-import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 
 class CmuxNextBaseWebVerdict(unittest.TestCase):
@@ -210,21 +214,29 @@ class WebValidationTests(unittest.TestCase):
                 self.assertIn("path: ~/.bun/install/cache", block)
                 self.assertIn(f"hashFiles('{lockfile}')", block)
 
-    def test_webviews_tests_run_on_a_runner_with_room_for_the_suite(self):
+    def test_webviews_tests_run_on_a_runner_that_starts_jobs_at_widths_that_fit_it(self):
         """`bun test` in webviews grows memory across the suite: on the 4 vCPU runner
-        (vars.LINUX_RUNNER) it was SIGKILLed, exit 137, twice in run 37666132324."""
+        (vars.LINUX_RUNNER) it was SIGKILLed, exit 137, twice in run 37666132324, running as many
+        files at once as a 16 vCPU runner. On 2026-11-18 RUNNER_POOLS.linux_16 held 2 vCPU after its
+        writer marked the large sizes dead: shards ran 8 files at once there into the 40 min limit
+        (run 44249075431) or queued over an hour (run 44304196887). The shards now read the 4 vCPU
+        pool (linux_4), run the declared 16 vCPU widths at the share of cores the runner has
+        (CMUX_WEB_TEST_SIZED_FOR_VCPU, run-webviews-tests.sh), and get the minutes that takes
+        (tests/test_webviews_test_history.py ShardSize evaluates each arm)."""
         workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
         start = workflow.index("  react-apps-check-shard:")
         match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[start + 3 :])
         block = workflow[start:] if match is None else workflow[start : start + 3 + match.start()]
-        # A fork keeps its label; this is what every other run takes.
-        runs_on = unwrap_fork_pool_reads(re.search(r"^    runs-on: (.+)$", block, re.MULTILINE).group(1))
+        runs_on = re.search(r"^    runs-on: (.+)$", block, re.MULTILINE).group(1)
         self.assertIn("scripts/ci/run-webviews-tests.sh", block)
         self.assertNotIn("vars.LINUX_RUNNER", runs_on)
-        self.assertNotIn("4vcpu", runs_on)
-        # 16 vCPU (memory for the suite at half the 32 vCPU price), failing over to 32.
-        self.assertTrue(runs_on.endswith("fromJSON(vars.RUNNER_POOLS).linux_16 }}"), runs_on)
-        self.assertIn("vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_32", runs_on)
+        self.assertNotIn("linux_16", runs_on)
+        self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}"), runs_on)
+        sized_for = int(re.search(r'^          CMUX_WEB_TEST_SIZED_FOR_VCPU: "(\d+)"$', block, re.MULTILINE).group(1))
+        sizes = re.findall(r"'blacksmith-(\d+)vcpu-ubuntu-2404'|RUNNER_POOLS\)\.linux_(\d+)", runs_on)
+        for vcpu in (int(a or b) for a, b in sizes):
+            self.assertLessEqual(vcpu, sized_for, "the widths only narrow to fit a runner, never widen")
+        self.assertIn("CMUX_WEB_TEST_JOB_MINUTES: *webview-shard-minutes", block)
 
     def test_webviews_tests_shard_on_wide_runners(self):
         """Two 8 vCPU shards each ran about 65 dev-server files two at a time for 12 of
@@ -233,22 +245,26 @@ class WebValidationTests(unittest.TestCase):
         cache. Blacksmith is a capped paid overflow now (2026-10-30), so the shards run at
         16 vCPU: 14% slower at p50 than 32 for half the price. There, four shards ran their
         dev-server files four at a time for 18-26 min each (p50 24.4 min, 2026-10-31), the
-        long pole from ask to merge for a webview fix, so they are eight. The base replay
-        (react-apps-base-check) takes one shard per head shard's results artifact."""
+        long pole from ask to merge for a webview fix, so they were eight. At eight the split
+        balanced each shard to about 1000 s of tests (2026-11-13), past a 20 min verdict, so
+        they are twelve (about 690 s each). The base replay (react-apps-base-check) is one
+        job that joins every head shard's results artifact (one job a head shard before #42540)."""
         workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
         start = workflow.index("  react-apps-check-shard:")
         match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[start + 3 :])
         block = workflow[start:] if match is None else workflow[start : start + 3 + match.start()]
         shards = [int(n) for n in re.findall(r"^          - shard: (\d+)$", block, re.MULTILINE)]
         counts = set(re.findall(r"^            shard_count: (\d+)$", block, re.MULTILINE))
-        self.assertEqual(len(shards), 8)
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_16 }}", unwrap_fork_pool_reads(block))
+        self.assertEqual(len(shards), 12)
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_4 }}", block)
         self.assertEqual(shards, list(range(1, len(shards) + 1)))
         self.assertEqual(counts, {str(len(shards))})
         base_start = workflow.index("  react-apps-base-check:")
         base_match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[base_start + 3 :])
         base = workflow[base_start:] if base_match is None else workflow[base_start : base_start + 3 + base_match.start()]
-        self.assertEqual([int(n) for n in re.findall(r"^          - shard: (\d+)$", base, re.MULTILINE)], shards)
+        self.assertNotIn("strategy:", base)
+        self.assertIn(f'HEAD_SHARDS: "{len(shards)}"', base)
+        self.assertIn("pattern: react-apps-head-results-shard*", base)
         for step in ("Generated bundle merge driver", "Check diff viewer eager JS budget",
                      "Verify React Compiler for webviews", "Check webviews (Oxlint, Oxfmt, type check)",
                      "Check PR-scoped webview rules"):
@@ -256,6 +272,24 @@ class WebValidationTests(unittest.TestCase):
                 body = block[block.index(f"- name: {step}"):]
                 body = body[: body.index("\n      - name:", 1)] if "\n      - name:" in body[1:] else body
                 self.assertIn("if: matrix.shard == 1", body)
+
+    def test_a_shard_whose_engines_failed_is_red_without_running_its_tests(self):
+        """A failed engine install went on to the whole suite, 15-25 min, and the shard was red
+        anyway (run 43337871244): the tests now skip and the gate step names the engine step."""
+        workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
+        start = workflow.index("  react-apps-check-shard:")
+        block = workflow[start : workflow.index("\n  react-apps-base-check:", start)]
+        def step(name):
+            body = block[block.index(f"- name: {name}\n"):]
+            return body[: body.index("\n      - name:", 1)] if "\n      - name:" in body[1:] else body
+        self.assertIn("id: engines", step("Install headless engines"))
+        self.assertIn("if: ${{ !cancelled() && steps.engines.outcome != 'failure' }}", step("Test webviews"))
+        self.assertIn("steps.webview-tests.outcome != 'skipped'", step("Upload head webview results"))
+        gate = step("Fail on the gate checks")
+        self.assertIn("ENGINES: ${{ steps.engines.outcome }}", gate)
+        self.assertIn('"ENGINES|Install headless engines"', gate)
+        # The split starts shard 1 at the seconds its shard-only checks take.
+        self.assertIn('CMUX_WEB_TEST_SHARD_HEAD_START: "1:120"', step("Test webviews"))
 
     def test_pr_and_merge_group_checks_belong_to_ci(self):
         delegated = {"changes": {"result": "success", "outputs": {"required": "true"}},

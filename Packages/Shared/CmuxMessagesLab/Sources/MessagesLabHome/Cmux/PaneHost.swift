@@ -443,6 +443,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         self?.startAttachmentDrag(request, event)
     }
     private(set) lazy var selection = TranscriptSelection(controller: self)
+    /// cmux: Find in this chat (Cmd-F; TranscriptFind.swift).
+    private(set) lazy var find = TranscriptFind(controller: self)
     /// cmux: Reply to Selection's quote while the reply is written (ChatController+ReplyQuote.swift);
     /// nil: a reply answers the whole message.
     var replyQuote: ReplyQuote? { didSet { if replyQuote != oldValue { updateQuoteCard() } } }
@@ -486,6 +488,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     var pasteboardHasText: (NSPasteboard) -> Bool = { $0.availableType(from: [.string]) != nil }
     /// cmux: makes the pane's window key after a drop or a pick aimed at it
     /// (PaneHost+DropFocus.swift); tests stub it so no window comes forward.
+    /// cmux: the picture viewer open over the pane, nil once it starts closing (``ChatController/keyboardTarget``).
+    weak var shownPictureViewer: NSView?
     var bringWindowForward: (NSWindow) -> Void = { window in
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)
@@ -542,7 +546,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         demo.drawsChrome = false
         // A stream's final message takes its rows' keys: a selection in them goes along (TranscriptSelection.renameRows).
         demo.onRowsRenamed = { [weak self] map in self?.selection.renameRows(map) }
-        demo.onCellDecorated = { [weak self] cell in self?.selection.draw(cell) }
+        demo.onCellDecorated = { [weak self] cell in self?.selection.draw(cell); self?.find.draw(cell) }
         // Flight recorder (HomeFlightRecorder's policy): every engine action, as Host.swift hooks it.
         let shared = store.onChange
         store.onChange = { a, t, o, n in shared?(a, t, o, n); FlightRecorder.shared.action(a) }
@@ -610,11 +614,15 @@ final class ChatController: NSObject, NSTextViewDelegate {
         demo.onScrollPosition = { [weak self] in
             ScaleKeeper.shared.setNeedsApply()
             self?.host.updateTopFadeScrollEdge()
+            self?.scrolledForSaveHover()
             self?.intents?.scrolled()
         }
         if Self.args.contains("--inactive") { demo.setInactive(true) }
         scheduleWake()
-        if intents?.canReply == true { swipe.install(); thread.install() }
+        // The thread view's outside-click and Esc close work in a chat that takes no replies too (a permalink opens
+        // a thread there); only the reply gestures need a host that takes replies.
+        if intents?.canReply == true { swipe.install() }
+        thread.install()
         host.needsLayout = true
         onInstalled.forEach { $0(self) }
         return store
@@ -649,7 +657,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }).cgImage { _ = MorphBubble.boxBlur(cg, radiusPx: 9) }
     }
 
-    func focusCompose() { if !Self.noFocus { window?.makeFirstResponder(demo?.compose.textView.view) } }
+    /// Gives the pane's keyboard target the keyboard: the compose field, or the picture viewer while it is open.
+    func focusCompose() { if !Self.noFocus { window?.makeFirstResponder(keyboardTarget) } }
 
     func dispatch(_ a: Action) {
         guard let store else { return }
@@ -788,6 +797,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     var approvalPress: ApprovalTarget?
 
     func mouseDown(at p: CGPoint, _ e: NSEvent) {
+        // cmux: the hovered picture's save button (HomeMediaSaveHover) takes its own press.
+        if picker == nil, e.clickCount == 1, pressSaveHover(at: p) { return }
         approvalPress = picker == nil ? approvalTarget(at: p) : nil
         if approvalPress != nil { return }
         if let tv = demo?.compose.textView.view, demo?.compose.fieldRect.contains(p) == true { window?.makeFirstResponder(tv); return }
@@ -883,6 +894,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         if demo.longTextBandHit(p) { return }
         if approvalClicked(at: p) { return }
         if turnFailureClicked(at: p) { return }
+        // cmux: the red "!" of my Not Delivered message opens Try Again and Delete (Messages' pair).
+        if failedMarkClicked(at: p) { return }
         if let hit = demo.hit(p) {
             // cmux: a link (re-checked at click time, MarkdownLinkPolicy) opens in PaneLinks.
             if openLink(hit, at: p) { return }

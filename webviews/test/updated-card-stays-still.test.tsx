@@ -12,6 +12,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { UpdateHighlights } from "../src/pages/changelog/updateHighlights";
+import { teardownDom } from "./support/domTeardown";
 
 const longTitle =
   "Chats you have not read yet and chats an agent is running now show in two sections at the top of the sidebar";
@@ -79,13 +80,9 @@ describe("the Updated card's changes", () => {
     });
   });
 
-  afterAll(() => {
+  afterAll(async () => {
     act(() => root?.unmount());
-    dom.window.close();
-    for (const [key, had, value] of saved) {
-      if (had) scope[key] = value;
-      else delete scope[key];
-    }
+    await teardownDom(saved, { window: dom.window, scope });
   });
 
   async function mount(node: React.ReactNode) {

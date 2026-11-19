@@ -23,6 +23,7 @@ import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 type Card = {
+  look: string | null;
   component: string | null;
   /// The strip and the card are the Composer's own children, the card the one ComposerBox draws.
   nested: boolean;
@@ -92,6 +93,7 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
     const strip = document.querySelector(".acpmux-composer-strip")?.getBoundingClientRect();
     const form = box.closest("form");
     return {
+      look: form?.getAttribute("data-composer-look") ?? null,
       component: form?.getAttribute("data-cmux-component") ?? null,
       nested:
         box.parentElement === form &&
@@ -120,7 +122,7 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
 
   for (const variant of ["claude", "project", "remote"])
     test(`${variant}: the new chat's card is the started chat's card`, async () => {
-      const started = await card("started");
+      const started = await card(variant === "claude" ? "started" : "started-codex");
       const fresh = await card(variant);
       expect(fresh.component).toBe("Composer");
       expect(started.component).toBe("Composer");
@@ -128,10 +130,17 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
       expect(fresh.radii).toEqual(started.radii);
       expect(fresh.radii.every((radius) => parseFloat(radius) > 0)).toBe(true);
       expect(fresh.ring).toBe(started.ring);
-      // The chips stand over the card, apart from it: no tab on its top edge.
       expect(fresh.strip).not.toBeNull();
-      expect(fresh.top - fresh.strip!.bottom).toBeGreaterThanOrEqual(2);
-      expect(fresh.top - fresh.strip!.bottom).toBeLessThanOrEqual(10);
+      if (variant === "claude") {
+        // A saved Claude choice keeps separate location chips above the card.
+        expect(fresh.look).toBeNull();
+        expect(fresh.top - fresh.strip!.bottom).toBeGreaterThanOrEqual(2);
+        expect(fresh.top - fresh.strip!.bottom).toBeLessThanOrEqual(10);
+      } else {
+        // New viewers use Codex's filled tray, tucked 10px beneath the same card.
+        expect(fresh.look).toBe("codex");
+        expect(fresh.top - fresh.strip!.bottom).toBeCloseTo(-10, 1);
+      }
     });
 
   // Codex's look keeps its tray (composerLook.css); the card over it is the started Codex chat's.
@@ -170,7 +179,7 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
     await page.close();
     const tab = await browser!.newPage({ viewport: { width: 720, height: 640 } });
     await tab.goto(
-      `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.new-tab", { variant: "minimal-default" })}`,
+      `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.composer-look", { variant: "newtab-claude" })}`,
     );
     await tab.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 90_000,
@@ -194,29 +203,19 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
     expect(newTab.gap).toBe(chat.gap);
   });
 
-  test("no private-folder sentence over the composer; the folder chip's menu says it", async () => {
+  test("no private-folder sentence over the composer or under the folder chip's menu", async () => {
     expect((await card("claude")).sentence).toBe(false);
     const page = await open("folder-menu");
-    const menu = await page.evaluate(() => ({
-      note: document.querySelector(".acpmux-location-menu .acpmux-location-note")?.textContent?.trim() ?? null,
-      choose: document.querySelector('.acpmux-location-menu [data-choose=""]')?.textContent?.trim() ?? null,
-      sentence: document.querySelector(".acpmux-folder-choice") !== null,
-    }));
-    await page.close();
-    expect(menu).toEqual({
-      note: "New chats in this workspace start in a private folder.",
-      choose: "Add folder…",
-      sentence: false,
+    const menu = await page.evaluate(() => {
+      const popup = document.querySelector(".acpmux-location-menu");
+      return {
+        choose: popup?.querySelector('[data-choose=""]')?.textContent?.trim() ?? null,
+        privateFolder: popup?.textContent?.includes("private folder") ?? false,
+        sentence: document.querySelector(".acpmux-folder-choice") !== null,
+      };
     });
-  });
-
-  test("a chat in a project has no private-folder note in its folder menu", async () => {
-    const page = await open("project");
-    await page.locator('.acpmux-composer-strip [aria-label="Folder"]').click();
-    await page.locator(".acpmux-location-menu").waitFor();
-    const note = await page.evaluate(() => document.querySelector(".acpmux-location-menu .acpmux-location-note"));
     await page.close();
-    expect(note).toBeNull();
+    expect(menu).toEqual({ choose: "Add folder…", privateFolder: false, sentence: false });
   });
 
   test("the folder chip's Add folder… asks the host's workspace folder sheet", async () => {

@@ -76,6 +76,8 @@ import bench_launch  # noqa: E402
 import terminal_resize_arms as arms  # noqa: E402
 import terminal_resize_verdict  # noqa: E402
 from tag_teardown import TagTeardown  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", default=os.environ.get("NX_APP"))
@@ -686,7 +688,7 @@ try:
             result["problems"] = found
             unmeasured.extend(found)
         report["layouts"].append(result)
-        print(f"TERMINAL-RESIZE {json.dumps(result)}", flush=True)
+        safe_print(f"TERMINAL-RESIZE {json.dumps(result)}", flush=True)
 finally:
     if app.poll() is None:
         reset_arm()  # a layout that stopped early (an exception) did not reset it

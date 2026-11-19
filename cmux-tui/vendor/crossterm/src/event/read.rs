@@ -39,6 +39,15 @@ impl InternalEventReader {
         self.source.as_ref().expect("reader source not set").waker()
     }
 
+    /// cmux patch: the source's waker, or an error when no source could be set up.
+    #[cfg(feature = "event-stream")]
+    pub(crate) fn try_waker(&self) -> io::Result<Waker> {
+        self.source
+            .as_ref()
+            .map(|source| source.waker())
+            .ok_or_else(|| io::Error::other("Failed to initialize input reader"))
+    }
+
     pub(crate) fn poll<F>(&mut self, timeout: Option<Duration>, filter: &F) -> io::Result<bool>
     where
         F: Filter,
@@ -370,10 +379,7 @@ mod tests {
         };
 
         assert_eq!(
-            reader
-                .poll_read(Some(Duration::ZERO), &InternalEventFilter)
-                .unwrap_err()
-                .kind(),
+            reader.poll_read(Some(Duration::ZERO), &InternalEventFilter).unwrap_err().kind(),
             io::ErrorKind::Other
         );
     }

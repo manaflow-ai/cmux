@@ -5,7 +5,7 @@ use super::*;
 
 impl Mux {
     /// Reopen a saved group into `pane`. A live group already linked to the
-    /// record is returned unchanged. Otherwise each member is restored: a
+    /// record (one that still holds an open tab) is returned unchanged. Otherwise each member is restored: a
     /// terminal still running is reattached (a new view of the same
     /// terminal), other terminals start in their saved directory, and
     /// browsers reopen at their saved URL.
@@ -23,13 +23,22 @@ impl Mux {
             .find(|record| record.id == saved_id)
             .cloned()
             .ok_or_else(|| crate::state::commit::state_not_found("saved_tab_group", saved_id))?;
-        if let Some(live) = presentation
-            .tab_groups
-            .groups
-            .values()
-            .find(|group| group.saved_id.as_deref() == Some(saved_id))
-        {
-            return Ok(self.tab_group_outcome(&live.id));
+        // A group row a close left behind (no strip edit pruned it yet)
+        // holds no open tab: it is not live, and the group forms again. The
+        // strip commit that forms it prunes the left row.
+        let live = self.with_state(|state| {
+            presentation
+                .tab_groups
+                .groups
+                .values()
+                .find(|group| {
+                    group.saved_id.as_deref() == Some(saved_id)
+                        && !group_members(state, &presentation.tab_groups, &group.id).is_empty()
+                })
+                .map(|group| group.id.clone())
+        });
+        if let Some(live) = live {
+            return Ok(self.tab_group_outcome(&live));
         }
         anyhow::ensure!(
             self.with_state(|state| state.panes.contains_key(&pane)),

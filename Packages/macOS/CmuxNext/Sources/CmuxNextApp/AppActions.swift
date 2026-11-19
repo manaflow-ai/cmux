@@ -33,6 +33,7 @@ enum AppActions {
         BookmarkHandlers.bind(into: registry, context: context)
         BookmarkIconHandlers.bind(into: registry, context: context)
         AppStoreHandlers.bind(into: registry, context: context)
+        CustomSidebarToggle(apps: { [weak services] in services?.apps.client }, environment: ProcessInfo.processInfo.environment, window: { [weak services] in services?.windows.active?.window }).bind(into: registry)
         TasksHandlers.bind(into: registry, context: context)
         TaskManagerHandlers.bind(into: registry, context: context)
         KeybindingHandlers.bind(into: registry, context: context)
@@ -49,7 +50,7 @@ enum AppActions {
         WorkspaceNotesHandlers.bind(into: registry, context: context)
         WorkspaceChecklistHandlers.bind(into: registry, context: context)
         WorkspaceGroupHandlers.bind(into: registry, context: context)
-        SidebarActionSet(host: services, autoArchive: services.autoArchive, settings: { [weak services] in services?.settings }, sidebar: { [weak services] in services?.windows.active?.sidebar.container.sidebarView }, themeColors: { [weak services] in services?.themes.catalog.colors ?? [:] }).bind(into: registry)
+        SidebarActionSet(host: services, autoArchive: services.autoArchive, settings: { [weak services] in services?.settings }, sidebar: { [weak services] in services?.windows.active?.sidebar.container.sidebarView }, themeColors: { [weak services] in services?.themes.catalog.colors ?? [:] }, playgroundSections: { [HomeFilterPlaygroundSection().section()] }).bind(into: registry)
         NotificationSoundActions(host: services, gate: services.notifications.soundGate).bind(into: registry)
         RoomHandlers.bind(into: registry, context: context)
         RoomMenuHandlers.bind(into: registry, context: context)
@@ -58,7 +59,6 @@ enum AppActions {
         WindowMembershipHandlers.bind(into: registry, context: context)
         SidebarHandlers.bind(into: registry, context: context)
         VaultHandlers.bind(into: registry, context: context)
-        RightSidebarHandlers.bind(into: registry, context: context)
         SidebarSectionHandlers.bind(into: registry, context: context)
         SidebarHiddenSections.bind(into: registry, context: context)
         SidebarPriorityFeed.bind(into: registry, context: context)
@@ -120,6 +120,7 @@ enum AppActions {
         AgentConfigurationHandlers.bind(into: registry, context: context)
         AgentChatKeyHandlers.bind(into: registry, context: context)
         CloudHandlers.bind(into: registry, context: context)
+        DaemonStartupWait(daemon: services.daemon).bind(into: registry)
         AccountsHandlers.bind(into: registry, context: context)
         ProfileMenuHandlers.bind(into: registry, context: context)
         RemoteHandlers.bind(into: registry, context: context)
@@ -131,6 +132,9 @@ enum AppActions {
         RemoteBrowserPages.bind(into: registry, context: context)
         ResourceHandlers.bind(into: registry, context: context)
         LinkHandlers.bind(into: registry, context: context)
+        // Last: a catalog row with a daemon request and no handler above sends it (cmux-action-catalog `Action::request`).
+        CatalogRequestHandlers(host: services).bind(into: registry)
+        HandlerPlaceholders.bind(into: registry)
         IconMenuVisibility.install(registry, context: context)
         TabSelectionTitles(context: context).install(in: registry)
         TopPages.installActionRules(services)
@@ -142,10 +146,10 @@ enum AppActions {
         ActionRouting.install(services)
         ActionRouting.installUserIntentObservers(services)
         WindowKeyTable.install(services)
-        // One owner per action: a second binding silently replaces the first. The check is a test
-        // (noActionIsBoundTwice); at runtime a Debug dogfood build must not crash, so only a fault.
-        if !registry.duplicateBindings.isEmpty {
-            Logger(subsystem: "com.cmuxterm.app.next", category: "actions").fault("actions bound twice: \(registry.duplicateBindings.map(\.rawValue).joined(separator: ", "), privacy: .public)")
+        // One owner per action, and every bound id in the catalog: tests check both (noActionIsBoundTwice,
+        // everyBoundActionIsInTheCatalog); at runtime a Debug dogfood build must not crash, so only a fault.
+        for (problem, ids) in [("bound twice", registry.duplicateBindings), ("not in the catalog, left unbound", registry.uncataloguedBindings)] where !ids.isEmpty {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "actions").fault("actions \(problem, privacy: .public): \(ids.map(\.rawValue).joined(separator: ", "), privacy: .public)")
         }
     }
 
@@ -192,7 +196,7 @@ enum AppActions {
         registry.bind("quit", invoke: { invocation in
             do {
                 let scripted = registry.isCapturingRefusal
-                let origin = try QuitPolicy.origin(for: invocation, scripted: scripted)
+                let origin = try QuitOrigin(for: invocation, scripted: scripted)
                 // A scripted quit saves unsaved documents first and refuses,
                 // naming them, when a save fails (R96 quit hook).
                 guard scripted, !services.quit.unsaved.unsaved().isEmpty else { return services.quit.requestQuit(origin) }

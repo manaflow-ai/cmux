@@ -380,7 +380,25 @@ pub(super) fn run_pending_request(
 ) -> bool {
     let PendingSurfaceRequest { request, _bytes_permit, slow_log, .. } = pending;
     let _slow_log = crate::diagnostics::request_log::resume(slow_log);
-    handle_request_with_cancellation(mux, client, request, writer, Some(&scheduler.cancelled))
+    // A handler that panics is answered with an error and the dispatcher goes
+    // on: it is started once per connection, so unwinding out of it left every
+    // later request queued forever on a connection that still answered `ping`
+    // on its reader. The panic hook has logged the panic; whether the
+    // panicked request changed anything is unknown, and the reply says so.
+    let id = request.id.clone();
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        #[cfg(test)]
+        panic_seam::check(mux, client, panic_seam::Site::Dispatch);
+        handle_request_with_cancellation(mux, client, request, writer, Some(&scheduler.cancelled))
+    }));
+    ran.unwrap_or_else(|_| {
+        eprintln!("cmux-tui: a request on connection {client} panicked");
+        send_request_error(
+            writer,
+            id,
+            "internal error: the daemon failed while it ran this request; its outcome is unknown",
+        )
+    })
 }
 
 fn run_connection_surface_dispatcher(
@@ -526,6 +544,51 @@ impl super::Command {
                 ("daemon.req.begin.scroll-surface", "daemon.req.end.scroll-surface")
             }
             _ => ("daemon.req.begin.other", "daemon.req.end.other"),
+        }
+    }
+}
+
+/// Tests: make the next request of one connection panic in its handler,
+/// on the connection's reader or on its dispatcher. Keyed by the mux too:
+/// parallel tests number their connections from 1 each.
+#[cfg(test)]
+pub(super) mod panic_seam {
+    use std::collections::HashSet;
+    use std::sync::{Arc, Mutex, PoisonError};
+
+    use crate::Mux;
+
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+    pub(in crate::server) enum Site {
+        Reader,
+        Dispatch,
+    }
+
+    type Key = (usize, u64, Site);
+
+    static ARMED: Mutex<Option<HashSet<Key>>> = Mutex::new(None);
+
+    fn key(mux: &Arc<Mux>, client: u64, site: Site) -> Key {
+        (Arc::as_ptr(mux) as usize, client, site)
+    }
+
+    pub(in crate::server) fn arm(mux: &Arc<Mux>, client: u64, site: Site) {
+        ARMED
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get_or_insert_default()
+            .insert(key(mux, client, site));
+    }
+
+    pub(in crate::server) fn check(mux: &Arc<Mux>, client: u64, site: Site) {
+        let armed = ARMED
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_mut()
+            .is_some_and(|armed| armed.remove(&key(mux, client, site)));
+        if armed {
+            // crash-allow: a test-only fault injected by the panic seam.
+            panic!("injected request handler panic ({site:?}) on connection {client}");
         }
     }
 }

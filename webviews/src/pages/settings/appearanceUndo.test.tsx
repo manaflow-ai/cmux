@@ -89,7 +89,8 @@ describe("Appearance's floating Undo, Redo and Reset", () => {
   });
 
   test("picking a background is undoable and redoable, and the buttons name the step", async () => {
-    page = await renderPage({ path: "/settings/appearance" });
+    // The background picker's one home is Personalization, which shows the same bar.
+    page = await renderPage({ path: "/settings/personalization" });
     const tile = page.container.querySelector<HTMLButtonElement>('.backdrop-tile[aria-label="Shuffle Paintings"]')!;
     await click(tile);
     expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: "appearance.background", value: "daily" }]);
@@ -115,7 +116,20 @@ describe("Appearance's floating Undo, Redo and Reset", () => {
     expect(page.store.getSnapshot().host?.theme?.current.room).toBeNull();
   });
 
-  test("Reset to Defaults asks inline, resets every appearance key set, and is itself undoable", async () => {
+  test("the bar's Reset menu runs Reset to Defaults on the pick, with no question", async () => {
+    page = await renderPage({ path: "/settings/appearance" });
+    await run(() => page!.store.set("appearance.backgroundOpacity", 0.5));
+    await click(page.container.querySelector<HTMLButtonElement>('[data-menu="appearance-reset"]')!);
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((row) =>
+      row.textContent?.includes("Reset to Defaults"),
+    )!;
+    await click(item);
+    expect(page.store.getSnapshot().rows.get("appearance.backgroundOpacity")?.customized).toBe(false);
+    expect(page.container.querySelector(".appearance-bar-confirm")).toBeNull();
+    expect(page.store.appearance.nextUndo?.label).toBe("Appearance defaults");
+  });
+
+  test("Reset to Defaults resets every appearance key set, and is itself undoable", async () => {
     page = await renderPage({ path: "/settings/appearance" });
     await run(() => page!.store.set("appearance.background", "friedrich-forest-moonlight"));
     await run(() => page!.store.set("appearance.backgroundOpacity", 0.5));
@@ -211,4 +225,20 @@ describe("Appearance's presets", () => {
     expect(rows.get("appearance.backgroundOpacity")?.value).toBe(0.6);
     expect(rows.get("appearance.backgroundBlur")?.value).toBe("glass");
   });
+});
+
+test("the undo stack and Reset to Defaults still cover the look rows that moved to Sidebar, Tabs and Terminal", async () => {
+  // The pages split moved 96 Appearance rows out of the two undo pages (review of #41237): the
+  // Sidebar page is all look, the mixed pages keep only their look rows in the stack.
+  const { tracksAppearance } = await import("./appearanceUndo");
+  for (const key of [
+    "sidebar.style",
+    "sidebar.workspaceRow.branch",
+    "layout.paneBorder",
+    "focusRing.color",
+    "terminal.fontSize",
+  ])
+    expect(tracksAppearance(key)).toBe(true);
+  for (const key of ["tabs.swapCmdTAndCmdN", "layout.focusFollowsMouse", "terminal.cursorStyle"])
+    expect(tracksAppearance(key)).toBe(false);
 });

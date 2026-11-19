@@ -108,7 +108,7 @@ extension TabDragSession {
         case let .newWindow(point):
             let size = drag.source.window?.window?.frame.size ?? .zero
             if let controller = services.windows.openWindow(workspaces: ids, frame: tearOffFrame(drag, at: point, size: size)) {
-                services.windows.bringToFront(controller)
+                services.windows.bringToFront(controller); WindowOwnSpace.give(controller.state.id, in: services.windows)
             }
         case let .window(id, target):
             guard let controller = services.windows.controller(for: id) else { break }

@@ -3,7 +3,7 @@ public import CmuxHomeCore
 public import CmuxNextActions
 public import CmuxNextCloud
 import CmuxNextHome
-public import CmuxNextHomeModel
+import CmuxNextHomeModel
 
 /// `home.inviteToTeam`'s one run: the active team's email invite, always through
 /// ``HomeTeamInviteSheet``.
@@ -78,7 +78,7 @@ public struct HomeTeamInviteRun {
     }
 
     /// What a join costs `teamID`, from the team API's detail.
-    public static func seatImpact(of teamID: String, auth: CloudAuth) async -> HomeTeamSeatImpact {
+    static func seatImpact(of teamID: String, auth: CloudAuth) async -> HomeTeamSeatImpact {
         guard let facts = await auth.seatFacts(teamID: teamID) else { return .unknown }
         return HomeTeamSeatImpact.of(canInvite: facts.canInvite, planID: facts.planID, hasSubscription: facts.hasSubscription,
                                      memberCount: facts.memberCount, memberLimit: facts.memberLimit)

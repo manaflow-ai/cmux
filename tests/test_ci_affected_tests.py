@@ -104,8 +104,8 @@ class AffectedTests(unittest.TestCase):
         self.assertIn("rust", names(plan(["scripts/ci/macos_stubs.py"])))
 
     def test_a_skill_a_crate_embeds_sends_the_rust_step(self):
-        # acpmux include_str!s skills/cmux-cua/SKILL.md.
-        self.assertIn("rust", names(plan(["skills/cmux-cua/SKILL.md"])))
+        # acpmux include_str!s skills/cmux-computer-use/SKILL.md.
+        self.assertIn("rust", names(plan(["skills/cmux-computer-use/SKILL.md"])))
 
     def test_a_file_outside_cmux_tui_a_crate_reads_sends_the_rust_step(self):
         # cmux-tui crates read these by "../" path; the planner used to skip Rust for every path
@@ -248,9 +248,9 @@ class AffectedTests(unittest.TestCase):
         self.assertTrue(any("outside the lane registry" in n["what"] for n in result["not_run"]), result["not_run"])
 
     def test_a_changed_test_that_needs_an_app_is_listed_not_run(self):
-        result = plan(["tests_v2/test_browser_api_p0.py"])
-        self.assertIn("tests_v2/test_browser_api_p0.py", [n["what"] for n in result["not_run"]])
-        self.assertFalse([u for u in result["units"] if "tests_v2/test_browser_api_p0.py" in u["argv"]])
+        result = plan(["tests_v2/test_tmux_compat_matrix.py"])
+        self.assertIn("tests_v2/test_tmux_compat_matrix.py", [n["what"] for n in result["not_run"]])
+        self.assertFalse([u for u in result["units"] if "tests_v2/test_tmux_compat_matrix.py" in u["argv"]])
 
     def test_a_webviews_build_input_runs_every_web_test(self):
         # vite configs, package.json and the lockfile change every test, though no test imports them.

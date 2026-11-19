@@ -8,6 +8,9 @@
 //!  "health": [{"id": "codex", "program": "codex-acp", "channel": "npm", ...}]}
 //! ```
 //!
+//! The variable may name a first-run state instead of a file,
+//! `matrix:CELL` (`matrix.rs`): which agent CLIs the Mac has and their sign-in.
+//!
 //! `harnesses` are `HarnessProfile`s that stand in for what PATH, `~/.acpx`
 //! and the ACP Registry would add (profile files still join); `health` are
 //! `HarnessHealth` rows served as the daemon's check. While a fixture is
@@ -32,6 +35,8 @@ use serde::Deserialize;
 
 use crate::config::HarnessProfile;
 use crate::harness_health::HarnessHealth;
+
+pub mod matrix;
 
 /// The variable that names the fixture file.
 pub const ENV: &str = "ACPMUX_HARNESS_FIXTURE";
@@ -109,6 +114,10 @@ fn loaded() -> &'static Option<Result<Fixture, String>> {
         let path = std::env::var_os(ENV)?;
         if path.is_empty() {
             return Some(Err(format!("{ENV} is set but empty")));
+        }
+        // `matrix:CELL` names a first-run state instead of a file (`matrix.rs`).
+        if let Some(cell) = path.to_str().and_then(|p| p.strip_prefix(matrix::PREFIX)) {
+            return Some(matrix::fixture(cell).map_err(|e| format!("{ENV}: {e}")));
         }
         Some(Fixture::read(Path::new(&path)))
     })

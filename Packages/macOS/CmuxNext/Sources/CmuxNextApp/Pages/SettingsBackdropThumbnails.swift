@@ -45,11 +45,11 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
             cache[key] = data
             return PageResource(data: data, mimeType: "image/png")
         }
-        // Settings > Menus: a row's SF Symbol (MenuSymbolImages).
-        if request.prefix == MenuSymbolImages.prefix, request.path.count == 1, let name = request.path[0].removingPercentEncoding {
-            let key = MenuSymbolImages.prefix + "/" + name
+        // Settings > Menus: a row's SF Symbol (MenuSymbolImages); the category sidebar's, bold.
+        if let weight = MenuSymbolImages.weight(prefix: request.prefix), request.path.count == 1, let name = request.path[0].removingPercentEncoding {
+            let key = request.prefix + "/" + name
             if let data = cache[key] { return PageResource(data: data, mimeType: "image/png") }
-            guard let data = MenuSymbolImages().png(name) else { return nil }
+            guard let data = MenuSymbolImages().png(name, weight: weight) else { return nil }
             cache[key] = data
             return PageResource(data: data, mimeType: "image/png")
         }
@@ -84,7 +84,7 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
         let options = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true,
                        kCGImageSourceThumbnailMaxPixelSize: 240] as CFDictionary
         guard let image = AppleWallpapers.isVideo(url.path) ? BackdropImageStore.poster(url, maxPixelSize: 240)
-            : CGImageSourceCreateWithURL(url as CFURL, nil).flatMap({ CGImageSourceCreateThumbnailAtIndex($0, 0, options) }) else { return nil }
+            : CGImageSourceCreateWithURL(BackdropShaderRenderer.prepared(url) as CFURL, nil).flatMap({ CGImageSourceCreateThumbnailAtIndex($0, 0, options) }) else { return nil }
         let data = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else { return nil }
         CGImageDestinationAddImage(destination, image, nil)

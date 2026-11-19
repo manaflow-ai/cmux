@@ -55,6 +55,11 @@ impl Mux {
             rest_results.push(result);
         }
         #[cfg(test)]
+        crate::walk_counters::projection_prepared(
+            projection.patch.changes.len(),
+            projection.changes.as_array().map_or(0, Vec::len),
+        );
+        #[cfg(test)]
         if let Some(hook) = self
             .resource_projection_before_commit
             .lock()
@@ -91,6 +96,7 @@ impl Mux {
             intents.push(intent);
             finishes.push(finish);
         }
+        let restated = std::mem::take(&mut projection.restated);
         drop(projection);
         drop(state);
         crate::debug_spans::mark("projection.intent_prepared");
@@ -99,6 +105,10 @@ impl Mux {
             .into_iter()
             .map(EffectCommitReceipt::into_patch_commit)
             .collect::<anyhow::Result<Vec<_>>>()?;
+        // The first view's record carries the changes of each view.
+        if let Some(first) = commits.first().filter(|first| !first.replayed) {
+            registry.mark_workspaces_whole(first.revision, &restated);
+        }
         crate::debug_spans::mark("projection.writer_committed");
         if let Some(last) = commits.last() {
             self.state.lock().unwrap_or_else(PoisonError::into_inner).resource_revision =

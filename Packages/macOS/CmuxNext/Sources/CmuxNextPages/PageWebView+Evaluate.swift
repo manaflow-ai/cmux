@@ -2,7 +2,7 @@ import CmuxNextWakeups
 public import Foundation
 import WebKit
 
-/// Why ``PageWebView/callPageScript(_:arguments:)`` returned no value from a Chromium page.
+/// Why ``PageWebView/callPageScript(_:arguments:timeout:)`` returned no value from a Chromium page.
 public nonisolated enum PageScriptError: Error, Sendable, Equatable {
     /// An argument is not a JSON value.
     case argument(String)
@@ -23,8 +23,10 @@ extension PageWebView {
     /// - Parameters:
     ///   - body: A function body that may `await` and `return`.
     ///   - arguments: Its parameters by name; each must be a JSON value (NSNull for null).
+    ///   - timeout: How long a Chromium page may take to answer, for a script that awaits on purpose
+    ///     (a timed capture); nil keeps DevTools' short default. WebKit's call has no deadline.
     /// - Returns: The returned value; nil for `undefined` or `null`.
-    public func callPageScript(_ body: String, arguments: [String: Any] = [:]) async throws -> Any? {
+    public func callPageScript(_ body: String, arguments: [String: Any] = [:], timeout: Duration? = nil) async throws -> Any? {
         // While the Chromium page is still being made, no engine shows the page: the WebKit view is
         // hidden and never loads the document, so a call there waited on a page that never came (the
         // chat-open bench's `layout_watch` answered ~6 s after a cold click, cmuxterm-hq#6338). Wait
@@ -44,8 +46,12 @@ extension PageWebView {
             return text
         }
         let expression = "(async (\(names.joined(separator: ", "))) => {\n\(body)\n})(\(values.joined(separator: ", ")))"
-        let json = try await page.devTools("Runtime.evaluate",
-                                           params: ["expression": expression, "awaitPromise": true, "returnByValue": true])
+        let params: [String: any Sendable] = ["expression": expression, "awaitPromise": true, "returnByValue": true]
+        let json = if let timeout {
+            try await page.devTools("Runtime.evaluate", params: params, timeout: timeout)
+        } else {
+            try await page.devTools("Runtime.evaluate", params: params)
+        }
         guard let object = ChromiumPageHostWire.object(json) else { throw PageScriptError.noResult }
         if let details = object["exceptionDetails"] as? [String: Any] {
             let exception = details["exception"] as? [String: Any]

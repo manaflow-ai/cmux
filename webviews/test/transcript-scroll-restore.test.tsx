@@ -7,6 +7,7 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { layoutScrollTop } from "../src/agent-session/acpmux/conversation/scrollCoordinates";
 import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -55,12 +56,8 @@ const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { SCROLL_ANCHOR_SETTLE_MS } = await import("../src/agent-session/acpmux/virtualTranscriptModel");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const row = (id: string, kind: string, text?: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 });
@@ -144,7 +141,10 @@ test("a scrolled-up chat reports where it rests and reopens there, not at the la
     expect(layoutScrollTop(scroller())).toBe(logicalResting);
     expect(Math.abs(scroller().scrollTop - logicalResting)).toBeLessThanOrEqual(1);
     // The DOM correction, not just the coordinate bookkeeping, must preserve the rendered place.
-    const cssOrigin = Number.parseFloat(scroller().style.getPropertyValue("--acpmux-scroll-origin")) || 0;
+    const cssOrigin =
+      Number.parseFloat(
+        scroller().querySelector<HTMLElement>(".acpmux-thread")?.style.getPropertyValue("margin-top") ?? "",
+      ) || 0;
     expect(scroller().scrollTop - cssOrigin).toBe(logicalResting);
 
     // Back at the latest message: the place is forgotten, so the next open follows the reply.

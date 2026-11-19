@@ -19,11 +19,22 @@
 #          delegating zone kept as zones[0] (exit 4: the zone gave a PartitionAlloc block to the
 #          system zone), that libmalloc ended (an abort, such as "not allocated") or that gave no
 #          verdict, and prints the first failure's output. Exit 0 when every run was clean.
+#        run.sh size
+#   size: size.c, no CEF needed: with the early zone installed, malloc_default_zone()->size(p)
+#          and malloc_size(p) report every block the default zone made (SQLite's Apple
+#          allocator sizes its hash tables this way; a 0 crashed nightly 4294166855401).
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/../../.." && pwd)"
 mode=race
 if [[ "${1:-}" == corrupt ]]; then mode=corrupt; shift; fi
+if [[ "${1:-}" == size ]]; then
+  zone="$root/Packages/macOS/CmuxNext/Sources/CmuxNextMallocZone"
+  dir="$(mktemp -d)"
+  trap 'rm -rf "$dir"' EXIT
+  clang -O1 -g -I"$zone/include" "$here/size.c" "$zone/early_zone.c" -o "$dir/size"
+  exec "$dir/size"
+fi
 runs="${1:-30}"
 version="$(/usr/bin/plutil -extract version raw -o - "$root/scripts/cmux-next/cef-manifest.json")"
 framework="${2:-$HOME/Library/Caches/cmux/cef/$version/Chromium Embedded Framework.framework/Chromium Embedded Framework}"

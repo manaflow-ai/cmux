@@ -10,6 +10,17 @@ import CmuxSpinner
 import SwiftUI
 import UIKit
 
+/// A workspace tab's composer stack at rest: its height and its bottom's distance from the
+/// page's bottom (TabsKit rests it 8 pt above the toolbar capsule).
+struct ChatRestingStack: Codable, Equatable {
+    var height: CGFloat
+    var bottomGap: CGFloat
+
+    /// Before any tab measured its stack: the transcript's long-standing defaults (a 96 pt
+    /// stack resting 80 pt above the page's bottom).
+    static let fallback = ChatRestingStack(height: 96, bottomGap: 80)
+}
+
 /// View state of one open agent chat, shared by its transcript and its
 /// bottom stack. The pushed `AgentChatScreen` owns one; a workspace tab
 /// (CmuxTabsKit) keeps one per tab so the transcript (the tab's page) and
@@ -22,12 +33,27 @@ public final class AgentChatSurface {
     /// The transcript holds its rows as they are (the page is shown as a
     /// small card on the tab grid): streamed changes wait and apply in one
     /// reload when this goes back to false, or on `refreshHeldTranscript()`.
-    public var holdsTranscript = false
+    public var holdsTranscript = false {
+        // A release reloads with everything: nothing held is left to show.
+        didSet { if !holdsTranscript { heldChangePending = false } }
+    }
     /// Bumped to apply what arrived while held, in one reload (the grid's
-    /// once-a-second card refresh).
+    /// card refresh, at most once a second after a change).
     private(set) var heldRefresh = 0
-    public func refreshHeldTranscript() { heldRefresh &+= 1 }
-    var attachments: [AgentAttachment] = []
+    public func refreshHeldTranscript() {
+        heldChangePending = false
+        heldRefresh &+= 1
+    }
+    /// A change arrived while held and is not shown yet.
+    @ObservationIgnored public private(set) var heldChangePending = false
+    /// Told once per held change (the grid schedules a refresh then, not on a timer).
+    @ObservationIgnored public var onHeldChange: (@MainActor () -> Void)?
+    func noteHeldChange() {
+        guard !heldChangePending else { return }
+        heldChangePending = true
+        onHeldChange?()
+    }
+    public var attachments: [AgentAttachment] = []
     /// The transcript's scroll position. Writes that change nothing are
     /// dropped: SwiftUI writes the resolved position back through the
     /// binding, and an unconditional invalidation there can feed back into
@@ -100,7 +126,7 @@ public final class AgentChatSurface {
             do {
                 targets = try await store.source.handoffTargets()
             } catch {
-                return (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                return UserFacingError.message(error)
             }
             if let refusal = command.refusal(args: args, canFork: canFork, isRunning: store.isRunning, targets: targets) { return refusal }
             guard let target = CmuxSlashCommand.target(args, in: targets) else { return nil }
@@ -184,6 +210,45 @@ public final class AgentChatSurface {
     /// it from the keyboard layout guide in the keyboard's own animation.
     public internal(set) var stackHeight: CGFloat?
     public internal(set) var stackMaxY: CGFloat?
+    /// A workspace tab's composer stack at rest (the keyboard down), as its transcript placed it
+    /// last. The tab's grid card and its page both place the newest turn from this one value
+    /// (`restingTranscriptBottomInset`), so a card opens into its page without a jump.
+    var restingStack: ChatRestingStack?
+    /// The resting stack a tab placed last on this phone, for a tab whose own stack is not
+    /// measured yet (not shown in this launch): every tab's resting composer is the same
+    /// capsule over the same toolbar, so its card and its page's first frames use this. Kept
+    /// in defaults, so a workspace opened on a terminal tab after a relaunch has it too.
+    static var lastRestingStack: ChatRestingStack? {
+        get {
+            if !restingStackLoaded {
+                restingStackLoaded = true
+                storedRestingStack = UserDefaults.standard.data(forKey: restingStackKey)
+                    .flatMap { try? JSONDecoder().decode(ChatRestingStack.self, from: $0) }
+            }
+            return storedRestingStack
+        }
+        set {
+            restingStackLoaded = true
+            guard newValue != storedRestingStack else { return }
+            storedRestingStack = newValue
+            UserDefaults.standard.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: restingStackKey)
+        }
+    }
+    private static var storedRestingStack: ChatRestingStack?
+    private static var restingStackLoaded = false
+    private static let restingStackKey = "cmux.chat.restingStack.v1"
+
+    /// The resting stack this tab's card and page are placed from: its own, else the last one
+    /// measured, else `ChatRestingStack.fallback`.
+    var placementStack: ChatRestingStack { restingStack ?? Self.lastRestingStack ?? .fallback }
+
+    /// The transcript's bottom content inset at rest: the space from the stack's top to the
+    /// page's bottom, plus the transcript's gap above the stack. The live transcript's
+    /// (`ChatTranscriptController.bottomInset`) and the grid card's (`AgentChatPreview`).
+    public var restingTranscriptBottomInset: CGFloat {
+        let stack = placementStack
+        return max(0, stack.height + stack.bottomGap) + ChatTranscriptController.contentGap
+    }
     /// Window y the bottom stack may not rise above: under the transcript's header and,
     /// for the pushed chat, inside the dock's host. The transcript sets it as it lays
     /// out; the composer's slash-command list scrolls inside the room below it.
@@ -350,7 +415,7 @@ public struct AgentChatScreen: View {
         // The transcript hosts the composer itself, docked to the keyboard
         // (ChatTranscriptController), instead of a SwiftUI safe-area inset.
         AgentChatTranscript(store: store, surface: surface, placement: .owned)
-            .background(Color.cmuxMobileBackground)
+            .background(CmuxMobileChatBackdrop())
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
     }
@@ -460,9 +525,14 @@ public struct AgentChatTranscript: View {
     }
 
     public var body: some View {
+        // The chat in the light or dark style of the Mac's theme while it follows the Mac.
+        transcript.cmuxMobileChatLookStyle(CmuxMobileMacTheme.shared.chatLook)
+    }
+
+    private var transcript: some View {
         let surface = surface
         let openFile = openFile
-        ChatTranscriptRepresentable(
+        return ChatTranscriptRepresentable(
             placement: placement, surface: surface, topInset: topInset, onUserScroll: onUserScroll,
             isEmpty: !store.hasTurns,
             store: store,
@@ -499,9 +569,6 @@ public struct AgentChatTranscript: View {
                 ChatTurnBar(navigator: navigator, store: store, surface: surface)
                     .padding(.top, (topInset ?? 0) + 4)
                     .transition(.opacity)
-            } else {
-                AgentChatUpdatingPill(store: store)
-                    .padding(.top, (topInset ?? 0) + 4)
             }
         }
         // UIKit owns the native top edge and the workspace's iOS 26 gradient fallback.
@@ -575,8 +642,9 @@ struct AgentChatEmptyState: View {
     let store: AgentChatStore
 
     var body: some View {
-        if store.isLoadingHistory, !store.hasTurns {
-            // An existing chat whose history is on its way: never the new-chat prompt.
+        if store.isLoadingHistory && !store.hasTurns || store.awaitsFirstPrompt {
+            // An existing chat whose history is on its way, or a new one whose first message
+            // (New Task's) is on its way: never the new-chat prompt.
             AgentChatLoadingState(store: store)
         } else if store.isNewChat {
             VStack(spacing: 12) {
@@ -598,12 +666,12 @@ struct AgentChatEmptyState: View {
 struct AgentChatLoadingState: View {
     let store: AgentChatStore
 
+    static func text(_ store: AgentChatStore) -> String { store.loadingText }
+
     var body: some View {
         VStack(spacing: 12) {
             CmuxSpinner()
-            Text(store.summary.status == .disconnected
-                 ? "Connecting to \(store.summary.macName)…"
-                 : "Loading chat…")
+            Text(Self.text(store))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -613,26 +681,22 @@ struct AgentChatLoadingState: View {
     }
 }
 
-/// Kept rows show while the chat catches up with the Mac: a small pill under the header says so.
-struct AgentChatUpdatingPill: View {
+/// Kept rows show while the chat is away from the Mac or catches up with it; after
+/// ``QuietStatusGate/threshold`` one quiet line by the composer says so
+/// (``AgentChatStore/connectionLine``). Never a pill over the rows.
+struct AgentChatConnectionLine: View {
     let store: AgentChatStore
 
     var body: some View {
-        if store.isLoadingHistory, store.hasTurns {
-            HStack(spacing: 6) {
-                CmuxSpinner(tint: .secondary).controlSize(.mini)
-                Text(store.summary.status == .disconnected
-                     ? "Connecting to \(store.summary.macName)…"
-                     : "Updating…")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .glassEffect(.regular, in: .capsule)
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("agentChat.updatingHistory")
-            .allowsHitTesting(false)
+        if let line = store.connectionLine {
+            Text(verbatim: line)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .accessibilityIdentifier("agentChat.connectionLine")
+                .allowsHitTesting(false)
+                .transition(.opacity)
         }
     }
 }
@@ -670,7 +734,7 @@ struct AgentChatJumpButton: View {
                         }
                         .contentShape(.circle)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
                 .transition(.scale(scale: 0.85).combined(with: .opacity))
                 .accessibilityLabel("Jump to bottom")
             }
@@ -695,7 +759,6 @@ public struct AgentChatBottomStack: View {
     nonisolated private static let stackSpace = "AgentChatBottomStack"
     /// The composer field's focus (a UITextView that follows it both ways).
     @State private var composerFocused = false
-    @State private var retryCount = 0
 
     public init(store: AgentChatStore, surface: AgentChatSurface) {
         self.store = store
@@ -712,44 +775,22 @@ public struct AgentChatBottomStack: View {
         VStack(spacing: 12) {
             VStack(spacing: 12) {
                 if let error = store.clientError {
-                    if store.canRetryPrompt {
-                        HStack(spacing: 8) {
-                            Button {
-                                withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clientError = nil }
-                            } label: {
-                                Label(error, systemImage: "exclamationmark.circle")
-                                    .font(.footnote.weight(.semibold))
-                                    .foregroundStyle(.primary)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityHint("Dismiss")
-                            Button("Retry", systemImage: "arrow.clockwise") {
-                                retryCount += 1
-                            }
+                    // One symbol, no Retry: the draft is back in the composer, so Send retries it.
+                    Button {
+                        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clientError = nil }
+                    } label: {
+                        Label(error, systemImage: "exclamationmark.circle")
                             .font(.footnote.weight(.semibold))
-                            .buttonStyle(.plain)
-                            .disabled(surface.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && surface.attachments.isEmpty)
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 9)
-                        .glassEffect(.regular, in: .capsule)
-                        .transition(.opacity.combined(with: .offset(y: 8)))
-                    } else {
-                        Button {
-                            withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { store.clientError = nil }
-                        } label: {
-                            Label(error, systemImage: "exclamationmark.circle")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.primary)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 9)
-                        }
-                        .buttonStyle(.plain)
-                        .glassEffect(.regular, in: .capsule)
-                        .transition(.opacity.combined(with: .offset(y: 8)))
-                        .accessibilityHint("Dismiss")
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
                     }
+                    .buttonStyle(.cmuxPressFill)
+                    .glassEffect(.regular, in: .capsule)
+                    .transition(.opacity.combined(with: .offset(y: 8)))
+                    .accessibilityHint("Dismiss")
                 }
+                AgentChatConnectionLine(store: store)
                 // Pinned plan progress while a turn runs (ACP web UI parity).
                 if let progress = store.runningPlan, let entries = store.runningPlanEntries {
                     PlanProgressBar(progress: progress, entries: entries)
@@ -788,7 +829,6 @@ public struct AgentChatBottomStack: View {
                                  placeholderOverride: replying ? "Tell \(store.summary.agentName) what to do instead" : nil,
                                  denyingPermission: replying,
                                  suggestionsCeiling: surface.stackCeiling.map { $0 + composerOffset },
-                                 retryCount: retryCount,
                                  cmuxCommands: CmuxSlashCommand.allCases.filter { $0 != .fork || surface.tabActions != nil },
                                  runCmuxCommand: { [surface, store] command, args in
                                      await surface.run(command, args: args, store: store)
@@ -811,11 +851,21 @@ public struct AgentChatBottomStack: View {
                 if reportedHeight != frame.height {
                     // Interpolated on the composer's spring (`.cmuxMobileSmooth`):
                     // the reporter below hands the transcript every frame.
-                    if reportedHeight == 0 || store.placeBottomStackInstantly {
+                    let spring = Animation.cmuxMobileSmooth.unlessReduceMotion
+                    if reportedHeight == 0 || store.placeBottomStackInstantly || spring == nil {
                         store.placeBottomStackInstantly = false
                         reportedHeight = frame.height
+                        // Not animated (the first height, an instant placement, or Reduce
+                        // Motion), so `DrawnHeightReporter` gets no frame for it and its onAppear
+                        // ran at 0: hand the height over here. Without it a tab's jump-to-bottom
+                        // circle stayed on the dock guide's 96 pt default, 40 pt above a 56 pt
+                        // composer, until some later animated change (CMUX-10).
+                        if frame.height > 0 {
+                            surface.drawnStackHeight = frame.height
+                            surface.stackHeightFrame?(frame.height)
+                        }
                     } else {
-                        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { reportedHeight = frame.height }
+                        withAnimation(spring) { reportedHeight = frame.height }
                     }
                 }
             }
@@ -965,7 +1015,8 @@ struct UserBubble: View {
             bubbleText
                 .padding(.horizontal, 16)
                 .padding(.vertical, 11)
-                .background(Color.cmuxMobileBubble, in: .rect(cornerRadius: 20, style: .continuous))
+                .foregroundStyle(Color.cmuxMobileChatBubbleText.map(AnyShapeStyle.init) ?? AnyShapeStyle(.primary))
+                .background(Color.cmuxMobileChatBubble, in: .rect(cornerRadius: 20, style: .continuous))
                 .contentShape(.contextMenuPreview, .rect(cornerRadius: 20, style: .continuous))
                 .contextMenu {
                     Section(AgentTurn.menuTimestamp(promptAt)) {
@@ -981,9 +1032,13 @@ struct UserBubble: View {
                     }
                 }
         }
-        .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.8 }
+        .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in Self.maxWidth(in: width) }
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
+
+    /// 80% of the column, at most 560 pt: on an unfolded foldable's wide screen 80% would
+    /// run a prompt's lines across most of it. The native row measures with the same rule.
+    nonisolated static func maxWidth(in column: CGFloat) -> CGFloat { min(column * 0.8, 560) }
 }
 
 extension UserBubble {

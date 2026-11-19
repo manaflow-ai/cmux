@@ -27,6 +27,9 @@ import Testing
     static let windowCornerRadius: CGFloat = 16
 
     private func load(_ style: ChromeStyle?, density: Density) {
+        // These sweeps check the tab pill's geometry in every style; the flush corner, the default over
+        // flat and default chrome, has its own (`CornerFlushTests`).
+        MainPaneGutterSuites.pinsCornerFlushOff(style != nil)
         let appearance: JSONValue = style.map { .object(["chromeStyle": .string($0.rawValue)]) } ?? .object([:])
         let snapshot = CmuxConfigSnapshot.parse(.object(["appearance": appearance]), validDensities: SettingsApplier.validDensities,
                                                 validMetrics: SettingsApplier.validMetrics)
@@ -86,8 +89,7 @@ import Testing
 
     nonisolated static let variants: [(ChromeStyle, Density)] = ChromeStyle.allCases.flatMap { style in Density.allCases.map { (style, $0) } }
 
-    /// The first pill sits as far from the card's side as from its top (`PaneChromeEvenInsetTests`),
-    /// and its corner is concentric with the card it sits in, in every window style: the card's radius
+    /// The first pill keeps the strip's end gap before it (`PaneChromeEvenInsetTests`), and its corner is concentric with the card it sits in, in every window style: the card's radius
     /// less the inset, at most half the tab (Lawrence 2026-11-04: "all nested radius everywhere ...
     /// must be concentric, where inner radius is outer minus padding"). It was Helium's fixed 8 pt in
     /// the curved main pane's 14 pt card 2 pt away, where concentric is 12.
@@ -98,12 +100,28 @@ import Testing
         guard let cardRadius = Self.enclosingCardRadius() else { return }
         let scene = Self.scene()
         defer { scene.window.close() }
-        let inset = scene.pill.minY - scene.card.minY
+        // The radius is one token for every screen, concentric with the inset on the 2x grid (`Metrics.tabStripCardInset`).
+        // On a 1x screen the pill's gap snaps down a half point (2.5 to 2 at Compact, 3.5 to 3 at Comfortable; #44449 made
+        // those gaps half points), a half pixel no radius can show, so the measured gap is held to that one pixel and the
+        // concentric radius reads the design inset, not the snapped one.
+        let measured = scene.pill.minY - scene.card.minY
+        let inset = Metrics.tabStripCardInset
+        let scale = scene.window.backingScaleFactor
+        #expect(measured <= inset + 0.01 && inset - measured < 1 / scale + 0.01,
+                "\(style) \(density) @\(scale)x: the pill is \(measured) pt from the card's top, the design inset is \(inset) pt")
         let leading = scene.pill.minX - scene.card.minX
-        #expect(abs(inset - leading) <= 0.01, "\(style) \(density): the pill is \(leading) pt from the side, \(inset) pt from the top")
+        // Lucas 2026-11-15: the first pill keeps the strip's one end gap at every density (`Metrics.tabStripEndGap`).
+        let stripLeading = scene.strip.convert(scene.strip.bounds, to: scene.host).minX - scene.card.minX
+        let endGap = TabStripMetrics().endGap(scale: scene.window.backingScaleFactor)
+        #expect(abs(leading - stripLeading - endGap) <= 0.01, "\(style) \(density): the pill is \(leading) pt from the side")
         let cell = try #require(scene.firstCell)
         let radius = cell.backgroundLayer.cornerRadius
-        let concentric = min(max(0, cardRadius - inset), Metrics.tabHeight / 2)
+        var concentric = min(max(0, cardRadius - inset), Metrics.tabHeight / 2)
+        // A card capped at the window's radius cannot round as far as the tab's proportional corner needs; the tab then
+        // keeps one roundness at every density (Lucas 2026-11-13 and 2026-11-14) instead of flattening to the card.
+        if Metrics.usesChromeRowCorner, Metrics.chromeTabCornerRadius + inset > cardRadius + 0.01 {
+            concentric = min(Metrics.chromeTabCornerRadius, Metrics.tabHeight / 2)
+        }
         #expect(abs(radius - concentric) <= 0.01,
                 "\(style) \(density): the tab's radius is \(radius) pt in a \(cardRadius) pt card \(inset) pt away; concentric is \(concentric) pt")
     }

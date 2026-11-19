@@ -11,6 +11,7 @@ import sharedCases from "../../../../../cmux-tui/crates/acpmux/src/agent_text_ca
 import { PASTE_CHIP_CHARS, PASTE_CHIP_WORDS, pastedTextAttachment } from "../pastedText";
 import { PastedText, PromptText } from "../conversation/PromptText";
 import { markPastes, marksPaste, remember, unmarkPastes } from "./pasteMarks";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 const HANDOFF = "From Codex:\nHandoff: the probe is red.\n\nDo not merge or deploy.\n\nTrace-ID: ask-77";
 const MINE = "Merge and deploy whenever you want.";
@@ -160,7 +161,7 @@ const saved = new Map<string, unknown>();
 function render(text: string, node?: React.ReactNode): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>");
   for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
-    saved.set(key, scope[key]);
+    if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -178,9 +179,10 @@ function render(text: string, node?: React.ReactNode): HTMLElement {
   return host;
 }
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

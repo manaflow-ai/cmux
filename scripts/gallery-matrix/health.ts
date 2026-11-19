@@ -25,9 +25,16 @@
 // their line, gap tokens, menu label columns, row heights and widths. A violation the row does not
 // list fails, when every run shows it; a state with no row only warns.
 //
+// The first render runs --concurrency cases at once (default: one per CPU), each worker with its
+// own browser: rendered one at a time, a shard's ~1,400 cases took ~23 minutes. Budgets are CPU
+// time, so a busy runner does not stretch them. The renders again (the retries) run one at a time,
+// so a state that broke, ran slow or shifted only because its neighbours loaded the runner is
+// judged again on a quiet one.
+//
 //   CMUX_GALLERY_IN_VM=1 bun health.ts --manifest m.json --gallery-dir ../../webviews/dist/gallery
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { appendFileSync } from "node:fs";
+import { availableParallelism } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { type Timing, BUDGETS_PATH, fastest, lowerable, overBudget, readBudgets, readyTimes } from "./ready-budgets";
@@ -145,6 +152,7 @@ async function main(): Promise<void> {
       retries: { type: "string", default: "2" },
       "shard-count": { type: "string", default: "1" },
       "shard-index": { type: "string", default: "0" },
+      concurrency: { type: "string", default: String(availableParallelism()) },
     },
   });
   if (!values.manifest || !values["gallery-dir"]) throw new Error("--manifest and --gallery-dir are required");
@@ -159,8 +167,10 @@ async function main(): Promise<void> {
   const cases = shardCases(all, Number(values["shard-count"]), Number(values["shard-index"]));
   const outputDir = resolve(values["output-dir"]);
   await mkdir(outputDir, { recursive: true });
+  const concurrency = Number(values.concurrency);
+  if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error("--concurrency must be a positive integer");
   const run = (manifest: string, attempt: number) =>
-    runLocal({ manifest, galleryDir: values["gallery-dir"]!, outputDir: join(outputDir, `attempt-${attempt}`), threshold: 0, engines, shardCount: 1, shardIndex: 0 });
+    runLocal({ manifest, galleryDir: values["gallery-dir"]!, outputDir: join(outputDir, `attempt-${attempt}`), threshold: 0, engines, shardCount: 1, shardIndex: 0, concurrency: attempt === 0 ? concurrency : 1 });
 
   const shard = join(outputDir, "shard.json");
   await writeFile(shard, JSON.stringify(cases));

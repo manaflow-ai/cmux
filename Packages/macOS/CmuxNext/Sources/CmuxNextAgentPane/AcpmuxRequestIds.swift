@@ -10,10 +10,11 @@ import CmuxNextCompat
 /// have no id to rewrite, so the original text is forwarded after the duplicate-key check; only
 /// notifications that feed a host-side observer are parsed.
 nonisolated final class AcpmuxRequestIds: Sendable {
-    private static let observedNotificationMethods = [
+    /// Notifications a host observer reads (``toPage(_:)``); never shed (``AcpmuxPaneShedding``).
+    static let observedNotificationMethods = [
         "_acpmux/prompt_accepted", "_acpmux/event", "_acpmux/permission_pending",
     ]
-    private static let eventObserverMarkers = [
+    static let eventObserverMarkers = [
         "\"permission_request\"", "\"permission_reissued\"", "\"permission_decision\"",
     ]
 

@@ -10,6 +10,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "./model";
 import type { Participant } from "./multiplayer/participants";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const CY: Participant = { id: "guest:sh-1.g-1", name: "Cy Park" };
 const ASK = "Could it also retry on 429?\nAnd honor Retry-After.";
@@ -23,6 +24,7 @@ const KEYS = ["window", "document", "navigator", "Node", "HTMLElement", "Element
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved)

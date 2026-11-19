@@ -23,6 +23,12 @@ extension SettingDescriptor {
         if path == CustomDensitiesSetting.configPath { return CustomDensitiesSetting.accepts(value) }
         if path == CommandLabelsSetting().configPath { return CommandLabelsSetting.accepts(value) }
         if path == ThemeFileSetting.configPath { return value.stringValue.map(ThemeFileSetting.isValidName) ?? false }
+        if path == BackdropSelectionSetting.lightPath || path == BackdropSelectionSetting.darkPath {
+            return BackdropSelectionSetting.acceptsPicture(value)
+        }
+        if path == BackdropSelectionSetting.schedulePath { return BackdropSelectionSetting.acceptsSchedule(value) }
+        if path == BackdropSelectionSetting.locationPath { return BackdropSelectionSetting.acceptsLocation(value) }
+        if path == NewTabAppSetting.configPath { return value.stringValue.map(NewTabAppSetting.isValidID) ?? false }
         if path == ChatSettings.rootsPath {
             guard let items = value.arrayValue else { return false }
             let validator = ChatRootValidator()

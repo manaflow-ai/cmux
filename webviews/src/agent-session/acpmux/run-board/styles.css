@@ -47,7 +47,7 @@
 .run-board-workspace-toolbar strong { font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); }
 .run-board-workspace-toolbar > div:first-child > span { font-size: var(--text-caption); color: var(--page-text-3); letter-spacing: var(--text-caption--letter-spacing); }
 .run-board-tabs { display: flex; gap: 2px; padding: 3px; border: 0; margin: 0; border-radius: 6px; background: var(--page-hover); }
-.run-board-tabs button { padding: 5px 10px; border: 0; border-radius: 4px; background: transparent; font-size: var(--text-caption); color: var(--page-text-3); letter-spacing: var(--text-caption--letter-spacing); }
+.run-board-tabs button { padding: 5px 10px; border: 0; border-radius: var(--ds-radius-control); background: transparent; font-size: var(--text-caption); color: var(--page-text-3); letter-spacing: var(--text-caption--letter-spacing); }
 .run-board-tabs button[aria-pressed="true"] { background: var(--page-selection); color: var(--page-text); }
 .run-board-attach { display: flex; gap: 16px; padding: 6px 0 6px 12px; border: 0; background: transparent; font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
 .run-board-attach-status { display: block; margin: 8px 0 0; }
@@ -100,13 +100,13 @@
 .run-board-approval p { margin: 5px 0 0; font-size: var(--text-caption); color: var(--page-text-3); letter-spacing: var(--text-caption--letter-spacing); }
 .run-board-approval label { display: flex; align-items: center; gap: 7px; font-size: var(--text-caption); color: var(--page-text-2); letter-spacing: var(--text-caption--letter-spacing); }
 .run-board-approval input { margin: 0; }
-.run-board-approval > button { padding: 8px 12px; background: var(--page-text); color: var(--cmux-surface-solid, Canvas); border: 0; border-radius: 5px; font-size: var(--text-caption); font-weight: 500; letter-spacing: var(--text-caption--letter-spacing); }
+.run-board-approval > button { padding: 8px 12px; background: var(--page-text); color: var(--cmux-surface-solid, Canvas); border: 0; border-radius: var(--ds-radius-control); font-size: var(--text-caption); font-weight: 500; letter-spacing: var(--text-caption--letter-spacing); }
 .run-board-footnote { display: flex; justify-content: space-between; gap: 16px; margin-top: 14px; color: var(--page-text-3); font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
 .run-board-reconnect { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 12px 14px; margin-bottom: 16px; border: 1px solid var(--page-separator); border-radius: 6px; background: var(--page-hover); }
 .run-board-reconnect > div { display: flex; flex-direction: column; gap: 5px; }
 .run-board-reconnect strong { font-size: var(--text-detail); font-weight: 500; letter-spacing: var(--text-detail--letter-spacing); }
 .run-board-reconnect span { font-size: var(--text-caption); color: var(--page-text-3); letter-spacing: var(--text-caption--letter-spacing); }
-.run-board-reconnect button { border: 1px solid var(--page-separator); border-radius: 5px; background: transparent; padding: 7px 10px; font-size: var(--text-caption); white-space: nowrap; letter-spacing: var(--text-caption--letter-spacing); }
+.run-board-reconnect button { border: 1px solid var(--page-separator); border-radius: var(--ds-radius-control); background: transparent; padding: 7px 10px; font-size: var(--text-caption); white-space: nowrap; letter-spacing: var(--text-caption--letter-spacing); }
 [data-borders="none"] .run-board { --page-separator: transparent; }
 @media (max-width: 1000px) {
   .run-board { padding: 20px; }

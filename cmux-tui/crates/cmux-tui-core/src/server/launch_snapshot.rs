@@ -11,6 +11,13 @@
 //! (`settle` after the last one, `max_delay` after the first at the latest):
 //! one computed deadline per burst and no timer while idle. Each write goes
 //! to a temporary file that is renamed over the old one, owner-only.
+//!
+//! Each write is the whole file, so the writer has a byte budget
+//! (`max_bytes_per_second`): after a write it waits in proportion to the
+//! bytes it wrote, and a clean stop writes what that wait held back. A
+//! session whose snapshot is megabytes and whose tabs change state every few
+//! seconds then costs a bounded number of bytes an hour, not one whole file
+//! per change.
 
 use crate::panic_free::RecoverPoison;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -38,11 +45,22 @@ pub struct LaunchSnapshotTiming {
     /// Longest wait after the first unwritten change, so a terminal whose
     /// title changes all the time still gets its layout written.
     pub max_delay: Duration,
+    /// The most bytes a second the writer writes, on average: after a write
+    /// of `n` bytes the next one waits `n / max_bytes_per_second` seconds.
+    /// A small session keeps its snapshot seconds fresh; a session whose
+    /// snapshot is megabytes rewrites it every few minutes, not on every
+    /// change. A clean stop writes what the wait held back.
+    pub max_bytes_per_second: u64,
 }
 
 impl Default for LaunchSnapshotTiming {
     fn default() -> Self {
-        Self { settle: Duration::from_millis(500), max_delay: Duration::from_secs(3) }
+        Self {
+            settle: Duration::from_millis(500),
+            max_delay: Duration::from_secs(3),
+            // 56 MiB an hour at most; a 50 KB snapshot still follows a change in 3 s.
+            max_bytes_per_second: 16 * 1024,
+        }
     }
 }
 
@@ -53,6 +71,7 @@ pub struct LaunchSnapshotWriter {
     stop: Arc<AtomicBool>,
     events: Arc<Mutex<MuxEventReceiver>>,
     writes: Arc<AtomicU64>,
+    bytes: Arc<AtomicU64>,
     mux: Weak<Mux>,
     thread: Option<JoinHandle<()>>,
 }
@@ -65,6 +84,11 @@ impl LaunchSnapshotWriter {
     /// Completed writes, for tests and diagnostics.
     pub fn writes(&self) -> u64 {
         self.writes.load(Ordering::Acquire)
+    }
+
+    /// Bytes written to the file so far (a wakeup that changes nothing writes none).
+    pub fn bytes_written(&self) -> u64 {
+        self.bytes.load(Ordering::Acquire)
     }
 
     /// Stop the thread and wait for it.
@@ -109,11 +133,13 @@ pub fn start_launch_snapshot_writer_with(
     let path = directory.join(LAUNCH_SNAPSHOT_FILE);
     let stop = Arc::new(AtomicBool::new(false));
     let writes = Arc::new(AtomicU64::new(0));
+    let bytes = Arc::new(AtomicU64::new(0));
     let events = Arc::new(Mutex::new(mux.subscribe_launch_snapshot()));
     let weak = Arc::downgrade(mux);
     let thread_path = path.clone();
     let thread_stop = stop.clone();
     let thread_writes = writes.clone();
+    let thread_bytes = bytes.clone();
     let shared_events = events.clone();
     let mut thread_events = events.lock().recover_poison().clone();
     let thread =
@@ -125,6 +151,8 @@ pub fn start_launch_snapshot_writer_with(
                 Instant::now().checked_sub(timing.settle).unwrap_or_else(Instant::now);
             let mut retry = WRITE_RETRY_INITIAL;
             let mut retry_at: Option<Instant> = None;
+            // The earliest next write: the last write's size over the byte budget.
+            let mut budget_at: Option<Instant> = None;
             // The projections the last written snapshot left out (reported when it changes).
             let mut last_dropped: Vec<String> = Vec::new();
             loop {
@@ -136,14 +164,22 @@ pub fn start_launch_snapshot_writer_with(
                     let settled = last_change + timing.settle;
                     let latest = first + timing.max_delay;
                     let due = settled.min(latest);
-                    retry_at.map_or(due, |retry_at| due.max(retry_at))
+                    let due = retry_at.map_or(due, |retry_at| due.max(retry_at));
+                    budget_at.map_or(due, |budget_at| due.max(budget_at))
                 });
                 if let Some(due) = due
                     && now >= due
                 {
                     let Some(mux) = weak.upgrade() else { break };
                     match write_launch_snapshot(&mux, &thread_path) {
-                        Ok(dropped) => {
+                        Ok((dropped, written)) => {
+                            if written > 0 {
+                                budget_at = Some(
+                                    Instant::now()
+                                        + budget_wait(written, timing.max_bytes_per_second),
+                                );
+                            }
+                            thread_bytes.fetch_add(written as u64, Ordering::AcqRel);
                             if dropped != last_dropped {
                                 report_dropped_projections(&mux, &dropped);
                                 last_dropped = dropped;
@@ -188,6 +224,17 @@ pub fn start_launch_snapshot_writer_with(
                     }
                 }
             }
+            // A clean stop writes what the byte budget still held back, so a
+            // relaunch draws the last layout. Not when the file is gone (a
+            // stop that ends the session removed it).
+            if dirty_since.is_some()
+                && thread_path.exists()
+                && let Some(mux) = weak.upgrade()
+                && let Ok((_, written)) = write_launch_snapshot(&mux, &thread_path)
+            {
+                thread_bytes.fetch_add(written as u64, Ordering::AcqRel);
+                thread_writes.fetch_add(1, Ordering::AcqRel);
+            }
         })?;
     mux.set_launch_snapshot_path(Some(path.clone()));
     Ok(Some(LaunchSnapshotWriter {
@@ -195,9 +242,15 @@ pub fn start_launch_snapshot_writer_with(
         stop,
         events,
         writes,
+        bytes,
         mux: Arc::downgrade(mux),
         thread: Some(thread),
     }))
+}
+
+/// How long the writer waits after it wrote `written` bytes.
+fn budget_wait(written: usize, max_bytes_per_second: u64) -> Duration {
+    Duration::from_secs_f64(written as f64 / max_bytes_per_second.max(1) as f64)
 }
 
 fn launch_snapshot_value(mux: &Mux, include_projections: bool) -> anyhow::Result<Value> {
@@ -293,8 +346,9 @@ fn same_snapshot_on_disk(path: &Path, bytes: &[u8]) -> bool {
 }
 
 /// Writes the snapshot; returns the projections left out to fit its bound
-/// (`frontend/scope/subject`), empty when all fit.
-fn write_launch_snapshot(mux: &Mux, path: &Path) -> anyhow::Result<Vec<String>> {
+/// (`frontend/scope/subject`), empty when all fit, and the bytes written
+/// (0 when the file already holds this snapshot).
+fn write_launch_snapshot(mux: &Mux, path: &Path) -> anyhow::Result<(Vec<String>, usize)> {
     let mut value = launch_snapshot_value(mux, true)?;
     let mut bytes = serde_json::to_vec(&value)?;
     let mut dropped = Vec::new();
@@ -314,7 +368,7 @@ fn write_launch_snapshot(mux: &Mux, path: &Path) -> anyhow::Result<Vec<String>> 
     // Most wakeups change nothing the snapshot holds: the same contents (its write time aside)
     // are not written and synced again.
     if same_snapshot_on_disk(path, &bytes) {
-        return Ok(dropped);
+        return Ok((dropped, 0));
     }
     let directory = path.parent().context("launch snapshot path has no directory")?;
     let temporary = directory.join(format!("{LAUNCH_SNAPSHOT_FILE}.{}.tmp", std::process::id()));
@@ -336,7 +390,7 @@ fn write_launch_snapshot(mux: &Mux, path: &Path) -> anyhow::Result<Vec<String>> 
     if result.is_err() {
         let _ = std::fs::remove_file(&temporary);
     }
-    result.map(|()| dropped)
+    result.map(|()| (dropped, bytes.len()))
 }
 
 /// Removes native projections from `value`, largest first, until the
@@ -391,6 +445,10 @@ fn report_dropped_projections(mux: &Mux, dropped: &[String]) {
 #[cfg(test)]
 #[path = "launch_snapshot_size_tests.rs"]
 mod size_tests;
+
+#[cfg(test)]
+#[path = "launch_snapshot_budget_tests.rs"]
+mod budget_tests;
 
 #[cfg(test)]
 mod tests {
@@ -475,6 +533,7 @@ mod tests {
             LaunchSnapshotTiming {
                 settle: Duration::from_millis(50),
                 max_delay: Duration::from_millis(500),
+                max_bytes_per_second: u64::MAX,
             },
         )
         .unwrap()
@@ -551,6 +610,7 @@ mod tests {
             LaunchSnapshotTiming {
                 settle: Duration::from_millis(50),
                 max_delay: Duration::from_millis(500),
+                max_bytes_per_second: u64::MAX,
             },
         )
         .unwrap()
@@ -625,6 +685,7 @@ mod tests {
             LaunchSnapshotTiming {
                 settle: Duration::from_millis(50),
                 max_delay: Duration::from_millis(500),
+                max_bytes_per_second: u64::MAX,
             },
         )
         .unwrap()
@@ -675,6 +736,7 @@ mod tests {
             LaunchSnapshotTiming {
                 settle: Duration::from_millis(50),
                 max_delay: Duration::from_millis(500),
+                max_bytes_per_second: u64::MAX,
             },
         )
         .unwrap()
@@ -741,6 +803,7 @@ mod tests {
             LaunchSnapshotTiming {
                 settle: Duration::from_millis(250),
                 max_delay: Duration::from_secs(2),
+                max_bytes_per_second: u64::MAX,
             },
         )
         .unwrap()

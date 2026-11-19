@@ -7,16 +7,18 @@ it does not wait for nightly's tree publisher.
 """
 
 from pathlib import Path
+import sys
 import unittest
 
-import yaml
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 
 
 def jobs() -> dict:
-    return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+    return workflow_jobs.jobs(WORKFLOW)
 
 
 class DevDailyTreeWaitTests(unittest.TestCase):
@@ -26,7 +28,10 @@ class DevDailyTreeWaitTests(unittest.TestCase):
         for clause in ("inputs.dev_daily == true", "inputs.same_tree_sha == ''",
                        "needs.path_route.outputs.tree_state == 'deferred'"):
             self.assertIn(clause, wait["if"])
-        self.assertIn("ubuntu", wait["runs-on"])
+        cells = workflow_jobs.runs_on_cells(wait)
+        self.assertTrue(cells, "dev-daily-tree-wait has no runs-on, or a matrix value nothing resolves")
+        for runner in cells:
+            self.assertIn("ubuntu", runner)
         run = "\n".join(step.get("run", "") for step in wait["steps"])
         self.assertIn("scripts/cmux-next/wait-dev-daily-tree.sh", run)
 
@@ -50,7 +55,7 @@ class DevDailyTreeWaitTests(unittest.TestCase):
         compile_job = jobs()["cmux-scheme-compile"]
         self.assertIn("dev-daily-tree-wait", compile_job["needs"])
         self.assertIn("needs.dev-daily-tree-wait.outputs.tree_state == 'ready'", compile_job["if"])
-        self.assertIn("needs.dev-daily-tree-wait.outputs.tree_fetch_key", compile_job["env"]["CMUX_TUI_TREE_KEY"])
+        self.assertIn("needs.dev-daily-tree-wait.outputs.tree_fetch_key", workflow_jobs.resolve(compile_job).env["CMUX_TUI_TREE_KEY"])
 
     def test_a_dev_daily_run_leaves_no_same_tree_marker(self):
         steps = {step.get("name"): step for step in jobs()["path_route"]["steps"]}

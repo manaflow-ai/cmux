@@ -34,13 +34,14 @@ final class DeclarativePopupHost {
         self.isAppActive = isAppActive
         panel.isAppActive = isAppActive
         popup = NativePopupHost(panel: panel)
-        let scroll = NSScrollView()
+        popup.followsOpeningPress = true
+        let scroll = OverlayScrollView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         SystemScrollers.follow(scroll)
         content.autoresizingMask = [.width]
         scroll.documentView = content
-        surface = Glass.makeOverlayPanel(content: scroll, cornerRadius: PopupStyle.standard.cornerRadius)
+        surface = Glass.makeMenuPanel(content: scroll)
         surface.samplesBehindWindow = true
         panel.adoptPopupStyle(card: surface)
         popup.onDismiss = { [weak self] in
@@ -137,7 +138,7 @@ final class DeclarativePopupHost {
                                    height: content.contentHeight))
         content.layoutSubtreeIfNeeded()
         if opening { content.focusInitial() }
-        else if preserveKey { panel.makeKey() }
+        else if preserveKey { FocusRoute(.system, "a popup keeps its keys").makeKey(panel) }
         return ["shown": true, "popupId": next.id, "revision": next.revision,
                 "frame": [placed.frame.minX, placed.frame.minY, placed.frame.width, placed.frame.height]]
     }
@@ -189,7 +190,7 @@ final class DeclarativePopupHost {
         model = nil
         popup.hide()
         if let window = returnWindow, window.isVisible, let responder = returnResponder {
-            window.makeFirstResponder(responder)
+            FocusRoute(.system, "a popup hides: the keys go back").moveKeyboard(in: window, to: responder)
         }
     }
 

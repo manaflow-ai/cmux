@@ -81,7 +81,7 @@ import Testing
             defer { window.close() }
             let loose = try Self.row(list, Self.loose), member = try Self.row(list, Self.member)
             let looseX = Self.textX(list, loose)
-            #expect(looseX == list.frame(for: try #require(list.displayed.row(for: .workspace(Self.loose)))).minX + SidebarStyle.horizontalInset,
+            #expect(looseX == list.frame(for: try #require(list.displayed.row(for: .workspace(Self.loose)))).minX + SidebarStyle.contentInset,
                     "\(c.testDescription): an ungrouped title at \(looseX)")
             #expect(Self.textX(list, member) == looseX, "\(c.testDescription): member \(Self.textX(list, member)), ungrouped \(looseX)")
             // An icon sits where text would start; the title follows it, never under it.

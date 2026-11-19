@@ -16,10 +16,21 @@ import re
 import shutil
 import subprocess
 import tempfile
+import sys
 import unittest
 from pathlib import Path
 
 import yaml
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
@@ -174,7 +185,7 @@ def route_ctx(event, ref, generated, swift, targets, daemon, tree, marker, label
 class GeneratedFoldTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        cls.jobs = workflow_jobs.jobs(WORKFLOW)
         cls.daemon = cls.jobs["daemon-test"]
         cls.swift = cls.jobs["swift-test"]
         cls.generated = cls.jobs["generated-files"]
@@ -201,7 +212,7 @@ class GeneratedFoldTest(unittest.TestCase):
 
     def test_each_host_folds_exactly_where_path_routing_picks_it(self):
         for job_id in HOSTS:
-            self.assertEqual(self.jobs[job_id]["env"]["CMUX_NEXT_FOLD_GENERATED"],
+            self.assertEqual(workflow_jobs.resolve(self.jobs[job_id]).env["CMUX_NEXT_FOLD_GENERATED"],
                              "${{ needs.path_route.outputs.generated_host == '%s' }}" % job_id)
             self.assertIn("steps.generated-files-verdict.outputs.verdict", self.jobs[job_id]["outputs"]["generated_files"])
         self.assertIn("needs.path_route.outputs.generated_host == 'generated-files'", self.generated["if"])
@@ -246,7 +257,7 @@ class GeneratedFoldTest(unittest.TestCase):
                 "generated-files": runs["generated-files"],
             }
             folds = {job_id: runs[job_id]
-                     and Expr(self.jobs[job_id]["env"]["CMUX_NEXT_FOLD_GENERATED"], ctx).value() is True
+                     and Expr(workflow_jobs.resolve(self.jobs[job_id]).env["CMUX_NEXT_FOLD_GENERATED"], ctx).value() is True
                      for job_id in HOSTS}
             ctx["needs"]["swift-test"] = {"result": "success" if runs["swift-test"] else "skipped"}
             ctx["needs"]["daemon-test"] = {"result": "success" if runs["daemon-test"] else "skipped"}
@@ -328,7 +339,11 @@ class GeneratedFoldTest(unittest.TestCase):
                 self.assertTrue(ours["continue-on-error"])
                 self.assertEqual(ours["run"], theirs["run"])
                 self.assertEqual(ours.get("id"), theirs.get("id"))
-            self.assertEqual(self.step(host, CHECKS[0])["env"], {"CMUX_ACTION_SURFACES_SKIP_BUILD": "1"})
+            # CMUX_NEXT_JOB_BUILT=plain: the judge keeps this job's build aside and puts it back after the
+            # base export, instead of rebuilding HEAD (judge-action-exports.sh).
+            for job in (host, self.generated):
+                self.assertEqual(self.step(job, CHECKS[0])["env"],
+                                 {"CMUX_ACTION_SURFACES_SKIP_BUILD": "1", "CMUX_NEXT_JOB_BUILT": "plain"})
 
     def test_the_hosts_give_a_verdict_after_their_suites_and_never_fail_on_it(self):
         for host, suites in ((self.daemon, "Run the live-daemon suites"),
@@ -351,7 +366,7 @@ class GeneratedFoldTest(unittest.TestCase):
     def test_the_verdict_job_fails_a_stale_file_or_a_missing_verdict(self):
         self.assertEqual(self.verdict["needs"], ["path_route", "swift-test", "daemon-test"])
         self.assertTrue(self.verdict["name"].startswith("cmux-next generated files"))
-        self.assertNotIn("macos", self.verdict["runs-on"])
+        self.assertNotIn("macos", workflow_jobs.single_runs_on(self.verdict))
         run = self.verdict["steps"][0]["run"]
         self.assertIn("fresh)", run)
         self.assertEqual(run.count("exit 1"), 3)

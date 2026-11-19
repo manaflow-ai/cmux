@@ -22,7 +22,13 @@ sys.path.insert(0, str(ROOT / "tests"))
 import owned_build_state as state  # noqa: E402
 import warm_distance as wd  # noqa: E402
 import warm_model_refit as refit_job  # noqa: E402
-import git_fixture_env  # noqa: E402,F401  (disables git auto maintenance)
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 NOW = dt.datetime(2026, 9, 26, 3, 0, tzinfo=dt.timezone.utc)
 ROOT_LABEL = "glaeda-root-std-xcode-26.6"

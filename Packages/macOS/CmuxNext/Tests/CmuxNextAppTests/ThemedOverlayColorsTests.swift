@@ -58,8 +58,11 @@ import Testing
 
     @Test func homeSheetNotesDrawInTheTheme() throws {
         let scope = try Self.purpleRoom()
-        let invite = HomeTeamInviteSheet(team: "Acme", prefill: "ada@example.com", requestedByAgent: true)
-        for root in [invite.view] {
+        let invite = HomeInviteSheet(pending: ["ada@example.com"])
+        // New Message is a page now: its To: field's label and its suggestions' note.
+        let to = HomeRecipientField(frame: NSRect(x: 0, y: 0, width: 480, height: 44))
+        to.suggestions.show([], empty: "No teammates yet.")
+        for root in [invite.view, to, to.suggestions] {
             scope.root(root)
             for label in Self.labels(in: root) {
                 #expect(Self.isThemeInk(label.textColor, scope), "\(label.stringValue)")
@@ -75,7 +78,7 @@ import Testing
         // A native card's choice picker (Move Tab's window list); cmux dialogs themselves draw on the overlay page.
         let picker = ThemedPopUpButton(frame: .zero, pullsDown: false)
         picker.addItem(withTitle: "Window A")
-        let invite = HomeTeamInviteSheet(team: "Acme")
+        let invite = HomeInviteSheet(pending: [])
         let views: [NSView] = [settings, restart, placeholder, picker, invite.view]
         for view in views { scope.root(view) }
 

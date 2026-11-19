@@ -43,6 +43,30 @@ async fn repo_sync_write_waits_then_preserves_the_agent_edit() {
     assert_eq!(std::fs::read_to_string(cwd.join("source")).unwrap(), "agent edit");
 }
 
+/// A seed that is still running holds its lock: it is alive, however long it takes. A write
+/// waits for it (or for its failure, or a stop), never fails on a deadline while it runs (the
+/// timer rule: no deadline fails a request while the other side is alive). Before, a seed past
+/// 10 minutes refused the agent's write with "repository sync is still running".
+#[tokio::test(start_paused = true)]
+async fn repo_sync_a_write_waits_for_a_live_seed_past_ten_minutes() {
+    let (_dir, hub, session) = fixture();
+    let cwd = session.meta().cwd;
+    let sync = Sync::begin(&cwd).unwrap();
+    let epoch = session.permission_epoch.load(Ordering::SeqCst);
+    let write = hub.handle_fs_write(
+        &session,
+        json!({"path":"source", "content":"agent edit"}),
+        epoch,
+        None,
+    );
+    tokio::pin!(write);
+    let early = tokio::time::timeout(Duration::from_secs(11 * 60), &mut write).await;
+    assert!(early.is_err(), "a live seed's wait ended after 11 minutes: {early:?}");
+    sync.complete().unwrap();
+    tokio::time::timeout(Duration::from_secs(2), &mut write).await.unwrap().unwrap();
+    assert_eq!(std::fs::read_to_string(cwd.join("source")).unwrap(), "agent edit");
+}
+
 #[tokio::test]
 async fn repo_sync_failure_and_stop_never_allow_a_write() {
     for cancelled in [false, true] {
@@ -147,4 +171,48 @@ async fn repo_sync_head_holds_a_running_agent_that_does_not_gate_its_tools() {
     sync.complete().unwrap();
     let handed = tokio::time::timeout(Duration::from_secs(2), &mut prompt).await.unwrap().unwrap();
     assert!(Arc::ptr_eq(&handed, &child));
+}
+
+/// A running Claude Code agent gates every tool on the sync itself (its translator's
+/// `cmux-repo-sync` callback): at the head it is handed out at once, so `session/new`'s
+/// `set_model`/`set_mode` steps never wait for the whole copy. Under a host the same holds
+/// (`tests/agent_host/claude_record.rs`: its record says it runs the translator).
+#[tokio::test]
+async fn repo_sync_head_hands_out_a_running_claude_agent() {
+    let (_dir, hub, session) = fixture();
+    let cwd = session.meta().cwd;
+    let profile: crate::config::HarnessProfile =
+        serde_json::from_value(json!({"argv": ["/bin/sh"]})).unwrap();
+    let (inbound, _rx) = tokio::sync::mpsc::channel(16);
+    let tap: crate::agent::Tap = Arc::new(|_, _, _| true);
+    let tr = crate::claude_stdio::Translator::new("acp-1".into(), "default", "haiku", "default");
+    let command = Some(("/bin/sh".to_owned(), vec!["-c".to_owned(), "exec sleep 30".to_owned()]));
+    let child = crate::agent::ChildAgent::spawn_with(
+        "claude",
+        &profile,
+        &cwd,
+        inbound,
+        tap,
+        command,
+        Some(tr),
+        None,
+    )
+    .await
+    .unwrap();
+    assert!(super::super::repo_sync::child_gates_its_tools(&child));
+    *session.child.lock().await = Some(child.clone());
+    let mut sync = Sync::begin(&cwd).unwrap();
+    sync.head_ready();
+    let stops = session.stops.load(Ordering::SeqCst);
+    let prompt = hub.child_for_since(&session, stops);
+    let handed = tokio::time::timeout(Duration::from_secs(2), prompt).await.unwrap().unwrap();
+    assert!(Arc::ptr_eq(&handed, &child), "a Claude agent is handed out at the head");
+    // Its tools still wait: a write through the daemon holds until the fill completes.
+    let epoch = session.permission_epoch.load(Ordering::SeqCst);
+    let write = hub.handle_fs_write(&session, json!({"path":"f", "content":"x"}), epoch, None);
+    tokio::pin!(write);
+    assert!(tokio::time::timeout(Duration::from_millis(150), &mut write).await.is_err());
+    sync.complete().unwrap();
+    tokio::time::timeout(Duration::from_secs(2), &mut write).await.unwrap().unwrap();
+    child.terminate(Duration::from_millis(500)).await;
 }

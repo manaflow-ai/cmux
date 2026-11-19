@@ -1,0 +1,10 @@
+# Read by every cargo command run inside this repository (cargo looks for .cargo/config.toml from the
+# current folder upward), so it covers the cmux-tui release package, the nightly, the fleet DEV build,
+# the app's cmux-tui and FFI builds and the Linux/Windows cross builds alike.
+[env]
+# The bundled SQLite (libsqlite3-sys, feature "bundled") is built with SQLITE_ENABLE_MEMORY_MANAGEMENT.
+# That puts the page caches of all connections of a process in one group behind one global mutex: the
+# daemon's concurrent registry readers (tab.list) spent about 70% of their time waiting for it
+# (2026-11-14 profile). Without it each connection keeps its own page cache. Nothing here calls
+# sqlite3_release_memory or a heap limit, the only users of that option.
+LIBSQLITE3_FLAGS = "-USQLITE_ENABLE_MEMORY_MANAGEMENT"

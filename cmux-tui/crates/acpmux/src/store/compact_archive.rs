@@ -287,8 +287,12 @@ mod other {
     impl Archive {
         pub(in crate::store) fn create(root: &Path, id: &str, pass: &str) -> Result<Self> {
             let pass = &root.join(id).join(pass);
-            anyhow::ensure!(!pass.exists(), "archive folder {} already exists", pass.display());
-            std::fs::create_dir_all(pass.parent().unwrap_or(pass))?;
+            anyhow::ensure!(
+                !crate::home_fs::try_exists_nofollow(pass)?,
+                "archive folder {} already exists",
+                pass.display()
+            );
+            crate::home_fs::create_dirs(pass.parent().unwrap_or(pass))?;
             crate::config::private_state_dir(pass)?;
             crate::config::private_state_dir(&pass.join("events"))?;
             Ok(Self { pass: pass.to_path_buf() })
@@ -302,8 +306,8 @@ mod other {
         ) -> Result<()> {
             let dir = if in_events { self.pass.join("events") } else { self.pass.clone() };
             let to = dir.join(from.file_name().unwrap_or_default());
-            if copy || std::fs::hard_link(from, &to).is_err() {
-                std::fs::copy(from, &to)?;
+            if copy || crate::home_fs::hard_link(from, &to).is_err() {
+                crate::home_fs::copy(from, &to)?;
                 std::fs::File::open(&to)?.sync_all()?;
             }
             Ok(())

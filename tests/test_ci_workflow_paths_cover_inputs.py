@@ -23,6 +23,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import workflow_paths_cover_inputs as detector  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 # (workflow, event) -> why its filter deliberately leaves out inputs of the tests it runs. Each needs a reason; an
 # entry with no gap left behind it fails.
@@ -40,7 +47,7 @@ def guard_router():
     a change to `path` every time `event` starts the workflow.
 
     cmux-next-guards runs for feat-cmux-next pull requests and pushes only, so it covers an event only when that
-    event is limited to feat-cmux-next; a push run leaves out release-notary (it runs in nightly-guards)."""
+    event is limited to feat-cmux-next. A push run routes every group, release-notary included."""
     import detect_linux_guard_changes  # noqa: PLC0415 - scripts/ci, the router
     import run_ci_guards  # noqa: PLC0415
 
@@ -65,8 +72,6 @@ def guard_router():
         key = (path, event)
         if key not in cache:
             groups = set(run_ci_guards.FAST_GROUPS) | set(detect_linux_guard_changes.classify_feat([path]))
-            if event == "push":
-                groups.discard("release-notary")
             cache[key] = set().union(*(tests.get(group, set()) for group in groups))
         return test in cache[key]
 

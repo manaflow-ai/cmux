@@ -17,6 +17,9 @@
 //!   one connection or whose caller reads its reply on that connection, nor one forwarded for
 //!   another client (`via`). A cancel's own part on each connection (the preparations made
 //!   there) runs on both copies (`requests::cancel_on_connection`).
+//! - A client's `$/cancel_request` of either copy ([`cancel`], review F1 of #41285) stops the
+//!   copy that runs, whichever connection it runs on: that copy answers -32800 on its own
+//!   connection, and a copy that arrives later takes that answer and never runs.
 //!
 //! Bounded: at most [`MOST`] keys, each kept [`KEEP_FOR`] after its answer; the oldest go first.
 
@@ -26,7 +29,7 @@ use std::collections::{HashMap, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
-use tokio::sync::watch;
+use tokio::sync::{oneshot, watch};
 
 /// The principal of a peer daemon's own link (`Conn::dual_principal`): its peer token is the
 /// proof, and every holder of it is the same principal.
@@ -59,6 +62,9 @@ pub(super) enum Seen {
 pub(super) struct First {
     key: Key,
     tx: watch::Sender<Option<Outcome>>,
+    /// Fires when a cancel of any copy stops this one ([`cancel`]); taken by the task that
+    /// runs it ([`First::take_stop`]).
+    stop: Option<oneshot::Receiver<()>>,
 }
 
 impl First {
@@ -66,12 +72,18 @@ impl First {
         self.tx.send_replace(Some(outcome));
         if let Some(entry) = book().entries.get_mut(&self.key) {
             entry.done_at = Some(Instant::now());
+            entry.stop = None;
         }
+    }
+
+    /// What tells the running copy that a cancel of either copy stopped it.
+    pub(super) fn take_stop(&mut self) -> Option<oneshot::Receiver<()>> {
+        self.stop.take()
     }
 }
 
 /// An entry's key: the principal that sent it and its `dualId`.
-type Key = (String, String);
+pub(crate) type Key = (String, String);
 
 struct Entry {
     tx: watch::Sender<Option<Outcome>>,
@@ -80,6 +92,8 @@ struct Entry {
     done_at: Option<Instant>,
     /// Copies that arrived under this key.
     copies: u32,
+    /// Stops the first copy while it runs ([`cancel`]); gone once it finished.
+    stop: Option<oneshot::Sender<()>>,
 }
 
 #[derive(Default)]
@@ -197,10 +211,11 @@ impl Book {
             return Some(Seen::Repeat(entry.tx.subscribe()));
         }
         let tx = watch::Sender::new(None);
-        let entry = Entry { tx: tx.clone(), digest, done_at: None, copies: 1 };
+        let (stop, stopped) = oneshot::channel();
+        let entry = Entry { tx: tx.clone(), digest, done_at: None, copies: 1, stop: Some(stop) };
         self.entries.insert(key.clone(), entry);
         self.order.push_back(key.clone());
-        Some(Seen::First(First { key, tx }))
+        Some(Seen::First(First { key, tx, stop: Some(stopped) }))
     }
 }
 
@@ -208,6 +223,14 @@ impl Book {
 /// repeat waits on the first. None: it runs as any request does.
 pub(super) fn admit((key, digest): (Key, u64)) -> Option<Seen> {
     book().admit(key, digest, Instant::now())
+}
+
+/// The client cancelled a copy of request `key` (`$/cancel_request` on the connection it came
+/// on): the copy that runs stops, on whichever connection, and answers -32800 there; a copy
+/// that arrives later takes that answer (review F1 of #41285). True when one was running.
+pub(super) fn cancel(key: &Key) -> bool {
+    let stop = book().entries.get_mut(key).and_then(|entry| entry.stop.take());
+    stop.is_some_and(|stop| stop.send(()).is_ok())
 }
 
 /// A notification with key and digest `seen` arrived: false for a repeat only.

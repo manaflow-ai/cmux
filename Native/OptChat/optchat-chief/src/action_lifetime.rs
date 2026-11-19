@@ -1,29 +1,27 @@
-//! Every Chief action has one of three lifetimes (Leo, 2026-11-10: "when I tell it to organize my
-//! workspace versus groups, you don't need to make a workspace for that ... Things eventually just
-//! expire. Do you need to keep track of the ongoing things? Sometimes you do if they're still
-//! running, but if they're not running, how often do you really need to keep prodding them?"):
+//! Every Chief action has one of two lifetimes, and no subagent is ever hidden (Aziz, relayed
+//! 2026-11-11: "Chief-made agents getting hidden quite often - cant find them in sidebar despite
+//! me telling it to always show agents in sidebar ... make chief can only make 2 types of
+//! workspaces, no hidden workspaces at all"):
 //!
-//! - [`Lifetime::Direct`]: one tool call that changes app state (organize, group, rename, move,
-//!   hide). The Chief does it in its own turn with the cmux workspace tools; it never makes a
-//!   workspace or a helper, so `spawn` refuses such a task.
-//! - [`Lifetime::Task`]: a helper that runs in the background with no workspace: a row in the
-//!   composer hat while it runs, a one-line result when it ends, then it expires from the hat
-//!   (the chat keeps it).
-//! - [`Lifetime::Workspace`]: only for something to watch or touch (an agent the person steers,
-//!   a terminal, a browser, a running app). It is [`Visibility::Shown`] when the person named it,
-//!   when it needs their input, or when it should run past [`LONG_RUN`]; otherwise it is
-//!   [`Visibility::Tucked`] into the collapsed [`TUCK_GROUP`] group and closes when its work ends.
+//! - [`Lifetime::Direct`]: one tool call that changes app state (organize, group, rename, move).
+//!   The Chief does it in its own turn with the cmux workspace tools; `spawn` refuses such a task.
+//! - [`Lifetime::Workspace`]: every subagent. Its workspace is one of two kinds:
+//!   [`Visibility::User`], a normal sidebar workspace (ungrouped, at the top below the pinned
+//!   rows) for work the person watches, joins or steers, UI and design, long builds, anything that
+//!   needs their input; or [`Visibility::Chief`], a workspace in the collapsed [`CHIEF_GROUP`]
+//!   group for lookups, status checks, land-queue followers and cleanups. The group is still
+//!   listed and searchable, so the person always finds it; nothing closes it on its own.
 //!
 //! [`route`] decides, in this order: an organize request is always Direct; then a preference the
-//! person told the Chief to remember (`## Learned` in `person.md`, `remember.rs`); then the
-//! Chief's own `Sidebar:` choice; then the words of the task (`sidebar_choice` rules). The
-//! person's sticky choice for a kind of work is a learned line too ("tuck review work away",
-//! "show me design work"), so it holds in every later host start. Pure: the spawner hands
-//! it the task, the learned lines and the rules.
+//! person told the Chief to remember (`## Learned` in `person.md`, `remember.rs`: "always show
+//! agents in the sidebar" makes every subagent a User workspace); then the person's
+//! `chief.subagentSidebar` setting; then the Chief's own `Sidebar:` choice; then the words of the
+//! task (`sidebar_choice` rules). Pure: the spawner hands it the task, the learned lines and the
+//! rules.
 //!
-//! Each Chief-made subagent carries a [`Made`] record (creator, lifetime, expiry), so one reaper
-//! ([`reap_due`]) closes what has expired. Only running ones are watched (sub_watch.rs: a stall is
-//! noted once per run); a finished one is never checked again.
+//! Each Chief-made subagent carries a [`Made`] record (creator, lifetime, kind). Only running ones
+//! are watched (sub_watch.rs: a stall is noted once per run); a finished one is never checked
+//! again.
 
 use std::time::Duration;
 
@@ -31,11 +29,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::sidebar_choice::{Mode, Requested, Rules};
 
-/// The sidebar group a tucked workspace joins, made collapsed when the sidebar has none.
-pub const TUCK_GROUP: &str = "Chief";
-/// A Workspace expected to run longer than this shows.
+/// The sidebar group of a [`Visibility::Chief`] workspace, made collapsed when the sidebar has
+/// none.
+pub const CHIEF_GROUP: &str = crate::workspaces::CHIEF_GROUP_NAME;
+/// A subagent expected to run longer than this is a [`Visibility::User`] workspace.
 pub const LONG_RUN: Duration = Duration::from_secs(10 * 60);
-/// How long a finished Task stays in the hat before it expires (the chat keeps it).
+/// How long a finished older background Task record stays in the hat (records made before every
+/// subagent got a workspace; none is routed there now).
 pub const HAT_TTL: Duration = Duration::from_secs(10 * 60);
 /// Who made a [`Made`] record.
 pub const CREATOR: &str = "chief";
@@ -45,6 +45,7 @@ pub const CREATOR: &str = "chief";
 #[serde(rename_all = "lowercase")]
 pub enum Lifetime {
     Direct,
+    /// Read from records saved before 2026-11-11 only: [`route`] never answers it.
     Task,
     Workspace,
 }
@@ -59,14 +60,25 @@ impl Lifetime {
     }
 }
 
-/// Where a Workspace sits in the sidebar.
+/// Which of the two kinds a subagent's workspace is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Visibility {
-    /// Ungrouped (or in the group its task names), in view.
-    Shown,
-    /// In the collapsed [`TUCK_GROUP`] group; it closes when its work ends.
-    Tucked,
+    /// A normal sidebar workspace, ungrouped (or in the group its task names), at the top.
+    #[serde(alias = "shown")]
+    User,
+    /// In the collapsed [`CHIEF_GROUP`] group: listed and searchable, never closed on its own.
+    #[serde(alias = "tucked")]
+    Chief,
+}
+
+impl Visibility {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Visibility::User => "user",
+            Visibility::Chief => "chief",
+        }
+    }
 }
 
 /// The decision for one task, with the reason the spawn answer gives.
@@ -79,21 +91,19 @@ pub struct Route {
 }
 
 impl Route {
-    /// This route as a shown Workspace (`why`), for a subagent only its own tab can serve.
+    /// This route as a User workspace (`why`), for a subagent only its own tab can serve.
     pub fn shown(self, why: &str) -> Route {
-        Route::workspace(Visibility::Shown, why.to_owned())
+        Route::workspace(Visibility::User, why.to_owned())
+    }
+
+    /// Whether this route puts the subagent in the [`CHIEF_GROUP`] group.
+    pub fn in_chief_group(&self) -> bool {
+        self.visibility == Some(Visibility::Chief)
     }
 
     fn direct(why: String) -> Route {
         Route {
             lifetime: Lifetime::Direct,
-            visibility: None,
-            why,
-        }
-    }
-    fn task(why: String) -> Route {
-        Route {
-            lifetime: Lifetime::Task,
             visibility: None,
             why,
         }
@@ -107,7 +117,7 @@ impl Route {
     }
 }
 
-/// What every Chief-made subagent carries, so one reaper cleans up after it.
+/// What every Chief-made subagent carries.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Made {
     /// Always [`CREATOR`].
@@ -115,9 +125,8 @@ pub struct Made {
     pub lifetime: Lifetime,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub visibility: Option<Visibility>,
-    /// When it expires (ms since the epoch): set when its work ends. A tucked workspace closes
-    /// then; a Task leaves the hat. None while it runs, and for a shown workspace, which the
-    /// person closes.
+    /// When an older background Task record leaves the hat (ms since the epoch). A workspace
+    /// never expires: the person closes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_ms: Option<u64>,
 }
@@ -132,25 +141,19 @@ impl Made {
         }
     }
 
-    pub fn tucked(&self) -> bool {
-        self.visibility == Some(Visibility::Tucked)
+    /// Whether its workspace sits in the [`CHIEF_GROUP`] group.
+    pub fn in_chief_group(&self) -> bool {
+        self.visibility == Some(Visibility::Chief)
     }
 
-    /// Sets the expiry when its work ends at `now_ms`: a tucked workspace at once, a Task after
-    /// [`HAT_TTL`]; a shown workspace never.
+    /// Sets the expiry when its work ends at `now_ms`: an older Task record after [`HAT_TTL`]; a
+    /// workspace never.
     pub fn ended(&mut self, now_ms: u64) {
-        self.expires_ms = match (self.lifetime, self.visibility) {
-            (Lifetime::Workspace, Some(Visibility::Tucked)) => Some(now_ms),
-            (Lifetime::Task, _) => Some(now_ms + HAT_TTL.as_millis() as u64),
+        self.expires_ms = match self.lifetime {
+            Lifetime::Task => Some(now_ms + HAT_TTL.as_millis() as u64),
             _ => None,
         };
     }
-}
-
-/// Whether the reaper closes the workspace of a subagent that carries `made` at `now_ms`: a
-/// tucked one whose work has ended.
-pub fn reap_due(made: Option<&Made>, has_workspace: bool, now_ms: u64) -> bool {
-    has_workspace && made.is_some_and(|m| m.tucked() && m.expires_ms.is_some_and(|at| at <= now_ms))
 }
 
 /// Verbs of an organize request.
@@ -334,7 +337,7 @@ const ROUTING_WORDS: &[&str] = &[
     "in the background",
 ];
 
-/// What a learned line asks for: a lifetime, and for a Workspace where it sits.
+/// What a learned line asks for: a lifetime, and for a Workspace which kind.
 fn preference_intent(line: &str) -> Option<(Lifetime, Option<Visibility>)> {
     let has = |w: &str| crate::sidebar_choice::mentions(line, w);
     if [
@@ -350,6 +353,8 @@ fn preference_intent(line: &str) -> Option<(Lifetime, Option<Visibility>)> {
     {
         return Some((Lifetime::Direct, None));
     }
+    // Before every subagent got a workspace, "in the background" and "no workspace" meant none;
+    // the nearest kind now is the Chief's own group.
     if [
         "in the background",
         "no workspace",
@@ -357,34 +362,43 @@ fn preference_intent(line: &str) -> Option<(Lifetime, Option<Visibility>)> {
         "don't make a workspace",
         "never make a workspace",
         "without a workspace",
+        "tuck",
+        "tucked",
+        "out of the way",
+        "collapsed",
+        "chief's workspaces",
+        "chief's group",
     ]
     .iter()
     .any(|w| has(w))
     {
-        return Some((Lifetime::Task, None));
-    }
-    if ["tuck", "tucked", "out of the way", "collapsed"]
-        .iter()
-        .any(|w| has(w))
-    {
-        return Some((Lifetime::Workspace, Some(Visibility::Tucked)));
+        return Some((Lifetime::Workspace, Some(Visibility::Chief)));
     }
     if [
         "show me",
         "let me watch",
         "keep it visible",
         "in the sidebar",
+        "in sidebar",
+        "always show",
+        "show agents",
+        "show subagents",
+        "show every",
+        "show all",
+        "visible",
     ]
     .iter()
     .any(|w| has(w))
     {
-        return Some((Lifetime::Workspace, Some(Visibility::Shown)));
+        return Some((Lifetime::Workspace, Some(Visibility::User)));
     }
     None
 }
 
 /// The first learned line (`- TEXT (learned DATE)`) that speaks to `text` (lowercase): its
-/// intent and the line. A line speaks to a task when the task names one of its topic words.
+/// intent and the line. A line speaks to a task when the task names one of its topic words; a
+/// line with no topic word that picks a workspace kind ("always show agents in the sidebar")
+/// speaks to every task.
 fn learned_for<'a>(
     text: &str,
     learned: &'a [String],
@@ -403,9 +417,15 @@ fn learned_for<'a>(
             return None;
         }
         let intent = preference_intent(&lower)?;
-        let topic = lower
+        let topic: Vec<&str> = lower
             .split(|c: char| !(c.is_alphanumeric() || c == '\''))
-            .filter(|w| w.len() >= 4 && !PREFERENCE_WORDS.contains(w));
+            .filter(|w| w.len() >= 4 && !PREFERENCE_WORDS.contains(w))
+            .collect();
+        // A general rule about where agents go; never a general "do it yourself", which would
+        // refuse every spawn.
+        if topic.is_empty() {
+            return (intent.0 == Lifetime::Workspace).then_some((intent, line));
+        }
         let stem = |w: &str| w.trim_end_matches('s').trim_end_matches("ing").to_owned();
         let matches = topic.into_iter().any(|w| {
             crate::sidebar_choice::mentions(text, w)
@@ -439,7 +459,8 @@ fn expected(task: &str) -> Option<Duration> {
 }
 
 /// The lifetime of spawn task `task` (with `requested`, its `Sidebar:` choice), after the
-/// person's `learned` profile lines and the sidebar `rules`.
+/// person's `learned` profile lines and the sidebar `rules`. Anything that is not an organize
+/// request is a Workspace, of the User or the Chief kind.
 pub fn route(task: &str, requested: Requested, learned: &[String], rules: &Rules) -> Route {
     let body = crate::sidebar_choice::body(task);
     let text = body.to_lowercase();
@@ -453,61 +474,65 @@ pub fn route(task: &str, requested: Requested, learned: &[String], rules: &Rules
         let why = format!("you told me: \"{line}\"");
         return match intent {
             (Lifetime::Direct, _) => Route::direct(why),
-            (Lifetime::Task, _) => Route::task(why),
-            (Lifetime::Workspace, visibility) => {
-                Route::workspace(visibility.unwrap_or(Visibility::Shown), why)
-            }
+            (_, visibility) => Route::workspace(visibility.unwrap_or(Visibility::User), why),
         };
     }
     // The person's mode (and the old show-all setting) wins over the Chief's own choice.
+    let mode_why = || format!("the setting {} is", crate::sidebar_choice::MODE_KEY);
     match rules.mode {
         Mode::Always => {
-            return Route::workspace(
-                Visibility::Shown,
-                format!("the setting {} is always", crate::sidebar_choice::MODE_KEY),
-            );
+            return Route::workspace(Visibility::User, format!("{} always", mode_why()));
         }
         Mode::Never => {
-            return Route::task(format!(
-                "the setting {} is never",
-                crate::sidebar_choice::MODE_KEY
-            ));
+            return Route::workspace(Visibility::Chief, format!("{} never", mode_why()));
         }
         Mode::Auto if rules.legacy_show_all => {
             let choice = crate::sidebar_choice::decide(task, requested, rules);
-            return Route::workspace(Visibility::Shown, choice.why);
+            return Route::workspace(Visibility::User, choice.why);
         }
         Mode::Auto => {}
     }
     match requested {
-        Requested::Shown => {
-            return Route::workspace(Visibility::Shown, "you asked for sidebar: shown".into());
+        Requested::User => {
+            return Route::workspace(Visibility::User, "you asked for sidebar: user".into());
         }
-        Requested::Hidden => return Route::task("you asked for sidebar: hidden".into()),
+        Requested::Chief => {
+            return Route::workspace(Visibility::Chief, "you asked for sidebar: chief".into());
+        }
         Requested::Auto => {}
     }
-    // The person's sidebar rules: their mode, the old show-all setting, the show and hide words
-    // and the length rule.
+    // A user word or a Chief word in the task decides first; then something the person
+    // watches, joins or steers, or a long run, is theirs to see; then the task's length.
     let choice = crate::sidebar_choice::decide(task, Requested::Auto, rules);
-    let long = expected(task).is_some_and(|d| d > LONG_RUN);
-    let watch = WATCH_WORDS
-        .iter()
-        .find(|w| crate::sidebar_choice::mentions(&text, w));
-    if choice.show || long {
-        let why = if long && !choice.show {
-            format!("it should run past {} min", LONG_RUN.as_secs() / 60)
+    if choice.by == crate::sidebar_choice::By::Word {
+        let kind = if choice.user {
+            Visibility::User
         } else {
-            choice.why
+            Visibility::Chief
         };
-        return Route::workspace(Visibility::Shown, why);
+        return Route::workspace(kind, choice.why);
     }
-    if let Some(w) = watch {
+    if expected(task).is_some_and(|d| d > LONG_RUN) {
         return Route::workspace(
-            Visibility::Tucked,
-            format!("auto: \"{w}\" is something to watch, but it is short, so it is tucked"),
+            Visibility::User,
+            format!("auto: it should run past {} min", LONG_RUN.as_secs() / 60),
         );
     }
-    Route::task(choice.why)
+    if let Some(w) = WATCH_WORDS
+        .iter()
+        .find(|w| crate::sidebar_choice::mentions(&text, w))
+    {
+        return Route::workspace(
+            Visibility::User,
+            format!("auto: \"{w}\" is something the user watches or joins"),
+        );
+    }
+    let kind = if choice.user {
+        Visibility::User
+    } else {
+        Visibility::Chief
+    };
+    Route::workspace(kind, choice.why)
 }
 
 /// The `## Learned` lines of profile text `person` (`remember.rs`).
@@ -551,7 +576,7 @@ mod tests {
         }
         // Even under the person's show-everything mode.
         let always = Rules::from_user(Some(&json!({"chief.subagentSidebar": "always"})), true);
-        let r = route("organize my workspaces", Requested::Shown, &[], &always);
+        let r = route("organize my workspaces", Requested::User, &[], &always);
         assert_eq!(r.lifetime, Lifetime::Direct);
     }
 
@@ -568,41 +593,62 @@ mod tests {
         assert_ne!(auto("sort the CSV by date").lifetime, Lifetime::Direct);
     }
 
+    fn kind(r: &Route) -> (Lifetime, Option<Visibility>) {
+        (r.lifetime, r.visibility)
+    }
+    const USER: (Lifetime, Option<Visibility>) = (Lifetime::Workspace, Some(Visibility::User));
+    const CHIEF: (Lifetime, Option<Visibility>) = (Lifetime::Workspace, Some(Visibility::Chief));
+
     #[test]
-    fn short_errands_are_background_tasks_and_big_or_input_work_shows() {
+    fn short_errands_go_to_the_chiefs_group_and_big_or_input_work_to_the_sidebar() {
         let r = auto("Title: PR check\nlook up the sha of the last nightly");
-        assert_eq!(r.lifetime, Lifetime::Task, "{r:?}");
-        let r = auto("Make 5 design variants of the hat");
-        assert_eq!(
-            (r.lifetime, r.visibility),
-            (Lifetime::Workspace, Some(Visibility::Shown))
-        );
+        assert_eq!(kind(&r), CHIEF, "{r:?}");
+        assert_eq!(kind(&auto("Make 5 design variants of the hat")), USER);
         let big = format!("Title: Rework\nRework the importer. {}", "word ".repeat(60));
-        assert_eq!(auto(&big).visibility, Some(Visibility::Shown));
+        assert_eq!(kind(&auto(&big)), USER);
         let r = auto("Expect: 45m\nrun the soak test");
-        assert_eq!(r.visibility, Some(Visibility::Shown), "{r:?}");
+        assert_eq!(kind(&r), USER, "{r:?}");
         assert!(r.why.contains("10 min"), "{r:?}");
-        assert_eq!(auto("Expect: 5m\nsay hi").lifetime, Lifetime::Task);
+        assert_eq!(kind(&auto("Expect: 5m\nsay hi")), CHIEF);
+        // A land-queue follower stays in the Chief's group even when it runs long.
+        let r = auto("Expect: 2h\nFollow landq entry 1234 until it lands");
+        assert_eq!(kind(&r), CHIEF, "{r:?}");
     }
 
     #[test]
-    fn something_short_to_watch_is_a_tucked_workspace() {
-        let r = auto("open a terminal and tail the server log");
-        assert_eq!(
-            (r.lifetime, r.visibility),
-            (Lifetime::Workspace, Some(Visibility::Tucked)),
-            "{r:?}"
-        );
-        let r = auto("start the dev server");
-        assert_eq!(r.visibility, Some(Visibility::Tucked));
-        // Named by the person: shown.
+    fn something_to_watch_or_join_is_a_user_workspace() {
+        assert_eq!(kind(&auto("open a terminal and tail the server log")), USER);
+        assert_eq!(kind(&auto("start the dev server")), USER);
         let r = route(
             "start the dev server",
-            Requested::Shown,
+            Requested::Chief,
             &[],
             &Rules::default(),
         );
-        assert_eq!(r.visibility, Some(Visibility::Shown));
+        assert_eq!(kind(&r), CHIEF, "the Chief's own choice holds");
+    }
+
+    #[test]
+    fn no_route_is_without_a_workspace() {
+        let never = Rules::from_user(Some(&json!({"chief.subagentSidebar": "never"})), false);
+        for (task, rules) in [
+            ("say hi", &Rules::default()),
+            ("Sidebar: hidden\nsay hi", &Rules::default()),
+            ("Make 5 design variants", &never),
+        ] {
+            let r = route(task, Requested::of_task(task), &[], rules);
+            assert_eq!(r.lifetime, Lifetime::Workspace, "{task}: {r:?}");
+            assert!(r.visibility.is_some(), "{task}: {r:?}");
+        }
+        assert_eq!(
+            kind(&route(
+                "Make 5 design variants",
+                Requested::Auto,
+                &[],
+                &never
+            )),
+            CHIEF
+        );
     }
 
     #[test]
@@ -617,17 +663,13 @@ mod tests {
         assert_eq!(r.lifetime, Lifetime::Direct, "{r:?}");
         assert!(r.why.contains("you told me"), "{r:?}");
         let big = format!("Run the benchmark suite. {}", "word ".repeat(60));
-        assert_eq!(go(&big).lifetime, Lifetime::Task);
         assert_eq!(
-            go("take screenshots of Home").visibility,
-            Some(Visibility::Shown)
+            kind(&go(&big)),
+            CHIEF,
+            "\"no workspace\" is the Chief's group now"
         );
-        // A line about something else does not apply.
-        assert_eq!(
-            go("open a terminal and tail the log").visibility,
-            Some(Visibility::Tucked)
-        );
-        // A preference never turns an organize request into a helper.
+        assert_eq!(kind(&go("take screenshots of Home")), USER);
+        assert_eq!(kind(&go("open a terminal and tail the log")), USER);
         let learned = vec!["- Show me workspace organizing in the sidebar".to_owned()];
         let r = route(
             "organize my workspaces",
@@ -639,29 +681,50 @@ mod tests {
     }
 
     #[test]
+    fn always_show_agents_in_the_sidebar_applies_to_every_task() {
+        // Aziz's rule: no topic word, so it speaks to every spawn, over the Chief's choice.
+        let learned = vec!["- Always show agents in the sidebar (learned 2026-11-10)".to_owned()];
+        for task in [
+            "look up a sha",
+            "Sidebar: chief\nFollow landq entry 9 until it lands",
+            "clean up the scratch branches",
+        ] {
+            let r = route(task, Requested::of_task(task), &learned, &Rules::default());
+            assert_eq!(kind(&r), USER, "{task}: {r:?}");
+            assert!(r.why.contains("you told me"), "{r:?}");
+        }
+        // A general "do it yourself" line never refuses every spawn.
+        let learned = vec!["- Don't spawn agents, do it yourself".to_owned()];
+        let r = route(
+            "fix the crash",
+            Requested::Auto,
+            &learned,
+            &Rules::default(),
+        );
+        assert_ne!(r.lifetime, Lifetime::Direct, "{r:?}");
+    }
+
+    #[test]
     fn a_learned_line_about_the_work_itself_never_routes() {
-        // Review of #40148: everyday lines with "yourself" or "show me" refused coding tasks.
         let learned = vec![
             "- Always test it yourself before saying done (learned 2026-11-05)".to_owned(),
             "- Show me the diff before you push (learned 2026-11-05)".to_owned(),
         ];
         let never = Rules::from_user(Some(&json!({"chief.subagentSidebar": "never"})), true);
-        for (rules, want) in [(&Rules::default(), None), (&never, None)] {
+        for rules in [&Rules::default(), &never] {
             let r = route(
                 "Title: Fix login\nFix the login bug and check it works before you're done; push the diff",
                 Requested::Auto,
                 &learned,
                 rules,
             );
-            assert_eq!(r.lifetime, Lifetime::Task, "{r:?}");
-            assert_eq!(r.visibility, want, "{r:?}");
+            assert_eq!(kind(&r), CHIEF, "{r:?}");
             assert!(!r.why.contains("you told me"), "{r:?}");
         }
     }
 
     #[test]
     fn a_routing_word_is_never_a_topic_word() {
-        // Re-review of #40148: "agents" in a routing line matched every task about agents.
         let learned = vec![
             "- Don't spawn agents for quick lookups, do it yourself (learned 2026-11-10)"
                 .to_owned(),
@@ -685,60 +748,47 @@ mod tests {
     }
 
     #[test]
-    fn the_persons_learned_choice_for_a_kind_of_work_tucks_or_shows_it() {
+    fn the_persons_learned_choice_for_a_kind_of_work_picks_its_kind() {
         let learned = vec![
             "- Tuck review work out of the way (learned 2026-11-10)".to_owned(),
             "- Show me design work in the sidebar (learned 2026-11-10)".to_owned(),
         ];
         let go = |t: &str| route(t, Requested::Auto, &learned, &Rules::default());
-        assert_eq!(
-            go("review the importer diff").visibility,
-            Some(Visibility::Tucked)
-        );
-        assert_eq!(
-            go("a design pass on the hat").visibility,
-            Some(Visibility::Shown)
-        );
-        // The Chief's explicit choice (the person named it) does not beat what they told it.
-        let r = route("review it", Requested::Hidden, &learned, &Rules::default());
-        assert_eq!(r.visibility, Some(Visibility::Tucked));
+        assert_eq!(kind(&go("review the importer diff")), CHIEF);
+        assert_eq!(kind(&go("a design pass on the hat")), USER);
+        let r = route("review it", Requested::User, &learned, &Rules::default());
+        assert_eq!(kind(&r), CHIEF);
     }
 
     #[test]
-    fn one_reaper_closes_a_tucked_workspace_when_its_work_ends_and_nothing_else() {
-        let tucked = Made::of(&auto("open a terminal and tail the log"));
-        assert_eq!(tucked.creator, CREATOR);
-        assert!(!reap_due(Some(&tucked), true, 1_000), "still running");
-        let mut ended = tucked.clone();
-        ended.ended(1_000);
-        assert!(reap_due(Some(&ended), true, 1_000));
-        assert!(!reap_due(Some(&ended), false, 1_000), "already closed");
-        let mut shown = Made::of(&auto("Make 5 design variants"));
-        shown.ended(1_000);
-        assert_eq!(shown.expires_ms, None);
-        assert!(!reap_due(Some(&shown), true, u64::MAX));
-        let mut task = Made::of(&auto("look up a sha"));
-        task.ended(1_000);
-        assert_eq!(task.expires_ms, Some(1_000 + HAT_TTL.as_millis() as u64));
-        assert!(!reap_due(Some(&task), false, u64::MAX));
-        assert!(
-            !reap_due(None, true, u64::MAX),
-            "an older record is never reaped"
-        );
-        let wire = serde_json::to_value(&ended).unwrap();
+    fn a_finished_workspace_never_expires_and_old_records_still_read() {
+        let mut chief = Made::of(&auto("look up a sha"));
+        assert_eq!(chief.creator, CREATOR);
+        assert!(chief.in_chief_group());
+        chief.ended(1_000);
+        assert_eq!(chief.expires_ms, None, "nothing closes it on its own");
+        let wire = serde_json::to_value(&chief).unwrap();
         assert_eq!(
             wire,
-            json!({"creator": "chief", "lifetime": "workspace", "visibility": "tucked", "expires_ms": 1000})
+            json!({"creator": "chief", "lifetime": "workspace", "visibility": "chief"})
         );
+        // Records saved before the two kinds.
+        let old: Made = serde_json::from_value(
+            json!({"creator": "chief", "lifetime": "workspace", "visibility": "tucked", "expires_ms": 1000}),
+        )
+        .unwrap();
+        assert!(old.in_chief_group());
+        let old: Made = serde_json::from_value(
+            json!({"creator": "chief", "lifetime": "workspace", "visibility": "shown"}),
+        )
+        .unwrap();
+        assert_eq!(old.visibility, Some(Visibility::User));
     }
 
     #[test]
-    fn a_subagent_that_asks_before_it_acts_is_shown_never_tucked_or_reaped() {
-        let r = auto("open a terminal and tail the log").shown("it asks before it acts");
-        let mut made = Made::of(&r);
-        assert_eq!(made.visibility, Some(Visibility::Shown));
-        made.ended(1_000);
-        assert!(!reap_due(Some(&made), true, u64::MAX));
+    fn a_subagent_that_asks_before_it_acts_is_a_user_workspace() {
+        let r = auto("look up a sha").shown("it asks before it acts");
+        assert_eq!(kind(&r), USER);
     }
 
     #[test]

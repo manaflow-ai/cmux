@@ -130,4 +130,32 @@ import VideoToolbox
         #expect(shown == [0, 2])
         #expect(collected.lock.withLock { collected.keyframeRequests } == 1)
     }
+
+    /// TestFlight crash AN2IpAo8i1J9psM-5eqCAks: the stream clock reads 0 after
+    /// the connection goes away mid-decode, earlier than the frame's arrival.
+    /// The latency is unknown then, not an overflow trap.
+    @Test func latencyIsNilWhenTheClockIsBehindTheArrival() {
+        #expect(BrowserVideoDecoder.latencyMicros(age: 12_000, received: 5_000_000, done: 0) == nil)
+        #expect(BrowserVideoDecoder.latencyMicros(age: .max, received: 0, done: 10) == nil)
+        #expect(BrowserVideoDecoder.latencyMicros(age: nil, received: 0, done: 10) == nil)
+        #expect(BrowserVideoDecoder.latencyMicros(age: 12_000, received: 1_000, done: 4_000) == 15_000)
+    }
+
+    /// The same crash end to end: a decoder whose clock went to 0 shows the
+    /// frame instead of trapping.
+    @Test(.timeLimit(.minutes(1))) func aFrameDecodedAfterTheClockIsGoneStillShows() async throws {
+        let units = try Self.encode(frames: 1, width: 320, height: 240)
+        try #require(units.count == 1)
+        let decoder = BrowserVideoDecoder()
+        decoder.now = { 0 }
+        let collected = Collected()
+        decoder.shown = { shown in collected.lock.withLock { collected.shown.append(shown) } }
+        decoder.submit(frame: 0, accessUnit: units[0], keyframe: true, receivedMicros: 9_000_000, ageMicros: 40_000)
+        for _ in 0..<200 where collected.lock.withLock({ collected.shown.count }) < 1 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let shown = collected.lock.withLock { collected.shown }
+        #expect(shown.map(\.frame) == [0])
+        #expect(shown.first?.latencyMicros == nil)
+    }
 }

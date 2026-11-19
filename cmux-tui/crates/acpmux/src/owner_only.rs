@@ -27,9 +27,9 @@ use windows_sys::Win32::Security::Authorization::{
     SDDL_REVISION_1, SE_FILE_OBJECT, SetSecurityInfo,
 };
 use windows_sys::Win32::Security::{
-    ACE_HEADER, ACL, DACL_SECURITY_INFORMATION, GetAce, GetSecurityDescriptorDacl,
-    OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
-    SECURITY_ATTRIBUTES,
+    ACE_HEADER, ACL, DACL_SECURITY_INFORMATION, GetAce, GetSecurityDescriptorControl,
+    GetSecurityDescriptorDacl, OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION,
+    PSECURITY_DESCRIPTOR, PSID, SE_DACL_PROTECTED, SECURITY_ATTRIBUTES,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     BY_HANDLE_FILE_INFORMATION, CREATE_NEW, CreateDirectoryW, CreateFileW,
@@ -382,6 +382,36 @@ fn ensure_safe_parent(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// The volume serial and file index of `path` itself (a link is not followed): what stays the
+/// same for one folder however it is renamed, and differs for a new folder made at its path.
+pub(crate) fn file_id(path: &Path) -> io::Result<(u64, u64)> {
+    let name = wide(path);
+    // SAFETY: a NUL-terminated path; the handle is owned by File below.
+    let handle = unsafe {
+        CreateFileW(
+            name.as_ptr(),
+            0x80, // FILE_READ_ATTRIBUTES
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            null_mut(),
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: CreateFileW returned one owned handle.
+    let opened = unsafe { File::from_raw_handle(handle) };
+    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    // SAFETY: a valid handle and a zeroed out-parameter.
+    if unsafe { GetFileInformationByHandle(opened.as_raw_handle(), &mut info) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let index = (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow);
+    Ok((u64::from(info.dwVolumeSerialNumber), index))
+}
+
 fn same_opened_object(left: &File, right: &File) -> io::Result<bool> {
     let identity = |file: &File| -> io::Result<(u32, u64)> {
         let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
@@ -464,6 +494,36 @@ pub(crate) fn changer_other_than_us(path: &Path) -> io::Result<Option<String>> {
 pub(crate) fn only_owner_reads(path: &Path) -> io::Result<bool> {
     let opened = open_for_security(path, false)?;
     only_owner_reads_opened(&opened)
+}
+
+/// True when `path` has an explicit DACL that does not inherit entries from
+/// its parent. Effective owner-only access alone is insufficient here because
+/// a private directory can make an unprotected child appear owner-only.
+pub(crate) fn dacl_is_protected(path: &Path) -> io::Result<bool> {
+    let opened = open_for_security(path, false)?;
+    let mut sd: PSECURITY_DESCRIPTOR = null_mut();
+    let status = unsafe {
+        GetSecurityInfo(
+            opened.as_raw_handle(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            null_mut(),
+            null_mut(),
+            null_mut(),
+            null_mut(),
+            &mut sd,
+        )
+    };
+    if status != ERROR_SUCCESS {
+        return Err(io::Error::from_raw_os_error(status as i32));
+    }
+    let _free = Local(sd);
+    let mut control = 0u16;
+    let mut _revision = 0u32;
+    if unsafe { GetSecurityDescriptorControl(sd, &mut control, &mut _revision) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(control & SE_DACL_PROTECTED != 0)
 }
 
 fn only_owner_reads_opened(opened: &File) -> io::Result<bool> {

@@ -1,5 +1,9 @@
 # CmuxConversation host integration
 
+> This package lives in feat-cmux-next (`Packages/iOS/`), the only copy since
+> 2026-11-11. Change it here; the old upstream branch is frozen.
+
+
 `ConversationPresentationOptions.header` accepts a `ConversationHeaderPresentation`.
 Its default preserves the Messages header and platform-specific wash. A host can
 opt into `.system` scroll-edge treatment (iOS 26+), which combines the native soft

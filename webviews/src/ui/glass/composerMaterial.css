@@ -52,7 +52,7 @@
    Spectrum, which keep the lens's own rim. */
 @media not (prefers-reduced-transparency: reduce) {
   :where(:root:not([data-reduce-transparency]), :root:not([data-reduce-transparency]) [data-composer-material]) {
-    --composer-material-depth: var(--glass-material-depth);
+    --composer-material-depth: var(--glass-material-depth-composer);
   }
   :where(
       :root:not([data-reduce-transparency]):not([data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"])),

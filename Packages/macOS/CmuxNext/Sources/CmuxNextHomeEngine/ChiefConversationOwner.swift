@@ -120,8 +120,10 @@ public final class ChiefConversationOwner {
             // databases are copied with SQLite's online backup.
             // cmux NEXT's one-time adoption of its old homes ends before its owner starts (cx-is1kf.9).
             await AcpmuxEnvironment.adoptBuildHomes()
+            DaemonLaunchTimings.shared.mark("chief_owner.build_homes_adopted")
             let adoption = await ChiefAdoption.runOffMain(home: home, by: build, logger: logger)
             weakSelf?.adoption = adoption
+            DaemonLaunchTimings.shared.mark("chief_owner.adoption")
             let connected = await DaemonStartup.shared.connect(wake: wake) {
                 DaemonConnection(configuration: configuration, endpointProvider: provider)
             } onFailure: { error in
@@ -135,6 +137,7 @@ public final class ChiefConversationOwner {
             }
             // It answered as current: a refusal from an earlier try no longer holds while it gets ready below.
             self.noteHandshakeAccepted()
+            DaemonLaunchTimings.shared.mark("chief_owner.connected")
             // Before anything uses the connection: an owner without this home's key (DEV only) restarts once while
             // idle; a busy one (a Chief turn, an open `cmux chief` chat, another app or page) on a later owner event.
             // An owner an update replaced hands off to this build first (its successor starts with the
@@ -147,7 +150,9 @@ public final class ChiefConversationOwner {
                 restart = await Self.restartIfUnverified(home: self.home, launcher: launcher, connection: connection,
                                                          identity: identity, logger: logger)
             }
+            DaemonLaunchTimings.shared.mark("chief_owner.restart_checked")
             if let prepare = self.prepare { await prepare(connection) }
+            DaemonLaunchTimings.shared.mark("chief_owner.prepared")
             self.attach(connection, identity: identity)
             // The waiting restart probes off this loop, so Home's events never wait for it; the newest
             // busy-ending event is enough (each one probes the owner afresh).

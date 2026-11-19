@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """scripts/ci/hosted_light_rescue.py: a declared hosted light job that GitHub-hosted Ubuntu never assigns is failed
-over to its re-run route (attempt 2) after about 3 minutes, bounded to pull request runs at attempt 1."""
+over to its re-run route (attempt 2) after about 2 minutes, bounded to pull request runs at attempt 1."""
 
 from __future__ import annotations
 
@@ -107,7 +107,11 @@ class Scope(unittest.TestCase):
             self.assertTrue((ROOT / ".github" / "workflows" / name).is_file(), name)
 
     def test_reusable_declarations_bring_their_callers(self):
-        runners = json.loads((ROOT / ".github" / "runners.json").read_text())
+        # The live table is empty since 2026-11-18 (every light job runs on Blacksmith, cmux#45735), so
+        # the caller walk reads a declaration of the reusable workflows it used to hold.
+        self.assertEqual(rescue.declared_workflows(json.loads((ROOT / ".github" / "runners.json").read_text())), [])
+        runners = {"hosted_light_jobs": {"pr-red-checks-comment.yml#comment": {}, "ci-guards.yml#guard-status": {},
+                                         "ci.yml#changes": {}, "pr-checks.yml#size": {}}}
         names = rescue.with_callers(rescue.declared_workflows(runners), ROOT / ".github" / "workflows")
         for caller in ("cmux-next.yml", "cmux-next-guards.yml", "ci.yml", "pr-checks.yml"):
             self.assertIn(caller, names)
@@ -117,7 +121,7 @@ class Scope(unittest.TestCase):
         self.assertEqual(rescue.with_callers(["b.yml", "a.yml"], None), ["a.yml", "b.yml"])
 
     def test_only_a_job_with_no_runner_on_hosted_ubuntu_past_the_bound_is_stalled(self):
-        self.assertTrue(rescue.stalled(job("PR size", waited=181), NOW))
+        self.assertTrue(rescue.stalled(job("PR size", waited=121), NOW))
         self.assertFalse(rescue.stalled(job("PR size", waited=60), NOW))
         self.assertFalse(rescue.stalled(job("PR size", runner_id=1000291949), NOW))
         self.assertFalse(rescue.stalled(job("PR size", status="in_progress"), NOW))

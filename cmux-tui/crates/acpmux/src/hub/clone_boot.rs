@@ -28,10 +28,8 @@
 //! is no longer open and a removed prompt is no longer queued).
 use super::*;
 
-/// The marker's name in the acpmux home.
-pub const MARKER: &str = "clone-boot";
-/// What the marker becomes once every log was read.
-pub const DONE: &str = "clone-boot.done";
+/// The marker's names live with the clone check that reads them (`host_fingerprint.rs`).
+pub use crate::host_fingerprint::{DONE, MARKER};
 
 impl Hub {
     /// At daemon start, before any log is read: this start is a copy's first when `home` holds
@@ -71,7 +69,7 @@ impl Hub {
         if self.clone_of().is_none() {
             return;
         }
-        if let Err(e) = std::fs::rename(home.join(MARKER), home.join(DONE))
+        if let Err(e) = crate::home_fs::rename(home.join(MARKER), home.join(DONE))
             && e.kind() != std::io::ErrorKind::NotFound
         {
             tracing::warn!("clone marker not retired: {e}");

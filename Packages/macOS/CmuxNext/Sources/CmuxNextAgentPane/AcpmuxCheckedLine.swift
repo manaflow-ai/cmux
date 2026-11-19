@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextWakeups
 import Darwin
 public import Foundation
 
@@ -24,26 +25,60 @@ public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash
     /// write still queued then is never written (it checks this under the same lock, held through its
     /// write, so once ``cancel()`` returns no gated write starts).
     private let cancelled = Mutex(false)
-    /// Largest line accepted.
-    static let maxLine = 16 * 1024 * 1024
+    /// Whether another install's same-user daemon may answer (rule 1 of ``AcpmuxServerPeer``). Such a
+    /// line only reads: it never makes a proof (rule 3).
+    private let allowForeign: Bool
+    /// The peer passed as the acpmux this app runs (``AcpmuxServerPeer/Match/own``): only then is a
+    /// proof made.
+    private let ownPeer = Atomic<Bool>(false)
+    /// Why the connect failed (the refusal's words) and a foreign peer's executable, for the caller
+    /// to log and show.
+    private let facts = Mutex<(refusal: String?, foreignPath: String?, unreachable: Bool)>((nil, nil, false))
+    /// Largest line accepted: past acpmux's largest message (`rpc::MAX_MESSAGE_BYTES`, 31 MiB), which
+    /// it sends as one line. A cap below it closed on a reply the daemon may send, and the reconnect
+    /// asked for the same reply again.
+    static let maxLine = 32 * 1024 * 1024
     /// The longest one send may block when acpmux stops reading (`SO_SNDTIMEO`); the connection
     /// then ends, so nothing waits on a full socket for good.
     static let sendTimeoutSeconds = 5
 
-    public init(environment: AcpmuxEnvironment) {
+    public init(environment: AcpmuxEnvironment, allowForeign: Bool = false) {
         self.environment = environment
+        self.allowForeign = allowForeign
     }
 
-    /// Connects, checks the server peer on this connection (own path only), then sends `send`.
+    /// Why the connect failed (``AcpmuxServerPeer/Refusal``'s words, or the socket error); nil while
+    /// it did not.
+    public var refusal: String? { facts.withLock { $0.refusal } }
+    /// The executable of another install's daemon that answered (only with `allowForeign`); nil for
+    /// this app's own acpmux or before the connect.
+    public var foreignPeerPath: String? { facts.withLock { $0.foreignPath } }
+    /// Nothing answered on the socket (a file left behind by a daemon that exited): no acpmux runs.
+    public var unreachable: Bool { facts.withLock { $0.unreachable } }
+    /// The peer passed as the acpmux this app runs.
+    public var isOwnPeer: Bool { ownPeer.load(ordering: .acquiring) }
+
+    /// Connects, checks the server peer on this connection (own path only, unless `allowForeign`),
+    /// then sends `send`.
     /// A refused or failed connect closes at once (`onClose`).
     public func start(send: Data, onLine: @escaping @Sendable (Data) -> Void, onClose: @escaping @Sendable () -> Void) {
         queue.async { [self] in
             self.onLine = onLine
             self.onClose = onClose
             do {
-                descriptor = try AcpmuxServerPeer.connectChecked(socketPath: environment.socketPath,
-                                                                 executable: environment.executable)
+                let (fd, match) = try AcpmuxServerPeer.connectChecked(socketPath: environment.socketPath,
+                                                                      executable: environment.executable,
+                                                                      allowForeign: allowForeign)
+                descriptor = fd
+                if match == .own {
+                    ownPeer.store(true, ordering: .releasing)
+                } else {
+                    let path = UnixSocketPeer(descriptor: fd)?.executablePath ?? "an acpmux whose file is gone"
+                    facts.withLock { $0.foreignPath = path }
+                }
             } catch {
+                let unreachable = (error as? AcpmuxServerPeer.Refusal)?.isTransientRestart == true
+                facts.withLock { $0 = (String(describing: error), $0.foreignPath, unreachable) }
                 return finish()
             }
             let fd = descriptor
@@ -64,7 +99,8 @@ public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash
     /// Nil before the check passed, or when this app holds no key for this daemon. The key itself
     /// never leaves this process.
     public func personProof(nonce: String, connection: String) -> String? {
-        guard isCheckedOpen.load(ordering: .acquiring) else { return nil }
+        // SECURITY: never for another install's daemon (rule 3): it holds no key of this app.
+        guard isCheckedOpen.load(ordering: .acquiring), isOwnPeer else { return nil }
         return AcpmuxPersonKey.proof(socketPath: environment.socketPath, transport: .unix, nonce: nonce,
                                      connection: connection)
     }

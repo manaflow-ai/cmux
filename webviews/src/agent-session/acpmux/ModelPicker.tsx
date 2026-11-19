@@ -1,3 +1,4 @@
+import { acpmuxPerf } from "./perf";
 import { authChipText, authLoginText, authText, canSessionLogin } from "./sessionAuth";
 import {
   useCallback,
@@ -11,6 +12,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { AgentMark, agentBrand, hasAgentMark } from "../shared/AgentMark";
+import { chipFace as faceFor, harnessFace } from "./chipFace";
 import { agentDisplayName, picksOwnModel } from "./agents";
 import { agentKey } from "../shared/agentKey";
 import { isDefaultChoice } from "./defaultChoice";
@@ -26,6 +28,8 @@ import { setModelChipIcon, useModelChipIcon } from "./modelChipIcon";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { useUpdateOffer } from "./harnessHealthNoticeModel";
+import { useHarnessUpdates } from "./harnessUpdateList";
+import { HarnessUpdatesSection } from "./HarnessUpdates";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, type ModelPickerProps } from "./modelPickerLayout";
 import { curatedSections, modelSections } from "./modelSections";
 import { effortWords, fitsQuery, modelEffort, parseQuery, type ParsedQuery } from "./modelQuery";
@@ -52,7 +56,9 @@ import {
 } from "../../ui/PickerPrimitives";
 import { ScrollArea } from "../../ui/ScrollArea";
 import { quantizePickerRail } from "./pickerRailGeometry";
-import { type HarnessChoice, uniqueHarnesses, withoutVendor } from "./modelPickerModel";
+import { CLAUDE_STDIO_KIND, type HarnessChoice, uniqueHarnesses, withoutVendor } from "./modelPickerModel";
+import { ClaudeConnectRow } from "./ClaudeConnectRow";
+import type { ClaudeConnectRowProps } from "./claudeConnect";
 import { pickerHeightBounds } from "./modelPickerLayout";
 type ModelChoice = {
   id: string;
@@ -351,6 +357,9 @@ const modelRow =
 /// The active row (pointer or arrows) has the hover wash; any other row gets it on hover.
 const rowFill = (active: boolean) => (active ? "bg-hover" : "bg-transparent hover:bg-hover");
 const emptyNote = "px-2.5 py-2 text-body text-muted";
+/// Whether the Claude Connect row (ClaudeConnectRow.tsx) leads `entry`'s section: its mark is the row's brand.
+const claudeConnectHere = (connect: ClaudeConnectRowProps | undefined, entry: Pick<HarnessChoice, "id" | "mark">) =>
+  !!connect && agentBrand(entry.mark ?? entry.id) === connect.brand;
 /// The update row's Update and Skip This Version: row-height text buttons, as wide as their words.
 const updateButton =
   "flex h-[var(--ui-row-height,28px)] flex-none cursor-default items-center rounded-[var(--ui-row-radius,5px)] border-0 px-2 font-[inherit] text-control text-fg";
@@ -388,13 +397,13 @@ export function ModelPicker(props: ModelPickerProps) {
     catalogRefresh,
     signedOut,
     onLogIn,
+    claudeConnect,
     usage,
     quick,
-    detail,
-    detailShort,
     fork,
     onSetUpPick,
   } = props;
+  acpmuxPerf.render("composer:model");
   /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
   const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
   /// A harness that cannot start a chat until it is set up: not installed here, or signed out.
@@ -432,6 +441,8 @@ export function ModelPicker(props: ModelPickerProps) {
   /// in the chip's tooltip, never a banner over the chat. Never a dot on the chip: drawn between the
   /// model and its effort it read "Opus 5.5 • Medium" (Leo 2026-10-21: "WE FUCKING HATE THE DOT").
   const update = useUpdateOffer();
+  /// Every agent CLI with an update (Leo 2026-11-12, ask-3fdf0982ec): drawn where `update` was.
+  const updates = useHarnessUpdates();
   const updateText = update
     ? t("harness.outdated", { agent: update.agent, version: update.version, latest: update.latest })
     : undefined;
@@ -732,7 +743,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const showRef = useRef(show);
   showRef.current = show;
   const toggle = open ? (_next: boolean) => close() : setOpen;
-  const press = usePopoverTrigger(open, toggle, show);
+  const press = usePopoverTrigger(open, toggle, show, { popupId: menuId });
   const more = (typed?: string) => {
     setQuickOpen(false);
     show();
@@ -778,17 +789,6 @@ export function ModelPicker(props: ModelPickerProps) {
       ),
     [modelText, quick, open, close],
   );
-  // The footer's harness item opens this menu: its rail is the composer's harness switcher.
-  const opener = props.opener;
-  const compact = quick !== undefined;
-  useEffect(() => {
-    if (!opener) return;
-    const openMenu = () => (compact ? (open ? close() : setQuickOpen(true)) : showRef.current());
-    opener.current = openMenu;
-    return () => {
-      if (opener.current === openMenu) opener.current = undefined;
-    };
-  }, [opener, compact, open, close]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       // Cmd-Ctrl-M opens the picker (Lawrence 2026-10-08); typing then searches every harness.
@@ -943,6 +943,7 @@ export function ModelPicker(props: ModelPickerProps) {
         id: entry.id,
         name: entry.name,
         accountFamily: entry.family ?? entry.acpmuxHarness ?? entry.id,
+        ...(entry.kind === CLAUDE_STDIO_KIND ? { ultracode: true } : {}),
         ...(hasAgentMark(entry.mark ?? entry.id) ? { mark: entry.mark ?? entry.id } : {}),
         models: shown.map(tabRow),
         more: more.map(tabRow),
@@ -953,6 +954,7 @@ export function ModelPicker(props: ModelPickerProps) {
         ...(signedOutHere && loginFor(entry) && onLogIn
           ? { logIn: () => onLogIn(entry.acpmuxHarness ?? entry.id, loginFor(entry)!) }
           : {}),
+        ...(claudeConnectHere(claudeConnect, entry) ? { connect: claudeConnect } : {}),
       });
     }
     // One tab per model family (QuickModelMenu's familyTabs): the entries that run one brand's
@@ -993,6 +995,7 @@ export function ModelPicker(props: ModelPickerProps) {
     onLogIn,
     props.profiles,
     signedOut,
+    claudeConnect,
   ]);
   /// A compact-menu pick: this harness's model lands in place; another harness's starts a chat there.
   /// A searched row with an effort or fast mode lands as one combo, as the full picker's does.
@@ -1180,11 +1183,26 @@ export function ModelPicker(props: ModelPickerProps) {
       harnesses.find((entry) => entry.ids.includes(switchingTo.harness))?.mark ??
       switchingTo.harness)
     : undefined;
-  // A held pick of another harness draws that harness's mark: the chip names what the next message runs.
-  const heldMark = held && !switchingTo ? (heldEntry?.mark ?? heldEntry?.id ?? held.harness) : undefined;
-  const chipHarness = switchingMark ?? heldMark ?? current?.mark ?? current?.id ?? harness;
+  // The chip's logo, name and effort are one ``ChipFace`` (chipFace.ts): a switch names its target
+  // harness alone; else the face the composer made from the model it names, else one made here from
+  // the model this chip names (a held pick's, else the running or predicted one). The logo is that
+  // model's provider, never the harness that runs it.
+  const face = switchingTo
+    ? harnessFace(switchingMark, switchingTo.name)
+    : (props.face ??
+      faceFor(
+        held ? held.model : (props.model ?? props.predictedModel),
+        label,
+        held ? (heldEntry?.mark ?? heldEntry?.id ?? held.harness) : (current?.mark ?? current?.id ?? harness),
+        {
+          ...(props.detail ? { detail: props.detail } : {}),
+          ...(props.detailShort ? { detailShort: props.detailShort } : {}),
+        },
+      ));
+  const chipHarness = face.mark;
+  const { detail, detailShort } = face;
   const forkText = held ? t("picker.forkNext", { harness: held.name }) : undefined;
-  const chipLabel = switchingTo?.name ?? label;
+  const chipLabel = face.name;
   // The controls row's forms of the chip (composerRowFit.ts); a switch draws its target's name whole.
   const rowChip = switchingTo ? undefined : chip;
   // The name the chip writes: without the vendor its mark draws ("Opus 5.5"), the title keeps it whole.
@@ -1360,6 +1378,7 @@ export function ModelPicker(props: ModelPickerProps) {
                     }
                   : {}),
                 ...(update && updateText ? { update: { text: updateText, run: update.update } } : {}),
+                ...(updates ? { updates } : {}),
                 ...(props.setup ? { setup: props.setup } : {}),
                 // This harness's top models, the running one among them; a signed-out harness lists none.
                 models:
@@ -1450,9 +1469,6 @@ export function ModelPicker(props: ModelPickerProps) {
               title={[chipLabel, forkText, fastOn ? fastModeText : undefined, sessionAuthText, usage, updateText]
                 .filter(Boolean)
                 .join(" · ")}
-              aria-haspopup="dialog"
-              aria-expanded={open}
-              aria-controls={open ? menuId : undefined}
               keyboard={(event) => {
                 if (open && event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
                   event.preventDefault();
@@ -1637,7 +1653,7 @@ export function ModelPicker(props: ModelPickerProps) {
               {catalogRefresh && (
                 <button
                   type="button"
-                  className="grid size-7 flex-none cursor-default place-items-center rounded-md border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg"
+                  className="grid size-7 flex-none cursor-default place-items-center rounded-control border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg"
                   data-refresh-status={refreshStatus}
                   aria-label={t("picker.refreshCatalog")}
                   title={refreshTitle}
@@ -1678,6 +1694,21 @@ export function ModelPicker(props: ModelPickerProps) {
                     ))}
                   </div>
                 )}
+                {selected &&
+                  !searching &&
+                  !starredView &&
+                  claudeConnect &&
+                  claudeConnectHere(claudeConnect, selected) && (
+                    <ClaudeConnectRow
+                      name={selected.name}
+                      mark={selected.mark ?? selected.id}
+                      connected={claudeConnect.connected}
+                      onConnect={() => {
+                        claudeConnect.onConnect();
+                        close();
+                      }}
+                    />
+                  )}
                 {selected && !searching && !starredView && selected.notInstalled ? (
                   <>
                     <div className={emptyNote}>{t("harnesses.notInstalled")}</div>
@@ -1794,7 +1825,7 @@ export function ModelPicker(props: ModelPickerProps) {
                         <span className="pointer-events-none absolute right-1.5 flex items-center">
                           <button
                             type="button"
-                            className={`acpmux-mp-favorite pointer-events-auto grid size-6 cursor-default place-items-center rounded-md border-0 bg-transparent p-0 text-muted hover:text-fg ${favorites.has(model.id) ? "" : "invisible group-hover:visible focus-visible:visible"}`}
+                            className={`acpmux-mp-favorite pointer-events-auto grid size-6 cursor-default place-items-center rounded-control border-0 bg-transparent p-0 text-muted hover:text-fg ${favorites.has(model.id) ? "" : "invisible group-hover:visible focus-visible:visible"}`}
                             aria-label={`${starredText}: ${model.name}`}
                             aria-pressed={favorites.has(model.id)}
                             title={t(favorites.has(model.id) ? "picker.unstar" : "picker.star")}
@@ -1828,27 +1859,31 @@ export function ModelPicker(props: ModelPickerProps) {
                 )}
               </PickerOptionList>
             </ScrollArea>
-            {update && (
-              <div className="acpmux-mp-update flex flex-none items-center gap-1 border-t-[0.5px] border-edge p-1.5 pl-2.5">
-                <span className="min-w-0 flex-1 truncate text-detail text-muted">{updateText}</span>
-                <button
-                  type="button"
-                  className={`acpmux-mp-update-run ${updateButton} ${rowFill(false)}`}
-                  onClick={() => {
-                    update.update();
-                    close();
-                  }}
-                >
-                  {t("harness.update")}
-                </button>
-                <button
-                  type="button"
-                  className={`acpmux-mp-update-skip ${updateButton} ${rowFill(false)}`}
-                  onClick={update.skip}
-                >
-                  {t("harness.skipVersion")}
-                </button>
-              </div>
+            {updates ? (
+              <HarnessUpdatesSection updates={updates} onOwnUpdate={close} />
+            ) : (
+              update && (
+                <div className="acpmux-mp-update flex flex-none items-center gap-1 border-t-[0.5px] border-edge p-1.5 pl-2.5">
+                  <span className="min-w-0 flex-1 truncate text-detail text-muted">{updateText}</span>
+                  <button
+                    type="button"
+                    className={`acpmux-mp-update-run ${updateButton} ${rowFill(false)}`}
+                    onClick={() => {
+                      update.update();
+                      close();
+                    }}
+                  >
+                    {t("harness.update")}
+                  </button>
+                  <button
+                    type="button"
+                    className={`acpmux-mp-update-skip ${updateButton} ${rowFill(false)}`}
+                    onClick={update.skip}
+                  >
+                    {t("harness.skipVersion")}
+                  </button>
+                </div>
+              )
             )}
             {fastMode && (
               <div className="flex-none border-t-[0.5px] border-edge p-1.5">

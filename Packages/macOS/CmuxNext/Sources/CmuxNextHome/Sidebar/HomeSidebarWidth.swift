@@ -7,7 +7,7 @@ public import Foundation
 /// daemon owns the column.
 public struct HomeSidebarWidth: Sendable {
     /// MessagesLab's `SidebarController.minimumWidth` and `preferredWidth`
-    /// (the Messages list reads them; these match v1).
+    /// (HomeSidebarView reads them from the list; these match v1).
     public static let minimum: CGFloat = 76
     public static let standard: CGFloat = 320
 

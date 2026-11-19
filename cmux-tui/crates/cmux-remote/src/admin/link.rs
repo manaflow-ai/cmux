@@ -27,7 +27,7 @@ use super::{
 use crate::connection::{ClientConnection, ConnectionError};
 use crate::first_dial::{LinkCell, LinkPhase, NotConnected};
 use crate::observability::ConnectionState;
-use crate::unix_socket::{OwnedUnixListener, UnixAcceptBackoff, UnixSocketError};
+use crate::unix_socket::{OwnedUnixListener, UnixSocketError};
 
 /// The longest wait one [`AdminRequest::AwaitReady`] may ask for.
 pub const LINK_AWAIT_LIMIT: Duration = Duration::from_secs(120);
@@ -98,7 +98,7 @@ async fn serve(target: LinkTarget, path: PathBuf) -> Result<AdminServer, AdminEr
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
     let permits = Arc::new(Semaphore::new(MAX_ADMIN_CONNECTIONS));
     let task = tokio::spawn(async move {
-        let mut accept_backoff = UnixAcceptBackoff::new();
+        let mut accept_backoff = crate::unix_socket::accept_backoff();
         let mut connections = JoinSet::new();
         loop {
             let stream = tokio::select! {
@@ -110,7 +110,7 @@ async fn serve(target: LinkTarget, path: PathBuf) -> Result<AdminServer, AdminEr
                         stream
                     }
                     Err(error) => {
-                        let Some(delay) = accept_backoff.retry_delay(&error) else {
+                        let Some(delay) = cmux_tui_core::backoff::accept_retry_delay(&mut accept_backoff, &error) else {
                             connections.shutdown().await;
                             return Err(AdminError::Io(error));
                         };

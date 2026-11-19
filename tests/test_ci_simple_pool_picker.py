@@ -15,11 +15,11 @@ from pathlib import Path
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("simple_pool_picker", ROOT / "scripts/ci/simple_pool_picker.py")
-assert spec and spec.loader
-picker = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = picker
-spec.loader.exec_module(picker)
+# Imported by name, never loaded by path: one module object per file, so a test that patches it
+# patches what every other test reads (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import simple_pool_picker as picker  # noqa: E402
 
 
 def pool(label: str, capacity: int, running: int = 0, queued: int = 0, *, reserved: int = 0,
@@ -265,6 +265,20 @@ class BlacksmithStallTests(unittest.TestCase):
         state = picker.state_from(jobs=1, env={}, fork=False, runners=None, snapshot=snap,
                                   fallback=small, owned_enabled=False)
         self.assertFalse({item.label: item for item in state.blacksmith}[large].stalled)
+
+    def test_both_macos_26_labels_dead_with_jobs_left_waiting_have_no_free_slot(self):
+        """Every label showing nothing used to read as none dead. A job left waiting proves a label is not idle."""
+        large, small = picker.BLACKSMITH[0], picker.BLACKSMITH[1]
+        generated = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=2)
+        snap = {"generated_at": generated.strftime("%Y-%m-%dT%H:%M:%SZ"), "label_started": {},
+                "pools": {large: {"queued": 0, "running": 0}, small: {"queued": 0, "running": 0}}}
+        self.assertEqual(picker.dead_macos_26(snap), set())  # a quiet hour: both may just be idle
+        snap["pools"] = {large: {"queued": 4, "running": 0, "oldest_queued_minutes": 90},
+                         small: {"queued": 2, "running": 0, "oldest_queued_minutes": 75}}
+        self.assertEqual(picker.dead_macos_26(snap), {large, small})
+        state = picker.state_from(jobs=1, env={}, fork=False, runners=None, snapshot=snap,
+                                  fallback=small, owned_enabled=False)
+        self.assertTrue(all(item.stalled for item in state.blacksmith if item.label in (large, small)))
 
     def test_with_every_label_full_a_moving_one_beats_a_stalled_one(self):
         state = picker.State(jobs=1, blacksmith=(

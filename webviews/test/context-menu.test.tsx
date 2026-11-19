@@ -8,6 +8,7 @@ import { ContextMenu } from "../src/ui/ContextMenu";
 import { UiProvider } from "../src/ui/UiProvider";
 import type { PopupHost } from "../src/ui/popupHost";
 import type { NativePopupEvent, NativePopupModel } from "../src/ui/nativePopup";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -42,9 +43,10 @@ function installDom(): HTMLElement {
   return dom.window.document.getElementById("root")!;
 }
 
-afterEach(() => {
+afterEach(async () => {
   if (root) act(() => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

@@ -250,7 +250,7 @@
 +        }
 +        if let onPasteImage, pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }  // cmux
          super.paste(sender)
-     }
++    }
 +
 +    /// cmux: Paste and Match Style (Edit menu, Cmd+Shift+V): the clipboard's
 +    /// plain text only, at the caret (replacing the selection), as its own undo
@@ -315,7 +315,7 @@
 +        dragAnswer = nil
 +        onDropTargetChange(false)  // cmux
 +        super.draggingExited(sender)
-+    }
+     }
 +    override func draggingEnded(_ sender: any NSDraggingInfo) {
 +        dragAnswer = nil
 +        onDropTargetChange(false)  // cmux
@@ -334,7 +334,22 @@
  }
  
  /// The caret's view: drawn only, never hit (clicks at the caret reach the text view).
-@@ -632,10 +822,40 @@
+@@ -598,9 +788,11 @@
+     private(set) var fieldHeight: CGFloat = ComposeMetrics.oneLine
+     private(set) var chips: [Attachment] = []
+     private(set) var text = ""
+-    /// The field is empty because of a send (no character typed and no attachment since): Messages
+-    /// keeps it at `ComposeMetrics.emptyAfterSend` (30 pt), not the one-line height.
+-    private(set) var emptyAfterSend = false
++    // cmux: no `emptyAfterSend` state. Messages on macOS 27 keeps the field emptied by a send at
++    // `ComposeMetrics.emptyAfterSend` (30 pt) and grows it to the 31 pt one-line height on the
++    // first character; Home keeps every empty field at the one-line height (user, 2026-11-16:
++    // "when imessage chat text input is empty, then i type into, and height of the input
++    // increases by just slightly"; HomeComposerEmptyHeightTests).
+     private var placeholder = Strings.placeholder
+     var captureMode = false {
+         didSet {
+@@ -632,10 +824,40 @@
      var onAttachmentsChanged: (() -> Void)?
      /// The send's field opacity pulse (begin), for the live glass view.
      var onSendPulse: ((CFTimeInterval) -> Void)?
@@ -376,7 +391,7 @@
      static func fieldWidth(_ windowWidth: CGFloat) -> CGFloat { 526 + windowWidth - Fixture.windowWidth }
      static let font = Fixture.bodyFont
      /// `writingTools`' raw value for reports: -1 on macOS 14 (no Writing Tools).
-@@ -658,16 +878,32 @@
+@@ -658,16 +880,32 @@
      /// its text scrolls past it).
      func lines(_ text: String, windowWidth: CGFloat) -> Int {
          // One-entry memo: every compose update asks again for the same draft (a send asks for "").
@@ -414,10 +429,11 @@
      }
      /// The field's tallest text part. Real Messages (compose-e2e messages, 2026-10-10, 628 pt
      /// wide): the glass stops at the same height in a 940, 740 and 600 pt window (a fixed height,
-@@ -678,9 +914,16 @@
+@@ -677,10 +915,16 @@
+     static let maxHeight: CGFloat = 295.5
      /// The field's height for the draft in a window WIDTH pt wide (the attachment row on top).
      private func height(for text: String, width: CGFloat) -> CGFloat {
-         if emptyAfterSend && text.isEmpty && chips.isEmpty { return ComposeMetrics.emptyAfterSend }
+-        if emptyAfterSend && text.isEmpty && chips.isEmpty { return ComposeMetrics.emptyAfterSend }
 +        // cmux: attachments in the text: the lines that hold them are as tall as their thumbnails.
 +        if !chips.isEmpty, let storage = textView.view.textStorage, storage.string == text {
 +            let extra = ComposeInlineText.extraHeight(storage, width: ComposeView.fieldWidth(width) - 24 - trailingReserve)
@@ -432,7 +448,7 @@
      /// The empty draft's one line at any text width from this (a space is about 4 pt wide).
      static let emptyLineMinWidth: CGFloat = 20
      private var emptyLinesMemo: (CGFloat, Int)?
-@@ -698,7 +941,8 @@
+@@ -698,7 +942,8 @@
          let p = NSMutableParagraphStyle()
          p.minimumLineHeight = Fixture.lineHeight
          p.maximumLineHeight = Fixture.lineHeight
@@ -442,7 +458,7 @@
      }
      /// UITextView's text container inset above the first line (Catalyst value).
      static let textTopInset: CGFloat = ComposeView.firstBaseline - 13.26 - 0.25
-@@ -746,9 +990,10 @@
+@@ -746,9 +991,10 @@
          tv.drawsBackground = false
          tv.backgroundColor = .clear
          tv.font = ComposeView.font
@@ -454,7 +470,7 @@
          tv.textContainer?.lineFragmentPadding = 0
          // AppKit puts `textContainerInset.height` above and below the text when it sizes the
          // document; the container origin puts the text at the top inset.
-@@ -767,7 +1012,7 @@
+@@ -767,7 +1013,7 @@
          // tracking (which lagged through a live resize).
          tv.textContainer?.widthTracksTextView = false
          tv.textContainer?.heightTracksTextView = false
@@ -463,7 +479,7 @@
          tv.layerContentsPlacement = .topLeft
          tv.layer?.masksToBounds = true
          tv.layer?.contentsGravity = .topLeft
-@@ -790,6 +1035,7 @@
+@@ -790,6 +1036,7 @@
          tv.isAutomaticDashSubstitutionEnabled = NSSpellChecker.isAutomaticDashSubstitutionEnabled
          if #available(macOS 15, *) { tv.writingToolsBehavior = ComposeView.writingTools }
          tv.setAccessibilityLabel(Strings.placeholder)
@@ -471,7 +487,7 @@
  
          caret.backgroundColor = Fixture.caret.cgColor
          caret.isHidden = true
-@@ -835,6 +1081,9 @@
+@@ -835,6 +1082,9 @@
          if !nativeChrome { renderGlass(); buttons.setNeedsDisplay() }
          renderPlaceholder()
          renderChips()
@@ -481,7 +497,7 @@
      }
  
      /// The "+" button (opens the file picker).
-@@ -849,7 +1098,8 @@
+@@ -849,7 +1099,8 @@
      private func textFrame(height h: CGFloat) -> CGRect {
          let f = rect(height: h)
          let chipH: CGFloat = strip.height
@@ -491,7 +507,7 @@
      }
  
      /// What the last `place` laid out (field height, empty text, chip row height, size): a commit
-@@ -867,10 +1117,11 @@
+@@ -867,10 +1118,11 @@
          placeholderLayer.frame = CGRect(x: f.minX, y: f.minY + chipH, width: 300, height: 30)
          waveLayer.frame = CGRect(x: f.maxX - 30, y: ComposeView.waveY(f), width: 24, height: 30)
          chipsLayer.frame = CGRect(x: f.minX, y: f.minY, width: f.width, height: max(1, strip.height))
@@ -504,7 +520,7 @@
      }
  
      /// The audio glyph's layer top for the field F: centred in the field, as Messages' (its glyph
-@@ -940,11 +1191,11 @@
+@@ -940,11 +1192,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in
@@ -518,7 +534,7 @@
              // Messages' glyph is ChatKit's AudioMessageEntryViewButton waveform at 20 pt
              // (fitted to the lossless stills): 5 capsules 1.818 pt wide, 3.636 pt apart,
              // 3.613 / 7.25 / 14.522 pt tall; centre 557.5 pt from the left of a 628 pt window.
-@@ -958,9 +1209,56 @@
+@@ -958,9 +1210,56 @@
      }
  
      private func renderChips() {
@@ -576,9 +592,11 @@
      /// The attachment whose remove control is at p (window coordinates).
      func chip(at p: CGPoint) -> ID? {
          let f = fieldRect
-@@ -984,12 +1282,19 @@
+@@ -982,14 +1281,20 @@
+     /// transaction (catalyst's `ComposeView.update`).
+     func update(state: AppState, send: Bool, begin: CFTimeInterval) {
          let d = state.ui.draft
-         let hadDraft = !text.isEmpty || !chips.isEmpty
+-        let hadDraft = !text.isEmpty || !chips.isEmpty
          let tv = textView.view
 -        if tv.string != d.text {
 +        // cmux: attachments are in the text (Draft+InlineMarks.swift): a new or changed attachment
@@ -599,7 +617,13 @@
                  if !DeferredSpellChecker.useAppKit { tv.spell.textDidChange() }
              }
          }
-@@ -1007,8 +1312,7 @@
+@@ -1001,14 +1306,10 @@
+         let attachmentsChanged = d.attachments != chips
+         if attachmentsChanged { chips = d.attachments; renderChips(); onAttachmentsChanged?() }
+         text = d.text
+-        // Only a send that took a draft (a rejected send is not committed: Store.apply).
+-        if send && hadDraft { emptyAfterSend = d.text.isEmpty && d.attachments.isEmpty }
+-        else if !d.text.isEmpty || !d.attachments.isEmpty { emptyAfterSend = false }
          CATransaction.begin(); CATransaction.setDisableActions(true)
          // With an attachment Messages shows neither the placeholder nor the audio glyph
          // (compose-attach-image stills).
@@ -609,7 +633,7 @@
          CATransaction.commit()
          let h = height(for: d.text, width: bounds.width)
          let old = fieldHeight
-@@ -1045,6 +1349,7 @@
+@@ -1045,6 +1346,7 @@
              Animate.sampledUntilMinimum(veil, "opacity", Springs.fieldOpacity, base: 1, begin: begin)
              onSendPulse?(begin)
          }
@@ -617,7 +641,7 @@
      }
  
      /// The glass over a bubble still inside the field after the fill has
-@@ -1079,7 +1384,7 @@
+@@ -1079,7 +1381,7 @@
          guard size.width > 0, size.height > 0, var rep = tv.bitmapImageRepForCachingDisplay(in: shown) else { return }
          // AppKit sizes the cache for the main screen when the view has no window (1x on a Mac
          // whose main display is 1x); the snapshot is drawn at the scale of the tree it goes into.
@@ -626,3 +650,12 @@
          // no trap on a NaN or huge size (crash ratchet)
          let wide = CrashGuard.int((size.width * scale).rounded(.up), in: 0...1 << 16), high = CrashGuard.int((size.height * scale).rounded(.up), in: 0...1 << 16)
          if rep.pixelsWide != wide || rep.pixelsHigh != high,
+@@ -1126,7 +1428,7 @@
+         ctx.translateBy(x: 0, y: -(995 + dy))
+         Glass.draw(ctx, rect: CGRect(x: 10.5, y: 1000 + dy, width: 31, height: 30), radius: 15, fill: 49, rim: .button)
+         Glass.draw(ctx, rect: CGRect(x: 586.5 + dx, y: 1000 + dy, width: 31, height: 30), radius: 15, fill: 49, rim: .button)
+-        // Fitted to the lossless stills: plus 15.5 pt medium, emoji.face.grinning 15.5 pt medium.
++        // Fitted to the lossless stills: plus 15.5 pt medium, the emoji glyph (face.smiling.inverse) 15.5 pt medium.
+         let cfg = UIImage.SymbolConfiguration(pointSize: 15.5, weight: .medium)
+         if let img = UIImage(systemName: "plus", withConfiguration: cfg)?.withTintColor(.white, renderingMode: .alwaysOriginal) {
+             let s = img.size, c = CGPoint(x: 26, y: 1015.25 + dy)

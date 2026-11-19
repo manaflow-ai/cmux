@@ -88,15 +88,30 @@ public final class ChiefTeleportChip: NSView {
 
     /// Reads the model and draws the chip for it.
     func show() {
-        let face = model.chipFace(saysAway: saysAway)
-        let text = face.text
-        tone = switch face.tone {
-        case "running": .running
-        case "failed": .failed
-        case "away": .away
-        default: .here
+        let phase = model.shownPhase
+        let place = Self.placeTitle(model.location, current: model.menu().currentTitle)
+        let text: String
+        let symbol: String
+        switch phase {
+        case .checking, .moving, .verifying, .rollingBack:
+            tone = .running
+            text = ChiefTeleportMenuBuilder.statusLine(phase) ?? place
+            symbol = phase == .rollingBack ? "arrow.uturn.backward" : "arrow.triangle.2.circlepath"
+        case .failed:
+            tone = .failed
+            text = ChiefTeleportMenuBuilder.statusLine(phase) ?? place
+            symbol = "exclamationmark.triangle"
+        case .idle, .done, .rolledBack:
+            tone = model.location == .thisMac ? .here : .away
+            if saysAway, case .host = model.location {
+                text = ChiefTeleportStrings.awayOn(place)
+            } else if model.location == .thisMac, model.marks.fork != nil {
+                text = ChiefTeleportStrings.withFork(place)
+            } else {
+                text = place
+            }
+            symbol = Self.placeSymbol(model.location)
         }
-        let symbol = face.symbol
         label.stringValue = text
         label.ink = switch tone {
         case .failed: .danger
@@ -111,7 +126,7 @@ public final class ChiefTeleportChip: NSView {
         label.isHidden = !style.showsText
         chevron.isHidden = !style.showsChevron
         dot.isHidden = style != .dot
-        setAccessibilityLabel(face.label)
+        setAccessibilityLabel(ChiefTeleportStrings.label(text))
         themedToolTip = style.showsText ? ChiefTeleportStrings.help : text
         invalidateIntrinsicContentSize()
         needsLayout = true
@@ -201,6 +216,14 @@ public final class ChiefTeleportChip: NSView {
         case .thisMac: ChiefTeleportStrings.thisMac
         case .cloud: ChiefTeleportStrings.cloud
         case .host(let host): host
+        }
+    }
+
+    static func placeSymbol(_ location: ChiefLocation) -> String {
+        switch location {
+        case .thisMac: "laptopcomputer"
+        case .cloud: "cloud"
+        case .host: "macmini"
         }
     }
 

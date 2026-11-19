@@ -716,7 +716,9 @@ fn a_credential_replaced_during_a_blocked_store_write_gets_nothing() {
         pull::settle(&path, "https://hub.test", CRED, answer, worker_store.as_ref(), &current, 1)
     });
     // The write is in progress: `machine join --replace` lands now.
-    entered_rx.recv().unwrap();
+    entered_rx
+        .recv_timeout(std::time::Duration::from_secs(30))
+        .expect("the store write never reached its gate");
     *credential.lock().unwrap() = ("cmm_synthetic-replacement".to_owned(), false);
     gate_tx.send(()).unwrap();
     let error = worker.join().unwrap().unwrap_err();

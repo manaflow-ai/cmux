@@ -124,6 +124,29 @@ impl Facts {
             ),
         }
     }
+
+    /// Grants and sandbox after a confirmed install: exactly what the
+    /// consent card listed and the person confirmed (`AppsPageConfirmations`
+    /// lists `scopes`, and `optionalScopes` too when the install asks for
+    /// them). Two kinds stay out because the card does not grant them: an
+    /// elevated scope keeps its own confirmation sheet, and a scope the
+    /// tier may never hold (restricted for an unverified app) is refused at
+    /// any time. The sandbox stays the tier's default (unverified starts
+    /// sandboxed) unless the card granted a scope that reaches out (`net:`,
+    /// `integration:`): the person allowed that, so the app may use it.
+    pub fn confirmed_install(&self, grant_optional: bool) -> (BTreeSet<String>, bool) {
+        let optional = self.optional.iter().filter(|_| grant_optional);
+        let grants: BTreeSet<String> = self
+            .requested
+            .iter()
+            .chain(optional)
+            .filter(|s| !is_elevated(s) && self.tier_may_hold(s))
+            .cloned()
+            .collect();
+        let reaches_out = grants.iter().any(|s| cmux_app_manifest::scope_reaches_out(s));
+        let sandboxed = self.tier == Tier::Unverified && !reaches_out;
+        (grants, sandboxed)
+    }
 }
 
 /// Elevated scopes (scope-classes.json): never granted at install, for any
@@ -150,6 +173,82 @@ pub struct Mirror {
     /// (key, fingerprint) of the latest applied ops, oldest first.
     #[serde(default)]
     pub applied: VecDeque<(String, String)>,
+    /// Mirror fields this build does not know (a newer build's, read after a
+    /// rollback): written back unchanged.
+    #[serde(flatten)]
+    pub newer_fields: serde_json::Map<String, serde_json::Value>,
+    /// Records as stored, for [`Mirror::to_stored`].
+    #[serde(skip)]
+    pub stored: StoredRecords,
+}
+
+/// Records as `apps.json` held them, so a save writes back what this build
+/// did not change. A newer build may add a record field or a source kind; an
+/// older build that the person rolls back to must keep such records, never
+/// set the file aside or drop the grants in it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StoredRecords {
+    /// Records this build cannot read (a source kind it does not know, a
+    /// field it needs that is missing). The app counts as not installed here,
+    /// so it holds no grant; the record is written back while this build
+    /// makes no record of its own for the app.
+    unreadable: BTreeMap<String, serde_json::Value>,
+    /// Records this build reads whose stored form holds more (fields it does
+    /// not know): the record as read and its stored form, written back while
+    /// the record is unchanged.
+    read: BTreeMap<String, (Record, serde_json::Value)>,
+}
+
+impl StoredRecords {
+    /// Whether `app` has a stored record this build cannot read.
+    pub fn unreadable(&self, app: &str) -> bool {
+        self.unreadable.contains_key(app)
+    }
+}
+
+impl Mirror {
+    /// The mirror `apps.json` stores as `value`. `None` only when the
+    /// mirror's own fields do not parse; a record this build cannot read is
+    /// kept aside ([`StoredRecords`]), never a reason to refuse the file.
+    pub fn from_stored(mut value: serde_json::Value) -> Option<Self> {
+        let object = value.as_object_mut()?;
+        let serde_json::Value::Object(apps) = object.remove("apps")? else { return None };
+        object.insert("apps".into(), serde_json::Value::Object(serde_json::Map::new()));
+        let mut mirror: Mirror = serde_json::from_value(value).ok()?;
+        for (app, stored) in apps {
+            match serde_json::from_value::<Record>(stored.clone()) {
+                Ok(record) => {
+                    if serde_json::to_value(&record).ok().as_ref() != Some(&stored) {
+                        mirror.stored.read.insert(app.clone(), (record.clone(), stored));
+                    }
+                    mirror.apps.insert(app, record);
+                }
+                Err(_) => {
+                    mirror.stored.unreadable.insert(app, stored);
+                }
+            }
+        }
+        Some(mirror)
+    }
+
+    /// The `mirror` member of `apps.json`: this build's records, a record it
+    /// did not change as it was stored, and records it cannot read.
+    pub fn to_stored(&self) -> serde_json::Result<serde_json::Value> {
+        let mut value = serde_json::to_value(self)?;
+        if let Some(serde_json::Value::Object(apps)) = value.get_mut("apps") {
+            for (app, (read, stored)) in &self.stored.read {
+                if self.apps.get(app) == Some(read) {
+                    apps.insert(app.clone(), stored.clone());
+                }
+            }
+            for (app, stored) in &self.stored.unreadable {
+                if !self.apps.contains_key(app) {
+                    apps.insert(app.clone(), stored.clone());
+                }
+            }
+        }
+        Ok(value)
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -170,6 +269,10 @@ pub struct SetOp {
     pub sandboxed: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grant: Option<(String, bool)>,
+    /// With `installed: true`: the consent card also listed the manifest's
+    /// `optionalScopes`, so the install grants them too.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub grant_optional: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -297,7 +400,8 @@ pub fn reduce(mirror: &Mirror, op: &Op, facts: Option<&Facts>) -> Result<Outcome
     match op {
         Op::Seed { app, hidden } => {
             let facts = facts.ok_or(Reject::UnknownApp)?;
-            if mirror.apps.contains_key(app) {
+            // A record this build cannot read is the person's (a newer build's): never seeded over.
+            if mirror.apps.contains_key(app) || mirror.stored.unreadable(app) {
                 return Ok(unchanged(mirror, false));
             }
             let mut next = mirror.clone();
@@ -419,9 +523,15 @@ fn reduce_set(mirror: &Mirror, set: &SetOp, facts: Option<&Facts>) -> Result<Out
     let installing = set.installed == Some(true) && !before.installed;
     let uninstalling = set.installed == Some(false) && before.installed;
     let mut effects = Vec::new();
-    let mut record = if installing {
-        let source = if facts.source == Source::Local { Source::Local } else { Source::User };
-        fresh(facts, source)
+    let mut record = if installing && facts.source == Source::Local {
+        // A local app is the person's own folder, added without a consent
+        // card: it starts with the tier's defaults (sandboxed, read scopes).
+        fresh(facts, Source::Local)
+    } else if installing {
+        // Installing needs origin user: the person confirmed the consent
+        // card, so the app gets what the card listed.
+        let (grants, sandboxed) = facts.confirmed_install(set.grant_optional);
+        Record { grants, sandboxed, ..fresh(facts, Source::User) }
     } else if uninstalling {
         effects.push(Effect::StopHost(set.app.clone()));
         effects.push(Effect::ClearStorage(set.app.clone()));
@@ -500,4 +610,88 @@ fn commit(
         next.revision += 1;
     }
     Outcome { mirror: next, effects, replayed: false, changed }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn facts(tier: Tier, source: Source) -> Facts {
+        let set = |scopes: &[&str]| scopes.iter().map(|s| s.to_string()).collect();
+        Facts {
+            tier,
+            source,
+            // A weather widget: reads the workspace, fetches one host; one
+            // restricted scope an unverified app can never hold.
+            requested: set(&["workspace:read", "net:api.open-meteo.com", "fs:write"]),
+            // An optional standard scope and an elevated one (its own sheet).
+            optional: set(&["settings:read", "terminal:backend"]),
+        }
+    }
+
+    fn install(facts: &Facts, grant_optional: bool) -> Record {
+        let op = Op::Set(SetOp {
+            key: "install".into(),
+            app: "cmux/weather".into(),
+            origin: Origin::User,
+            installed: Some(true),
+            grant_optional,
+            ..SetOp::default()
+        });
+        let outcome = reduce(&Mirror::default(), &op, Some(facts)).expect("install");
+        outcome.mirror.apps["cmux/weather"].clone()
+    }
+
+    fn names(grants: &BTreeSet<String>) -> Vec<&str> {
+        grants.iter().map(String::as_str).collect()
+    }
+
+    /// The consent card lists `scopes` (and `optionalScopes` with
+    /// grant_optional); confirming it grants each one the tier may hold,
+    /// never an elevated one, and a granted `net:` scope is usable at once.
+    #[test]
+    fn a_confirmed_install_grants_every_scope_its_consent_card_listed() {
+        let store = facts(Tier::Unverified, Source::Bundled);
+        let record = install(&store, false);
+        assert_eq!(names(&record.grants), ["net:api.open-meteo.com", "workspace:read"]);
+        assert!(!record.sandboxed, "the card granted the network: the sandbox must not refuse it");
+        assert_eq!(record.source, Source::User);
+
+        let record = install(&store, true);
+        assert_eq!(
+            names(&record.grants),
+            ["net:api.open-meteo.com", "settings:read", "workspace:read"],
+            "optional scopes on the card are granted; the elevated one keeps its own sheet"
+        );
+
+        for tier in [Tier::Verified, Tier::FirstParty] {
+            let record = install(&facts(tier, Source::Bundled), true);
+            assert_eq!(
+                names(&record.grants),
+                ["fs:write", "net:api.open-meteo.com", "settings:read", "workspace:read"],
+                "{tier:?}"
+            );
+            assert!(!record.sandboxed);
+        }
+    }
+
+    /// An unverified app whose card lists nothing that reaches out stays
+    /// sandboxed (app-platform.md 10) with exactly its listed scopes.
+    #[test]
+    fn a_confirmed_install_without_network_scopes_stays_sandboxed() {
+        let mut quiet = facts(Tier::Unverified, Source::Bundled);
+        quiet.requested = ["workspace:read", "workspace:write"].map(String::from).into();
+        let record = install(&quiet, false);
+        assert_eq!(names(&record.grants), ["workspace:read", "workspace:write"]);
+        assert!(record.sandboxed);
+    }
+
+    /// A local app is added without a consent card: tier defaults.
+    #[test]
+    fn a_local_app_keeps_the_tier_defaults() {
+        let record = install(&facts(Tier::Unverified, Source::Local), true);
+        assert_eq!(names(&record.grants), ["workspace:read"]);
+        assert!(record.sandboxed);
+        assert_eq!(record.source, Source::Local);
+    }
 }

@@ -19,6 +19,7 @@ import argparse, json, os, plistlib, signal, socket, subprocess, sys, tempfile, 
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -136,7 +137,7 @@ try:
     rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, "vnc-desktop.png")})
 finally:
     report["final_state"] = tabs()
-    print("quit", rpc("action.run", {"id": "quitEndSessions"}), flush=True)
+    safe_print("quit", rpc("action.run", {"id": "quitEndSessions"}), flush=True)
     try:
         app.wait(30)
     except subprocess.TimeoutExpired:

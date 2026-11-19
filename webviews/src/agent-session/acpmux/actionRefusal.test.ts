@@ -1,11 +1,14 @@
 // A page's `action.run` the app refused says the app's reason in the pane's toast. Move to Cloud on a
 // chat with no first message and Bring Back Local on a chat no move put on Cloud were refused with a
 // reason ("Send a first message, then move this chat."), and the person saw nothing happen.
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { actionRefusal, sayActionRefusal } from "./actionRefusal";
 import { offloadReasonsOf } from "./environments";
-import { headerState, setHeaderState } from "./header/headerState";
+import { headerState, resetHeaderStateForTests, setHeaderState } from "./header/headerState";
 import { NativeError } from "./nativeError";
+
+// The header pushes below reach version 4; a later file starts the header from version 0 again.
+afterEach(() => resetHeaderStateForTests());
 
 const reason = "Send a first message, then move this chat.";
 const refused = (details: unknown, code = "unavailable") =>

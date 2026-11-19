@@ -24,7 +24,7 @@
 use crate::hub::file_uploads;
 use base64::Engine;
 use serde_json::{Value, json};
-use std::io::{BufReader, Write};
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
 /// The `tEXt` chunk every copy carries (keyword, NUL, text), by which [`scrub_logged`] knows
@@ -185,14 +185,13 @@ fn copy_of(path: &Path, max_edge: u32, max_bytes: usize) -> Option<(Vec<u8>, u32
     None
 }
 
-/// Writes `bytes` to `path` whole or not at all (a temporary name, then a rename). A copy that
-/// cannot be saved is made again next time.
+/// Writes `bytes` to `path` whole or not at all ([`crate::config::write_atomic_unsynced`]: a
+/// temporary name, owner-only, then a rename, and the copies of a writer stopped before its rename
+/// removed). A copy that cannot be saved is made again next time. Under the held home it goes
+/// through that folder (`home_fs`): a home replaced after the check never gets the copy (#41372
+/// review F5).
 fn save(path: &Path, bytes: &[u8]) {
-    let tmp = path.with_extension(format!("tmp-{}", uuid::Uuid::now_v7()));
-    let wrote = std::fs::File::create(&tmp).and_then(|mut f| f.write_all(bytes));
-    if wrote.is_err() || std::fs::rename(&tmp, path).is_err() {
-        let _ = std::fs::remove_file(&tmp);
-    }
+    let _ = crate::config::write_atomic_unsynced(path, bytes);
 }
 
 /// A PNG's width and height from its header.
@@ -207,7 +206,8 @@ fn copyable(w: u32, h: u32) -> bool {
 }
 
 /// The PNG read from `input` scaled down (never up) so its long edge is at most `max_edge`, by
-/// area averaging, a row at a time, encoded as an 8-bit PNG (RGB, or RGBA when it has alpha).
+/// area averaging in linear light, a row at a time, encoded as an 8-bit PNG (RGB, or RGBA when
+/// it has alpha).
 /// None for a PNG that is not valid or is interlaced (its rows come in passes).
 pub fn downscale(input: impl std::io::Read, max_edge: u32) -> Option<(Vec<u8>, u32, u32)> {
     let mut decoder = png::Decoder::new(input);
@@ -227,56 +227,23 @@ pub fn downscale(input: impl std::io::Read, max_edge: u32) -> Option<(Vec<u8>, u
         png::ColorType::Rgba => (4, true),
         png::ColorType::Indexed => return None,
     };
-    let scale = (f64::from(max_edge) / f64::from(w.max(h))).min(1.0);
-    let out_w = ((f64::from(w) * scale).round() as u32).max(1);
-    let out_h = ((f64::from(h) * scale).round() as u32).max(1);
-    let out_channels = if alpha { 4 } else { 3 };
-    // The sums of one output row's pixels, RGBA, and how many input pixels each took.
-    let mut sums = vec![[0u64; 4]; out_w as usize];
-    let mut counts = vec![0u64; out_w as usize];
-    let mut pixels = Vec::with_capacity((out_w * out_h * out_channels) as usize);
-    // Colour is summed weighted by alpha (premultiplied), so a transparent pixel's colour,
+    let (out_w, out_h) = cmux_image_linear::fit(w, h, max_edge);
+    // Averaged in linear light (cmux_image_linear): text and thin lines keep their weight
+    // instead of going darker. Colour is weighted by alpha, so a transparent pixel's colour,
     // which nobody sees, does not tint the opaque ones next to it.
-    let mut row_of = |sums: &mut [[u64; 4]], counts: &mut [u64]| {
-        for (sum, count) in sums.iter_mut().zip(counts.iter_mut()) {
-            let n = (*count).max(1);
-            let weight = sum[3];
-            let rgb = sum[..3].iter().map(|v| v.checked_div(weight).unwrap_or(0) as u8);
-            pixels.extend(rgb);
-            if alpha {
-                pixels.push((weight / n) as u8);
-            }
-            *sum = [0; 4];
-            *count = 0;
-        }
-    };
-    let mut target = 0u32;
-    for y in 0..h {
+    let mut scaler = cmux_image_linear::Downscaler::new(w, h, out_w, out_h, alpha);
+    for _ in 0..h {
         let row = reader.next_row().ok()??;
-        let ty = (u64::from(y) * u64::from(out_h) / u64::from(h)) as u32;
-        if ty != target {
-            row_of(&mut sums, &mut counts);
-            target = ty;
-        }
-        for (x, px) in row.data().chunks_exact(channels).enumerate().take(w as usize) {
-            let tx = (x as u64 * u64::from(out_w) / u64::from(w)) as usize;
-            let rgba = match px {
-                [g] => [*g, *g, *g, 255],
-                [g, a] => [*g, *g, *g, *a],
-                [r, g, b] => [*r, *g, *b, 255],
-                [r, g, b, a] => [*r, *g, *b, *a],
-                _ => return None,
-            };
-            let a = u64::from(rgba[3]);
-            let (Some(sum), Some(count)) = (sums.get_mut(tx), counts.get_mut(tx)) else { continue };
-            for (s, v) in sum.iter_mut().take(3).zip(rgba) {
-                *s += u64::from(v) * a;
-            }
-            sum[3] += a;
-            *count += 1;
-        }
+        // `chunks_exact(channels)` gives only slices of `channels` bytes.
+        scaler.push_row(row.data().chunks_exact(channels).take(w as usize).map(|px| match px {
+            [g] => [*g, *g, *g, 255],
+            [g, a] => [*g, *g, *g, *a],
+            [r, g, b] => [*r, *g, *b, 255],
+            [r, g, b, a] => [*r, *g, *b, *a],
+            _ => [0; 4],
+        }));
     }
-    row_of(&mut sums, &mut counts);
+    let pixels = scaler.finish();
     let mut bytes = Vec::new();
     let mut encoder = png::Encoder::new(&mut bytes, out_w, out_h);
     encoder.set_color(if alpha { png::ColorType::Rgba } else { png::ColorType::Rgb });
@@ -335,6 +302,41 @@ mod tests {
         assert_eq!(&px[..3], &[255, 0, 0]);
         let last = px.len() - 3;
         assert_eq!(&px[last..], &[0, 0, 255]);
+    }
+
+    /// A `n`x`n` grey PNG of 1 px black and white: a checkerboard, or alternating rows.
+    fn black_and_white(n: u32, checker: bool) -> Vec<u8> {
+        let data: Vec<u8> = (0..n * n)
+            .map(|i| {
+                let (x, y) = (i % n, i / n);
+                let on = if checker { (x + y) % 2 == 0 } else { y % 2 == 0 };
+                if on { 255 } else { 0 }
+            })
+            .collect();
+        let mut out = Vec::new();
+        let mut e = png::Encoder::new(&mut out, n, n);
+        e.set_color(png::ColorType::Grayscale);
+        e.set_depth(png::BitDepth::Eight);
+        e.write_header().unwrap().write_image_data(&data).unwrap();
+        out
+    }
+
+    /// Fine black and white detail (text, thin lines in a screenshot) keeps its light: half
+    /// black, half white is 188, not the 127 an average of sRGB codes gives
+    /// ("What every coder should know about gamma").
+    #[test]
+    fn a_model_copy_averages_light_not_srgb_codes() {
+        for checker in [true, false] {
+            for edge in [256, 128] {
+                let (bytes, w, h) =
+                    downscale(std::io::Cursor::new(black_and_white(512, checker)), edge).unwrap();
+                assert_eq!((w, h), (edge, edge));
+                let px = pixels(&bytes).2;
+                let off: Vec<u8> =
+                    px.iter().copied().filter(|v| !(187..=188).contains(v)).take(4).collect();
+                assert!(off.is_empty(), "checker {checker} edge {edge}: {off:?}");
+            }
+        }
     }
 
     #[test]
@@ -402,5 +404,27 @@ mod tests {
         let (_, w, h) = downscale(std::io::Cursor::new(halves(640, 480)), 1568).unwrap();
         assert_eq!((w, h), (640, 480));
         assert!(downscale(std::io::Cursor::new(b"not a png".to_vec()), 1568).is_none());
+    }
+
+    /// A model-sized copy saved beside its upload (#41372 review F5): held past its home check
+    /// and the home replaced, the copy lands in the held home and the new one gets nothing.
+    #[cfg(unix)]
+    #[test]
+    fn a_model_copy_save_held_past_its_check() {
+        use crate::lost_home_race_tests::{forced, isolated, nothing};
+        isolated(
+            module_path!(),
+            "a_model_copy_save_held_past_its_check",
+            |home| {
+                let dir =
+                    home.join("uploads").join("chat-a").join(uuid::Uuid::now_v7().to_string());
+                std::fs::create_dir_all(&dir).unwrap();
+                let saved = dir.join(".model-1568.png");
+                let kept = saved.strip_prefix(home).unwrap().to_string_lossy().into_owned();
+                let target = saved.clone();
+                forced(home, target, nothing, Some(&kept), move || save(&saved, b"png bytes"));
+            },
+            |_, _| {},
+        );
     }
 }

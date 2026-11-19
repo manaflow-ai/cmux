@@ -11,7 +11,11 @@ from __future__ import annotations
 
 import re
 import unittest
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -52,7 +56,8 @@ class ShadowJobTests(unittest.TestCase):
     def test_every_shadow_job_is_compare_only(self) -> None:
         for workflow, shadow, compared in SHADOWS:
             with self.subTest(workflow=workflow, shadow=shadow):
-                all_jobs = jobs((WORKFLOWS / workflow).read_text(encoding="utf-8"))
+                text = (WORKFLOWS / workflow).read_text(encoding="utf-8")
+                all_jobs = jobs(text)
                 self.assertIn(shadow, all_jobs, f"{workflow} has no {shadow} job")
                 block = all_jobs[shadow]
                 self.assertIn(compared, needs(block), f"{workflow}:{shadow} must run after {compared}")
@@ -60,7 +65,8 @@ class ShadowJobTests(unittest.TestCase):
                 permissions = re.search(r"(?m)^    permissions:\n((?:      [a-z-]+: [a-z]+\n)+)", block)
                 self.assertIsNotNone(permissions, f"{workflow}:{shadow} must declare its permissions")
                 self.assertEqual(permissions.group(1).split(), ["contents:", "read"])
-                self.assertNotIn("secrets.", block)
+                self.assertEqual(workflow_jobs.secret_names(block), set())
+                self.assertEqual(workflow_jobs.secret_names(workflow_jobs.jobs(text)[shadow]), set())
                 self.assertNotRegex(block, r"(?m)^    environment:")
                 # Only another compare-only shadow job may need a shadow job.
                 shadows = {job for wf, job, _ in SHADOWS if wf == workflow}
@@ -84,6 +90,25 @@ class ShadowJobTests(unittest.TestCase):
                 # The sysroot is Zig's darwin stub: it must be the Zig the
                 # ghostty-next manifest sets (pin run 37589232394 got another).
                 self.assertRegex(block, r"GHOSTTY_ZIG_SOURCE: ghostty-next\n(?:.*\n){0,4}.*ghostty-zig-version\.sh")
+
+
+class CargoGroupBinsTests(unittest.TestCase):
+    """Each cargo-groups.sh group names the binaries its command builds.
+
+    cargo-groups.sh copies only the named binaries out of the group's own target directory: a group
+    named "acpmux" whose command built `--bin acpmux-standalone` failed cold ("no binary acpmux")
+    and, warm, copied a stale acpmux (review of cmux #43832).
+    """
+
+    def test_macos_cross_all_groups_name_their_bins(self) -> None:
+        text = (ROOT / "scripts/ci/macos-cross.sh").read_text(encoding="utf-8")
+        lines = re.findall(r'^\s+"[^"]+" "cd \$\(q [^\n]*$', text, re.M)
+        self.assertGreaterEqual(len(lines), 8, "the cmd_all group list moved: update this parser")
+        for line in lines:
+            names = set(re.match(r'\s+"([^"]+)"', line).group(1).split())
+            bins = set(re.findall(r"--bin ([\w-]+)", line))
+            with self.subTest(group=" ".join(sorted(names))):
+                self.assertTrue(bins <= names, f"builds {sorted(bins - names)} but does not name them")
 
 
 if __name__ == "__main__":

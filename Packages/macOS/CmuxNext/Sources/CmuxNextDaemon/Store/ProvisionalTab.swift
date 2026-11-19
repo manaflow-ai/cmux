@@ -76,7 +76,7 @@ public struct ProvisionalTab: Sendable, Hashable {
 
     /// The daemon's tab of a create intent arrived carrying the intent's transaction (the event
     /// can come before the reply): the provisional tab gives way to it in this apply, and the
-    /// store reports both ids (`DaemonStore.onTabCreated`, `onPageTabCreated` for a page tab).
+    /// store reports both ids when this apply ends (``OverlayReports``, in the same turn).
     @MainActor static func echoed(_ event: DaemonEvent, transaction: ClientTransactionID, in store: DaemonStore) {
         if case .paneAdded(let delta) = event { return echoedSplit(delta, transaction: transaction, in: store) }
         guard case .tabAdded(let delta) = event,
@@ -87,7 +87,7 @@ public struct ProvisionalTab: Sendable, Hashable {
         guard !paired else { return }
         guard !entry.closeWhenCreated else { return } // closed first: nothing moves to it
         let id = provisional.tabResourceID?.rawValue ?? ""
-        if provisional.conversation?.page != nil { store.onPageTabCreated?(id, tab) } else { store.onTabCreated?(id, tab) }
+        store.intentLog.noteCreatedToReport(id, page: provisional.conversation?.page != nil, tab: tab)
     }
 
     /// The provisional tab a create intent shows: a created tab's, or a new workspace's first tab.
@@ -101,7 +101,7 @@ public struct ProvisionalTab: Sendable, Hashable {
 
     /// The daemon's pane of a conversation tab's split (`conversation-tab-split-v1`) arrived
     /// carrying the split intent's transaction: its one tab is the provisional tab's, reported
-    /// in this apply as for a create (so view state moves before the pane shows).
+    /// when this apply ends as for a create (the same turn, so view state moves before the pane shows).
     @MainActor private static func echoedSplit(_ delta: PaneDelta, transaction: ClientTransactionID, in store: DaemonStore) {
         guard let entry = store.intentLog.entries.first(where: { $0.transaction == transaction }),
               case .splitPane(_, _, _, let provisional) = entry.kind, let wanted = provisional.tab,
@@ -109,7 +109,7 @@ public struct ProvisionalTab: Sendable, Hashable {
         store.intentLog.noteCreated(transaction, surface: tab.surface)
         guard !entry.closeWhenCreated else { return }
         let id = wanted.tabResourceID?.rawValue ?? ""
-        if wanted.conversation?.page != nil { store.onPageTabCreated?(id, tab) } else { store.onTabCreated?(id, tab) }
+        store.intentLog.noteCreatedToReport(id, page: wanted.conversation?.page != nil, tab: tab)
     }
 
     /// The daemon's raw `tab-added` of a conversation tab, with no transaction: the daemon sends it
@@ -140,16 +140,24 @@ public struct ProvisionalTab: Sendable, Hashable {
     }
 
     /// The daemon's raw `tab-added` of an app-rendered browser tab (`new-frontend-browser-tab`
-    /// takes no transaction): most likely the OLDEST pending browser create of the pane on the same
-    /// engine, when it is the pane's newest daemon tab. As for a conversation tab (``guess``), it
+    /// and `create-workspace {first_tab}` take no transaction): most likely the OLDEST pending browser create of the
+    /// pane, or of the pane's new workspace, on the same engine, when it is the pane's newest daemon tab. As for a conversation tab (``guess``), it
     /// is only hidden, the stand-in showing, until the reply names its create.
     @MainActor private static func guessBrowser(_ surface: SurfaceID, in pane: PaneID, engine: String?, in store: DaemonStore) {
         guard store.tab(surface: surface) != nil,
               !store.intentLog.entries.contains(where: { $0.createdSurface == surface }) else { return }
+        // A created tab's create in this pane, or a new browser workspace's first tab in a pane of that workspace
+        // (`BrowserWorkspaceStandIn`): the stand-in's screen and page stay until the reply names the tab.
+        let workspaceKey = store.workspace(containing: pane)?.key
         let waiting = store.intentLog.entries.first { entry in
-            guard entry.createdSurface == nil, case .createTab(let target, let provisional) = entry.kind, target == pane,
-                  provisional.kind == .browser, provisional.isFrontendOwned else { return false }
-            return provisional.browserEngine == engine
+            guard entry.createdSurface == nil else { return false }
+            let provisional: TabSnapshot
+            switch entry.kind {
+            case .createTab(let target, let tab) where target == pane: provisional = tab
+            case .createWorkspace(let workspace, _) where workspace.key == workspaceKey: provisional = workspace.tab
+            default: return false
+            }
+            return provisional.kind == .browser && provisional.isFrontendOwned && provisional.browserEngine == engine
         }
         guard let entry = waiting else { return }
         let daemonTabs = store.pane(pane)?.tabs.filter { !isProvisional(surface: $0.surface) } ?? []

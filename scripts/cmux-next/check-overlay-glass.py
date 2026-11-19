@@ -197,9 +197,6 @@ ALLOWED: dict[str, dict[str, str]] = {
     P + "CmuxNextDesign/ShortcutHintChipView.swift": {"popup-surface": "the chip's .opaque material path (Reduce Transparency)"},
     P + "CmuxNextDesign/CardSurfaceView.swift": {"elevated-fill": "Reduce Transparency's sidebar card"},
     # Not a floating surface: content and in-pane chrome that sits on its own page.
-    P + "CmuxNextAgentQuestion/AgentQuestionCardView.swift": {
-        "elevated-fill": "a pending question card inline in the conversation, set apart from answered ones",
-    },
     P + "CmuxNextTerminal/TerminalCopyModeBadge.swift": {"elevated-fill": "an in-pane badge over terminal text that must stay readable"},
     P + "CmuxNextTerminal/TerminalSizedForChip.swift": {"elevated-fill": "an in-pane chip over terminal text that must stay readable"},
     P + "CmuxNextTerminal/TerminalStatusBanner.swift": {"elevated-fill": "an in-pane banner over terminal text that must stay readable"},

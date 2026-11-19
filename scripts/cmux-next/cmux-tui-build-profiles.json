@@ -1,0 +1,18 @@
+{
+  "_comment": "What each cmux-tui-artifacts.yml build call builds, passed to cmux-tui-build-package.yml. A tree-key input (cmux-tui-tree-inputs.txt): a change here builds a new tree; a publishing-only edit of cmux-tui-artifacts.yml does not. tree-preflight reads it (output build_profiles).",
+  "machine_channel": {
+    "target_set": "linux",
+    "lto": "thin",
+    "artifact_prefix": "machine-channel-"
+  },
+  "shipped": {
+    "target_set_main": "all",
+    "target_set": "linux-macos-arm64",
+    "lto": "fat"
+  },
+  "windows": {
+    "target_set": "windows",
+    "include_windows": true,
+    "windows_acpmux": true
+  }
+}

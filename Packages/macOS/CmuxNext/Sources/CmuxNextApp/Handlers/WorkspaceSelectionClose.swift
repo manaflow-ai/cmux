@@ -40,7 +40,7 @@ enum WorkspaceSelectionClose {
             restore: {
                 guard let shownAtPress, closing.contains(shownAtPress), services.workspace(id: shownAtPress) != nil, let controller,
                       controller.state.workspaceID == selected.afterPress else { return }
-                windows.show(workspaceID: shownAtPress, in: controller.state)
+                windows.registry.closeSelection.repairing { windows.show(workspaceID: shownAtPress, in: controller.state) } // the close's selection, no gesture
             },
             listed: { services.workspace(id: $0) != nil }, machines: { services.machines.daemons },
             offerUndo: { names, undone in

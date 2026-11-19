@@ -7,14 +7,21 @@ import CmuxNextDesign
 @MainActor
 public struct MenuSymbolImages {
     public static let prefix = "symbol"
+    /// The same symbols drawn bold: Settings' category sidebar (Lucas 2026-11-11), `symbol-bold/<name>`.
+    public static let boldPrefix = "symbol-bold"
 
     public init() {}
 
-    /// The PNG of `name`; nil for a name that is not an SF Symbol name or that macOS lacks.
-    public func png(_ name: String) -> Data? {
+    /// The weight a resource prefix draws at: regular for `symbol`, bold for `symbol-bold`, nil for others.
+    public static func weight(prefix: String) -> NSFont.Weight? {
+        prefix == Self.prefix ? .regular : prefix == boldPrefix ? .bold : nil
+    }
+
+    /// The PNG of `name` at `weight`; nil for a name that is not an SF Symbol name or that macOS lacks.
+    public func png(_ name: String, weight: NSFont.Weight = .regular) -> Data? {
         guard !name.isEmpty, name.allSatisfy({ $0.isASCII && ($0.isLowercase || $0.isNumber || $0 == ".") }) else { return nil }
         let pointSize = NSFont.menuFont(ofSize: 0).pointSize * 2
-        let configuration = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .regular)
+        let configuration = NSImage.SymbolConfiguration(pointSize: pointSize, weight: weight)
         guard let image = NSImage.packOverride(forSymbol: name, pointSize: pointSize)
             ?? NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration) else { return nil }
         let size = NSSize(width: ceil(image.size.width), height: ceil(image.size.height))

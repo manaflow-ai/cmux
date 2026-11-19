@@ -4,7 +4,9 @@
 They were pr-capture-check.yml, pr-design-spec-check.yml, pr-perf-section-check.yml and
 pr-cloud-backend-check.yml, each with a runner of its own. Each step keeps its old trigger: the capture
 check also ran on media-tour label events, the perf check on perf label events, and the design spec and
-cloud backend checks on no label event. The job keeps the pr-capture-check name first, which
+cloud backend checks on no label event. The three advisory lints are steps of the step table
+(ci/steps.toml), run by one workflow step through scripts/ci/ci_steps.py with the event's label; a
+step's `labels` say which label events re-run it. The job keeps the pr-capture-check name first, which
 cmuxterm-hq's next_autoland (`pr.?capture`) and base_red_watch ("pr-capture-check", before any " (")
 read as the PR's own red. Only the capture step can turn the job red.
 
@@ -22,15 +24,20 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+
+import ci_steps  # noqa: E402
 from test_ci_label_events_skip_full_ci import evaluate  # noqa: E402
 
 WORKFLOW = yaml.safe_load((ROOT / ".github/workflows/pr-body-checks.yml").read_text())
 JOB = WORKFLOW["jobs"]["body"]
 STEPS = {s["name"]: s for s in JOB["steps"]}
+TABLE = ci_steps.load()
 CAPTURE = "Check the description for a real capture"
-DESIGN = "Check the description cites each changed surface's spec"
-PERF = "Check the description for a Performance table"
-CLOUD = "Check where the cloud backend change belongs"
+ADVISORY = "Run the advisory steps"
+DESIGN = "design-spec"
+PERF = "perf-section"
+CLOUD = "cloud-backend"
 
 # event -> the checks that run on it
 EVENTS = {
@@ -56,6 +63,15 @@ def runs(expr: str, action: str, label: str | None, listed: bool = True) -> bool
     return evaluate(text, {"event_name": "pull_request", "action": action, "label": label})
 
 
+def advisory_steps(action: str, label: str | None) -> set[str]:
+    """The table steps the workflow's advisory step runs for this event: --label is the label of a
+    labeled or unlabeled event and empty otherwise."""
+    if not runs(STEPS[ADVISORY]["if"], action, label):
+        return set()
+    flag = label if action in ("labeled", "unlabeled") else None
+    return set(ci_steps.route(TABLE, None, flag).get("advisory", []))
+
+
 class BodyChecksTests(unittest.TestCase):
     def test_each_check_runs_on_the_events_its_workflow_had(self):
         for (action, label), want in EVENTS.items():
@@ -63,32 +79,42 @@ class BodyChecksTests(unittest.TestCase):
                 if not runs(JOB["if"], action, label):
                     self.assertEqual(want, set(), "the job skipped an event a check reads")
                     continue
-                got = {name for name in (CAPTURE, DESIGN, PERF, CLOUD) if runs(STEPS[name]["if"], action, label)}
+                got = advisory_steps(action, label)
+                if runs(STEPS[CAPTURE]["if"], action, label):
+                    got.add(CAPTURE)
                 self.assertEqual(got, want)
+        self.assertIn('--label "$LABEL"', STEPS[ADVISORY]["run"])
+        self.assertIn("github.event.label.name", STEPS[ADVISORY]["env"]["LABEL"])
 
     def test_unlisted_paths_skip_the_checks_that_need_them(self):
         # Capture and perf fall back to the files API; design spec and cloud backend skip.
         self.assertTrue(runs(STEPS[CAPTURE]["if"], "synchronize", None, listed=False))
-        self.assertTrue(runs(STEPS[PERF]["if"], "synchronize", None, listed=False))
-        self.assertFalse(runs(STEPS[DESIGN]["if"], "synchronize", None, listed=False))
-        self.assertFalse(runs(STEPS[CLOUD]["if"], "synchronize", None, listed=False))
         self.assertIn("gh api --paginate", STEPS[CAPTURE]["run"])
-        self.assertIn("gh api --paginate", STEPS[PERF]["run"])
+        self.assertIn("gh api --paginate", TABLE.steps[PERF].run)
+        for name in (DESIGN, CLOUD):
+            self.assertIn('if [ "${PATHS_LISTED:-}" != true ]', TABLE.steps[name].run)
+        self.assertIn('[ "${TREE_LISTED:-}" != true ]', TABLE.steps[DESIGN].run)
+        env = STEPS[ADVISORY]["env"]
+        self.assertEqual(env["PATHS_LISTED"], "${{ steps.paths.outputs.listed }}")
+        self.assertEqual(env["TREE_LISTED"], "${{ steps.tree.outputs.listed }}")
 
     def test_only_the_capture_check_can_fail_the_job(self):
         self.assertNotIn("continue-on-error", JOB)
         self.assertNotIn("continue-on-error", STEPS[CAPTURE])
+        self.assertIs(STEPS[ADVISORY].get("continue-on-error"), True)
+        self.assertIn("timeout-minutes", STEPS[ADVISORY])
         for name in (DESIGN, PERF, CLOUD):
             with self.subTest(step=name):
-                self.assertIs(STEPS[name].get("continue-on-error"), True)
-                self.assertIn("timeout-minutes", STEPS[name])
+                step = TABLE.steps[name]
+                self.assertEqual((step.blocks, step.job, step.klass), (False, "advisory", "idle"))
         for step in JOB["steps"]:
             if step.get("id") in {"paths", "tree", "renames"}:
                 self.assertIs(step.get("continue-on-error"), True, step["name"])
 
-    def test_the_design_spec_check_reads_paths_before_the_perf_fallback_can_rewrite_them(self):
-        names = [s["name"] for s in JOB["steps"]]
-        self.assertLess(names.index(DESIGN), names.index(PERF))
+    def test_the_perf_fallback_never_rewrites_the_shared_paths(self):
+        # The advisory steps run side by side and read paths.txt, so the perf step's files-API
+        # fallback writes a file of its own.
+        self.assertNotIn('> "$RUNNER_TEMP/paths.txt"', TABLE.steps[PERF].run)
 
     def test_the_job_keeps_the_capture_check_name(self):
         name = JOB["name"]
@@ -103,7 +129,7 @@ class BodyChecksTests(unittest.TestCase):
         wanted = {"scripts/ci/pr_capture_check.py", "scripts/cmux-next/media/path_map.py",
                   "scripts/ci/pr_design_spec_check.py", ".github/design-surfaces.json",
                   "scripts/ci/pr_perf_section_check.py", "scripts/ci/pr_cloud_backend_check.py",
-                  ".github/cloud-backend-paths.json"}
+                  ".github/cloud-backend-paths.json", "ci/steps.toml", "scripts/ci/ci_steps.py"}
         self.assertEqual(set(checkout["sparse-checkout"].split()), wanted)
 
     def test_it_runs_on_drafts_and_every_old_trigger(self):

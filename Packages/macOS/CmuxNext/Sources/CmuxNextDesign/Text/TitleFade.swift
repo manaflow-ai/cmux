@@ -25,8 +25,15 @@ public final class TitleFade {
     /// The motion policy (speed, Reduce Motion and a live resize of the title's window); tests pin it.
     public lazy var policy: () -> MotionPolicy = { [gate, textLayer] in gate.policy(in: Motion.window(showing: textLayer)) }
 
+    /// Where the marquee has moved the title on screen now; tests pin it (a layer never drawn has no presentation).
+    lazy var shownTranslation: () -> CGFloat = { [textLayer] in
+        (textLayer.presentation()?.value(forKeyPath: Self.keyPath) as? CGFloat) ?? 0
+    }
+
     static let keyPath = "transform.translation.x"
     static let key = "marquee"
+    /// The leading fade that follows the marquee (`MotionGate.marqueeEdgeAnimation`).
+    static let edgeKey = "marquee.edge"
 
     /// - Parameters:
     ///   - textLayer: The title's text layer.
@@ -54,16 +61,37 @@ public final class TitleFade {
         rest.size.width = geometry.layerWidth(marquee: isMarqueeActive)
         textLayer.frame = rest
         guard geometry.isTruncated else {
-            if isMarqueeActive { stopMarquee(animated: false) }
-            guard animated, textLayer.mask === mask else {
+            // A scrolled title springs back from where it is, as a pointer leaving does
+            // (`stopMarquee`); only a layout that does not animate snaps it home.
+            if isMarqueeActive { stopMarquee(animated: animated) }
+            // A title still sliding home from its marquee keeps the mask until it is back at rest
+            // (`stopMarquee` drops it then). Dropped at once, the glyphs left of the first glyph's
+            // rest place drew unclipped across the row's padding as they slid back, with no fade
+            // (Lawrence 2026-11-16, a sidebar row on hover-out: its controls clear at once, so this
+            // layout does not animate while the slide still runs).
+            let returning = textLayer.animation(forKey: Self.keyPath) != nil
+            guard animated || returning, textLayer.mask === mask else {
                 textLayer.mask = nil
+                return
+            }
+            let (x, width) = geometry.maskFrame
+            mask.frame = CGRect(x: x, y: 0, width: width, height: frame.height)
+            let open = [0, geometry.leadingPadding / max(1, width), 1, 1, 1].map { NSNumber(value: Double($0)) }
+            if !animated {
+                // A later layout of the same slide finds the stops open, or easing open, already.
+                guard mask.locations != open else { return }
+                // The end shows at once with the controls that cleared; the leaving glyphs'
+                // fade eases back to rest with the slide.
+                let shown = (mask.presentation()?.locations ?? mask.locations) ?? open
+                let from = shown.count == open.count ? [shown[0], shown[1], 1, 1, 1] : open
+                CATransaction.begin()
+                CATransaction.setMainCompletion { [weak self] in self?.dropOpenMask() }
+                gate.set(mask, "locations", to: open, fade: .hover, from: from)
+                CATransaction.commit()
                 return
             }
             // The end comes back as the buttons over it fade out: the stops
             // ease open, then the mask goes.
-            let (x, width) = geometry.maskFrame
-            mask.frame = CGRect(x: x, y: 0, width: width, height: frame.height)
-            let open = [0, geometry.leadingPadding / max(1, width), 1, 1, 1].map { NSNumber(value: Double($0)) }
             CATransaction.begin()
             CATransaction.setMainCompletion { [weak self] in self?.dropOpenMask() }
             gate.set(mask, "locations", to: open, fade: .hover)
@@ -173,6 +201,14 @@ public final class TitleFade {
         setWidth(geometry.layerWidth(marquee: true))
         textLayer.add(text, forKey: Self.key)
         mask.add(counter, forKey: Self.key)
+        // The glyphs that leave on the left fade out over a whole fade length, never cut at the text's edge.
+        let rest = geometry.maskLocations.map { NSNumber(value: Double($0)) }
+        let scrolled = geometry.scrolledMaskLocations.map { NSNumber(value: Double($0)) }
+        if scrolled != rest, let edge = gate.marqueeEdgeAnimation(
+            keyPath: "locations", rest: rest, scrolled: scrolled, travel: travel,
+            reach: max(geometry.fadeWidth, geometry.leadingPadding), now: mask.convertTime(now, from: nil), policy: policy) {
+            mask.add(edge, forKey: Self.edgeKey)
+        }
         return true
     }
 
@@ -182,9 +218,12 @@ public final class TitleFade {
     public func stopMarquee(animated: Bool = true) {
         guard isMarqueeActive else { return }
         isMarqueeActive = false
-        let shown = (textLayer.presentation()?.value(forKeyPath: Self.keyPath) as? CGFloat) ?? 0
+        let shown = shownTranslation()
+        // The leading fade as drawn now, so it eases back with the text instead of snapping to a hard edge.
+        let shownStops = mask.animation(forKey: Self.edgeKey) == nil ? nil : mask.presentation()?.locations
         textLayer.removeAnimation(forKey: Self.key)
         mask.removeAnimation(forKey: Self.key)
+        mask.removeAnimation(forKey: Self.edgeKey)
         guard animated, abs(shown) > 0.5, policy().animatesMovement else {
             textLayer.removeAnimation(forKey: Self.keyPath)
             mask.removeAnimation(forKey: Self.keyPath)
@@ -193,15 +232,21 @@ public final class TitleFade {
         CATransaction.begin()
         // The title keeps its full width until it is back at rest, so its
         // end is never cut while it slides back.
-        CATransaction.setMainCompletion { [weak self] in self?.restoreWidth() }
+        // Home, a title that no longer clips drops its mask (`apply` keeps it for the slide).
+        CATransaction.setMainCompletion { [weak self] in self?.restoreWidth(); self?.dropOpenMask() }
         gate.set(textLayer, Self.keyPath, to: CGFloat(0), spring: .disappear, from: shown)
         gate.set(mask, Self.keyPath, to: CGFloat(0), spring: .disappear, from: -shown)
+        if let shownStops, let rest = mask.locations, shownStops != rest {
+            gate.set(mask, "locations", to: rest, fade: .hover, from: shownStops)
+        }
         CATransaction.commit()
     }
 
-    /// Drops the mask an unclipped title eased open, unless it clips again.
+    /// Drops the mask an unclipped title eased open, unless it clips again or still moves under it: the
+    /// slide home and the stops easing open each call this as they end, and the last one drops it.
     private func dropOpenMask() {
-        guard geometry?.isTruncated == false, textLayer.mask === mask else { return }
+        guard geometry?.isTruncated == false, textLayer.mask === mask,
+              textLayer.animation(forKey: Self.keyPath) == nil, mask.animation(forKey: "locations") == nil else { return }
         textLayer.mask = nil
     }
 

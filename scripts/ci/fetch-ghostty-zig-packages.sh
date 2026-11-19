@@ -35,6 +35,13 @@
 # same 504 on 2026-11-08) and CMUX_ZIG_FETCH_SAMPLE (seconds
 # between progress checks, default 5) bound the retries. CMUX_ZIG_SEED=0 skips
 # the curl pre-download (scripts/ci/seed-zig-package-archives.sh).
+#
+# The seed puts every package of the source from our mirror
+# (scripts/ci/zig-packages.lock) into Zig's cache first. With
+# CMUX_ZIG_MIRROR_ONLY=1 (the default when CI=true; 0 turns it off) Zig then
+# runs with no route to any other host (a proxy that refuses), so a package
+# missing from the mirror fails here, named, instead of being fetched from a
+# third-party host: codeberg.org's outage on 2026-11-11 failed every cold build.
 set -euo pipefail
 source_dir="${1:-ghostty-next}"
 attempts="${CMUX_ZIG_FETCH_ATTEMPTS:-4}"
@@ -50,6 +57,18 @@ done
 [[ -f "$source_dir/build.zig.zon" ]] || { echo "error: $source_dir/build.zig.zon not found" >&2; exit 2; }
 zig_bin="${CMUX_ZIG:-zig}"
 script_dir="$(cd "$(dirname "$0")" && pwd)"
+mirror_only="${CMUX_ZIG_MIRROR_ONLY:-}"
+[[ -n "$mirror_only" ]] || { [[ "${CI:-}" == true ]] && mirror_only=1 || mirror_only=0; }
+export CMUX_ZIG_MIRROR_ONLY="$mirror_only"
+# Mirror only: Zig's HTTP client takes these proxies (std.http.Client
+# initDefaultProxies), and nothing listens on port 9, so any fetch Zig itself
+# makes fails at once. curl in the seed ran before, without them. An inherited
+# NO_PROXY/no_proxy (`*`, or a host) would let Zig bypass that proxy, so both go.
+zig_env=()
+if [[ "$mirror_only" == 1 ]]; then
+  zig_env=(-u NO_PROXY -u no_proxy)
+  for name in http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY; do zig_env+=("$name=http://127.0.0.1:9"); done
+fi
 cd "$source_dir"
 
 marker="$(mktemp "${TMPDIR:-/tmp}/zig-fetch-stopped.XXXXXX")"
@@ -80,12 +99,25 @@ progress() {
 # archive, and Zig fails on it every attempt).
 archive_ok() {
   case "$1" in
-    *.tar.gz|*.tgz) local entries; entries="$(tar -tzf "$1" 2>/dev/null | wc -l)" && (( entries > 0 )) ;;
+    # Through stdin: GNU tar reads a C:\... path (the Zig cache on a Windows
+    # runner) as HOST:FILE, and every archive failed this check there.
+    *.tar.gz|*.tgz) local entries; entries="$(tar -tzf - < "$1" 2>/dev/null | wc -l)" && (( entries > 0 )) ;;
     *.tar.xz) ! command -v xz >/dev/null 2>&1 || xz -t "$1" 2>/dev/null ;;
     *.tar.zst) ! command -v zstd >/dev/null 2>&1 || zstd -tq "$1" 2>/dev/null ;;
     *.zip) ! command -v unzip >/dev/null 2>&1 || unzip -tqq "$1" >/dev/null 2>&1 ;;
     *) return 0 ;;
   esac
+}
+
+# Whether archive_ok passes a whole .tar.gz written under the cache's own path
+# (tmp/, which Zig never takes a package from).
+checks_work() {
+  local probe="$cache/tmp/.cmux-check-$$.tar.gz" ok=1
+  mkdir -p "$cache/tmp" 2>/dev/null || return 1
+  if printf 'whole\n' > "$probe.f" && tar -czf - -C "$(dirname "$probe")" "$(basename "$probe").f" > "$probe" 2>/dev/null \
+    && archive_ok "$probe"; then ok=0; fi
+  rm -f "$probe" "$probe.f"
+  return "$ok"
 }
 
 # After a failed attempt: this checkout's unfinished unpacks, and any archive in
@@ -98,6 +130,13 @@ clear_scratch() {
     if [[ -e "$entry" ]]; then rm -rf "$entry"; fi
   done
   [[ -n "$cache" ]] || return 0
+  # Only an archive's own fault removes it: when the check fails on an archive
+  # this script just wrote whole, at the cache's own path, the check is broken
+  # here (a tool, a path form), and every archive in p/ would go.
+  if ! checks_work; then
+    echo "warning: the archive check fails on a whole archive under $cache; no archive in p/ is removed" >&2
+    return 0
+  fi
   for entry in "$cache"/p/*; do
     if [[ -f "$entry" ]] && ! archive_ok "$entry"; then
       echo "removing a cut-short Zig package archive: $entry" >&2
@@ -140,7 +179,7 @@ fetch_once() {
   # Job control gives the background fetch a process group of its own, so a
   # deadline reaches zig and every child it started (bash on Linux and macOS).
   set -m
-  "$zig_bin" build --fetch=all &
+  env ${zig_env[@]+"${zig_env[@]}"} "$zig_bin" build --fetch=all &
   local pid=$!
   fetch_pid=$pid
   set +m
@@ -210,6 +249,9 @@ while :; do
   clear_scratch
   if (( attempt >= attempts )); then
     echo "error: could not fetch the Zig packages of $source_dir: attempt $attempt of $attempts $why; giving up" >&2
+    if [[ "$mirror_only" == 1 ]]; then
+      echo "next: mirror only: a package above is not in scripts/ci/zig-packages.lock's mirror; run scripts/ci/zig_package_mirror.py check, and mirror it (its docstring)" >&2
+    fi
     exit 1
   fi
   echo "Zig package fetch attempt $attempt of $attempts $why; retrying in $((delay * attempt))s" >&2

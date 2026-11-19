@@ -33,10 +33,13 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// hides, so over art the material blurs the picture instead.
     public var artBlurRadius: Int = 0
     /// The art's own opacity: 1, or ``windowGlassArtOpacity`` under Window Glass (the Clear Glass
-    /// material over art, cx-t2x.6), so the desktop and the windows behind read through it.
+    /// material over art, cx-t2x.6), so the desktop and the windows behind read through it a little.
     public var artOpacity: Double = 1
-    /// How much of the art covers what is behind a Window Glass window.
-    public static let windowGlassArtOpacity = 0.55
+    /// How much of the art covers what is behind a Window Glass window: most of it, so the art leads
+    /// and the desktop shows only a little. At 0.55 the desktop was nearly half the picture (Leo,
+    /// 2026-11-07: "the point is to have the art show through and be shown nicely / the desktop ehhh i
+    /// guess a little / but former is the biggest one").
+    public static let windowGlassArtOpacity = 0.85
     /// Live experimental adjustments applied to the tint.
     public var tuning: AppearanceTuning = .identity
     /// The one-time texture pass applied when artwork is loaded.

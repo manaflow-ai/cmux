@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The action exports for base autofix (the Mac action-exports job of cmux-next-base-autofix.yml),
-# made at the newest BRANCH tip: plans/cmux-next/action-surfaces.json, actions.md and links.json.
+# made at the newest BRANCH tip: plans/cmux-next/action-surfaces.json, action-catalog.json, actions.md and links.json.
 #
 # The Mac job waits for a runner for up to half an hour and the actions area moves every few minutes,
 # so this starts on the newest tip when the area moved while the job queued. It regenerates once and
@@ -25,7 +25,7 @@ set -euo pipefail
 # The whole body is read before it runs: a checkout of a newer tip rewrites this file.
 main() {
   local out remote branch here root at tip file regenerate
-  local exports=(plans/cmux-next/action-surfaces.json plans/cmux-next/actions.md plans/cmux-next/links.json)
+  local exports=(plans/cmux-next/action-surfaces.json plans/cmux-next/action-catalog.json plans/cmux-next/actions.md plans/cmux-next/links.json)
   out="$(mkdir -p "${1:?usage: $0 OUT REMOTE BRANCH}" && cd "$1" && pwd)"
   remote="${2:?usage: $0 OUT REMOTE BRANCH}"
   branch="${3:?usage: $0 OUT REMOTE BRANCH}"
@@ -40,6 +40,7 @@ main() {
   trap 'back_to_start; rm -rf "${work:-}"' EXIT
   # The run's own area rules, copied before a checkout can change them.
   cp "$here/autofix-areas.sh" "$work/areas.sh"
+  cp "$here/base-autofix-ffi-pin.sh" "$work/ffi-pin.sh"
   # --depth only where the checkout is already shallow (the CI checkout): in a full clone it would make every
   # worktree sharing it shallow (tests/test_ci_no_shallow_dev_fetch.py).
   depth=()
@@ -82,7 +83,10 @@ read_tip() {
 moved() { # <from> <to>
   local changed areas
   [[ "$1" != "$2" ]] || return 1
-  if changed="$(git diff --name-only --no-renames "$1" "$2")" && areas="$("$work/areas.sh" <<<"$changed")"; then
+  # A re-pin of CCmuxAppFFI moves the exports too (base-autofix-ffi-pin.sh); both commits are fetched.
+  if changed="$(git diff --name-only --no-renames "$1" "$2")" \
+    && changed+=$'\n'"$(bash "$work/ffi-pin.sh" "$1" "$2")" \
+    && areas="$("$work/areas.sh" <<<"$changed")"; then
     grep -qx 'actions=true' <<<"$areas"
   else
     echo "::warning::cannot read what ${1:0:12}..${2:0:12} changed; counting the action exports' inputs as moved" >&2

@@ -12,6 +12,7 @@ import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import type { CmuxCommand } from "../src/agent-session/acpmux/cmuxCommands";
 import { localCommand, localCommandNames, type LocalCommand } from "../src/agent-session/acpmux/localCommands";
+import { teardownDom } from "./support/domTeardown";
 
 const PNG = new Uint8Array(8);
 const scope = globalThis as Record<string, unknown>;
@@ -91,12 +92,8 @@ afterEach(() => {
   host.replaceChildren();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 function Chips() {

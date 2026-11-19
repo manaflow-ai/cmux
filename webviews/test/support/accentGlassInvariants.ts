@@ -20,8 +20,14 @@
 // 41076022470, 41048809560). Four parts of about 879 stages each then outgrew their 480 s limit:
 // part 3 timed out at stage 750 even when retried alone (2026-11-03, run 41586011973), so six.
 // Six parts of about 701 stages each then reached their 450 s limit: part 6 scanned every stage and
-// still ran out on a busy shard (2026-11-05, run 42061901722), so seven.
+// still ran out on a busy shard (2026-11-05, run 42061901722), so seven. The gallery then grew to 6,848
+// stages, 978 a part: part 5 timed out at stage 750 at its 450 s limit, alone on the head too (#44828, run
+// 44148246463), and parts 2 and 6 were red on the base the same way, so twelve, about 571 stages each.
 // Each part scans every `parts`-th stage of the sorted list.
+// Each part is also `// cmux-web-test-alone`: about 280 s alone, but three parts the split put on
+// one shard ran together in its dev-server pool, each hit its limit, and each paid its alone retry
+// on top (react-apps-check shard 8 on #40611, 2026-11-10: about 20 minutes of a 28 to 33 minute
+// shard). Alone, the split counts each part in series and spreads them over the shards.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 // Warm the first stage through its scoped frame. Crawling the generic frame follows every lazy
@@ -34,6 +40,7 @@ import { loadEntrySources } from "../../scripts/gallery/entries";
 import { findingKey, scanStage, type Finding } from "./accentGlassScan";
 import { warmGalleryFrame } from "./galleryFrame";
 import { requireBrowserLane } from "./requireBrowserLane";
+import { launchStageBrowser, type StageBrowser } from "./stageBrowser";
 
 export type AccentGlassPart = {
   /** The part's test file name, for requireBrowserLane. */
@@ -91,7 +98,8 @@ export async function accentGlassInvariants({ file, part, parts, viteConfig }: A
 
     const { createServer } = await import("vite");
     let vite: Awaited<ReturnType<typeof createServer>> | undefined;
-    let browser: Browser | undefined;
+    // One Chromium for the whole part, relaunched when it dies mid-file (test/support/stageBrowser.ts).
+    let shared: StageBrowser<Browser, Page> | undefined;
     beforeAll(async () => {
       vite = await createServer({
         configFile: path.join(webviews, viteConfig),
@@ -99,16 +107,19 @@ export async function accentGlassInvariants({ file, part, parts, viteConfig }: A
         logLevel: "error",
       });
       await vite.listen();
-      browser = await chromium.launch({ headless: true });
+      shared = await launchStageBrowser<Browser, Page>({
+        launch: () => chromium.launch({ headless: true }),
+        open: (browser) => browser.newPage({ viewport: { width: 760, height: 900 } }),
+      });
       const first = stages[0];
       if (first)
         await warmGalleryFrame(vite, first.entry, {
-          browser,
+          browser: shared.browser,
           params: { variant: first.variant, theme: first.theme, frame: "component" },
         });
     });
     afterAll(async () => {
-      await browser?.close();
+      await shared?.close();
       await vite?.close();
     });
 
@@ -171,26 +182,37 @@ export async function accentGlassInvariants({ file, part, parts, viteConfig }: A
       await Promise.all(
         // One page per worker, reused from stage to stage: a fresh page per stage cost more than the scan.
         Array.from({ length: 8 }, async () => {
-          const open = () => browser!.newPage({ viewport: { width: 760, height: 900 } });
-          let page = await open();
+          let page: Page | undefined;
           for (let stage = queue.shift(); stage; stage = queue.shift()) {
+            // A page open that fails (the browser died: `Target.createBrowserContext` failed) relaunches the
+            // browser and retries once; past that every open fails at once, so the stages left end now
+            // instead of holding the part to its 450 s limit (runs 44139691454, 44105019567).
+            if (!page)
+              try {
+                page = await shared!.page();
+              } catch (error) {
+                results.push({ stage: stageName(stage), error: String(error).split("\n")[0]! });
+                continue;
+              }
             // fixed-wait: the stage's deadline above; each stage ends as soon as it is scanned.
             const result = await scanWithin(page, stage);
             results.push(result);
             // A stage that failed may leave its page stuck or crashed: the next stage gets a new one. A hung
             // page's close may not answer either, so it is not awaited.
             if ("error" in result) {
-              void page.close().catch(() => {});
-              page = await open();
+              void shared!.closePage(page);
+              page = undefined;
             }
             if (results.length % 50 === 0)
               console.log(
                 `accent-glass: ${results.length}/${stages.length} stages, ${Math.round(performance.now() / 1000)}s`,
               );
           }
-          await page.close().catch(() => {});
+          if (page) await shared!.closePage(page);
         }),
       );
+      // A browser that could not be brought back fails the part on its cause, not as missing coverage.
+      expect(shared!.failure, "the shared Chromium").toBeUndefined();
 
       const fresh: string[] = [];
       const reported = new Set<string>();

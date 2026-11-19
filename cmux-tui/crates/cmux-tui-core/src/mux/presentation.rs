@@ -18,7 +18,11 @@ use std::ops::Deref;
 
 mod decoration_walks;
 mod frontend_browser_history;
+#[cfg(test)]
+mod git_head_probe;
+mod git_heads;
 use decoration_walks::surface_directories_in_state;
+pub(super) use git_heads::GitHeadCache;
 
 /// Per-snapshot data the tree serializer adds to the live [`State`]:
 /// unread notification markers and the shared presentation metadata.
@@ -83,11 +87,6 @@ pub(crate) struct GitHead {
     detached: bool,
 }
 
-/// A cached HEAD lookup is reused for this long, which bounds both the
-/// filesystem work of a tree snapshot and the staleness of a branch switch
-/// made without changing directory.
-const GIT_HEAD_TTL: Duration = Duration::from_secs(2);
-const GIT_HEAD_CACHE_LIMIT: usize = 4096;
 const GIT_METADATA_MAX_BYTES: u64 = 4096;
 
 fn read_small_file(path: &Path) -> Option<String> {
@@ -113,6 +112,8 @@ fn read_git_head_file(git_dir: &Path) -> Option<GitHead> {
 /// Find the repository containing `directory` and read its HEAD without
 /// running git. A `.git` file (worktrees, submodules) names the git dir.
 pub(crate) fn read_git_head(directory: &Path) -> Option<GitHead> {
+    #[cfg(test)]
+    git_head_probe::on_read(directory);
     let mut current = Some(directory);
     while let Some(candidate) = current {
         let dot_git = candidate.join(".git");
@@ -209,6 +210,7 @@ pub(crate) fn tab_delta(
         entity,
         workspace_revision: None,
         transaction: None,
+        mutation: None,
     })
 }
 
@@ -235,7 +237,8 @@ impl Mux {
     }
 
     /// Notifications, presentation, and tab directories for serializing the
-    /// whole tree. Git HEAD lookups run after the state lock is released.
+    /// whole tree. Git HEADs come from the cache (git_heads.rs); a directory
+    /// with no cached value is read after the state lock is released.
     #[track_caller]
     pub fn tree_decorations(&self) -> TreeDecorations {
         let presentation = self.presentation_snapshot();
@@ -429,28 +432,10 @@ impl Mux {
                 },
             );
         }
+        if refresh {
+            self.start_git_head_refresh();
+        }
         result
-    }
-
-    fn git_head(&self, cwd: &str, now: Instant, refresh: bool) -> Option<GitHead> {
-        {
-            let cache = self.git_heads.lock().unwrap();
-            if let Some((checked, head)) = cache.get(cwd)
-                && (!refresh || now.saturating_duration_since(*checked) < GIT_HEAD_TTL)
-            {
-                return head.clone();
-            }
-        }
-        if !refresh {
-            return None;
-        }
-        let head = read_git_head(Path::new(cwd));
-        let mut cache = self.git_heads.lock().unwrap();
-        if cache.len() >= GIT_HEAD_CACHE_LIMIT {
-            cache.clear();
-        }
-        cache.insert(cwd.to_string(), (now, head.clone()));
-        head
     }
 
     /// Tell subscribers that one tab's metadata (pin, directory, git HEAD,
@@ -792,6 +777,7 @@ impl Mux {
                     entity,
                     workspace_revision: Some(commit.revision),
                     transaction: None,
+                    mutation: None,
                 },
                 workspace_mutation_result(&commit)?,
             )
@@ -911,6 +897,7 @@ impl Mux {
                     entity,
                     workspace_revision: Some(commit.revision),
                     transaction: None,
+                    mutation: None,
                 },
                 workspace_mutation_result(&commit)?,
             )
@@ -992,6 +979,22 @@ impl Mux {
         self.new_frontend_browser_tab_with(record, |browser_id, url| {
             let fields = frontend_browser_fields(browser_id, FrontendTabPlacement::default());
             self.split_tab_pane_with_fields_as(actor, split, url, fields, size)
+        })
+    }
+
+    /// `new-frontend-browser-tab {workspace}` (`frontend-browser-tab-workspace-v1`):
+    /// the tab goes in `workspace`'s active pane, or is the first tab of an
+    /// empty workspace.
+    pub(crate) fn new_frontend_browser_tab_in_workspace_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        workspace: WorkspaceId,
+        record: FrontendBrowserRecord,
+        placement: FrontendTabPlacement,
+    ) -> anyhow::Result<Arc<Surface>> {
+        self.new_frontend_browser_tab_with(record, |browser_id, url| {
+            let fields = frontend_browser_fields(browser_id, placement);
+            self.new_browser_tab_in_workspace_with_fields_as(actor, url, workspace, fields)
         })
     }
 

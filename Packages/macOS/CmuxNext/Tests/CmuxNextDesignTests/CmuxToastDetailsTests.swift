@@ -114,7 +114,7 @@ struct CmuxToastHostReportTests {
                               backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         let handle = center.show(CmuxToast(id: "t", message: "Closed “New Tab”", action: .undo(),
-                                           duration: .milliseconds(150)), in: window)
+                                           duration: .milliseconds(150), keepsDuration: true), in: window)
         let dismissed = AsyncStream.makeStream(of: CmuxToastDismissReason.self)
         handle.onDismiss = { dismissed.continuation.yield($0) }
         let serial = try #require(host.shown.last).serial

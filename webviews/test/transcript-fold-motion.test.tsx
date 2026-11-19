@@ -9,6 +9,7 @@ import path from "node:path";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { MOTION_EASE_OUT } from "../src/motion/scale.generated";
 import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
 import {
   cssTimeMs,
@@ -25,6 +26,7 @@ import { ToolRow } from "../src/agent-session/acpmux/conversation/ToolRow";
 import { ToolRun } from "../src/agent-session/acpmux/conversation/ToolRun";
 import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
 import { useAnchoredCollapse } from "../src/agent-session/acpmux/conversation/useAnchoredCollapse";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -98,7 +100,7 @@ beforeEach(() => {
   reduce = false;
   animations = [];
   foldMotion.duration = () => token;
-  foldMotion.easing = () => "cubic-bezier(0, 0, 0.58, 1)";
+  foldMotion.easing = () => MOTION_EASE_OUT;
   foldMotion.reducedMotion = () => reduce;
   resetTranscriptDisclosure();
   container = dom.window.document.getElementById("root")!;
@@ -109,6 +111,7 @@ afterEach(async () => {
   root = undefined;
   Object.assign(foldMotion, motion);
   resetTranscriptDisclosure();
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -118,15 +121,16 @@ afterEach(async () => {
   saved.clear();
 });
 
+// A fetch, not a read: since the 2026-11-14 change a read row is static and does not open.
 const tool = (id: string, extra: Record<string, unknown> = {}): AcpmuxActivity => ({
   kind: "tool",
   text: "",
-  tool: { id, title: `Read src/${id}.ts`, kind: "read", status: "completed", output: `contents of ${id}`, ...extra },
+  tool: { id, title: `Fetch ${id}`, kind: "fetch", status: "completed", output: `contents of ${id}`, ...extra },
 });
 
 /// Each collapsible, closed, and the body its toggle opens.
 const collapsibles: Array<{ name: string; node: () => ReactNode; body: string }> = [
-  { name: "a tool row", node: () => <ToolRow item={tool("read")} />, body: ".cv-tool-output-card" },
+  { name: "a tool row", node: () => <ToolRow item={tool("fetch")} />, body: ".cv-tool-output-card" },
   {
     name: "a command row",
     node: () => <CommandRow item={tool("cmd", { kind: "execute", command: "bun test", title: "bun test" })} />,
@@ -272,7 +276,7 @@ for (const { name, node, body } of collapsibles) {
     expect(animations.length).toBe(1);
     const [opening] = animations;
     expect(opening!.options.duration).toBe(token);
-    expect(opening!.options.easing).toBe("cubic-bezier(0, 0, 0.58, 1)");
+    expect(opening!.options.easing).toBe(MOTION_EASE_OUT);
     expect(opening!.keyframes[0]).toEqual({ height: "0px", opacity: 0 });
     expect(opening!.keyframes.at(-1)!.opacity).toBe(1);
     // The chevron turns as it opens.
@@ -427,7 +431,7 @@ test("a move token that becomes zero settles the active fold even when fade moti
   click();
   expect(container.querySelector(".cv-tool-output-card")).not.toBeNull();
   const box = container.querySelector<HTMLElement>(".cv-fold")!;
-  document.documentElement.style.setProperty("--agent-motion-in", "80ms");
+  document.documentElement.style.setProperty("--agent-motion-in", "80ms"); // motion-allow: a fixture token, not the scale
   token = 0;
   document.documentElement.style.setProperty("--agent-motion-move", "0ms");
   await act(async () => {
@@ -478,7 +482,7 @@ test("the fold token is the settle (one curve for every web fold), and the chevr
   );
   // The fold reads the token as the page resolves it.
   expect(cssTimeMs("190ms")).toBe(190);
-  expect(cssTimeMs(" 0.18s")).toBe(180);
+  expect(cssTimeMs(" 0.18s")).toBe(180); // motion-allow: parser input
   expect(cssTimeMs("0ms")).toBe(0);
   expect(cssTimeMs("")).toBeUndefined();
 });

@@ -32,6 +32,11 @@ Usage:
       [--label NAME] [--out DIR] [--keep-running]
 
 Writes artifacts/cmux-next-bench/<sha>-tabswitch-<label>.json.
+
+`--frames` runs the frame-judged harness instead (tab_switch_frames.py, its own arguments after the flag): a long
+chat, a terminal and a Chromium page switched away and back, a new tab and a close, idle, under CPU load and with
+agents streaming, every switch judged from the screen's frames against the frame it must end on, with budgets and the
+tab-switch/v1 report. It runs on a shipped NIGHTLY too: scripts/measure/tab-switch.sh build=nightly|SHA.
 """
 from __future__ import annotations
 
@@ -47,6 +52,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_idle import Client, usage, wait_for_socket  # noqa: E402
 from daemon_teardown import end_terminals  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 COLORS = ["#c0392b", "#27ae60", "#2980b9", "#8e44ad", "#d35400", "#16a085", "#2c3e50", "#f39c12", "#7f8c8d", "#e84393"]
 
@@ -259,6 +265,9 @@ class Bench:
 
 
 def main():
+    if sys.argv[1:2] == ["--frames"]:
+        import tab_switch_frames
+        sys.exit(tab_switch_frames.main(sys.argv[2:]))
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--tag", required=True)
     parser.add_argument("--app")
@@ -291,7 +300,7 @@ def main():
         "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"),
     }
     app = subprocess.Popen([binary], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    print(f"bench-tab-switch: app pid {app.pid}")
+    safe_print(f"bench-tab-switch: app pid {app.pid}")
     socket_path = f"/tmp/cmux-debug-{tag}.sock"
     report = {"tag": tag, "sha": args.sha, "label": args.label, "args": vars(args), "scenarios": {}}
     try:
@@ -329,13 +338,13 @@ def main():
             try:
                 report["teardown"] = end_terminals(os.path.join(bundle, "Contents/Resources/bin/cmux-tui"), tag)
             except Exception as error:  # noqa: BLE001 - teardown is best effort; report it
-                print(f"bench-tab-switch: daemon teardown: {error}", file=sys.stderr)
+                safe_print(f"bench-tab-switch: daemon teardown: {error}", file=sys.stderr)
     out_dir = args.out or os.path.join(args.repo_root, "artifacts/cmux-next-bench")
     os.makedirs(out_dir, exist_ok=True)
     out = os.path.join(out_dir, f"{args.sha}-tabswitch-{args.label}.json")
     with open(out, "w") as handle:
         json.dump(report, handle, indent=2)
-    print(f"bench-tab-switch: wrote {out}")
+    safe_print(f"bench-tab-switch: wrote {out}")
 
 
 if __name__ == "__main__":

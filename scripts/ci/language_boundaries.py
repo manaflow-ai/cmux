@@ -7,8 +7,14 @@ swift." #37777 deleted the native Swift Chief transcript for a React page and sh
 nightly; this check fails that diff (tests/fixtures/language-boundaries/pr-37777-name-status.tsv).
 
 A `keep` area fails when the pull request loses files of the area's language there (more deleted or renamed away
-than added) or adds a file of a foreign language there. A `minimal` area fails when the pull request adds a Swift
-file there. The header of .github/language-boundaries.toml is the schema and the rules in full.
+than added) while it brings in code of another language that could replace them, or when it adds a file of a foreign
+language there. A loss is a port only with a possible destination: at least one new source file of another language
+(swift, rust or web) anywhere in the repo, added, copied or renamed from another language (an area file renamed to
+another language among them). A pull request that only deletes, and edits files that already exist, is a removal and
+passes: Leo, 2026-11-17, on the ceremony audit, "go remove this", and the chat notice it removed (cmux#45562, four web
+files deleted, nothing added) was refused as a port. Mechanical on purpose: a quote in a PR body can be typed by
+anyone. A `minimal` area fails when the pull request adds a Swift file there. The header of
+.github/language-boundaries.toml is the schema and the rules in full.
 
 Leo's approval, the only way through, needs all three:
   1. the label `leo-approved-port` is on the pull request;
@@ -22,6 +28,13 @@ The limit, honestly: agents act on GitHub as teamleaderleo with Leo's own token,
 or comment from an agent's. (2) stops every other account and every bot; (3) stops an agent that follows the
 rulebook's footer rule. An agent that adds the label and writes a bare approval line on purpose gets through; the
 rulebook forbids it, and the approval line is in the PR's history for anyone to read.
+
+A React port fails anywhere in the repo, keep area or not (Lawrence, relayed by Leo on 2026-11-11: "also let's not
+move stuff to react anymore unless we talk about it / swift->rust is usually fine though"): one pull request that
+removes Swift files on net and adds web files under the manifest's `[[react_port]]` `web` globs is the same feature
+moving from Swift to React. It passes only when the `react-port-ok` label is on it and its latest `labeled` event's
+actor is one of the table's `approvers` (Lawrence or Leo), a User account acting without a GitHub App. Swift to Rust
+passes. The same limit as above holds for teamleaderleo, whose token agents share.
 
 Changed files arrive as REST's JSON lines (`--format json`) or `git diff -z --name-status -M` (`--format git-z`):
 both carry any path byte for byte. The TSV form (`--format tsv`) refuses a git-quoted path, since git quotes a path
@@ -106,9 +119,10 @@ class Area:
 def parse(text: str) -> list[Area]:
     """The manifest's areas. Anything malformed raises ValueError: a typo never opens a boundary."""
     data = tomllib.loads(text)
-    unknown = set(data) - {"area"}
+    unknown = set(data) - {"area", "react_port"}
     if unknown:
-        raise ValueError(f"unknown top-level keys {sorted(unknown)}; want only [[area]] tables")
+        raise ValueError(f"unknown top-level keys {sorted(unknown)}; want only [[area]] and [[react_port]] tables")
+    parse_react_port(text)
     areas = []
     for index, raw in enumerate(data.get("area") or [], 1):
         if not isinstance(raw, dict):
@@ -137,6 +151,47 @@ def parse(text: str) -> list[Area]:
 
 def load(path: Path = DEFAULT_MANIFEST) -> list[Area]:
     return parse(path.read_text())
+
+
+@dataclass
+class ReactPort:
+    """The manifest's `[[react_port]]` table: the label that lets a Swift-to-React port through, who may add it, and
+    where new web code counts."""
+    label: str
+    approvers: list[str]
+    web: list[str]
+    regexes: list[re.Pattern[str]] = field(default_factory=list, repr=False)
+
+    def covers(self, path: str) -> bool:
+        return any(rx.match(path) for rx in self.regexes)
+
+
+PORT_FIELDS = ("label", "approvers", "web")
+
+
+def parse_react_port(text: str) -> ReactPort | None:
+    """The manifest's one `[[react_port]]` table, or None when it has none. Malformed raises ValueError."""
+    tables = tomllib.loads(text).get("react_port")
+    if tables is None:
+        return None
+    if not isinstance(tables, list) or len(tables) != 1 or not isinstance(tables[0], dict):
+        raise ValueError("want exactly one [[react_port]] table")
+    raw = tables[0]
+    missing = [key for key in PORT_FIELDS if key not in raw]
+    extra = sorted(set(raw) - set(PORT_FIELDS))
+    if missing or extra:
+        raise ValueError(f"react_port: missing {missing}, unknown {extra}; want exactly {list(PORT_FIELDS)}")
+    label, approvers, web = (raw[key] for key in PORT_FIELDS)
+    if not isinstance(label, str) or not label:
+        raise ValueError("react_port: label must be a non-empty string")
+    for key, value in (("approvers", approvers), ("web", web)):
+        if not isinstance(value, list) or not value or not all(isinstance(v, str) and v for v in value):
+            raise ValueError(f"react_port: {key} must be a non-empty list of strings")
+    return ReactPort(label, list(approvers), list(web), [glob_regex(p) for p in web])
+
+
+def load_react_port(path: Path = DEFAULT_MANIFEST) -> ReactPort | None:
+    return parse_react_port(path.read_text())
 
 
 def language_of(path: str) -> str | None:
@@ -259,6 +314,22 @@ def read_records(path: Path, fmt: str) -> list[Record]:
     return parse_records(path.read_text())
 
 
+def replacements(language: str, records: list[Record]) -> list[str]:
+    """Where a keep area's lost LANGUAGE files could have gone: the source files of another language this pull request
+    brings in anywhere in the repo, as a new file, a copy, or a rename from another language (an area file renamed to
+    another language among them). Edits to files that already exist bring in none. Empty: a removal, not a port."""
+    out = []
+    for rec in records:
+        now = language_of(rec.path)
+        if rec.status == "removed" or now is None or now == language:
+            continue
+        if rec.status == "added":
+            out.append(rec.path)
+        elif rec.status == "copied" or (rec.status == "renamed" and language_of(rec.old) != now):
+            out.append(f"{rec.old} -> {rec.path}")
+    return out
+
+
 def violations(areas: list[Area], records: list[Record]) -> list[str]:
     """One line per broken boundary, empty when the pull request keeps every area in its language."""
     out = [f"changes the language-boundaries check itself: {rec.path}" for rec in records
@@ -284,16 +355,62 @@ def violations(areas: list[Area], records: list[Record]) -> list[str]:
             elif new_in and language_of(rec.path) == "swift" and (
                     arrived or (rec.status == "renamed" and language_of(rec.old) != "swift")):
                 new_swift.append(rec.path if rec.status == "added" else f"{rec.old} -> {rec.path}")
-        if len(lost) > len(gained):
+        into = replacements(area.language, records) if len(lost) > len(gained) else []
+        if into:  # a loss with nothing of another language brought in is a removal, not a port
             shown = ", ".join(lost[:8]) + (f" and {len(lost) - 8} more" if len(lost) > 8 else "")
+            dest = ", ".join(into[:3]) + (f" and {len(into) - 3} more" if len(into) > 3 else "")
             out.append(f"{area.name}: loses {len(lost) - len(gained)} {area.language} file(s) net "
-                       f"({len(lost)} deleted or moved away, {len(gained)} added): {shown}")
+                       f"({len(lost)} deleted or moved away, {len(gained)} added): {shown}; while adding "
+                       f"{len(into)} file(s) of another language: {dest}")
         for path in foreign:
             out.append(f"{area.name}: adds {path}, {language_of(path)} in a {area.language} area")
         for path in new_swift:
             out.append(f"{area.name}: adds Swift file {path}; Swift stays minimal here, new logic is "
                        f"{area.language}")
     return out
+
+
+def react_ports(port: ReactPort | None, records: list[Record]) -> list[str]:
+    """One line when the pull request moves a feature from Swift to React (the module docstring's rule), else none.
+    Swift anywhere counts; web counts only under the table's `web` globs."""
+    if port is None:
+        return []
+    lost, gained, web = [], 0, []
+    for rec in records:
+        old = rec.path if rec.status == "removed" else (rec.old if rec.status == "renamed" else "")
+        now_swift = rec.status != "removed" and language_of(rec.path) == "swift"
+        if old and language_of(old) == "swift" and not now_swift:
+            lost.append(old if rec.status == "removed" else f"{rec.old} -> {rec.path}")
+        if now_swift and (rec.status in ("added", "copied")
+                          or (rec.status == "renamed" and language_of(rec.old) != "swift")):
+            gained += 1
+        if rec.status != "removed" and language_of(rec.path) == "web" and port.covers(rec.path) and (
+                rec.status in ("added", "copied")
+                or (rec.status == "renamed" and (language_of(rec.old) != "web" or not port.covers(rec.old)))):
+            web.append(rec.path)
+    if len(lost) <= gained or not web:
+        return []
+    def shown(items: list[str]) -> str:
+        return ", ".join(items[:5]) + (f" and {len(items) - 5} more" if len(items) > 5 else "")
+    return [f"removes {len(lost) - gained} Swift file(s) net ({shown(lost)}) and adds {len(web)} web file(s) "
+            f"({shown(web)})"]
+
+
+def react_port_approval(port: ReactPort, labels: list[str], events: list[dict]) -> tuple[bool, str]:
+    """(approved, why) for a React port. events: the PR's issue events ({event, label, actor, type, app}), oldest
+    first. Only the latest `labeled` event for the label counts, and only from an approver acting as a User without a
+    GitHub App."""
+    if port.label not in labels:
+        return False, f"the label `{port.label}` is not on the pull request"
+    labeled = [e for e in events if e.get("event") == "labeled" and e.get("label") == port.label]
+    if not labeled:
+        return False, f"no `labeled` event for `{port.label}` was found"
+    last = labeled[-1]
+    actor = str(last.get("actor") or "")
+    if _is_app(last, "actor") or actor.lower() not in {a.lower() for a in port.approvers}:
+        how = " through a GitHub App or as a bot" if _is_app(last, "actor") else ""
+        return False, f"`{port.label}` was last added by {actor!r}{how}, not by {' or '.join(port.approvers)}"
+    return True, f"{actor} added `{port.label}`"
 
 
 def _is_app(entry: dict, login_key: str) -> bool:
@@ -348,23 +465,40 @@ def read_jsonl(path: Path | None) -> list[dict]:
     return out
 
 
+REACT_RULE = ("Lawrence, relayed by Leo (2026-11-11): \"also let's not move stuff to react anymore unless we talk "
+              "about it / swift->rust is usually fine though\"")
+
+
 def check(areas: list[Area], records: list[Record], labels: list[str], events: list[dict], notes: list[dict],
-          expected_files: int | None = None) -> tuple[int, list[str]]:
-    """(exit code, annotation lines)."""
+          expected_files: int | None = None, port: ReactPort | None = None) -> tuple[int, list[str]]:
+    """(exit code, annotation lines). PORT is the manifest's `[[react_port]]` table (None: no React-port rule)."""
     approved, why = leo_approval(labels, events, notes)
     paths = {r.path for r in records}
     if expected_files is not None and len(records) < expected_files and not approved:
         return 1, [f"::error::The changed-file listing has {len(records)} files but the pull request changes "
                    f"{expected_files}; a boundary change may be past its end.",
                    "next: split the pull request"]
+    ported = react_ports(port, records)
+    port_lines: list[str] = []
+    if ported and port is not None:
+        port_ok, port_why = react_port_approval(port, labels, events)
+        if port_ok:
+            port_lines = [f"::notice::React port approved ({port_why}): {ported[0]}"]
+        else:
+            port_lines = [f"::error::Refused a Swift-to-React port: {ported[0]}. Talk to Lawrence or Leo, then they "
+                          f"add {port.label} ({port_why}).", f"::error::{REACT_RULE}"]
+    port_failed = any(line.startswith("::error::") for line in port_lines)
     found = violations(areas, records)
     if not found:
-        return 0, [f"::notice::Every area keeps its language ({len(paths)} changed files, "
-                   ".github/language-boundaries.toml)."]
+        if port_failed:
+            return 1, port_lines + [f"next: talk to Lawrence or Leo, then they add {port.label}"]
+        return 0, port_lines + [f"::notice::Every area keeps its language ({len(paths)} changed files, "
+                                ".github/language-boundaries.toml)."]
     shown = found[:30] + ([f"... and {len(found) - 30} more"] if len(found) > 30 else [])
     if approved:
-        return 0, [f"::notice::Leo approved this port ({why}): {line}" for line in shown]
-    out = [f"::error::Language boundary: {line}" for line in shown]
+        out = port_lines + [f"::notice::Leo approved this port ({why}): {line}" for line in shown]
+        return (1 if port_failed else 0), out
+    out = port_lines + [f"::error::Language boundary: {line}" for line in shown]
     out.append(
         "::error::Lawrence's rule, relayed by Leo: \"imessage home lives in swift, chat ui lives in react, "
         "acpmux/cmux-tui lives in rust, cmux cloud core should be rust (together with cmux-tui/acpmux) and should "
@@ -389,6 +523,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         areas = load(args.manifest)
+        port = load_react_port(args.manifest)
     except (OSError, ValueError, tomllib.TOMLDecodeError) as exc:
         print(f"::error::Could not read the language-boundaries manifest: {exc}")
         print("next: fix .github/language-boundaries.toml on the base branch (its header is the schema)")
@@ -402,7 +537,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"::error::Could not read the pull request's files, labels or history: {exc}")
         print("next: re-run this check; nothing was decided")
         return 3
-    code, lines = check(areas, records, labels, events, notes, args.expected_files)
+    code, lines = check(areas, records, labels, events, notes, args.expected_files, port)
     for line in lines:
         print(line)
     return code

@@ -16,6 +16,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { translate as t } from "../src/agent-session/acpmux/i18n";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -132,11 +133,7 @@ afterEach(async () => {
 
 afterAll(async () => {
   (await import("../src/agent-session/acpmux/cloudMachines")).setCloudMachinesForTestAccount(undefined);
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const flush = () => act(async () => await new Promise((done) => setTimeout(done, 0)));
@@ -204,15 +201,17 @@ async function openChip() {
   await flush();
 }
 
-test("Where's third row reads Remote, not Another machine", async () => {
-  expect(t("composer.anotherMachine")).toBe("Remote");
+// Austin, 2026-11-12: Where's third row is Other devices (it was Remote, and before that Another machine).
+test("Where's third row reads Other devices, not Remote or Another machine", async () => {
+  expect(t("composer.otherDevices")).toBe("Other devices");
   await mount({ flag: false, mode: "persistent" });
   const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
   await act(async () => void openPicker("Computer"));
   const labels = [...dom.window.document.querySelectorAll(".acpmux-env-popover .acpmux-menu-label")].map(
     (label) => label.textContent,
   );
-  expect(labels).toContain("Remote");
+  expect(labels).toContain("Other devices");
+  expect(labels).not.toContain("Remote");
   expect(labels).not.toContain("Another machine");
 });
 

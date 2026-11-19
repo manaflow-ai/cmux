@@ -6,7 +6,7 @@ On a scratch Chief home: `cmux chief new` makes a second Chief; both Chiefs' con
 MESSAGES long messages (debug.home.api submit, the owner's own send path). Then Home opens the
 default Chief, the second Chief (home.openConversation: the path a list row's click takes), the
 default Chief again and the second Chief again. Each open is followed by a window snapshot and the
-transcript's scroll state (home_page.py geometry: `scrollOffset`, `scrollBottom`, `scrollTop`,
+transcript's scroll state (debug.home.drive geometry: `scrollOffset`, `scrollBottom`, `scrollTop`,
 `pinned` when the build reports them; the snapshots otherwise).
 
 Exit: 0 every open rested at the newest message (or the snapshots are the evidence, see the log);
@@ -14,9 +14,6 @@ Exit: 0 every open rested at the newest message (or the snapshots are the eviden
 Usage: home-chat-opens-at-bottom-live.py --tag TAG --app APP [--out DIR] [--messages N]
 """
 import argparse, json, os, random, shutil, socket, subprocess, sys, tempfile, time
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import home_page  # noqa: E402
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--tag", default=os.environ.get("NX_APP_TAG"))
@@ -88,7 +85,7 @@ def conversation_with(participant):
 
 
 def geometry():
-    return (home_page.drive(rpc, {"action": "geometry"}) or {}).get("geometry") or {}
+    return (rpc("debug.home.drive", {"action": "geometry"}) or {}).get("geometry") or {}
 
 
 def shot(name):

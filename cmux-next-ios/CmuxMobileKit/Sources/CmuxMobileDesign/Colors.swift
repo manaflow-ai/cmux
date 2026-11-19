@@ -78,7 +78,7 @@ private func token(_ dark: String, _ light: String, darkAlpha: Double = 1, light
 }
 
 /// The semantic palette from SPEC section 2.1. Chrome is neutral (true black /
-/// white). The accent is the user's choice (Settings > Appearance > Accent
+/// white), whatever a Mac's theme is: only the accent and the terminal follow the Mac. The accent is the user's choice (Settings > Appearance > Accent
 /// color, `CmuxMobileAccentTheme`); its Default is the foreground color.
 public struct CmuxMobileColors: Sendable {
     public var bg = token("#000000", "#FFFFFF")
@@ -110,8 +110,8 @@ public struct CmuxMobileColors: Sendable {
     )
     /// The user's accent (`CmuxMobileAccentTheme`); read in a body, the view
     /// redraws when the choice changes.
-    public var accent: CmuxMobileColorToken { CmuxMobileAccentTheme.shared.accent.accent }
-    public var onAccent: CmuxMobileColorToken { CmuxMobileAccentTheme.shared.accent.onAccent }
+    public var accent: CmuxMobileColorToken { CmuxMobileAccentTheme.shared.accentToken }
+    public var onAccent: CmuxMobileColorToken { CmuxMobileAccentTheme.shared.onAccentToken }
     /// Always the monochrome accent, whatever the user picked: only for marks
     /// whose colour another party prescribes (Sign in with Apple is black or
     /// white).

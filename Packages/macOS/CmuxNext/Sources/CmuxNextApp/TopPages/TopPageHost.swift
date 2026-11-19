@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import AppKit
 import CmuxNextHomeEngine
 
@@ -20,16 +21,13 @@ final class TopPageHost {
     /// The page's view, made on first show; nil when no provider serves the route.
     func view(for route: TopPageRoute, in window: WindowController) -> NSView? {
         guard let services else { return nil }
-        if case .page(let id) = route, InternalPageTabStore.isPreviewPage(id),
-           services.settings?.snapshot.previewFeatures != true { return nil }
         if let view = views[route] { return view }
         let view: NSView
         switch route {
         case .home:
             // The docked Home (cx-ebm.59.5) is the home workspace itself; only classic Home is a top page.
             guard HomeDock.classic else { return nil }
-            guard let page = HomeMessagesPage.make(services: services, widthKey: window.state.id) else { return nil }
-            view = page
+            view = TopHomePageView(services: services, windowKey: { [weak window] in window?.state.id ?? "" })
         case .page(let id):
             guard let provider = TopPages.provider(id, services: services) else { return nil }
             let key = LocalPageTab.makeKey(id)
@@ -58,8 +56,8 @@ final class TopPageHost {
     /// a React page: its web content).
     func focus(_ route: TopPageRoute, in window: NSWindow?) {
         switch views[route] {
-        case let home as HomeMessagesPage: home.focusPrimaryInput()
-        case let page as InternalPageView: window?.makeFirstResponder(page.focusTarget)
+        case let home as TopHomePageView: home.focusPrimaryInput()
+        case let page as InternalPageView: FocusRoute(.system, "a top page's input").moveKeyboard(in: window, to: page.focusTarget)
         default: break
         }
     }

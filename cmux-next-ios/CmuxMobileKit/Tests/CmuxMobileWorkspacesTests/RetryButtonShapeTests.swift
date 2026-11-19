@@ -38,31 +38,71 @@ import UIKit
 
 /// Retry's spinner holds briefly once shown, so an answer in a frame or two reads
 /// as a load instead of a flicker, and a cancelled retry lets go at once.
+///
+/// Each test runs the hold on a `RecordedClock`, which moves only when the test
+/// or a sleep moves it, and checks the hold's deadline and the time it added.
+/// The checks hold however fast or slow the simulator runs: on a wall clock a
+/// loaded CI simulator once took 1.29 s to return a 150 ms answer.
 @MainActor @Suite struct RetryButtonHoldTests {
     @Test func aFastAnswerStillShowsTheSpinnerForTheMinimum() async {
-        let clock = ContinuousClock()
-        let start = clock.now
+        let clock = RecordedClock()
         var ran = false
         await RetryButton.run({ ran = true }, holdingFor: .milliseconds(120), on: clock)
         #expect(ran)
-        #expect(clock.now - start >= .milliseconds(120))
+        // The answer took no time; the hold slept until 120 ms after the start.
+        #expect(clock.sleptUntil == [RecordedClock.at(.milliseconds(120))])
+        #expect(clock.now == RecordedClock.at(.milliseconds(120)))
     }
 
     @Test func aSlowAnswerIsNotHeldLonger() async {
-        let clock = ContinuousClock()
-        let start = clock.now
-        await RetryButton.run({ try? await Task.sleep(for: .milliseconds(150)) }, holdingFor: .milliseconds(50), on: clock)
-        #expect(clock.now - start < .milliseconds(1000))
+        let clock = RecordedClock()
+        await RetryButton.run({ clock.advance(by: .milliseconds(150)) }, holdingFor: .milliseconds(50), on: clock)
+        // The hold's deadline is 50 ms after the start, already past when the
+        // 150 ms answer came, so it adds no time.
+        #expect(clock.sleptUntil == [RecordedClock.at(.milliseconds(50))])
+        #expect(clock.now == RecordedClock.at(.milliseconds(150)))
     }
 
     @Test func aCancelledRetryEndsWithoutTheHold() async {
-        let clock = ContinuousClock()
-        let start = clock.now
+        let clock = RecordedClock()
         let task = Task { @MainActor in
             await RetryButton.run({ withUnsafeCurrentTask { $0?.cancel() } }, holdingFor: .seconds(30), on: clock)
         }
         await task.value
-        #expect(clock.now - start < .seconds(5))
+        // The 30 s hold was asked for and ended at once, with no time passed.
+        #expect(clock.sleptUntil == [RecordedClock.at(.seconds(30))])
+        #expect(clock.now == RecordedClock.at(.zero))
+    }
+}
+
+/// A clock that moves only when told to. Each sleep records its deadline and
+/// ends at once: a cancelled sleep throws, as a real clock's does, and any other
+/// sleep moves the clock to its deadline when that is later. No wall time is
+/// read, so a timing test on it cannot flake under load.
+final class RecordedClock: Clock, @unchecked Sendable {
+    struct Instant: InstantProtocol {
+        var offset: Duration
+        func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
+        func duration(to other: Instant) -> Duration { other.offset - offset }
+        static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
+    }
+
+    static func at(_ offset: Duration) -> Instant { Instant(offset: offset) }
+
+    private let lock = NSLock()
+    private var current = Instant(offset: .zero)
+    private var deadlines: [Instant] = []
+
+    var now: Instant { lock.withLock { current } }
+    var minimumResolution: Duration { .zero }
+    var sleptUntil: [Instant] { lock.withLock { deadlines } }
+
+    func advance(by duration: Duration) { lock.withLock { current = current.advanced(by: duration) } }
+
+    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
+        lock.withLock { deadlines.append(deadline) }
+        try Task.checkCancellation()
+        lock.withLock { if current < deadline { current = deadline } }
     }
 }
 #endif

@@ -17,15 +17,13 @@ use super::*;
 pub(super) fn try_handle(
     mux: &Arc<Mux>,
     client: u64,
-    message: &str,
+    line: &line_value::LineValue<'_>,
     writer: &MessageWriter,
 ) -> Option<bool> {
-    let Ok(Value::Object(mut fields)) = serde_json::from_str::<Value>(message) else {
-        return None;
-    };
-    if fields.get("cmd").and_then(Value::as_str) != Some(cmux_link::carrier_role::COMMAND) {
+    if line.cmd() != Some(cmux_link::carrier_role::COMMAND) {
         return None;
     }
+    let mut fields = line.object()?.clone();
     fields.remove("cmd");
     let id = fields.remove("id");
     let response = match stamp(mux, client, &fields) {

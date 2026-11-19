@@ -63,8 +63,8 @@ final class HomeNoticeShimmer {
         cell.noticeShimmer = shimmer
         let span = RowDraw.drawSpan(spec)
         let size = CGSize(width: span.upperBound - span.lowerBound, height: spec.height + 2 * RowDraw.margin)
-        let room = max(spec.metrics.receiptRight - RowDraw.noticeLeft, 0)
-        shimmer.place(in: size, textLeft: RowDraw.noticeLeft - span.lowerBound, textWidth: min(HomeNoticeRows.width(text), room))
+        let room = max(spec.metrics.receiptRight - RowDraw.noticeLeft(spec), 0)
+        shimmer.place(in: size, textLeft: RowDraw.noticeLeft(spec) - span.lowerBound, textWidth: min(HomeNoticeRows.width(text), room))
         if cell.bitmap.mask !== shimmer.mask { cell.bitmap.mask = shimmer.mask }
     }
 

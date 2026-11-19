@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import base64
+import tempfile
 import json
 import os
 import random
@@ -20,7 +21,8 @@ repo = Path(os.environ.get("CMUX_REPO", Path(__file__).resolve().parents[2]))
 simulator_id = os.environ["SIMULATOR_ID"]
 client_id = os.environ.get("CLIENT_ID", "mobile-soak-cli")
 duration_seconds = int(os.environ.get("SOAK_SECONDS", str(12 * 60 * 60)))
-soak_root = Path(os.environ.get("SOAK_ROOT", f"/tmp/cmux-mobile-soak-{tag}"))
+# Run alone (no SOAK_ROOT from the driver): a folder mkdtemp makes, never a guessable /tmp name.
+soak_root = Path(os.environ.get("SOAK_ROOT") or tempfile.mkdtemp(prefix=f"cmux-mobile-soak-{tag}-", dir="/tmp"))
 log_path = Path(os.environ.get("SOAK_LOG", soak_root / "mobile-soak.log"))
 status_path = Path(os.environ.get("SOAK_STATUS", soak_root / "mobile-soak.status"))
 color_probe_interval = int(os.environ.get("COLOR_PROBE_INTERVAL", "120"))

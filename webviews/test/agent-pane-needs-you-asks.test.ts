@@ -379,3 +379,30 @@ test("Ask about this sends a relay method the pane's allowlist takes, with param
   // direct.ts `btw` sends exactly these.
   for (const key of ["sessionId", "question"]) expect(known).toContain(key);
 });
+
+// Thousands of chats come and go in a long-lived pane: one closed, or with nothing open, holds no
+// read number (test/state-growth.test.ts, session-churn: one entry per closed chat, for the pane's life).
+test("a chat closed or with nothing open keeps no read number, and a stale read is still dropped", async () => {
+  const { asks, reads } = tracker();
+  const held = () => (asks as unknown as { reads: Map<string, number> }).reads.size;
+  for (let n = 0; n < 500; n++) {
+    asks.session({ sessionId: `idle${n}`, pendingPermissions: 0 });
+    asks.session({ sessionId: `gone${n}`, pendingPermissions: 1 });
+    asks.forget(`gone${n}`);
+  }
+  expect(held()).toBe(0);
+  // Each forgotten chat's read was still out: none of them lands.
+  for (const read of reads) read.resolve([{ permissionId: `late-${read.sessionId}` }]);
+  await settle();
+  expect(ids(asks)).toEqual([]);
+  // A read that lands is done with its number too; an older one for the same chat stays dropped.
+  asks.session({ sessionId: "s1", pendingPermissions: 1 });
+  asks.session({ sessionId: "s1", pendingPermissions: 2 });
+  const [older, newer] = reads.slice(-2);
+  newer!.resolve([{ permissionId: "new" }]);
+  await settle();
+  older!.resolve([{ permissionId: "old" }]);
+  await settle();
+  expect(ids(asks)).toEqual(["new"]);
+  expect(held()).toBe(0);
+});

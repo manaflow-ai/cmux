@@ -5,6 +5,7 @@
 import { act } from "react";
 import { afterAll, expect, test } from "bun:test";
 import { installDom } from "./testDom";
+import { userMessage } from "../shared/userMessage";
 
 const restore = installDom();
 afterAll(() => restore());
@@ -67,7 +68,9 @@ test("a daemon refusal shows its reason and keeps the form open", async () => {
   await changeValue(form().querySelector<HTMLInputElement>('[aria-label="Command"]')!, "claude");
   await act(async () => button(form(), "Add").click());
   await settle();
-  expect(page.container.querySelector('[role="alert"]')?.textContent).toContain("claude already has a profile");
+  expect(page.container.querySelector('[role="alert"]')?.textContent).toContain(
+    userMessage({ code: "cmux.agents.exists" }),
+  );
   expect(form()).not.toBeNull();
   page.unmount();
 });
@@ -296,7 +299,7 @@ test("Endpoint: a name that is another harness's id is refused before its key is
   await settle();
   const failed = form().querySelector('[data-endpoint-status="failed"]')!;
   expect(failed.textContent).toContain("add failed");
-  expect(failed.textContent).toContain("acme-agent already has a profile");
+  expect(failed.textContent).toContain(userMessage({ code: "cmux.agents.exists" }));
   expect(page.provider.agents.keys.has("acme-agent")).toBe(false);
   expect(ops(page.provider, "cmux.chief.backend.doctor")).toEqual([]);
   // The refusal was over another harness: the form never owns it, so Cancel removes nothing.
@@ -598,6 +601,6 @@ test("Endpoint: until the ids are read, Add and Fetch Models wait; a failed read
   await changeValue(endpointInput(form(), "baseUrl")!, "http://127.0.0.1:8081/v1");
   await settle();
   expect(add().disabled).toBe(true);
-  expect(form().querySelector("[data-endpoint-ids-failed]")?.textContent).toContain("could not be read");
+  expect(form().querySelector("[data-endpoint-ids-failed]")?.textContent).toContain(userMessage(undefined));
   page.unmount();
 });

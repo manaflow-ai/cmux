@@ -76,11 +76,27 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
     // The arguments as given, before the hooks are folded in: what a respawn
     // after a reboot starts Claude with again (relaunch_store::agent_launch).
     command.env(AGENT_ARGS_ENV, agent_args_json(args));
+    crate::agent_terminal_identity::apply(|key, value| match value {
+        Some(value) => {
+            command.env(key, value);
+        }
+        None => {
+            command.env_remove(key);
+        }
+    });
     let mut launch_args = args.to_vec();
     if std::env::var_os(HOOKS_DISABLED_ENV).is_some_and(|value| value == "1") {
         drop_cmux_plugin(&mut command);
     }
     if should_inject(args, |name| std::env::var_os(name)) {
+        // The answer the person's own servers (a `cmux` entry of theirs) follow, as in an agent
+        // chat: Claude passes its environment to a stdio server (agent_mcp_choice.rs).
+        command.env(
+            acpmux::agent_tools::TOOLS_ANSWER_ENV,
+            crate::agent_mcp_choice::tools_answer(
+                cmux_tui_core::user_settings::AgentsCmuxMcp::current(),
+            ),
+        );
         match prepare_hooks(args) {
             Ok((injected, helper)) => {
                 launch_args = injected;
@@ -152,7 +168,21 @@ fn prepare_hooks(args: &[OsString]) -> anyhow::Result<(Vec<OsString>, Option<Pat
     let cache = agent_hook_install::runtime_cmux_tui_data_home()
         .context("no data directory for Claude settings")?
         .join("claude-settings");
-    Ok((args_with_hooks(args, hooks, &cache)?, helper))
+    let mut launch = args_with_hooks(args, hooks, &cache)?;
+    // cmux Computer Use, with no setup (agent_computer_use.rs), unless the
+    // person said no to cmux's tools in their agents (agent_mcp_choice.rs).
+    // The value goes first and the `--settings` flag after it ends Claude's
+    // variadic `--mcp-config`, so a prompt is never read as a config.
+    if let Some(socket) = std::env::var_os("CMUX_TUI_SOCKET").filter(|s| !s.is_empty())
+        && let Some(config) = crate::agent_mcp_choice::claude_mcp_config(
+            cmux_tui_core::user_settings::AgentsCmuxMcp::current(),
+            &executable,
+            Path::new(&socket),
+        )
+    {
+        launch.splice(0..0, [OsString::from("--mcp-config"), config]);
+    }
+    Ok((launch, helper))
 }
 
 /// The hook settings fragment merged into every wrapped launch: the agent

@@ -51,14 +51,16 @@ public final class GlassPanelView: NSView {
     /// `liquidGlass` picks the material; it defaults to this Mac's
     /// (`Glass.isLiquidGlassAvailable`). `activeLook`, the app's one ``ActiveLookScope``, keeps the
     /// key window's glass when the window resigns key, as the fallback's
-    /// `NSVisualEffectView.state = .active` does (the window backdrop); nil follows the key state.
+    /// `NSVisualEffectView.state = .active` does (the window backdrop); nil takes the scope of the
+    /// window's owner (``NSWindow/inheritedActiveLook``: a menu, submenu or popover over an app
+    /// window), and follows the key state in a window no app window owns.
     public init(style: Glass.Style = .regular, cornerRadius: CGFloat = 0, interactive: Bool = false,
                 liquidGlass: Bool = Glass.isLiquidGlassAvailable, activeLook: ActiveLookScope? = nil) {
         self.style = style
         self.cornerRadius = cornerRadius
         keepsActiveLook = activeLook != nil
         if #available(macOS 26.0, *), liquidGlass {
-            let glass: NSGlassEffectView = activeLook.map { ActiveLookGlassEffectView(scope: $0) } ?? NSGlassEffectView()
+            let glass = ActiveLookGlassEffectView(scope: activeLook)
             Self.setInteractive(glass, interactive)
             isLiquidGlass = true
             materialView = glass
@@ -188,40 +190,57 @@ public final class GlassPanelView: NSView {
 /// there, nothing is forced and the glass follows the key state again.
 @available(macOS 26.0, *)
 final class ActiveLookGlassEffectView: NSGlassEffectView {
-    /// The app's one scope (its composition root makes it), which this view's updates feed.
-    private let scope: ActiveLookScope
+    /// The app's one scope (its composition root makes it), which this view's updates feed; nil
+    /// takes the window owner's (``NSWindow/inheritedActiveLook``) once the window has one.
+    private let pinnedScope: ActiveLookScope?
 
-    init(scope: ActiveLookScope) {
-        self.scope = scope
-        scope.install()
+    init(scope: ActiveLookScope?) {
+        pinnedScope = scope
+        scope?.install()
         super.init(frame: .zero)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    override func layout() { scope.during(window) { super.layout() } }
-    override func updateConstraints() { scope.during(window) { super.updateConstraints() } }
-    override func viewWillDraw() { scope.during(window) { super.viewWillDraw() } }
-    /// The window this view counts in (``ActiveLookScope/attach(to:)``), while it is in one.
+    override func layout() { during { super.layout() } }
+    override func updateConstraints() { during { super.updateConstraints() } }
+    override func viewWillDraw() { during { super.viewWillDraw() } }
+    /// The window this view counts in (``ActiveLookScope/attach(to:)``), while it is in one, and
+    /// the scope it counts there.
     private weak var countedWindow: NSWindow?
+    private var countedScope: ActiveLookScope?
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         if let countedWindow, countedWindow !== newWindow {
-            scope.detach(from: countedWindow)
+            countedScope?.detach(from: countedWindow)
             self.countedWindow = nil
+            countedScope = nil
         }
         super.viewWillMove(toWindow: newWindow)
     }
 
-    override func viewDidMoveToWindow() {
-        if let window, countedWindow !== window {
-            scope.attach(to: window)
-            countedWindow = window
-        }
-        scope.during(window) { super.viewDidMoveToWindow() }
+    override func viewDidMoveToWindow() { during { super.viewDidMoveToWindow() } }
+    override func viewDidChangeEffectiveAppearance() { during { super.viewDidChangeEffectiveAppearance() } }
+
+    /// The scope this view counts its window in, counted on the first update that finds one. A
+    /// popup's content moves into its panel before the panel gets its parent, and the panel lays
+    /// out and draws as it comes on screen, before it can resign key (Leo, 2026-11-14: the account
+    /// menu went from themed to the grey frost when its submenu took the keys).
+    var scope: ActiveLookScope? {
+        guard let window else { return nil }
+        if countedWindow === window { return countedScope }
+        guard let scope = pinnedScope ?? window.inheritedActiveLook else { return nil }
+        scope.install()
+        scope.attach(to: window)
+        (countedWindow, countedScope) = (window, scope)
+        return scope
     }
-    override func viewDidChangeEffectiveAppearance() { scope.during(window) { super.viewDidChangeEffectiveAppearance() } }
+
+    private func during(_ body: () -> Void) {
+        guard let scope else { return body() }
+        scope.during(window, body)
+    }
 
     // AppKit lays out and updates constraints for the subtree (the glass's own hosting view, where
     // the read happens) through these, not through the public methods above.
@@ -230,7 +249,7 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
         typealias Method = @convention(c) (NSView, Selector, NSSize) -> Void
         let selector = NSSelectorFromString("_layoutSubtreeWithOldSize:") // crash-allow: AppKit private selector, called only when NSGlassEffectView responds to it (superImplementation)
         guard let implementation = Self.superImplementation(selector) else { return }
-        scope.during(window) { unsafeBitCast(implementation, to: Method.self)(self, selector, oldSize) }
+        during { unsafeBitCast(implementation, to: Method.self)(self, selector, oldSize) }
     }
 
     @objc(_updateConstraintsForSubtreeIfNeededCollectingViewsWithInvalidBaselines:)
@@ -238,7 +257,7 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
         typealias Method = @convention(c) (NSView, Selector, UnsafeMutableRawPointer?) -> Void
         let selector = NSSelectorFromString("_updateConstraintsForSubtreeIfNeededCollectingViewsWithInvalidBaselines:") // crash-allow: AppKit private selector, called only when NSGlassEffectView responds to it (superImplementation)
         guard let implementation = Self.superImplementation(selector) else { return }
-        scope.during(window) { unsafeBitCast(implementation, to: Method.self)(self, selector, views) }
+        during { unsafeBitCast(implementation, to: Method.self)(self, selector, views) }
     }
 
     @objc(_windowChangedKeyState)
@@ -246,7 +265,7 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
         typealias Method = @convention(c) (NSView, Selector) -> Void
         let selector = NSSelectorFromString("_windowChangedKeyState") // crash-allow: AppKit private selector, called only when NSGlassEffectView responds to it (superImplementation)
         guard let implementation = Self.superImplementation(selector) else { return }
-        scope.during(window) { unsafeBitCast(implementation, to: Method.self)(self, selector) }
+        during { unsafeBitCast(implementation, to: Method.self)(self, selector) }
     }
 
     /// The glass's own implementation (NSView's when it has none), or nil when AppKit has none.

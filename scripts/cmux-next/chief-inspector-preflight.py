@@ -22,9 +22,6 @@ Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPM
 """
 import argparse, json, os, signal, socket, subprocess, sys, tempfile, time, urllib.parse, urllib.request
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import home_page  # noqa: E402
-
 ap = argparse.ArgumentParser()
 ap.add_argument("--app", required=True)
 ap.add_argument("--tag", required=True)
@@ -210,7 +207,7 @@ try:
     note("open chief", result=rpc("action.run", {"id": "home.openConversation", "args": {"conversation": ready}}) if ready else None)
     time.sleep(2)
     text = "inspector preflight: please answer in one short sentence."
-    note("send", drive=[home_page.drive(rpc, {"action": a, **({"text": text} if a == "type" else {})}) for a in ("focus", "type", "send")])
+    note("send", drive=[rpc("debug.home.drive", {"action": a, **({"text": text} if a == "type" else {})}) for a in ("focus", "type", "send")])
     ended = wait(turn_ended, opts.reply_wait, 2)
     note("turn", ended=bool(ended), status=(ended or {}).get("status"), harness=(ended or {}).get("harness"))
     snapshot("01-home")

@@ -224,28 +224,103 @@ fn invalid_requests_make_no_handle_and_base_y_skips_the_gap() {
     assert_eq!(y, 60.0);
 }
 
+/// The moves of `drag_handle_cost_per_size` at `count` rows: the request and each move's
+/// `resolve_drag` request.
+fn cost_moves(count: usize) -> (Value, Vec<f64>, Vec<Value>) {
+    let request = drag_request(count);
+    let height = request["rows"].as_array().unwrap().len() as f64 * ROW;
+    let moves = 200;
+    let ys: Vec<f64> = (0..moves).map(|i| height * i as f64 / moves as f64).collect();
+    let requests: Vec<Value> = ys
+        .iter()
+        .map(|&y| {
+            let mut at = request.clone();
+            at["centre_y"] = json!(y);
+            at["leading_y"] = json!(y + ROW / 2.0);
+            at["gap_y"] = Value::Null;
+            at["gap_height"] = json!(ROW);
+            at
+        })
+        .collect();
+    (request, ys, requests)
+}
+
+/// One handle move to `y`: its code and the bytes it wrote.
+fn handle_move(drag: *mut Drag, y: f64, output: &mut [u8]) -> (i32, usize) {
+    let mut len = 0;
+    let code = unsafe {
+        cmux_sidebar_drag_resolve(
+            drag,
+            y,
+            y + ROW / 2.0,
+            0,
+            0.0,
+            ROW,
+            output.as_mut_ptr(),
+            output.len(),
+            &mut len,
+        )
+    };
+    (code, len)
+}
+
+/// What one drag move carries across the C ABI at 50 to 5,000 rows: the JSON op takes every
+/// row in and its reply out each move; the handle takes numbers in and writes the op's reply,
+/// or nothing when it is unchanged. At every size the handle writes the same reply as the op or
+/// none, so it never carries more bytes than the op's reply alone, and far fewer than the op's
+/// request. Deterministic, a count of bytes; the time it saves is `drag_handle_cost_per_size`,
+/// in its own run.
+#[test]
+fn a_drag_move_carries_no_more_than_the_json_ops_reply_at_any_size() {
+    for count in [50, 200, 1000, 5000] {
+        let (request, ys, requests) = cost_moves(count);
+        let drag = new_drag(&request);
+        let mut output = vec![0u8; 4096];
+        let (mut handle_bytes, mut reply_bytes, mut request_bytes) = (0, 0, 0);
+        for (&y, at) in ys.iter().zip(&requests) {
+            let reply = serde_json::to_vec(&json_op("resolve_drag", at)).unwrap();
+            request_bytes += serde_json::to_vec(at).unwrap().len();
+            reply_bytes += reply.len();
+            let (code, len) = handle_move(drag, y, &mut output);
+            match code {
+                OK => {
+                    let written: Value = serde_json::from_slice(&output[..len]).unwrap();
+                    assert_eq!(written, json_op("resolve_drag", at), "rows={count} y={y}");
+                    handle_bytes += len;
+                }
+                SAME => {}
+                code => panic!("rows={count}: drag handle answered {code}"),
+            }
+        }
+        unsafe { cmux_sidebar_drag_free(drag) };
+        println!(
+            "DRAG-HANDLE-BYTES rows={count} json_request={request_bytes} json_reply={reply_bytes} handle={handle_bytes}"
+        );
+        assert!(
+            handle_bytes <= reply_bytes,
+            "rows={count}: handle {handle_bytes} B > reply {reply_bytes} B"
+        );
+        assert!(
+            handle_bytes * 10 < request_bytes,
+            "rows={count}: handle {handle_bytes} B against the op's requests {request_bytes} B"
+        );
+    }
+}
+
 /// The Rust half of one drag move at 50 to 5,000 rows: the JSON op (parse
 /// every row, copy them, encode the reply) against the handle (numbers in,
 /// the reply only when it changed). Prints `DRAG-HANDLE-COST` lines; the
-/// handle must not cost more than the op at any size.
+/// handle must not cost more than the op at any size. Two wall-clock times
+/// compared: under the parallel run's load beside it one goes long and the
+/// other does not, so it is a check for its own run, one test at a time:
+/// `cargo test -p cmux-layout-reducer-ffi --test drag_handle drag_handle_cost_per_size -- --ignored --exact --test-threads=1 --nocapture`.
+/// The default run keeps `a_drag_move_carries_no_more_than_the_json_ops_reply_at_any_size`.
 #[test]
+#[ignore = "own run, one test at a time: two wall-clock times compared"]
 fn drag_handle_cost_per_size() {
     for count in [50, 200, 1000, 5000] {
-        let request = drag_request(count);
-        let height = request["rows"].as_array().unwrap().len() as f64 * ROW;
-        let moves = 200;
-        let ys: Vec<f64> = (0..moves).map(|i| height * i as f64 / moves as f64).collect();
-        let requests: Vec<Value> = ys
-            .iter()
-            .map(|&y| {
-                let mut at = request.clone();
-                at["centre_y"] = json!(y);
-                at["leading_y"] = json!(y + ROW / 2.0);
-                at["gap_y"] = Value::Null;
-                at["gap_height"] = json!(ROW);
-                at
-            })
-            .collect();
+        let (request, ys, requests) = cost_moves(count);
+        let moves = ys.len();
         let started = Instant::now();
         for at in &requests {
             // Encoding the request is the caller's share of the old crossing.
@@ -256,20 +331,7 @@ fn drag_handle_cost_per_size() {
         let mut output = vec![0u8; 4096];
         let started = Instant::now();
         for &y in &ys {
-            let mut len = 0;
-            let code = unsafe {
-                cmux_sidebar_drag_resolve(
-                    drag,
-                    y,
-                    y + ROW / 2.0,
-                    0,
-                    0.0,
-                    ROW,
-                    output.as_mut_ptr(),
-                    output.len(),
-                    &mut len,
-                )
-            };
+            let (code, _) = handle_move(drag, y, &mut output);
             assert!(code == OK || code == SAME);
         }
         let handle_us = started.elapsed().as_secs_f64() * 1e6 / moves as f64;

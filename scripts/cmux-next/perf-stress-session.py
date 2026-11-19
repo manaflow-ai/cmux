@@ -80,6 +80,8 @@ Prints one line `STRESS-SESSION {json}`: workspaces, the measured workspace id, 
 kind, busy terminals, Chromium pages elsewhere and the build time.
 """
 import argparse, http.server, json, os, signal, socket, sys, tempfile, threading, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -988,7 +990,7 @@ def start_vdisplay(hz, out, hold):
         process.terminate()  # the helper this script started, by its process
         raise StressShapeError(f"the virtual display did not come up as main: {problem} "
                                f"({open(log.name).read()[-300:].strip()})")
-    print(f"stress: virtual display {line.strip()}", flush=True)
+    safe_print(f"stress: virtual display {line.strip()}", flush=True)
     return process
 
 
@@ -1065,14 +1067,14 @@ def main():
             summary = builder.build_large()
             if opts.keep:
                 builder.start_title_streams(opts.out)
-            print("LARGE-SESSION " + json.dumps(summary), flush=True)
+            safe_print("LARGE-SESSION " + json.dumps(summary), flush=True)
         else:
             summary = builder.build()
-            print("STRESS-SESSION " + json.dumps(summary), flush=True)
+            safe_print("STRESS-SESSION " + json.dumps(summary), flush=True)
         with open(os.path.join(opts.out, "stress-session.json"), "w") as f:
             json.dump(summary, f, indent=1)
         if app and opts.keep:
-            print(f"stress: app left running, socket {app.socket}", flush=True)
+            safe_print(f"stress: app left running, socket {app.socket}", flush=True)
             while True:
                 time.sleep(3600)  # test script: keep the pages' server up for the kept app
     finally:

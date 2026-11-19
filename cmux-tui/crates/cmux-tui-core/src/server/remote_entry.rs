@@ -198,7 +198,10 @@ fn accept_loop(
         if shutdown.load(Ordering::Acquire) {
             return;
         }
-        let Some(permit) = claim_connection(&connections) else { continue };
+        let Some(permit) = claim_connection(&connections) else {
+            connections.commands().connection_refused(crate::diagnostics::ClientKind::Remote);
+            continue;
+        };
         let (mux, verifier, gate, render_service) =
             (mux.clone(), verifier.clone(), gate.clone(), render_service.clone());
         let _ = std::thread::Builder::new().name("mux-remote-conn".into()).spawn(move || {
@@ -337,6 +340,10 @@ impl LineAdmission for RemoteAdmission {
             && fs_wire::native_dial_admits(self.native_vm_kind, line))
             || (self.native_vm_kind == Some(Some(cmux_link::token::VmKind::Owner))
                 && self.gate.admit_native_owner(line))
+            // A Cloud team member's signed dial: its chat verbs only (agent_session_member.rs).
+            || (self.native_vm_kind == Some(Some(cmux_link::token::VmKind::Team))
+                && self.gate.admit_native_owner(line)
+                && agent_session_attach::member::admits(&self.peer, line))
         {
             return None;
         }

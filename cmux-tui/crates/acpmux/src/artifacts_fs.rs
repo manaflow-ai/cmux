@@ -168,6 +168,12 @@ mod unix {
 }
 
 impl Dir {
+    /// The open folder (`home_fs` reaches the held home through it).
+    #[cfg(unix)]
+    pub(crate) fn fd(&self) -> std::os::fd::BorrowedFd<'_> {
+        std::os::fd::AsFd::as_fd(&self.fd)
+    }
+
     /// The folder `relative` below `anchor`, when every folder on the way is a real one. `None`
     /// when it is missing or reached through a symlink.
     pub(crate) fn open(anchor: &Path, relative: &Path) -> io::Result<Option<Self>> {
@@ -342,9 +348,9 @@ impl Dir {
             let _ = (file, folders);
             let path = self.path.join(relative);
             if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
+                crate::home_fs::create_dirs(parent)?;
             }
-            std::fs::write(path, bytes)
+            crate::home_fs::write(path, bytes)
         }
     }
 

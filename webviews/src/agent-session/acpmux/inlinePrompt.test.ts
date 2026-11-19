@@ -3,11 +3,13 @@ import { JSDOM } from "jsdom";
 import { inlineToken, type ComposerAttachment } from "./attachments";
 import type { AcpmuxRow, QueuedPrompt } from "./model";
 import { takeBackSteer } from "./conversation/pendingSteerModel";
+import { settleReact } from "../../../test/support/domTeardown";
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
 const saved = { window: scope.window, document: scope.document };
 beforeAll(() => Object.assign(scope, { window: dom.window, document: dom.window.document }));
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, value] of Object.entries(saved)) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

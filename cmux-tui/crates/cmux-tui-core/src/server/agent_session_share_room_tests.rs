@@ -726,19 +726,31 @@ fn a_delete_stops_retrying_after_share_expiry_even_with_its_host_token() {
 #[test]
 fn expired_cleanup_retries_when_settling_the_pending_delete_cannot_be_saved() {
     let room = FakeRoom::start(&[]);
+    // The room answers the DELETE only once writes fail, and the test waits for the refused save:
+    // a worker that settled the DELETE before the test refused writes (a loaded full --lib run)
+    // left nothing pending.
+    let gate = room.block_deletes();
     let (_fake, mux, surface, mut owner) = bridged("room-expired-unsaved", &room);
     let share = create(&mut owner, surface)["data"].clone();
     room.request("PUT");
+    let entered = room.watch_delete();
     assert_eq!(
         owner.request(json!({"cmd":"agent-session-share-revoke",
         "share_id":share["share_id"]}))["ok"],
         true
     );
-    room.request("DELETE");
+    entered.recv_timeout(WAIT).expect("the DELETE enters the room");
 
     let shares = shares_of(&mux);
     shares.advance(Duration::from_secs(2 * 86_400));
+    let (told, refused) = channel();
+    *shares.refused_write.lock().unwrap() = Some(told);
     shares.refuse_writes.store(true, Ordering::Relaxed);
+    let (released, wake) = &*gate;
+    *released.lock().unwrap() = true;
+    wake.notify_all();
+    room.request("DELETE");
+    refused.recv_timeout(WAIT).expect("the worker's save of the settled DELETE is refused");
     shares.expired(&mux);
     assert!(
         view(&mux, share["share_id"].as_str().unwrap()).unwrap().delete,
@@ -1717,6 +1729,49 @@ fn a_guest_gets_a_bounded_snapshot_its_own_records_and_its_prompts_states() {
         matches!(s, Seen::Frame { frame, .. }
         if frame["t"] == "prompt_state")
     });
+}
+
+/// The guest relay knows its few frame types and ignores every other: a guest's browser cannot
+/// fork the chat, open, prompt or end a side chat, or name a daemon verb through the room.
+#[test]
+fn a_guest_relay_frame_of_an_unknown_type_reaches_nothing() {
+    let room = FakeRoom::start(&[]);
+    let (fake, mux, surface, mut owner) = bridged("relay-unknown", &room);
+    let (_, [ann, _bob], conn) = two_guests(&room, &mut owner, surface);
+    room.send(json!({"v": 1, "t": "guest_joined", "guest_id": ann}));
+    assert_eq!(room.next(conn, "snapshot")["to"], json!(ann));
+    while fake.next_frame(Duration::from_millis(300)).is_some() {}
+    for frame in [
+        json!({"t": "agent-session-side", "live": true}),
+        json!({"t": "agent-session-side", "live": true, "prompt": "x", "prompt_id": "p"}),
+        json!({"t": "agent-session-btw", "question": "why?"}),
+        json!({"t": "guest_side", "live": true}),
+        json!({"t": "guest_fork", "through_seq": 1}),
+        json!({"t": "agent-session-fork", "through_seq": 1}),
+        json!({"t": "acp.session.fork", "sessionId": SESSION, "live": true}),
+        json!({"t": "_acpmux/side", "sessionId": "acp_side_1", "chat": SESSION}),
+        json!({"t": "_acpmux/btw", "sessionId": SESSION, "question": "why?"}),
+        json!({"t": "agent-session-attach", "surface": surface}),
+        // A known type never carries a daemon verb either: `cmd` is not read.
+        json!({"t": "guest_typing", "on": true, "cmd": "agent-session-side",
+            "live": true, "surface": surface}),
+    ] {
+        let mut frame = frame;
+        frame["v"] = json!(1);
+        frame["guest_id"] = json!(ann);
+        room.send(frame);
+    }
+    // Only the typing notice may reach acpmux; no fork, tag, side question, prompt or kill.
+    while let Some(sent) = fake.next_frame(Duration::from_millis(300)) {
+        assert_eq!(sent["method"], "_acpmux/typing", "{sent}");
+    }
+    assert!(!mux.control_clients.agent_sessions.sides.contains("acp_side_1"));
+    // The relay still serves what it knows.
+    room.send(json!({"v": 1, "t": "guest_prompt", "guest_id": ann, "client_id": "c1",
+        "text": "hello"}));
+    let sent = fake.frame();
+    assert_eq!(sent["method"], "session/prompt");
+    assert_eq!(sent["params"]["sessionId"], SESSION);
 }
 
 #[test]

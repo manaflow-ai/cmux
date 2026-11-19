@@ -489,7 +489,7 @@ pub async fn inbox_is(_socket: &Path, _pid: u32) -> bool {
 
 /// Removes the token kept for chat `chat_id`, when it has one.
 pub fn forget_token(home: &Path, chat_id: &str) {
-    let _ = std::fs::remove_file(token_file(home, chat_id));
+    let _ = crate::home_fs::remove_file(token_file(home, chat_id));
 }
 
 /// Delivers `text` into `peer`'s inbox as message `uuid`: connecting and writing take at most

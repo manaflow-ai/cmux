@@ -43,6 +43,9 @@ pub enum SkipReason {
     /// cmux NEXT held workspaces before its first migration: classic's were
     /// recorded as seen ([`baseline`]), none made.
     InUseBefore,
+    /// The person cancelled the launch's import preview
+    /// ([`Ledger::declined_at`]); a manual run still imports.
+    Declined,
 }
 
 /// Whether an automatic run starts at launch.
@@ -78,6 +81,10 @@ pub fn decision(load: &Load, source: Option<&Source>, classic_running: bool) -> 
     // A cut-off run finishes from the save it started with, even while classic runs.
     if ledger.state == State::InProgress {
         return Decision::Resume;
+    }
+    // A No stands until the person imports by hand.
+    if ledger.declined_at.is_some() {
+        return Decision::Skip(SkipReason::Declined);
     }
     if ledger.source.as_ref().is_some_and(|last| last.is_same_save(source)) {
         return Decision::Skip(SkipReason::Unchanged);
@@ -135,6 +142,17 @@ impl Plan {
         self.windows.is_empty()
             && self.groups.iter().all(|group| group.existing.is_some())
             && self.cleanup.is_empty()
+    }
+
+    /// This plan without any terminal's scrollback: what a caller that only
+    /// counts or lists folders needs, at a fraction of the size.
+    pub fn outline(mut self) -> Plan {
+        for window in &mut self.windows {
+            for workspace in &mut window.workspaces {
+                workspace.layout.for_each_tab(&mut |tab| tab.scrollback = None);
+            }
+        }
+        self
     }
 
     /// The keys of the Cloud VM workspaces it leaves, recorded as skipped.

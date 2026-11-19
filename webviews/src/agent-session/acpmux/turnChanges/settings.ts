@@ -8,7 +8,7 @@ export type EditedFilesShow = "always" | "collapsed" | "never";
 export type EditedFilesScope = "turn" | "session";
 export type EditedFilesSettings = { show: EditedFilesShow; maxRows: number; scope: EditedFilesScope };
 
-export const DEFAULT_EDITED_FILES: EditedFilesSettings = { show: "always", maxRows: 5, scope: "turn" };
+export const DEFAULT_EDITED_FILES: EditedFilesSettings = { show: "always", maxRows: 3, scope: "turn" };
 /// The host's range for maxRows (the schema's).
 export const MAX_ROWS_RANGE = { min: 1, max: 50 } as const;
 
@@ -34,6 +34,9 @@ export function setEditedFilesSettings(value: unknown) {
   current = next;
   for (const listener of listeners) listener();
 }
+
+/// The host's value now, outside React: the edited-files card's estimate (model.ts) reads it.
+export const editedFilesSettings = (): EditedFilesSettings => current;
 
 export function useEditedFilesSettings(): EditedFilesSettings {
   return useSyncExternalStore(

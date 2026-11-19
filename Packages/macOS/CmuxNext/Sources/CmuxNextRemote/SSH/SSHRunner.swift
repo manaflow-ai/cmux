@@ -18,7 +18,8 @@ public struct SSHProcessResult: Sendable {
 /// probe, the install, the restart) or the Mac-side curl. Output is read on
 /// Foundation's pipe threads (bounded: 1 MiB stdout, 16 KiB stderr tail),
 /// never the main actor. The deadline terminates the process; cancelling
-/// the calling task does too.
+/// the calling task does too. Both output pipes close when the run returns
+/// or throws.
 public struct SSHProcessRunner {
     public init() {}
     public enum Input: Sendable {
@@ -80,6 +81,16 @@ public struct SSHProcessRunner {
                 }
             case .retry: return
             case .end: handle.readabilityHandler = nil
+            }
+        }
+        // On every way out (the exit, the deadline, a cancel, a launch that failed) both readers stop
+        // and both read ends close. End of file alone does not do it: a process the command left
+        // behind with the pipes open (a ControlPersist master) never ends them, and each run would
+        // keep two pipes and two readers for as long as that process lives.
+        defer {
+            for reader in [stdout.fileHandleForReading, stderr.fileHandleForReading] {
+                reader.readabilityHandler = nil
+                try? reader.close()
             }
         }
         let exit = ExitLatch()

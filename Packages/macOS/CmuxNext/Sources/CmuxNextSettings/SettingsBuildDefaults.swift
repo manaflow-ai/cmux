@@ -12,8 +12,9 @@ public nonisolated struct SettingsBuildDefaults: Sendable, Equatable {
     }
 
     /// `updates.downloadAutomatically` follows the channel (`UpdateTrack.downloadsAutomaticallyByDefault`):
-    /// off (the schema's default) on every channel since Leo 2026-10-27 ("ask before the download +
-    /// install step"), so this is `.none`; a channel whose default is on would fill it here.
+    /// on for cmux NEXT's nightly ring (Leo 2026-11-10: "the nightly automatically downloads and
+    /// installs/unpacks and you simply click and it restarts"), filled here; off (the schema's
+    /// default, `.none`) on every other channel.
     public static func channel(downloadsAutomatically: Bool) -> SettingsBuildDefaults {
         downloadsAutomatically ? SettingsBuildDefaults(values: [UpdatesSettings.downloadAutomaticallyPath: .bool(true)]) : .none
     }
@@ -42,6 +43,9 @@ extension SettingsController {
     /// so Settings offers Reset (an explicit off in NIGHTLY, whose default is on, counts).
     public func isCustomized(_ descriptor: SettingDescriptor) -> Bool {
         guard let stored = descriptor.storedValue(in: fileRoot) else { return false }
+        // A value kept over the active theme file is the person's even at the default: Reset returns
+        // to the file's value (#44894).
+        if ThemeFileExceptionsSetting.keys(in: fileRoot).contains(descriptor.id), setsInThemeFile(descriptor.id) { return true }
         return stored != defaultValue(of: descriptor)
     }
 }

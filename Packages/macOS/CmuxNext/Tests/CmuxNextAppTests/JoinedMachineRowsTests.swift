@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDaemonService
+import CmuxNextPalette
 @testable import CmuxNextApp
 import CmuxNextRemote
 @testable import CmuxNextServer
@@ -403,6 +404,40 @@ import CmuxNextWakeups
         #expect(ran.map { $0.2 } == ["ssh-1"], "the row it opened on goes with it (where Check records)")
     }
 
+    /// No target kind of its own: what the joined machines' sources pass the other actions to.
+    final class NoTargets: PaletteTargetSource {
+        func targets(of kind: ActionTargetKind) -> [PaletteTargetOption] { [] }
+    }
+
+    /// Check, Rotate Credential and Revoke… from the palette (`paletteTargetSource` `joined`): the
+    /// argument page lists the joined machines each can run on, a revoked one only for Check, and a
+    /// run on the picked machine does what the row's menu item does, on that machine's own row.
+    @Test func checkRotateAndRevokeRunFromThePaletteOnAPickedJoinedMachine() async {
+        let fake = Fake()
+        fake.rows = [Fake.machine("m_1", "lane-vm-3"), Fake.machine("m_2", "old-box", state: .revoked)]
+        let store = fake.store()
+        await store.refresh()
+        let ids = JoinedMachineAction.allCases.map(MachineSectionHostView.actionID)
+        var ran: [(JoinedMachineAction, String, String)] = []
+        let registry = Self.registry(store, ran: { ran.append(($0, $1.id, $2)) })
+        for id in ids {
+            let descriptor = registry.descriptor(for: id)
+            #expect(descriptor?.isPaletteVisible == true, "\(id)")
+            #expect(descriptor?.paletteTarget == .machine && descriptor?.paletteTargetSource == "joined", "\(id)")
+        }
+        let source = store.paletteTargets(registry.descriptors, next: NoTargets())
+        #expect(source.targets(of: .machine, for: "machine.joined.check").map(\.id) == ["m_1", "m_2"])
+        #expect(source.targets(of: .machine, for: "machine.joined.rotate").map(\.id) == ["m_1"], "a revoked machine is not offered")
+        #expect(source.targets(of: .machine, for: "machine.joined.revoke").map(\.title) == ["lane-vm-3"])
+        #expect(source.targets(of: .machine, for: "workspace.newOnMachine").isEmpty, "a connected machine's action is not theirs")
+        for id in ids {
+            #expect(registry.perform(id, invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: "m_1"))))
+        }
+        #expect(ran.map { $0.0 } == [.check, .rotate, .revoke])
+        #expect(ran.map { $0.1 } == ["m_1", "m_1", "m_1"])
+        #expect(ran.map { $0.2 } == Array(repeating: JoinedMachine.healthID("m_1"), count: 3), "Check records on the machine's own row")
+    }
+
     @Test func revokeAsksWithTheHeartbeatBound() {
         #expect(JoinedMachineStrings.revokeTitle("lane-vm-3") == "Revoke lane-vm-3?")
         #expect(JoinedMachineStrings.heartbeatSeconds == 30)
@@ -429,19 +464,15 @@ import CmuxNextWakeups
         #expect(runs.run?.events.first == .start(joined: true))
     }
 
-    @Test func theJoinedCardOffersShowInMachines() async {
+    @Test func theJoinedCardOffersOnlyDone() async {
         let fake = MachineJoinLineFlowTests.Fake()
         fake.rows = [MachineJoinLineFlowTests.Fake.joined("jt_1")]
         let devices = AddDeviceFlowTests.Fake()
-        var shown = 0
-        var services = MachineJoinLineFlowTests.services(devices, fake)
-        services.showMachines = { shown += 1 }
-        let model = fake.deviceModel(services)
+        let model = fake.deviceModel(MachineJoinLineFlowTests.services(devices, fake))
         await model.begin(way: .joinLine)
         await model.joinLine?.mint()
-        #expect(model.buttons.map(\.action) == [.showMachines, .done])
-        #expect(model.perform(.showMachines), "Show in Machines closes the card")
-        #expect(shown == 1)
+        #expect(model.buttons.map(\.action) == [.done])
+        #expect(model.perform(.done), "Done closes the card")
         #expect(model.joinLine?.isWatching == false)
     }
 

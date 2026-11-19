@@ -224,6 +224,16 @@ the person's prompt. What the receiver gets depends on who you are to it:
 - An inbox notice ends with how to reply. Answer in your turn, with
   `inbox_reply` or the `send` tool (`acpmux send NAME` without them); never
   with your harness's own SendMessage, which reaches no acpmux session.
+- In a Claude Code agent acpmux started, Claude Code's own cross-session
+  messaging is off (no `ListAgents`; its peer list was every Claude Code on the
+  machine, other daemons' too, and a message it held showed nowhere).
+  `SendMessage` to an acpmux session is refused with the command to use:
+  `"$ACPMUX_BIN" send NAME --wait "…"` (its reply in this turn) or the `send`
+  tool. `SendMessage` still reaches your own subagents. `acpmux ls` is the peer
+  list. A profile that sets `CLAUDE_CODE_HARBOR_KITE` itself keeps its value.
+  That variable is an undocumented Claude Code switch: if a later Claude Code
+  renames it, `ListAgents` may list other Claude Code sessions again, but the
+  refusal above still applies.
 - `wait` right after `send --no-wait` waits for the turn the message brings;
   it never answers with the idle state from before the message.
 
@@ -235,6 +245,16 @@ one by being started with acpmux):
 acpmux register desktop-zoe            # in its Bash tool; then run the --code line it receives
 acpmux send --no-wait desktop-zoe "…"  # from any machine that peers this one: queued, retried, --status
 ```
+
+An `acpmux send` from such a chat before it registers starts this itself
+(macOS): nothing can reply to it until it has a name, so the send also delivers
+the one-time code, under `claude-desktop-<first 8 of its session id>`, and
+prints on stderr that the receiver cannot reply yet. Run the
+`acpmux register NAME --code ...` line the message gives; replies then reach
+`HOST/NAME`, and your later sends carry that address. Send again what still
+needs an answer. The message itself is sent either way; no second code goes
+while one waits. A chat registered before (say `desktop-zoe`) that restarted
+gets its code under that name and keeps its address.
 
 The daemon checks who runs the shell by the kernel's process tree, never by
 what you type. A Claude Code session's message opens with its own
@@ -321,7 +341,7 @@ $X daemon shutdown --end-agents             # done: end its agents too, then rm 
 ## 5. Permissions
 
 ```bash
-acpmux pending                               # every pending request, and how to answer it
+acpmux pending                               # every pending request, and how to answer it; also messages a chat's Claude Code holds
 acpmux session deny NAME                     # allowing is the cmux app's alone (the chat's permission card)
 acpmux session rules NAME '{"autoDeny": ["rm -rf"], "ask": ["execute"]}'
 acpmux run --on-permission deny|fail …       # never hang a script on a prompt (fail = exit 5)
@@ -330,7 +350,12 @@ acpmux run --on-permission deny|fail …       # never hang a script on a prompt
 `acpmux pending --json` gives each request a `needsYou` link
 (`cmux://needs-you/<permissionId>`). Put it in a reply to point the user at an
 open ask instead of restating it; cmux draws it as a chip that opens the ask in
-its Needs you list.
+its Needs you list. Its `heldMessages` lists another session's message that a
+chat's Claude Code holds instead of reading it (`session`, `fromName`, `from`,
+`cause`, `messageUuid`, `heldAt`; also `heldMessages` of `session info`). Claude
+Code gives acpmux no way to release it: it waits for that chat's approval or
+expires, so have the sender send it with `acpmux send` instead. acpmux keeps
+held messages in memory only: after a daemon restart they no longer show.
 
 Show UI instead of describing it. A reply in cmux draws `![alt](/abs/path.png)`,
 a bare image path (`.png`, `.jpg`, `.gif`, `.webp`), a `file://` URL or an
@@ -445,7 +470,37 @@ current binary (`--if-idle` leaves a machine mid-turn alone; a daemon that does 
 come back on the new build is rolled back). Only do either when the task asks
 for it.
 
-## 7. Output
+## 7. Find things
+
+Before you read transcript files or `ls` folders by hand, ask the daemon. It
+already indexes every chat on this device, from every harness (not only the
+ones acpmux started), and answers in milliseconds over tens of thousands.
+
+```bash
+acpmux chats search resize lag -n 10           # chats whose prompts or answers hold every word, with a snippet
+acpmux chats search flaky test --harness codex --folder ~/wt/cmux
+acpmux chats list -q acpmux --folder ~/proj    # by title or folder, newest first; --account for one account home
+acpmux chats open claude-code:5f0c2a9e         # open one again (KEY from list or search)
+acpmux chats roots                             # which folders the index reads, and which it refuses and why
+acpmux resolve 'https://cmux.com/deeplink/agent?harness=claude&session=…'   # the session a link, id or name names
+acpmux who-else src/lib.rs --topic "resize lag" # live and recent sessions here and on peers on these files or topic
+acpmux history NAME                            # what a session did, one turn per line
+acpmux ledger --since 30d --by pr              # what turns cost, per repo, pull request, day, model or account
+acpmux bead ls cx-cus7j.230                    # the sessions working on a tracker bead
+acpmux process list                            # background processes agents left running
+acpmux worktree list                           # this machine's worktrees and the agents that made them
+```
+
+Add `--json` before the command for ids and paths to act on. The rest of the
+surface, one line each in `acpmux --help`: `race` and `compare` (one task on
+several models), `continue` (move a chat to another harness), `briefs` and `task`
+(tracked work), `watch` (wake me when others finish), `inbox` and `deliver`
+(durable messages, reports), `forum`, `bridge`, `desktop` and `register`
+(desktop apps), `group` (sidebar groups), `harness`, `capabilities`,
+`machine-auth`, `hand`, `share-host`, `router`, `web`, `attach`, `resume-here`,
+`stdio`, `cli-agent`, `uniichat-agent`, and `skill` (this guide).
+
+## 8. Output
 
 Put `--json` before the command: `acpmux --json ls`. Errors under `--json`
 are one object on stderr, `{"error": {"code", "detail", "message",
@@ -457,7 +512,7 @@ waiting (`wait`) · 3 timeout · 4 no such session · 5 every permission in the
 turn was denied · 6 `session stop --if-idle` refused (`busy` or
 `revision_moved`; `error.data.revision` is the current `lastSeq`) · 130 interrupted.
 
-## 8. Rules
+## 9. Rules
 
 - Read ids and names from `--json` output. Never guess them. `new --json` and
   `ensure --json` leave out the command, tool and option catalogs; add `--full`

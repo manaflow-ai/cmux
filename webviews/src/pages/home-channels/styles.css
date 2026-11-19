@@ -146,6 +146,11 @@ body,
   color: var(--hc-danger);
   border-bottom: 1px solid var(--page-separator);
 }
+/* A failed Cloud inbox read: the list's own note line, in the page's error color. */
+.lg-list-empty.lg-cloud-error {
+  display: block;
+  color: var(--hc-danger);
+}
 .hc-error button {
   margin-inline-start: auto;
   border: 0;
@@ -739,15 +744,6 @@ body,
   height: 100%;
 }
 .hc-daemon > :last-child {
-  flex: 1;
-  min-height: 0;
-}
-/* The Home page's link router (homeLinks.ts): a plain box the page fills. */
-.hc-links {
-  display: flex;
-  flex-direction: column;
-}
-.hc-links > * {
   flex: 1;
   min-height: 0;
 }

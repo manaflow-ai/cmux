@@ -9,6 +9,17 @@ public final class RefreshingPaletteTargetSource: PaletteTargetSource {
     private let load: @MainActor () async -> [PaletteTargetOption]
     private let updates: (@MainActor () -> AsyncStream<[PaletteTargetOption]>)?
     private var options: [PaletteTargetOption]
+    private var read: (@MainActor () -> [PaletteTargetOption])?
+
+    /// A local mirror already has the inventory. Read it only when the target
+    /// page opens, never while the palette lists every command.
+    public init(kind: ActionTargetKind, actions: Set<ActionID>, next: any PaletteTargetSource,
+                read: @escaping @MainActor () -> [PaletteTargetOption]) {
+        (self.kind, self.actions, self.next, self.read) = (kind, actions, next, read)
+        options = []
+        updates = nil
+        load = { read() }
+    }
 
     public init(kind: ActionTargetKind, actions: Set<ActionID>, initial: [PaletteTargetOption],
                 next: any PaletteTargetSource, load: @escaping @MainActor () async -> [PaletteTargetOption]) {
@@ -42,7 +53,7 @@ public final class RefreshingPaletteTargetSource: PaletteTargetSource {
     private func owns(_ kind: ActionTargetKind, _ action: ActionID) -> Bool { self.kind == kind && actions.contains(action) }
     public func targets(of kind: ActionTargetKind) -> [PaletteTargetOption] { next.targets(of: kind) }
     public func targets(of kind: ActionTargetKind, for action: ActionID) -> [PaletteTargetOption] {
-        owns(kind, action) ? options : next.targets(of: kind, for: action)
+        owns(kind, action) ? read?() ?? options : next.targets(of: kind, for: action)
     }
     public func targetRefresh(of kind: ActionTargetKind, for action: ActionID) -> (@MainActor () async -> [PaletteTargetOption])? {
         guard owns(kind, action) else { return next.targetRefresh(of: kind, for: action) }

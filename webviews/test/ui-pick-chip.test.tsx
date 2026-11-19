@@ -11,6 +11,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { PromptContentPart } from "../src/agent-session/acpmux/model";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -62,12 +63,8 @@ afterEach(() => {
   host.replaceChildren();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 /// The report Leo pasted, as UIInspectorController.swift pageReport writes it.
@@ -351,7 +348,7 @@ test("Find reads a legacy prompt's pick as its chip draws it: the report, not it
   const rows = [
     { id: "legacy-pick", version: 1, at: 0, kind: "user", text: promptText("Why is this span cut off?", [pick!]) },
   ];
-  const count = (query: string) => findMatchesIncremental(rows as never, query, undefined, "strip").matches.length;
+  const count = (query: string) => findMatchesIncremental(rows as never, query).matches.length;
   // The name line and the fence draw nowhere (the chip's face is outside Find).
   expect(count("UI: span")).toBe(0);
   expect(count("```")).toBe(0);

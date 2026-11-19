@@ -12,7 +12,6 @@ import { Switch } from "../../../ui/Switch";
 import { VirtualList } from "../../../ui/VirtualList";
 import { Avatar } from "../../home-channels/Avatar";
 import { FormDialog } from "../../home-channels/FormDialog";
-import { HomeIcon } from "../../home-channels/icons";
 import type { GroupInfoActions } from "./actions";
 import {
   CHIEF_REPLY_POLICIES,
@@ -205,7 +204,15 @@ export function GroupInfoSheet({ strings, info, addable, actions, onClose, initi
               return (
                 // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a row of the windowed list above.
                 <div key={member.id} role="listitem" className="hm-member" style={style}>
-                  <MemberAvatar member={member} />
+                  <Avatar
+                    participant={{
+                      id: member.id,
+                      name: member.name || "?",
+                      kind: member.isAgent ? "agent" : "human",
+                      chief: false,
+                    }}
+                    size={24}
+                  />
                   <span className="hm-member-name">{member.name || t("home.list.untitled")}</span>
                   {memberTags(member, strings).map((tag) => (
                     <span key={tag} className="hm-sheet-tag">
@@ -346,22 +353,5 @@ export function GroupInfoSheet({ strings, info, addable, actions, onClose, initi
         )}
       </div>
     </FormDialog>
-  );
-}
-
-/** A member's disc: an agent shows a sparkle, not letters (the native HomeGroupAvatar); a person
- * their picture or initials. */
-export function MemberAvatar({ member }: { member: Pick<GroupMember, "id" | "name" | "isAgent"> }) {
-  if (!member.isAgent)
-    return <Avatar participant={{ id: member.id, name: member.name || "?", kind: "human", chief: false }} size={24} />;
-  return (
-    <span
-      className="hc-avatar hm-member-sparkle"
-      style={{ width: 24, height: 24 }}
-      aria-hidden="true"
-      data-testid="cmux.home.groupInfo.agentAvatar"
-    >
-      <HomeIcon name="sparkles" size={14} />
-    </span>
   );
 }

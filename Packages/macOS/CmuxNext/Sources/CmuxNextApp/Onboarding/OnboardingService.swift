@@ -1,12 +1,14 @@
 import AppKit
 import CmuxNextAccounts
 import CmuxNextActions
+import CmuxNextAgentIntegrations
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextBrowserImport
+import CmuxNextCompat
 import CmuxNextCookieImport
+import CmuxNextDaemon
 import CmuxNextDesign
-import CmuxNextHome
 import CmuxNextImportCards
 import CmuxNextOnboarding
 import CmuxNextSettings
@@ -14,9 +16,9 @@ import os
 
 /// Owns the tool window (Import from Browser, Computer Use setup), the
 /// browser-data import offer, the default-app registry and the imported
-/// data, and feeds imported history to the omnibar at launch. Fresh installs
-/// also show the history-import page; existing installations go straight to
-/// the main window. The one-time classic migration adds classic's workspaces
+/// data, and feeds imported history to the omnibar at launch. First-run onboarding
+/// (windows, Set Up cmux card, history page) is off unless `--onboarding`
+/// (``AppEnvironment/skipsOnboarding``): launches go straight to the main window. The one-time classic migration adds classic's workspaces
 /// to the restored windows (classic-migration-DESIGN.md).
 @MainActor
 final class OnboardingService {
@@ -35,9 +37,6 @@ final class OnboardingService {
     private var importSettingFollow: Task<Void, Never>?
     private var cookieBannerFollow: Task<Void, Never>?
 
-    /// Where `workspace.importClassic` reads classic's saved session; nil
-    /// reads the one classic saved last (tests point it at a fixture).
-    var classicSessions: ClassicSessionImporter?
     /// How `workspace.importClassic` reaches a classic SSH workspace's host:
     /// the daemon for that destination. Nil connects through `SSHService`
     /// (tests stand in a daemon).
@@ -47,23 +46,11 @@ final class OnboardingService {
     var classicChatPlan: (@MainActor (AgentPaneAdopt, String?) async throws -> AcpmuxChatOpenPlan?)?
     /// The toast `workspace.importClassic` or the launch migration showed last.
     var classicImportNotice: String?
-    /// The classic migration's folder (ledger, backups); nil uses
-    /// `Application Support/cmux-next/<bundle id>/classic-migration` (tests use a scratch folder).
-    var classicMigrationDirectory: URL?
-    /// The Application Support folder holding classic's `cmux` folder; nil is this Mac's.
-    var classicMigrationSupport: URL?
     /// Whether launch runs the classic migration; nil decides by build (shipping builds only).
     var classicMigrationAtLaunch: Bool?
-    /// Whether a classic cmux app is running; nil checks classic's socket lock and reads its launch sentinel.
-    var classicRunning: (@MainActor () -> Bool)?
-    /// Whether the classic socket lock at a path is held; nil asks `flock` (tests answer free).
-    var classicLockHeld: (@MainActor (String) -> Bool)?
-    /// Classic's state folder, where its launch sentinel says it runs; nil is this Mac's
-    /// (`~/.local/state/cmux`); tests use a scratch folder.
-    var classicStateRoot: URL?
     /// Answers the migration preview; nil presents the native cmux dialog.
     /// Tests inject an answer without creating UI.
-    var classicMigrationConfirmation: (@MainActor (ClassicImportPlan) async -> ClassicImportAnswer)?
+    var classicMigrationConfirmation: (@MainActor (ClassicImportPreview) async -> ClassicImportAnswer)?
     /// The migration run in flight or last finished: a new run waits for it.
     var classicMigrationRun: Task<ClassicMigrationOutcome, any Error>?
 
@@ -78,6 +65,7 @@ final class OnboardingService {
     /// The Agents step's sign-ins: Settings > Agents > Harnesses' reader over this Mac's acpmux.
     private(set) lazy var signInHarnesses = SettingsHarnesses(environment: { [weak services] in services.flatMap(QuitAgents.environment) },
                                                               openTerminal: { [weak self] line in await self?.openSignIn(line) ?? false })
+    private(set) lazy var agentTools = AgentToolsStepModel.cliSource(cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, settings: { [weak services] in services?.settings })
     /// The top page a Sign In left (Bring your history); it shows again once the tool window closes.
     private var pageLeftForSignIn: TopPageRoute?
 
@@ -93,33 +81,22 @@ final class OnboardingService {
         // Keep Cmd-T off the file system hot path. The scan is bounded and runs
         // once in the background while the app is starting.
         projectScanTask = Task { [weak self] in
-            let folders = await Task.detached {
+            let agent = await Task.detached {
                 var scan = AgentProjectScan.live()
                 scan.filesPerApp = 200
-                let agent = scan.run().map(\.id)
-                let classic: [ClassicSessionWorkspace]
-                do {
-                    classic = try ClassicSessionImporter().read()
-                } catch {
-                    Logger(subsystem: "com.cmuxterm.app.next", category: "onboarding")
-                        .error("classic session snapshot could not be read: \(String(describing: error), privacy: .public)")
-                    classic = []
-                }
-                // Folders on this Mac: an SSH or Cloud VM workspace's are another machine's.
-                let classicFolders = classic.filter { $0.remote == nil && $0.cloudVM == nil }.flatMap { workspace in
-                    [workspace.workingDirectory] + workspace.layout.tabs.compactMap(\.workingDirectory)
-                }
-                var seen = Set<String>()
-                return (agent + classicFolders).compactMap { path in
-                    let normalized = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
-                    return seen.insert(normalized).inserted ? normalized : nil
-                }
+                return scan.run().map(\.id)
             }.value
             guard let self else { return }
-            projectFolders = folders
+            // Classic's saved folders, read by the daemon (`classic_import.plan`) once it is up.
+            let classic = await classicProjectFolders()
+            var seen = Set<String>()
+            projectFolders = (agent + classic).compactMap { path in
+                let normalized = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
+                return seen.insert(normalized).inserted ? normalized : nil
+            }
         }
         presenter.makeModel = { [weak self] step in
-            self.map { OnboardingModel(services: AppOnboardingServices(owner: $0), step: step) }
+            self.map { OnboardingModel(services: AppOnboardingServices(owner: $0), step: step, agentTools: $0.agentTools) }
         }
         presenter.onWindowClose = { [weak self] in
             guard let self, let page = pageLeftForSignIn else { return }
@@ -127,8 +104,6 @@ final class OnboardingService {
             _ = TopPages.show(page, services: services)
         }
     }
-
-    var isShowing: Bool { controller != nil }
 
     /// Follows `browser.import.enabled` from `settings` (`AppServices.settings`).
     func followImportSetting(_ settings: SettingsController) {
@@ -200,12 +175,15 @@ final class OnboardingService {
         guard !services.environment.skipsOnboarding else { return }
         let route = setup.route(isFirstRun: isFirstRun, replacedKeys: [CLIInstallHandlers.offeredAtLaunchKey], screenReader: NSWorkspace.shared.isVoiceOverEnabled)
         if route == .startCard { DebugTimings.markLaunch("first_run.setup_card_shown") }
-        guard route == .windows else { return }
-        await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses) { self.showHistoryAtFirstRun(isFirstRun: isFirstRun) }
+        // The cmux Tools question comes at launch whatever owns the first run, for an existing
+        // installation too: until it is answered, the person's agents get no cmux server.
+        guard route == .windows else { return await presenter.askAgentToolsOnce(source: agentTools) }
+        await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses, agentTools: agentTools) { self.showHistoryAtFirstRun(isFirstRun: isFirstRun) }
     }
 
-    func historyImportFinished() { UserDefaults.standard.set(true, forKey: HomeMessagesFirstRunProvider.memoryOfferUsedKey) }
-
+    func historyImportFinished() {
+        UserDefaults.standard.set(true, forKey: HomeHostView.memoryOfferUsedKey)
+    }
 }
 
 extension SavingImportDestination {

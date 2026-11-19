@@ -132,7 +132,7 @@ def post_publish_runnable() -> list[str]:
             progressed = True
             cond = str(spec.get("if", ""))
             terms = conjuncts(cond) if cond else []
-            if name == "decide":
+            if name in ("decide", "runner-preflight"):  # the same if: (test_nightly_runner_preflight.py)
                 ok = "inputs.nightly_next_post_publish == ''" in cond
             elif not needed:
                 ok = any(requires_another_input(term) for term in terms)

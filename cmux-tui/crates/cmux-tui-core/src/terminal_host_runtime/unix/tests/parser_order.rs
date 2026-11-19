@@ -18,7 +18,7 @@ fn host_with_queued_output() -> (Arc<HostShared>, Receiver<ParserCommand>, u64) 
     let queued = host.smart.publish(Frame::new(MessageKind::Output, b"queued".to_vec()));
     host.parser_commands
         .send(ParserCommand::Output {
-            bytes: b"queued".to_vec(),
+            frame: Arc::new(Frame::new(MessageKind::Output, b"queued".to_vec())),
             source_cursor: queued,
             accounted_bytes: 0,
         })

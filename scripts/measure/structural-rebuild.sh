@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fleet entry for the structural rebuild timing (fast-swift-rebuild): how long a Swift change that cannot be
 # injected (a new stored property in CmuxNextApp) takes to reach a relaunched tagged DEV app. It builds the
-# tagged app at this checkout once, then for each edit adds one stored property to HomeConversationPage, rebuilds with
+# tagged app at this checkout once, then for each edit adds one stored property to HomeHostView, rebuilds with
 # scripts/reload.sh in place (the warm DerivedData the step keeps in .build) and relaunches the app until its
 # socket answers. Each edit records the reload's wall time, xcodebuild's timing summary, the Swift files the
 # driver compiled, and the relaunch to usable time. The edits are taken back when the run ends.
@@ -30,8 +30,12 @@ for tool_dir in "$account_home/.bun/bin" "$account_home/.local/node/bin"; do
   [ -n "$account_home" ] && [ -d "$tool_dir" ] && export PATH="$tool_dir:$PATH"
 done
 bun_dir="$(mktemp -d)"
+# Remove the scratch folder on every exit (a failed build, a TERM), not only at the end: a leaked one holds a build.
+trap 'rm -rf -- "$bun_dir"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 RUNNER_TEMP="$bun_dir" GITHUB_PATH="$bun_dir/bun-path" ./scripts/cmux-next/private-bun.sh
 PATH="$(tail -n 1 "$bun_dir/bun-path"):$PATH"
 export PATH
 echo "STRUCTURAL-REBUILD-MACHINE sha=$(git rev-parse HEAD) model=$(sysctl -n hw.model) cores=$(sysctl -n hw.ncpu) macos=$(sw_vers -productVersion) load=\"$(uptime | sed 's/.*load averages*: //')\""
-exec python3 scripts/measure/structural-rebuild.py --out "$(pwd)/artifacts/structural-rebuild" "$@"
+python3 scripts/measure/structural-rebuild.py --out "$(pwd)/artifacts/structural-rebuild" "$@"

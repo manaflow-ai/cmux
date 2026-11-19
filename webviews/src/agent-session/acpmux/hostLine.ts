@@ -11,6 +11,8 @@
 // it, and then in plain words. acpmux's own words (a `snake_case:` code, link state, a CLI command
 // to run) are for its CLI and logs: the composer never shows them, only its Details disclosure does.
 import type { Translate } from "./i18n";
+import { NativeError } from "./nativeError";
+import { knownRefusalText } from "./transportErrors";
 
 /// acpmux's reasons for a request that failed because the chat's machine is not reachable now
 /// (`peer_link.rs` `unreachable_error`, `peer.rs` `fail_link_requests`). The daemon keeps
@@ -100,7 +102,11 @@ export type HostLineText = {
 };
 
 /// The line for a failure the pane says, in plain words. The chat's machine is named when acpmux or
-/// the handshake names it (`machineName`); acpmux's raw text moves behind Details.
+/// the handshake names it (`machineName`). Only words already written for the person stand on the
+/// line: the app's localized refusal (a native reply with its code, AgentPaneStrings.swift
+/// `userMessage`: "Quit cmux NIGHTLY, then try again."), the pane's own (a chat too large to open, a
+/// refusal transportErrors.ts words). Anything else ("Failed to fetch", "Error: …", acpmux's codes,
+/// commands and protocol text) reads "Can't reach the agent service." and waits behind Details.
 export function hostLineText(error: unknown, message: string, t: Translate, machineName?: string): HostLineText {
   const peer = peerLinkFailure(error) ?? peerLinkFailure(message);
   const raw = message.trim();
@@ -109,6 +115,13 @@ export function hostLineText(error: unknown, message: string, t: Translate, mach
     return raw && raw !== line ? { line, detail: raw } : { line };
   }
   if (!raw) return { line: t("host.unavailable") };
-  if (isRawDaemonText(raw)) return { line: t("host.unavailable"), detail: raw };
-  return { line: raw };
+  const written =
+    raw === t("host.tooLarge") ||
+    raw === knownRefusalText(error) ||
+    // Only the app's handshake refusal (AgentPaneHandshakeReply.swift, code host_unavailable) carries
+    // a localized line; other coded native errors (a protocol failure's `native.invalid_request`) keep
+    // their raw text, so they go behind Details.
+    (error instanceof NativeError && error.code === "host_unavailable" && error.message === raw);
+  if (written && !isRawDaemonText(raw)) return { line: raw };
+  return { line: t("host.unavailable"), detail: raw };
 }

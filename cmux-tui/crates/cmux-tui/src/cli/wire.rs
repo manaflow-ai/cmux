@@ -30,6 +30,18 @@ const SESSION_JOURNAL_PROTOCOL_MAXIMUM: u64 = cmux_tui_core::server::PROTOCOL_VE
 /// it twice (plans/cmux-next/state-ownership.md, section 4). Streams are never
 /// resent. `mutation.outcome_unknown` is printed only after the last try.
 pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
+    // `--machine <Cloud VM>`: the whole request goes to the VM's daemon over the app's link
+    // (cloud_route.rs); the local daemon has no such machine.
+    #[cfg(unix)]
+    let global = match super::cloud_route::route(&global, &plan) {
+        Some(super::cloud_route::Route::Link { socket, .. }) => {
+            super::cloud_route::routed(&global, &socket)
+        }
+        Some(super::cloud_route::Route::Refused(error)) => {
+            return print_local_error(&error, global.output, 1);
+        }
+        Some(super::cloud_route::Route::Local) | None => global,
+    };
     if !plan.stream
         && plan.operation.class() == OperationClass::Mutation
         && plan.idempotency_key.is_none()
@@ -663,15 +675,19 @@ fn run_response(
                         }
                         WireOperation::Raw { .. } => result,
                     };
-                    // The app's Cloud machines and the team's joined machines join the
-                    // daemon's machine list.
+                    // The app's Cloud machines, the team's joined machines and the machines
+                    // acpmux reaches itself join the daemon's machine list: each is a
+                    // `cmux chat --on` target.
                     #[cfg(unix)]
                     let result = match &plan.operation {
                         WireOperation::Typed(
                             cmux_tui_core::resource::ResourceOperation::MachineList,
-                        ) => super::machine_join::merge(
+                        ) => super::machine_join::merge_peers(
                             global,
-                            super::cloud_machines::merge(global, result),
+                            super::machine_join::merge(
+                                global,
+                                super::cloud_machines::merge(global, result),
+                            ),
                         ),
                         // The app's Cloud machines' workspaces join the daemon's list.
                         WireOperation::Typed(
@@ -839,10 +855,14 @@ pub(super) fn read_envelope(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
     allow_timeout: bool,
 ) -> Result<Option<Value>, String> {
+    // A read timeout may come in the middle of a line: the bytes read
+    // before it stay here and the next read finishes the line.
+    let mut bytes = Vec::new();
     loop {
-        let mut bytes = Vec::new();
-        match reader.by_ref().take((RESPONSE_LIMIT + 2) as u64).read_until(b'\n', &mut bytes) {
-            Ok(0) => return Ok(None),
+        let limit = (RESPONSE_LIMIT + 2).saturating_sub(bytes.len()) as u64;
+        match reader.by_ref().take(limit).read_until(b'\n', &mut bytes) {
+            Ok(0) if bytes.is_empty() => return Ok(None),
+            Ok(0) => return Err("transport closed with a partial JSON line".into()),
             Ok(_) => {}
             Err(error)
                 if allow_timeout

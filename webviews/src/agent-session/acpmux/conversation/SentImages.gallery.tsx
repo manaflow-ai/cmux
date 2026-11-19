@@ -4,6 +4,7 @@
 // its file name or, for a pasted screenshot, its size; one that cannot be drawn says so.
 import { useEffect, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
+import type { Play } from "../../../gallery/play";
 import type { AcpmuxRow, PromptImage } from "../model";
 import { primeSentImages } from "./imageEntries";
 import { ImageViewerContext } from "./imageViewerContext";
@@ -57,6 +58,7 @@ function GalleryPrimedLate({ images }: Props) {
     void Promise.all(painted.map(async ({ image, src }) => ({ ...image, id: await acpmuxId(src) }))).then((ids) => {
       if (!live) return;
       setNamed(ids);
+      // gallery-capture: `pasted-echo-first`'s play `primed` waits for the image to draw.
       setTimeout(() => {
         void primeSentImages(
           painted.map(({ image, src }) => ({
@@ -76,6 +78,11 @@ function GalleryPrimedLate({ images }: Props) {
   }, [images]);
   return named ? <GallerySentImages images={named} pending /> : null;
 }
+
+/// The capture moment of `pasted-echo-first`: the priming above landed and the image drew in its
+/// slot, not the placeholder the 300 ms timer leaves while it waits.
+const primed: Play = ({ waitFor, document }) =>
+  waitFor(() => document.querySelector("img.cv-user__image") && !document.querySelector(".cv-user__image-placeholder"));
 
 function GallerySentImages({ images, pending = false, primedLate = false, inline = false, attachmentOnly }: Props) {
   if (primedLate) return <GalleryPrimedLate images={images} />;
@@ -186,7 +193,9 @@ export default componentEntry<Props>({
   variants: {
     pasted: {
       note: "Three pasted screenshots (square, wide, tall): each the whole image at most 120px tall; hover names its size.",
-      props: { images: pasted },
+      // Sized, as the pane's own paste is (it measured each image): the unsized read, whose square
+      // slots take their shapes when the bytes land, is "loading" and "loading-sized"'s to show.
+      props: { images: pasted.map((image) => ({ ...image, width: image.shot!.width, height: image.shot!.height })) },
     },
     "wide-strip": {
       note: "A strip cut from a chat (1568×74, Leo's 2026-11-05 capture): the whole strip at 320px wide, never a magnified crop of its middle.",
@@ -195,7 +204,7 @@ export default componentEntry<Props>({
       },
     },
     narrow: {
-      note: "The wide strip in a narrow chat, above a prompt and inside one: each scales down to the bubble, whole, never past its edge.",
+      note: "The wide strip in a narrow chat, above a legacy prompt and placed mid-text in another: each in the block above its bubble, scaled down whole, never past its edge.",
       props: {
         images: [{ id: "w", mimeType: "image/png", name: "image.png", shot: { width: 1568, height: 74, hue: 250 } }],
         inline: true,
@@ -227,6 +236,7 @@ export default componentEntry<Props>({
     "pasted-echo-first": {
       note: "A pasted screenshot whose echo names it before the pane primed it, while acpmux's read of a long chat is slow: it draws once the pane's priming lands, never an empty box.",
       props: { images: [pasted[0]!], primedLate: true },
+      play: primed,
     },
     "loading-sized": {
       note: "Images whose record names their size: each slot is reserved at its own shape before acpmux reads it, so nothing snaps when it loads.",

@@ -11,6 +11,7 @@ import java.util.Objects;
 
 
 public final class ServerStatsResult implements WireValue {
+    private final Field<ServerStatsCommands> commands;
     private final ServerStatsConnections connections;
     private final Field<ServerStatsDisk> disk;
     private final Field<ServerStatsHookQueue> hookQueue;
@@ -24,6 +25,7 @@ public final class ServerStatsResult implements WireValue {
     private final Field<ServerStatsWritePath> writePath;
 
     private ServerStatsResult(Builder builder) {
+        this.commands = builder.commands;
         if (!builder.connectionsSet) throw new IllegalArgumentException("connections is required");
         this.connections = Wire.nonNull(builder.connections, "connections");
         this.disk = builder.disk;
@@ -44,6 +46,7 @@ public final class ServerStatsResult implements WireValue {
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<ServerStatsCommands> commands() { return commands; }
     public ServerStatsConnections connections() { return connections; }
     public Field<ServerStatsDisk> disk() { return disk; }
     public Field<ServerStatsHookQueue> hookQueue() { return hookQueue; }
@@ -59,6 +62,10 @@ public final class ServerStatsResult implements WireValue {
     public static ServerStatsResult fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "ServerStatsResult");
         Builder builder = builder();
+        Object rawCommands = Wire.optional(object, "commands");
+        if (!Wire.isMissing(rawCommands)) {
+            builder.commands(ServerStatsCommands.fromWire(rawCommands));
+        }
         Object rawConnections = Wire.required(object, "connections");
         builder.connections(ServerStatsConnections.fromWire(rawConnections));
         Object rawDisk = Wire.optional(object, "disk");
@@ -99,6 +106,7 @@ public final class ServerStatsResult implements WireValue {
     @Override
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
+        Wire.put(object, "commands", commands);
         Wire.put(object, "connections", connections);
         Wire.put(object, "disk", disk);
         Wire.put(object, "hook_queue", hookQueue);
@@ -116,16 +124,17 @@ public final class ServerStatsResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ServerStatsResult that)) return false;
-        return Objects.equals(connections, that.connections) && Objects.equals(disk, that.disk) && Objects.equals(hookQueue, that.hookQueue) && Objects.equals(journalFollowers, that.journalFollowers) && Objects.equals(journalWriter, that.journalWriter) && Objects.equals(locks, that.locks) && Objects.equals(registryLock, that.registryLock) && Objects.equals(resourceProjection, that.resourceProjection) && Objects.equals(schema, that.schema) && Objects.equals(uptimeMs, that.uptimeMs) && Objects.equals(writePath, that.writePath);
+        return Objects.equals(commands, that.commands) && Objects.equals(connections, that.connections) && Objects.equals(disk, that.disk) && Objects.equals(hookQueue, that.hookQueue) && Objects.equals(journalFollowers, that.journalFollowers) && Objects.equals(journalWriter, that.journalWriter) && Objects.equals(locks, that.locks) && Objects.equals(registryLock, that.registryLock) && Objects.equals(resourceProjection, that.resourceProjection) && Objects.equals(schema, that.schema) && Objects.equals(uptimeMs, that.uptimeMs) && Objects.equals(writePath, that.writePath);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(connections, disk, hookQueue, journalFollowers, journalWriter, locks, registryLock, resourceProjection, schema, uptimeMs, writePath); }
+    public int hashCode() { return Objects.hash(commands, connections, disk, hookQueue, journalFollowers, journalWriter, locks, registryLock, resourceProjection, schema, uptimeMs, writePath); }
 
     @Override
     public String toString() { return "ServerStatsResult" + toWire(); }
 
     public static final class Builder {
+        private Field<ServerStatsCommands> commands = Field.omitted();
         private ServerStatsConnections connections;
         private boolean connectionsSet;
         private Field<ServerStatsDisk> disk = Field.omitted();
@@ -143,6 +152,10 @@ public final class ServerStatsResult implements WireValue {
         private boolean uptimeMsSet;
         private Field<ServerStatsWritePath> writePath = Field.omitted();
 
+        public Builder commands(ServerStatsCommands value) {
+            this.commands = Field.of(value);
+            return this;
+        }
         public Builder connections(ServerStatsConnections value) {
             this.connections = value;
             this.connectionsSet = true;

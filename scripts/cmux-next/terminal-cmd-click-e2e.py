@@ -24,6 +24,8 @@ process left from the tag's bundle by exact PID.
 Usage: terminal-cmd-click-e2e.py --tag <tag> --app PATH [--file] [--captured] [--out DIR]
 """
 import argparse, glob, json, os, plistlib, re, signal, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -201,7 +203,7 @@ app = None
 
 
 def cleanup():
-    print("cleanup", flush=True)
+    safe_print("cleanup", flush=True)
     if os.environ.get("CMDCLICK_E2E_KEEP") or not LAUNCHED:
         return  # never another run's app (the fresh-tag guard exits before launching)
     rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
@@ -217,7 +219,7 @@ def cleanup():
         for line in ps.splitlines():
             parts = line.split(None, 2)
             if len(parts) == 3 and parts[2].startswith(APP + "/") and int(parts[0]) != os.getpid():
-                print("leftover", line[:160], flush=True)
+                safe_print("leftover", line[:160], flush=True)
                 try:
                     os.kill(int(parts[0]), signal.SIGTERM)
                 except OSError:

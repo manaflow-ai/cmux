@@ -299,9 +299,12 @@ request_tree_pending() {
 # marks every recent commit whose tree is ready (mark-tree-commits) and builds
 # the tip's tree when it has none. At most one per job (the nightly-next tick
 # calls this script once per commit it walks): a stamp in RUNNER_TEMP keyed by
-# the run. Never while an artifacts run on feat-cmux-next is queued, waiting
-# or in progress (one filtered read per state, so no older active run hides
-# behind newer finished ones), and never when that cannot be read. Two jobs
+# the run. Never while an artifacts run for the dispatch's current branch tip
+# is queued, waiting or in progress (one filtered read per state, so no older
+# active run hides behind newer finished ones), and never when that cannot be
+# read. An unrelated tree cannot publish this tip: its run must not suppress
+# recovery. request_tree_pending already reuses an active same-tree ancestor
+# before a missing tree reaches this fallback. Two jobs
 # racing past the check (the tick and an artifacts push run) start at most two
 # runs, and a dispatch's concurrency group (one per commit, never cancelled)
 # keeps one of them pending behind the other.
@@ -311,12 +314,21 @@ backfill() { # <reason>
     echo "backfill: already dispatched in this job; not dispatching again ($1)"
     return 0
   fi
-  local state count
+  local state count dispatch_tip tip_line
+  # This function also repairs older candidates' markers, but the dispatch
+  # always builds feat-cmux-next. Bind the duplicate check to that source,
+  # rather than the candidate or every publisher on the branch.
+  if ! tip_line="$(git ls-remote origin refs/heads/feat-cmux-next 2>/dev/null)" \
+      || ! [[ "${tip_line%%[[:space:]]*}" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "backfill: could not read the feat-cmux-next tip; not dispatching ($1)"
+    return 0
+  fi
+  dispatch_tip="${tip_line%%[[:space:]]*}"
   active=0
   # The REST filter, not `gh run list --status`: gh's flag refuses "pending"
   # (a run held behind its concurrency group).
   for state in queued in_progress waiting pending requested; do
-    if ! count="$(gh api "repos/$repo/actions/workflows/cmux-tui-artifacts.yml/runs?branch=feat-cmux-next&status=$state&per_page=1" \
+    if ! count="$(gh api "repos/$repo/actions/workflows/cmux-tui-artifacts.yml/runs?branch=feat-cmux-next&head_sha=$dispatch_tip&status=$state&per_page=1" \
         --jq .total_count 2>/dev/null)" || [[ ! "$count" =~ ^[0-9]+$ ]]; then
       echo "backfill: could not read the cmux-tui-artifacts runs; not dispatching ($1)"
       return 0
@@ -324,7 +336,7 @@ backfill() { # <reason>
     active=$((active + count))
   done
   if (( active > 0 )); then
-    echo "backfill: a cmux-tui-artifacts run on feat-cmux-next is queued or running; not dispatching ($1)"
+    echo "backfill: a cmux-tui-artifacts run for feat-cmux-next ${dispatch_tip:0:12} is queued or running; not dispatching ($1)"
     return 0
   fi
   if gh workflow run cmux-tui-artifacts.yml --repo "$repo" --ref feat-cmux-next; then
@@ -421,6 +433,7 @@ if [[ "$mode" == release-compile-green && -n "$promoted" ]] \
   fallback=""
 fi
 refused=0
+quarantine_read="" quarantined_list=""
 max_refused="${CMUX_NIGHTLY_NEXT_MAX_REFUSED:-5}"
 [[ "$max_refused" =~ ^[1-9][0-9]?$ ]] || { echo "error: CMUX_NIGHTLY_NEXT_MAX_REFUSED must be 1 to 99" >&2; exit 2; }
 while read -r run_sha; do
@@ -447,6 +460,22 @@ while read -r run_sha; do
   fi
   # <sha> itself goes to request(), which names a missing gate.
   [[ "$run_sha" == "$sha" ]] || has_notary_gate "$run_sha" || continue
+  # A commit the direct-push quarantine holds (scripts/cmux-next/nightly_quarantine.py: cmuxterm-hq's base-red-watch
+  # found a direct push red on feat-cmux-next's push runs and no later push green) is never promoted: nightly-next
+  # stays on its last build and skips forward once a fix or revert passes. Read once a run, on the first candidate
+  # that gets this far; unreadable, nothing is held (base-red-watch still pages the base-reds owner).
+  if [[ -z "$quarantine_read" ]]; then
+    quarantine_read=1
+    if ! quarantined_list="$(python3 "$repo_root/scripts/cmux-next/nightly_quarantine.py" quarantined --repo "$repo" --tip "$tip" 2>/dev/null)"; then
+      echo "warning: the direct-push quarantine is unreadable; promoting as if none were open" >&2
+      quarantined_list=""
+    fi
+  fi
+  if held_by="$(grep -m1 "^$run_sha " <<<"$quarantined_list")"; then
+    read -r _ q_culprit q_pusher <<<"$held_by"
+    echo "not promoting ${run_sha:0:12}: quarantined since direct push $q_culprit by $q_pusher failed the direct-push gates; a later push that passes them (a fix or a revert) is promoted"
+    continue
+  fi
   rc=0
   request "$run_sha" || rc=$?
   [[ "$rc" != 0 ]] || exit 0

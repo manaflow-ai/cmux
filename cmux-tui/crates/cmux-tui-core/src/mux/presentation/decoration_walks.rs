@@ -28,8 +28,10 @@ impl Mux {
         &self,
         state: &State,
     ) -> HashMap<SurfaceId, SurfaceNotification> {
-        let placement_notifications = self.placement_notifications.lock().unwrap();
-        let terminal_notifications = self.terminal_notifications.lock().unwrap();
+        let placement_notifications =
+            self.placement_notifications.lock().unwrap_or_else(PoisonError::into_inner);
+        let terminal_notifications =
+            self.terminal_notifications.lock().unwrap_or_else(PoisonError::into_inner);
         #[cfg(test)]
         crate::walk_counters::decoration_walk_visited(
             state.surfaces.len() + state.resource_indexes.content_ids.len(),
@@ -100,12 +102,32 @@ impl Mux {
     /// HEAD from disk for one closed workspace, so a close cost more in a bigger session.
     #[track_caller]
     pub(crate) fn tree_decorations_of_workspace(&self, workspace: WorkspaceId) -> TreeDecorations {
+        self.decorations_of_workspace(Some(workspace), false)
+    }
+
+    /// [`Self::tree_decorations`] for a delta that serializes a new EMPTY workspace (its create):
+    /// it has no surface, so it needs the presentation and no surface's marker or directory. The
+    /// full form walked every surface of the session for each create.
+    #[track_caller]
+    pub(crate) fn tree_decorations_of_new_empty_workspace(&self) -> TreeDecorations {
+        self.decorations_of_workspace(None, false)
+    }
+
+    /// The decorations of `workspace`'s surfaces (none for `None`); `read_heads` reads a git HEAD
+    /// the cache does not hold yet (each one of this workspace's directories at most), as the
+    /// full form does.
+    #[track_caller]
+    fn decorations_of_workspace(
+        &self,
+        workspace: Option<WorkspaceId>,
+        read_heads: bool,
+    ) -> TreeDecorations {
         let presentation = self.presentation_snapshot();
         let (notifications, directories) = {
             let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-            let surfaces = state
-                .workspace_by_id(workspace)
+            let surfaces = workspace
                 .into_iter()
+                .filter_map(|workspace| state.workspace_by_id(workspace))
                 .flat_map(|workspace| &workspace.screens)
                 .flat_map(|screen| screen_tabs(&state, screen))
                 .collect::<Vec<_>>();
@@ -118,7 +140,7 @@ impl Mux {
                 .collect::<Vec<_>>();
             (self.surface_notifications_of(&state, &surfaces), directories)
         };
-        let directories = self.resolve_tab_directories(directories, false);
+        let directories = self.resolve_tab_directories(directories, read_heads);
         let pending_terminals = self.pending_terminals_snapshot();
         let terminal_ends = self.terminal_ends_snapshot();
         TreeDecorations {
@@ -129,5 +151,51 @@ impl Mux {
             terminal_ends,
             terminal_loss_causes: self.terminal_loss_causes_snapshot(),
         }
+    }
+
+    /// [`Self::tree_decorations_of_workspace`] for the workspace that `id` or `key` names: what a
+    /// delta that serializes that one workspace (a rename, a move) needs. When neither names a
+    /// live workspace the request fails on the same lookup under the locks, before it builds a
+    /// delta, so no surface's decoration is read. The full form walked every surface of the
+    /// session for one renamed or moved workspace, so a rename cost more in a bigger session.
+    #[track_caller]
+    pub(crate) fn tree_decorations_of_target(
+        &self,
+        id: Option<WorkspaceId>,
+        key: Option<&str>,
+    ) -> TreeDecorations {
+        let workspace = {
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            resolve_workspace_index(&state, id, key)
+                .ok()
+                .and_then(|index| state.workspaces.get(index).map(|workspace| workspace.id))
+        };
+        // A rename or move keeps the git branch of each of its tabs, as the full form read it.
+        self.decorations_of_workspace(workspace, true)
+    }
+
+    /// A copy of the session state with its [`Self::tree_decorations`], for a
+    /// reader that builds the whole tree: one hold of the state lock, for the
+    /// copy. The walks of the decorations read the copy with no lock held, and
+    /// so does the reader's build of the tree, so a request that needs the
+    /// state waits for the copy only. Each durable mutation makes the same
+    /// copy; the routing tables in it are shared, not copied (route_table.rs).
+    #[track_caller]
+    pub(crate) fn tree_state_and_decorations(&self) -> (State, TreeDecorations) {
+        let presentation = self.presentation_snapshot();
+        let state = State::clone(&self.state.lock().unwrap_or_else(PoisonError::into_inner));
+        let notifications = self.surface_notifications_in_state(&state);
+        let directories = self.resolve_tab_directories(surface_directories_in_state(&state), true);
+        let pending_terminals = self.pending_terminals_snapshot();
+        let terminal_ends = self.terminal_ends_snapshot();
+        let decorations = TreeDecorations {
+            notifications,
+            presentation,
+            directories,
+            pending_terminals,
+            terminal_ends,
+            terminal_loss_causes: self.terminal_loss_causes_snapshot(),
+        };
+        (state, decorations)
     }
 }

@@ -70,6 +70,12 @@ impl Owner {
             .arg(&self.socket)
             .env("CMUX_TUI_STATE_DIR", self.dir.join("state"))
             .env("CMUX_TUI_CONFIG", self.dir.join("config.json"));
+        // Command rows come from shell integration's OSC 133 marks. On macOS the
+        // runner's login shell may be Apple's /bin/bash 3.2, which gets no
+        // integration (shell_integration.rs `is_apple_bash`), so its terminals
+        // record nothing: the daemon's terminals use zsh, as on a person's Mac.
+        #[cfg(target_os = "macos")]
+        command.env("SHELL", "/bin/zsh");
         command
     }
 
@@ -307,7 +313,10 @@ fn the_history_page_lists_removes_and_clears_trail_and_command_rows() {
     // refresh keeps the entry, another tab of the newest entry's workspace
     // replaces its place, a quick pass (under 750 ms) is dropped, an
     // incognito step is never stored.
-    let at = 1_800_000_000_000_u64;
+    // The steps are in the past: a clear with no `until_ms` ends at the
+    // daemon's now (#38186), so a step after it would stay.
+    let since_epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+    let at = u64::try_from(since_epoch.as_millis()).unwrap() - 600_000;
     let first = record(&mut app, "r1", step("w1", location("tab_a", "Alpha", "ws-1"), at));
     assert_eq!(first, json!({"id": "location:1", "recorded": true}));
     record(&mut app, "r2", step("w1", location("tab_b", "Beta", "ws-2"), at + 10_000));

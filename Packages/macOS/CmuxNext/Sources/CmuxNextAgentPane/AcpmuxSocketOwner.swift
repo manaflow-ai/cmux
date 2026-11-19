@@ -92,7 +92,8 @@ public nonisolated struct AcpmuxSocketOwner: Equatable, Sendable {
             return await exited(pid)
         }
         do {
-            _ = try request(id: 3, method: "_acpmux/shutdown", on: descriptor, initialize: false, until: Date().addingTimeInterval(5))
+            _ = try request(id: 3, method: "_acpmux/shutdown", params: ["reason": "app: person restart: another install's daemon taken over"],
+                            on: descriptor, initialize: false, until: Date().addingTimeInterval(5))
         } catch AcpmuxServerPeer.Refusal.closed {
             // The daemon may close the connection as it stops, before its reply.
         } catch {
@@ -118,8 +119,8 @@ public nonisolated struct AcpmuxSocketOwner: Equatable, Sendable {
 
     /// Sends `method` (after `initialize` when asked) on `descriptor` and returns the result of
     /// reply `id`; a JSON-RPC error throws ``AcpmuxRPCError``.
-    private static func request(id: Int, method: String, on descriptor: Int32, initialize: Bool,
-                                until: Date) throws -> [String: Any] {
+    private static func request(id: Int, method: String, params: [String: Any] = [:], on descriptor: Int32,
+                                initialize: Bool, until: Date) throws -> [String: Any] {
         var payload = Data()
         if initialize {
             let hello: [String: Any] = [
@@ -128,7 +129,7 @@ public nonisolated struct AcpmuxSocketOwner: Equatable, Sendable {
             ]
             payload += try JSONSerialization.data(withJSONObject: hello) + Data([0x0A])
         }
-        let call: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": [String: Any]()]
+        let call: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": params]
         payload += try JSONSerialization.data(withJSONObject: call) + Data([0x0A])
         try AcpmuxServerPeer.write(payload, to: descriptor, until: until)
         var buffer = Data()

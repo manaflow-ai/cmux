@@ -1,7 +1,6 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBookmarks
-import CmuxNextPages
 
 // The Bookmarks page (``BookmarkPageHostProvider``): one-line forwards to the bookmark service.
 extension AppServices: BookmarkPageHost {
@@ -15,7 +14,7 @@ extension AppServices: BookmarkPageHost {
     func openBookmark(_ node: BookmarkNode, profile: String, disposition: BookmarkOpenDisposition, fromTab key: String) { BookmarkOpener(services: self).open(node, profile: profile, disposition: disposition, fromTab: key) }
 }
 
-// The bookmarks bar (``BookmarksBarProvider``): the registry's menus and refusals, and its pages.
+// The native bookmarks bar (``BookmarksBarHostSource``): the registry's menus and the app's write.
 extension AppServices: BookmarksBarHost {
     func bookmarkBarContextMenu(bookmark: String?) -> NSMenu? {
         // The bar belongs to a browser tab: Bookmark This Page there is available.
@@ -23,19 +22,8 @@ extension AppServices: BookmarksBarHost {
         return registry.makeContextMenu(for: .bookmark, target: ActionTargetRef(kind: .bookmark, id: bookmark), implied: .browserFocused)
     }
 
-    func bookmarkBarRefused(_ message: String) { registry.refuse(message) }
-
     /// A drop or a move on the bar: the star's write, so the app's tree copy and last folder follow now.
-    func bookmarkBarApply(_ operation: BookmarkOperation, profile: String) throws {
-        do { try bookmarks.apply(operation, profile: profile) } catch {
-            throw PageError(code: "cmux.bookmarks.refused", message: BookmarkAppStrings.failure(error))
-        }
-    }
-
-    /// One bookmarks bar page, its tree from the daemon relay; ``BookmarksBarPages`` lends it to a tab.
-    func bookmarksBarPage() -> BookmarksBarPage? {
-        guard let page = BookmarksBarPage.make(host: self, relay: DaemonPageRelay(services: self)) else { return nil }
-        PageConnectionWatch(page: page.view, store: machines.local.store).start()
-        return page
+    func bookmarkBarApply(_ operation: BookmarkOperation, profile: String) {
+        do { try bookmarks.apply(operation, profile: profile) } catch { registry.refuse(BookmarkAppStrings.failure(error)) }
     }
 }

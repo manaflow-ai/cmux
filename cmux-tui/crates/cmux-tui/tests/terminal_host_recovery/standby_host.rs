@@ -229,3 +229,100 @@ fn a_sized_split_adopts_the_spare_with_the_callers_ids() {
     }
     assert!(adopted, "a sized split adopted the spare host process");
 }
+
+/// A create whose host launches inside its creation (here a `split` with no
+/// size, as `cmux split` sends, and a `new-workspace`) takes the spare host
+/// too, and the spare carries none of an earlier terminal's environment.
+#[test]
+fn an_unsized_split_and_a_new_workspace_adopt_the_spare() {
+    let harness = RecoveryHarness::start("standby-host-unsized");
+    let daemon = harness.child.as_ref().unwrap().id() as libc::pid_t;
+    run_cat_workspace(&harness.socket, 1, "standby");
+    let tree = request(&harness.socket, serde_json::json!({"id": 2, "cmd": "list-workspaces"}));
+    let pane = tree["workspaces"][0]["screens"][0]["panes"][0]["id"].as_u64().unwrap();
+    let (first, _) = new_tab(&harness, 3, pane, "first");
+    assert!(wait_for_screen(&harness.socket, first, "R81=[first]").contains("R81=[first]"));
+
+    let mut split_adopted = false;
+    for (index, value) in ["second", "third", "fourth"].into_iter().enumerate() {
+        let spare = wait_for_spare(&harness, daemon);
+        std::thread::sleep(Duration::from_millis(100)); // harness: the slot takes the spare
+        let reply = request(
+            &harness.socket,
+            serde_json::json!({
+                "id": 4 + index as u64,
+                "cmd": "split",
+                "pane": pane,
+                "dir": "right",
+                "env": {"CMUX_R81": value, "SHELL": "/bin/sh"},
+                "shell_args": ["-c", "printf 'R81=[%s]\\n' \"$CMUX_R81\"; exec /bin/cat"],
+            }),
+        );
+        let surface = reply["surface"].as_u64().unwrap_or_else(|| panic!("split failed: {reply}"));
+        let terminal = reply["terminal_id"].as_str().unwrap().to_string();
+        let marker = format!("R81=[{value}]");
+        let screen = wait_for_screen(&harness.socket, surface, &marker);
+        assert!(screen.contains(&marker), "{screen}");
+        assert!(
+            !screen.contains("first"),
+            "a spare must not carry a previous terminal's environment: {screen}"
+        );
+        if host_pid_of(&harness, &terminal) == spare {
+            split_adopted = true;
+            break;
+        }
+    }
+    assert!(split_adopted, "an unsized split adopted the spare host process");
+
+    let mut workspace_adopted = false;
+    for index in 0..3_u64 {
+        let spare = wait_for_spare(&harness, daemon);
+        std::thread::sleep(Duration::from_millis(100)); // harness: the slot takes the spare
+        let reply = request(
+            &harness.socket,
+            serde_json::json!({"id": 10 + index, "cmd": "new-workspace", "name": format!("w{index}")}),
+        );
+        assert!(reply["surface"].as_u64().is_some(), "new-workspace failed: {reply}");
+        // The reply names only the surface; a host publishes its record
+        // before the create replies, so the spare has one if it was adopted.
+        if record_pids(&harness).contains(&spare) {
+            workspace_adopted = true;
+            break;
+        }
+    }
+    assert!(workspace_adopted, "a new workspace adopted the spare host process");
+}
+
+/// A spare killed before an unsized split leaves the split launching on a
+/// fresh process, with no error.
+#[test]
+fn a_spare_killed_before_an_unsized_split_leaves_it_launching_as_before() {
+    let harness = RecoveryHarness::start("standby-host-unsized-killed");
+    let daemon = harness.child.as_ref().unwrap().id() as libc::pid_t;
+    run_cat_workspace(&harness.socket, 1, "standby");
+    let tree = request(&harness.socket, serde_json::json!({"id": 2, "cmd": "list-workspaces"}));
+    let pane = tree["workspaces"][0]["screens"][0]["panes"][0]["id"].as_u64().unwrap();
+    let (first, _) = new_tab(&harness, 3, pane, "first");
+    assert!(wait_for_screen(&harness.socket, first, "R81=[first]").contains("R81=[first]"));
+    let spare = wait_for_spare(&harness, daemon);
+    // SAFETY: SIGKILL to the spare host process this daemon started.
+    unsafe { libc::kill(spare as libc::pid_t, libc::SIGKILL) };
+    wait_for_dead_or_gone(spare);
+
+    let reply = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 4,
+            "cmd": "split",
+            "pane": pane,
+            "dir": "right",
+            "env": {"CMUX_R81": "second", "SHELL": "/bin/sh"},
+            "shell_args": ["-c", "printf 'R81=[%s]\\n' \"$CMUX_R81\"; exec /bin/cat"],
+        }),
+    );
+    let surface = reply["surface"].as_u64().unwrap_or_else(|| panic!("split failed: {reply}"));
+    let terminal = reply["terminal_id"].as_str().unwrap().to_string();
+    let screen = wait_for_screen(&harness.socket, surface, "R81=[second]");
+    assert!(screen.contains("R81=[second]"), "{screen}");
+    assert_ne!(host_pid_of(&harness, &terminal), spare);
+}

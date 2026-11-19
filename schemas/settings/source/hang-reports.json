@@ -19,7 +19,7 @@
           },
           "help": {
             "key": "settings.diagnostics.hangReports.help",
-            "text": "Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, timings, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent."
+            "text": "Nightly builds send daily hang stacks and timings, never your files, URLs or text."
           },
           "summary": {
             "key": "settings.diagnostics.hangReports.summary",
@@ -39,6 +39,47 @@
             "report"
           ],
           "swift_owner": "HangReportsSetting"
+        }
+      ]
+    },
+    {
+      "name": "usagePatterns",
+      "section": "home",
+      "group": {
+        "key": "settings.group.usagePatterns",
+        "text": "Usage Patterns"
+      },
+      "note": "Settings > Privacy and Security > Usage Patterns: opt-in local counters of how the person uses cmux (cmux-tui/crates/cmux-usage-patterns). Leo 2026-11-07: \"could we opt in to tracking usage patterns? at least for myself\". Off by default; nothing leaves the machine.",
+      "rows": [
+        {
+          "key": "diagnostics.usagePatterns",
+          "note": "Whether the daemons on this machine count how cmux is used: commands and operations by name, split directions, connections, agent chats per harness, prompts, tokens, distinct paired machines, by day and hour, and the registry names of packages agents' shell calls install (acpmux hub/tool_installs.rs; the Cloud image's package list is chosen from them). Counts and identifiers only, never prompts, terminal text, addresses, file paths or names. Stored locally; `cmux usage-patterns` and the Agent Stats page show them. Agents may not change it (privacy).",
+          "title": {
+            "key": "settings.diagnostics.usagePatterns",
+            "text": "Record Usage Patterns"
+          },
+          "help": {
+            "key": "settings.diagnostics.usagePatterns.help",
+            "text": "Counts how you use cmux on this Mac. Nothing you type is recorded; nothing is sent."
+          },
+          "summary": {
+            "key": "settings.diagnostics.usagePatterns.summary",
+            "text": "Stays on this computer. Counts only, no text."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "usage",
+            "patterns",
+            "stats",
+            "statistics",
+            "analytics",
+            "tracking",
+            "metrics",
+            "privacy",
+            "counts",
+            "habits"
+          ]
         }
       ]
     }

@@ -24,6 +24,7 @@ import argparse, glob, json, os, plistlib, sqlite3, subprocess, sys, tempfile, t
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -137,7 +138,7 @@ try:
         app = subprocess.Popen([BINARY], env={**BASE_ENV, "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
                                               "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG},
                                stdout=app_log, stderr=subprocess.STDOUT)
-    print(f"app pid {app.pid}, bundle {BUNDLE_ID}, out {opts.out}", flush=True)
+    safe_print(f"app pid {app.pid}, bundle {BUNDLE_ID}, out {opts.out}", flush=True)
     up = wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), 120)
     if check(bool(up), "the app socket answers"):
         wait_for(daemon_socket, 60)

@@ -24,38 +24,30 @@ extension HomeStore {
         viewCache.setDraftAttachments(attachments.map(HomeCachedDraftAttachment.init), for: id)
     }
 
-    /// The conversations with attachments a web composer staged after uploading them.
-    public var uploadedDraftAttachmentConversations: [ConversationID] { Array(viewCache.uploadedDraftAttachments.keys) }
-
-    /// A web composer's uploaded attachments in `id`'s compose field: each part's JSON text by its hash.
-    public func uploadedDraftAttachments(for id: ConversationID) -> [String: String] { viewCache.uploadedDraftAttachments[id] ?? [:] }
-
-    /// Keeps one uploaded attachment (its JSON text: the blob is the owner's already, so no file
-    /// here) by its hash; nil removes only that one. Two pages never overwrite each other's.
-    public func setUploadedDraftAttachment(_ json: String?, hash: String, for id: ConversationID) {
-        viewCache.setUploadedDraftAttachment(json, hash: hash, for: id)
-    }
-
-    /// The conversations with sends a web composer made that the owner has not shown yet.
-    public var pendingWebSendConversations: [ConversationID] { Array(viewCache.pendingWebSends.keys) }
-
-    /// A web composer's unsent sends in `id`: each send's JSON text by its key.
-    public func pendingWebSends(for id: ConversationID) -> [String: String] { viewCache.pendingWebSends[id] ?? [:] }
-
-    /// Keeps one unsent send (its JSON text, so a relaunch shows it again) by its key; nil removes
-    /// only that one. Two pages never overwrite each other's.
-    public func setPendingWebSend(_ json: String?, key: String, for id: ConversationID) {
-        viewCache.setPendingWebSend(json, key: key, for: id)
-    }
-
-    /// The conversations whose compose field kept attachments (prepared here, their files in the blob cache).
-    public var draftAttachmentConversations: [ConversationID] { Array(viewCache.draftAttachments.keys) }
-
     public func scrollAnchor(for id: ConversationID) -> HomeScrollAnchor? { viewCache.scrollAnchors[id] }
 
     /// Where the reader is; nil when at the bottom.
     public func setScrollAnchor(_ anchor: HomeScrollAnchor?, for id: ConversationID) {
         viewCache.setScrollAnchor(anchor, for: id)
+    }
+
+    /// The Chief conversation Home showed last, as the cache has it (nil: none yet, or a cache
+    /// from before it was kept).
+    public var cachedChief: ConversationID? { viewCache.chief }
+
+    /// The Chief to draw at the first frame (CMUX-571): the cached one while this launch has not
+    /// named its own (``rememberChief(_:)``) and the cached inbox has it; nil otherwise.
+    /// Observed, so a view that reads it follows the live Chief once it is named.
+    public var launchChief: ConversationID? {
+        guard !chiefDecided, let id = viewCache.chief, mirror.conversations[id] != nil else { return nil }
+        return id
+    }
+
+    /// This launch named its Chief, `id` (nil: none): ``launchChief`` ends, and the cache keeps
+    /// `id` for the next launch's first frame (a coalesced write; the same one writes nothing).
+    public func rememberChief(_ id: ConversationID?) {
+        if let id { viewCache.setChief(id) }
+        if !chiefDecided { chiefDecided = true }
     }
 
     /// The cache's conversations and sends in `rows` now, before `start()` connects: a view built
@@ -112,15 +104,22 @@ extension HomeStore {
         var state = HomeCacheState()
         state.me = mirror.me ?? me
         state.conversations = mirror.conversations
-        state.windows = mirror.windows.compactMapValues { $0.messages.isEmpty ? nil : $0.messages }
+        state.windows = mirror.cachedWindows
         state.sends = log.entries.compactMap(HomeCachedSend.init)
         return state
     }
 
-    /// `Caches/cmux-home-blobs`.
+    /// `Caches/cmux-home-blobs`: the app's Home attachment folder. Only the store that owns it names it
+    /// (`HomeService.homeStore`), since a store prunes its folder down to its own drafts' and sends' blobs.
     public nonisolated static var defaultBlobCacheDirectory: URL {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
         return caches.appendingPathComponent("cmux-home-blobs", isDirectory: true)
+    }
+
+    /// A temporary folder of this store's own: the folder of a store that names none (tests, fixtures), so its
+    /// prune never reaches the app's folder, whose blobs it does not keep.
+    public nonisolated static func ownBlobCacheDirectory() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("cmux-home-blobs-\(UUID().uuidString)", isDirectory: true)
     }
 }

@@ -35,7 +35,7 @@ struct ClassicUpgradeSimulationTests {
         print(String(format: "CLASSIC-SIM %@ workspaces=%d first_window=%.2fs migration=%.2fs per_workspace=%.0fms decision=%@",
                      name, workspaces, launch.firstWindow.simSeconds, launch.migration.simSeconds,
                      workspaces == 0 ? 0 : launch.migration.simSeconds * 1000 / Double(workspaces),
-                     String(describing: launch.outcome?.decision ?? .skip(.disabled))))
+                     String(describing: launch.outcome?.decision ?? .skip("disabled"))))
     }
 
     /// The matrix: the first launch brings everything once; relaunching and the
@@ -57,14 +57,14 @@ struct ClassicUpgradeSimulationTests {
         #expect(launch.failure == nil, "\(String(describing: launch.failure))")
         #expect(launch.outcome?.decision == .firstRun, "\(String(describing: launch.outcome))")
         await sim.settle()
-        try sim.verify(profile, classicBefore: before)
+        try await sim.verify(profile, classicBefore: before)
 
         let again = try await sim.relaunch()
-        #expect(again.decision == .skip(.unchanged) && again.opened.isEmpty, "\(again)")
+        #expect(again.decision == .skip("unchanged") && again.opened.isEmpty, "\(again)")
         let manual = try await sim.manualImport()
         #expect(manual.opened.isEmpty, "\(manual)")
         await sim.settle()
-        try sim.verify(profile, classicBefore: before)
+        try await sim.verify(profile, classicBefore: before)
         await sim.shutdown()
     }
 
@@ -77,7 +77,7 @@ struct ClassicUpgradeSimulationTests {
         try mac.save(profile)
         let sim = try ClassicUpgradeSimulator(mac: mac)
         let launch = await sim.launch()
-        #expect(launch.outcome?.decision == .skip(.classicRunning), "\(String(describing: launch.outcome))")
+        #expect(launch.outcome?.decision == .skip("classic_running"), "\(String(describing: launch.outcome))")
         // Only the launch's own New Tab page: none of classic's.
         let own = Set(sim.made().keys)
         #expect(own.count <= 1, "\(sim.made().values.map(\.name))")
@@ -91,7 +91,7 @@ struct ClassicUpgradeSimulationTests {
         #expect(merge.decision == .merge && merge.opened.count == profile.expectedCount, "\(merge)")
         // The New Tab page from the first launch is the person's now; it stays.
         await sim.settle()
-        try sim.verify(saved, classicBefore: before, ignoring: own)
+        try await sim.verify(saved, classicBefore: before, ignoring: own)
         await sim.shutdown()
     }
 
@@ -106,7 +106,7 @@ struct ClassicUpgradeSimulationTests {
         let launch = await sim.launch()
         #expect(launch.outcome?.decision == .firstRun, "\(String(describing: launch.outcome))")
         await sim.settle()
-        try sim.verify(profile, classicBefore: before, source: mac.session(suffix: "-previous"))
+        try await sim.verify(profile, classicBefore: before, source: mac.session(suffix: "-previous"))
         #expect(try await sim.relaunch().opened.isEmpty)
         await sim.shutdown()
     }
@@ -127,7 +127,7 @@ struct ClassicUpgradeSimulationTests {
         let sim = try ClassicUpgradeSimulator(mac: mac)
         _ = await sim.launch()
         await sim.settle()
-        try sim.verify(profile, classicBefore: before, source: newest)
+        try await sim.verify(profile, classicBefore: before, source: newest)
         await sim.shutdown()
     }
 
@@ -141,7 +141,7 @@ struct ClassicUpgradeSimulationTests {
         let launch = await sim.launch()
         #expect(launch.outcome?.decision == .firstRun, "\(String(describing: launch.outcome))")
         await sim.settle()
-        try sim.verify(profile, classicBefore: before, source: mac.session(suffix: "-previous"))
+        try await sim.verify(profile, classicBefore: before, source: mac.session(suffix: "-previous"))
         await sim.shutdown()
     }
 
@@ -155,22 +155,22 @@ struct ClassicUpgradeSimulationTests {
         let sim = try ClassicUpgradeSimulator(mac: mac)
         _ = await sim.launch()
         var ledger = try mac.readLedger()
-        let keys = ledger.workspaces.filter { $0.value.stage == .done }.keys.sorted()
+        let keys = ledger.workspaces.filter { $0.value.stage == "done" }.keys.sorted()
         try #require(keys.count >= 3)
-        ledger.state = .inProgress
-        ledger.workspaces[keys[0]]?.stage = .created
-        ledger.workspaces[keys[1]]?.stage = .created
-        ledger.workspaces[keys[2]] = ClassicMigrationLedger.Entry(stage: .pending)
+        ledger.state = "inProgress"
+        ledger.workspaces[keys[0]]?.stage = "created"
+        ledger.workspaces[keys[1]]?.stage = "created"
+        ledger.workspaces[keys[2]] = ClassicTestLedger.Entry(stage: "pending")
         // The third one's workspace is gone too: the cut came before it was made.
         if let id = try mac.readLedger().workspaces[keys[2]]?.nextWorkspace, let key = sim.services.daemon.store.workspace(id: id)?.key {
             _ = try await sim.services.daemon.connection?.closeWorkspace(key, endTerminals: true)
         }
-        try JSONEncoder().encode(ledger).write(to: mac.ledger, options: .atomic)
+        try mac.writeLedger(ledger)
         let resume = try await sim.relaunch()
         #expect(resume.decision == .resume && resume.opened.count == 3, "\(resume)")
         await sim.settle()
         // Open: the remade workspaces come back at the end of their container, not at their classic place.
-        try sim.verify(profile, classicBefore: before, orderKnownIssue: "a resumed run makes its workspaces last in the sidebar")
+        try await sim.verify(profile, classicBefore: before, orderKnownIssue: "a resumed run makes its workspaces last in the sidebar")
         await sim.shutdown()
     }
 
@@ -197,7 +197,7 @@ struct ClassicUpgradeSimulationTests {
             let merge = try await sim.relaunch()
             #expect(merge.decision == .merge && merge.opened.count == 3, "\(merge)")
             await sim.settle()
-            try sim.verify(later, classicBefore: before)
+            try await sim.verify(later, classicBefore: before)
             await sim.shutdown()
         }
     }
@@ -220,7 +220,7 @@ struct ClassicUpgradeSimulationTests {
         _ = try await manual.value
         _ = try await services.onboarding.classicMigrationRun?.value
         await sim.settle()
-        try sim.verify(profile, classicBefore: before)
+        try await sim.verify(profile, classicBefore: before)
         await sim.shutdown()
     }
 
@@ -244,8 +244,8 @@ struct ClassicUpgradeSimulationTests {
         // Not held back: every local workspace showed before the run took up either SSH one, which it
         // does only after their hosts' connect limit (the ledger records a workspace's turn first). An
         // event order, not a wall-clock budget, so it holds on a loaded runner.
-        let decoded = try ClassicSessionImporter(fileURL: mac.session()).decodeSnapshot(Data(contentsOf: mac.session()))
-        let remoteTurns = decoded.windows.flatMap(\.workspaces).filter { $0.remote != nil }.compactMap { sim.ledgered[$0.key] }
+        let decoded = try await sim.classicWindows()
+        let remoteTurns = decoded.flatMap(\.workspaces).filter { $0.remote != nil }.compactMap { sim.ledgered[$0.key] }
         #expect(remoteTurns.count == 2, "SSH workspaces' turns: \(remoteTurns)")
         for name in ["local 1", "local 2", "local 3"] {
             let at = try #require(sim.appeared[name], "\(name) never showed")
@@ -253,7 +253,7 @@ struct ClassicUpgradeSimulationTests {
         }
         #expect(launch.outcome?.summary.leftSSH == true, "\(String(describing: launch.outcome))")
         await sim.settle()
-        try sim.verify(profile, classicBefore: before)
+        try await sim.verify(profile, classicBefore: before)
         await sim.shutdown()
     }
 
@@ -277,7 +277,7 @@ struct ClassicUpgradeSimulationTests {
         }
         _ = await sim.launch()
         await sim.settle()
-        try sim.verify(profile, classicBefore: before)
+        try await sim.verify(profile, classicBefore: before)
         await sim.shutdown()
     }
 
@@ -296,7 +296,7 @@ struct ClassicUpgradeSimulationTests {
         await sim.settle()
         let unplaced = sim.unplacedInDocument()
         #expect(unplaced.isEmpty, "the sidebar document places no confirmed item for \(unplaced)")
-        try sim.verify(profile, classicBefore: before)
+        try await sim.verify(profile, classicBefore: before)
         await sim.shutdown()
     }
 
@@ -318,7 +318,7 @@ struct ClassicUpgradeSimulationTests {
         let sim = try ClassicUpgradeSimulator(mac: mac)
         _ = await sim.launch()
         await sim.settle()
-        try sim.verify(profile, classicBefore: before)
+        try await sim.verify(profile, classicBefore: before)
         await sim.shutdown()
     }
 
@@ -339,7 +339,7 @@ struct ClassicUpgradeSimulationTests {
             let snapshots = try #require(launch.snapshots)
             #expect(snapshots == 0, "\(snapshots) full store snapshots while the run made \(profile.expectedCount) workspaces")
             await sim.settle()
-            try sim.verify(profile, classicBefore: before)
+            try await sim.verify(profile, classicBefore: before)
             await sim.shutdown()
         }
     }
@@ -360,7 +360,7 @@ struct ClassicUpgradeSimulationTests {
         let reads = try #require(launch.treeReads)
         #expect(reads == 0, "\(reads) whole-tree reads while the run made \(profile.expectedCount) workspaces")
         await sim.settle()
-        try sim.verify(profile, classicBefore: before)
+        try await sim.verify(profile, classicBefore: before)
         await sim.shutdown()
     }
 
@@ -375,12 +375,12 @@ struct ClassicUpgradeSimulationTests {
             let sim = try ClassicUpgradeSimulator(mac: mac)
             _ = await sim.launch()
             await sim.settle()
-            try sim.verify(profile, classicBefore: before)
+            try await sim.verify(profile, classicBefore: before)
             let store = sim.services.daemon.store
             let ledger = try mac.readLedger()
-            let decoded = try ClassicSessionImporter(fileURL: mac.session()).decodeSnapshot(Data(contentsOf: mac.session()))
-            let selected = decoded.windows[0].selectedWorkspace.map { decoded.windows[0].workspaces[$0].key }
-            let background = decoded.windows[0].workspaces.filter { $0.key != selected }.compactMap { ledger.workspaces[$0.key]?.nextWorkspace }
+            let decoded = try await sim.classicWindows()
+            let selected = decoded[0].selectedKey
+            let background = decoded[0].workspaces.filter { $0.key != selected }.compactMap { ledger.workspaces[$0.key]?.nextWorkspace }
             try #require(!background.isEmpty)
             let tabs = { (id: String) in store.workspace(id: id)?.screens.flatMap(\.panes).flatMap(\.tabs).filter { $0.kind == .pty } ?? [] }
             // `park-tabs` answers before the shells exit: a tab shows dead with `relaunch` once its host exited, a

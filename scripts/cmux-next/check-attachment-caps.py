@@ -30,6 +30,10 @@ RETAINED_BOUNDS = {
         "maximumBytes": "Custom pet-avatar image format budget; not a chat attachment.",
         "maximumGIFBytes": "Custom pet-avatar GIF budget; not a chat attachment.",
     },
+    "cmux-tui/crates/cmux-browser-import/src/upload.rs": {
+        "MAX_UPLOAD_BYTES": "Daemon memory bound for one browser-import read of a protected folder; not an attachment.",
+        "MAX_TOTAL_BYTES": "Daemon memory bound for every browser-import upload held at once; not an attachment.",
+    },
     "cmux-tui/crates/cmux-conversation/src/attachments.rs": {
         "MAX_POSTER_BYTES": "Derived video-poster representation budget, not original admission.",
         "MAX_PREVIEW_IMAGE_BYTES": "Derived image-preview representation budget, not original admission.",
@@ -88,6 +92,7 @@ ADMISSION_PATHS = {
     "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentPolicy.swift",
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift",
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentChatUploads.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeComposerCheck.swift",
     "backend/apps/api/src/home-attachment-gc.ts",
     "backend/apps/api/src/home-attachment-quota.ts",
     "backend/apps/api/src/home-attachments.ts",

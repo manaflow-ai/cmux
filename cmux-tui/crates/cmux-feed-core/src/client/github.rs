@@ -9,6 +9,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use cmux_json::JsonGet as _;
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
@@ -126,10 +127,6 @@ pub fn parse_time(text: &str) -> Option<i64> {
     chrono::DateTime::parse_from_rfc3339(text).ok().map(|time| time.timestamp_millis())
 }
 
-fn string(value: &Value, key: &str) -> Option<String> {
-    value.get(key).and_then(Value::as_str).map(str::to_owned)
-}
-
 /// A GitHub notification (the subset the feed reads).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Notification {
@@ -148,13 +145,13 @@ impl Notification {
         let subject = value.get("subject")?;
         let repository = value.get("repository")?;
         Some(Self {
-            id: string(value, "id")?,
-            reason: string(value, "reason")?,
-            title: string(subject, "title")?,
-            subject_url: string(subject, "url"),
-            subject_type: string(subject, "type"),
-            repository: string(repository, "full_name")?,
-            repository_url: string(repository, "html_url"),
+            id: value.get_string("id")?,
+            reason: value.get_string("reason")?,
+            title: subject.get_string("title")?,
+            subject_url: subject.get_string("url"),
+            subject_type: subject.get_string("type"),
+            repository: repository.get_string("full_name")?,
+            repository_url: repository.get_string("html_url"),
             updated_at: parse_time(value.get("updated_at")?.as_str()?)?,
         })
     }
@@ -195,11 +192,11 @@ impl Pull {
         Some(Self {
             id: value.get("id")?.as_i64()?,
             number: value.get("number")?.as_i64()?,
-            title: string(value, "title")?,
-            url: string(value, "html_url")?,
+            title: value.get_string("title")?,
+            url: value.get_string("html_url")?,
             repo,
-            body: string(value, "body"),
-            state: string(value, "state"),
+            body: value.get_string("body"),
+            state: value.get_string("state"),
             branch: value
                 .pointer("/pull_request/head/ref")
                 .and_then(Value::as_str)

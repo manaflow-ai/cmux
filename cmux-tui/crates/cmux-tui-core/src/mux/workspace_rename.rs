@@ -168,7 +168,8 @@ impl Mux {
         if let Some(name_fingerprint) = name_authority.fingerprint() {
             fingerprint.set("name_authority", name_fingerprint);
         }
-        let notifications = self.tree_decorations();
+        // The delta serializes the renamed workspace only.
+        let notifications = self.tree_decorations_of_target(target, requested_key);
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             return workspace_mutation_result(&commit);
@@ -207,36 +208,15 @@ impl Mux {
                 }),
                 true,
             )?;
-            // The commit rides the journal writer batch. State is released
-            // before the receipt wait (the registry stays held, so no other
+            // State is released before the commit (lock order: registry ->
+            // connection -> state; the registry stays held, so no other
             // topology writer interleaves) and taken again to apply the
-            // committed name; readers see the old name until the commit is
-            // durable. If the receipt is indeterminate, the next state holder
-            // applies the rename.
-            let settle: crate::workspace_registry::SettleState = {
-                let (key, name) = (key.clone(), name.clone());
-                Box::new(move |state: &mut State, receipt| {
-                    // Only when no later commit (built on the old name)
-                    // superseded it.
-                    if let crate::workspace_registry::RegistryReceipt::Workspace(receipt) = receipt
-                        && !receipt.commit.replayed
-                        && receipt.commit.revision > state.workspace_revision
-                        && let Some(workspace) =
-                            state.workspaces.iter_mut().find(|workspace| workspace.key == key)
-                    {
-                        workspace.name = name;
-                        workspace.name_source = name_source;
-                        workspace.name_revision = name_revision;
-                        state.workspace_revision = receipt.commit.revision;
-                    }
-                })
-            };
+            // committed name; readers see the old name until it commits.
             drop(state);
             let receipt = registry
-                .commit_registry_intent_with(
-                    crate::workspace_registry::RegistryIntent::Workspace(intent),
-                    Some(settle),
-                )?
+                .commit_registry_intent(crate::workspace_registry::RegistryIntent::Workspace(
+                    intent,
+                ))?
                 .into_workspace()?;
             let commit = receipt.commit;
             let mut state = self.lock_state_pinned(&registry).unwrap();
@@ -276,6 +256,7 @@ impl Mux {
                     entity,
                     workspace_revision: Some(workspace_revision),
                     transaction: None,
+                    mutation: None,
                 },
                 workspace_mutation_result(&commit)?,
             )

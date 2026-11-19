@@ -23,6 +23,7 @@ import argparse, json, os, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dev_account_guard  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -186,20 +187,20 @@ try:
         env["CMUX_AUTH_CREDENTIALS_FILE"] = opts.credentials_file
     log = open(os.path.join(OUT, f"app-{TAG}.log"), "a")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    print(f"launched pid {app.pid}", flush=True)
+    safe_print(f"launched pid {app.pid}", flush=True)
     if not wait(lambda: os.path.exists(SOCKET) and rpc("debug.surfaces").get("ok"), 180):
         sys.exit("the tagged app did not come up")
     time.sleep(5)
-    print("windows:", (rpc("debug.surfaces").get("result") or {}).get("windows"), flush=True)
+    safe_print("windows:", (rpc("debug.surfaces").get("result") or {}).get("windows"), flush=True)
     run("newWindow")
     wait(lambda: (rpc("debug.surfaces").get("result") or {}).get("windows"), 30)
-    print("windows:", (rpc("debug.surfaces").get("result") or {}).get("windows"), flush=True)
+    safe_print("windows:", (rpc("debug.surfaces").get("result") or {}).get("windows"), flush=True)
     run("home.show")
     # No write before the app is signed in as the expected account.
     account = dev_account_guard.require_account(lambda m, p: rpc(m, p).get("result") or {}, opts.expected_account, timeout=120)
-    print("signed in as", dev_account_guard.mask(account.get("email")), flush=True)
+    safe_print("signed in as", dev_account_guard.mask(account.get("email")), flush=True)
     signed_in = wait(lambda: page().get("online") and page().get("me"), 90)
-    print("online:", signed_in, json.dumps(page())[:600], flush=True)
+    safe_print("online:", signed_in, json.dumps(page())[:600], flush=True)
     wait(lambda: len(rows()) > 0, 60)
     time.sleep(3)
     shot("01-home-page-list")
@@ -244,7 +245,7 @@ try:
     screen("07-invite-sheet")
     final = page()
     json.dump({"page": final, "results": results}, open(os.path.join(OUT, "preflight.json"), "w"), indent=1)
-    print("headers:", headers(), flush=True)
+    safe_print("headers:", headers(), flush=True)
 finally:
     if app:
         app.terminate()
@@ -252,4 +253,4 @@ finally:
             app.wait(10)
         except subprocess.TimeoutExpired:
             app.kill()
-        print(f"stopped {app.pid}", flush=True)
+        safe_print(f"stopped {app.pid}", flush=True)

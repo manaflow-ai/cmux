@@ -15,6 +15,7 @@
 
 use std::path::{Path, PathBuf};
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
@@ -55,7 +56,7 @@ pub(super) fn key(spec: &Spec) -> Option<String> {
     let mut env: Vec<&str> = spec.env.iter().map(|(k, _)| k.as_str()).collect();
     env.sort_unstable();
     env.dedup();
-    let what = json!({
+    let mut what = json!({
         "name": spec.name,
         "command": spec.command,
         "program": program,
@@ -64,6 +65,23 @@ pub(super) fn key(spec: &Spec) -> Option<String> {
         "env": env,
         "cmux": env!("CARGO_PKG_VERSION"),
     });
+    // A server in a shared process lists what that process gives it: its launch is in the key,
+    // with its env's names only, as the server's own.
+    if let Some(shared) = &spec.shared {
+        let mut env: Vec<&str> = shared.env.iter().map(|(k, _)| k.as_str()).collect();
+        env.sort_unstable();
+        env.dedup();
+        what.set("shared", json!({"command": shared.command, "args": shared.args, "env": env}));
+    }
+    // A server at an HTTP endpoint lists what that endpoint gives it: its path and its header
+    // names are in the key, not the port (the daemon's changes each start) or a header's value
+    // (a token).
+    if let Some(http) = &spec.http {
+        let path = http.url.splitn(4, '/').nth(3).unwrap_or_default();
+        let mut headers: Vec<&str> = http.headers.iter().map(|(k, _)| k.as_str()).collect();
+        headers.sort_unstable();
+        what.set("http", json!({"path": path, "headers": headers}));
+    }
     let digest = Sha256::digest(what.to_string().as_bytes());
     Some(digest.iter().map(|b| format!("{b:02x}")).collect())
 }
@@ -171,11 +189,13 @@ mod tests {
 
     fn spec(command: &Path, token: &str) -> Spec {
         Spec {
-            name: "cmux-cua".into(),
+            name: "cmux-secrets".into(),
             command: command.to_path_buf(),
             args: vec!["mcp".into()],
-            env: vec![("CMUX_CUA_SOCKET_AUTH_TOKEN".into(), token.into())],
+            env: vec![("ACPMUX_SECRET_SESSION".into(), token.into())],
             call_timeout: std::time::Duration::from_secs(1),
+            shared: None,
+            http: None,
         }
     }
 
@@ -231,7 +251,7 @@ mod tests {
     #[test]
     fn a_list_is_shared_by_chats_and_dropped_when_the_server_changes() {
         let home = tempfile::tempdir().unwrap();
-        let binary = home.path().join("cmux-cua");
+        let binary = home.path().join("cmux-secrets");
         std::fs::write(&binary, "v1").unwrap();
         #[cfg(unix)]
         std::fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755))

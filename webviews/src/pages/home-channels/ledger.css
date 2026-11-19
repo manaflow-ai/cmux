@@ -396,7 +396,7 @@
   color: var(--page-text-3);
   letter-spacing: var(--text-detail--letter-spacing);
 }
-.lg-header-context > * + *::before {
+.lg-header-context > :where(:not(:first-child))::before {
   content: "·";
   margin: 0 var(--ds-space-1);
   color: var(--page-text-3);
@@ -868,7 +868,7 @@
   color: var(--page-text-3);
   letter-spacing: var(--text-detail--letter-spacing);
 }
-.lg-sheet-meta > * + *::before {
+.lg-sheet-meta > :where(:not(:first-child))::before {
   content: "·";
   margin: 0 var(--ds-space-1);
 }
@@ -1072,8 +1072,13 @@
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .lg-palette-none {
-  margin: var(--ds-space-4) var(--ds-space-2);
+  /* The Combobox's live Empty, inside the root: it keeps its old place at the bottom, above the
+     hint, and takes no room while it is empty (it stays mounted so the announcement lands). */
+  margin: auto var(--ds-space-2) var(--ds-space-4);
   color: var(--page-text-3);
+}
+.lg-palette-none:empty {
+  margin: 0;
 }
 .lg-palette-hint {
   flex: none;
@@ -1113,7 +1118,7 @@
   display: inline;
   padding: 0;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-control);
   background: none;
   color: inherit;
   font: inherit;
@@ -1146,7 +1151,7 @@
   padding: 0 var(--grid-half-step);
   margin: 0 calc(-1 * var(--grid-half-step));
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-control);
   background: none;
   color: inherit;
   font: inherit;
@@ -2206,7 +2211,7 @@
 }
 .lg-presentation button {
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-control);
   padding: var(--ds-space-1);
   background: transparent;
   color: var(--page-text-3);

@@ -242,6 +242,18 @@ impl OrderedSession {
         true
     }
 
+    /// When the earliest resize retry falls due, or `None` when none is
+    /// scheduled (a sticky failure waits for a reconnect, not a time).
+    pub(in crate::app) fn next_surface_resize_retry(&self) -> Option<Instant> {
+        self.surface_resize_failures
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values()
+            .filter(|failure| !failure.state.sticky_until_reconnect)
+            .filter_map(|failure| failure.state.retry_after)
+            .min()
+    }
+
     pub(in crate::app) fn surface_resize_retry_due(&self) -> bool {
         let now = Instant::now();
         self.surface_resize_failures.lock().unwrap().values().any(|failure| {

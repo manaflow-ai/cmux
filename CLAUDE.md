@@ -6,6 +6,33 @@ Read the matching skill before changing an area, then only the references needed
 
 **Manaflow AI team members and their agents:** read the private [cmuxterm-hq CLAUDE.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/CLAUDE.md) and [AGENTS.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/AGENTS.md) before fleet or CI work. They are the entry point for fleet builds, CI routing, agent coordination, and landing rules. Start fleet work at [Fleet and CI: start here](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/FLEET-AND-CI.md). External contributors can ignore this block; those links return 404 for them.
 
+## The loop: use it first, then test
+
+**Before asking for a dev build, copy your nightly and swap your code in: `cmux app try .`** (on a Mac, in
+your checkout). It clones `/Applications/cmux NIGHTLY.app` (`--from APP` for another), runs the clone beside
+the person's cmux without touching it, puts your working tree's web UI (live on save) and daemon Rust in, and
+prints the clone's socket (`cmux --app-socket SOCKET ...`). `cmux app try . --extract` keeps what went in (a
+branch and a patch); `cmux app try . --stop` deletes the clone. When it says the change needs a build (Swift,
+FFI), the dev build is still the way, and it prints the fleet command. Off a Mac (a Linux host, a lane VM) it
+prints the fleet route: push, then `cmux-ci hot-verify N --look`.
+
+Write the code, put it into your running cmux, use it (screenshot, video, click through it), and only then run
+the slow checks: compile, CI, gallery, suites. 70% of recent Mac-app PRs go into a running app with no build (cmuxterm-hq hot-swap layers doc).
+Full loop and examples: the [cmux-hot-loop skill](skills/cmux-hot-loop/SKILL.md); for people:
+[docs/cmux-next/hot-reload.md](docs/cmux-next/hot-reload.md#the-loop).
+
+| Layer | Into the running app |
+|---|---|
+| Web (`webviews/`) | `cmux customize use pr:N`, `branch:NAME`, `sha:SHA`, `dir:PATH [--watch]` (re-applied about 19 s after a save on a fleet Mac) or a fork's `OWNER/REPO@REF` (from the fork's own CI); back with `cmux customize library off NAME` or `off --all`. `library status` shows what is on, `library refresh` re-pulls (a fork's new code only through `use` again) |
+| Terminal daemon, acpmux Rust (`cmux-tui/`) | `scripts/cmux-next/hot-apply.py plan SHA`, `apply SHA`, `rollback` (about 2.7 s; `--restart-sessions` also hands other sessions' daemons over, about 6.9 s once its fix lands) |
+| A whole PR, branch or commit | `cmux app try <PR\|branch\|sha>`, back with `cmux app try undo` |
+| Swift, Rust the app links, resources | a build; `hot-apply.py plan` says which and why |
+
+`scripts/cmux-next/hot-verify.py plan --source dir:. --app APP` says whether a build is needed; `look --source dir:.|pr:N
+--app APP --out DIR` puts the change into a side copy and writes the screenshots, video and receipt to post on the PR.
+
+Known limit: a tree build is not Team-signed, so Rust hot-apply from it into a Developer ID NIGHTLY is held back.
+
 ## Verification and isolation
 
 - Before committing, setup or a native build, [choose scoped verification](skills/cmux-testing/references/local-vs-ci-validation.md).
@@ -29,6 +56,13 @@ Read the matching skill before changing an area, then only the references needed
   say so. Any other class is refused with `runs as class X` and no step is made.
   Several agents' local SwiftPM test runs pegged the Mac at 100% CPU (2026-10-20). The PATH
   guards (`~/.local/lib/cmux-local-build-guards`) queue or refuse these; never bypass them.
+- **Wait on GitHub with one shared waiter, never a poll.** Team hosts: one background
+  `glaeda-gh wait pr OWNER/REPO#N --sha FULL_SHA` (or `wait run OWNER/REPO/RUN_ID`) per PR or run,
+  or the acpmux `run_wait` tool, which uses it. Its daemon waits on GitHub's PR events
+  (`gh event listen`, gh 2.105.0+, where the account has Event Streams access) and polls otherwise.
+  Never `gh pr checks --watch`, `gh run watch`, a sleep loop, or a `gh event listen` of your own
+  (each listener holds one of the account's few subscriptions). Rules:
+  [github-ci-wait](https://github.com/teamleaderleo/glaeda/blob/main/skills/github-ci-wait/SKILL.md).
 - **Scope every search.** `rg`/`find`/`fd` only inside your worktree or a named subfolder, never
   `..`, `~`, `~/fun`, `/`, `$TMPDIR` or `/var/folders` (worktrees and caches there hold millions of
   files). Prefer `git grep` or `rg` with a path; prefix long scans with `nice -n 10`.
@@ -41,18 +75,77 @@ Read the matching skill before changing an area, then only the references needed
   user may. Reproduce in a tagged build and attach profiling to its PID.
 - Dogfood through `CMUX_TAG=<tag> scripts/cmux-debug-cli.sh`, never `/tmp/cmux-cli`.
   Never report raw `.app` paths or `file://` URLs.
-- The app package needs Swift tools 6.2 and deploys to macOS 14; the classic Swift 6.0 rule
+- The app package needs Swift tools 6.2 and deploys to macOS 14; the old Swift 6.0 rule
   does not apply here. Check Release compiles and macOS 14 limits with
   [toolchain compatibility](skills/cmux-architecture/references/swift-6-0-compatibility.md).
 - No fleet Mac runs macOS 14 or 15 (aws-m4pro-1..4 run 27, aws-m4pro-5..9 run 26). Check an
   OS-dependent bug or a launch on 14/15 in Tart VMs: `scripts/cmux-next/os-matrix.sh --build JOB
   --os 14,15` ([MATRIX.md](scripts/fuzz/macos-matrix/MATRIX.md)). VM timing is not perf evidence.
 
+## Finishing a task
+
+A change to the Mac or iOS app is not done until the person can open it. Every agent report for
+such a change ends with the dev build link, the fleet simulator evidence and the iPhone install result.
+Use one task tag, `<task-slug>` (for example `sidebar-star-align-v1`), for the Mac and iOS builds.
+A documentation-only change needs no build; give the file path instead.
+A change to the cmux-next API (`backend/apps/api`, `backend/db`) is tried on its own per-tag stack,
+`scripts/cmux-next/cloud-dev-stack.sh up --tag <task-slug> --journey`, and stopped with `down` when done
+([cmux-backend](skills/cmux-backend/SKILL.md#run-your-unmerged-cmux-next-api-a-per-tag-stack-on-the-dev-vm)).
+The report also names, for the person to run, the command that puts the change into their running cmux now, from
+[the loop](#the-loop-use-it-first-then-test) (`cmux app try <PR>`, `cmux customize use pr:N`), so they
+use it before the build is done. The agent itself runs it there only when asked; otherwise it uses a side copy (`hot-verify.py look`).
+
+- **Mac:** build the pushed exact head on the fleet and publish it to HQ, never on the person's Mac:
+
+  ```bash
+  JOB_ID=$(cmux-ci build cmux --ref "$(git rev-parse HEAD)" --tag <task-slug> \
+      --workspace <PR URL, else the branch name> --backend-mode local \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+  cmux-ci wait "$JOB_ID"
+  cmux-ci publish-hq "$JOB_ID"
+  ```
+
+  `--workspace` is required (queued builds with the same workspace and tag supersede each other).
+  `--backend-mode local` because cmux-next reads no web API origin; the default `auto` provisions
+  hq's shared backend and stops with "Shared backend helper missing" outside an hq checkout.
+  When you run `cmux-next-ios/scripts/review.sh` below, skip this step: it builds and publishes the
+  same-tag Mac app itself, and a second Mac build replaces the first.
+  Report the Tag Opener link `http://127.0.0.1:17320/<task-slug>`. Never `open` it (macOS sends it
+  to the default browser); team members add it to their workspace with hq's `scripts/open-dev-build.sh <task-slug>`.
+- **iOS:** the iPhone app is `cmux-next-ios/`. Run `cmux-next-ios/scripts/review.sh --tag <task-slug>`.
+  In one command it builds the same-tag Mac app and the iPhone app on the fleet, publishes the Mac
+  app to HQ, and leaves the build on every connected iPhone signed in and paired with that Mac
+  (`--manual-pairing` to pair by hand, `--no-auth` for a signed-out install). It proves both
+  survive a relaunch, and checks the build in a fleet simulator signed in with the agent account,
+  whose session comes from this Mac (`cmux-ci run --sign-in agent`; no credential lives on a
+  worker). Never install with raw `devicectl`, and nothing boots in a simulator on the person's
+  Mac. Rerunning the same command resumes the saved fleet jobs. Its phone leg passed end to end on
+  2026-11-18 (real iPhone, tag `phone-e2e-1118`, #46718, all three modes); report a failure as the
+  phone's blocker. Details:
+  [cmux-next-ios/CLAUDE.md](cmux-next-ios/CLAUDE.md).
+  The Tag Opener link opens the Mac app and, on every connected phone, the same-tag iPhone app it
+  has installed (hq `tools/cmux-hq/Sources/CmuxHQ/TagOpener.swift`, `iosLauncher.launch`).
+- **Install on every connected phone.** A phone that is connected gets the build, including one
+  you have not seen before: `review.sh` registers a new phone and installs on it too.
+- **A phone is always connected.** No connected phone, a locked phone, a queued install or a
+  failed auth gate is a blocker to report with its error and retry command, never a step to skip
+  or replace with a simulator-only result.
+- End the report with:
+
+  ```text
+  Dev build:  http://127.0.0.1:17320/<task-slug>   (fleet job <JOB_ID>, head <sha>)
+  Simulator:  fleet simulator, signed in: <evidence dir> (screenshot.png and the recording)
+  iPhone:     <name> (<model>, <udid>): installed, signed in, paired and linked with <Mac>
+              <name> (<model>, <udid>): BLOCKED: <reason>; retry: <command>   (one line per connected phone)
+  ```
+
 ## cmux-next checks before every push
 
 Before every push, run `python3 scripts/cmux-next/prepush-gate.py` (the pre-push hook runs it
 too): a few seconds of static checks, no build, refusing only violations your commits add.
-Swift/Rust builds and tests stay on the fleet. What it runs and how the hooks install:
+Swift/Rust builds and tests stay on the fleet. If it warns that this clone's installed hook copy
+is not `origin/feat-cmux-next`'s, run `scripts/install-git-hooks.sh` once from a checkout at
+`origin/feat-cmux-next` (a fresh worktree is one); rebase and fetch do not refresh it. What it runs and how the hooks install:
 [hooks and lints](skills/cmux-dev-workflow/references/hooks-and-lints.md).
 
 - Never `--no-verify` and never `CMUX_NEXT_CHECKS_SKIP_REASON`, unless the failure is
@@ -72,6 +165,11 @@ Swift/Rust builds and tests stay on the fleet. What it runs and how the hooks in
   [motion-DESIGN.md](plans/cmux-next/motion-DESIGN.md).
 - Dialogs use the standard key-hint components (`CmuxDialogSpec`, `CmuxDialogActionButton`,
   `ThemedBezelButton.keyHint`, web `ui/DialogButton`), never `NSAlert`, `.alert` or `.confirmationDialog`.
+- A held button changes only its background fill: never its weight (no bold on press), font, size, scale,
+  offset, opacity or icon, on macOS, iOS and web. Use the shared looks (`ChromeHover`,
+  `.buttonStyle(.cmuxPressFill)` on macOS and iOS, web `.ui-btn`), never SwiftUI `.plain`/`.borderless`/`.link`
+  (they dim the label). `check-pressed-state.py` enforces it; rule and exceptions:
+  [design/pressed-state.md](design/pressed-state.md) (Lawrence 2026-11-15).
 - An escape comment (`// concurrency-allow:`, `// crash-allow:`, `dialog-keys-exempt:`)
   needs a reason that proves the code is safe; it is not a way to pass the gate.
 - Never change a Ghostty-default shortcut without the user's explicit OK. Ghostty's split keys
@@ -94,7 +192,7 @@ Push with `git push -q`: without `-q`, git spends 4-14 s printing a status for
 all of GitHub's ~27,600 refs. `-q` still prints errors and the hook's output. The hook ends with
 `pre-push: hook times: <each phase> Ns; total Ns`, which shows where a slow push spent its time.
 - `pre-push: refused in <phase>` with a check's findings: fix them and push again. Do not retry unchanged.
-- The gate's `ran past its 600s limit`, a failure after `pre-push: passed`
+- The gate's `ran past its <N>s limit` (600 s, more on a loaded Mac), a failure after `pre-push: passed`
   (`[remote rejected] ... (failed)`, `RPC failed`, `remote end hung up`, a timeout), or a
   `timeout 1500` kill: retry at most 3 times. Wait 30 s before the first retry, 60 s before
   the second and 120 s before the third.
@@ -102,6 +200,13 @@ all of GitHub's ~27,600 refs. `-q` still prints errors and the hook's output. Th
   If it does, the push landed: stop.
 - A failed push is never a reason for `--no-verify` or the git data API. After 3 failed retries,
   report the hook-times line and the last error.
+- The hook takes a turn: 2 pushes are checked at once on a Mac (`CMUX_PREPUSH_SLOTS`), and the rest
+  wait (`pre-push: ... waiting for a turn`; `queue Ns` in the hook-times line). A wait is not a hang.
+- On a Mac too loaded to finish the hook (load average far above its core count), push through an
+  idle Mac: `scripts/cmux-next/push-from-host.sh --rebase <branch>` pushes `HEAD` to `origin/<branch>`
+  from `cmux-lawrence-2` (`--host`, more than once for a fallback; `--sha`), where the same hook runs
+  and refuses the same things. `--rebase` rebases there onto the branch's newest head first, which a
+  busy branch needs; the pushed commits then have new ids, so fetch and rebase before more work.
 
 ## Before you touch hot paths
 
@@ -109,6 +214,8 @@ all of GitHub's ~27,600 refs. `-q` still prints errors and the hook's output. Th
   observation, instant create, main-thread budget, off-main frames, daemon request path) and meet
   [REVIEW-STANDARD.md](plans/cmux-next/REVIEW-STANDARD.md): root-cause fixes, no hacks, no partial fixes. Review
   landed work with the repo workflow `.claude/workflows/cmux-next-deep-review.js`.
+- A measurement lands as a registered bench in `scripts/bench/benches/` (`scripts/bench/cmux-bench list`), or extends
+  one, never as a one-off script; perf PRs cite `cmux-bench compare` output ([scripts/bench/README.md](scripts/bench/README.md)).
 - Budget: every action reaches its committed frame in < 10 ms p95; motion runs at full refresh, 0 drops.
   Measure on the fleet yourself, light and STRESS ([perf-lead.md](plans/cmux-next/perf-lead.md)), before and after.
 - Never add CI gates, perf-gate rows or budgets, CI jobs or steps, or CI tests (Lawrence 2026-10-23: "not to
@@ -178,14 +285,16 @@ https://github.com/manaflow-ai/cmux/issues/13742 with a recommendation first.
 
 Read these before working in their scope; nested files may not load automatically:
 
-- `ios/` or `Packages/iOS/`: [ios/AGENTS.md](ios/AGENTS.md).
+- `ios/`: the classic iPhone app, retired. Don't change it or install it; cmux-next's iPhone app is `cmux-next-ios/`.
+- `Packages/iOS/`: [Packages/iOS/AGENTS.md](Packages/iOS/AGENTS.md) (the Apple HIG rule for iPhone UI).
 - Cloud backend code (control plane, VM API routes, provider drivers, billing,
   entitlements, the NEXT Worker): new code goes to the private
   manaflow-ai/cmux-platform repository, not here. Read
   [skills/cmux-backend/SKILL.md](skills/cmux-backend/SKILL.md) first.
 - `web/` or any cmux Cloud database work: [web/AGENTS.md](web/AGENTS.md).
 - `cmux-tui/`: [cmux-tui/AGENTS.md](cmux-tui/AGENTS.md).
-- `cmux-next-ios/`: [cmux-next-ios/SECURITY.md](cmux-next-ios/SECURITY.md) and the parity rule above.
+- `cmux-next-ios/`: [cmux-next-ios/CLAUDE.md](cmux-next-ios/CLAUDE.md) (dev loop, terminal, landing iOS PRs),
+  [cmux-next-ios/SECURITY.md](cmux-next-ios/SECURITY.md) and the parity rule above.
 
 ## Contributions and publication
 
@@ -231,20 +340,23 @@ such as `LINUX_RUNNER` or `MACOS_RUNNER_*`) to a nightly job; when owned
 capacity is short, fix the owned pool. `tests/test_ci_nightly_off_blacksmith.py`
 enforces this.
 
-**Nightlies run on one Mac mini, and nobody cancels them** (Lawrence, 2026-11-04).
+**Nightlies run on one signing Mac, end to end, and nobody cancels them** (Lawrence,
+2026-11-04: "the single nightly mini: cmux15"; Leo, 2026-11-12, hq#10366: "ultra1
+signs the nightly too, cmux15 stays ready as the standby signer").
 The whole nightly (build, sign, notarize, verify and publish, for cmux-next on
-`nightly-next` and classic on `main`) runs on the single nightly mini: cmux15, the
-signing-reserved mini (its runners carry `glaeda-trusted-next-signing` and the
-nightly-only labels). This applies to humans, Leo and every agent:
+`nightly-next` and classic on `main`) runs on one signing Mac: ultra1 or cmux15,
+the hosts whose runners carry `glaeda-trusted-next-signing` (cmuxterm-hq
+`build-fleet/mini-fleet.json` `runner.trustedNextSigning`). This applies to humans,
+Leo and every agent:
 
-- Never move a nightly job to Blacksmith, a GitHub-hosted runner or another mini,
-  and never split one nightly across minis, also not "only for this run".
+- Never move a nightly job to Blacksmith, a GitHub-hosted runner or a Mac without
+  that label, and never split one nightly across Macs, also not "only for this run".
 - Never cancel a nightly run, a nightly job or the nightly queue to make room or
   to speed up a proof. A queued nightly waits its turn; the sign yield
   (`scripts/ci/nightly_sign_yield.py`) hands an older build's slot to a newer
   one without cancelling anything.
-- When the nightly mini is short of capacity or a nightly is slow, report it and
-  fix the mini or the workflow on that mini. Do not reroute the nightly.
+- When a signing Mac is short of capacity or a nightly is slow, report it and
+  fix that Mac or the workflow on it. Do not reroute the nightly.
 
 - Commit the failing behavioral regression before its fix; record the same
   focused command's red and green results ([testing policy](skills/cmux-testing/SKILL.md#reproduce-and-repair)).
@@ -257,8 +369,8 @@ nightly-only labels). This applies to humans, Leo and every agent:
 - Keep branches current locally with `scripts/merge-main.sh`; follow
   [the merge-main guide](docs/ci/merge-main.md) and never force-push over its merge.
 - `gh pr merge` saying "base branch policy prohibits the merge" means the token lacks the `workflow`
-  scope or GitHub timed out, not a rule: run `gh auth refresh -h github.com -s workflow`, or merge with
-  `gh api -X PUT repos/OWNER/REPO/pulls/N/merge -f merge_method=squash -f sha=SHA`, which names the cause. Never `--admin`.
+  scope or GitHub timed out, not a rule: run `gh auth refresh -h github.com -s workflow` and retry once. If
+  GitHub still refuses, say so on the PR and stop. Never `--admin` or the API merge path.
 - A first implementation pass ends with passed scoped verification and an open PR;
   do not watch CI or run speculative reviews by default.
 - Never hand-edit or hand-merge generated files (`settings-schema.json`,
@@ -266,7 +378,8 @@ nightly-only labels). This applies to humans, Leo and every agent:
 - Webview UI screenshots come from the gallery advisory run: add a gallery entry with fixture states.
   For a before/after in a minute or two, push and run `scripts/gallery-compare.sh [--open]`: it prints a
   tailnet URL that shows each gallery state your change reaches at the merge-base and at your branch, side
-  by side (no Swift build).
+  by side (no Swift build). A `Visual-change: <state id or *>: <why>` line in the PR body says a difference is
+  wanted; the status comment marks every other changed, new or removed state "unjustified" (warn only).
   Mac captures (the `cmux-next media` tours) are only for native/AppKit UI or real end-to-end flows.
 - A native UI change shows a real capture in its description (`pr-capture-check` warns otherwise; a missing capture never blocks a land, since Leo tries the build himself):
   `cmux-ci capture <head sha> --state scene:NAME|tour:NAME --pr N [--video]` builds that commit, drives the
@@ -285,7 +398,8 @@ nightly-only labels). This applies to humans, Leo and every agent:
   user-visible high-tier behavior behind a default-off setting; revert with
   `gh-merge-green --revert` if it breaks nightly-next and the fix misses the next cut. Agents never
   add `risk:human-ok` or `risk:waived`.
-- Before opening a PR and before merging, check it against [REVIEW.md](REVIEW.md) (draft),
+- Before opening a PR and before merging, check it against "In a cmux PR: what review keeps catching" in the private
+  [before-you-ship checklist](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/handbook/before-you-ship.md),
   the mistakes our review history keeps catching.
 - Before designing a change or fixing a bug, read [design-lessons.md](docs/cmux-next/design-lessons.md):
   the causes our fix history keeps repeating, each with its rule and cost.
@@ -295,7 +409,7 @@ nightly-only labels). This applies to humans, Leo and every agent:
   its review from a different model or a person. Disclose skipped verification on the PR.
   `main` is nightly: fix forward, do not revert.
 - On either branch, a PR merges when its independent review (above) passes and it causes no
-  red of its own; base reds, flakes and pending checks don't hold it. Don't wait for a person.
+  red of its own; base reds and flakes don't hold it, a check still running does. Don't wait for a person.
   Ship risky user-visible behavior behind a setting or Debug toggle and fix a bad default in the
   next nightly. Only the `risk:high` tier, the take-back hold (above), a `HOLD:` line or hold label, and
   merge freezes hold a reviewed PR. On `main`, `gh-merge-green` still waits for the checks it requires; never get around it
@@ -314,7 +428,7 @@ nightly-only labels). This applies to humans, Leo and every agent:
   results. Gallery captures and full webview sweeps are advisory
   ([check progression](docs/contributor-verification.md#pr-check-progression)).
 - **Into `feat-cmux-next`, a PR lands when it is reviewed and causes no red of its own.** Base
-  findings (above), flakes and pending checks never hold it; fixes found later go in follow-ups.
+  findings (above) and flakes never hold it, but nothing lands while its checks still run; fixes found later go in follow-ups.
   When your review passes (and the risk tier's evidence is in the description), merge it
   yourself with a squash pinned to the reviewed head
   (`gh pr merge N --squash --match-head-commit <full head sha>`). A `HOLD:` line in the description or a hold label keeps a reviewed PR from
@@ -325,7 +439,9 @@ nightly-only labels). This applies to humans, Leo and every agent:
   and merge only on exit 0 (1 is frozen, 2 is unknown, which counts as frozen). Don't wait for, rerun or fix base
   reds in your PR; a red it causes keeps it out until you fix it. Don't merge with
   `gh-merge-green` here (`--revert` still works), and never with `--admin`.
-- **Into `main`, the normal merge path is `gh-merge-green`** and main's rulesets. It refuses a PR
+- **Agents don't merge into `main`.** `merge_hold` refuses a PR into `main` unless Leo approved it by name
+  at its exact head (or it only changes CI data files, or a core-team member wrote it); that PR merges through
+  `gh-merge-green` and main's rulesets. `gh-merge-green` refuses a PR
   that touches a path an open `merge-freeze` issue freezes, or when the freeze state can't be read;
   only the freeze owner's `freeze-ok` label lets that PR through ([merge freezes](docs/ci/merge-freeze.md)).
 
@@ -350,6 +466,7 @@ Use these existing owners instead of duplicating their checklists here:
 | Typing paths, SwiftUI list/store boundaries, rendering, find layering, UTTypes or OS-specific bugs | [cmux-debugging](skills/cmux-debugging/SKILL.md) |
 | Packages, workspace groups, lockfiles or feature flags | [cmux-architecture](skills/cmux-architecture/SKILL.md) |
 | Submodules or GhosttyKit | [cmux-ghostty](skills/cmux-ghostty/SKILL.md) |
+| The cmux-next iPhone app (`cmux-next-ios/`, `Packages/iOS/`, the mobile Rust crates) | [cmux-ios](skills/cmux-ios/SKILL.md): fleet simulator tests, App Review gate, TestFlight, how iOS PRs merge |
 | User-facing strings, docs or help | [cmux-localization](skills/cmux-localization/SKILL.md); report the localization audit |
 | A change people will notice (What's New, update card) | [release-notes/next/WRITING.md](release-notes/next/WRITING.md); add one curated highlight file in the same commit, never a commit subject |
 | New cmux shortcuts | [cmux-keyboard-shortcuts](skills/cmux-keyboard-shortcuts/SKILL.md) |

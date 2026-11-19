@@ -57,6 +57,10 @@ ALLOWED: dict[str, str] = {
         'only when this run deferred to a same-key owner whose hand-off job has started: one owner-run read every 15 s, at most 12 passes',
     'cmux-next-generated-catch-up.yml: Select PRs that conflict with feat-cmux-next':
         "per feat-cmux-next push, only while a PR's mergeable is UNKNOWN: re-lists open PRs every 20 s, at most 5 more times",
+    "app-ffi-release.yml: Watch the build and rescue it":
+        "per feat-cmux-next app-ffi-release run (app_ffi_rescue.py, #45076, #45176, hq#3690): one jobs page every "
+        "120 s, at most 50 reads, ending once the build has a runner; a candidate for the owned-pool rescue's one "
+        "sweeper",
     'published-in.yml: Comment the release on its PRs':
         'per stable release: one comment per PR, 7.5 s apart for the secondary limit on content writes; stops at the first rate-limit refusal',
     'nightly.yml: Comment the build on its PRs':
@@ -103,6 +107,9 @@ ALLOWED: dict[str, str] = {
         'hourly: paces artifact deletes 0.4 s apart (at most 150 a minute) and stops at 50 calls left',
     'ci-cloud-overflow-probe.yml: Probe and switch':
         'every 10 min: watches its probe job, one jobs read every 15 s for at most CI_CLOUD_PROBE_MINUTES + 5 (7 to 25 min); a candidate for an App token',
+    'cmux-next-hot-verify.yml: Dispatch the look':
+        'retry only (#45104): a look dispatch that failed is tried again, at most 6 tries in 20 minutes, 30 s doubling; '
+        'a rate limit waits for its reset, read from the rate_limit endpoint (no quota)',
     'ci-macos.yml: Try parallel GitHub artifact transport':
         'retry only: an artifact download is retried after a failure, at most 4 tries, 1-8 s apart',
     'ci-owned-pool-rescue.yml: Watch runs on persistent pools':
@@ -112,6 +119,8 @@ ALLOWED: dict[str, str] = {
     'cmux-next-batch.yml: Wait for quiet, then dispatch a batch':
         'only when CMUX_NEXT_BATCH_ENABLED=1: one debounce sleep between two run listings, then a dispatch; the flagged loop (GraphQL paging with one 10 s retry) is in the batch subcommand this step does not run',
     "gallery-advisory.yml: Update the PR's gallery section":
+        'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',
+    "pr-checks.yml: Update the PR's Swift logic line":
         'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',
     "pr-checks.yml: Update the PR's review line":
         'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',
@@ -191,6 +200,11 @@ class PythonTests(unittest.TestCase):
         multiline = ("import time\ndef state(\n    a,\n    b,\n):\n    return urllib.request.urlopen(a)\n"
                      "while True:\n    state(1, 2)\n    time.sleep(5)\n")
         self.assertTrue(python_polls(multiline))
+        # The deadline transport is an HTTP call too, buffered or streamed (scripts/ci/deadline_http.py).
+        for call in ("deadline_http.request(u, 30)",
+                     "with deadline_http.stream(u, 30) as answer:\n        answer.read()"):
+            with self.subTest(call=call):
+                self.assertTrue(python_polls(f"import time\nwhile True:\n    {call}\n    time.sleep(5)\n"))
 
     def test_a_nested_helper_does_not_hide_the_global_one(self) -> None:
         py = ("import time\ndef state():\n    return gh_json('api', 'x')\ndef unused():\n    def state():\n"

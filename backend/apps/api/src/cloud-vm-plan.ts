@@ -29,14 +29,24 @@ export const cloudVmPlanOf = async (sql: SqlStorage, state: TeamState | null, en
       if (carried === null || (own !== null && grantRank(own) === 0)) return own
       // An override the carried grant cannot exceed is the answer: no paid-plan read, so its failure can't lose it (review F2).
       if (own !== null && grantRank(own) >= grantRank(carried)) return own
-      const paid = await s.getUserPlan(stackUser)
+      let paid: string | null | "user_gone"
+      try {
+        paid = await paidPlanForCarry(s, stackUser)
+      } catch (e) {
+        // The override was read and is confirmed; only the paid plan is unknown (review F2 at f2d36575). The answer is
+        // the higher of that override and the last answer (the carried grant may still apply), never unavailable.
+        if (own === null) throw e
+        console.warn(JSON.stringify({ msg: "cloud.vm_plan.paid_read_failed", error: String(e).slice(0, 160), stale: Boolean(row) }))
+        throw new OverrideOnly(own)
+      }
       return higherGrant(own, paid === "user_gone" ? null : paid, carried)
     }
   } else {
     if (!team || team.id !== entity || team.deleted_at !== undefined || team.kind !== "stack" || !team.stack_team) return { ok: true, vm_plan: null }
     const stackTeam = team.stack_team
+    // The one shared-team read (readStackTeam): it stores the grant copy under this read's ticket itself.
     read = async (s) => {
-      const t = await s.getTeam(stackTeam)
+      const t = await readStackTeam(sql, s, stackTeam, now, seen)
       return t === null ? undefined : (t.vm_plan ?? null)
     }
   }
@@ -56,10 +66,48 @@ export const cloudVmPlanOf = async (sql: SqlStorage, state: TeamState | null, en
     storeVmPlan(sql, vm_plan, now, seen)
     return { ok: true, vm_plan }
   } catch (e) {
+    if (e instanceof OverrideOnly) {
+      // Not stored: the next read compares the paid plan again.
+      const last = row?.vm_plan ?? null
+      return { ok: true, vm_plan: last !== null && grantRank(last) > grantRank(e.own) ? last : e.own }
+    }
     // A failed read keeps the last copy (as CloudDO keeps the last known plan); with none it is unavailable.
     console.warn(JSON.stringify({ msg: "cloud.vm_plan.read_failed", error: String(e).slice(0, 160), stale: Boolean(row) }))
     return row ? { ok: true, vm_plan: row.vm_plan } : { ok: false }
   }
+}
+
+/**
+ * The person's paid plan the carried grant must exceed: the higher by grantRank of their classic `cmuxPlan` and their
+ * cmux NEXT `cmuxNextPlan`, one record read. A NEXT Max subscriber's own `next_pro` grant is then never replaced by a
+ * carried `max` (the Cloud service's cloudPlanId(next_max, "max") would lower them to classic Max).
+ */
+const paidPlanForCarry = async (s: StackServer, stackUser: string): Promise<string | null | "user_gone"> => {
+  if (!s.getUserPlans) return s.getUserPlan(stackUser)
+  const p = await s.getUserPlans(stackUser)
+  if (p === "user_gone") return p
+  if (p.next_plan === null) return p.plan
+  if (p.plan === null) return p.next_plan
+  return grantRank(p.plan) > grantRank(p.next_plan) ? p.plan : p.next_plan
+}
+
+/** A personal grant read whose override was read but whose paid-plan read failed: the override is still an answer. */
+class OverrideOnly extends Error {
+  constructor(readonly own: string) {
+    super("paid plan read failed")
+  }
+}
+
+/**
+ * The one read of a shared team's sign-in service record, for every caller that reads it (the grant read here, the
+ * model router's plan read in inference/plan.ts, every team sync in team-stack-sync.ts). The grant it sees is stored
+ * at once under a read ticket taken before the read (review F1 at f2d36575: a plan refresh saw an upgrade that the
+ * grant copy, and so a delete's carry, never did). `ticket` is the caller's own when it already took one.
+ */
+export const readStackTeam = async (sql: SqlStorage, stack: StackServer, stackTeam: string, at: number, ticket: number = nextReadTicket(sql)) => {
+  const team = await stack.getTeam(stackTeam)
+  if (team !== null && team.vm_personal_tenant !== true && team.vm_plan !== undefined) storeVmPlan(sql, team.vm_plan, at, ticket)
+  return team
 }
 
 const tableReady = new WeakSet<SqlStorage>()
@@ -136,8 +184,11 @@ export const storedVmPlan = (sql: SqlStorage): string | null | undefined => {
   return row ? row.vm_plan : undefined
 }
 
-/** Paid grants by their machine limits (domains/cloud-plan.ts PAID_PLAN_LIMITS): Plus, then Pro, Founders and Team, then Max. */
-const RANK: Readonly<Record<string, number>> = { go: 1, pro: 2, founders: 2, team: 2, max: 3 }
+/**
+ * Paid grants by their machine limits (domains/cloud-plan.ts PAID_PLAN_LIMITS): Plus, then Pro, Founders and Team, then
+ * Max; a cmux NEXT grant ranks with its classic peer (next_plus with Plus, next_pro with Pro, next_max with Max).
+ */
+const RANK: Readonly<Record<string, number>> = { go: 1, next_plus: 1, pro: 2, founders: 2, team: 2, next_pro: 2, max: 3, next_max: 3 }
 /** A grant's rank; 0 for anything that grants no paid limits (blank, "free", unknown: a restriction when set). */
 export const grantRank = (vmPlan: string): number => RANK[vmPlan.trim().toLowerCase()] ?? 0
 

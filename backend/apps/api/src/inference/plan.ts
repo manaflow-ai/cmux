@@ -1,7 +1,8 @@
 import { INFERENCE_PERSONAL_PLAN_IDS, INFERENCE_TEAM_PLAN_IDS } from "@cmux/protocol"
+import { readStackTeam } from "../cloud-vm-plan.ts"
 import type { TeamState } from "../domains/team.ts"
 import { memberLimit } from "../domains/team-ai-limit.ts"
-import type { StackServer } from "../stack-server.ts"
+import { nextPlanId, type StackServer } from "../stack-server.ts"
 
 /**
  * The paid-plan gate of the model router (cx-ds09i): a signed-in caller's team must hold a paid
@@ -27,40 +28,52 @@ export const FAILURE_BACKOFF_MS = 60_000
 
 /** `user_limit_usd`: the caller's monthly AI limit in this team (personal, else team default, else 200; team-ai-limit.ts). */
 /** `plan`: the plan id the sign-in service holds (go, pro, max, founders, team), or null (cx-y79zh S5: the included-amount stop). */
-export type PlanAnswer = { readonly ok: true; readonly paid: boolean; readonly user_limit_usd: number; readonly plan?: string | null } | { readonly ok: false; readonly reason: "unavailable" }
+/** `next_plan`: the record's cmux NEXT plan (cmuxNextPlan: next_plus, next_pro or next_max), or null; for the Cloud service only, it never changes `paid` or the limit. */
+export type PlanAnswer = { readonly ok: true; readonly paid: boolean; readonly user_limit_usd: number; readonly plan?: string | null; readonly next_plan?: string | null } | { readonly ok: false; readonly reason: "unavailable" }
 
+const tableReady = new WeakSet<SqlStorage>()
 const ensure = (sql: SqlStorage) => {
   sql.exec(`CREATE TABLE IF NOT EXISTS inference_plan (id INTEGER PRIMARY KEY CHECK (id = 1), plan TEXT, checked_at INTEGER NOT NULL, failed_at INTEGER)`)
+  if (tableReady.has(sql)) return
+  // The record's cmuxNextPlan; NULL (no NEXT plan) for a copy stored before it was read.
+  if (!sql.exec<{ name: string }>(`PRAGMA table_info(inference_plan)`).toArray().some((c) => c.name === "next_plan")) sql.exec(`ALTER TABLE inference_plan ADD COLUMN next_plan TEXT`)
+  tableReady.add(sql)
 }
+
+/** What one record read holds: `plan` (cmuxPlan) and `next_plan` (cmuxNextPlan). */
+export type PlanRead = { readonly plan: string | null; readonly next_plan: string | null }
 
 /**
  * Stores what Stack answered at `at` (null = no plan). A read that started before a newer write
  * (a webhook delivery) never overwrites it.
  */
-export const storePlan = (sql: SqlStorage, plan: string | null, at: number) => {
+export const storePlan = (sql: SqlStorage, plan: string | null, at: number, nextPlan: string | null = null) => {
   ensure(sql)
-  sql.exec(`INSERT INTO inference_plan (id, plan, checked_at, failed_at) VALUES (1, ?, ?, NULL) ON CONFLICT (id) DO UPDATE SET plan = excluded.plan, checked_at = excluded.checked_at, failed_at = NULL WHERE excluded.checked_at >= inference_plan.checked_at`, plan, at)
+  sql.exec(`INSERT INTO inference_plan (id, plan, checked_at, failed_at, next_plan) VALUES (1, ?, ?, NULL, ?) ON CONFLICT (id) DO UPDATE SET plan = excluded.plan, checked_at = excluded.checked_at, failed_at = NULL, next_plan = excluded.next_plan WHERE excluded.checked_at >= inference_plan.checked_at`, plan, at, nextPlanId(nextPlan))
 }
 
 /**
  * The stored plan when fresh, else Stack's answer (stored), else a stale copy within
  * PLAN_STALE_MS, else unavailable. `read` throws on a Stack failure.
  */
-export const readPlan = async (sql: SqlStorage, now: number, read: () => Promise<string | null>): Promise<{ ok: true; plan: string | null } | { ok: false }> => {
+export const readPlan = async (sql: SqlStorage, now: number, read: () => Promise<PlanRead>): Promise<({ ok: true } & PlanRead) | { ok: false }> => {
   ensure(sql)
-  const row = sql.exec<{ plan: string | null; checked_at: number; failed_at: number | null }>(`SELECT plan, checked_at, failed_at FROM inference_plan WHERE id = 1`).toArray()[0]
+  const row = sql.exec<{ plan: string | null; next_plan: string | null; checked_at: number; failed_at: number | null }>(`SELECT plan, next_plan, checked_at, failed_at FROM inference_plan WHERE id = 1`).toArray()[0]
   const age = row ? now - Number(row.checked_at) : Infinity
-  if (row && age < (row.plan === null ? UNPAID_FRESH_MS : PLAN_FRESH_MS)) return { ok: true, plan: row.plan }
+  // The copy's answer; a copy from before next_plan was stored has NULL there (no NEXT plan).
+  const copy = row ? { ok: true as const, plan: row.plan, next_plan: nextPlanId(row.next_plan) } : undefined
+  if (copy && age < (copy.plan === null ? UNPAID_FRESH_MS : PLAN_FRESH_MS)) return copy
   // Stack failed a moment ago: answer from the stale copy (or unavailable) without waiting on Stack again.
-  if (row && row.failed_at !== null && now - Number(row.failed_at) < FAILURE_BACKOFF_MS) return age < PLAN_STALE_MS ? { ok: true, plan: row.plan } : { ok: false }
+  if (row && copy && row.failed_at !== null && now - Number(row.failed_at) < FAILURE_BACKOFF_MS) return age < PLAN_STALE_MS ? copy : { ok: false }
   try {
-    const plan = await read()
-    storePlan(sql, plan, now)
-    return { ok: true, plan }
+    const r = await read()
+    const next_plan = nextPlanId(r.next_plan)
+    storePlan(sql, r.plan, now, next_plan)
+    return { ok: true, plan: r.plan, next_plan }
   } catch (e) {
     console.warn(JSON.stringify({ msg: "inference.plan.read_failed", error: String(e).slice(0, 160), stale: Boolean(row) }))
     if (row) sql.exec(`UPDATE inference_plan SET failed_at = ? WHERE id = 1`, now)
-    if (row && now - Number(row.checked_at) < PLAN_STALE_MS) return { ok: true, plan: row.plan }
+    if (copy && age < PLAN_STALE_MS) return copy
     return { ok: false }
   }
 }
@@ -75,7 +88,7 @@ export const personalPlanPaid = (plan: string | null) => plan !== null && INFERE
 export const inferencePlanOf = async (sql: SqlStorage, state: TeamState | null, entity: string, stack: StackServer | undefined, stackUser: string | undefined, user: string, now = Date.now()): Promise<PlanAnswer> => {
   const team = state?.team ?? null
   const limit = memberLimit(state, user).limit_usd
-  const read = (fetch: (s: StackServer) => Promise<string | null>) =>
+  const read = (fetch: (s: StackServer) => Promise<PlanRead>) =>
     readPlan(sql, now, async () => {
       if (!stack) throw new Error("stack server not configured")
       return fetch(stack)
@@ -84,15 +97,24 @@ export const inferencePlanOf = async (sql: SqlStorage, state: TeamState | null, 
     // A personal team may not be mirrored here yet; the Worker checked the id is the caller's own.
     if (team && (team.id !== entity || team.kind !== "personal")) return { ok: true, paid: false, user_limit_usd: limit }
     const r = await read(async (s) => {
+      // One read of the owner's user record for both fields; a server without getUserPlans has no next_plan.
+      if (s.getUserPlans) {
+        const plans = await s.getUserPlans(stackUser)
+        return plans === "user_gone" ? { plan: null, next_plan: null } : plans
+      }
       const plan = await s.getUserPlan(stackUser)
-      return plan === "user_gone" ? null : plan
+      return { plan: plan === "user_gone" ? null : plan, next_plan: null }
     })
-    return r.ok ? { ok: true, paid: personalPlanPaid(r.plan), user_limit_usd: limit, plan: r.plan } : { ok: false, reason: "unavailable" }
+    return r.ok ? { ok: true, paid: personalPlanPaid(r.plan), user_limit_usd: limit, plan: r.plan, next_plan: r.next_plan } : { ok: false, reason: "unavailable" }
   }
   if (!team || team.id !== entity || team.deleted_at !== undefined || team.kind !== "stack" || !team.stack_team) return { ok: true, paid: false, user_limit_usd: limit }
   const stackTeam = team.stack_team
-  const r = await read(async (s) => (await s.getTeam(stackTeam))?.plan ?? null)
-  return r.ok ? { ok: true, paid: teamPlanPaid(r.plan), user_limit_usd: limit, plan: r.plan } : { ok: false, reason: "unavailable" }
+  // The one shared-team read (cloud-vm-plan.ts readStackTeam): the grant it sees also refreshes the grant copy a delete carries.
+  const r = await read(async (s) => {
+    const t = await readStackTeam(sql, s, stackTeam, now)
+    return { plan: t?.plan ?? null, next_plan: t?.next_plan ?? null }
+  })
+  return r.ok ? { ok: true, paid: teamPlanPaid(r.plan), user_limit_usd: limit, plan: r.plan, next_plan: r.next_plan } : { ok: false, reason: "unavailable" }
 }
 
 /** The stored plan copy, without a Stack read (team.ai_limit.get's team line); null when there is none yet. */

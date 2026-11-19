@@ -26,6 +26,7 @@ use std::cmp::Reverse;
 use std::future::Future;
 use std::time::Duration;
 
+use cmux_cloud_machine::refusals;
 use reqwest::Method;
 use serde_json::{Map, Value, json};
 use tokio::time::Instant;
@@ -201,7 +202,7 @@ async fn call_query(
         .await?;
     let object = reply.json();
     if !reply.ok() {
-        return Err(refusal(reply.status, object.as_ref()));
+        return Err(refusal_with(reply.status, object.as_ref(), reply.retry_after.as_deref()));
     }
     match object {
         Some(Value::Object(mut o)) if o.get("ok") == Some(&Value::Bool(true)) => {
@@ -212,8 +213,20 @@ async fn call_query(
     }
 }
 
-/// The platform's refusal: `{_tag, code, message}` or `{error: {code, message}}`.
+/// The platform's refusal: `{_tag, code, message, retryable, retryAfterSeconds}` or
+/// `{error: {code, message}}`, with no Retry-After header (the tests' shorthand; a call reads
+/// its header through [`refusal_with`]).
+#[cfg(test)]
 pub(crate) fn refusal(status: u16, body: Option<&Value>) -> Failure {
+    refusal_with(status, body, None)
+}
+
+/// [`refusal`] with the answer's Retry-After header, a rate limit's window when the body names none.
+pub(crate) fn refusal_with(
+    status: u16,
+    body: Option<&Value>,
+    retry_after: Option<&str>,
+) -> Failure {
     let nested = body.and_then(|b| b.get("error")).filter(|e| e.is_object());
     let read = |name: &str| {
         body.and_then(|b| b.get(name))
@@ -221,15 +234,34 @@ pub(crate) fn refusal(status: u16, body: Option<&Value>) -> Failure {
             .or_else(|| nested.and_then(|e| e.get(name)).and_then(Value::as_str))
             .map(str::to_owned)
     };
-    Failure::http(status, read("code"), read("message"))
+    let facts = refusals::Facts::read(body, retry_after);
+    match Failure::http(status, read("code"), read("message")) {
+        Failure::Http { status, code, message, action, trace_id, .. } => Failure::Http {
+            status,
+            code,
+            message,
+            action,
+            trace_id,
+            retryable: facts.retryable,
+            retry_after_s: facts.retry_after_s,
+        },
+        other => other,
+    }
 }
 
-/// Whether the same key may be sent again: a gateway's 502/504, a timeout, or the platform's
-/// 503 that says to retry (a restore or pause still pending, the service briefly away).
+/// Whether the same key may be sent again: the body's own `retryable` when it has one
+/// (cmux-platform#1192: a busy machine's 409 and a rate limit's 429 may, a cap's 403 and a
+/// final 503 may not); else the platform's table for its code; else a gateway's 502/504, a
+/// timeout, a 429, or the platform's 503 that says to retry (a restore or pause still pending,
+/// the service briefly away).
 pub(crate) fn retryable(failure: &Failure) -> bool {
     match failure {
         Failure::TimedOut(_) => true,
-        Failure::Http { status: 502 | 504, .. } => true,
+        Failure::Http { retryable: Some(flag), .. } => *flag,
+        Failure::Http { code: Some(code), .. } if refusals::platform(code).is_some() => {
+            refusals::platform(code).is_some_and(|row| row.handling() != refusals::Handling::Final)
+        }
+        Failure::Http { status: 429 | 502 | 504, .. } => true,
         Failure::Http { status: 503, code, .. } => matches!(
             code.as_deref(),
             None | Some(
@@ -253,11 +285,22 @@ where
     let deadline = later(pace.deadline);
     loop {
         match attempt().await {
-            Err(failure) if retryable(&failure) && later(pace.pause) < deadline => {
-                tokio::time::sleep(pace.pause).await;
+            Err(failure) if retryable(&failure) && later(wait(&failure, pace)) < deadline => {
+                tokio::time::sleep(wait(&failure, pace)).await;
             }
             other => return other,
         }
+    }
+}
+
+/// How long before the same request again: a rate limit's own window (its Retry-After), at
+/// least the pace's pause.
+pub(crate) fn wait(failure: &Failure, pace: Pace) -> Duration {
+    match failure {
+        Failure::Http { status: 429, retry_after_s, .. } => pace.pause.max(Duration::from_secs(
+            retry_after_s.unwrap_or(refusals::DEFAULT_RETRY_AFTER_SECONDS),
+        )),
+        _ => pace.pause,
     }
 }
 

@@ -1,4 +1,5 @@
-//! Non-panicking writes into [`serde_json::Value`].
+//! Non-panicking writes into [`serde_json::Value`], and typed reads of one
+//! member ([`JsonGet`]).
 //!
 //! `value["key"] = x` goes through `IndexMut`, which panics when `value` is
 //! neither an object nor null (an array, a string, a number: easy to get from
@@ -92,6 +93,74 @@ impl JsonSet for Map<String, Value> {
     }
 }
 
+/// Typed reads of one member, for [`Value`] and JSON object maps: the
+/// `value.get(key).and_then(Value::as_str)` chain each crate kept its own
+/// `text`/`flag`/`number` helper for. A missing member, a non-object
+/// `self` and a member of another type all read as absent; nothing here
+/// coerces (a `"7"` is not a `u64`).
+///
+/// ```
+/// use cmux_json::JsonGet as _;
+/// use serde_json::json;
+///
+/// let record = json!({ "id": "w1", "count": 3, "pinned": true, "tabs": [1, 2] });
+/// assert_eq!(record.get_str("id"), Some("w1"));
+/// assert_eq!(record.get_string("id").as_deref(), Some("w1"));
+/// assert_eq!(json!({ "id": "" }).get_nonempty_str("id"), None);
+/// assert_eq!(record.get_u64("count"), Some(3));
+/// assert_eq!(record.get_bool("pinned"), Some(true));
+/// assert_eq!(record.get_array("tabs").len(), 2);
+/// assert_eq!(record.get_str("count"), None);
+/// assert!(record.get_array("missing").is_empty());
+/// ```
+pub trait JsonGet {
+    /// The member `key`, when `self` is an object that has it.
+    fn member(&self, key: &str) -> Option<&Value>;
+
+    /// Member `key` as a string.
+    fn get_str(&self, key: &str) -> Option<&str> {
+        self.member(key).and_then(Value::as_str)
+    }
+
+    /// Member `key` as a string that is not empty: `""` reads as absent,
+    /// for ids and names where an empty value means "not set".
+    fn get_nonempty_str(&self, key: &str) -> Option<&str> {
+        self.get_str(key).filter(|text| !text.is_empty())
+    }
+
+    /// Member `key` as an owned string.
+    fn get_string(&self, key: &str) -> Option<String> {
+        self.get_str(key).map(str::to_owned)
+    }
+
+    /// Member `key` as an unsigned integer.
+    fn get_u64(&self, key: &str) -> Option<u64> {
+        self.member(key).and_then(Value::as_u64)
+    }
+
+    /// Member `key` as a boolean.
+    fn get_bool(&self, key: &str) -> Option<bool> {
+        self.member(key).and_then(Value::as_bool)
+    }
+
+    /// Member `key`'s elements; empty when it is missing or not an array.
+    fn get_array(&self, key: &str) -> &[Value] {
+        self.member(key).and_then(Value::as_array).map_or(&[], Vec::as_slice)
+    }
+}
+
+impl JsonGet for Value {
+    fn member(&self, key: &str) -> Option<&Value> {
+        self.get(key)
+    }
+}
+
+impl JsonGet for Map<String, Value> {
+    fn member(&self, key: &str) -> Option<&Value> {
+        self.get(key)
+    }
+}
+
 /// The object inside `value`, turning null into an empty object first.
 fn object_mut(value: &mut Value) -> Option<&mut Map<String, Value>> {
     if value.is_null() {
@@ -153,5 +222,30 @@ mod tests {
         map.set("k", json!(1));
         map.set_path(&["a", "b"], json!(2));
         assert_eq!(Value::Object(map), json!({ "k": 1, "a": { "b": 2 } }));
+    }
+
+    #[test]
+    fn get_reads_one_member_of_its_type_and_never_coerces() {
+        use super::JsonGet as _;
+        let value = json!({ "s": "x", "n": 7, "neg": -1, "b": false, "a": [1], "q": "7" });
+        assert_eq!(value.get_str("s"), Some("x"));
+        assert_eq!(value.get_string("s"), Some("x".to_owned()));
+        assert_eq!(value.get_nonempty_str("s"), Some("x"));
+        assert_eq!(json!({ "e": "" }).get_nonempty_str("e"), None);
+        assert_eq!(json!({ "e": "" }).get_str("e"), Some(""));
+        assert_eq!(value.get_u64("n"), Some(7));
+        assert_eq!(value.get_bool("b"), Some(false));
+        assert_eq!(value.get_array("a"), &[json!(1)]);
+        assert_eq!(value.get_u64("q"), None, "a numeric string is not a number");
+        assert_eq!(value.get_u64("neg"), None);
+        assert_eq!(value.get_str("n"), None);
+        assert_eq!(value.get_bool("missing"), None);
+        assert!(value.get_array("s").is_empty());
+        for other in [json!([1]), json!("s"), Value::Null] {
+            assert_eq!(other.get_str("s"), None);
+            assert!(other.get_array("a").is_empty());
+        }
+        let map = value.as_object().unwrap();
+        assert_eq!(map.get_str("s"), Some("x"));
     }
 }

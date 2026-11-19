@@ -2,10 +2,14 @@
 //! section 3). Requests become `cmux_config` ops; refusals become catalog
 //! errors with the owner's data in `details`.
 
+use std::path::Path;
 use std::sync::Arc;
 
 use cmux_config::keybindings::edit::Target as KeybindingTarget;
-use cmux_config::{KeybindingsOp, KeybindingsRefusal, Op, Origin, Refusal, Target, WriteMeta};
+use cmux_config::{
+    Edit, EditKind, KeybindingsOp, KeybindingsRefusal, MAX_EDITS, Op, Origin, Refusal, Target,
+    WriteMeta,
+};
 use serde_json::{Map, Value, json};
 
 use super::{ParsedResourceRequest, mutation_result, validation_error};
@@ -32,8 +36,28 @@ pub(super) fn dispatch(
             let target = target(fields)?;
             Ok(mux.with_settings(|state| state.get(&target).to_json()))
         }
-        ResourceOperation::SettingsSnapshot => {
-            Ok(mux.with_settings(|state| state.snapshot().to_json()))
+        ResourceOperation::SettingsSnapshot => Ok(mux.settings_snapshot()),
+        ResourceOperation::SettingsEdit => {
+            let file = edit_file(fields)?;
+            let op = Op::Edit {
+                edits: edits(fields)?,
+                meta: meta(fields, request.envelope.idempotency_key.clone(), &request.actor)?,
+            };
+            // The owner's file is fixed for its life, so this check holds for the apply after it.
+            if let Some(file) = file
+                && let Some(served) = mux.settings_file_mismatch(Path::new(file))
+            {
+                return Err(file_mismatch(file, &served));
+            }
+            match mux.settings_apply(op) {
+                Ok(outcome) => mutation_result(
+                    mux,
+                    json!({"keys": outcome.keys, "applied": outcome.applied}),
+                    outcome.revision,
+                    outcome.replayed,
+                ),
+                Err(refusal) => Err(refusal_error(operation, &refusal)),
+            }
         }
         ResourceOperation::SettingsSet
         | ResourceOperation::SettingsReset
@@ -118,6 +142,90 @@ fn target(fields: &Map<String, Value>) -> Result<Target, ResourceError> {
         .collect::<Option<Vec<_>>>()
         .ok_or_else(|| validation_error("path holds strings", json!({"field":"path"})))?;
     Ok(Target::Path(path))
+}
+
+/// `settings.edit`'s optional `file`: the settings file the caller means. An
+/// owner serving another file refuses with `settings.file_mismatch`.
+fn edit_file(fields: &Map<String, Value>) -> Result<Option<&str>, ResourceError> {
+    match fields.get("file") {
+        None => Ok(None),
+        Some(Value::String(file)) if !file.is_empty() => Ok(Some(file)),
+        Some(_) => {
+            Err(validation_error("file is a non-empty path string", json!({"field":"file"})))
+        }
+    }
+}
+
+/// `settings.file_mismatch`: this owner reads and writes `served`, not `file`;
+/// nothing was written.
+fn file_mismatch(file: &str, served: &Path) -> ResourceError {
+    ResourceError::new(
+        "settings.file_mismatch",
+        format!(
+            "this daemon's settings owner serves {}, not {file}; nothing was written",
+            served.display()
+        ),
+        json!({"file": file, "path": served.to_string_lossy()}),
+        false,
+    )
+}
+
+/// `settings.edit`'s `edits`: `{op, key | path, value?}` each, where `op` is
+/// `set`, `set_exact`, `set_unset`, `reset` or `reset_unchanged`; `value` is
+/// the value to set or the value expected, and `reset` takes none.
+fn edits(fields: &Map<String, Value>) -> Result<Vec<Edit>, ResourceError> {
+    let items = fields
+        .get("edits")
+        .and_then(Value::as_array)
+        .ok_or_else(|| validation_error("settings.edit needs edits", json!({"field":"edits"})))?;
+    if items.is_empty() || items.len() > MAX_EDITS {
+        return Err(validation_error(
+            &format!("edits holds 1 to {MAX_EDITS} edits"),
+            json!({"field":"edits"}),
+        ));
+    }
+    items.iter().enumerate().map(|(index, item)| edit(index, item)).collect()
+}
+
+fn edit(index: usize, item: &Value) -> Result<Edit, ResourceError> {
+    let field = |name: &str| json!({"field": format!("edits[{index}].{name}")});
+    let members = item.as_object().ok_or_else(|| {
+        validation_error(
+            "an edit is {op, key | path, value?}",
+            json!({"field": format!("edits[{index}]")}),
+        )
+    })?;
+    if let Some(extra) =
+        members.keys().find(|name| !matches!(name.as_str(), "op" | "key" | "path" | "value"))
+    {
+        return Err(validation_error("an edit takes op, key, path and value", field(extra)));
+    }
+    if members.contains_key("key") == members.contains_key("path") {
+        return Err(validation_error("an edit names exactly one of key and path", field("key")));
+    }
+    let target = target(members)?;
+    let value = members.get("value").cloned();
+    let op = members.get("op").and_then(Value::as_str);
+    let kind = match (op, value) {
+        (Some("set"), Some(value)) => EditKind::Set(value),
+        (Some("set_exact"), Some(value)) => EditKind::SetExact(value),
+        (Some("set_unset"), Some(value)) => EditKind::SetUnset(value),
+        (Some("reset_unchanged"), Some(value)) => EditKind::ResetUnchanged(value),
+        (Some("reset"), None) => EditKind::Reset,
+        (Some("reset"), Some(_)) => {
+            return Err(validation_error("a reset edit takes no value", field("value")));
+        }
+        (Some("set" | "set_exact" | "set_unset" | "reset_unchanged"), None) => {
+            return Err(validation_error("this edit needs value", field("value")));
+        }
+        _ => {
+            return Err(validation_error(
+                "op is set, set_exact, set_unset, reset or reset_unchanged",
+                field("op"),
+            ));
+        }
+    };
+    Ok(Edit { target, kind })
 }
 
 fn meta(
@@ -272,7 +380,96 @@ fn settings_error(code: &str, message: &str, data: Value) -> ResourceError {
 
 #[cfg(test)]
 mod tests {
-    use super::schema_json;
+    use cmux_config::{EditKind, MAX_EDITS, Target};
+    use serde_json::{Map, Value, json};
+
+    use super::{edit_file, edits, file_mismatch, schema_json};
+
+    fn fields(value: Value) -> Map<String, Value> {
+        match value {
+            Value::Object(members) => members,
+            _ => Map::new(),
+        }
+    }
+
+    /// `settings.edit`'s `edits` become the owner's edits in order; `value`
+    /// is the value set or expected, JSON null included.
+    #[test]
+    fn settings_edit_reads_each_edit_kind() {
+        let parsed = edits(&fields(json!({"edits": [
+            {"op": "set", "key": "appearance.chromeStyle", "value": "card"},
+            {"op": "set_unset", "path": ["layout", "panePadding"], "value": 4},
+            {"op": "reset", "key": "appearance.backdropArt"},
+            {"op": "reset_unchanged", "key": "appearance.backgroundBlur", "value": null},
+            {"op": "set_exact", "key": "editor.wordWrap", "value": "off"},
+        ]})))
+        .expect("the edits parse");
+        let kinds: Vec<_> = parsed.iter().map(|edit| edit.kind.clone()).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                EditKind::Set(json!("card")),
+                EditKind::SetUnset(json!(4)),
+                EditKind::Reset,
+                EditKind::ResetUnchanged(Value::Null),
+                EditKind::SetExact(json!("off")),
+            ]
+        );
+        assert_eq!(
+            parsed.get(1).map(|edit| edit.target.clone()),
+            Some(Target::Path(vec!["layout".to_string(), "panePadding".to_string()]))
+        );
+    }
+
+    /// A malformed edit is validation.invalid, before the owner sees the op.
+    #[test]
+    fn settings_edit_refuses_a_malformed_edit() {
+        let too_many: Vec<Value> =
+            (0..=MAX_EDITS).map(|_| json!({"op": "reset", "key": "a.b"})).collect();
+        for bad in [
+            json!({}),
+            json!({"edits": []}),
+            json!({"edits": too_many}),
+            json!({"edits": [{"op": "reset", "key": "a.b", "value": 1}]}),
+            json!({"edits": [{"op": "set", "key": "a.b"}]}),
+            json!({"edits": [{"op": "set_unset", "key": "a.b"}]}),
+            json!({"edits": [{"op": "set_exact", "key": "a.b"}]}),
+            json!({"edits": [{"op": "move", "key": "a.b", "value": 1}]}),
+            json!({"edits": [{"key": "a.b", "value": 1}]}),
+            json!({"edits": [{"op": "set", "value": 1}]}),
+            json!({"edits": [{"op": "set", "key": "a.b", "path": ["a", "b"], "value": 1}]}),
+            json!({"edits": [{"op": "set", "key": "a.b", "value": 1, "if_unset": true}]}),
+            json!({"edits": ["a.b"]}),
+        ] {
+            let error = edits(&fields(bad.clone())).err();
+            assert_eq!(
+                error.as_ref().map(|error| error.code.as_str()),
+                Some("validation.invalid"),
+                "{bad}"
+            );
+        }
+    }
+
+    /// `settings.edit`'s `file` is absent or a non-empty path string; the
+    /// mismatch refusal is the catalog's `settings.file_mismatch`.
+    #[test]
+    fn settings_edit_reads_the_file_field() {
+        assert_eq!(edit_file(&fields(json!({}))).ok(), Some(None));
+        assert_eq!(
+            edit_file(&fields(json!({"file": "/a/cmux-next.json"}))).ok(),
+            Some(Some("/a/cmux-next.json"))
+        );
+        for bad in [json!({"file": ""}), json!({"file": 1}), json!({"file": null})] {
+            let error = edit_file(&fields(bad.clone())).err();
+            assert_eq!(
+                error.as_ref().map(|error| error.code.as_str()),
+                Some("validation.invalid"),
+                "{bad}"
+            );
+        }
+        let refused = file_mismatch("/a/cmux-next.json", std::path::Path::new("/b/cmux-next.json"));
+        assert_eq!(refused.code, "settings.file_mismatch");
+    }
 
     /// `settings.schema` carries each row's one-line `summary` (the only
     /// text a Settings row draws under its title) apart from the long

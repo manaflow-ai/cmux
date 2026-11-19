@@ -16,8 +16,6 @@ public struct AddDeviceServices {
     public var machineJoin: () -> MachineJoinService?
     /// Copies a secret line: plain text marked concealed and transient, so clipboard managers skip it.
     public var copyConcealed: (String) -> Void
-    /// Shows the Machines sidebar section, where the joined machine is listed (Show in Machines).
-    public var showMachines: () -> Void
     /// The app's Sign In, for a join line refused signed out.
     public var signIn: () -> Void
     /// Opens the Pair Another Machine card; nil while signed out (the join line's ticket shows
@@ -28,7 +26,7 @@ public struct AddDeviceServices {
                 addByName: @escaping () -> Void, enterCode: @escaping () -> Void, newCloudMachine: @escaping () -> Void = {},
                 copy: @escaping (String) -> Void, installTailscale: @escaping () -> Void = {},
                 machineJoin: @escaping () -> MachineJoinService? = { nil },
-                copyConcealed: @escaping (String) -> Void = { _ in }, showMachines: @escaping () -> Void = {},
+                copyConcealed: @escaping (String) -> Void = { _ in },
                 signIn: @escaping () -> Void = {}, pairAnotherMachine: @escaping () -> (() -> Void)? = { nil }) {
         self.list = list
         self.addComputer = addComputer
@@ -39,7 +37,6 @@ public struct AddDeviceServices {
         self.installTailscale = installTailscale
         self.machineJoin = machineJoin
         self.copyConcealed = copyConcealed
-        self.showMachines = showMachines
         self.signIn = signIn
         self.pairAnotherMachine = pairAnotherMachine
     }

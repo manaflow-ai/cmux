@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { Breadcrumbs } from "./Breadcrumbs";
+import { settleReact } from "../../test/support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
@@ -40,9 +41,10 @@ function mount(opened: string[]) {
   return dom.window.document.querySelector<HTMLButtonElement>(".ui-crumb")!;
 }
 
-afterEach(() => {
+afterEach(async () => {
   if (root) act(() => root!.unmount());
   root = null;
+  await settleReact();
   dom?.window.close();
   dom = null;
   for (const [key, value] of saved) {

@@ -21,6 +21,9 @@ pub enum GraphicsStatus {
 /// Events pushed to subscribed frontends.
 #[derive(Debug, Clone)]
 pub enum MuxEvent {
+    /// The authenticated cmux Remote worker's screen device identity changed.
+    /// Delivered only to trusted local app subscribers.
+    ScreenDeviceChanged(Option<String>),
     /// New output arrived in a surface (coalesced; cleared when rendered).
     SurfaceOutput(SurfaceId),
     /// A surface's runtime changed size.
@@ -144,6 +147,11 @@ pub enum MuxEvent {
     FeedReportsChanged {
         revision: u64,
     },
+    /// The Cloud pushed a GitHub change for this person, or whether it can push them moved
+    /// (`live`), over the feed socket (feed_client.rs). Apps hear it as `github.changed`.
+    GitHubChanged {
+        live: Option<bool>,
+    },
     /// The settings file or a managed layer changed (`settings-v1`;
     /// mux/settings.rs).
     SettingsChanged(cmux_config::Change),
@@ -225,6 +233,26 @@ pub enum MuxEvent {
     /// ended: the `tasks-changed` payload (tasks_link.rs). `subscribe` sends
     /// it only to a page relay whose page hears it (page-router.json `events`).
     TasksChanged(Arc<Value>),
+    /// What cmux Remote's Computer Use worker says its agent sessions do now
+    /// (`computer-use-activity`, remote_host/unix.rs): the host's
+    /// `workers["computer-use"].activity` each time it changes, as
+    /// `{event, sessions: [{session, label, app?, last_action_ms}]}`. macOS only;
+    /// `subscribe` sends it to the person's own local connections, never a page
+    /// relay or a remote device.
+    ComputerUseActivity(Arc<Value>),
+    /// One change of Computer Use's live preview (`computer-use-preview`,
+    /// computer_use_lifecycle.rs): `{event, session, surface: {terminal} |
+    /// {chat}, card: {...} | null}`, the card of the window an agent drives
+    /// for the surface the agent runs in. Delivered like
+    /// [`MuxEvent::ComputerUseActivity`]: the person's own local connections
+    /// only.
+    ComputerUsePreview(Arc<Value>),
+    /// The chats `chat.list` answers changed (`chat_index.rs`): the index's
+    /// new revision. Apps hear it as `chat.changed` (apps/routing.rs); raw
+    /// `subscribe` clients do not get it.
+    ChatsChanged {
+        revision: u64,
+    },
     /// Every workspace is gone.
     Empty,
 }
@@ -329,4 +357,16 @@ pub struct TreeDelta {
     /// The client transaction id of the command that caused this delta, so
     /// a frontend can reconcile its optimistic UI.
     pub transaction: Option<Arc<str>>,
+    /// The `origin` and `mutation_id` of the registry event at
+    /// `workspace_revision`, read once when the delta is published (under the
+    /// registry guard), so a subscriber never reads the registry for them.
+    pub mutation: Option<Arc<DeltaMutation>>,
+}
+
+/// Who made a revisioned workspace delta: its registry event's `origin` and
+/// `mutation_id`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeltaMutation {
+    pub origin: String,
+    pub mutation_id: String,
 }

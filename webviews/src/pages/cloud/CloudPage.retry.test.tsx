@@ -8,6 +8,8 @@ import table from "./generated/strings.json";
 import { MockCloudProvider } from "./mockProvider";
 import { CloudOps } from "./ops";
 import { CLOUD_RESTART_MIN_MS, CloudStore } from "./store";
+import { userMessage } from "../shared/userMessage";
+import { teardownDom } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
 const globals = globalThis as Record<string, unknown>;
@@ -28,13 +30,9 @@ const settle = async () => {
   for (let i = 0; i < 12; i++) await Promise.resolve();
 };
 
-afterAll(() => {
+afterAll(async () => {
   jest.useRealTimers();
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) globals[key] = value;
-    else delete globals[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope: globals });
 });
 
 class RetryFailureProvider extends MockCloudProvider {
@@ -80,10 +78,13 @@ for (const [name, failure] of [
       expect(store.getSnapshot()).toMatchObject({
         connection: "failed",
         loading: false,
-        error: failure.message,
+        // The page's plain sentence; the backend's words stay in the error.
+        error: userMessage(pageError(failure.code, failure.message)),
       });
       expect(rootElement.querySelector(".cloud-loading")).toBeNull();
-      expect(rootElement.querySelector(".cloud-failed")?.textContent).toContain(failure.message);
+      expect(rootElement.querySelector(".cloud-failed")?.textContent).toContain(
+        userMessage(pageError(failure.code, failure.message)),
+      );
       const retry = rootElement.querySelector<HTMLButtonElement>(".cloud-failed .cloud-retry-button");
       expect(retry).not.toBeNull();
       await act(async () => {

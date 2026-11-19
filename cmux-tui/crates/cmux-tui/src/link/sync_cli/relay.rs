@@ -265,14 +265,15 @@ pub(in crate::link) fn relay(
         }
         match item {
             Item::File { size, revision } => {
-                totals.files_total += 1;
-                totals.bytes_total += size;
+                // Counts and byte sums of one folder: far below u64::MAX, never wrapped.
+                totals.files_total = totals.files_total.saturating_add(1);
+                totals.bytes_total = totals.bytes_total.saturating_add(*size);
                 let same = record.files.get(relative).is_some_and(|(was, _)| was == revision)
                     && unchanged_there(&record, relative);
                 if same {
-                    summary.unchanged += 1;
-                    totals.files_done += 1;
-                    totals.bytes_done += size;
+                    summary.unchanged = summary.unchanged.saturating_add(1);
+                    totals.files_done = totals.files_done.saturating_add(1);
+                    totals.bytes_done = totals.bytes_done.saturating_add(*size);
                 } else {
                     jobs.push(Job {
                         relative: relative.clone(),
@@ -296,10 +297,10 @@ pub(in crate::link) fn relay(
     // Big files last, so the small ones fill every connection first.
     jobs.sort_by_key(|job| job.size);
     let landed = copy_parallel(from, from_root, to, to_root, jobs, &mut |job, revision| {
-        summary.written += 1;
-        summary.bytes += job.size;
-        totals.files_done += 1;
-        totals.bytes_done += job.size;
+        summary.written = summary.written.saturating_add(1);
+        summary.bytes = summary.bytes.saturating_add(job.size);
+        totals.files_done = totals.files_done.saturating_add(1);
+        totals.bytes_done = totals.bytes_done.saturating_add(job.size);
         progress(totals);
         record.files.insert(job.relative, (job.revision, revision));
         if summary.written % CHECKPOINT == 0
@@ -405,8 +406,9 @@ struct Skipped {
 
 impl Skipped {
     fn add(&mut self, path: &str, kind: &str, why: &str) {
-        self.count += 1;
-        *self.kinds.entry(kind.to_string()).or_default() += 1;
+        self.count = self.count.saturating_add(1);
+        let of_kind = self.kinds.entry(kind.to_string()).or_default();
+        *of_kind = of_kind.saturating_add(1);
         if self.named.len() < NAMED_SKIPS {
             self.named.push(json!({ "path": path, "kind": kind, "why": why }));
         }
@@ -532,10 +534,12 @@ fn mode_of(display: &str) -> Option<u32> {
     if bytes.len() != 9 {
         return None;
     }
+    // The bit each of the nine letters sets, owner read first.
+    const BITS: [u32; 9] = [0o400, 0o200, 0o100, 0o040, 0o020, 0o010, 0o004, 0o002, 0o001];
     let mut mode = 0u32;
-    for (index, byte) in bytes.iter().enumerate() {
+    for (byte, bit) in bytes.iter().zip(BITS) {
         if *byte != b'-' {
-            mode |= 1 << (8 - index);
+            mode |= bit;
         }
     }
     Some(mode | 0o600)
@@ -686,7 +690,11 @@ impl Read for PartReader {
         let held = self.held.get(self.at..).unwrap_or_default();
         let count = out.len().min(held.len());
         out.iter_mut().zip(held).for_each(|(to, from)| *to = *from);
-        self.at += count;
+        // An offset into `held`: an overflow is an error, never a clamped position.
+        self.at = self
+            .at
+            .checked_add(count)
+            .ok_or_else(|| std::io::Error::other("the relayed part's offset overflowed"))?;
         Ok(count)
     }
 }
@@ -748,6 +756,16 @@ mod tests {
         assert_eq!(mode_of("rwxr-xr-x"), Some(0o755));
         assert_eq!(mode_of("r--r--r--"), Some(0o644));
         assert_eq!(mode_of("bad"), None);
+        // Each letter sets its own bit (owner write is always added).
+        assert_eq!(mode_of("r--------"), Some(0o600));
+        assert_eq!(mode_of("--x------"), Some(0o700));
+        assert_eq!(mode_of("---r-----"), Some(0o640));
+        assert_eq!(mode_of("----w----"), Some(0o620));
+        assert_eq!(mode_of("-----x---"), Some(0o610));
+        assert_eq!(mode_of("------r--"), Some(0o604));
+        assert_eq!(mode_of("-------w-"), Some(0o602));
+        assert_eq!(mode_of("--------x"), Some(0o601));
+        assert_eq!(mode_of("rwxrwxrwx"), Some(0o777));
         assert_eq!(size_of("s1234-m99"), Some(1234));
         assert_eq!(size_of("nonsense"), None);
     }

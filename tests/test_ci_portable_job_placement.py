@@ -26,6 +26,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from workflow_jobs import runs_on_cells, secret_names, single_runs_on  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/portable_job_placement.py"
 WORKFLOWS = ROOT / ".github/workflows"
@@ -36,11 +39,12 @@ JOBS = "ci-guard-group tooling-tests release-notary"
 
 
 def load():
-    spec = importlib.util.spec_from_file_location("portable_job_placement", SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["portable_job_placement"] = module
-    spec.loader.exec_module(module)
-    return module
+    # Imported by name, never loaded by path: one module object per file, so a test that patches it
+    # patches what every other test reads (tests/test_script_module_loads.py).
+    if str(SCRIPT.parent) not in sys.path:
+        sys.path.insert(0, str(SCRIPT.parent))
+    import portable_job_placement
+    return portable_job_placement
 
 
 placement = load()
@@ -347,6 +351,21 @@ class Decide(unittest.TestCase):
         self.assertEqual(placed.linux_runner, "cmux-fleet-linux-x64")
         self.assertEqual(placed.linux_jobs, ("cmux-next-daemon-tests",))
 
+    def test_a_vouched_label_counts_its_os_unknown_single_label_runners(self):
+        # 2026-11-18: GitHub lists the GCP build lane's runners (one label each) with os "unknown".
+        config = env(JOBS="build-linux build", LINUX_ONLY="build-linux build",
+                     FLEET_LINUX="cmux-gcp-lane-build-x64", REQUIRE_LIVE_CAPACITY="1")
+        gcp = {"name": "gcp-build-1", "status": "online", "busy": False, "os": "unknown",
+               "labels": [{"name": "cmux-gcp-lane-build-x64"}]}
+        placed = placement.decide({**config, "FLEET_LINUX_VOUCHED": "1"}, [gcp, {**gcp, "busy": True}], snapshot(), NOW)
+        self.assertEqual((placed.linux_runner, placed.linux_jobs), ("cmux-gcp-lane-build-x64", ("build-linux",)))
+        # Not vouched, another label (a Mac's), or a non-Linux OS: nothing is placed.
+        for vouch, runner in (("", gcp), ("1", {**gcp, "labels": [{"name": "cmux-gcp-lane-build-x64"}, {"name": "macOS"}]}),
+                              ("1", {**gcp, "os": "macOS"})):
+            with self.subTest(vouch=vouch, runner=runner):
+                placed = placement.decide({**config, "FLEET_LINUX_VOUCHED": vouch}, [runner], snapshot(), NOW)
+                self.assertEqual((placed.linux_runner, placed.linux_jobs), ("", ()))
+
     def test_a_mac_first_job_takes_a_mini_before_fleet_linux(self):
         placed = placement.decide(env(FLEET_LINUX="gcp-linux-32", MAC_FIRST="tooling-tests"),
                                   idle(1), snapshot(), NOW)
@@ -524,6 +543,14 @@ def jobs(name: str) -> dict:
     return yaml.safe_load((WORKFLOWS / name).read_text(encoding="utf-8"))["jobs"]
 
 
+def routes(job: dict, name: str) -> list[str]:
+    """The job's runs-on per matrix cell; a matrix nothing resolves, or no runs-on, fails the guard."""
+    cells = runs_on_cells(job)
+    if not cells:
+        raise AssertionError(f"{name}: runs-on {'matrix does not resolve' if cells is None else 'is missing'}")
+    return cells
+
+
 class SharedWait(unittest.TestCase):
     def test_wait_uses_document_once_then_observes_idle_capacity_live(self):
         idle_row = dict(runner("synthetic-glaeda"), id=1, os="macOS")
@@ -590,15 +617,16 @@ class OrganizationFallback(unittest.TestCase):
 class Wiring(unittest.TestCase):
     def test_next_portable_bootstrap_needs_no_private_app_credentials(self):
         bootstrap = jobs("cmux-next.yml")["portable-placement"]
-        self.assertNotIn("secrets.", yaml.safe_dump(bootstrap))
+        self.assertEqual(secret_names(bootstrap), set())
         self.assertNotIn("environment", bootstrap)
         self.assertFalse(any("actions/create-github-app-token@" in step.get("uses", "")
                              for step in bootstrap["steps"]))
         config = bootstrap["steps"][-1]["env"]
         self.assertNotIn("ROUTE_TOKEN", config)
         self.assertNotIn("ROUTE_TOKEN_FALLBACK", config)
+        # Not a hosted exception any more: it runs on Blacksmith on every attempt (cmux#45735).
         runners = json.loads((ROOT / ".github/runners.json").read_text())
-        self.assertNotIn("allowed_secrets", runners["hosted_light_jobs"]["cmux-next.yml#portable-placement"])
+        self.assertNotIn("cmux-next.yml#portable-placement", runners["hosted_light_jobs"])
 
     def test_next_secretless_bootstrap_uses_only_fresh_registered_capacity(self):
         bootstrap = jobs("cmux-next.yml")["portable-placement"]
@@ -652,11 +680,12 @@ class Wiring(unittest.TestCase):
                 self.assertIn("portable-placement", needs)
                 self.assertIn("always()", job["if"])
                 self.assertIn("!cancelled()", job["if"])
+                route = "\n".join(routes(job, name))
                 self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)",
-                              job["runs-on"])
-                self.assertIn(f"contains(needs.portable-placement.outputs.mini_jobs, ' {name} ')", job["runs-on"])
+                              route)
+                self.assertIn(f"contains(needs.portable-placement.outputs.mini_jobs, ' {name} ')", route)
                 self.assertEqual(bootstrap["permissions"], {"contents": "read"})
-                self.assertNotIn("secrets.", yaml.safe_dump(bootstrap))
+                self.assertEqual(secret_names(bootstrap), set())
                 self.assertIn("CI_PORTABLE_LIGHT_JOBS_OFF != '1'", bootstrap["if"])
                 offered += len(placed.mini_jobs)
         print(f"status reports offered an idle mini: {offered}/2")
@@ -674,25 +703,35 @@ class Wiring(unittest.TestCase):
                 with self.subTest(job=f"{workflow}#{name}"):
                     job = workflow_jobs[name]
                     self.assertIn(name, listed)
-                    self.assertEqual(job["needs"], ["portable-placement"])
+                    # tooling-tests also needs hot-route: a hot-only pull request skips the mini leg
+                    # (tests/test_cmux_next_route.py HotAwareWorkflows).
+                    self.assertEqual([need for need in job["needs"] if need != "hot-route"], ["portable-placement"])
                     self.assertTrue(str(job["if"]).startswith("${{ !cancelled()"))
-                    runs_on = job["runs-on"]
-                    linux = runs_on.index(f"contains(needs.portable-placement.outputs.linux_jobs, ' {name} ')")
-                    mini = runs_on.index(f"contains(needs.portable-placement.outputs.mini_jobs, ' {name} ')")
-                    blacksmith = runs_on.rindex(f"fromJSON(vars.RUNNER_POOLS).{pool}")
-                    self.assertLess(linux, mini)
-                    self.assertLess(mini, blacksmith)
-                    self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)",
-                                  runs_on)
+                    for runs_on in routes(job, name):
+                        linux = runs_on.index(f"contains(needs.portable-placement.outputs.linux_jobs, ' {name} ')")
+                        mini = runs_on.index(f"contains(needs.portable-placement.outputs.mini_jobs, ' {name} ')")
+                        blacksmith = runs_on.rindex(f"fromJSON(vars.RUNNER_POOLS).{pool}")
+                        self.assertLess(linux, mini)
+                        self.assertLess(mini, blacksmith)
+                        self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)",
+                                      runs_on)
 
-    def test_release_notary_takes_the_placement_through_ci_guards(self):
+    def test_release_notary_takes_fleet_linux_then_the_linux_pool_never_a_mini(self):
+        # On a mini 12 of its steps went red for the mini alone (no node; run 44211360475), as the guard group's do.
         guards = jobs("cmux-next-guards.yml")
         self.assertIn("release-notary", guards["portable-placement"]["steps"][-1]["env"]["JOBS"].split())
-        runner = guards["nightly-guards"]["with"]["guard_tests_runner"]
-        self.assertIn("contains(needs.portable-placement.outputs.mini_jobs, ' release-notary ')", runner)
-        tests = jobs("ci-guards.yml")["workflow-guard-tests"]["runs-on"]
-        self.assertIn("inputs.guard_tests_runner != '' && inputs.guard_tests_runner", tests)
-        self.assertLess(tests.index("head.repo.full_name != github.repository"), tests.index("inputs.guard_tests_runner"))
+        job = guards["release-notary"]
+        self.assertEqual(job["needs"], ["portable-placement"])
+        self.assertTrue(str(job["if"]).startswith("${{ !cancelled()"))
+        for runs_on in routes(job, "release-notary"):
+            linux = runs_on.index("contains(needs.portable-placement.outputs.linux_jobs, ' release-notary ')")
+            self.assertNotIn("mini_jobs", runs_on)
+            self.assertNotIn("mini_runner", runs_on)
+            self.assertLess(linux, runs_on.rindex("fromJSON(vars.RUNNER_POOLS).linux"))
+        # ci-guards.yml's matrix still takes a caller's placement (ci.yml's routes).
+        for tests in routes(jobs("ci-guards.yml")["workflow-guard-tests"], "workflow-guard-tests"):
+            self.assertIn("inputs.guard_tests_runner != '' && inputs.guard_tests_runner", tests)
+            self.assertLess(tests.index("head.repo.full_name != github.repository"), tests.index("inputs.guard_tests_runner"))
 
     def test_the_cmux_tui_macos_targets_take_a_free_mini_before_the_linux_cross_build(self):
         preflight = jobs("cmux-tui-artifacts.yml")["tree-preflight"]
@@ -711,15 +750,157 @@ class Wiring(unittest.TestCase):
         picker = next(step for step in preflight["steps"] if step.get("id") == "linux-placement")
         self.assertEqual(picker["env"]["FLEET_LINUX"], "cmux-fleet-linux-x64")
         self.assertEqual(picker["env"]["REQUIRE_LIVE_CAPACITY"], "1")
-        daemon = workflow["cmux-next-daemon-tests"]["runs-on"]
+        daemon = single_runs_on(workflow["cmux-next-daemon-tests"])
         live = daemon.index("needs.tree-preflight.outputs.linux_runner")
         fallback = daemon.index("fromJSON(vars.RUNNER_POOLS).linux_8")
         self.assertLess(live, fallback)
         self.assertEqual(workflow["tree-preflight"]["outputs"]["linux_runner"],
                          "${{ steps.linux-placement.outputs.linux_runner }}")
-        # The placement counts room for the daemon job only, so no build leg takes its label.
-        for name in ("build", "build-windows"):
-            self.assertNotIn("linux_runner", workflow[name].get("with", {}))
+        # The placement counts room for the daemon job only, so no build leg takes its label. The build calls take
+        # only the GCP build lane's placement (gcp-placement), which counts room for them (2026-11-18).
+        self.assertNotIn("linux_runner", workflow["build-windows"].get("with", {}))
+        gcp = next(step for step in preflight["steps"] if step.get("id") == "gcp-placement")
+        self.assertEqual(gcp["env"]["FLEET_LINUX"], "${{ vars.LINUX_RUNNER_DARWIN_CROSS }}")
+        self.assertEqual(gcp["env"]["REQUIRE_LIVE_CAPACITY"], "1")
+        self.assertEqual(set(gcp["env"]["JOBS"].split()), set(gcp["env"]["LINUX_ONLY"].split()))
+        for name in ("build", "build-linux"):
+            with self.subTest(call=name):
+                runner = workflow[name]["with"]["linux_runner"]
+                self.assertNotIn("outputs.linux_runner", runner)
+                self.assertIn(f"contains(needs.tree-preflight.outputs.gcp_jobs, ' {name} ')", runner)
+                self.assertIn(name, gcp["env"]["JOBS"].split())
+
+    def test_the_nightly_tree_musl_legs_route_owned_gcp_linux_first_then_blacksmith(self):
+        # 2026-11-18: tree 453a2f94's musl legs sat on blacksmith-16vcpu behind about 346 queued runs while
+        # the NEXT nightly waited (Leo: "i thought we had a priority option / hey what about setting up those
+        # linux vms finally on our end? what about teh gcp ones?"). Route order: the owned GCP fleet label,
+        # picked live, then the legs' Blacksmith pools, never the other way round.
+        workflow = jobs("cmux-tui-artifacts.yml")
+        preflight = workflow["tree-preflight"]
+        ids = [step.get("id") for step in preflight["steps"]]
+        picker = preflight["steps"][ids.index("linux-build-placement")]
+        config = picker["env"]
+        self.assertEqual(config["FLEET_LINUX"], "cmux-fleet-linux-x64")
+        self.assertEqual(config["JOBS"].split(), ["tree-x86_64-musl", "tree-aarch64-musl",
+                                                  "machine-x86_64-musl", "machine-aarch64-musl"])
+        self.assertEqual(config["LINUX_ONLY"].split(), config["JOBS"].split())
+        # The nightly's tree pair first, then the Cloud machine channel's thin pair, each whole or not at all.
+        self.assertEqual(config["LINUX_GROUPS"].split(),
+                         ["tree-x86_64-musl,tree-aarch64-musl", "machine-x86_64-musl,machine-aarch64-musl"])
+        for knob in ("REQUIRE_LIVE_CAPACITY", "NIGHTLY_WAIT_FOR_FLEET", "FLEET_WAIT_NEEDS_MEMBER"):
+            with self.subTest(knob=knob):
+                self.assertEqual(config[knob], "1")
+        # N minutes: the owned fleet gets at most 3 before the legs fall to Blacksmith.
+        self.assertTrue(0 < int(config["NIGHTLY_WAIT_SECONDS"]) <= 180)
+        self.assertNotIn("SIDE_LABEL", config)
+        self.assertTrue(picker.get("continue-on-error"))
+        self.assertIn("steps.inspect.outputs.place_macos == 'true'", picker["if"])
+        self.assertIn("github.run_attempt == 1", picker["if"])
+        for ref in ("refs/heads/feat-cmux-next", "refs/heads/nightly-next"):
+            self.assertIn(ref, picker["if"])
+        self.assertLess(ids.index("inspect"), ids.index("linux-build-placement"))
+        # The placement can wait 2 minutes inside the preflight job's own bound.
+        self.assertGreaterEqual(int(preflight["timeout-minutes"]), 9)
+        for name, call, pair in (("linux_build_runner", "build", ("tree-x86_64-musl", "tree-aarch64-musl")),
+                                 ("machine_build_runner", "build-linux",
+                                  ("machine-x86_64-musl", "machine-aarch64-musl"))):
+            with self.subTest(output=name):
+                output = preflight["outputs"][name]
+                for job in config["JOBS"].split():
+                    needle = f"contains(steps.linux-build-placement.outputs.linux_jobs, ' {job} ')"
+                    if job in pair:
+                        self.assertIn(needle, output)
+                    else:
+                        self.assertNotIn(needle, output)
+                self.assertTrue(output.endswith("&& steps.linux-build-placement.outputs.linux_runner || '' }}"))
+                self.assertEqual(
+                    workflow[call]["with"]["linux_build_runner"],
+                    f"${{{{ github.run_attempt == 1 && needs.tree-preflight.outputs.{name} || '' }}}}")
+        package = jobs("cmux-tui-build-package.yml")
+        legs = next(step for step in package["plan-build"]["steps"] if step.get("id") == "targets")
+        route = legs["env"]["LINUX_BUILD_RUNNER"]
+        owned = route.index("inputs.linux_build_runner != '' && inputs.linux_build_runner")
+        for overflow in ("fromJSON(vars.RUNNER_POOLS).linux_16", "fromJSON(vars.RUNNER_POOLS).linux_8",
+                         "'blacksmith-16vcpu-ubuntu-2404'"):
+            with self.subTest(overflow=overflow):
+                self.assertLess(owned, route.index(overflow))
+        # Only the musl legs take it: plan-build and packaging keep their own runners.
+        self.assertNotIn("linux_build_runner", single_runs_on(package["plan-build"]))
+        plan = (WORKFLOWS / "cmux-tui-build-package.yml").read_text(encoding="utf-8")
+        self.assertEqual(plan.count('"runner": os.environ["LINUX_BUILD_RUNNER"]'), 2)
+
+    def test_the_tree_musl_pick_places_both_legs_or_neither_and_waits_only_for_a_live_fleet(self):
+        picker = next(step for step in jobs("cmux-tui-artifacts.yml")["tree-preflight"]["steps"]
+                      if step.get("id") == "linux-build-placement")
+        config = {**picker["env"], "GITHUB_RUN_ATTEMPT": "1"}
+        tree = ("tree-x86_64-musl", "tree-aarch64-musl")
+        both = tree + ("machine-x86_64-musl", "machine-aarch64-musl")
+        for count, expected in ((0, ()), (1, ()), (2, tree), (3, tree), (4, both), (5, both)):
+            with self.subTest(idle=count):
+                fleet = [fleet_runner(f"gcp-{index}") for index in range(count)] + [fleet_runner("gcp-busy", busy=True)]
+                placed = placement.decide(config, fleet, snapshot(), NOW)
+                self.assertEqual(placed.linux_jobs, expected)
+                self.assertEqual(placed.linux_runner, "cmux-fleet-linux-x64" if expected else "")
+                self.assertEqual(placed.mini_jobs, ())
+        # Queued jobs on the label (a nightly's, say) take its idle runners first.
+        queued = snapshot({"cmux-fleet-linux-x64": {"queued": 1, "oldest_queued_minutes": 1}})
+        self.assertEqual(placement.decide(config, [fleet_runner("a"), fleet_runner("b")], queued, NOW).linux_jobs, ())
+        # No online fleet member (the pool cannot boot VMs): Blacksmith at once, no 2-minute wait.
+        for first in ([], [fleet_runner(status="offline")]):
+            with self.subTest(first=first), \
+                 mock.patch.object(placement, "read", return_value=(first, snapshot())) as read, \
+                 mock.patch.object(placement.dt, "datetime", wraps=dt.datetime) as clock, \
+                 mock.patch.object(placement.time, "sleep") as sleep, \
+                 mock.patch.object(placement.signal, "setitimer"), \
+                 mock.patch.object(placement, "write") as write:
+                clock.now.return_value = NOW
+                self.assertEqual(placement.main(config), 0)
+                sleep.assert_not_called()
+                self.assertEqual(read.call_count, 1)
+                self.assertEqual(write.call_args.args[0].linux_runner, "")
+        # A busy fleet: wait, and take the label once two runners are free inside the window.
+        free = [fleet_runner("a"), fleet_runner("b")]
+        for second, expected in (([fleet_runner("a", busy=True)], ""), (free, "cmux-fleet-linux-x64")):
+            with self.subTest(second=second), \
+                 mock.patch.object(placement, "read",
+                                   side_effect=[([fleet_runner("a", busy=True)], snapshot()), (second, snapshot())]) as read, \
+                 mock.patch.object(placement.dt, "datetime", wraps=dt.datetime) as clock, \
+                 mock.patch.object(placement.time, "monotonic", side_effect=[0, 60, 120]), \
+                 mock.patch.object(placement.time, "sleep") as sleep, \
+                 mock.patch.object(placement.signal, "setitimer"), \
+                 mock.patch.object(placement, "write") as write:
+                clock.now.return_value = NOW
+                self.assertEqual(placement.main(config), 0)
+                sleep.assert_called_once_with(30)
+                self.assertEqual(read.call_count, 2)
+                self.assertEqual(write.call_args.args[0].linux_runner, expected)
+
+    def test_the_machine_channel_pair_takes_the_fleet_only_when_free_and_never_holds_the_tree_pair(self):
+        # goals/cloud-fix-to-machine.md: the thin legs queued 18-27 min on blacksmith-16vcpu on 2026-11-18.
+        picker = next(step for step in jobs("cmux-tui-artifacts.yml")["tree-preflight"]["steps"]
+                      if step.get("id") == "linux-build-placement")
+        config = {**picker["env"], "GITHUB_RUN_ATTEMPT": "1"}
+        # Four free: both pairs take the fleet.
+        placed = placement.decide(config, [fleet_runner(f"gcp-{i}") for i in range(4)], snapshot(), NOW)
+        self.assertEqual(placed.linux_jobs, ("tree-x86_64-musl", "tree-aarch64-musl",
+                                             "machine-x86_64-musl", "machine-aarch64-musl"))
+        # Three free: the tree pair takes two, and the machine pair does not split onto the third.
+        placed = placement.decide(config, [fleet_runner(f"gcp-{i}") for i in range(3)], snapshot(), NOW)
+        self.assertEqual(placed.linux_jobs, ("tree-x86_64-musl", "tree-aarch64-musl"))
+        # Without the tree pair (a run that builds no shipped tree), two free take the machine pair.
+        alone = {**config, "JOBS": "machine-x86_64-musl machine-aarch64-musl"}
+        self.assertEqual(placement.decide(alone, [fleet_runner("a"), fleet_runner("b")], snapshot(), NOW).linux_jobs,
+                         ("machine-x86_64-musl", "machine-aarch64-musl"))
+        # The tree pair placed at once: no wait for room for the machine pair.
+        with mock.patch.object(placement, "read", return_value=([fleet_runner("a"), fleet_runner("b")], snapshot())), \
+             mock.patch.object(placement.dt, "datetime", wraps=dt.datetime) as clock, \
+             mock.patch.object(placement.time, "sleep") as sleep, \
+             mock.patch.object(placement.signal, "setitimer"), \
+             mock.patch.object(placement, "write") as write:
+            clock.now.return_value = NOW
+            self.assertEqual(placement.main(config), 0)
+            sleep.assert_not_called()
+            self.assertEqual(write.call_args.args[0].linux_jobs, ("tree-x86_64-musl", "tree-aarch64-musl"))
 
     def test_the_cmux_tui_mini_pick_spends_routing_reads_only_when_the_macos_targets_may_build(self):
         # The pick reads the runners on the routing App (4 requests); a run whose tree is published, that
@@ -750,14 +931,14 @@ class Wiring(unittest.TestCase):
             with self.subTest(job=name):
                 job = nightly[name]
                 self.assertIn("build-nightly-app", job["needs"])
-                runs_on = job["runs-on"]
-                mini = runs_on.index(f"contains(needs.build-nightly-app.outputs.light_mini_jobs, ' {name} ')")
-                self.assertTrue(runs_on.endswith(fallback), runs_on)
-                self.assertLess(mini, runs_on.rindex(fallback))
-                self.assertNotIn("blacksmith", runs_on)
-                self.assertNotIn("RUNNER_POOLS", runs_on)
-                self.assertIn("needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt)",
-                              runs_on)
+                for runs_on in routes(job, name):
+                    mini = runs_on.index(f"contains(needs.build-nightly-app.outputs.light_mini_jobs, ' {name} ')")
+                    self.assertTrue(runs_on.endswith(fallback), runs_on)
+                    self.assertLess(mini, runs_on.rindex(fallback))
+                    self.assertNotIn("blacksmith", runs_on)
+                    self.assertNotIn("RUNNER_POOLS", runs_on)
+                    self.assertIn("needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt)",
+                                  runs_on)
 
 
     def test_new_light_workflows_place_status_jobs_before_hosted_overflow(self):
@@ -775,13 +956,14 @@ class Wiring(unittest.TestCase):
                     job = workflow_jobs[name]
                     needs = job["needs"] if isinstance(job["needs"], list) else [job["needs"]]
                     self.assertIn("portable-placement", needs)
-                    route = job["runs-on"]
+                    route = "\n".join(routes(job, name))
                     self.assertIn(f"contains(needs.portable-placement.outputs.linux_jobs, ' {name} ')", route)
                     self.assertIn(f"contains(needs.portable-placement.outputs.mini_jobs, ' {name} ')", route)
                     self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)", route)
                     self.assertIn(spec["fallback"], route)
 
-    def test_remaining_light_routers_use_live_placement_before_hosted_or_paid_fallback(self):
+    def test_remaining_light_routers_use_live_placement_before_blacksmith_fallback(self):
+        # No hosted Ubuntu attempt: GitHub-hosted runners left these queued for hours (cmux#45735).
         ci = jobs("ci.yml")
         placement = ci["portable-placement"]
         changes = ci["changes"]
@@ -792,13 +974,12 @@ class Wiring(unittest.TestCase):
         self.assertEqual(changes["needs"], ["portable-placement"])
         self.assertIn("always()", changes["if"])
         self.assertIn("!cancelled()", changes["if"])
-        changes_route = changes["runs-on"]
+        changes_route = single_runs_on(changes)
         live_linux = changes_route.index("contains(needs.portable-placement.outputs.linux_jobs, ' changes ')")
-        hosted = changes_route.index("github.run_attempt == 1 && 'ubuntu-24.04'")
+        self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", changes_route)
         paid = changes_route.rindex("fromJSON(vars.RUNNER_POOLS).linux_8")
         self.assertNotIn("contains(needs.portable-placement.outputs.mini_jobs, ' changes ')", changes_route)
-        self.assertLess(live_linux, hosted)
-        self.assertLess(hosted, paid)
+        self.assertLess(live_linux, paid)
 
         next_jobs = jobs("cmux-next.yml")
         path_route = next_jobs["path_route"]
@@ -808,14 +989,13 @@ class Wiring(unittest.TestCase):
         self.assertEqual(path_route["needs"], ["portable-placement"])
         self.assertIn("always()", path_route["if"])
         self.assertIn("!cancelled()", path_route["if"])
-        route = path_route["runs-on"]
+        route = single_runs_on(path_route)
         live_linux = route.index("contains(needs.portable-placement.outputs.linux_jobs, ' path_route ')")
         live_mini = route.index("contains(needs.portable-placement.outputs.mini_jobs, ' path_route ')")
-        hosted = route.index("github.run_attempt == 1 && 'ubuntu-24.04'")
+        self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", route)
         paid = route.rindex("fromJSON(vars.RUNNER_POOLS).linux_8")
         self.assertLess(live_linux, live_mini)
-        self.assertLess(live_mini, hosted)
-        self.assertLess(hosted, paid)
+        self.assertLess(live_mini, paid)
 
     def test_portable_bootstraps_are_bounded_and_kill_switch_skips_the_job(self):
         expected = {
@@ -831,8 +1011,9 @@ class Wiring(unittest.TestCase):
                 self.assertIn("CI_PORTABLE_LIGHT_JOBS_OFF != '1'", placement_if)
                 if workflow == "web-validation.yml":
                     self.assertIn("github.event_name != 'merge_group'", placement_if)
-                route = placement_job["runs-on"]
-                self.assertIn("github.run_attempt == 1 && 'ubuntu-24.04'", route)
+                route = "\n".join(routes(placement_job, "portable-placement"))
+                # Blacksmith on every attempt: GitHub-hosted Ubuntu left these queued for hours (cmux#45735).
+                self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", route)
                 self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_2", route)
                 self.assertNotIn("vars.CI_LIGHT_LANE_RUNNER", route)
                 self.assertNotIn("vars.CI_SIDE_LANE_RUNNER", route)

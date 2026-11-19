@@ -65,11 +65,12 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
         json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
     )
     .unwrap();
-    // A login shell that takes 2 s (under the 3 s limit) and exports one variable.
+    // A login shell that takes 2 s (under the 3 s limit), exports one variable and runs its
+    // `-c` script, as a real one does (the login read waits for the script's end marker).
     let shell = dir.join("slowsh");
     write_executable(
         &shell,
-        "#!/bin/sh\nsleep 2\nprintf 'SSL_CERT_DIR=/amx-test-imported\\0'\nexec env -0\n",
+        "#!/bin/sh\nsleep 2\nSSL_CERT_DIR=/amx-test-imported\nexport SSL_CERT_DIR\nexec /bin/sh -c \"$4\"\n",
     );
     let socket = dir.join("s.sock");
     let started = Instant::now();
@@ -160,6 +161,100 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
     };
     assert!(code.success(), "{code:?}");
     assert!(term.elapsed() < Duration::from_secs(4), "stopped after {:?}", term.elapsed());
+    assert!(!socket.exists(), "socket removed on shutdown");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A login shell whose output ends after the environment but before the read's end marker (the
+/// shell was killed or crashed, or its output was cut). What it printed may be cut in the middle
+/// of a value, so none of it is taken: the agent starts with the daemon's own environment, no
+/// cache is written, and the read ends when the output ends, not at the 3 s limit. The daemon
+/// still binds and reports ready first, and stops on SIGTERM.
+#[tokio::test]
+async fn a_login_read_with_no_end_marker_takes_no_variable_and_the_daemon_still_serves() {
+    let dir = scratch("cut");
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    std::fs::write(
+        dir.join("config.json"),
+        json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
+    )
+    .unwrap();
+    // Runs its `-c` script up to the environment (the start marker and `env -0`) and ends there.
+    let shell = dir.join("cutsh");
+    write_executable(
+        &shell,
+        "#!/bin/sh\nsleep 2\nSSL_CERT_DIR=/amx-test-imported\nexport SSL_CERT_DIR\nexec /bin/sh -c \"${4%; printf*}\"\n",
+    );
+    let socket = dir.join("s.sock");
+    let started = Instant::now();
+    let mut child = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[])
+        .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_SOCKET", &socket)
+        .env("ACPMUX_LOGIN_ENV", "1")
+        .env("SHELL", &shell)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = child.id() as i32;
+    let stdout = child.stdout.take().unwrap();
+    let ready = tokio::task::spawn_blocking(move || {
+        for line in BufReader::new(stdout).lines() {
+            let line = line.unwrap();
+            if let Ok(v) = serde_json::from_str::<Value>(&line)
+                && v["ready"] == true
+            {
+                return v;
+            }
+        }
+        panic!("daemon exited without a readiness line");
+    });
+    let ready = tokio::time::timeout(Duration::from_secs(20), ready).await.unwrap().unwrap();
+    assert!(started.elapsed() < Duration::from_secs(2), "ready after {:?}", started.elapsed());
+    assert_eq!(ready["pid"], pid);
+
+    let mut rpc = Rpc::connect(&socket).await;
+    let s = rpc
+        .call(
+            "session/new",
+            json!({"cwd": dir, "mcpServers": [], "_meta": {"acpmux": {"name": "env"}}}),
+        )
+        .await;
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    rpc.call(
+        "session/prompt",
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "env: SSL_CERT_DIR"}]}),
+    )
+    .await;
+    let events = rpc
+        .call("_acpmux/events", json!({"sessionId": id, "kinds": ["agent_message_chunk"]}))
+        .await;
+    let texts: Vec<&str> = events["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|e| e.pointer("/msg/params/update/content/text").and_then(Value::as_str))
+        .collect();
+    assert_eq!(texts, ["SSL_CERT_DIR="], "a cut login read gave the agent a variable");
+    assert!(!dir.join("login-env.json").exists(), "a cut login read was cached");
+    let status = rpc.call("_acpmux/status", json!({})).await;
+    assert_eq!(status["ready"], true);
+    assert_eq!(status["liveAgents"], 1);
+
+    let term = Instant::now();
+    unsafe {
+        libc::kill(pid, libc::SIGTERM);
+    }
+    let code = loop {
+        if let Some(code) = child.try_wait().unwrap() {
+            break code;
+        }
+        assert!(term.elapsed() < Duration::from_secs(8), "daemon still running after SIGTERM");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert!(code.success(), "{code:?}");
     assert!(!socket.exists(), "socket removed on shutdown");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -752,11 +847,14 @@ async fn an_agent_runs_the_apps_bundled_cmux_and_reaches_the_app() {
     let login = dir.join("login-bin");
     std::fs::create_dir_all(&login).unwrap();
     write_executable(login.join("cmux"), "#!/bin/sh\necho stale\n");
-    // The login shell lists its own `cmux` first.
+    // The login shell lists its own `cmux` first, then runs its `-c` script.
     let shell = dir.join("loginsh");
     write_executable(
         &shell,
-        format!("#!/bin/sh\nPATH='{}':\"$PATH\" exec env -0\n", login.display()),
+        format!(
+            "#!/bin/sh\nPATH='{}':\"$PATH\"\nexport PATH\nexec /bin/sh -c \"$4\"\n",
+            login.display()
+        ),
     );
     let socket = dir.join("s.sock");
     let app_socket = dir.join("app.sock");

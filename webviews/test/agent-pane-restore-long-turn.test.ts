@@ -17,6 +17,7 @@
 // for older history, and the turns keep coming, in order, back to the first.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -29,7 +30,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];
@@ -198,24 +200,28 @@ const everyPrompt = [...Array.from({ length: OLDER_TURNS }, (_, n) => `Question 
 
 test("a restored chat whose current turn outgrows a page shows the turn before it after one ask", async () => {
   // About 12 MB of current turn, the size measured on the reporting machine (5.6 MB and 13.5 MB).
-  const TOOLS = 1500;
-  const { client, stats, state, prompts, tools } = await open(chat(chatId(1), TOOLS, 4000));
+  const TOOLS = 120;
+  // 120 outputs of 16 KB outgrow an older page's 1 MiB cap (direct.ts OLDER_PAGE_BYTES), as 4 KB
+  // outgrew its 256 KiB cap before, so the first ask still lands inside the current turn.
+  const { client, stats, state, prompts, tools } = await open(chat(chatId(1), TOOLS, 16_000));
   try {
     // The open is the current turn's tail, drawn under its prompt.
     expect(prompts()).toEqual(["The current turn"]);
     expect(state.snapshot?.canLoadOlder).toBe(true);
 
-    // One scroll to the top is one ask. The turn before the current one is above its prompt.
+    // One scroll to the top is one bounded page. The active turn's older records are published
+    // immediately; the prior turn arrives on a later ask rather than after a whole-turn scan.
     stats.historyReads = 0;
     const started = performance.now();
     await client.loadOlder();
     const took = (performance.now() - started).toFixed(0);
     console.log(`restore-long-turn: first ask ${took} ms, ${stats.historyReads} reads, prompts ${prompts().length}`);
     expect(prompts().at(-1)).toBe("The current turn");
-    expect(prompts().at(-2)).toBe(`Question ${OLDER_TURNS}`);
+    expect(prompts()).toEqual(["The current turn"]);
+    expect(tools()).toBeGreaterThan(0);
 
     // And the rest keep coming, in order, back to the first turn.
-    for (let asks = 0; state.snapshot?.canLoadOlder && asks < 20; asks++) await client.loadOlder();
+    for (let asks = 0; state.snapshot?.canLoadOlder && asks < 40; asks++) await client.loadOlder();
     expect(state.snapshot?.canLoadOlder).toBe(false);
     expect(prompts()).toEqual(everyPrompt);
     // Every tool call of the current turn is drawn once.
@@ -226,25 +232,207 @@ test("a restored chat whose current turn outgrows a page shows the turn before i
 });
 
 test("a current turn longer than one ask reads is read on by the next ask, from where it stopped", async () => {
-  // Each tool output passes an older page's 256 KiB cap, so every record is a page of its own, and
-  // the turn is longer than one ask reads (direct.ts OLDER_PAGES_PER_ASK, 128 pages).
-  const TOOLS = 80;
-  const { client, stats, state, prompts, tools } = await open(chat(chatId(2), TOOLS, 300 * 1024));
+  // Each tool output passes an older page's 1 MiB cap (direct.ts OLDER_PAGE_BYTES), so every record is
+  // a page of its own. Each ask reads one page and publishes it before the next ask advances the cursor.
+  const TOOLS = 12;
+  const { client, stats, state, prompts, tools } = await open(chat(chatId(2), TOOLS, 1100 * 1024));
   try {
     expect(prompts()).toEqual(["The current turn"]);
     stats.historyReads = 0;
     await client.loadOlder();
-    // Capped: nothing above the prompt yet, but the read moved where the history starts
-    // (`historyFrom`), which is what makes the transcript ask again.
-    expect(stats.historyReads).toBe(128);
+    // The first page is still inside the current turn, but it is visible and the cursor advances.
+    // One page for the ask (OLDER_PAGES_PER_ASK), then the next asks' pages read ahead as it lands
+    // (OLDER_AHEAD_PAGES, 4), which those asks take from memory.
+    expect(stats.historyReads).toBeGreaterThanOrEqual(1);
+    expect(stats.historyReads).toBeLessThanOrEqual(1 + 4);
     expect(prompts()).toEqual(["The current turn"]);
     expect(state.snapshot?.canLoadOlder).toBe(true);
-    // The next ask goes on from there and reaches the turns before it.
+    // The next ask goes on from there; it may still be inside the long turn, so keep asking until
+    // the preceding turn's opener arrives.
     await client.loadOlder();
+    for (let asks = 0; prompts().at(-2) !== `Question ${OLDER_TURNS}` && asks < 50; asks++) {
+      if (state.snapshot?.canLoadOlder) await client.loadOlder();
+    }
     expect(prompts().at(-2)).toBe(`Question ${OLDER_TURNS}`);
     for (let asks = 0; state.snapshot?.canLoadOlder && asks < 20; asks++) await client.loadOlder();
     expect(prompts()).toEqual(everyPrompt);
     expect(tools()).toBe(TOOLS);
+  } finally {
+    client.close();
+  }
+});
+
+test("a titleless completed tool update survives a page boundary until its opener arrives", async () => {
+  const id = chatId(3);
+  // Past an older page's 1 MiB cap (direct.ts OLDER_PAGE_BYTES): the result is a page of its own.
+  const huge = "result\n".repeat(160_000);
+  const history: Rec[] = (
+    [
+      ["mux", "user_message", { text: "Old", promptId: "p-old" }],
+      ["mux", "turn_started", {}],
+      [
+        "in",
+        "tool_call",
+        update(id, {
+          sessionUpdate: "tool_call",
+          toolCallId: "boundary-call",
+          title: "run old",
+          kind: "execute",
+          status: "in_progress",
+          rawInput: { command: "old" },
+        }),
+      ],
+      [
+        "in",
+        "tool_call_update",
+        update(id, {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "boundary-call",
+          status: "completed",
+          content: [{ type: "content", content: { type: "text", text: huge } }],
+        }),
+      ],
+      ["mux", "turn_result", { stopReason: "end_turn" }],
+      ["mux", "user_message", { text: "Current", promptId: "p-current" }],
+      ["mux", "turn_started", {}],
+    ] as [string, string, Record<string, unknown>][]
+  ).map(([dir, kind, msg], index) => ({
+    sessionId: id,
+    seq: index + 1,
+    at: START + index * 1000,
+    dir,
+    kind,
+    msg,
+  }));
+  const { client, state } = await open(history);
+  try {
+    await client.loadOlder();
+    await client.loadOlder();
+    const tool = state.snapshot?.rows.flatMap((row) => row.items ?? []).find((item) => item.kind === "tool") as
+      | {
+          tool?: {
+            id?: string;
+            title?: string;
+            kind?: string;
+            command?: string;
+            inputSummary?: string;
+            status?: string;
+            output?: string;
+          };
+        }
+      | undefined;
+    expect(tool?.tool?.id).toBe("boundary-call");
+    expect(tool?.tool?.title).toBe("run old");
+    expect(tool?.tool?.kind).toBe("execute");
+    expect(tool?.tool?.command).toBe("old");
+    expect(tool?.tool?.inputSummary).toContain("old");
+    expect(tool?.tool?.status).toBe("completed");
+    expect(tool?.tool?.output).toContain("result");
+  } finally {
+    client.close();
+  }
+});
+
+test("reused tool ids in different turns remain separate while paging", async () => {
+  const id = chatId(4);
+  const step = (
+    text: string,
+    promptId: string,
+    output: string,
+    finish = true,
+  ): [string, string, Record<string, unknown>][] => [
+    ["mux", "user_message", { text, promptId }],
+    ["mux", "turn_started", {}],
+    [
+      "in",
+      "tool_call",
+      update(id, {
+        sessionUpdate: "tool_call",
+        toolCallId: "reused",
+        title: text,
+        kind: "execute",
+        status: "in_progress",
+        rawInput: { command: text },
+      }),
+    ],
+    ...(finish
+      ? [
+          [
+            "in",
+            "tool_call_update",
+            update(id, {
+              sessionUpdate: "tool_call_update",
+              toolCallId: "reused",
+              title: text,
+              kind: "execute",
+              status: "completed",
+              content: [{ type: "content", content: { type: "text", text: output } }],
+            }),
+          ] as [string, string, Record<string, unknown>],
+        ]
+      : []),
+    ["mux", "turn_result", { stopReason: "end_turn" }],
+  ];
+  const steps = [...step("Old", "p-old", "old output"), ...step("Old", "p-current", "current output", false)];
+  const history: Rec[] = steps.map(([dir, kind, msg], index) => ({
+    sessionId: id,
+    seq: index + 1,
+    at: START + index * 1000,
+    dir,
+    kind,
+    msg,
+  }));
+  const { client, state } = await open(history);
+  try {
+    for (let asks = 0; state.snapshot?.canLoadOlder && asks < 8; asks++) await client.loadOlder();
+    const tools = state.snapshot?.rows.flatMap((row) => row.items ?? []).filter((item) => item.kind === "tool") ?? [];
+    expect(tools).toHaveLength(2);
+    expect((tools[0] as any).tool?.output).toBe("old output");
+    expect((tools[1] as any).tool?.status).toBe("in_progress");
+  } finally {
+    client.close();
+  }
+});
+
+test("assistant fragments split by an older page rejoin at the message boundary", async () => {
+  const id = chatId(5);
+  const huge = "tail\n".repeat(80_000);
+  const steps: [string, string, Record<string, unknown>][] = [
+    ["mux", "user_message", { text: "Current", promptId: "p-current" }],
+    ["mux", "turn_started", {}],
+    [
+      "in",
+      "agent_message_chunk",
+      update(id, {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "message-boundary",
+        content: { type: "text", text: "**hello " },
+      }),
+    ],
+    [
+      "in",
+      "agent_message_chunk",
+      update(id, {
+        sessionUpdate: "agent_message_chunk",
+        messageId: "message-boundary",
+        content: { type: "text", text: `world** ${huge}` },
+      }),
+    ],
+  ];
+  const history: Rec[] = steps.map(([dir, kind, msg], index) => ({
+    sessionId: id,
+    seq: index + 1,
+    at: START + index * 1000,
+    dir,
+    kind,
+    msg,
+  }));
+  const { client, state } = await open(history);
+  try {
+    await client.loadOlder();
+    const assistants = state.snapshot?.rows.filter((row) => row.kind === "assistant") ?? [];
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]?.text).toContain("**hello world**");
   } finally {
     client.close();
   }

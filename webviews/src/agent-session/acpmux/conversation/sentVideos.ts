@@ -12,6 +12,7 @@ import type { ComposerAttachment } from "../attachments";
 import { attachmentPath } from "../fileAttachmentModel";
 import { lengthOf } from "../composer/videoPrompt";
 import { isVideoName } from "../composer/videoAttachments";
+import { chipVideoRatio } from "../composer/videoShape";
 
 /// A video a prompt sent, as its bubble draws it (SentVideoTile.tsx).
 export type SentVideo = {
@@ -22,6 +23,9 @@ export type SentVideo = {
   length?: string;
   width?: number;
   height?: number;
+  /// Its tile's width over height as the composer's chip drew it (composer/videoShape.ts): the sent
+  /// tile keeps that box. Unset for one read back from acpmux alone: its size's.
+  shape?: number;
   /// Its first frame, the image the prompt sent it as; before acpmux's echo, the composer chip's poster.
   poster?: PromptImage;
 };
@@ -79,9 +83,11 @@ export function sentVideosOf(
   });
   if (!chips.length) return [...framed, ...bare];
   // A chip the host never read takes what its note says, when it went with frames all the same.
-  return chips.map(
-    (chip) => (!chip.poster && framed.find((video) => video.name === chip.name && video.path === chip.path)) || chip,
-  );
+  return chips.map((chip) => {
+    const note = !chip.poster && framed.find((video) => video.name === chip.name && video.path === chip.path);
+    // Its note's poster and length, in the box its chip had.
+    return note ? { ...note, ...(chip.shape ? { shape: chip.shape } : {}) } : chip;
+  });
 }
 
 /// The videos the pane's own row sent, read from the composer's chips (their poster, length and
@@ -91,7 +97,14 @@ export function sentVideosOf(
 function composerVideos(row: Pick<AcpmuxRow, "retryAttachments">): SentVideo[] {
   return (row.retryAttachments ?? []).flatMap((chip): SentVideo[] =>
     chip.kind === "link" && chip.path && isVideoFile(chip.path, chip.mimeType)
-      ? [{ name: chip.name, path: chip.path, ...(chip.video ? chipVideo(chip, chip.video) : {}) }]
+      ? [
+          {
+            name: chip.name,
+            path: chip.path,
+            ...(chip.video ? chipVideo(chip, chip.video) : {}),
+            ...(chip.videoShape || chip.video ? { shape: chipVideoRatio(chip) } : {}),
+          },
+        ]
       : [],
   );
 }

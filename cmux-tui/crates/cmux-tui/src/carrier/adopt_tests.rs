@@ -46,8 +46,12 @@ fn the_look_script_classifies_each_status_answer() {
     assert!(matches!(run(marked), Found::Leave("updates_off" | "arch")));
     let relink = r#"{"off":"/home/cmux/.cmux/bin/cmux-tui is not the store link"}"#;
     assert!(matches!(run(relink), Found::Adopt(_) | Found::Leave("arch")));
-    // On an x86_64 or aarch64 test host the arch reads, and so does each state.
-    if matches!(std::env::consts::ARCH, "x86_64" | "aarch64") {
+    // Where this host's `uname -m` is one the look knows (x86_64, aarch64: a
+    // Linux machine), the arch reads, and so does each state. An Apple
+    // silicon Mac prints `arm64`, which the look leaves on purpose: the
+    // machines it adopts run Linux.
+    let machine = std::process::Command::new("uname").arg("-m").output().unwrap();
+    if matches!(String::from_utf8_lossy(&machine.stdout).trim(), "x86_64" | "aarch64") {
         assert!(matches!(run(legacy), Found::Adopt(_)));
         assert_eq!(run(on), Found::Leave("updater_on"));
         assert_eq!(run(marked), Found::Leave("updates_off"));

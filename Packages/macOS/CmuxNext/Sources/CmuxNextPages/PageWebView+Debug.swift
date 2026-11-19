@@ -197,8 +197,9 @@ extension PageWebView {
         el.scrollIntoView({ block, inline: 'nearest', behavior: 'instant' });
         const r = el.getBoundingClientRect();
         // The part of its box that shows: inside the viewport and every clipping ancestor (a nested
-        // scroller). Its middle must hit the element, so a sheet over all of it fails; a sticky
-        // header over its top edge does not. (An overlay with pointer-events: none is not seen.)
+        // scroller). Its middle, or its content's middle, must hit the element, so a sheet over all
+        // of it fails; a sticky header over its top edge does not. (An overlay with pointer-events:
+        // none is not seen.)
         let top = Math.max(r.top, 0), bottom = Math.min(r.bottom, window.innerHeight);
         let left = Math.max(r.left, 0), right = Math.min(r.right, window.innerWidth);
         for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
@@ -209,8 +210,15 @@ extension PageWebView {
           if (clipsY) { top = Math.max(top, c.top); bottom = Math.min(bottom, c.bottom); }
           if (clipsX) { left = Math.max(left, c.left); right = Math.min(right, c.right); }
         }
+        // Its own content counts too: a short heading keeps room after its word, where a hover pill
+        // (a chat table's Open and Copy) can sit over the box's middle while the word shows.
+        const hits = (x, y) => x >= left && x < right && y >= top && y < bottom && el.contains(document.elementFromPoint(x, y));
+        const content = document.createRange();
+        content.selectNodeContents(el);
+        const words = content.getBoundingClientRect();
         const shown = bottom > top && right > left
-          && el.contains(document.elementFromPoint((left + right) / 2, (top + bottom) / 2));
+          && (hits((left + right) / 2, (top + bottom) / 2)
+            || (words.width > 0 && hits(words.left + words.width / 2, words.top + words.height / 2)));
         if (!shown) { return JSON.stringify({ reason: 'not in view' }); }
         return JSON.stringify({ top: r.top, height: r.height, viewport: window.innerHeight });
         """
@@ -364,16 +372,38 @@ extension PageWebView {
         return await send("mouseReleased", to, buttons: 0)
     }
 
-    /// Every element matching `selector` in document order: its `data-*` attributes, classes and
-    /// first 120 characters of text (a list's order and row state as the page draws it).
+    /// A trusted Cmd-V on a Chromium page through DevTools, with Chromium's own Paste command: the
+    /// page reads the system pasteboard as a person's Cmd-V does (Blink's paste, the browser's
+    /// clipboard read), in a window that is never key. As a person's Cmd-V into a cmux page does,
+    /// a picture the pasteboard holds as TIFF only first gets its PNG (``PastedImagePNGHold``):
+    /// `png_ms` is how long that took. The host's paste record runs next (``chromiumPasted()``).
+    public func debugPaste() async -> JSONValue {
+        guard let page = chromiumSession?.page else { return ["error": "not a Chromium page"] }
+        chromiumUserInput(at: ProcessInfo.processInfo.systemUptime)
+        let started = ProcessInfo.processInfo.systemUptime
+        var result: [String: JSONValue] = [:]
+        let added: Bool? = await withCheckedContinuation { done in
+            if !PastedImagePNGHold().hold(resume: { done.resume(returning: $0) }) { done.resume(returning: nil) }
+        }
+        if let added {
+            result["png_added"] = .bool(added)
+            result["png_ms"] = .number(((ProcessInfo.processInfo.systemUptime - started) * 1000).rounded())
+        }
+        chromiumPasted()
+        let key: [String: any Sendable] = ["key": "v", "code": "KeyV", "windowsVirtualKeyCode": 86,
+                                           "nativeVirtualKeyCode": 9, "modifiers": 4]
+        guard (try? await page.devTools("Input.dispatchKeyEvent", params: key.merging(["type": "rawKeyDown", "commands": ["paste"]]) { $1 })) != nil,
+              (try? await page.devTools("Input.dispatchKeyEvent", params: key.merging(["type": "keyUp"]) { $1 })) != nil
+        else { return ["error": "the paste did not reach the page"] }
+        result["pasted"] = .bool(true)
+        return .object(result)
+    }
+
+    /// Every element matching `selector` in document order: its `data-*` attributes, classes, first
+    /// 120 characters of text (a list's order and row state as the page draws it), and its `role` and
+    /// accessible `label` when it has them (PageDebugQuery).
     public func debugQuery(_ selector: String) async -> JSONValue {
-        let script = """
-        return JSON.stringify([...document.querySelectorAll(selector)].map((el) => ({
-          data: Object.assign({}, el.dataset), classes: [...el.classList], text: (el.innerText || '').slice(0, 120) })));
-        """
-        guard let text = await callPageFunction(script, arguments: ["selector": selector]) as? String,
-              let value = try? JSONValue.parse(Data(text.utf8)) else { return ["error": "query failed"] }
-        return ["elements": value]
+        PageDebugQuery.answer(await callPageFunction(PageDebugQuery.script, arguments: ["selector": selector]))
     }
 
     /// Focuses the first element matching `selector` (or keeps the focused one) and inserts `text`

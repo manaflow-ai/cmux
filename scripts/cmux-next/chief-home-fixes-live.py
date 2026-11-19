@@ -1,28 +1,28 @@
 #!/usr/bin/env python3
-"""Live proof of two Home Chief fixes in a tagged app (cmux-lawrence-2 only: an
+"""Live proof of three Home Chief fixes in a tagged app (cmux-lawrence-2 only: an
 `nx-remote --needs gui --allow-agents --app-from-fleet` job; hq6d dogfood 2026-10-15).
 
 On a scratch Chief home (CMUX_NEXT_CHIEF_HOME in /tmp):
   rename  (cx-di8pd) `cmux chief new` makes a second Chief; `cmux chief edit ID --name NEW`
           changes its Home conversation's title to NEW within 30 s.
+  engine  (cx-327wl) in that Chief's conversation, the Chief settings panel's effort pick
+          (debug.home.drive engine_set) reaches that Chief's own brain: its engine.json
+          says effort low within 60 s and the default Chief's engine.json does not.
   send    (cx-4io0o) with Home open, `cmux chief shutdown --chief-home H` stops the default
           brain and its owner; the app reconnects; a send from Home is an ask: a new brain
           holds state/host.lock within 90 s and its memory logs the send within 240 s.
 Ends with quitEndSessions, then the scratch home's acpmux, router, Chief and owner.
 
 Exit: 0 all passed; 1 a check failed; 2 the app or the first brain did not come up.
-Usage: chief-home-fixes-live.py --tag TAG --app APP [--out DIR] [--only rename,send]
+Usage: chief-home-fixes-live.py --tag TAG --app APP [--out DIR] [--only rename,engine,send]
 """
 import argparse, json, os, random, shutil, socket, sqlite3, subprocess, sys, tempfile, time
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import home_page  # noqa: E402
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--tag", default=os.environ.get("NX_APP_TAG"))
 ap.add_argument("--app", default=os.environ.get("NX_APP"))
 ap.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
-ap.add_argument("--only", default="rename,send")
+ap.add_argument("--only", default="rename,engine,send")
 opts = ap.parse_args()
 if not opts.tag or not opts.app:
     sys.exit("chief-home-fixes-live.py: --tag and --app (or NX_APP_TAG and NX_APP) are required")
@@ -104,7 +104,7 @@ def conversation_with(participant):
 
 def open_conversation(conv_id):
     rpc("action.run", {"id": "home.openConversation", "args": {"conversation": conv_id}, "focus": True})
-    return wait(lambda: (home_page.drive(rpc, {"action": "geometry"}) or {}).get("ok"), 30)
+    return wait(lambda: (rpc("debug.home.drive", {"action": "geometry"}) or {}).get("ok"), 30)
 
 
 def brain_pid():
@@ -131,6 +131,17 @@ def logged(marker):
         return 0
 
 
+def effort(mux_home):
+    try:
+        return (json.load(open(os.path.join(mux_home, "optchat", "engine.json"))) or {}).get("effort")
+    except (OSError, ValueError):
+        return None
+
+
+def brain_dir(chief):
+    return os.path.join(HOME_DIR, "c", chief[-8:].lower())
+
+
 def app_env():
     config = os.path.join(SCRATCH, "cmux.json")
     open(config, "w").write("{}")
@@ -147,7 +158,7 @@ def app_env():
     return env
 
 
-def check_rename():
+def check_rename_and_engine():
     name, renamed = f"Fix Two {RUN}", f"Fix Renamed {RUN}"
     made = cli("chief", "new", "--name", name, "--role", "second chief for the fixes proof", "--chief-home", HOME_DIR, "--json")
     try:
@@ -164,11 +175,25 @@ def check_rename():
         title = wait(lambda: (lambda c: c and renamed in (c.get("title") or "") and c.get("title"))(conversation_with(chief)), 30, step=1)
         row("cx-di8pd: chief edit --name retitles the Chief's Home conversation", edit["exit"] == 0 and title,
             {"edit_exit": edit["exit"], "title": (conversation_with(chief) or {}).get("title"), "want": renamed})
+    if "engine" in ONLY:
+        sock = os.path.join(brain_dir(chief), "optchat", "tools.sock")
+        up = wait(lambda: os.path.exists(sock), 120, step=1)
+        shown = open_conversation(conv["id"])
+        # The view learns its Chief from the store (a main-actor task): wait until its controls name it.
+        # A build without chief_control (before the fix) answers an error: the pick then goes as it would.
+        controls = wait(lambda: (rpc("debug.home.drive", {"action": "chief_control"}) or {}).get("named") == chief, 15)
+        before = {"default": effort(HOME_DIR), "named": effort(brain_dir(chief))}
+        picked = rpc("debug.home.drive", {"action": "engine_set", "key": "effort", "value": "low"})
+        named = wait(lambda: effort(brain_dir(chief)) == "low", 60, step=1) and controls
+        after = {"default": effort(HOME_DIR), "named": effort(brain_dir(chief))}
+        row("cx-327wl: the named Chief's panel sets that Chief's engine, not the default's",
+            named and after["default"] == before["default"],
+            {"brain_socket": bool(up), "shown": bool(shown), "controls_name_it": bool(controls), "pick": picked, "before": before, "after": after})
 
 
 def check_send_after_shutdown():
     # Show the default Chief's conversation BEFORE the shutdown: showing another conversation is
-    # an ask of its own (the Messages page opening it), which would start the brain without the fix.
+    # an ask of its own (TopHomePageView.show), which would start the brain without the fix.
     default = conversation_with("agent_mux")
     if default:
         open_conversation(default["id"])
@@ -183,7 +208,7 @@ def check_send_after_shutdown():
     time.sleep(5)  # test harness: a restart that ignores the marker would show within this window
     idle = idle and brain_pid() is None
     marker = f"FIX-SEND-{RUN}"
-    steps = [home_page.drive(rpc, {"action": a, **x}) for a, x in
+    steps = [rpc("debug.home.drive", {"action": a, **x}) for a, x in
              (("focus", {}), ("type", {"text": f"{marker} after a chief shutdown: reply with only the word back."}), ("send", {}))]
     second = wait(lambda: (lambda p: p if p and p != first else None)(brain_pid()), 90, step=1)
     heard = wait(lambda: logged(marker), 240, step=2) if second else 0
@@ -261,8 +286,8 @@ try:
         say("FAIL: no default brain after Home opened")
         code = 2
         raise SystemExit
-    if "rename" in ONLY:
-        check_rename()
+    if ONLY & {"rename", "engine"}:
+        check_rename_and_engine()
     if "send" in ONLY:
         check_send_after_shutdown()
     code = 0 if ROWS and all(r["ok"] for r in ROWS) else 1

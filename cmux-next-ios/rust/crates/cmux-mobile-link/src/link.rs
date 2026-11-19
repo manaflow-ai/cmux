@@ -120,11 +120,30 @@ pub struct LinkConfig {
     /// How long the link may go without receiving anything (a pong or any
     /// other frame) after a keepalive ping before it closes.
     pub keepalive_timeout: Duration,
+    /// Pings go out on the beats of `keepalive` ([`crate::keepalive`]), the
+    /// same instants as the phone's other keepalives, instead of
+    /// `keepalive` after the last pong.
+    pub aligned: bool,
 }
 
 impl Default for LinkConfig {
     fn default() -> Self {
-        Self { keepalive: Some(Duration::from_secs(15)), keepalive_timeout: Duration::from_secs(20) }
+        Self {
+            keepalive: Some(Duration::from_secs(15)),
+            keepalive_timeout: Duration::from_secs(20),
+            aligned: false,
+        }
+    }
+}
+
+impl LinkConfig {
+    /// A phone link with Align Keepalives on: a ping on every 10 s beat. Its
+    /// tunnel then sends no WireGuard keepalive of its own
+    /// (`DialOptions::aligned_keepalives`): each ping is a tunnel datagram on
+    /// the same routes, as often, so NAT bindings and the peer's `reach`
+    /// answers keep today's 10 s rhythm.
+    pub fn aligned() -> Self {
+        Self { keepalive: Some(crate::keepalive::BEAT), aligned: true, ..Self::default() }
     }
 }
 
@@ -463,6 +482,9 @@ struct Inner {
     /// When the reader last received a frame. Any inbound frame proves the
     /// peer is alive, so a busy link never times out on a slow pong.
     last_rx: Mutex<Instant>,
+    /// When the reader last received a frame other than a ping or a pong:
+    /// the link carries traffic, not only keepalives.
+    last_traffic: Mutex<Instant>,
     channels: Mutex<HashMap<u32, Route>>,
     next_channel: AtomicU32,
     next_nonce: AtomicU64,
@@ -508,6 +530,10 @@ impl Inner {
 
     fn received(&self) {
         *self.last_rx.lock().unwrap_or_else(PoisonError::into_inner) = Instant::now();
+    }
+
+    fn received_traffic(&self) {
+        *self.last_traffic.lock().unwrap_or_else(PoisonError::into_inner) = Instant::now();
     }
 
     fn last_received(&self) -> Instant {
@@ -587,6 +613,7 @@ impl Link {
             lane: watch::channel(LaneState::Unavailable).0,
             lane_attached: AtomicBool::new(false),
             last_rx: Mutex::new(Instant::now()),
+            last_traffic: Mutex::new(Instant::now()),
             channels: Mutex::new(HashMap::new()),
             next_channel: AtomicU32::new(role.first_channel()),
             next_nonce: AtomicU64::new(1),
@@ -609,7 +636,12 @@ impl Link {
             incoming_tx,
         ));
         let mut tasks = vec![writer, reader];
-        if let Some(interval) = config.keepalive {
+        if let Some(interval) = config.keepalive
+            && config.aligned
+        {
+            let link = Self { inner: Arc::clone(&inner) };
+            tasks.push(tokio::spawn(aligned_keepalive(link, interval, config.keepalive_timeout)));
+        } else if let Some(interval) = config.keepalive {
             let link = Self { inner: Arc::clone(&inner) };
             tasks.push(tokio::spawn(async move {
                 let mut closed = link.inner.closed.subscribe();
@@ -874,6 +906,20 @@ impl Link {
         self.inner.closed_reason().is_some()
     }
 
+    /// How long ago the reader last received any frame (a pong, channel
+    /// data, a control frame). Measured where frames arrive, so a channel
+    /// whose reader lags its buffer still shows a dead link going quiet.
+    pub fn received_ago(&self) -> Duration {
+        self.inner.last_received().elapsed()
+    }
+
+    /// How long ago the reader last received a frame other than a ping or a
+    /// pong. A link whose only frames are keepalives is idle: with Align
+    /// Keepalives on, the foreground heartbeat probes it on the beat.
+    pub fn traffic_ago(&self) -> Duration {
+        self.inner.last_traffic.lock().unwrap_or_else(PoisonError::into_inner).elapsed()
+    }
+
     /// Resolves with the reason once the link is closed.
     pub async fn closed(&self) -> String {
         let mut state = self.inner.closed.subscribe();
@@ -927,6 +973,47 @@ where
     }
 }
 
+/// The keepalive with Align Keepalives on: a ping on every beat of
+/// `interval` ([`crate::keepalive::next_beat`]), whether or not the last one
+/// was answered, so the link's datagrams keep the beat even while a pong is
+/// late. The link closes, as with the unaligned keepalive, only when
+/// nothing at all arrived for `timeout` after the oldest ping that no frame
+/// has answered since.
+async fn aligned_keepalive(link: Link, interval: Duration, timeout: Duration) {
+    let mut closed = link.inner.closed.subscribe();
+    // When the oldest ping that no inbound frame followed went out.
+    let mut unanswered: Option<Instant> = None;
+    let mut beat = crate::keepalive::next_beat(Instant::now(), interval);
+    loop {
+        if unanswered.is_some_and(|sent| link.inner.last_received() >= sent) {
+            unanswered = None;
+        }
+        let deadline = unanswered.map(|sent| link.inner.last_received().max(sent) + timeout);
+        tokio::select! {
+            _ = closed.wait_for(Option::is_some) => return,
+            () = tokio::time::sleep_until(beat) => {
+                // The pinger waits one beat for its pong (the RTT it reports);
+                // any frame, the pong too, counts as the answer above.
+                let pinger = link.clone();
+                tokio::spawn(async move {
+                    let _ = tokio::time::timeout(interval, pinger.ping()).await;
+                });
+                unanswered.get_or_insert(beat);
+                beat = crate::keepalive::next_beat(beat, interval);
+            }
+            () = tokio::time::sleep_until(deadline.unwrap_or(beat)), if deadline.is_some() => {
+                if let Some(sent) = unanswered
+                    && link.inner.last_received() < sent
+                    && sent + timeout <= Instant::now()
+                {
+                    link.inner.shut("keepalive timed out");
+                    return;
+                }
+            }
+        }
+    }
+}
+
 async fn read_loop<R>(
     inner: Arc<Inner>,
     stream: usize,
@@ -942,6 +1029,9 @@ async fn read_loop<R>(
             None => break "peer closed the link".to_owned(),
         };
         inner.received();
+        if !matches!(frame.kind, FrameType::Ping | FrameType::Pong) {
+            inner.received_traffic();
+        }
         if stream == INPUT {
             // The peer is heard on the lane: use it.
             inner.lane.send_if_modified(|state| {
@@ -1012,9 +1102,9 @@ async fn read_loop<R>(
                         && inner.lock_channels().remove(&frame.channel).is_some()
                     {
                         tracing::warn!(
-                        channel = frame.channel,
-                        "channel held {CHANNEL_BUFFER_BYTES} bytes for {CHANNEL_STALL:?}; closing it"
-                    );
+                            channel = frame.channel,
+                            "channel held {CHANNEL_BUFFER_BYTES} bytes for {CHANNEL_STALL:?}; closing it"
+                        );
                         refuse(&inner, stream, frame.channel, "overflow", "the channel was not read");
                     }
                 }
@@ -1044,6 +1134,40 @@ fn refuse(inner: &Inner, stream: usize, channel: u32, code: &str, reason: &str) 
     let _ = inner.push(stream, Class::Control, Frame::new(channel, FrameType::Close, payload));
 }
 
+/// Payload byte totals one or more channels add to: what their senders queued
+/// for the peer and what their receivers handed to the owner. Opt-in
+/// ([`ChannelSender::count_into`], [`ChannelReceiver::count_into`]); a channel
+/// without one counts nothing. One relaxed atomic add per chunk, no lock and no
+/// allocation, so a meter shared by every channel of a kind costs the same at
+/// any rate.
+#[derive(Debug, Default)]
+pub struct ByteMeter {
+    received: AtomicU64,
+    sent: AtomicU64,
+}
+
+impl ByteMeter {
+    /// Payload bytes received so far.
+    pub fn received(&self) -> u64 {
+        self.received.load(Ordering::Relaxed)
+    }
+
+    /// Payload bytes sent so far.
+    pub fn sent(&self) -> u64 {
+        self.sent.load(Ordering::Relaxed)
+    }
+
+    /// Adds `bytes` received (also for traffic that does not ride a channel).
+    pub fn add_received(&self, bytes: usize) {
+        self.received.fetch_add(bytes as u64, Ordering::Relaxed);
+    }
+
+    /// Adds `bytes` sent (also for traffic that does not ride a channel: a media lane's frames).
+    pub fn add_sent(&self, bytes: usize) {
+        self.sent.fetch_add(bytes as u64, Ordering::Relaxed);
+    }
+}
+
 /// Sending half of a channel.
 pub struct ChannelSender {
     id: u32,
@@ -1052,6 +1176,8 @@ pub struct ChannelSender {
     inner: Arc<Inner>,
     /// Set by our close or drop, or by the peer's close (see [`Route`]).
     closed: Arc<AtomicBool>,
+    /// Where queued payload bytes are counted, if anywhere.
+    meter: Option<Arc<ByteMeter>>,
 }
 
 impl ChannelSender {
@@ -1070,6 +1196,11 @@ impl ChannelSender {
         self.stream == INPUT
     }
 
+    /// Counts every payload byte this sender queues from now on into `meter`.
+    pub fn count_into(&mut self, meter: Arc<ByteMeter>) {
+        self.meter = Some(meter);
+    }
+
     /// Send bytes; writes are split into [`DATA_CHUNK`] frames, and a
     /// channel with [`CHANNEL_QUEUE_BYTES`] already queued waits for room.
     pub async fn send(&self, data: Bytes) -> Result<(), LinkError> {
@@ -1082,9 +1213,14 @@ impl ChannelSender {
             if self.inner.closed_reason().is_some() {
                 return Err(self.inner.closed_error());
             }
+            let size = chunk.len();
             let frame = Frame::new(self.id, FrameType::Data, chunk);
             match self.inner.outboxes[self.stream].push_data(self.class, frame, &self.closed).await {
-                Pushed::Queued => {}
+                Pushed::Queued => {
+                    if let Some(meter) = &self.meter {
+                        meter.add_sent(size);
+                    }
+                }
                 Pushed::Shutdown => return Err(self.inner.closed_error()),
                 Pushed::ChannelClosed => return Err(LinkError::ChannelClosed),
             }
@@ -1120,9 +1256,16 @@ impl Drop for ChannelSender {
 pub struct ChannelReceiver {
     rx: mpsc::Receiver<ChannelEvent>,
     done: bool,
+    /// Where delivered payload bytes are counted, if anywhere.
+    meter: Option<Arc<ByteMeter>>,
 }
 
 impl ChannelReceiver {
+    /// Counts every payload byte this receiver delivers from now on into `meter`.
+    pub fn count_into(&mut self, meter: Arc<ByteMeter>) {
+        self.meter = Some(meter);
+    }
+
     /// The next event; `None` after `Closed` was delivered.
     pub async fn recv(&mut self) -> Option<ChannelEvent> {
         if self.done {
@@ -1130,8 +1273,13 @@ impl ChannelReceiver {
         }
         match self.rx.recv().await {
             Some(event) => {
-                if matches!(event, ChannelEvent::Closed(_)) {
-                    self.done = true;
+                match &event {
+                    ChannelEvent::Data(data) => {
+                        if let Some(meter) = &self.meter {
+                            meter.add_received(data.len());
+                        }
+                    }
+                    ChannelEvent::Closed(_) => self.done = true,
                 }
                 Some(event)
             }
@@ -1159,8 +1307,8 @@ impl Channel {
         closed: Arc<AtomicBool>,
     ) -> Self {
         Self {
-            sender: ChannelSender { id, stream, class, inner, closed },
-            receiver: ChannelReceiver { rx, done: false },
+            sender: ChannelSender { id, stream, class, inner, closed, meter: None },
+            receiver: ChannelReceiver { rx, done: false, meter: None },
         }
     }
 
@@ -1518,10 +1666,6 @@ mod tests {
         assert_eq!(old.lane, Lane::Bulk);
     }
 
-    /// A channel its owner never reads (a terminal screen that never got
-    /// attached) fills up; the link reader must not stall behind it, or
-    /// pings and every other channel stop and the peer's keepalive closes a
-    /// healthy link. The stuck channel is closed `overflow` instead.
     #[tokio::test]
     async fn a_channel_read_slowly_does_not_delay_the_others() {
         // A god session's backlog applied 1 ms per delta: the owner reads, just
@@ -1579,6 +1723,10 @@ mod tests {
         let _ = server.await.unwrap();
     }
 
+    /// A channel its owner never reads (a terminal screen that never got
+    /// attached) fills up; the link reader must not stall behind it, or
+    /// pings and every other channel stop and the peer's keepalive closes a
+    /// healthy link. The stuck channel is closed `overflow` instead.
     #[tokio::test]
     async fn an_unread_channel_does_not_stall_the_link() {
         let (phone, mac) = pair();
@@ -1631,6 +1779,7 @@ mod tests {
         let config = LinkConfig {
             keepalive: Some(Duration::from_millis(50)),
             keepalive_timeout: Duration::from_millis(600),
+            aligned: false,
         };
         let phone = Link::new(a, Role::Phone, config, None);
         // A peer that streams data frames and never answers pings.
@@ -1649,6 +1798,104 @@ mod tests {
         let reason =
             tokio::time::timeout(Duration::from_secs(2), phone.closed()).await.expect("closes once quiet");
         assert_eq!(reason, "keepalive timed out");
+    }
+
+    /// Records when the phone writes to its stream (each write is a tunnel
+    /// datagram's worth of link bytes).
+    struct WriteTap {
+        inner: tokio::io::DuplexStream,
+        writes: Arc<Mutex<Vec<Instant>>>,
+    }
+
+    impl AsyncRead for WriteTap {
+        fn poll_read(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+            buf: &mut tokio::io::ReadBuf<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::pin::Pin::new(&mut self.inner).poll_read(cx, buf)
+        }
+    }
+
+    impl AsyncWrite for WriteTap {
+        fn poll_write(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+            buf: &[u8],
+        ) -> std::task::Poll<std::io::Result<usize>> {
+            self.writes.lock().unwrap().push(Instant::now());
+            std::pin::Pin::new(&mut self.inner).poll_write(cx, buf)
+        }
+
+        fn poll_flush(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::pin::Pin::new(&mut self.inner).poll_flush(cx)
+        }
+
+        fn poll_shutdown(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::pin::Pin::new(&mut self.inner).poll_shutdown(cx)
+        }
+    }
+
+    /// The instants an idle phone link writes in one virtual minute.
+    async fn idle_minute_writes(config: LinkConfig) -> Vec<Instant> {
+        let (a, b) = tokio::io::duplex(1024 * 1024);
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let phone = Link::new(WriteTap { inner: a, writes: Arc::clone(&writes) }, Role::Phone, config, None);
+        let mac = Link::new(b, Role::Mac, LinkConfig { keepalive: None, ..LinkConfig::default() }, None);
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        assert!(!phone.is_closed(), "{:?}", phone.closed_state().borrow().clone());
+        assert!(phone.traffic_ago() >= Duration::from_secs(60), "pings and pongs are not traffic");
+        // Taken before closing: the close frame is not a keepalive.
+        let mut taken = writes.lock().unwrap().clone();
+        taken.dedup();
+        phone.close("done");
+        mac.close("done");
+        taken
+    }
+
+    /// Off: a ping 15 s after the last pong, as before. On: a ping on every
+    /// 10 s beat of the shared keepalive grid, and nothing in between.
+    #[tokio::test(start_paused = true)]
+    async fn an_aligned_keepalive_pings_on_every_beat_and_nowhere_else() {
+        let today = idle_minute_writes(LinkConfig::default()).await;
+        assert!((3..=4).contains(&today.len()), "15 s keepalive over 60 s: {}", today.len());
+        let start = Instant::now();
+        let aligned = idle_minute_writes(LinkConfig::aligned()).await;
+        assert!(
+            (5..=6).contains(&aligned.len()),
+            "{:?}",
+            aligned.iter().map(|at| at.duration_since(start)).collect::<Vec<_>>()
+        );
+        // On the beat, within the timer wheel's 1 ms resolution.
+        for at in &aligned {
+            let beat = crate::keepalive::next_beat(*at - Duration::from_millis(1), crate::keepalive::BEAT);
+            assert!(
+                beat <= *at && at.duration_since(beat) < Duration::from_millis(1),
+                "{at:?} is not on {beat:?}"
+            );
+        }
+    }
+
+    /// Aligned, a peer that stops answering still closes the link 20 s
+    /// after the first unanswered ping.
+    #[tokio::test(start_paused = true)]
+    async fn an_aligned_keepalive_still_closes_a_silent_link() {
+        let (a, b) = tokio::io::duplex(1024 * 1024);
+        let phone = Link::new(a, Role::Phone, LinkConfig::aligned(), None);
+        // A peer that reads nothing and sends nothing.
+        let _peer = b;
+        let opened = Instant::now();
+        let reason = tokio::time::timeout(Duration::from_secs(60), phone.closed()).await.expect("closes");
+        assert_eq!(reason, "keepalive timed out");
+        let after = opened.elapsed();
+        assert!(after <= Duration::from_secs(30) + Duration::from_millis(1), "closed after {after:?}");
+        assert!(after >= Duration::from_secs(20), "closed after {after:?}");
     }
 
     /// The app's probes (its 15 s heartbeat, a foreground, a presence change)

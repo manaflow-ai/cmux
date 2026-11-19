@@ -1,9 +1,19 @@
+public import CmuxNextAgentIntegrations
 public import AppKit
 public import CmuxNextPages
 public import CmuxNextSettings
 import CmuxNextCompat
 import Foundation
+import WebKit
 public import Observation
+
+extension PageDescriptor {
+    /// Home's Set Up cmux card (webviews/src/pages/setup-card, the React card home-messages/cards/setup), shown
+    /// in the native Home's Chief chat (``SetupCardHost``).
+    public static let setupCard = PageDescriptor(
+        id: "cmux.setup-card", resource: "setup-card", namespaces: [SetupCardPageProvider.prefix],
+        acceptsFirstMouse: true, followsChatZoom: true)
+}
 
 /// What the card's rows read and run that only the App has: the account, the `cmux` on the login PATH and
 /// their actions. Each runs on the main actor; `account` is read inside observation, so an observable
@@ -27,12 +37,15 @@ public struct SetupCardEnvironment {
     public var historySources: @MainActor () async -> Bool
     /// Shows Bring your history (the person's click); false when it did not show.
     public var importHistory: @MainActor () -> Bool
+    /// The cmux Tools question (`agents.cmuxMcp` and `cmux setup mcp`'s report); nil: the card has no such row.
+    public var agentTools: (any AgentToolsSource)?
 
     public init(account: @escaping @MainActor () -> (signedIn: Bool, email: String?), signInAccount: @escaping @MainActor () -> Void,
                 cliState: @escaping @MainActor () async -> String, installCLI: @escaping @MainActor (_ replacing: Bool) async -> Void,
                 openAgents: @escaping @MainActor () -> Void,
                 screenReader: @escaping @MainActor () -> Bool = { NSWorkspace.shared.isVoiceOverEnabled },
-                historySources: @escaping @MainActor () async -> Bool, importHistory: @escaping @MainActor () -> Bool) {
+                historySources: @escaping @MainActor () async -> Bool, importHistory: @escaping @MainActor () -> Bool,
+                agentTools: (any AgentToolsSource)? = nil) {
         self.account = account
         self.signInAccount = signInAccount
         self.cliState = cliState
@@ -41,13 +54,61 @@ public struct SetupCardEnvironment {
         self.screenReader = screenReader
         self.historySources = historySources
         self.importHistory = importHistory
+        self.agentTools = agentTools
     }
 }
 
-/// One Set Up cmux card's rows and runs (``SetupCardRoute`` makes it while the card shows): `state` (the rows'
-/// state as values: the agents from Settings' acpmux sign-ins, the account, the `cmux` on the login PATH);
-/// `run {action}` and `hide`, each on the person's own click or key only, one per gesture, as the onboarding
-/// page's gestures; `focused` (back from a sign-in: the sign-ins and the PATH are read again).
+/// The Set Up cmux card in the native Home: its page view, sized to the card, and its provider. The
+/// React Home draws the same component itself, so this host goes with the native transcript.
+@MainActor
+public final class SetupCardHost {
+    public let page: PageWebView
+    public let provider: SetupCardPageProvider
+    /// The card's height in points at the page's zoom; 0 before the page measured it.
+    public private(set) var height: CGFloat = 0
+    /// Called after each height change.
+    public var onHeightChange: (() -> Void)?
+
+    public init?(setup: FirstRunSetup, agents: (any AgentSignInSource)?, environment: SetupCardEnvironment,
+                 overlayProcess: PageOverlayProcess?) {
+        let provider = SetupCardPageProvider(setup: setup, agents: agents, environment: environment)
+        // The card floats on the chat's backdrop: a Chromium page cannot be transparent.
+        guard let page = PageWebView(descriptor: .setupCard, routes: [PageRoute(prefix: SetupCardPageProvider.prefix, provider: provider)],
+                                     options: PageEngineOptions(requiresWebKit: .transparentOverlay, acceptsFirstMouse: true),
+                                     overlayProcess: overlayProcess) else { return nil }
+        self.page = page
+        self.provider = provider
+        provider.onSize = { [weak self] height in
+            self?.cssHeight = height
+            self?.resize()
+        }
+        // The page follows interface and chat zoom: its CSS height is drawn at the zoom's scale.
+        page.onZoomChange = { [weak self] in self?.resize() }
+    }
+
+    /// The page's last measured height in CSS px.
+    private var cssHeight: CGFloat = 0
+
+    /// The card's height in points: its CSS height at the page's zoom (as the server popover sizes its page).
+    private func resize() {
+        let zoom = page.webKitView.pageZoom * page.webKitView.magnification
+        let next = ceil(cssHeight * max(zoom, 0.01))
+        guard next != height else { return }
+        height = next
+        onHeightChange?()
+    }
+
+    public func close() {
+        provider.stop()
+        page.close()
+    }
+}
+
+/// `cmux.setup.*` (webviews/src/pages/setup-card/ops.ts): `state` and the `changed` stream (the rows' state as
+/// values: the agents from Settings' acpmux sign-ins, the account, the `cmux` on the login PATH); `run {action}`
+/// and `hide`, each on the person's own click or key only, one per gesture, as the onboarding page's gestures;
+/// `size {height}` and `focused` (back from a sign-in: the sign-ins and the PATH are read again). Every row done
+/// ends the card (``FirstRunSetup/end()``).
 @MainActor
 @Observable
 public final class SetupCardPageProvider: PageProvider {
@@ -57,12 +118,15 @@ public final class SetupCardPageProvider: PageProvider {
 
     @ObservationIgnored private let setup: FirstRunSetup
     @ObservationIgnored let agents: AgentsStepModel
+    /// The cmux Tools row: whether cmux may add its MCP server to the person's coding agents.
+    @ObservationIgnored let tools: AgentToolsStepModel
     @ObservationIgnored private let environment: SetupCardEnvironment
     /// The `cmux` a new login shell runs, read at start, on focus and after an install; nil before the first read.
     private(set) var cli: String?
     /// Whether this Mac has chats to bring in; nil before the one read.
     private(set) var history: Bool?
     @ObservationIgnored private var historyRead: Task<Void, Never>?
+    @ObservationIgnored var onSize: ((CGFloat) -> Void)?
     @ObservationIgnored private var spentGesture: TimeInterval?
     @ObservationIgnored private var cliRead: Task<Void, Never>?
     /// An install of the `cmux` command runs (the row shows its spinner, and another click starts nothing).
@@ -72,6 +136,8 @@ public final class SetupCardPageProvider: PageProvider {
         self.setup = setup
         self.agents = setup.agents(source: agents)
         self.environment = environment
+        tools = AgentToolsStepModel(source: environment.agentTools)
+        tools.start()
         self.agents.start()
         readCLI()
         // task-owner: one read of the chat sources at start; stop() cancels it.
@@ -84,6 +150,7 @@ public final class SetupCardPageProvider: PageProvider {
 
     /// The card's own reads end; the shared agents model (``FirstRunSetup/agents(source:)``) and its install go on.
     func stop() {
+        tools.stop()
         cliRead?.cancel()
         historyRead?.cancel()
     }
@@ -115,8 +182,22 @@ public final class SetupCardPageProvider: PageProvider {
         let account = environment.account()
         var wire: [String: JSONValue] = ["signedIn": .bool(account.signedIn)]
         if account.signedIn, let email = account.email { wire["email"] = .string(email) }
-        return ["agents": .array(rows), "history": history == true ? ["done": .bool(setup.historyDone)] : .null,
+        return ["agents": .array(rows), "tools": toolsRow, "history": history == true ? ["done": .bool(setup.historyDone)] : .null,
                 "account": .object(wire), "cli": .string(cliInstalling ? "installing" : cli ?? "missing"), "classic": .null]
+    }
+
+    /// The cmux Tools row (setupModel.ts `SetupState.tools`): shown while the question is open, or once
+    /// the person answered it on this card; null when nobody can be asked (no source, no coding agent
+    /// found) or it was answered elsewhere before.
+    var toolsRow: JSONValue {
+        guard environment.agentTools != nil, tools.loaded, !tools.agents.isEmpty, tools.choice == .ask || tools.answered else { return .null }
+        return ["agents": .array(tools.agents.map { .string($0.name) }), "choice": .string(tools.choice.rawValue),
+                "applying": .bool(tools.applying)]
+    }
+
+    /// The cmux Tools row is done: answered, or not shown (read, and nothing to ask).
+    var toolsDone: Bool {
+        environment.agentTools == nil || (tools.loaded && (tools.agents.isEmpty || tools.choice != .ask))
     }
 
     /// Every row is done: an agent signed in, the chat history answered (when found: never before the read of
@@ -127,12 +208,15 @@ public final class SetupCardPageProvider: PageProvider {
 
     /// The rows besides the agents' are done (``allDone``).
     var rowsBesideAgentsDone: Bool {
-        (history == false || setup.historyDone) && environment.account().signedIn && cli == "installed"
+        (history == false || setup.historyDone) && toolsDone && environment.account().signedIn && cli == "installed"
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         switch op {
         case "cmux.setup.state": return state
+        case "cmux.setup.size":
+            if let height = params["height"]?.doubleValue, height.isFinite, height >= 0 { onSize?(CGFloat(min(height, 2000))) }
+            return [:]
         case "cmux.setup.focused":
             agents.refresh(recheck: true)
             readCLI()
@@ -172,6 +256,9 @@ public final class SetupCardPageProvider: PageProvider {
         case "signInAccount": environment.signInAccount()
         case "importHistory": if environment.importHistory() { setup.historyAnswered() }
         case "declineHistory": setup.historyAnswered()
+        // cmux Tools: Turn On answers yes, Not Now answers no; neither writes an agent's own config.
+        case "addTools" where toolsRow != .null: tools.add()
+        case "declineTools" where toolsRow != .null: tools.decline()
         case "installCLI":
             // Only the row's own offer: Install when missing, Replace for another cmux app's CLI; never over a
             // `cmux` that is no cmux app's.
@@ -191,100 +278,23 @@ public final class SetupCardPageProvider: PageProvider {
         default: throw PageError.invalidParams("unknown setup action")
         }
     }
-}
-
-/// `cmux.setup.*` on Home's Messages page (webviews/src/pages/home-messages/cards/setup/setupHost.ts): the
-/// `changed` stream sends the card's whole state while ``FirstRunSetup/shows`` (a first run, until Hide or every
-/// row done) and null once it ends; `state` answers the same. The page listens only for a Chief chat and draws
-/// the card under its Needs you section. Ported from the native Home's HomeHostView+SetupCard.swift: the card
-/// (``SetupCardPageProvider``) is made only while it shows and the page listens, and its reads end with it.
-/// Every row done ends the card (``FirstRunSetup/end()``). The other ops go to the card; none runs without it.
-@MainActor
-@Observable
-public final class SetupCardRoute: PageProvider {
-    @ObservationIgnored private let setup: FirstRunSetup
-    /// Read when the card is made (the native host read it on show).
-    @ObservationIgnored private let agents: @MainActor () -> (any AgentSignInSource)?
-    @ObservationIgnored private let environment: SetupCardEnvironment
-    /// The card while it shows and the page listens.
-    private(set) var card: SetupCardPageProvider?
-    @ObservationIgnored private var listeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
-    @ObservationIgnored private var watch: Task<Void, Never>?
-
-    public init(setup: FirstRunSetup, agents: @escaping @MainActor () -> (any AgentSignInSource)?, environment: SetupCardEnvironment) {
-        self.setup = setup
-        self.agents = agents
-        self.environment = environment
-    }
-
-    nonisolated deinit {
-        watch?.cancel()
-    }
 
     private struct Snapshot: Sendable, Equatable {
-        var shows: Bool
         var state: JSONValue
         var done: Bool
     }
 
-    /// What the page draws: the card's state while it shows (null before the card is made), null once it ended.
-    private var snapshot: Snapshot {
-        guard setup.shows else { return Snapshot(shows: false, state: .null, done: false) }
-        guard let card else { return Snapshot(shows: true, state: .null, done: false) }
-        return Snapshot(shows: true, state: card.state, done: card.allDone)
-    }
-
-    private func makeCard() {
-        guard card == nil, setup.shows else { return }
-        card = SetupCardPageProvider(setup: setup, agents: agents(), environment: environment)
-    }
-
-    private func dropCard() {
-        card?.stop()
-        card = nil
-    }
-
-    public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
-        if op == SetupCardPageProvider.prefix + "state" { return snapshot.state }
-        guard let card, setup.shows else { throw PageError.invalidParams("the Set Up cmux card is not shown") }
-        return try await card.call(op, params: params, context: context)
-    }
-
     public func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                           onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
-        guard stream == SetupCardPageProvider.prefix + "changed" else { throw PageError.unknownOp(stream) }
-        let key = UUID()
-        listeners[key] = onEvent
-        makeCard()
-        if watch == nil { start() }
-        return PageSubscription { [weak self] in
-            guard let self else { return }
-            listeners[key] = nil
-            if listeners.isEmpty { pageDidClose() }
-        }
-    }
-
-    public func pageDidClose() {
-        listeners = [:]
-        watch?.cancel()
-        watch = nil
-        dropCard()
-    }
-
-    private func start() {
-        // task-owner: lives while the page listens to `changed` (cancelled with its last listener or the page);
-        // event-driven (Observation of FirstRunSetup and the card).
-        watch = Task { [weak self] in
-            for await snapshot in ObservationStream({ [weak self] in self?.snapshot }) {
+        guard stream == "cmux.setup.changed" else { throw PageError.unknownOp(stream) }
+        // task-owner: one per page subscription; its PageSubscription cancels it.
+        let task = Task { [weak self] in
+            for await snapshot in ObservationStream({ [weak self] in self.map { Snapshot(state: $0.state, done: $0.allDone) } }) {
                 guard !Task.isCancelled, let self, let snapshot else { return }
-                if snapshot.shows, card == nil {
-                    makeCard() // shown again: the next value carries the new card's state
-                    continue
-                }
-                if !snapshot.shows, card != nil { dropCard() }
-                if snapshot.done { setup.end() }
-                for listener in listeners.values { listener(snapshot.state) }
+                if snapshot.done { setup.complete() }
+                onEvent(snapshot.state)
             }
         }
+        return PageSubscription { task.cancel() }
     }
 }

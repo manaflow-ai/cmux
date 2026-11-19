@@ -34,7 +34,7 @@ fn bind_stale_client_socket(path: &Path) -> std::os::fd::OwnedFd {
     let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
     address.sun_family = libc::sa_family_t::try_from(libc::AF_UNIX).unwrap();
     let bytes = path.as_os_str().as_bytes();
-    assert!(bytes.len() < address.sun_path.len(), "socket path too long");
+    assert!(cmux_unix_socket::fits(path), "socket path too long");
     for (slot, byte) in address.sun_path.iter_mut().zip(bytes) {
         *slot = libc::c_char::from_ne_bytes([*byte]);
     }
@@ -2625,6 +2625,109 @@ async fn invitation_approval_outlives_the_route_attempt_timeout() {
         .expect("delayed invitation approval timed out")
         .unwrap()
         .expect("the route timer abandoned a pending invitation approval");
+    connection.close().await.unwrap();
+    server.shutdown().await.unwrap();
+}
+
+/// Rebake run 43419757535 (size lg): a network change while the first connect waited on the
+/// approval abandoned the attempt, and the redial's invitation was refused because the abandoned
+/// attempt's request was still pending ("invitation already has a pending enrollment").
+#[cfg(unix)]
+#[tokio::test]
+async fn a_network_change_during_the_invitation_wait_still_enrolls() {
+    let directory = tempfile::tempdir().unwrap();
+    let daemon_auth = AuthDatabase::load_or_create(
+        directory.path().join("daemon"),
+        "network-change-invitation",
+        true,
+    )
+    .unwrap();
+    let unix_path = directory.path().join("daemon.sock");
+    let route = unix_test_route(&unix_path);
+    let invitation = daemon_auth
+        .create_invitation(Duration::from_secs(60), vec![route.to_string()])
+        .await
+        .unwrap();
+    let daemon_key: [u8; 32] = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(&invitation.daemon_public_key)
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let (daemon, _clients) = RemoteDaemon::new(daemon_auth.clone(), SessionLimits::default());
+    let server = serve_unix(daemon, &unix_path, MAX_CARRIER_FRAME_BYTES).await.unwrap();
+
+    let mut providers = cmux_remote::provider::ProviderRegistry::default();
+    providers.register(Arc::new(UnixProvider::new(MAX_CARRIER_FRAME_BYTES))).unwrap();
+    let providers = Arc::new(providers);
+    let route = ResolvedRouteCandidate::resolve(route, BTreeMap::new(), &providers).unwrap();
+    let ssh = SshProviderConfig::default();
+    let options = ClientRuntimeOptions {
+        routes: vec![route],
+        providers,
+        identity: StaticIdentity::generate().unwrap(),
+        expected_daemon: Some(daemon_key),
+        auth: ClientAuthMode::Invitation {
+            id: invitation.id.clone(),
+            secret: zeroize::Zeroizing::new(invitation.secret_bytes().unwrap()),
+        },
+        device_name: "network-change-client".into(),
+        session: SessionId([25; 16]),
+        lane_policy: LanePolicy::Single,
+        reconnect: ReconnectPolicy {
+            initial_delay: Duration::from_millis(1),
+            maximum_delay: Duration::from_millis(1),
+            attempt_timeout: Duration::from_millis(20),
+            full_jitter: false,
+            heartbeat_interval: None,
+            heartbeat_timeout: Duration::from_secs(1),
+            maximum_attempts: Some(2),
+            maximum_duration: None,
+            attempts_per_recovery: 3,
+            // Real-clock fixture: redial as fast as its delays allow.
+            redial_budget: cmux_remote::connection::RedialBudget {
+                capacity: 1_000,
+                refill_interval: Duration::from_millis(1),
+            },
+        },
+        startup_timeout: Duration::from_secs(5),
+        state_dir: directory.path().join("client"),
+        local_socket: None,
+        ssh,
+        ssh_bootstrap: SshBootstrapOptions {
+            auto_install: false,
+            upgrade: false,
+            attempt_timeout: Duration::from_secs(1),
+            forced_command: false,
+        },
+    };
+    let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+    let network = cmux_remote::network_watch::NetworkWatch::manual();
+    let changes = network.subscribe();
+    let connection = tokio::spawn(async move {
+        connect_first_available_watching(&options, shutdown_rx, changes).await
+    });
+
+    // The first attempt waits on the approval; then the network changes (a freshly resized
+    // Cloud machine settling its addresses), which abandons it, and the dial presents the
+    // invitation again at once.
+    daemon_auth.wait_for_pending(Duration::from_secs(1)).await.unwrap();
+    network.signal();
+    // The redial reaches the daemon well within this; on a daemon that refuses it the connect
+    // has ended by then with "invitation already has a pending enrollment".
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    if connection.is_finished() {
+        let result = connection.await.unwrap();
+        panic!("the redial after a network change ended the enrollment: {:?}", result.err());
+    }
+    let pending = daemon_auth.pending_enrollments().await;
+    assert_eq!(pending.len(), 1, "one request per device and invitation");
+    daemon_auth.approve(&pending[0].invitation_id).await.unwrap();
+
+    let (connection, _) = tokio::time::timeout(Duration::from_secs(2), connection)
+        .await
+        .expect("the approval after a network change timed out")
+        .unwrap()
+        .expect("the approval enrolls the redialed link");
     connection.close().await.unwrap();
     server.shutdown().await.unwrap();
 }

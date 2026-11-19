@@ -1,3 +1,4 @@
+public import CmuxMobileModel
 import Foundation
 
 /// One of the user's Cloud Chiefs (`chief.list`, `HomeChief`), the fields the
@@ -51,26 +52,33 @@ public struct CloudChief: Sendable, Equatable {
     }
 }
 
-/// Where the Cloud service is: `CmuxMobileCloudAPIBase` in Info.plist (project.yml
-/// `CMUX_MOBILE_CLOUD_API_BASE`), or the `CMUX_MOBILE_CLOUD_API_BASE` launch override in
-/// DEBUG builds. Empty: this build has no Cloud Chief.
+/// Where the Cloud service is (``CloudBackendOverride/cloudService(environment:infoValue:defaults:debug:)``):
+/// in DEBUG builds first this launch's `CMUX_NEXT_CLOUD_BACKEND` (the tag's hand-off, `review.sh
+/// --backend`; allowlisted), then a rig's `CMUX_MOBILE_CLOUD_API_BASE`, then the backend an earlier
+/// launch's `CMUX_NEXT_CLOUD_BACKEND` kept; in every build, `CmuxMobileCloudAPIBase` in Info.plist
+/// (project.yml `CMUX_MOBILE_CLOUD_API_BASE`). Release, TestFlight and App Store builds read only
+/// Info.plist. Empty: this build has no Cloud Chief.
 public struct ChiefCloudConfig: Sendable, Equatable {
     public var baseURL: URL
+    /// Where ``baseURL`` came from (Settings > Developer, the DEBUG readiness receipt).
+    public var source: CloudBackendOverride.Source
 
-    public init(baseURL: URL) {
+    public init(baseURL: URL, source: CloudBackendOverride.Source = .build) {
         self.baseURL = baseURL
+        self.source = source
     }
 
     public static func current(environment: [String: String] = ProcessInfo.processInfo.environment,
-                               bundle: Bundle = .main) -> ChiefCloudConfig? {
+                               bundle: Bundle = .main, defaults: UserDefaults = .standard) -> ChiefCloudConfig? {
         #if DEBUG
-        if let raw = environment["CMUX_MOBILE_CLOUD_API_BASE"] {
-            return URL(string: raw).flatMap { $0.host() == nil ? nil : ChiefCloudConfig(baseURL: $0) }
-        }
+        let debug = true
+        #else
+        let debug = false
         #endif
-        guard let raw = bundle.object(forInfoDictionaryKey: "CmuxMobileCloudAPIBase") as? String, !raw.isEmpty,
-              let url = URL(string: raw), url.host() != nil else { return nil }
-        return ChiefCloudConfig(baseURL: url)
+        return CloudBackendOverride.cloudService(environment: environment,
+                                                 infoValue: bundle.object(forInfoDictionaryKey: "CmuxMobileCloudAPIBase") as? String,
+                                                 defaults: defaults, debug: debug)
+            .map { ChiefCloudConfig(baseURL: $0.url, source: $0.source) }
     }
 }
 
@@ -91,8 +99,9 @@ struct ChiefCloudHTTP: Sendable {
         URL(string: path, relativeTo: base)?.absoluteURL ?? base.appendingPathComponent(path)
     }
 
-    /// `method path` with the bearer; one retry with a fresh token after a 401.
-    func send(_ method: String, _ path: String, body: Data? = nil) async throws -> Reply {
+    /// `method path` with the bearer; one retry with a fresh token after a 401. `team` names the
+    /// Cloud team the request acts in (`x-cmux-team`); without it a session acts in its personal team.
+    func send(_ method: String, _ path: String, body: Data? = nil, team: String? = nil) async throws -> Reply {
         var forceRefresh = false
         while true {
             let token = try await accessToken(forceRefresh)
@@ -100,6 +109,7 @@ struct ChiefCloudHTTP: Sendable {
             request.httpMethod = method
             request.timeoutInterval = 20
             request.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
+            if let team { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }
             if let body {
                 request.setValue("application/json", forHTTPHeaderField: "content-type")
                 request.httpBody = body
@@ -148,7 +158,9 @@ struct ChiefCloudHTTP: Sendable {
             throw ChiefCloudError.refused(status: reply.status, code: code, message: error["message"] as? String ?? code)
         }
         guard (200..<300).contains(reply.status), let object else {
-            throw ChiefCloudError.refused(status: reply.status, code: "http_\(reply.status)", message: "HTTP \(reply.status)")
+            // The status stays in `status` and the code (`description`, for logs), never the person's text.
+            throw ChiefCloudError.refused(status: reply.status, code: "http_\(reply.status)",
+                                          message: "The Cloud service isn't available right now. Try again in a moment.")
         }
         if object["ok"] as? Bool == false {
             throw ChiefCloudError.refused(status: reply.status, code: "refused", message: "the service refused the request")

@@ -1,0 +1,73 @@
+{
+ "title": "New Tab page beside another pane: Return on an address navigates the page's tab",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "New workspace",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Tour"
+   ],
+   "shot": false
+  },
+  {
+   "title": "Show the Tour workspace",
+   "cmux": [
+    "workspace",
+    "name:Tour",
+    "focus"
+   ],
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "A browser tab already in the pane",
+   "cmux": [
+    "tab",
+    "new-browser",
+    "--url",
+    "https://example.org"
+   ],
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "Split right: a terminal pane beside the browser",
+   "cmux": [
+    "action",
+    "run",
+    "splitRight"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "New Tab, typing example.com",
+   "rpc": {
+    "method": "debug.new_tab",
+    "params": {
+     "action": "open_and_type",
+     "text": "example.com"
+    }
+   },
+   "wait": 2
+  },
+  {
+   "title": "Return",
+   "rpc": {
+    "method": "debug.key",
+    "params": {
+     "key": "return",
+     "target": "page"
+    }
+   },
+   "wait": 4
+  }
+ ]
+}
