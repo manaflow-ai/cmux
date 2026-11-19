@@ -69,3 +69,23 @@ export function runShape(stretches: readonly Pick<RunStretch, "fold" | "groups">
   }
   return shape;
 }
+
+/// How a folded stretch's line follows the group lines it grew from and splits back into
+/// (`useTranscriptDisclosure` links): any of them the reader opened opens it (`inherits`); its own
+/// choice passes down to those they set, but never to an edits group, which keeps its own state as it
+/// draws inside the opened line (`passesDown`); and closing every group that drew open while the turn
+/// ran, one by one, closes it (`closedBy`).
+export function runLinks(stretch: RunStretch, rowId: string) {
+  const inherits: string[] = [];
+  const passesDown: string[] = [];
+  const closedBy: string[] = [];
+  stretch.groups.forEach((group, offset) => {
+    const key = groupDisclosureKey(group, stretch.from + offset, rowId);
+    if (!key) return;
+    inherits.push(key);
+    if (group.type === "group" && group.kind === "edits") return;
+    passesDown.push(key);
+    if (group.type === "group") closedBy.push(key);
+  });
+  return { inherits, passesDown, closedBy };
+}

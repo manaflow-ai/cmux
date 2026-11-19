@@ -582,9 +582,9 @@ impl Hub {
         // The kinds folded here only, from the log's copies of them (`store/kind_index.rs`): the
         // idle sweep and a chat's first process read come here, and a long chat's log is a
         // million records. Read back, newest first, then folded in order: a segment with no
-        // copy yet is read past by each line's head, never parsed whole, and no copy is made
-        // here (`scan_kinds` makes one by parsing every line, which an adoption of many hosted
-        // chats paid for each: `hosts_tests.rs` `adoption_reads_parse_only_the_records_they_fold`).
+        // copy yet gets one made by its lines' heads, never parsed whole (`scan_kinds` makes one
+        // by parsing every line, which an adoption of many hosted chats paid for each:
+        // `hosts_tests.rs` `adoption_reads_parse_only_the_records_they_fold`).
         let mut folded = Vec::new();
         let _ = self.store.scan_back_indexed(
             &session.id,

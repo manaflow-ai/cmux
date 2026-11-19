@@ -36,7 +36,8 @@
 #   - the cloud wire clients: the TypeScript and Rust clients from the committed
 #     cloud catalog (backend/packages/protocol/scripts/export-client.ts and
 #     export-rust-client.ts; with --cloud-clients);
-#   - webviews formatting: applies PATCH, the `vp fmt` output of the
+#   - webviews formatting and the acpmux protocol types: applies PATCH, the `vp fmt`
+#     and `acpmux-protocol-codegen.ts` output of the
 #     workflow's read-only webviews-fmt job (it installs webviews' packages,
 #     which never run next to the push token); a patch reaching outside
 #     webviews/, or into its package.json or lockfile, is not applied
@@ -329,6 +330,8 @@ fi
 # token, so one that lands with a new finding turns package-conventions-lint red
 # on every later base push (#28989, #28136). The fixer only rewrites reported
 # findings, never a baselined or ratcheted type; a frozen file is put back.
+# The rewrites never land on the base from the push: base-autofix-land.sh sends them to a pull
+# request, whose CI compiles them (8f33d7030473 broke the Release compile by landing one).
 if (( ratchets )) && [[ -f "$repo/scripts/lint-ios-package-conventions.sh" ]]; then
   # Swift files an earlier step already changed keep their contents from before the fixer, so a
   # frozen one is put back to them and a rewrite in the rest is still reported.
