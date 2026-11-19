@@ -278,6 +278,13 @@ pub trait AgentPort: Send + Sync {
     fn remove_queued(&self, _session: &str, _prompt_id: &str) -> Result<bool, String> {
         Err("removing queued prompts is not supported".into())
     }
+    /// Takes back a steer the harness has not read yet (`_acpmux/queue_edit
+    /// op=withdraw`, Claude Code's `cancel_async_message`): true when it was
+    /// dropped unread, false when the harness read it or cannot take one back.
+    /// Blocks until the harness answers.
+    fn withdraw_steer(&self, _session: &str, _prompt_id: &str) -> Result<bool, String> {
+        Ok(false)
+    }
     /// Sets `session`'s harness mode (`session/set_mode`).
     fn set_mode(&self, _session: &str, _mode: &str) -> Result<(), String> {
         Err("set_mode is not supported".into())
@@ -1478,6 +1485,16 @@ impl AgentPort for Acpmux {
             .request("session/cancel", json!({"sessionId": session}))
             .map(|_| ())
             .map_err(|e| format!("cancel: {e}"))
+    }
+
+    fn withdraw_steer(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
+        self.client()?
+            .request(
+                "_acpmux/queue_edit",
+                json!({"sessionId": session, "promptId": prompt_id, "op": "withdraw"}),
+            )
+            .map(|v| v.get("ok").and_then(Value::as_bool) == Some(true))
+            .map_err(|e| format!("withdraw steer: {e}"))
     }
 
     fn kill_processes(&self, session: &str) -> Result<usize, String> {
