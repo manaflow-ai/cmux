@@ -72,11 +72,19 @@ export const HOST_GLASS_ENDING_ATTRIBUTE = "data-ending-style";
 export type HostGlassLevel = "popover" | "menu" | "chip";
 const LEVELS: ReadonlySet<string> = new Set<HostGlassLevel>(["popover", "menu", "chip"]);
 
+/** On a surface: the native role whose glass the App draws when it is not its level's own (a dialog's
+ * neutral glass, `sheet`, as CmuxDialogCardSurface draws a native dialog card). */
+export const HOST_GLASS_ROLE_ATTRIBUTE = "data-host-glass-role";
+export type HostGlassRole = "sheet";
+const ROLES: ReadonlySet<string> = new Set<HostGlassRole>(["sheet"]);
+
 /** One surface's box in the page's viewport (CSS px, where it shows under a pinch zoom), its corner
  * radius and its own opacity (a fade). */
 export type HostGlassSurface = {
   id: string;
   level: HostGlassLevel;
+  /** The role's glass instead of the level's (HOST_GLASS_ROLE_ATTRIBUTE); absent for the level's own. */
+  role?: HostGlassRole;
   left: number;
   top: number;
   right: number;
@@ -127,9 +135,11 @@ export function hostGlassSurface(element: Element, id: string): HostGlassSurface
   const scale = visualViewportScale(view);
   const radius = (Number.parseFloat(style?.borderTopLeftRadius ?? "") || 0) * scale;
   const opacity = Number.parseFloat(style?.opacity ?? "1");
+  const role = element.getAttribute(HOST_GLASS_ROLE_ATTRIBUTE) ?? "";
   return {
     id,
     level: level as HostGlassLevel,
+    ...(ROLES.has(role) && { role: role as HostGlassRole }),
     left: round(box.left),
     top: round(box.top),
     right: round(box.right),

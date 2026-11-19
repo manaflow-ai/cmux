@@ -17,6 +17,11 @@ extension Glass {
     /// menu's (``makeMenuPanel(content:cornerRadius:interactive:)`` sets ``GlassMenuMaterial/level``) and
     /// the page lays only the veil (`--host-glass-fill`) on it. Before, every host surface took the
     /// popover density, so a web menu beside a native one was a lighter glass.
+    /// The roles a web surface may ask for by name instead of its level's (`data-host-glass-role`,
+    /// hostGlass.ts `HostGlassRole`): a dialog's neutral glass, as a native dialog card draws it
+    /// (CmuxDialogCardSurface, `.sheet`).
+    public nonisolated static let hostGlassRoles: [String: SurfaceRole] = ["sheet": .sheet]
+
     public nonisolated static func hostTintLevel(_ level: GlassLevel) -> GlassLevel {
         level == .chrome ? .popover : level
     }

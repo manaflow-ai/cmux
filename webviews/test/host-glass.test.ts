@@ -13,8 +13,10 @@ import {
   HOST_GLASS_ENGINES_ATTRIBUTE,
   HOST_GLASS_HOLD_FRAMES,
   HOST_GLASS_MAX,
+  HOST_GLASS_ROLE_ATTRIBUTE,
   HOST_GLASS_ROOT_ATTRIBUTE,
   hostGlassApplies,
+  hostGlassSurface,
   reportHostGlass,
   type HostGlassSurface,
 } from "../src/ui/glass/hostGlass";
@@ -94,6 +96,16 @@ test("a marked surface is reported and shows its content before the App answers"
   answer!();
   await settled();
   expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+});
+
+test("a surface asks for a known role's glass by name and never for an unknown one", () => {
+  const doc = page();
+  const element = surface(doc);
+  expect(hostGlassSurface(element, "g1")?.role).toBeUndefined();
+  element.setAttribute(HOST_GLASS_ROLE_ATTRIBUTE, "sheet");
+  expect(hostGlassSurface(element, "g1")?.role).toBe("sheet");
+  element.setAttribute(HOST_GLASS_ROLE_ATTRIBUTE, "menu-bar");
+  expect(hostGlassSurface(element, "g1")).not.toHaveProperty("role");
 });
 
 test("a surface the App has not drawn by the deadline keeps the page's own glass", async () => {
