@@ -599,6 +599,10 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
     }
 
     let result = app.event_loop(&mut terminal, rx);
+    // A draw that failed partway leaves the rest of its frame in the frame
+    // buffer; let it go out now, on the alternate screen the restore leaves,
+    // not on the person's own screen when `terminal` drops at the end.
+    drop(terminal);
     #[cfg(unix)]
     SIGNAL_WAKE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
     app.shutdown_runtime_components();
