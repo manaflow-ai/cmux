@@ -14,7 +14,8 @@
 #                The controller runs this script only at a feat-cmux-next commit, so a PR's head is named here.
 #   rounds=N     with head=: gamut runs per side (1 to 10, default 3), interleaved base, head, base, ...
 #                Each run's update path reports not run (no older build). Prints QG-AB <side> <path>-<state> {medians}.
-#   paths=, states=, many=, long_turns=, video=   passed to the check (--paths, --states, --many, --long-turns, --video)
+#   paths=, states=, many=, long_turns=, video=, fresh_rounds=   passed to the check (--paths, --states, --many,
+#                --long-turns, --video, --fresh-rounds); the startup paths: paths=fresh-install,cold-cache,loaded,after-run
 #   paths=sparkle-update   the update as a person gets it (CMUX-119): the feed's previous build stages the update with
 #                its own Sparkle and pre-warm, installs it on quit, and is reopened; then a second launch of the same
 #                build. Sparkle installs the feed's newest, so leave build= unset. Prints GAMUT-RATIO lines
@@ -36,6 +37,7 @@ for arg in "$@"; do
     many=*) extra+=(--many "${arg#many=}") ;;
     long_turns=*) extra+=(--long-turns "${arg#long_turns=}") ;;
     video=*) extra+=(--video "${arg#video=}") ;;
+    fresh_rounds=*) extra+=(--fresh-rounds "${arg#fresh_rounds=}") ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -50,6 +52,8 @@ ab() {
   source "$out/nightly-fresh-launch-lib.sh"
   declare -F build_dmg >/dev/null || { echo "GAMUT build_dmg missing from nightly-fresh-launch.sh"; exit 3; }
   cp scripts/cmux-next/resolve-acpmux.sh "$out/resolve-acpmux.sh" && export NFL_RESOLVE_ACPMUX="$out/resolve-acpmux.sh"
+  cp scripts/cmux-next/bundle-screen-sharing-helper.sh "$out/bundle-screen-sharing-helper.sh" \
+    && export NFL_SCREEN_HELPER_PHASE="$out/bundle-screen-sharing-helper.sh"
   here="$(git rev-parse HEAD)"
   [[ -n "$base" ]] || base="$here"
   [[ "$base" =~ ^[0-9a-f]{40}$ && "$headsha" =~ ^[0-9a-f]{40}$ ]] || { echo "base= and head= take 40-hex commits" >&2; exit 2; }

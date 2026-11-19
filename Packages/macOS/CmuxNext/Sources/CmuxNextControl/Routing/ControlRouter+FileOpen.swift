@@ -38,8 +38,11 @@ struct FileOpenRun {
         let topology = call.snapshot.topology
         let placement = try BrowserOpenSplitPlacement.resolve(workspaceID: request.workspaceID, agentSession: nil,
                                                               terminalID: request.terminalID, in: topology, method: call.method)
-        // `file.open` takes a pane: the pane of the placement's tab, else the action's own focused pane.
-        let paneID = placement.targetTab.flatMap { topology.tab(id: $0)?.pane.id }
+        // An agent's file with no pane of its own opens at its own place (ControlCallerLocation: its
+        // chat's pane, else its session's workspace), never in the focused pane, Home; the reply says so.
+        let agent = placement.targetTab == nil ? try Self.agentPane(call, topology: topology) : nil
+        // `file.open` takes a pane: the agent's, the pane of the placement's tab, else the action's own focused pane.
+        let paneID = agent ?? placement.targetTab.flatMap { topology.tab(id: $0)?.pane.id }
         var opened: [JSONValue] = []
         for (index, path) in request.paths.enumerated() {
             var args: [String: JSONValue] = ["path": .string(path)]
@@ -56,15 +59,23 @@ struct FileOpenRun {
                                                              deadline: call.deadline, progress: call.progress, engineStartMark: call.engineStartMark))
             opened.append(["path": .string(path), "replayed": ran["replayed"] ?? false])
         }
-        var reply: [String: JSONValue] = ["opened": .array(opened), "placement": .string(placement.kind.rawValue)]
+        var reply: [String: JSONValue] = ["opened": .array(opened), "placement": .string(agent != nil ? "caller" : placement.kind.rawValue)]
         if let paneID { reply["pane_id"] = .string(paneID) }
         return .object(reply)
+    }
+
+    /// The pane an agent caller's file opens in, nil for a request with no agent caller (a terminal's,
+    /// a Chief turn's, a person's). An agent the topology does not place is `caller_unavailable`.
+    static func agentPane(_ call: ControlCall, topology: ControlTopology) throws -> String? {
+        guard let caller = try ControlCaller(call.params), caller.agentSession != nil, !caller.homeChat else { return nil }
+        guard let location = ControlCallerLocation.resolve(caller, in: topology) else { throw BrowserCallerTarget.missingCaller(caller) }
+        return location.pane.id
     }
 }
 
 /// The checked params of one `file.open`.
 struct FileOpenRequest: Sendable, Equatable {
-    static let parameters: Set<String> = ["paths", "path", "where", "as_text", "workspace_id", "terminal_id", "focus",
+    static let parameters: Set<String> = ["paths", "path", "where", "as_text", "workspace_id", "terminal_id", "caller", "focus",
                                           "idempotency_key", "origin", "after"]
 
     var paths: [String]
