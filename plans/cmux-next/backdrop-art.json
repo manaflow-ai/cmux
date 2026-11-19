@@ -1147,6 +1147,38 @@
    "license": "CC0 [Cc-zero]"
   },
   {
+   "id": "kuniyoshi-takiyasha",
+   "title": "Takiyasha the Witch and the Skeleton Spectre",
+   "artist": "Utagawa Kuniyoshi",
+   "year": "c. 1844",
+   "museum": "British Museum, London",
+   "collection": "darkArt",
+   "bundled": false,
+   "focal": {
+    "x": 0.4,
+    "y": 0.4
+   },
+   "subject": {
+    "minX": 0.15,
+    "minY": 0.0,
+    "maxX": 0.75,
+    "maxY": 0.95
+   },
+   "tint": 0.7,
+   "darkest": "#000000",
+   "lightest": "#FFFBDF",
+   "thumbnail": {
+    "url": "https://files.cmux.com/cmux-art/cd143ea39da623996edf0e98354b2192349558e9b845aa22bd97b96047d4e7b3.avif",
+    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/kuniyoshi-takiyasha.thumb.avif"
+   },
+   "full": {
+    "url": "https://files.cmux.com/cmux-art/1a5f88a58ea2114d813da4cc60befb55dba46e07477c46bf146dda5a4557fc66.avif",
+    "sha256": "1a5f88a58ea2114d813da4cc60befb55dba46e07477c46bf146dda5a4557fc66"
+   },
+   "source": "https://commons.wikimedia.org/wiki/File:Takiyasha_the_Witch_and_the_Skeleton_Spectre,_by_Utagawa_Kuniyoshi.jpg",
+   "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-100-expired, PD-old-X-expired, PD-old-text]"
+  },
+  {
    "id": "rembrandt-prodigal-son",
    "title": "The Return of the Prodigal Son",
    "artist": "Rembrandt van Rijn",
@@ -2815,6 +2847,70 @@
    "license": "Public domain [PD-Art, PD-Art-two-auto, PD-Art/en, PD-Art/layout, PD-Layout, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-art-two-auto, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
   },
   {
+   "id": "kuniyoshi-horyukaku",
+   "title": "Fight atop the Hōryūkaku",
+   "artist": "Utagawa Kuniyoshi",
+   "year": "c. 1840",
+   "museum": "Private collection",
+   "collection": "museumIcons",
+   "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.1,
+    "minY": 0.0,
+    "maxX": 0.95,
+    "maxY": 1.0
+   },
+   "tint": 0.7,
+   "darkest": "#000000",
+   "lightest": "#FFFFFF",
+   "thumbnail": {
+    "url": "https://files.cmux.com/cmux-art/2b5ae8b90c66ec83f4edfe9991a07d12dd881e8ab2962abcc30002647b4a19a2.avif",
+    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/kuniyoshi-horyukaku.thumb.avif"
+   },
+   "full": {
+    "url": "https://files.cmux.com/cmux-art/5a9cdea8ad7df17c20a8790a359b2c5f2f0f649502db2bbeb53ef1cddf92aa62.avif",
+    "sha256": "5a9cdea8ad7df17c20a8790a359b2c5f2f0f649502db2bbeb53ef1cddf92aa62"
+   },
+   "source": "https://commons.wikimedia.org/wiki/File:Fight-atop-Horyukaku-the-Hakkenden-Tale-Utagawa-Kuniyoshi-c1840.png",
+   "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
+  },
+  {
+   "id": "zhang-zeduan-qingming",
+   "title": "Along the River During the Qingming Festival",
+   "artist": "Zhang Zeduan",
+   "year": "12th century",
+   "museum": "Palace Museum, Beijing",
+   "collection": "museumIcons",
+   "bundled": false,
+   "focal": {
+    "x": 0.3,
+    "y": 0.4
+   },
+   "subject": {
+    "minX": 0.0,
+    "minY": 0.05,
+    "maxX": 0.6,
+    "maxY": 0.6
+   },
+   "tint": 0.7,
+   "darkest": "#2F1D0F",
+   "lightest": "#EDD5BB",
+   "thumbnail": {
+    "url": "https://files.cmux.com/cmux-art/c1bf4fd1d16de5eeba9a5cf09079eb96007023d90ee4138a236ba7555f31c39f.avif",
+    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/zhang-zeduan-qingming.thumb.avif"
+   },
+   "full": {
+    "url": "https://files.cmux.com/cmux-art/ded7467497ccfb4fe73fe0bbff56db19200d33252f916220383a5ee76b18bfce.avif",
+    "sha256": "ded7467497ccfb4fe73fe0bbff56db19200d33252f916220383a5ee76b18bfce"
+   },
+   "source": "https://commons.wikimedia.org/wiki/File:Alongtheriver_QingMing.jpg",
+   "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-100-expired, PD-old-X-expired, PD-old-text]"
+  },
+  {
    "id": "brueghel-wooden-vessel",
    "title": "Flowers in a Wooden Vessel",
    "artist": "Jan Brueghel the Elder",
@@ -4480,6 +4576,390 @@
    "license": "Public domain [PD-Art, PD-Art/en, PD-Art/layout, PD-Layout, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
   },
   {
+   "id": "hiroshige-gotenyama",
+   "title": "Evening Cherry Blossoms at Gotenyama",
+   "artist": "Utagawa Hiroshige",
+   "year": "c. 1831",
+   "museum": "Metropolitan Museum of Art, New York",
+   "collection": "calm",
+   "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.15,
+    "minY": 0.15,
+    "maxX": 0.7,
+    "maxY": 0.95
+   },
+   "tint": 0.7,
+   "darkest": "#2C3233",
+   "lightest": "#FFFBE3",
+   "thumbnail": {
+    "url": "https://files.cmux.com/cmux-art/8f52f3cdafa5841397f8e174b18104792e4814b4aa905692756bad7e7f284b1f.avif",
+    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/hiroshige-gotenyama.thumb.avif"
+   },
+   "full": {
+    "url": "https://files.cmux.com/cmux-art/45958c0e0fe55772a193fbda41738e0740df9630ce27ddf18361c6b00e8fb8b3.avif",
+    "sha256": "45958c0e0fe55772a193fbda41738e0740df9630ce27ddf18361c6b00e8fb8b3"
+   },
+   "source": "https://commons.wikimedia.org/wiki/File:Gotenyama_no_yu-zakura-%E6%9D%B1%E9%83%BD%E5%90%8D%E6%89%80_%E5%BE%A1%E6%AE%BF%E5%B1%B1%E4%B9%8B%E5%A4%95%E6%A1%9C-Evening_Cherry_Blossoms_at_Gotenyama_MET_DP123249.jpg",
+   "license": "CC0 [Cc-zero]"
+  },
+  {
+   "id": "hiroshige-asukayama",
+   "title": "Cherry-Blossom Viewing at Asukayama",
+   "artist": "Utagawa Hiroshige",
+   "year": "c. 1830–1844",
+   "museum": "Museo del Prado, Madrid",
+   "collection": "calm",
+   "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.0,
+    "minY": 0.1,
+    "maxX": 0.95,
+    "maxY": 0.95
+   },
+   "tint": 0.7,
+   "darkest": "#251E11",
+   "lightest": "#FFF7D8",
+   "thumbnail": {
+    "url": "https://files.cmux.com/cmux-art/53cb7ba2477d8cddbb1709915349c759296296a244d66b66ca5f680e096da05d.avif",
+    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/hiroshige-asukayama.thumb.avif"
+   },
+   "full": {
+    "url": "https://files.cmux.com/cmux-art/be0765647096632963db4fbbd833461211485bb636fda8ee483592b0eeee85a8.avif",
+    "sha256": "be0765647096632963db4fbbd833461211485bb636fda8ee483592b0eeee85a8"
+   },
+   "source": "https://commons.wikimedia.org/wiki/File:Cherry-Blossom_Viewing_at_Asuka_Hill_(Asukayama_hanami).jpg",
+   "license": "Public domain [PD-old-100, PD-old-text, PD-old-warning-text]"
+  },
+  {
+   "id": "hokusai-yoshino",
+   "title": "Cherry Blossoms at Yoshino",
+   "artist": "Katsushika Hokusai",
+   "year": "c. 1833",
+   "museum": "Metropolitan Museum of Art, New York",
+   "collection": "calm",
+   "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.0,
+    "minY": 0.1,
+    "maxX": 1.0,
+    "maxY": 0.95
+   },
+   "tint": 0.7,
+   "darkest": "#1A2B38",
+   "lightest": "#FFFCE9",
+   "thumbnail": {
+    "url": "https://files.cmux.com/cmux-art/367d4d7b7e667eae8be87e02b884a93e921cd373dff3631ada55473d92d2c12e.avif",
+    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/hokusai-yoshino.thumb.avif"
+   },
+   "full": {
+    "url": "https://files.cmux.com/cmux-art/2f3cbe55452bf5d3bbc153cd124d910b846af28d5f6818322a3053a6f12dc8e3.avif",
+    "sha256": "2f3cbe55452bf5d3bbc153cd124d910b846af28d5f6818322a3053a6f12dc8e3"
+   },
+   "source": "https://commons.wikimedia.org/wiki/File:%E9%9B%AA%E6%9C%88%E8%8A%B1_%E5%90%89%E9%87%8E-Cherry_Blossoms_at_Yoshino_(Yoshino),_from_the_series_Snow,_Moon,_and_Flowers_(Setsugekka)_MET_DP141232.jpg",
+   "license": "CC0 [Cc-zero]"
+  },
+  {
+   "id": "tohaku-pine-trees",
+   "title": "Pine Trees",
+   "artist": "Hasegawa Tōhaku",
+   "year": "late 16th century",
+   "museum": "Tokyo National Museum",
+   "collection": "calm",
+   "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.05,
+    "maxX": 0.65,
+    "maxY": 0.95
+   },
+   "tint": 0.7,
+   "darkest": "#010000",
+   "lightest": "#EADABA",
+   "thumbnail": {
+    "url": "https://files.cmux.com/cmux-art/a9e70ca2dd8b9535842c9e62062346ad8efd808f76cbbd3d8afdd0156a553650.avif",
+    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/tohaku-pine-trees.thumb.avif"
+   },
+   "full": {
+    "url": "https://files.cmux.com/cmux-art/6eb28f8939d62ed25510cccb3ff38c0090621595471a880f8a79bd79c7e46973.avif",
+    "sha256": "6eb28f8939d62ed25510cccb3ff38c0090621595471a880f8a79bd79c7e46973"
+   },
+   "source": "https://commons.wikimedia.org/wiki/File:Hasegawa_Tohaku_-_Pine_Trees_(Sh%C5%8Drin-zu_by%C5%8Dbu)_-_right_hand_screen.jpg",
+   "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
+  },
+  {
+   "id": "sesshu-winter-landscape",
+   "title": "Winter Landscape",
+   "artist": "Sesshū Tōyō",
+   "year": "c. 1470s",
+   "museum": "Tokyo National Museum",
+   "collection": "calm",
+   "bundled": false,
+   "focal": {
+    "x": 0.802,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.6,
+    "minY": 0.0,
+    "maxX": 1.0,
+    "maxY": 1.0
+   },
+   "tint": 0.32,
+   "darkest": "#040000",
+   "lightest": "#DACAAB",
+   "thumbnail": {
+    "url": "https://files.cmux.com/cmux-art/5c3b4955d206fc01cb5143589e818992c3d7e7fb2185aa8636faa5b5ce324bcf.avif",
+    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/sesshu-winter-landscape.thumb.avif"
+   },
+   "full": {
+    "url": "https://files.cmux.com/cmux-art/1aad1268559ecbfcf673f30698509f6e5e9b7a4a6e46d15b9829b33f546b1a51.avif",
+    "sha256": "1aad1268559ecbfcf673f30698509f6e5e9b7a4a6e46d15b9829b33f546b1a51"
+   },
+   "source": "https://commons.wikimedia.org/wiki/File:SesshuShuutouTou.jpg",
+   "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-100-expired, PD-art-category, PD-art-category/core, PD-art-old-100-expired, PD-old-100-expired, PD-old-X-expired, PD-old-text]"
+  },
+  {
+   "id": "fan-kuan-travelers",
+   "title": "Travelers among Mountains and Streams",
+   "artist": "Fan Kuan",
+   "year": "c. 1000",
+   "museum": "National Palace Museum, Taipei",
+   "collection": "calm",
+   "bundled": false,
+   "focal": {
+    "x": 0.845,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.69,
+    "minY": 0.0,
+    "maxX": 1.0,
+    "maxY": 1.0
+   },
+   "tint": 0.32,
+   "darkest": "#08050C",
+   "lightest": "#A58052",
+   "thumbnail": {
+    "url": "https://files.cmux.com/cmux-art/347a6b1e7c07d07671823d43d197191177e9db57203fea3947e13436a879ac0c.avif",
+    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/fan-kuan-travelers.thumb.avif"
+   },
+   "full": {
+    "url": "https://files.cmux.com/cmux-art/7f69ff0dc61678b572676b965c93166317f294f294b3e3e88a666f4161d5d634.avif",
+    "sha256": "7f69ff0dc61678b572676b965c93166317f294f294b3e3e88a666f4161d5d634"
+   },
+   "source": "https://commons.wikimedia.org/wiki/File:Fan_Kuan_-_Travelers_Among_Mountains_and_Streams_-_Google_Art_Project.jpg",
+   "license": "Public domain [PD-Art, PD-art-category, PD-art-category/core, PD-old-100, PD-old-text, PD-old-warning-text]"
+  },
+  {
+   "id": "guo-xi-early-spring",
+   "title": "Early Spring",
+   "artist": "Guo Xi",
+   "year": "1072",
+   "museum": "National Palace Museum, Taipei",
+   "collection": "calm",
+   "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.1,
+    "minY": 0.0,
+    "maxX": 0.9,
+    "maxY": 1.0
+   },
+   "tint": 0.32,
+   "darkest": "#000000",
+   "lightest": "#FFEB7F",
+   "thumbnail": {
+    "url": "https://files.cmux.com/cmux-art/fdd3364664f0acc5c923b910dc389f0d1f9c11c3fd04772ac0eab3c775555ada.avif",
+    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/guo-xi-early-spring.thumb.avif"
+   },
+   "full": {
+    "url": "https://files.cmux.com/cmux-art/4d77025966df7de6f0c96fa24c16534ed8d10a604e1801f691ed54a222e2e193.avif",
+    "sha256": "4d77025966df7de6f0c96fa24c16534ed8d10a604e1801f691ed54a222e2e193"
+   },
+   "source": "https://commons.wikimedia.org/wiki/File:Kuo_Hsi_-_Early_Spring_-_Google_Art_Project.jpg",
+   "license": "Public domain [PD-Art, PD-art-category, PD-art-category/core, PD-old-100, PD-old-text, PD-old-warning-text]"
+  },
+  {
+   "id": "wang-ximeng-thousand-li",
+   "title": "A Thousand Li of Rivers and Mountains",
+   "artist": "Wang Ximeng",
+   "year": "1113",
+   "museum": "Palace Museum, Beijing",
+   "collection": "calm",
+   "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.1,
+    "maxX": 0.85,
+    "maxY": 0.95
+   },
+   "tint": 0.32,
+   "darkest": "#0E0A07",
+   "lightest": "#BFB7A3",
+   "thumbnail": {
+    "url": "https://files.cmux.com/cmux-art/a0d7cd13a82aeb65f30f7244baac1c638d95f14d1fd32f7e88ca0a61ff15eea9.avif",
+    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/wang-ximeng-thousand-li.thumb.avif"
+   },
+   "full": {
+    "url": "https://files.cmux.com/cmux-art/e58bfa496504bb184ea22fa94db7f0dc8dc465700a2b65163b3da9a201c6f48f.avif",
+    "sha256": "e58bfa496504bb184ea22fa94db7f0dc8dc465700a2b65163b3da9a201c6f48f"
+   },
+   "source": "https://commons.wikimedia.org/wiki/File:1c_Wang_Ximeng._A_Thousand_Li_of_Rivers_and_Mountains._(51,3x1191,5cm)1113._(section)_Palace_museum,_Beijing.jpg",
+   "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
+  },
+  {
+   "id": "ma-yuan-spring-path",
+   "title": "Walking on a Mountain Path in Spring",
+   "artist": "Ma Yuan",
+   "year": "c. 1190–1225",
+   "museum": "National Palace Museum, Taipei",
+   "collection": "calm",
+   "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.05,
+    "minY": 0.3,
+    "maxX": 0.6,
+    "maxY": 0.95
+   },
+   "tint": 0.7,
+   "darkest": "#221B10",
+   "lightest": "#DFC7A0",
+   "thumbnail": {
+    "url": "https://files.cmux.com/cmux-art/7355efe169876447dd5dd323732e85efe7abfc3d40f515d7d8ff7f3e5da7b61e.avif",
+    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/ma-yuan-spring-path.thumb.avif"
+   },
+   "full": {
+    "url": "https://files.cmux.com/cmux-art/0e8d8eeced16ac9f1535bc9cbf48c77fb720d5043e8f37b845bbca9ccc548180.avif",
+    "sha256": "0e8d8eeced16ac9f1535bc9cbf48c77fb720d5043e8f37b845bbca9ccc548180"
+   },
+   "source": "https://commons.wikimedia.org/wiki/File:%E5%90%8D%E7%BB%98%E9%9B%86%E7%8F%8D%E5%86%8C_13_%E5%8D%97%E5%AE%8B_%E9%A9%AC%E8%BF%9C_%E5%B1%B1%E5%BE%84%E6%98%A5%E8%A1%8C.jpg",
+   "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
+  },
+  {
+   "id": "jeong-seon-inwangsan",
+   "title": "Clearing after Rain on Mount Inwang",
+   "artist": "Jeong Seon",
+   "year": "1751",
+   "museum": "Leeum Museum of Art, Seoul",
+   "collection": "calm",
+   "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.1,
+    "minY": 0.0,
+    "maxX": 0.95,
+    "maxY": 0.8
+   },
+   "tint": 0.7,
+   "darkest": "#212120",
+   "lightest": "#F5F6F5",
+   "thumbnail": {
+    "url": "https://files.cmux.com/cmux-art/d79885dccc9cceb8763c1f90a5241ac226b4411a6533d04b56222325bddfcd70.avif",
+    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/jeong-seon-inwangsan.thumb.avif"
+   },
+   "full": {
+    "url": "https://files.cmux.com/cmux-art/9bb0737e2d2469cbae74d311e5446dac1a95191dda9685e9c89292927dbff68c.avif",
+    "sha256": "9bb0737e2d2469cbae74d311e5446dac1a95191dda9685e9c89292927dbff68c"
+   },
+   "source": "https://commons.wikimedia.org/wiki/File:Inwangjesaekdo.jpg",
+   "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-art-old-100-expired, PD-old-100-expired, PD-old-X-expired, PD-old-text]"
+  },
+  {
+   "id": "kim-hong-do-chuseongbu",
+   "title": "The Sound of Autumn",
+   "artist": "Kim Hong-do",
+   "year": "1805",
+   "museum": "Leeum Museum of Art, Seoul",
+   "collection": "calm",
+   "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.0,
+    "minY": 0.1,
+    "maxX": 1.0,
+    "maxY": 0.9
+   },
+   "tint": 0.7,
+   "darkest": "#1B0B0B",
+   "lightest": "#DFD3DD",
+   "thumbnail": {
+    "url": "https://files.cmux.com/cmux-art/4982aa48e018b4100316217c2a640b1adeb8107bc64ddf33c4a871e1bb9d27bf.avif",
+    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/kim-hong-do-chuseongbu.thumb.avif"
+   },
+   "full": {
+    "url": "https://files.cmux.com/cmux-art/3bf7b9480d3b1f75f91179f7658855932502a4cc8a1ff4379c1f99e3be04bfbb.avif",
+    "sha256": "3bf7b9480d3b1f75f91179f7658855932502a4cc8a1ff4379c1f99e3be04bfbb"
+   },
+   "source": "https://commons.wikimedia.org/wiki/File:Kim_Hong-do,_Chuseongbu-large.jpg",
+   "license": "Public domain [PD-old-100, PD-old-text, PD-old-warning-text]"
+  },
+  {
+   "id": "sin-yun-bok-moonlit-lovers",
+   "title": "Lovers under the Moon",
+   "artist": "Sin Yun-bok",
+   "year": "c. 1805",
+   "museum": "Kansong Art Museum, Seoul",
+   "collection": "calm",
+   "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.5,
+    "minY": 0.1,
+    "maxX": 0.95,
+    "maxY": 0.95
+   },
+   "tint": 0.7,
+   "darkest": "#220B10",
+   "lightest": "#FFFFFF",
+   "thumbnail": {
+    "url": "https://files.cmux.com/cmux-art/a9a32888c7f09b8b3c863b817adb68a3c6e5e5a964c9d7dd439248d6083932b6.avif",
+    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/sin-yun-bok-moonlit-lovers.thumb.avif"
+   },
+   "full": {
+    "url": "https://files.cmux.com/cmux-art/1a7a6b16695aa8738bac13370f312951e0f1bc3d3dc8f077958654e83bbc9e5d.avif",
+    "sha256": "1a7a6b16695aa8738bac13370f312951e0f1bc3d3dc8f077958654e83bbc9e5d"
+   },
+   "source": "https://commons.wikimedia.org/wiki/File:Hyewon-Wolha.jeongin-3.jpg",
+   "license": "Public domain [PD-Art, PD-Art-100, PD-art-100, PD-art-category, PD-art-category/core, PD-old-100, PD-old-text, PD-old-warning-text]"
+  },
+  {
    "id": "dore-fall-of-satan",
    "title": "The Fall of Satan",
    "artist": "Gustave Doré",
@@ -4741,6 +5221,7 @@
   "cabanel-fallen-angel",
   "spilliaert-woman-shoreline",
   "el-greco-view-of-toledo",
+  "kuniyoshi-takiyasha",
   "rembrandt-prodigal-son",
   "velazquez-las-meninas",
   "matejko-stanczyk",
@@ -4793,6 +5274,8 @@
   "michelangelo-creation-of-adam",
   "hokusai-great-wave",
   "holbein-ambassadors",
+  "kuniyoshi-horyukaku",
+  "zhang-zeduan-qingming",
   "brueghel-wooden-vessel",
   "dahl-dresden-moonlight",
   "bosschaert-wan-li-vase",
@@ -4845,6 +5328,18 @@
   "van-gogh-fishing-boats",
   "hokusai-umezawa",
   "whistler-falling-rocket",
+  "hiroshige-gotenyama",
+  "hiroshige-asukayama",
+  "hokusai-yoshino",
+  "tohaku-pine-trees",
+  "sesshu-winter-landscape",
+  "fan-kuan-travelers",
+  "guo-xi-early-spring",
+  "wang-ximeng-thousand-li",
+  "ma-yuan-spring-path",
+  "jeong-seon-inwangsan",
+  "kim-hong-do-chuseongbu",
+  "sin-yun-bok-moonlit-lovers",
   "dore-fall-of-satan",
   "dore-wolves-sheep",
   "dore-leviathan",

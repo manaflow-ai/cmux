@@ -143,6 +143,16 @@
  "el-greco-view-of-toledo": {
   "mode": "auto"
  },
+ "fan-kuan-travelers": {
+  "mode": "side",
+  "side": "right",
+  "inset": [
+   0.02,
+   0.01,
+   0.02,
+   0.01
+  ]
+ },
  "fragonard-swing": {
   "mode": "auto"
  },
@@ -179,8 +189,40 @@
  "grimshaw-silver-moonlight": {
   "mode": "auto"
  },
+ "guo-xi-early-spring": {
+  "mode": "crop",
+  "box": [
+   0.0,
+   0.25,
+   1.0,
+   0.67
+  ],
+  "focal": [
+   0.5,
+   0.45
+  ],
+  "quiet": "left"
+ },
  "hesselbom-dusk": {
   "mode": "auto"
+ },
+ "hiroshige-asukayama": {
+  "mode": "auto",
+  "inset": [
+   0.03,
+   0.05,
+   0.08,
+   0.04
+  ]
+ },
+ "hiroshige-gotenyama": {
+  "mode": "auto",
+  "inset": [
+   0.03,
+   0.04,
+   0.03,
+   0.04
+  ]
  },
  "hiroshige-hota-coast": {
   "mode": "auto"
@@ -204,7 +246,19 @@
  "hokusai-umezawa": {
   "mode": "auto"
  },
+ "hokusai-yoshino": {
+  "mode": "auto",
+  "inset": [
+   0.0,
+   0.03,
+   0.0,
+   0.02
+  ]
+ },
  "holbein-ambassadors": {
+  "mode": "auto"
+ },
+ "jeong-seon-inwangsan": {
   "mode": "auto"
  },
  "kandinsky-composition-viii": {
@@ -215,6 +269,20 @@
  },
  "kandinsky-yellow-red-blue": {
   "mode": "auto"
+ },
+ "kim-hong-do-chuseongbu": {
+  "mode": "crop",
+  "box": [
+   0.3,
+   0.0,
+   0.62,
+   1.0
+  ],
+  "focal": [
+   0.5,
+   0.45
+  ],
+  "quiet": "left"
  },
  "klee-fish-magic": {
   "mode": "auto",
@@ -244,6 +312,23 @@
  "kramskoi-unknown-woman": {
   "mode": "auto"
  },
+ "kuniyoshi-horyukaku": {
+  "mode": "auto"
+ },
+ "kuniyoshi-takiyasha": {
+  "mode": "crop",
+  "box": [
+   0.3,
+   0.0,
+   0.95,
+   1.0
+  ],
+  "focal": [
+   0.4,
+   0.4
+  ],
+  "quiet": "right"
+ },
  "laurence-mckinley": {
   "mode": "auto"
  },
@@ -252,6 +337,15 @@
  },
  "leonardo-vitruvian-man": {
   "mode": "auto"
+ },
+ "ma-yuan-spring-path": {
+  "mode": "auto",
+  "inset": [
+   0.01,
+   0.01,
+   0.045,
+   0.01
+  ]
  },
  "marc-foxes": {
   "mode": "auto"
@@ -375,6 +469,19 @@
  "schiele-moa": {
   "mode": "auto"
  },
+ "sesshu-winter-landscape": {
+  "mode": "side",
+  "side": "right",
+  "inset": [
+   0.03,
+   0.02,
+   0.03,
+   0.02
+  ]
+ },
+ "sin-yun-bok-moonlit-lovers": {
+  "mode": "auto"
+ },
  "sohlberg-flower-meadow": {
   "mode": "auto",
   "quality": 38
@@ -388,6 +495,26 @@
  },
  "steinlen-chat-noir": {
   "mode": "auto"
+ },
+ "tohaku-pine-trees": {
+  "mode": "crop",
+  "inset": [
+   0.025,
+   0.07,
+   0.025,
+   0.075
+  ],
+  "box": [
+   0.05,
+   0,
+   0.6,
+   1
+  ],
+  "focal": [
+   0.5,
+   0.45
+  ],
+  "quiet": "right"
  },
  "toulmouche-reluctant-bride": {
   "mode": "auto"
@@ -454,6 +581,20 @@
  "vigee-lebrun-madame-grand": {
   "mode": "auto"
  },
+ "wang-ximeng-thousand-li": {
+  "mode": "crop",
+  "box": [
+   0.0,
+   0.0,
+   0.35,
+   1.0
+  ],
+  "focal": [
+   0.5,
+   0.45
+  ],
+  "quiet": "right"
+ },
  "waterhouse-lady-shalott": {
   "mode": "auto"
  },
@@ -468,5 +609,19 @@
  },
  "wright-vesuvius": {
   "mode": "auto"
+ },
+ "zhang-zeduan-qingming": {
+  "mode": "crop",
+  "box": [
+   0.47,
+   0.0,
+   0.545,
+   1.0
+  ],
+  "focal": [
+   0.3,
+   0.4
+  ],
+  "quiet": "right"
  }
 }
