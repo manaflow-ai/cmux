@@ -229,3 +229,46 @@ fn a_file_made_read_only_is_still_written_through_its_create() {
     assert_eq!(overlay.read(made.ino, 0, 10).unwrap(), b"blob");
     assert_eq!(overlay.getattr(made.ino).unwrap().mode, 0o444);
 }
+
+#[test]
+fn whiteouts_are_appended_and_a_torn_last_line_is_ignored() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let src = path_ino(&overlay, "src");
+    overlay.unlink(src, "a.rs").unwrap();
+    overlay.unlink(src, "b.rs").unwrap();
+    let file = state.path().join("whiteouts");
+    assert_eq!(fs::read_to_string(&file).unwrap(), "src/a.rs\nsrc/b.rs\n");
+    // Making one again takes it out: the file is rewritten from what is left.
+    overlay.create(src, "a.rs", 0o644).unwrap();
+    assert_eq!(fs::read_to_string(&file).unwrap(), "src/b.rs\n");
+    drop(overlay);
+    // A crash inside an append left half a line: it is not a whiteout (it would hide `src`).
+    fs::write(&file, "src/b.rs\nsr").unwrap();
+    let overlay = open(state.path(), &manifest, &fake);
+    assert_eq!(overlay.whiteouts(), ["src/b.rs"]);
+    assert_eq!(names(&overlay, path_ino(&overlay, "src")), ["a.rs", "c.rs", "deep"]);
+}
+
+#[test]
+fn a_cached_big_file_reads_back_any_range_without_the_mac() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let big = path_ino(&overlay, "big.bin");
+    let expected = big_bytes();
+    let mut at = 0u64;
+    while at < BIG {
+        let bytes = overlay.read(big, at, 128 * 1024).unwrap();
+        assert_eq!(bytes, expected[at as usize..(at as usize + bytes.len())]);
+        at += bytes.len() as u64;
+    }
+    let calls = fake.calls.load(Ordering::Relaxed);
+    // Ranges inside one cached chunk and across a chunk boundary, all from the disk cache.
+    let edge = CHUNK - 10;
+    assert_eq!(overlay.read(big, edge, 20).unwrap(), expected[edge as usize..edge as usize + 20]);
+    assert_eq!(overlay.read(big, BIG - 5, 100).unwrap(), expected[(BIG - 5) as usize..]);
+    let readme = path_ino(&overlay, "README.md");
+    assert_eq!(overlay.read(readme, 2, 3).unwrap(), b"adm");
+    assert_eq!(overlay.read(readme, 2, 3).unwrap(), b"adm");
+    assert_eq!(fake.calls.load(Ordering::Relaxed), calls + 1, "only README.md's first read asks");
+}
