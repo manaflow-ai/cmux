@@ -1,10 +1,8 @@
 //! Codex's own skill list: `codex app-server`'s `skills/list`, the list a Codex chat loads (remote
 //! plugins included, which no folder names). One short-lived app-server per read; it writes nothing.
 
-use std::io::{BufRead as _, BufReader, Write as _};
+use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -59,56 +57,97 @@ impl CodexLive {
         Some(parse(&reply))
     }
 
+    /// One app-server for this read: `cmux_process::Child` ends it when the read ends (or gives
+    /// up), and its replies are read on this thread under one deadline.
     fn request(&self, homes: &Homes, cwd: &Path) -> Option<Value> {
-        let mut child = Command::new(&self.program)
+        let mut child = cmux_process::Command::new(&self.program)
             .arg("app-server")
             .current_dir(cwd)
             .env("HOME", &homes.home)
             .env("CODEX_HOME", &homes.codex)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stdin(cmux_process::Stdio::piped())
+            .stdout(cmux_process::Stdio::piped())
+            .stderr(cmux_process::Stdio::null())
             .spawn()
             .ok()?;
         let reply = (|| {
             let mut stdin = child.stdin.take()?;
-            let stdout = child.stdout.take()?;
-            let (lines, received) = mpsc::channel::<String>();
-            std::thread::spawn(move || {
-                for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-                    if lines.send(line).is_err() {
-                        break;
-                    }
-                }
-            });
-            let deadline = Instant::now() + self.timeout;
-            let await_id = |id: u64| -> Option<Value> {
-                loop {
-                    let left = deadline.checked_duration_since(Instant::now())?;
-                    let line = received.recv_timeout(left).ok()?;
-                    let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
-                    if message.get("id").and_then(Value::as_u64) == Some(id) {
-                        return Some(message);
-                    }
-                }
-            };
-            let send = |stdin: &mut std::process::ChildStdin, message: Value| -> Option<()> {
+            let mut replies = Replies::new(child.stdout.take()?, Instant::now() + self.timeout);
+            let mut send = |message: Value| -> Option<()> {
                 writeln!(stdin, "{message}").ok()?;
                 stdin.flush().ok()
             };
             send(
-                &mut stdin,
                 json!({"id": 1, "method": "initialize", "params": {"clientInfo": {"name": "cmux", "version": env!("CARGO_PKG_VERSION")}}}),
             )?;
-            await_id(1)?;
-            send(&mut stdin, json!({"method": "initialized"}))?;
-            send(&mut stdin, json!({"id": 2, "method": "skills/list", "params": {"cwds": [cwd]}}))?;
-            await_id(2)
+            replies.answer(1)?;
+            send(json!({"method": "initialized"}))?;
+            send(json!({"id": 2, "method": "skills/list", "params": {"cwds": [cwd]}}))?;
+            replies.answer(2)
         })();
         let _ = child.kill();
         let _ = child.wait();
         reply?.get("result").cloned()
     }
+}
+
+/// The app-server's stdout, one JSON line at a time, read with `poll` so the deadline holds
+/// while Codex is silent.
+struct Replies {
+    stdout: std::process::ChildStdout,
+    deadline: Instant,
+    pending: Vec<u8>,
+}
+
+impl Replies {
+    fn new(stdout: std::process::ChildStdout, deadline: Instant) -> Self {
+        Self { stdout, deadline, pending: Vec::new() }
+    }
+
+    /// The reply whose `id` is `id`; other lines (notifications) are skipped.
+    fn answer(&mut self, id: u64) -> Option<Value> {
+        loop {
+            let line = self.line()?;
+            let Ok(message) = serde_json::from_slice::<Value>(&line) else { continue };
+            if message.get("id").and_then(Value::as_u64) == Some(id) {
+                return Some(message);
+            }
+        }
+    }
+
+    fn line(&mut self) -> Option<Vec<u8>> {
+        loop {
+            if let Some(end) = self.pending.iter().position(|byte| *byte == b'\n') {
+                let mut line: Vec<u8> = self.pending.drain(..=end).collect();
+                line.pop();
+                return Some(line);
+            }
+            let left = self.deadline.checked_duration_since(Instant::now())?;
+            if !readable(&self.stdout, left) {
+                return None;
+            }
+            let mut chunk = [0u8; 64 * 1024];
+            let read = self.stdout.read(&mut chunk).ok().filter(|n| *n > 0)?;
+            self.pending.extend(chunk.iter().take(read));
+        }
+    }
+}
+
+/// Whether `pipe` has bytes (or its end) within `wait`.
+#[cfg(unix)]
+fn readable(pipe: &std::process::ChildStdout, wait: Duration) -> bool {
+    use std::os::fd::AsRawFd as _;
+    let mut fd = libc::pollfd { fd: pipe.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+    let millis = libc::c_int::try_from(wait.as_millis()).unwrap_or(libc::c_int::MAX).max(1);
+    // SAFETY: `fd` is one valid pollfd for this call, and the descriptor stays open (`pipe`).
+    let ready = unsafe { libc::poll(&mut fd, 1, millis) };
+    ready > 0
+}
+
+/// No `poll` here: Codex's own list is not read, and cmux reads its folders instead.
+#[cfg(not(unix))]
+fn readable(_pipe: &std::process::ChildStdout, _wait: Duration) -> bool {
+    false
 }
 
 /// `skills/list`'s result: `data[0].skills` and `data[0].errors`.

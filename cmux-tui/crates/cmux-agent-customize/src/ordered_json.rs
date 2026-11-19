@@ -77,11 +77,9 @@ impl Members {
     }
 }
 
-/// A raw JSON string value.
-pub(crate) fn raw_string(text: &str) -> Box<RawValue> {
-    // A serialized string is always valid JSON.
-    RawValue::from_string(serde_json::to_string(text).unwrap_or_else(|_| "\"\"".to_owned()))
-        .unwrap_or_else(|_| RawValue::from_string("\"\"".to_owned()).expect("valid JSON"))
+/// A raw JSON string value (`None` only if serde_json cannot write a string, which it always can).
+pub(crate) fn raw_string(text: &str) -> Option<Box<RawValue>> {
+    serde_json::value::to_raw_value(text).ok()
 }
 
 #[cfg(test)]
@@ -96,7 +94,7 @@ mod tests {
             members.0.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(),
             ["zeta", "alpha", "env"]
         );
-        members.set("new", Some(raw_string("v")));
+        members.set("new", raw_string("v"));
         assert_eq!(
             members.render(0),
             "{\n  \"zeta\": 1,\n  \"alpha\": {\"b\": 2,   \"a\": 1},\n  \"env\": {\"TOKEN\": \"x\"},\n  \"new\": \"v\"\n}"

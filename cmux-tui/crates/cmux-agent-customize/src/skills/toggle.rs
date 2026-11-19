@@ -104,7 +104,7 @@ fn claude(file: &Path, name: &str, enabled: bool) -> Result<(), ToggleError> {
             .map_err(|e| ToggleError::Unreadable(file.to_path_buf(), e.to_string()))?,
         None => Members(Vec::new()),
     };
-    overrides.set(name, (!enabled).then(|| raw_string("off")));
+    overrides.set(name, if enabled { None } else { raw_string("off") });
     let value = if overrides.0.is_empty() {
         None
     } else {

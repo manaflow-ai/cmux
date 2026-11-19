@@ -1280,7 +1280,9 @@ dependencies = [
 name = "cmux-agent-customize"
 version = "0.1.0"
 dependencies = [
+ "cmux-process",
  "cmux-tui-platform",
+ "libc",
  "serde",
  "serde_json",
  "tempfile",

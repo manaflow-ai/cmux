@@ -1,3 +1,5 @@
+import AppKit
+import CmuxNextCompat
 public import CmuxNextPages
 public import CmuxNextSettings
 public import Foundation
@@ -35,7 +37,7 @@ public final class SettingsAgentSkills: PageProvider {
                 enabled: @escaping @MainActor () -> Bool,
                 workingFolder: @escaping @MainActor () -> URL? = { nil },
                 openFile: @escaping @MainActor (URL) -> Void,
-                reveal: @escaping @MainActor (URL) -> Void,
+                reveal: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.revealInBackground([$0]) },
                 runCLI: @escaping @Sendable (URL, [String], [String: String]) async throws -> (Int32, Data, Data) = SettingsMcpServers.run) {
         self.cli = cli
         self.enabled = enabled

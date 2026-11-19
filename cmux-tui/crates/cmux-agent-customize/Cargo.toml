@@ -11,8 +11,12 @@ description = "Claude Code and Codex customization from cmux: read and edit each
 workspace = true
 
 [dependencies]
+# Codex's app-server ends with the read that started it.
+cmux-process.workspace = true
 # The codex config.toml lock every cmux writer of it takes.
 cmux-tui-platform.workspace = true
+# poll(2) on the app-server's stdout, so a silent Codex cannot hold a read past its deadline.
+libc.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 toml_edit.workspace = true
