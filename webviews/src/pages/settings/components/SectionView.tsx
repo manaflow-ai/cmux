@@ -174,7 +174,7 @@ export function SectionView({
       {category.actions.map((id) => (
         <SectionActions key={id} section={id} />
       ))}
-      {APPEARANCE_CATEGORIES.includes(category.id) && <AppearanceBar />}
+      {APPEARANCE_CATEGORIES.includes(category.id) && <AppearanceBar section={category.id} />}
     </div>
   );
 }
