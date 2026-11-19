@@ -403,6 +403,11 @@ SETTINGS_KEYS_HINT = ("A settings export lost a key its source declares, or has 
                       "regenerated at another tree. Regenerate the exports at this head on the fleet "
                       "(scripts/cmux-next/regenerate-settings-exports.sh; its header has the command) and apply the "
                       "patch; never hand-edit them. On a merge conflict in an export, take the base's side first.")
+# A Swift reply type requires no key the pinned Rust FFI never writes (2026-11-18: #46136 made the sidebar planner reply
+# require selection_spared in the PR that added it to Rust; the pin lacked it and every sidebar setting went dead).
+FFI_REPLY_CHECK = "Swift requires only keys the pinned FFI writes (scripts/cmux-next/ffi_reply_keys.py)"
+FFI_REPLY_SCRIPT = SCRIPTS + "/ffi_reply_keys.py"
+FFI_REPLY_PATHS = ("Packages/macOS/CmuxNext/Sources/",)
 CARGO_HINT = ("Fix the locks: run `scripts/cmux-next/cargo-locks.py fix` (it runs `cargo update --workspace` in each "
               "stale workspace, which rewrites only what the manifests now need), commit the Cargo.lock files, then "
               "push. A manifest change in one workspace can leave another workspace's lock stale (eb4f3eb1d94).")
@@ -2138,6 +2143,32 @@ def settings_export_keys(repo: Path, base: str, head: str, trusted_scripts: Path
     return found
 
 
+def ffi_reply_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """`<file>: ...` per key a Swift reply type the range changes requires and the pinned FFI's Rust never names
+    (FFI_REPLY_CHECK). Git objects only, and only when the range changes a CmuxNext Sources file; a pinned commit this
+    clone lacks, or a blob-less clone too slow to read it, is a note and passes."""
+    names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode("utf-8", "surrogateescape")
+    if not any(p.startswith(FFI_REPLY_PATHS) and p.endswith(".swift") for p in names.split("\0") if p):
+        return []
+    script = check_script(repo, head, FFI_REPLY_SCRIPT, trusted_scripts, base)
+    if script is None:
+        return []  # a commit older than this check
+    with tempfile.TemporaryDirectory(prefix="cmux-ffi-reply-") as tmp:
+        check = absolute(Path(tmp)) / "ffi_reply_keys.py"
+        check.write_bytes(script)
+        code, out = run(["python3", "-I", str(check), "--repo", str(repo.resolve()), "--base", base, "--head", head],
+                        absolute(Path(tmp)), timeout=120)
+    found = [line.removeprefix("skew: ") for line in out.splitlines() if line.startswith("skew: ")]
+    for line in out.splitlines():
+        if line.startswith("note: "):
+            log(f"prepush-gate: {line.removeprefix('note: ')}")
+    stopped = no_verdict(code, out, (0, 1)) or ("exited 1 but named no key" if code == 1 and not found else None)
+    if stopped:
+        return [NoVerdict(f"{FFI_REPLY_SCRIPT} {stopped} instead of judging the reply types, so the push is refused: "
+                          f"{out_tail(out.splitlines())}")]
+    return found
+
+
 def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
     """`file:line` of each conflict marker the push adds, in any file of the repository.
 
@@ -2868,6 +2899,11 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         drift = settings_export_keys(repo, base, head, trusted_scripts)
         if drift:
             reserved.append((SETTINGS_KEYS_CHECK, drift))
+    # Local only (CLAUDE.md: no new CI gates): git objects only, and only when a CmuxNext Sources file changes.
+    if (highlights_layer if only is None else "ffi-reply-keys" in only) and restrict is None:
+        skew = ffi_reply_keys(repo, base, head, trusted_scripts)
+        if skew:
+            reserved.append((FFI_REPLY_CHECK, skew))
     # Local only, like SwiftFormat (CLAUDE.md: no new CI gates).
     if highlights_layer if only is None else "redefinitions" in only:
         redefined = test_redefinition_problems(repo, base, head, trusted_scripts, restrict)
@@ -3672,7 +3708,7 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
                                        "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows,"
                                        "single-host-fallbacks,redefinitions,port-drift,new-crate-versions,"
-                                       "settings-export-keys,main-twin")
+                                       "settings-export-keys,ffi-reply-keys,main-twin")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     parser.add_argument("--advisory-only", action="store_true", help=argparse.SUPPRESS)  # advisory_start's child
