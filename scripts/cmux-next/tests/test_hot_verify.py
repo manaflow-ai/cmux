@@ -709,6 +709,16 @@ class GoldenCopyTest(unittest.TestCase):
         self.assertTrue(chosen["plan"]["needs_build"])
         self.assertTrue(chosen["why"].startswith("no published build takes this tree"))
 
+    def test_a_fleet_dev_build_is_stamped_with_its_commit(self):
+        import plistlib
+        app = self.root / "cmux DEV ahead.app"
+        (app / "Contents").mkdir(parents=True)
+        (app / "Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.cmuxterm.app.debug.x"}))
+        hv.stamp_commit(app, self.c1)
+        self.assertEqual(hv.app_info(app)["commit"], self.c1)
+        hv.stamp_commit(app, self.c2)
+        self.assertEqual(hv.app_info(app)["commit"], self.c1, "a commit the app names is kept")
+
     def test_a_run_waits_for_no_page_reload_and_a_look_does(self):
         tree = self.root / "tree"
         (tree / "webviews").mkdir(parents=True)
@@ -722,6 +732,18 @@ class GoldenCopyTest(unittest.TestCase):
                 done = hv.apply_web(self.fx.repo, {"head": self.c2}, tree, side, self.root, settle=settle)
             self.assertEqual(done["how"], "dev server")
             self.assertEqual(slept, waits)
+
+    def test_no_published_daemon_and_no_cargo_says_so(self):
+        """cmux17 (2026-11-19) has no cargo, and the tree's daemon was not published: hot-apply said only
+        `exited 1: apply 4.0 s: key 3.2, plan 0.4, fetch 0.3`."""
+        tree = self.root / "tree"
+        (tree / "cmux-tui").mkdir(parents=True)
+        side = unittest.mock.Mock(app=lambda: self.root / "copy.app", dir=lambda: self.root)
+        with unittest.mock.patch.object(hv.shutil, "which", return_value=None), \
+                unittest.mock.patch.object(hv.hot(), "published", return_value=False), \
+                unittest.mock.patch.object(hv.subprocess, "run", side_effect=AssertionError("ran hot-apply")):
+            with self.assertRaisesRegex(hv.LookError, "no cargo on this Mac"):
+                hv.apply_rust(self.root, {"head": self.c2, "tree_key": "k" * 40}, tree, side, self.root)
 
     def test_a_local_cargo_build_says_how_long_first(self):
         tree = self.root / "tree"

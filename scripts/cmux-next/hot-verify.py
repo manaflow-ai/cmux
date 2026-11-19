@@ -1359,6 +1359,12 @@ def apply_rust(rules: Path, planned: dict, src_tree: Path | None, side: Side, sc
             if done.returncode != 0:
                 raise LookError(f"cargo build cmux-tui: {done.stderr.strip()[-300:]}")
             binary = src_tree / "cmux-tui/target/release/cmux-tui"
+    elif (src_tree is not None and not shutil.which("cargo") and planned.get("tree_key")
+          and not hot().published(planned["tree_key"])):
+        # No cargo here and nothing published for the tree: hot-apply would only say its fetch failed.
+        raise LookError(f"no published build of cmux-tui tree {planned['tree_key'][:12]} and no cargo on this Mac to "
+                        "build the daemon: commit and push (CI publishes the tree's daemon for the next run), or "
+                        "build the app with it on the fleet, `cmux-ci build cmux --ref SHA`")
     if binary is not None:
         argv += ["--binary", str(binary)]
     env = {**os.environ, "CMUX_HOT_APPLY_STATE_DIR": str(side.dir() / "hot-apply")}
@@ -1728,6 +1734,7 @@ def fetch_golden(build: dict) -> Path:
                 download_golden(build, part)
                 app = golden_app(part)
                 check_golden(app, build)
+                stamp_commit(app, build["commit"])
                 (part / GOLDEN_READY).write_text(json.dumps({k: build.get(k) for k in GOLDEN_FIELDS}) + "\n")
                 os.replace(part, dest)
             finally:
@@ -1805,6 +1812,21 @@ def check_golden(app: Path, build: dict) -> None:
                               timeout=600)
         if done.returncode != 0:
             raise LookError(f"{app.name} does not verify: {done.stderr.strip()[-300:]}")
+
+
+def stamp_commit(app: Path, commit: str) -> None:
+    """A fleet DEV build names no CMUXCommit, and hot-apply refuses to put a daemon into an app it cannot place
+    ("has no CMUXCommit (a DEV build)", the first fleet golden copy's Rust apply on cmux17, 2026-11-19): the
+    cached app is stamped with the commit its job built, which `--from` that app then plans against too. Its seal
+    breaks, as every copy's does; side-instance.sh make re-seals the copy."""
+    path = app / "Contents/Info.plist"
+    with open(path, "rb") as handle:
+        info = plistlib.load(handle)
+    if info.get("CMUXCommit"):
+        return
+    info["CMUXCommit"] = commit
+    with open(path, "wb") as handle:
+        plistlib.dump(info, handle, fmt=plistlib.FMT_XML)
 
 
 def command_golden(args) -> int:
