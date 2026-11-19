@@ -36,7 +36,7 @@ enum ListStressChatScreens {
             })
         case "subagents":
             let store = AgentChatStore(source: RigSource())
-            let running = seedSubagents(store, count: max(settings.count, 3))
+            let running = seedSubagents(store, count: max(settings.count, 0))
             if let hz = settings.liveHz, hz > 0 { live = churnSubagents(store, running: running, hz: hz) }
             root = AnyView(NavigationStack { SubagentsScreen(store: store, surface: AgentChatSurface()) })
         case "inspector":
