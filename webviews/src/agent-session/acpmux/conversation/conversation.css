@@ -7510,6 +7510,9 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   /* Small-radius rects, not capsules (agent-pane-no-capsules.test.ts). */
   border-radius: var(--ds-radius-control);
   background: color-mix(in srgb, var(--acpmux-needs-you-mark) 16%, transparent);
+  /* The words take the mark's hue pulled toward the text color: the mark itself is a light yellow in
+     light themes, 2.65:1 on its own tint (test/browser/look-contrast.test.ts), where text needs 4.5:1. */
+  color: color-mix(in srgb, var(--acpmux-needs-you-mark) 60%, var(--cv-text));
   line-height: var(--ds-control-icon);
 }
 /* The ringed dot on the 12px glyph step: an 8px dot in the mark's colour inside a 2px ring of it. */
