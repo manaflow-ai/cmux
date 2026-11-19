@@ -51877,6 +51877,9 @@
         "source-sans",
         "geist",
         "cmux-sans",
+        "cmux-sans-squat",
+        "cmux-sans-candy",
+        "cmux-sans-sharp",
         "hanken",
         "atkinson"
       ],
@@ -51952,6 +51955,27 @@
             "text" : "cmux Sans"
           },
           "value" : "cmux-sans"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatUiFontCmuxSansSquat",
+            "text" : "cmux Sans Squat"
+          },
+          "value" : "cmux-sans-squat"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatUiFontCmuxSansCandy",
+            "text" : "cmux Sans Candy"
+          },
+          "value" : "cmux-sans-candy"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatUiFontCmuxSansSharp",
+            "text" : "cmux Sans Sharp"
+          },
+          "value" : "cmux-sans-sharp"
         },
         {
           "title" : {

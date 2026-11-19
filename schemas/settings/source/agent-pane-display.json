@@ -600,6 +600,27 @@
               }
             },
             {
+              "value": "cmux-sans-squat",
+              "title": {
+                "key": "settings.choice.agentChatUiFontCmuxSansSquat",
+                "text": "cmux Sans Squat"
+              }
+            },
+            {
+              "value": "cmux-sans-candy",
+              "title": {
+                "key": "settings.choice.agentChatUiFontCmuxSansCandy",
+                "text": "cmux Sans Candy"
+              }
+            },
+            {
+              "value": "cmux-sans-sharp",
+              "title": {
+                "key": "settings.choice.agentChatUiFontCmuxSansSharp",
+                "text": "cmux Sans Sharp"
+              }
+            },
+            {
               "value": "hanken",
               "title": {
                 "key": "settings.choice.agentChatUiFontHanken",

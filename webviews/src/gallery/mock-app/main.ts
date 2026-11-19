@@ -79,6 +79,8 @@ type PaneData = {
   /** The variant's whole look (golden/look.ts) and the other tabs of its strip (format.ts windowTabs). */
   look?: GoldenLook;
   tabs?: string[];
+  /** The variant's font study pairing (format.ts fontStudy). */
+  fontStudy?: string;
 };
 
 /** The window under the main pane's look: its theme file for this scheme, its sidebar surface. */
@@ -105,7 +107,15 @@ function age(at: number | undefined): string {
 }
 
 /** The fixture's chats and title, read from its gallery entry (one entry file, by the index). */
-async function paneData(fixture: string): Promise<PaneData> {
+const paneDataCache = new Map<string, Promise<PaneData>>();
+/** paneData, read once per fixture (the main fixture's font study and its window both ask). */
+function paneData(fixture: string): Promise<PaneData> {
+  let data = paneDataCache.get(fixture);
+  if (!data) paneDataCache.set(fixture, (data = readPaneData(fixture)));
+  return data;
+}
+
+async function readPaneData(fixture: string): Promise<PaneData> {
   const { entry: id, variant } = parseFixture(fixture);
   // The index names the entry's file; when its guess is stale, the whole registry finds it.
   let { entry } = await createFrameEntryStore(entryIndex[id]).find(id);
@@ -120,6 +130,7 @@ async function paneData(fixture: string): Promise<PaneData> {
     selected: snapshot.sessionId,
     look: state.look,
     tabs: state.windowTabs,
+    fontStudy: state.fontStudy,
   };
 }
 
@@ -297,16 +308,22 @@ const specs: WindowSpec[] = (params.get("windows") ?? appAxis(params, "window"))
 
 const zoomValue = appAxis(params, "zoom");
 /// A font study pairing draws the chrome too (the sidebar); the app is ready once its faces load.
-const fontStudy = env.fontStudy
-  ? import("../fontStudy/apply").then((study) => study.applyFontStudy(env.fontStudy))
-  : null;
+/// The URL's pairing wins over the main fixture's own (format.ts fontStudy).
+const fontStudyId = env.fontStudy
+  ? Promise.resolve(env.fontStudy)
+  : paneData(appAxis(params, "fixture")).then(
+      (data) => data.fontStudy ?? "",
+      () => "",
+    );
+const fontStudy = fontStudyId.then((id) =>
+  id ? import("../fontStudy/apply").then((study) => study.applyFontStudy(id)) : undefined,
+);
 let ready = 0;
 const markReady = () => {
   ready += 1;
   // The first window ready is the app ready; the rest mount as they scroll into view.
   if (ready !== 1) return;
-  if (fontStudy) void fontStudy.then(announceReady);
-  else announceReady();
+  void fontStudy.then(announceReady);
 };
 const announceReady = () => {
   root.dataset.mockAppReady = "1";

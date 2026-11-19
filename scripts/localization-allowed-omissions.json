@@ -7335,6 +7335,18 @@
     "class": "brand",
     "source": "cmux Sans"
   },
+  "chatDisplay.uiFontCmuxSansSquat": {
+    "class": "brand",
+    "source": "cmux Sans Squat"
+  },
+  "chatDisplay.uiFontCmuxSansCandy": {
+    "class": "brand",
+    "source": "cmux Sans Candy"
+  },
+  "chatDisplay.uiFontCmuxSansSharp": {
+    "class": "brand",
+    "source": "cmux Sans Sharp"
+  },
   "settings.choice.agentChatUiFontGeist": {
     "class": "brand",
     "source": "Geist"
@@ -7350,6 +7362,18 @@
   "settings.choice.agentChatUiFontCmuxSans": {
     "class": "brand",
     "source": "cmux Sans"
+  },
+  "settings.choice.agentChatUiFontCmuxSansSquat": {
+    "class": "brand",
+    "source": "cmux Sans Squat"
+  },
+  "settings.choice.agentChatUiFontCmuxSansCandy": {
+    "class": "brand",
+    "source": "cmux Sans Candy"
+  },
+  "settings.choice.agentChatUiFontCmuxSansSharp": {
+    "class": "brand",
+    "source": "cmux Sans Sharp"
   },
   "chatDisplay.uiFontSystemUi": {
     "source": "System",

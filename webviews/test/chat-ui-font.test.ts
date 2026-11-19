@@ -33,6 +33,15 @@ test("each other choice sets the face and its own tracking on the type scale", (
   expect(chatUiFontVariables("hanken")["--font-ui"]).toStartWith('"cmux Hanken Grotesk"');
   expect(chatUiFontVariables("atkinson")["--font-ui"]).toStartWith('"cmux Atkinson Hyperlegible Next"');
   expect(chatUiFontVariables("cmux-sans")["--text-body--letter-spacing"]).toBe("0em");
+  // cmux Sans's personality cuts (Leo, 2026-11-19: "It just doesn't have that like pizzazz"): opt-in, each
+  // its own bundled family at its own width's spacing, the reply text following the body step.
+  const squat = chatUiFontVariables("cmux-sans-squat");
+  expect(squat["--font-ui"]).toStartWith('"cmux Sans Squat"');
+  expect(squat["--text-heading--letter-spacing"]).toBe("-0.024em");
+  expect(squat["--cv-tracking"]).toBe("-0.01em");
+  expect(chatUiFontVariables("cmux-sans-candy")["--font-ui"]).toStartWith('"cmux Sans Candy"');
+  expect(chatUiFontVariables("cmux-sans-sharp")["--text-caption--letter-spacing"]).toBe("0.014em");
+  expect(chatUiFontVariables("cmux-sans")["--cv-tracking"]).toBe("0px");
   // Inter's own curve is for tuned Inter: stock Inter draws at its designed spacing.
   expect(chatUiFontVariables("inter")["--text-heading--letter-spacing"]).toBe("0em");
   // Inter is opt-in now: its bundled face, with the curve the app used to apply to it.
