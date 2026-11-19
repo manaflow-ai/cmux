@@ -69,10 +69,13 @@ fi
 
 # --- cmux-rd, as cmux-rd-release.yml builds it -----------------------------------------------------------------
 t0=$SECONDS
-manifest=cmux-tui/crates/cmux-rd-host/Cargo.toml
-cargo build --locked --release --manifest-path "$manifest" --no-default-features --features openh264,link \
-  --bin cmux-rd >"$out/build.log" 2>&1 || { tail -40 "$out/build.log"; fail "cmux-rd did not build"; exit 1; }
-target_dir="$(cargo metadata --format-version 1 --no-deps --manifest-path "$manifest" |
+# From inside cmux-tui, so rustup takes cmux-tui/rust-toolchain.toml's pinned toolchain: from the repo root it
+# takes the host's default, whose older rustc refuses linux_host/setup.rs (E0597, job 31a7062967dbbaf9afd54703).
+crate=cmux-tui/crates/cmux-rd-host
+(cd "$crate" && rustc --version && cargo build --locked --release --no-default-features --features openh264,link \
+  --bin cmux-rd) >"$out/build.log" 2>&1 || { tail -40 "$out/build.log"; fail "cmux-rd did not build"; exit 1; }
+say "- toolchain: $(head -1 "$out/build.log")"
+target_dir="$(cd "$crate" && cargo metadata --format-version 1 --no-deps |
   python3 -I -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
 rd="$target_dir/release/cmux-rd"
 [[ -x "$rd" ]] || { fail "no cmux-rd at $rd"; exit 1; }
