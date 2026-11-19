@@ -346,9 +346,10 @@ impl ThemeFile {
         let applied = self.applied(root, &Default::default());
         let terminal = theme_names(&applied, "appearance.theme").unwrap_or_default();
         let app = theme_names(&applied, "appearance.appTheme");
-        let mut looks = vec![(terminal.0.clone(), app.as_ref().map(|a| a.0.clone()))];
+        let light = (terminal.0, app.as_ref().map(|a| a.0.clone()));
         let dark = (terminal.1, app.as_ref().map(|a| a.1.clone()));
-        if dark != looks[0] {
+        let mut looks = vec![light];
+        if !looks.contains(&dark) {
             looks.push(dark);
         }
         looks
