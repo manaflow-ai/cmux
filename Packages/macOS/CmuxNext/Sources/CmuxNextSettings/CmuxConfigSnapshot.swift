@@ -280,6 +280,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var highlightColor: String?
     /// `appearance.accent`: where the chrome's accent comes from; neutral when unset or invalid.
     public var accent: ThemeAccent = AccentSetting.fallback
+    /// `appearance.selection`: what the selection fill takes; accent when unset or invalid.
+    public var selection: ThemeSelection = SelectionSetting.fallback
     /// `terminal.fontFamily`; nil (the Ghostty config's font) when unset or invalid.
     public var terminalFontFamily: String?
     /// `terminal.fontSize` in points; nil (the Ghostty config's size) when unset or invalid.
@@ -513,6 +515,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (accent, accentDiagnostic) = AccentSetting().parse(root)
         snapshot.accent = accent
         if let accentDiagnostic { snapshot.diagnostics.append(accentDiagnostic) }
+        let (selection, selectionDiagnostic) = SelectionSetting().parse(root)
+        snapshot.selection = selection
+        if let selectionDiagnostic { snapshot.diagnostics.append(selectionDiagnostic) }
         let (fontFamily, fontFamilyDiagnostic) = TerminalFontSetting().parseFamily(root)
         snapshot.terminalFontFamily = fontFamily
         if let fontFamilyDiagnostic { snapshot.diagnostics.append(fontFamilyDiagnostic) }

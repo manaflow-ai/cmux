@@ -197,7 +197,8 @@
         "layout.minimumPaneHeight",
         "appearance.theme",
         "appearance.appTheme",
-        "appearance.accent"
+        "appearance.accent",
+        "appearance.selection"
       ]
     },
     {
