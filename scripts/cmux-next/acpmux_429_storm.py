@@ -9,8 +9,9 @@ NIGHTLY's own acpmux: `--acpmux`), with a real Claude Code chat:
 
 - a local fake Anthropic Messages endpoint is the chat's ANTHROPIC_BASE_URL. It answers every request
   429 ("This request would exceed your account's rate limit") for `--storm` seconds, with or without a
-  Retry-After header (`--retry-after`), then answers each request with one short text reply that names
-  the report markers it was given;
+  Retry-After header (`--retry-after`), then answers like a coordinator: an inbox notice gets a Bash
+  call that reads every thread it names (`acpmux session inbox ... --mark-read`), anything else one
+  short text reply that names the report markers it was given;
 - an isolated acpmux daemon (its own HOME, ACPMUX_HOME and socket; nothing touches this host's daemon)
   runs the coordinator chat `coord` on the `claude` harness. Its first turn starts into the storm;
 - `--agents` senders (other agents: `acpmux send --from lane-K --no-wait --class question`) each send it
@@ -19,8 +20,9 @@ NIGHTLY's own acpmux: `--acpmux`), with a real Claude Code chat:
   attached and keep receiving events.
 
 It then waits for the chat to settle and counts, from the endpoint's own request log and the daemon's
-event journal: messages sent, messages that reached a completed turn, lost, duplicated (a marker given
-to the model as new input in more than one turn), model requests (and bytes, each a full-context resend)
+event journal: messages sent, messages that reached the model (given to it, in a prompt or an inbox
+read, by a request it answered), lost, duplicated (given to the model as new input by two answered
+requests, or twice in the conversation it last saw), model requests (and bytes, each a full-context resend)
 during the storm, the time from the lift to the first completed turn, and whether the attached client
 stayed attached. One JSON result and one markdown table row per run go to `--out`.
 
@@ -47,6 +49,7 @@ import http.server
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -89,37 +92,70 @@ class Endpoint:
                 f.write(json.dumps(row) + "\n")
 
 
-def last_user_markers(body: dict) -> list[str]:
-    """The markers in the request's last user message: what this request gives the model as new input."""
-    for msg in reversed(body.get("messages") or []):
-        if msg.get("role") != "user":
+INBOX_NOTICE = "[inbox] New messages"
+THREAD = re.compile(r"\(thread ([^)\s]+)\)")
+
+
+def blocks(msg: dict) -> list[dict]:
+    content = msg.get("content")
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}]
+    return [c for c in content or [] if isinstance(c, dict)]
+
+
+def block_text(b: dict) -> str:
+    if b.get("type") == "text":
+        return b.get("text", "")
+    if b.get("type") == "tool_result":
+        c = b.get("content")
+        if isinstance(c, str):
+            return c
+        return "\n".join(x.get("text", "") for x in c or [] if isinstance(x, dict))
+    return ""
+
+
+def given_markers(msg: dict) -> list[str]:
+    """The markers a user message gives the model: its texts and tool results (an inbox read), not the
+    inbox notice, which only previews each thread's newest message and points at the read."""
+    out = []
+    for b in blocks(msg):
+        t = block_text(b)
+        if b.get("type") == "text" and t.lstrip().startswith(INBOX_NOTICE):
             continue
-        content = msg.get("content")
-        texts = [content] if isinstance(content, str) else [
-            c.get("text", "") for c in content or [] if isinstance(c, dict) and c.get("type") == "text"
-        ]
-        found = []
-        for t in texts:
-            found += [m.group(0) for m in MARK.finditer(t)]
-        if found or any(isinstance(c, dict) and c.get("type") == "text" for c in (content if isinstance(content, list) else [])) or isinstance(content, str):
-            return found
-    return []
+        out += [m.group(0) for m in MARK.finditer(t)]
+    return out
+
+
+def last_user(body: dict) -> dict:
+    for msg in reversed(body.get("messages") or []):
+        if msg.get("role") == "user":
+            return msg
+    return {}
+
+
+def last_user_markers(body: dict) -> list[str]:
+    """The markers the request's last user message gives the model: this request's new input."""
+    return given_markers(last_user(body))
 
 
 def all_markers(body: dict) -> list[str]:
-    """Every marker in every user message of the request, with repeats: a repeat is a duplicate delivery."""
-    out = []
-    for msg in body.get("messages") or []:
-        if msg.get("role") != "user":
-            continue
-        content = msg.get("content")
-        texts = [content] if isinstance(content, str) else [
-            c.get("text", "") for c in content or [] if isinstance(c, dict) and c.get("type") == "text"
-        ]
-        for t in texts:
-            # A system reminder can quote an earlier message; count only lines that start with a marker.
-            out += [m.group(0) for m in MARK.finditer(t)]
-    return out
+    """Every marker every user message of the request gave the model, with repeats: a repeat is a message
+    the chat was given twice."""
+    return [m for msg in body.get("messages") or [] if msg.get("role") == "user" for m in given_markers(msg)]
+
+
+def inbox_threads(body: dict) -> list[str]:
+    """The threads an inbox notice in the last user message names, when that message holds no tool result
+    yet: the model then reads them, as a coordinator does."""
+    msg = last_user(body)
+    if any(b.get("type") == "tool_result" for b in blocks(msg)):
+        return []
+    threads = []
+    for b in blocks(msg):
+        t = block_text(b)
+        if INBOX_NOTICE in t:
+            threads += [x for x in THREAD.findall(t) if x not in threads]
+    return threads
 
 
 def make_handler(ep: Endpoint):
@@ -180,27 +216,45 @@ def make_handler(ep: Endpoint):
                            headers)
                 return
             row["status"] = 200
+            threads = inbox_threads(body) if any(
+                t.get("name") == "Bash" for t in body.get("tools") or [] if isinstance(t, dict)) else []
+            row["inbox_read"] = threads
             ep.record(row)
-            text = "ack " + (" ".join(row["new"]) if row["new"] else "ok")
             model = body.get("model") or "claude-fake"
+            msg_id = f"msg_{int(now * 1000)}"
+            usage_in = max(1, len(raw) // 4)
+            if threads:
+                # Read every thread the notice names, as a coordinator does, marking them read.
+                command = "; ".join(f'acpmux session inbox "$ACPMUX_SESSION_ID" --thread {shlex.quote(t)} --mark-read'
+                                    for t in threads)
+                block = {"type": "tool_use", "id": f"toolu_{msg_id}", "name": "Bash",
+                         "input": {"command": command, "description": "Read the inbox threads"}}
+                stop = "tool_use"
+            else:
+                block = {"type": "text", "text": "ack " + (" ".join(row["new"]) if row["new"] else "ok")}
+                stop = "end_turn"
             if not body.get("stream"):
                 self._json(200, {
-                    "id": f"msg_{int(now * 1000)}", "type": "message", "role": "assistant", "model": model,
-                    "content": [{"type": "text", "text": text}], "stop_reason": "end_turn", "stop_sequence": None,
-                    "usage": {"input_tokens": max(1, len(raw) // 4), "output_tokens": 5},
+                    "id": msg_id, "type": "message", "role": "assistant", "model": model, "content": [block],
+                    "stop_reason": stop, "stop_sequence": None,
+                    "usage": {"input_tokens": usage_in, "output_tokens": 5},
                 })
                 return
+            if block["type"] == "tool_use":
+                start = {**block, "input": {}}
+                delta = {"type": "input_json_delta", "partial_json": json.dumps(block["input"])}
+            else:
+                start = {"type": "text", "text": ""}
+                delta = {"type": "text_delta", "text": block["text"]}
             events = [
                 ("message_start", {"type": "message_start", "message": {
-                    "id": f"msg_{int(now * 1000)}", "type": "message", "role": "assistant", "model": model,
+                    "id": msg_id, "type": "message", "role": "assistant", "model": model,
                     "content": [], "stop_reason": None, "stop_sequence": None,
-                    "usage": {"input_tokens": max(1, len(raw) // 4), "output_tokens": 1}}}),
-                ("content_block_start", {"type": "content_block_start", "index": 0,
-                                         "content_block": {"type": "text", "text": ""}}),
-                ("content_block_delta", {"type": "content_block_delta", "index": 0,
-                                         "delta": {"type": "text_delta", "text": text}}),
+                    "usage": {"input_tokens": usage_in, "output_tokens": 1}}}),
+                ("content_block_start", {"type": "content_block_start", "index": 0, "content_block": start}),
+                ("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": delta}),
                 ("content_block_stop", {"type": "content_block_stop", "index": 0}),
-                ("message_delta", {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None},
+                ("message_delta", {"type": "message_delta", "delta": {"stop_reason": stop, "stop_sequence": None},
                                    "usage": {"output_tokens": 5}}),
                 ("message_stop", {"type": "message_stop"}),
             ]
@@ -214,11 +268,13 @@ def make_handler(ep: Endpoint):
     return Handler
 
 
-def clean_env(out: Path, base_url: str) -> dict:
-    """An environment with nothing of this host's acpmux, Claude Code or session in it."""
+def clean_env(out: Path, base_url: str, acpmux: str) -> dict:
+    """An environment with nothing of this host's acpmux, Claude Code or session in it. The build under
+    test is first on PATH, so the chat's own `acpmux` (its inbox reads) is that build too."""
     env = {k: os.environ[k] for k in ("PATH", "LANG", "LC_ALL", "TERM", "USER", "LOGNAME", "SHELL", "TZ") if k in os.environ}
     home = out / "home"
     env.update({
+        "PATH": f"{Path(acpmux).parent}:{env.get('PATH', '/usr/bin:/bin')}",
         "HOME": str(home), "XDG_CONFIG_HOME": str(home / ".config"), "XDG_DATA_HOME": str(home / ".local/share"),
         "XDG_STATE_HOME": str(home / ".local/state"), "XDG_CACHE_HOME": str(home / ".cache"),
         "XDG_RUNTIME_DIR": str(out / "run"), "TMPDIR": str(out / "tmp"),
@@ -302,8 +358,8 @@ def main_run(a: argparse.Namespace) -> int:
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), make_handler(ep))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     base_url = f"http://127.0.0.1:{server.server_address[1]}"
-    env = clean_env(out, base_url)
     acpmux = str(Path(a.acpmux).resolve())
+    env = clean_env(out, base_url, acpmux)
     version = run([acpmux, "--version"], env).stdout.strip()
     log("acpmux", version, "endpoint", base_url)
 
@@ -403,10 +459,7 @@ def storm(a, out: Path, ep: Endpoint, env: dict, acpmux: str, version: str, proc
     quiet_since = time.time()
     seen_n = -1
     while time.time() < deadline:
-        events = journal(out / "acpmux-home")
-        given, status, _ = turn_markers(events, sid)
-        done = {m for tid, ms in given.items() if status.get(tid) == "completed" for m in ms}
-        if set(markers) <= done:
+        if set(markers) <= received(list(ep.requests)):
             break
         n = len(ep.requests)
         if n != seen_n:
@@ -432,6 +485,12 @@ def is_main(r: dict) -> bool:
     return "haiku" not in str(r.get("model"))
 
 
+def received(requests: list[dict]) -> set[str]:
+    """The markers the chat's model was given and answered: new input of a request it answered 200."""
+    return {m for r in requests if r["path"].endswith("/v1/messages") and r["status"] == 200 and is_main(r)
+            for m in r["new"]}
+
+
 def tally(out: Path) -> dict:
     """The counts, from the run's files alone: `--recount DIR` gives the same result again."""
     meta = json.loads((out / "meta.json").read_text())
@@ -445,17 +504,15 @@ def tally(out: Path) -> dict:
     events = journal(out / "acpmux-home")
     given, status, results = turn_markers(events, sid)
     completed = [t for t, st in status.items() if st == "completed"]
-    done = {m for tid in completed for m in given.get(tid, [])}
-    # A duplicate: one message given to the chat as new input in two completed turns (journal), or to the
-    # chat's model as new input by two successful requests, or twice in the conversation the model last
-    # saw. Given again after a failed turn is the retry doing its job; it is counted apart.
-    in_completed: dict[str, int] = {}
+    # Reached: the chat's model was given the message (in a prompt, or in the result of its inbox read)
+    # and answered. A duplicate: given to the model as new input by two answered requests, or twice in
+    # the conversation the model last saw. Given in two turns' prompts after a failed turn is the
+    # retry doing its job; it is counted apart, from the journal.
+    done = received(model_requests)
     in_any: dict[str, int] = {}
     for tid, ms in given.items():
         for m in set(ms):
             in_any[m] = in_any.get(m, 0) + 1
-            if status.get(tid) == "completed":
-                in_completed[m] = in_completed.get(m, 0) + 1
     ok = [r for r in model_requests if r["status"] == 200 and is_main(r)]
     ok_new: dict[str, int] = {}
     for r in ok:
@@ -464,7 +521,7 @@ def tally(out: Path) -> dict:
     conv: dict[str, int] = {}
     for m in max(ok, key=lambda r: r["messages"], default={"all": []})["all"]:
         conv[m] = conv.get(m, 0) + 1
-    dup = sorted({m for m in markers if in_completed.get(m, 0) > 1 or ok_new.get(m, 0) > 1 or conv.get(m, 0) > 1})
+    dup = sorted({m for m in markers if ok_new.get(m, 0) > 1 or conv.get(m, 0) > 1})
     lost = sorted(m for m in markers if m not in done)
     refused = [x for x in sent if x["rc"] != 0]
     post = [at for at, _, st in results if st == "completed" and at >= lifted - 1]
@@ -480,7 +537,7 @@ def tally(out: Path) -> dict:
     res = {k: meta[k] for k in ("label", "acpmux", "harness", "agents", "interval_s", "storm_s", "retry_after",
                                 "session")}
     res.update({
-        "sent": len(sent), "send_refused": len(refused), "reached_completed_turn": len(done & set(markers)),
+        "sent": len(sent), "send_refused": len(refused), "reached_model": len(done & set(markers)),
         "lost": len(lost), "duplicated": len(dup),
         "given_in_more_than_one_turn": sum(1 for m in markers if in_any.get(m, 0) > 1),
         "model_requests_in_storm": len(in_storm), "main_model_requests_in_storm": len(main_storm),
@@ -500,7 +557,7 @@ def tally(out: Path) -> dict:
 
 COLUMNS = [
     ("acpmux", "build"), ("sent", "messages sent"), ("send_refused", "send refused"),
-    ("reached_completed_turn", "reached a completed turn"), ("lost", "lost"), ("duplicated", "duplicated"),
+    ("reached_model", "reached the model (answered)"), ("lost", "lost"), ("duplicated", "duplicated"),
     ("model_requests_in_storm", "model requests in storm"), ("main_model_requests_in_storm", "of them full-context (main model)"),
     ("model_bytes_in_storm", "request bytes in storm"),
     ("turns_started", "turns started"), ("turns_failed", "turns failed"),
