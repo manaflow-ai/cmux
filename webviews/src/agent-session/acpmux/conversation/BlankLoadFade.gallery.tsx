@@ -6,6 +6,7 @@
 // `pop` is the old behaviour, the rows drawn in one frame. Replay mounts it again.
 import { useEffect, useMemo, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
+import type { Play } from "../../../gallery/play";
 import { VirtualTranscript } from "../App";
 import type { AcpmuxRow } from "../model";
 import { MOTION_MS } from "../../../motion/scale.generated";
@@ -45,8 +46,16 @@ const SECOND: AcpmuxRow[] = [
 const FIRST_AT = 400;
 const READ_AT = 520;
 
+/// The capture moment of the timed arms: the stage is ready once the read's last row is drawn and
+/// its fade has settled (a play step settles on running animations), so a still shows the end
+/// state on every run instead of whatever the timers had reached when the DOM first went quiet.
+const LAST_ROW = SECOND[SECOND.length - 1]!.id;
+const atEnd: Play = ({ waitFor, document }) =>
+  waitFor(() => document.querySelector(`[data-blank-load-fade] [data-row-id="${LAST_ROW}"]`));
+
 function Sequence({ variant, frozen }: { variant: Variant; frozen: boolean }) {
   const [step, setStep] = useState(0);
+  // gallery-capture: the timed arms' play `atEnd` waits for the read's last row and its fade to settle.
   useEffect(() => {
     // The still: the rows land on the frame after the blank one and hold at the fade's midpoint.
     if (frozen) {
@@ -121,6 +130,7 @@ export default componentEntry<{ variant: Variant; frozen?: boolean }>({
   variants: {
     micro: {
       props: { variant: "micro" },
+      play: atEnd,
       note: `Selected: the host's fade-in token (micro, ${MOTION_MS.micro} ms), ease-out. Fast enough to read as a load, not an effect.`,
     },
     "micro-mid": {
@@ -129,20 +139,24 @@ export default componentEntry<{ variant: Variant; frozen?: boolean }>({
     },
     standard: {
       props: { variant: "standard" },
+      play: atEnd,
       note: `${MOTION_MS.standard} ms (standard), ease-out: softer, starts to read as an animation.`,
     },
     large: {
       props: { variant: "large" },
+      play: atEnd,
       note: `${MOTION_MS.large} ms (large), ease-out: the ceiling; visibly slow on a restart.`,
     },
     linear: {
       props: { variant: "linear" },
+      play: atEnd,
       note: `${MOTION_MS.micro} ms, linear: the text stays faint longer before it is legible.`,
     },
     stagger: {
       props: { variant: "stagger" },
+      play: atEnd,
       note: `${MOTION_MS.micro} ms with each row 16 ms after the last: reads as a cascade, not a load.`,
     },
-    pop: { props: { variant: "pop" }, note: "Before: no fade; the rows pop in from blank in one frame." },
+    pop: { props: { variant: "pop" }, play: atEnd, note: "Before: no fade; the rows pop in from blank in one frame." },
   },
 });
