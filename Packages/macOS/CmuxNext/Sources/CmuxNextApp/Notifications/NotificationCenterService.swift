@@ -293,10 +293,8 @@ final class NotificationCenterService {
         return (tab, onStrip)
     }
 
-    /// A window's settled focus changed (window key, app active, workspace or
-    /// keyboard target): the viewed tab counts as focused while the window is
-    /// key and cmux is active. The viewed-tab rules read it (one path for a
-    /// focus and for an unread mark that lands on a viewed tab).
+    /// A window's settled focus or key holder changed: the viewed-tab rules read it (one path for a focus and for an
+    /// unread mark that lands on a viewed tab); a tab is viewed while its window holds the keys and cmux is active.
     func focusDidSettle(_ state: FocusState, in controller: WindowController) {
         viewedRevision &+= 1
     }

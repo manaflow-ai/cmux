@@ -530,12 +530,7 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
         super.addChildWindow(childWin, ordered: place)
         if WindowOverlayLayer.isContent(childWin) { overlayLayer.evaluate() }
         WindowOverlayHost.childWindowsDidChange(of: self)
-        // A page window that took the keys before it was this window's child (an agent chat still
-        // loading when its pane was focused) holds this window's keyboard only from now on, and no
-        // key change comes with that: the viewed-tab rules look again, so its ring goes (cmux#46908).
-        if childWin.isChromiumPageWindow, let controller = windowController as? WindowController {
-            controller.services.notifications.focusDidSettle(controller.focus.state, in: controller)
-        }
+        if childWin.isChromiumPageWindow, let c = windowController as? WindowController { c.services.notifications.focusDidSettle(c.focus.state, in: c) } // a page window that took the keys first (a chat still loading) holds them only now, with no key change: look again (cmux#46908)
     }
 
     /// The display cycle's layout pass (`-[NSWindow layoutIfNeeded]`).
