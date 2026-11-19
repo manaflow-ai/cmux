@@ -456,6 +456,8 @@ type Props = {
   extraFolders?: ExtraFolderControl;
   /// New Worktree: a new chat on this Mac starts in a worktree of its folder (cx-lyqio.2).
   onNewWorktree?(cwd: string): void;
+  /// A GitHub repository picked for a new chat on this Mac (ComposerContext `onGitHubHere`).
+  onGitHubHere?(repo: string, candidates: string[]): void;
   /// A started chat's Choose folder…: the host's folder panel (see ComposerContext).
   onBrowseFolder?(): Promise<string | undefined>;
   /// The location row's SSH… and New Cloud Machine rows open the host's connect flows.
@@ -584,6 +586,7 @@ function ComposerFrame({
   onBrowseProject,
   extraFolders,
   onNewWorktree,
+  onGitHubHere,
   onBrowseFolder,
   onConnect,
   onOffload,
@@ -2513,6 +2516,7 @@ function ComposerFrame({
       onBrowseProject={onBrowseProject}
       {...(extraFolders ? { extraFolders } : {})}
       onNewWorktree={onNewWorktree}
+      {...(onGitHubHere ? { onGitHubHere } : {})}
       onBrowseFolder={onBrowseFolder}
       onConnect={onConnect}
       {...(onOffload ? { onOffload } : {})}

@@ -3281,7 +3281,9 @@ async fn dispatch_request_with_identity(
             let settled_key = match settled {
                 Some((_, Some(view))) => {
                     let key = view.key.clone();
-                    if let Some(reply) = settled_attach::reply(hub, conn, &s, view)? {
+                    if let Some(reply) =
+                        crate::qos::off_worker(|| settled_attach::reply(hub, conn, &s, view))?
+                    {
                         return Ok(reply);
                     }
                     Some(key)
@@ -3319,8 +3321,14 @@ async fn dispatch_request_with_identity(
                     &page_filter,
                 )
             };
-            let page = if hidden { read() } else { crate::qos::on_screen(read) }
-                .map_err(|e| RpcError::internal(e.to_string()))?;
+            // The page and its turn's prompt (`turn_opener.rs`) read the log from disk: off the
+            // runtime's workers, so a hello never waits behind them (`qos::off_worker`).
+            let (page, opener) = crate::qos::off_worker(|| {
+                let page = if hidden { read() } else { crate::qos::on_screen(read) }?;
+                let opener = turn_opener::turn_opener(hub, &s.id, &page);
+                anyhow::Ok((page, opener))
+            })
+            .map_err(|e| RpcError::internal(e.to_string()))?;
             // The newest page holds to the log's end; a page of older records, or a forward one
             // with more to read, only to its own last record.
             let through = if before.is_none() && (after.is_none() || !page.has_more) {
@@ -3328,8 +3336,6 @@ async fn dispatch_request_with_identity(
             } else {
                 events::newest_seq(&page.events)
             };
-            // The prompt of the turn the page starts inside, read with it (`turn_opener.rs`).
-            let opener = turn_opener::turn_opener(hub, &s.id, &page);
             hub.lane_report_events_read(conn.caller(), &s.id, &page.events);
             let events: Vec<Value> = events::values(&s.id, page.events);
             // Who has the chat open now (`hub/presence.rs`), this attachment included.
@@ -3385,7 +3391,8 @@ async fn dispatch_request_with_identity(
         super::controls::METHOD => super::controls::handle(hub, conn, &params),
         method::MUX_WATCH => super::list_reply::watch(hub, conn, &params).await,
         method::MUX_EVENTS | method::MUX_ATTACHMENT => {
-            events::handle(hub, m, &params, conn.caller())
+            // A page reads the log from disk: off the runtime's workers (`qos::off_worker`).
+            crate::qos::off_worker(|| events::handle(hub, m, &params, conn.caller()))
         }
         // A read, for whoever may read the log, as `_acpmux/events` (`hub/queue_text.rs`).
         method::MUX_QUEUE_TEXT => Box::pin(queue_text(hub, &params)).await,
