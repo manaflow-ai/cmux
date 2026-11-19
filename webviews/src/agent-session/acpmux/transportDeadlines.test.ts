@@ -13,7 +13,7 @@ afterEach(() => {
   delete fixture.cmuxAcpmuxMockSlowMs;
 });
 
-test("a slow but open daemon answers after the request progress threshold", async () => {
+test("a slow but open daemon answers after the request progress threshold, and the pane never says it waits on the service", async () => {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   fixture.cmuxAcpmuxMockSlowMethod = "_acpmux/process/kill";
@@ -25,16 +25,13 @@ test("a slow but open daemon answers after the request progress threshold", asyn
     releaseReply = resolve;
   });
   const socket = new MockAcpmuxSocket((ms) => (ms === SLOW_MS ? replyHeld : Promise.resolve()));
-  let sawWaiting = () => {};
-  const waiting = new Promise<void>((resolve) => {
-    sawWaiting = resolve;
-  });
+  let saidWaiting = false;
   let latest: { daemonWaitingSince?: number } | undefined;
   const client = await AcpmuxDirectClient.connect(
     mockHost,
     (snapshot) => {
       latest = snapshot;
-      if (snapshot.daemonWaitingSince !== undefined) sawWaiting();
+      if (snapshot.daemonWaitingSince !== undefined) saidWaiting = true;
     },
     undefined,
     () => socket as unknown as WebSocket,
@@ -50,18 +47,23 @@ test("a slow but open daemon answers after the request progress threshold", asyn
       20,
     );
     // The 20 ms deadline passes while the reply is held. On an open socket it is a progress
-    // threshold: the pane shows the daemon is waiting, and the request stays pending. A deadline
-    // that fails the request settles it here instead, and the test fails with that error.
+    // threshold: the request stays pending, and a deadline that failed it would settle it here.
+    // The daemon owes no answer yet (no probe is out), so the pane does not say it waits on the
+    // service: a long chat that is slow to read is not a service that is down.
+    const waitingRequests = () => (client as unknown as { waitingRequests: number }).waitingRequests;
     await Promise.race([
-      waiting,
+      (async () => {
+        while (waitingRequests() === 0) await new Promise((resolve) => setTimeout(resolve, 5));
+      })(),
       request.then(() => {
         throw new Error("the request settled before the daemon replied");
       }),
     ]);
+    expect(saidWaiting).toBe(false);
     releaseReply();
     await expect(request).resolves.toEqual({});
-    // The reply clears the waiting state.
     expect(latest?.daemonWaitingSince).toBeUndefined();
+    expect(saidWaiting).toBe(false);
   } finally {
     releaseReply();
     client.close();

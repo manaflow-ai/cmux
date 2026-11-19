@@ -146,11 +146,16 @@ test("a slow daemon that still answers keeps its socket and its long read", asyn
       () => (settled = true),
       () => (settled = true),
     );
+    // Each second as the pane draws it: whether it would say "Waiting for the agent service".
+    let saidWaiting = 0;
     for (let second = 0; second < 60; second++) {
       jest.advanceTimersByTime(1_000);
       await settle();
+      if ((client as unknown as { daemonWaitingSince?: number }).daemonWaitingSince !== undefined) saidWaiting++;
     }
-    // The daemon answered the pane's probe, so the long read is a slow one, never a lost socket.
+    // The daemon answered the pane's probe, so the long read is a slow one, never a lost socket,
+    // and never a service that is down: a long chat's slow read says nothing about the service.
+    expect(saidWaiting).toBe(0);
     expect(lost()).toBe(0);
     expect(settled).toBe(false);
     expect(socket.readyState).toBe(1);
