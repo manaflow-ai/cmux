@@ -629,7 +629,7 @@ impl Hub {
     /// return, against none for a small chat (`tests/stop_under_load.rs`). A caller dropped
     /// meanwhile (a stop aborts startup) leaves the read to end unobserved; what it found is
     /// applied by the caller, after it.
-    async fn read_log<T: Send + 'static>(
+    async fn read_whole_log<T: Send + 'static>(
         self: &Arc<Self>,
         session: &Arc<Session>,
         read: impl FnOnce(&Hub, &Session) -> T + Send + 'static,
@@ -651,7 +651,9 @@ impl Hub {
         let incarnation = record.incarnation.clone();
         let of = incarnation.clone();
         if session.meta().remote_origin
-            && !self.read_log(session, move |hub, s| hub.remote_host_env_current(s, &of)).await?
+            && !self
+                .read_whole_log(session, move |hub, s| hub.remote_host_env_current(s, &of))
+                .await?
         {
             let dir = agent_host::hosts_dir();
             let ended = end_host_blocking(
@@ -676,7 +678,7 @@ impl Hub {
         }
         let of = incarnation.clone();
         let (resume_after, subagents, turn_open) = self
-            .read_log(session, move |hub, s| {
+            .read_whole_log(session, move |hub, s| {
                 (hub.last_host_seq(s, &of), hub.subagents_in_log(s), hub.log_turn_open(s))
             })
             .await?;
@@ -812,8 +814,9 @@ impl Hub {
             return Ok(());
         }
         let of = incarnation.clone();
-        let work =
-            self.read_log(session, move |hub, s| hub.recovery_work(s, &of, resume_after)).await?;
+        let work = self
+            .read_whole_log(session, move |hub, s| hub.recovery_work(s, &of, resume_after))
+            .await?;
         // Handed on before recovery, which may take the family gate itself.
         if let (Some(record), Some(hold)) = (child.host_record(), hold.take()) {
             let told = replayed && adopted.version >= agent_host::QUEUED_VERSION;
