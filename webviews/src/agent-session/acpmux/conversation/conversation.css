@@ -673,6 +673,10 @@
 .cv-user:not(:hover, :focus-within) .cv-user__actions--pending .cv-message-footer-row > :not(.cv-user__pending-state) {
   opacity: 0;
 }
+/* The keyboard's row stop brings them too (as specific, and later, so it wins). */
+.acpmux-user:focus-visible .cv-user__actions--pending .cv-message-footer-row > :not(.cv-user__pending-state) {
+  opacity: 1;
+}
 /* Four classes: the age's rule (.cv-user__time, later in this file) is three and made this slot
    inline-block, so its flex centring and gap never applied: the clock sat on the words' baseline,
    2px from them (Leo, 2026-11-14: "this is misaligned"). The clock is centred on the words' line
@@ -972,6 +976,9 @@
 }
 .cv-user:hover .cv-user__actions,
 .cv-user:has([data-popup-open]) .cv-user__actions,
+/* A prompt row the keyboard is on (the transcript's roving row stop) shows its row, as a reply's and a
+   turn footer's do, so its actions are never pointer only. */
+.acpmux-user:focus-visible .cv-user__actions,
 .cv-user__actions:focus-within,
 .cv-user__actions:has([aria-haspopup="menu"][aria-expanded="true"]),
 .cv-user__actions--versions {
@@ -7372,7 +7379,11 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 }
 .cv-user:hover .cv-user__queued-hover,
 .cv-user:has([data-popup-open]) .cv-user__queued-hover,
-.cv-user__pending:focus-within .cv-user__queued-hover,
+/* The keyboard shows the same group the pointer does, in the room it always keeps (G03): focus
+   anywhere in the prompt (Tab onto Send now or a hidden button), or the transcript's roving row stop
+   on its row, as a reply's and a turn footer's rows show on that focus. */
+.cv-user:focus-within .cv-user__queued-hover,
+.acpmux-user:focus-visible .cv-user__queued-hover,
 .cv-user__queued-hover:has([aria-haspopup="menu"][aria-expanded="true"]) {
   opacity: 1;
 }
