@@ -869,7 +869,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         // `--json` or `--timings`: the create as one step, its answer with `stages` (the create answered, `total`).
         if app_present
             && new_route(tail, app_present) == NewRoute::App
-            && (timings || matches!(global.output, super::OutputMode::Json))
+            && (timings || global.output == OutputMode::Json)
             && let Some(code) = super::start_stages::app_create(&global, tail, timings)
         {
             return Some(code);
