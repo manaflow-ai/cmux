@@ -295,12 +295,21 @@ function startFile(): void {
   mocked.clear();
 }
 
+/// Globals a library adds once, at its first evaluation, and keeps for the process: added by whichever
+/// file loads it first, never again. Each is named with its reason; there is no general rule for
+/// module scope.
+const LIBRARY_GLOBALS: ReadonlyMap<string, string> = new Map([
+  // seroval defines it on globalThis when it loads (node_modules/seroval/dist/index.js).
+  ["__SEROVAL_REFS__", "library global created once at first evaluation, bounded"],
+]);
+
 function leakedGlobals(start: FileStart): string[] {
   const leaks: string[] = [];
   const now = new Set(globalKeys());
   for (const key of now) {
-    if (!start.globals.has(key)) leaks.push(`global: \`${key}\` was added and not removed`);
-    else if (!sameDescriptor(start.globals.get(key), Object.getOwnPropertyDescriptor(globalThis, key)))
+    if (!start.globals.has(key)) {
+      if (!LIBRARY_GLOBALS.has(key)) leaks.push(`global: \`${key}\` was added and not removed`);
+    } else if (!sameDescriptor(start.globals.get(key), Object.getOwnPropertyDescriptor(globalThis, key)))
       leaks.push(`global: \`${key}\` was replaced and not restored`);
   }
   for (const key of start.globals.keys())
