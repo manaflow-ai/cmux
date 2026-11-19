@@ -519,6 +519,11 @@ async fn dispatch_brief(
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, &original, &mut params);
         // Its session there is this caller's (a workflow's remote activity: its owning agent).
         crate::hub::merge_mux_meta(&mut params, created_by_stamp(hub, conn, &original));
+        // Its chat there follows this Mac's answer to cmux's tools (`cmux_tools_answer.rs`).
+        crate::hub::cmux_tools_answer::stamp(
+            &mut params,
+            crate::hub::cmux_tools_answer::here(crate::user_settings::text().as_deref()),
+        );
         let mut result = match peer.request_on(method::MUX_DISPATCH, params, epoch).await {
             Ok(result) => result,
             Err(e) => {
@@ -608,6 +613,12 @@ async fn dispatch_brief(
             params.pointer(&format!("/_meta/acpmux/{}", crate::hub::created_by::FIELD))
         {
             obj.insert(crate::hub::created_by::FIELD.into(), by.clone());
+        }
+        // The forwarding Mac's answer to cmux's tools; the session/new below takes it from a
+        // peer daemon only (`cmux_tools_answer::asked`).
+        let answer = format!("/_meta/acpmux/{}", crate::hub::cmux_tools_answer::FIELD);
+        if let Some(answer) = params.pointer(&answer) {
+            obj.insert(crate::hub::cmux_tools_answer::FIELD.into(), answer.clone());
         }
     }
     if durable && let Some(ceiling) = params.get("allowedTools") {
@@ -1341,7 +1352,7 @@ async fn dispatch_request_with_identity(
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, crate::hub::release_to_watch::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::sender_token::FEATURE, crate::hub::register::AUTO_FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", crate::config::chief_builtins::BRAIN_PRESETS_FEATURE, "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, crate::hub::release_to_watch::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::sender_token::FEATURE, crate::hub::register::AUTO_FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE], "trustGate": true}}
             });
             // This link carries the v2 list stream (`link_v2.rs`): the one change `peers` makes
             // to what v1 sends a link.
@@ -1536,70 +1547,10 @@ async fn dispatch_request_with_identity(
             };
             hub.person.enroll(key, verified)
         }
-        method::MUX_COMPUTER_USE_ENROLL => {
-            // Private lifecycle RPC: no CLI/MCP/palette/WebSocket/remote-relay
-            // surface. It carries a per-launch credential only on a local
-            // socket whose peer is the signed app containing this daemon.
-            if conn.origin != Origin::Local {
-                return Err(RpcError::invalid_params(
-                    "_acpmux/computer_use_enroll is accepted only over the local unix socket",
-                ));
-            }
-            if !cmux_link::app_caller::signed_app_build() {
-                return Err(RpcError::invalid_params(
-                    "an unsigned daemon takes Computer Use credentials only at spawn",
-                ));
-            }
-            let Some(token) = conn.peer.as_ref() else {
-                return Err(RpcError::invalid_params("the peer's audit token is unknown"));
-            };
-            if let Err(why) = cmux_link::app_caller::verify_containing_app(token) {
-                tracing::warn!("computer_use_enroll refused: {why}");
-                return Err(RpcError::invalid_params(
-                    "only the cmux app that contains this daemon may enroll Computer Use",
-                ));
-            }
-            let socket = params
-                .get("socket")
-                .and_then(Value::as_str)
-                .ok_or_else(|| RpcError::invalid_params("socket must be a string"))?;
-            let agent_token = params
-                .get("agentToken")
-                .and_then(Value::as_str)
-                .ok_or_else(|| RpcError::invalid_params("agentToken must be a string"))?;
-            if socket.len() > 4096 || agent_token.len() > 4096 {
-                return Err(RpcError::invalid_params(
-                    "the Computer Use socket and agent token must each be at most 4096 bytes",
-                ));
-            }
-            crate::cua_socket::enroll(socket.to_owned(), agent_token.to_owned());
-            Ok(json!({"enrolled": true}))
-        }
-        method::MUX_COMPUTER_USE_ENDPOINT => {
-            // What a new local session's `cmux-cua` server would get now. A chat that
-            // outlived an app relaunch holds the old launch's agent token in its spawn env;
-            // its `cmux mcp serve` asks here and restarts its proxy with this one
-            // (`cmux-tui` `cli/mcp/cua_recovery.rs`). Only a proven local session that
-            // gets computer use at spawn (never a remote-origin one) reads it.
-            if conn.origin != Origin::Local {
-                return Err(RpcError::invalid_params(
-                    "_acpmux/computer_use_endpoint is accepted only over the local unix socket",
-                ));
-            }
-            let Some(caller) = conn.caller() else {
-                return Err(RpcError::new(-32001, "only a proven acpmux session may ask"));
-            };
-            if hub.resolve(caller)?.meta().remote_origin {
-                return Err(RpcError::new(-32001, "a remote-origin session gets no computer use"));
-            }
-            Ok(match crate::cua_socket::from_env() {
-                Some(socket) => json!({
-                    "socket": socket.path.to_string_lossy(),
-                    "agentToken": socket.token,
-                }),
-                None => json!({"socket": null}),
-            })
-        }
+        // Computer Use on another of the person's machines (`computer_use_relay.rs`).
+        method::MUX_COMPUTER_USE_CALL => super::computer_use_relay::call(hub, conn, &params).await,
+        method::MUX_COMPUTER_USE_MACHINES => super::computer_use_relay::machines(hub, conn).await,
+        method::MUX_COMPUTER_USE_STATE => super::computer_use_relay::state(hub, conn).await,
         method::SESSION_NEW => {
             // A peer name in _meta.acpmux.peer creates the session on that daemon.
             if let Some(peer_name) =
@@ -1621,6 +1572,11 @@ async fn dispatch_request_with_identity(
                 }
                 let mut p = params.clone();
                 super::peer_forward::strip_new_meta(&mut p);
+                // The chat there follows this Mac's answer to cmux's tools (`cmux_tools_answer.rs`).
+                crate::hub::cmux_tools_answer::stamp(
+                    &mut p,
+                    crate::hub::cmux_tools_answer::here(crate::user_settings::text().as_deref()),
+                );
                 super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
                 // An approved no-prompt preset's chat runs unattended there (`unattended_presets.rs`).
                 let unattended =
@@ -1719,6 +1675,13 @@ async fn dispatch_request_with_identity(
                 .await?;
             }
             let mut env = crate::session_env::parse(meta)?;
+            // A chat started from another Mac follows that Mac's answer (`cmux_tools_answer.rs`).
+            if let Some(answer) = crate::hub::cmux_tools_answer::asked(conn.auth, &params) {
+                env.insert(
+                    crate::hub::cmux_tools_answer::TOOLS_ANSWER_ENV.to_owned(),
+                    answer.to_owned(),
+                );
+            }
             if fixed_id.is_some()
                 && let Some(ceiling) = meta.and_then(|meta| meta.get("workflowAllowedTools"))
             {
@@ -3313,7 +3276,9 @@ async fn dispatch_request_with_identity(
             let settled_key = match settled {
                 Some((_, Some(view))) => {
                     let key = view.key.clone();
-                    if let Some(reply) = settled_attach::reply(hub, conn, &s, view)? {
+                    if let Some(reply) =
+                        crate::qos::off_worker(|| settled_attach::reply(hub, conn, &s, view))?
+                    {
                         return Ok(reply);
                     }
                     Some(key)
@@ -3351,8 +3316,14 @@ async fn dispatch_request_with_identity(
                     &page_filter,
                 )
             };
-            let page = if hidden { read() } else { crate::qos::on_screen(read) }
-                .map_err(|e| RpcError::internal(e.to_string()))?;
+            // The page and its turn's prompt (`turn_opener.rs`) read the log from disk: off the
+            // runtime's workers, so a hello never waits behind them (`qos::off_worker`).
+            let (page, opener) = crate::qos::off_worker(|| {
+                let page = if hidden { read() } else { crate::qos::on_screen(read) }?;
+                let opener = turn_opener::turn_opener(hub, &s.id, &page);
+                anyhow::Ok((page, opener))
+            })
+            .map_err(|e| RpcError::internal(e.to_string()))?;
             // The newest page holds to the log's end; a page of older records, or a forward one
             // with more to read, only to its own last record.
             let through = if before.is_none() && (after.is_none() || !page.has_more) {
@@ -3360,8 +3331,6 @@ async fn dispatch_request_with_identity(
             } else {
                 events::newest_seq(&page.events)
             };
-            // The prompt of the turn the page starts inside, read with it (`turn_opener.rs`).
-            let opener = turn_opener::turn_opener(hub, &s.id, &page);
             hub.lane_report_events_read(conn.caller(), &s.id, &page.events);
             let events: Vec<Value> = events::values(&s.id, page.events);
             // Who has the chat open now (`hub/presence.rs`), this attachment included.
@@ -3417,7 +3386,8 @@ async fn dispatch_request_with_identity(
         super::controls::METHOD => super::controls::handle(hub, conn, &params),
         method::MUX_WATCH => super::list_reply::watch(hub, conn, &params).await,
         method::MUX_EVENTS | method::MUX_ATTACHMENT => {
-            events::handle(hub, m, &params, conn.caller())
+            // A page reads the log from disk: off the runtime's workers (`qos::off_worker`).
+            crate::qos::off_worker(|| events::handle(hub, m, &params, conn.caller()))
         }
         // A read, for whoever may read the log, as `_acpmux/events` (`hub/queue_text.rs`).
         method::MUX_QUEUE_TEXT => Box::pin(queue_text(hub, &params)).await,
