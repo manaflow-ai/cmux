@@ -80,7 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         super.init()
     }
 
-    func applicationDidFinishLaunching(_ notification: Notification) { DebugTimings.markLaunch("app.did_finish_launching_entry")
+    func applicationDidFinishLaunching(_ notification: Notification) { LaunchFrameworkWarmup.start(); DebugTimings.markLaunch("app.did_finish_launching_entry")
         // task-owner: cloudBootstrap; awaits the CLI read `main` started (its cancel kills that CLI) before services, then the cache refresh after the first frame, cancelled at termination.
         cloudBootstrap = Task { [weak self, cloudEnvironment] in
             guard let self else { return }
