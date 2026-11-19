@@ -7,12 +7,13 @@
 // answers stacked as rows, the question card's). Each look in its pending and answered states, with Yes and No, and with a list of answers.
 import type React from "react";
 import { componentEntry } from "../../../gallery/format";
+import type { PlayContext } from "../../../gallery/play";
 import { nextStepAsk, chosenAnswer } from "./nextStepAsk";
 import { NextStepCard } from "./NextStepCard";
 
 type Look = "box" | "recap" | "inline" | "consent" | "list";
 type Palette = "glass-dark" | "light-accent";
-type Props = { look: Look; text: string; reply?: string; palette?: Palette };
+type Props = { look: Look; text: string; reply?: string; palette?: Palette; lines?: number | "none" };
 
 // Themes the shipped box must stay readable in, set as the app's applyTheme would (theme.ts): a dark
 // theme on a translucent window over a bright wallpaper, where --agent-page-bg is see-through glass
@@ -45,7 +46,12 @@ const PROSE =
 const YES_NO = `${PROSE}\n\n[outward] Should I add a hook that pushes known-slow commands to the background? It applies to every lane.`;
 const CHOICES = `${PROSE}\n\n[taste] Which fix first?\n- Add the hook\n- Not now\n- Fix CI`;
 
-function NextStepInPane({ look, text, reply, palette }: Props) {
+// A coordinator's [irreversible] deploy ask much longer than a card's width (Leo, 2026-11-11: the ask
+// was cut mid-word and could not be read): the whole of it wraps, and past the cap Show more opens the
+// rest in place, the answers under it in their order.
+const LONG = `${PROSE}\n\n[irreversible] Should I promote tonight's nightly to everyone now? It carries the session store migration, which rewrites every saved chat on first launch, keeps no copy of the old store once it finishes, and cannot be rolled back on a machine that has run it, so a bug in it would reach every chat everyone has, including the archived ones and the ones synced from another computer. The canary group ran it for six hours with no crash reports, but only twelve machines were in it, none of them with more than two thousand chats, so are you fine with promoting it before a bigger store has run it? The canary log and the migration's dry run on a copy of the biggest store we have are linked in the lane.`;
+
+function NextStepInPane({ look, text, reply, palette, lines }: Props) {
   const ask = nextStepAsk(text)!;
   return (
     <div
@@ -57,6 +63,9 @@ function NextStepInPane({ look, text, reply, palette }: Props) {
         gap: 12,
         padding: 16,
         ...(palette ? PALETTES[palette] : {}),
+        ...(lines === undefined
+          ? {}
+          : ({ "--acpmux-next-step-lines": lines === "none" ? "none" : String(lines) } as React.CSSProperties)),
       }}
     >
       <p style={{ margin: 0, color: "var(--agent-text)" }}>{ask.rest}</p>
@@ -73,6 +82,20 @@ function NextStepInPane({ look, text, reply, palette }: Props) {
 const variant = (look: Look, text: string, reply: string | undefined, note: string, palette?: Palette) => ({
   note,
   props: { look, text, reply, palette },
+});
+
+const long = (note: string, lines?: number | "none", open = false) => ({
+  note,
+  height: 560,
+  props: { look: "box" as Look, text: LONG, lines },
+  ...(open
+    ? {
+        play: async (ctx: PlayContext) => {
+          await ctx.click({ selector: ".acpmux-next-step__more" });
+          await ctx.waitFor(() => Boolean(ctx.document.querySelector(".acpmux-next-step__text[data-whole]")));
+        },
+      }
+    : {}),
 });
 
 export default componentEntry({
@@ -119,6 +142,19 @@ export default componentEntry({
       YES_NO,
       "Only for lanes, not coordinators",
       "Shipped: a typed reply reads as the answer.",
+    ),
+    "box-long": long(
+      "Shipped: a very long ask shows its first eight lines, wrapped at word breaks, with Show more under them; the answers stay under it.",
+    ),
+    "box-long-open": long(
+      "Shipped, Show more opened: the whole ask in place, Show less under it, the answers in the same order under that.",
+      undefined,
+      true,
+    ),
+    "box-long-four-lines": long("Alternative: a four-line cap, the hat's density, more clicks to read an ask.", 4),
+    "box-long-whole": long(
+      "Alternative: no cap, the whole ask always, as Claude's question card; a long ask pushes its answers far down.",
+      "none",
     ),
     "recap-choices": variant(
       "recap",
