@@ -21,9 +21,11 @@ const setting = (name: string) => (cmux.app.settings() as Record<string, unknown
 const ciOn = computed(() => setting("ci") !== false)
 const fleetOn = computed(() => setting("fleet") !== false)
 
-// One watch each, shared by every mount of this extension.
-const chats = cmux.watch("chat.list")
-const usage = computed(() => providers((chats.value() ?? []) as ChatRow[]))
+// Each mount opens its watches inside its render (the runtime shares one read per source).
+function usageWatch() {
+  const w = cmux.watch("chat.list")
+  return computed(() => providers((w.value() ?? []) as ChatRow[]))
+}
 
 function changesWatch() {
   const w = cmux.watch("github.changes", () => ({ show: "mine", include: "open", limit: 10 }))
@@ -104,6 +106,7 @@ function section(title: string, children: Array<View | (() => unknown) | null>):
 }
 
 function usageSection(): View {
+  const usage = usageWatch()
   // No timer: a countdown is redrawn when its row changes (chat.changed fires on every turn).
   return section("Usage", [
     () => (usage().length === 0 ? Text("No usage yet: start a Claude Code or Codex chat.").color(cmux.theme.text.secondary) : null),
@@ -148,6 +151,7 @@ export const renderNewTab = newTab(() =>
 // ── Widget ─────────────────────────────────────────────────────────────────────────────────────
 
 function usageTile(ctx: WidgetContext): View {
+  const usage = usageWatch()
   const first = () => usage()[0]
   if (ctx.size === "small") {
     return VStack({ spacing: 4, alignment: "center" }, [
@@ -191,11 +195,12 @@ export const renderWidget = widget((ctx) => {
   const key = `show:${ctx.instance}`
   let live = true
   onCleanup(() => (live = false))
-  if (!ctx.preview) void cmux.storage.get<Show>(key).then((s) => live && s && SHOWS.includes(s) && setShow(s))
+  // The switch is kept per tile; storage failing only means the tile starts on usage.
+  if (!ctx.preview) cmux.storage.get<Show>(key).then((s) => live && s && SHOWS.includes(s) && setShow(s), () => undefined)
   const next = () => {
     const s = SHOWS[(SHOWS.indexOf(show()) + 1) % SHOWS.length]!
     setShow(s)
-    if (!ctx.preview) void cmux.storage.set(key, s)
+    if (!ctx.preview) cmux.storage.set(key, s).catch(() => undefined)
   }
   // A switch rebuilds the tile, so only the shown source's watch runs.
   return ForEach({ items: () => [show()], key: (s) => s }, (s) =>
