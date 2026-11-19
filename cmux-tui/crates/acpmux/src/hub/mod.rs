@@ -376,6 +376,7 @@ pub(crate) mod remote_sandbox;
 mod review_brief;
 pub(crate) mod review_queue;
 mod touched;
+mod transcript_read;
 mod transcript_search;
 pub mod vm_boundary;
 pub use vm_boundary::vm_boundary_peer_approves;

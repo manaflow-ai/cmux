@@ -213,6 +213,11 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             method::MUX_TRANSCRIPT_SEARCH,
             Run(json!({"harnessSessionId": "no-such-session", "query": "echo"})),
         ),
+        // The same session: the read finds no transcript of it and says so (not found).
+        (
+            method::MUX_TRANSCRIPT_READ,
+            Run(json!({"harnessSessionId": "no-such-session", "line": 1})),
+        ),
         // This connection is `Origin::Local`, so the brief folds the chat's own log.
         (method::MUX_REVIEW_BRIEF, Run(json!({"sessionId": "$S"}))),
         (method::MUX_DRAFT_GET, Run(json!({"sessionId": "$S"}))),
