@@ -72,7 +72,10 @@ mod unix {
                     .into_iter()
                     .filter_map(|(relative, path)| {
                         let meta = std::fs::symlink_metadata(&path).ok()?;
-                        let mtime = meta.mtime() * 1_000_000_000 + meta.mtime_nsec();
+                        let mtime = meta
+                            .mtime()
+                            .saturating_mul(1_000_000_000)
+                            .saturating_add(meta.mtime_nsec());
                         Some(item(relative, Kind::File, meta.len(), mtime, None))
                     })
                     .collect();
@@ -122,7 +125,9 @@ mod unix {
             } else if meta.is_file() {
                 match std::fs::File::open(&path).and_then(|opened| opened.metadata()) {
                     Err(error) if gone(&error) => continue,
-                    other => drop(other?),
+                    other => {
+                        other?;
+                    }
                 }
                 out.push((relative, path));
             }

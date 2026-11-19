@@ -184,12 +184,10 @@ fn list<R: Rules>(
             Err(error) if swapped(&error) => {
                 if let Some(stat) = stat_at(parent.as_raw_fd(), &name)?
                     && stat.st_mode & libc::S_IFMT != libc::S_IFDIR
-                {
-                    if let Some(entry) =
+                    && let Some(entry) =
                         entry_of(rules, parent.as_raw_fd(), &name, &job.relative, &stat)?
-                    {
-                        found.push((job.relative, entry));
-                    }
+                {
+                    found.push((job.relative, entry));
                 }
                 return Ok(Vec::new());
             }
@@ -336,9 +334,7 @@ fn stat_of(stat: &libc::stat) -> Stat {
     Stat {
         mode: u32::try_from(widen(stat.st_mode) & 0o7777).unwrap_or(0),
         size: widen(stat.st_size),
-        mtime_ns: i64::from(stat.st_mtime)
-            .saturating_mul(1_000_000_000)
-            .saturating_add(i64::from(stat.st_mtime_nsec)),
+        mtime_ns: stat.st_mtime.saturating_mul(1_000_000_000).saturating_add(stat.st_mtime_nsec),
         dev: widen(stat.st_dev),
         ino: widen(stat.st_ino),
     }
