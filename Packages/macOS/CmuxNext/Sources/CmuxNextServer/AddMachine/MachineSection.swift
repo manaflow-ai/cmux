@@ -29,6 +29,14 @@ public nonisolated enum MachineKind: String, Hashable, Sendable, CaseIterable {
     /// A machine that joined through the hub (a pair code or a one-line token) and that the app reaches
     /// through the mesh alone. A joined machine the app also connects to keeps that link's kind.
     case joined
+
+    /// Classifies an existing link; a signed-in joined identity is supplied by the catalog separately.
+    public static func linked(isLocal: Bool, hasCloud: Bool, hasSSH: Bool) -> Self {
+        if isLocal { return .local }
+        if hasCloud { return .cloud }
+        if hasSSH { return .ssh }
+        return .server
+    }
 }
 
 /// What the machine's server says about a Cloud machine that is not simply running: a settled state

@@ -1,13 +1,45 @@
+import CmuxNextAgentPane
 import CmuxNextServer
 @testable import CmuxNextAgentLanes
 import CmuxNextSidebar
 import Foundation
+import Observation
 import Testing
 
 /// The Hosts section is a transient projection of the Machines page rows. These tests keep its
 /// identity, state words and click routing independent of the app composition root.
 @MainActor
 struct HostsSidebarTests {
+    @Observable @MainActor
+    private final class LabsFlag {
+        var value = false
+    }
+
+    private actor PeerReads {
+        var count = 0
+        func read() -> [AcpmuxPeerList.Peer]? { count += 1; return nil }
+        func value() -> Int { count }
+    }
+
+    private static func settle(_ done: () async -> Bool) async -> Bool {
+        for _ in 0..<200 {
+            if await done() { return true }
+            await Task.yield()
+        }
+        return await done()
+    }
+
+    @Test func disablingWithoutRenderingStopsAging() async {
+        let flag = LabsFlag()
+        flag.value = true
+        var stops = 0
+        let hosts = HostsSidebar(host: .init(rows: { [] }, add: {}, openConnected: { _ in }, openJoined: { _ in },
+            enabled: { flag.value }, refresh: {}, startAging: { _, _ in }, stopAging: { _ in stops += 1 }))
+        defer { hosts.stop() }
+        flag.value = false
+        #expect(await Self.settle { stops == 1 })
+    }
+
     private static func machine(_ id: String, _ name: String, connected: Bool = true, connecting: Bool = false,
                                 failed: Bool = false, failure: String? = nil,
                                 state: MachineServerState? = nil, kind: MachineKind = .ssh) -> MachineSectionRow {
@@ -140,5 +172,50 @@ struct HostsSidebarTests {
         _ = hosts.rows()
         await Task.yield()
         #expect(refreshes == 1 && agingStarts == 1)
+    }
+
+    @Test func disabledLabsNeverBindsRemoteAndStopPreventsARebind() async {
+        let flag = LabsFlag()
+        let reads = PeerReads()
+        let host = HostsSidebar.Host(rows: { [] }, add: {}, openConnected: { _ in }, openJoined: { _ in },
+                                     enabled: { flag.value })
+        let remoteHost = RemoteMachinesSidebar.Host(
+            peers: { await reads.read() },
+            older: { _, _ in nil }, displayName: { _ in nil }, open: { _ in })
+        let sections = SidebarMachineSections()
+        sections.bind(host: host, visible: { true }, socketPath: nil, displayName: { _ in nil }, open: { _ in },
+                      remoteHost: remoteHost)
+        for _ in 0..<3 { await Task.yield() }
+        #expect(await reads.value() == 0)
+
+        flag.value = true
+        #expect(await Self.settle { await reads.value() > 0 })
+
+        flag.value = false
+        for _ in 0..<3 { await Task.yield() }
+        let readsAfterDisable = await reads.value()
+        sections.peerStateChanged(peer: "remote", state: "connected")
+        for _ in 0..<3 { await Task.yield() }
+        #expect(await reads.value() == readsAfterDisable)
+
+        sections.stop()
+        flag.value = true
+        for _ in 0..<3 { await Task.yield() }
+        #expect(await reads.value() == readsAfterDisable)
+    }
+
+    @Test func stopCancelsARefreshQueuedByBind() async {
+        var refreshes = 0
+        var agingStarts = 0
+        var agingStops = 0
+        let hosts = HostsSidebar()
+        hosts.bind(host: .init(rows: { [] }, add: {}, openConnected: { _ in }, openJoined: { _ in },
+                               refresh: { refreshes += 1 },
+                               startAging: { _, _ in agingStarts += 1 }, stopAging: { _ in agingStops += 1 }))
+        hosts.stop()
+        for _ in 0..<3 { await Task.yield() }
+        #expect(refreshes == 0)
+        #expect(agingStarts == 1 && agingStops == 1)
+        #expect(hosts.rows().isEmpty)
     }
 }

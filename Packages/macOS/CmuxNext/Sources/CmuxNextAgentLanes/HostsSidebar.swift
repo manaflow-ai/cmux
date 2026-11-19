@@ -1,5 +1,6 @@
 public import CmuxNextServer
 public import CmuxNextSidebar
+import CmuxNextCompat
 import Foundation
 public import Observation
 
@@ -79,7 +80,9 @@ public final class HostsSidebar {
 
     @ObservationIgnored private var host: Host?
     @ObservationIgnored private var initialRefresh: Task<Void, Never>?
+    @ObservationIgnored private var enabledWatch: Task<Void, Never>?
     @ObservationIgnored private var visible: @MainActor () -> Bool = { true }
+    @ObservationIgnored private var running = false
     public private(set) var expanded = true
 
     public init(host: Host? = nil, visible: @escaping @MainActor () -> Bool = { true }) {
@@ -87,35 +90,68 @@ public final class HostsSidebar {
         self.visible = visible
         if let host {
             start(host, visible: visible)
+            watch()
         }
     }
 
     public func bind(host: Host, visible: @escaping @MainActor () -> Bool = { true }) {
+        enabledWatch?.cancel()
         initialRefresh?.cancel()
+        initialRefresh = nil
         if let previous = self.host { stop(previous) }
         self.host = host
         self.visible = visible
         start(host, visible: visible)
+        watch()
+    }
+
+    private func watch() {
+        enabledWatch = Task { [weak self] in
+            for await enabled in ObservationStream({ [weak self] in self?.host?.enabled() == true }) {
+                guard let self, !Task.isCancelled, let host = self.host else { return }
+                if enabled {
+                    if !self.running { self.start(host, visible: self.visible) }
+                } else if self.running {
+                    self.initialRefresh?.cancel()
+                    self.initialRefresh = nil
+                    self.stop(host)
+                }
+            }
+        }
     }
 
     public func stop() {
+        enabledWatch?.cancel()
+        enabledWatch = nil
         initialRefresh?.cancel()
         initialRefresh = nil
         if let host { stop(host) }
+        host = nil
+    }
+
+    /// The Labs switch is read by the owning section so remote work can stop immediately when it turns off.
+    public var isEnabled: Bool { host?.enabled() == true }
+
+    nonisolated deinit {
+        enabledWatch?.cancel()
+        initialRefresh?.cancel()
     }
 
     private func start(_ host: Host, visible: @escaping @MainActor () -> Bool) {
         guard host.enabled() else { return }
+        running = true
         if let joined = host.joined {
-            initialRefresh = Task { await joined.refresh() }
+            initialRefresh = Task { guard !Task.isCancelled, host.enabled() else { return }; await joined.refresh() }
             joined.startAging(self, visible: visible)
         } else {
-            initialRefresh = Task { await host.refresh() }
+            initialRefresh = Task { guard !Task.isCancelled, host.enabled() else { return }; await host.refresh() }
             host.startAging(self, visible)
         }
     }
 
     private func stop(_ host: Host) {
+        guard running else { return }
+        running = false
         if let joined = host.joined { joined.stopAging(self) } else { host.stopAging(self) }
     }
 

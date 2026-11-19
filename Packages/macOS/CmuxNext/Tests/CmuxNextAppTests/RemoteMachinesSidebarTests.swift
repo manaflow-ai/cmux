@@ -11,6 +11,21 @@ import Testing
 /// chats newest first; a machine the daemon cannot reach shows as offline with no rows.
 @MainActor
 struct RemoteMachinesSidebarTests {
+    @Test func stopBeforeQueuedReadsStartDoesNotContactTheHost() async {
+        let sidebar = RemoteMachinesSidebar(lanes: AgentLaneStore())
+        sidebar.bind(host: .init(peers: {
+            Issue.record("A cancelled peer read contacted the host")
+            return nil
+        }, older: { _, _ in
+            Issue.record("A cancelled history read contacted the host")
+            return nil
+        }, displayName: { _ in nil }, open: { _ in }))
+        #expect(sidebar.activate(LayoutItemID("client.remote:older:fixture")))
+        sidebar.stop()
+        // Both reads were queued on this actor, then cancelled before their first suspension.
+        for _ in 0..<10 { await Task.yield() }
+    }
+
     static func lane(_ name: String, peer: String?, _ state: AgentActivityLane.State = .idle, since: TimeInterval = 0,
                      title: String? = nil) -> AgentActivityLane {
         AgentActivityLane(id: "id-" + name, name: peer.map { "\($0)/\(name)" } ?? name, title: title ?? (peer.map { "\($0)/\(name)" } ?? name),

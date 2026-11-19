@@ -126,6 +126,7 @@ public final class RemoteMachinesSidebar {
         // task-owner: this instance; event-driven (Observation); each change only arms the one-shot `refresh`
         laneWatch = Task { [weak self] in
             for await _ in ObservationStream({ _ = lanes.lanes; _ = SidebarTunables.laneFixture.value }) {
+                guard !Task.isCancelled else { return }
                 refresh.scheduleIfIdle(after: Self.refreshInterval) { @MainActor [weak self] in self?.rebuild() }
             }
         }
@@ -266,6 +267,7 @@ public final class RemoteMachinesSidebar {
         guard olderReads[peer] == nil, let read = host?.older else { return }
         // task-owner: this instance; one page read, bounded by the host's 2 s deadline, cancelled by `stop()`
         olderReads[peer] = Task { [weak self] in
+            guard !Task.isCancelled else { return }
             let page = await read(peer, cursor)
             guard let self, !Task.isCancelled else { return }
             olderReads[peer] = nil
@@ -312,6 +314,7 @@ public final class RemoteMachinesSidebar {
         // task-owner: this instance; one read at a time, each bounded by its 2 s deadline, cancelled by `stop()`;
         // a follow-up only when a push came during it (pushes come only on a state change, so a burst ends)
         peerRead = Task { [weak self] in
+            guard !Task.isCancelled else { return }
             let next = await read()
             guard let self, !Task.isCancelled else { return }
             peerRead = nil
