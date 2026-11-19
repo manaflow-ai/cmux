@@ -58,12 +58,12 @@ if release_build release; then
   objects=()
   while IFS= read -r -d '' object; do objects+=("$object"); done < <(find "$scratch/release/Build" -name '*.o' -print0)
   compat=0
-  for object in "${objects[@]}"; do [[ "$object" == *CmuxNextCompat* ]] && compat=$((compat + 1)); done
+  for object in ${objects[@]+"${objects[@]}"}; do [[ "$object" == *CmuxNextCompat* ]] && compat=$((compat + 1)); done
   note "release: compiled; objects: ${#objects[@]} (CmuxNextCompat: $compat)"
   [[ ${#objects[@]} -gt 0 && $compat -gt 0 ]] || fail "release: found no objects to inspect"
   if [[ ${#objects[@]} -gt 0 ]]; then
     # nm's errors go to the log and fail the check: an unread object must never look clean.
-    if ! printf '%s\0' "${objects[@]}" | xargs -0 nm -m 2>"$OUT/release-nm-errors.log" >"$scratch/release-symbols-raw.txt"; then
+    if ! printf '%s\0' ${objects[@]+"${objects[@]}"} | xargs -0 nm -m 2>"$OUT/release-nm-errors.log" >"$scratch/release-symbols-raw.txt"; then
       fail "release: nm could not read every object (see release-nm-errors.log)"
     fi
     swift demangle --compact <"$scratch/release-symbols-raw.txt" >"$scratch/release-symbols.txt"

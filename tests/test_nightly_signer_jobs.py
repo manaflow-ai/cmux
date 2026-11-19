@@ -132,7 +132,7 @@ class SignerVerifySigned(unittest.TestCase):
         for stub in self.STUBS:
             path = self.work / stub
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text('#!/usr/bin/env bash\nprintf \'%s|%s|%s|%s\\n\' "${0##*/}" "${REQUIRE_HELPER_TICKET:-}" "${CHANNEL_APP_PATH:-${CMUX_APP_PATH:-}}" "$*" >> "$CALLS"\n'
+            path.write_text('#!/usr/bin/env bash\nprintf \'%s|%s|%s|%s\\n\' "${0##*/}" "-" "${CHANNEL_APP_PATH:-${CMUX_APP_PATH:-}}" "$*" >> "$CALLS"\n'
                             '[[ "${FAIL:-}" == "${0##*/}" ]] && exit 9\n'
                             # A check that writes into the bundle it was given.
                             'touch "${CHANNEL_APP_PATH:-${CMUX_APP_PATH:-$1}}/written-by-${0##*/}" 2>/dev/null || true\n')
@@ -169,7 +169,7 @@ class SignerVerifySigned(unittest.TestCase):
         copy = str(self.tmp / "runner" / "signer-verify-signed" / "snapshot" / "cmux NEXT.app")
         self.assertTrue(calls[1].endswith(f"|{copy}"), calls[1])
         self.assertIn(f"|{copy}|", calls[3])
-        self.assertTrue(calls[3].startswith("verify-signed-app-checks.sh|true|"))
+        self.assertTrue(calls[3].startswith("verify-signed-app-checks.sh|-|"))
         self.assertIn(f"{copy}/Contents/Resources/bin/cmux-diff-sidecar --archs arm64 --require-signed", calls[2])
         self.assertEqual(calls[5], f"daemon|--manifest remote-daemon-assets/cmuxd-remote-manifest-77.json "
                                    f"--assets-dir remote-daemon-assets --app {copy}")
