@@ -67,6 +67,11 @@ const providerTimings = (answer: unknown): { readonly providerTotalMs?: number; 
 export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: SizeRequest | undefined) => string | null): UpstreamClientService["createVm"] => {
   const http = makeUpstreamHttp(config);
   const decode = (body: unknown) => Schema.decodeUnknown(Receipt)(body).pipe(Effect.mapError(() => new UpstreamError({ operation: "createVm", status: null })));
+  /**
+   * Boot image snapshots the provider has answered for under their own id, for as long as this client lives (one per
+   * isolate). Bounded by the image list: 32 entries and their variants.
+   */
+  const verifiedImages = new Set<string>();
   return (caller, spec, { source, image, network, mesh }) => Effect.gen(function* () {
     const journal = spec.journal;
     if (!journal) return yield* Effect.fail(new UpstreamError({ operation: "createVm", status: null }));
@@ -76,23 +81,58 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
     let answer: unknown = null;
     const keep = (body: unknown) => Effect.sync(() => { answer = body; });
     const sourceId = source === undefined ? null : upstreamIdOf(source.owns);
-    const imageId = image === undefined ? null : vmImageEvidenceOf(image).snapshotId;
-    if (sourceId !== null && imageId !== null) return yield* Effect.fail(new UpstreamError({ operation: "createVm", status: 400 }));
+    const approved = image === undefined ? null : vmImageEvidenceOf(image);
+    if (sourceId !== null && approved !== null) return yield* Effect.fail(new UpstreamError({ operation: "createVm", status: 400 }));
     const slug = `cmux-vm-${config.environment}-${spec.cmuxId.replace("_", "-")}`;
-    const metadata: Record<string, string> = { cmux_id: spec.cmuxId, cmux_env: spec.environment };
-    if (spec.createdBy !== undefined && spec.createdBy.length <= 63) metadata["cmux_actor"] = spec.createdBy;
-    if (caller.value.tenantId.length <= 63) metadata["cmux_tenant"] = caller.value.tenantId;
-    const body = {
-      slug, displayName: upstreamName(config.environment, caller.value.tenantId, spec.cmuxId), metadata,
-      idleTimeoutSeconds: spec.idleTimeoutSeconds,
-      ...(spec.maxRunSeconds === undefined ? {} : { maxRunSeconds: spec.maxRunSeconds }),
-      ...(spec.autoDeleteSeconds === undefined ? {} : { autoDeleteSeconds: spec.autoDeleteSeconds }),
-      ...initialNetworkBody(network),
-      ...((sourceId ?? imageId ?? baseImageFor(spec.size)) === null ? {} : { snapshotId: sourceId ?? imageId ?? baseImageFor(spec.size) }),
-    };
-    const request = yield* digest(JSON.stringify(body));
-    metadata["cmux_create"] = request;
-    const context = yield* digest(JSON.stringify([config.baseUrl, Redacted.value(config.apiKey), body]));
+    const identity: Record<string, string> = { cmux_id: spec.cmuxId, cmux_env: spec.environment };
+    if (spec.createdBy !== undefined && spec.createdBy.length <= 63) identity["cmux_actor"] = spec.createdBy;
+    if (caller.value.tenantId.length <= 63) identity["cmux_tenant"] = caller.value.tenantId;
+    /**
+     * The request that boots `snapshot`, with its digests. The body's fields, their order and both digests are the
+     * ones every create journaled so far has, so a retry of an older create still matches its retained context.
+     */
+    const planFor = (snapshot: string | null, variant: string | null) => Effect.gen(function* () {
+      const metadata = { ...identity };
+      const body = {
+        slug, displayName: upstreamName(config.environment, caller.value.tenantId, spec.cmuxId), metadata,
+        idleTimeoutSeconds: spec.idleTimeoutSeconds,
+        ...(spec.maxRunSeconds === undefined ? {} : { maxRunSeconds: spec.maxRunSeconds }),
+        ...(spec.autoDeleteSeconds === undefined ? {} : { autoDeleteSeconds: spec.autoDeleteSeconds }),
+        ...initialNetworkBody(network),
+        ...(snapshot === null ? {} : { snapshotId: snapshot }),
+      };
+      const request = yield* digest(JSON.stringify(body));
+      metadata["cmux_create"] = request;
+      const context = yield* digest(JSON.stringify([config.baseUrl, Redacted.value(config.apiKey), body]));
+      return { snapshot, variant, body, metadata, request, context };
+    });
+    // An approved image boots the variant baked at exactly the asked size, when it lists one: the VM is then made at
+    // its final size and `grow` below finds nothing to grow, so no resize call follows the create. Any other ask
+    // boots the image's own snapshot and grows, as before. `boots` is every snapshot this create may boot, the one a
+    // first attempt takes first.
+    const size = spec.size;
+    const fitted = approved === null || size === undefined ? undefined
+      : approved.variants.find((variant) => variant.vcpus === size.vcpus && variant.memoryMib === size.memoryMib && variant.diskMib === size.diskMib);
+    const boots: ReadonlyArray<{ readonly snapshot: string | null; readonly variant: string | null }> = approved === null
+      ? [{ snapshot: sourceId ?? baseImageFor(size), variant: null }]
+      : [
+          ...(fitted === undefined ? [] : [{ snapshot: fitted.snapshotId, variant: fitted.name }]),
+          { snapshot: approved.snapshotId, variant: "base" },
+          ...approved.variants.filter((variant) => variant !== fitted).map((variant) => ({ snapshot: variant.snapshotId, variant: variant.name })),
+        ];
+    // No earlier attempt under this idempotency key journaled a create: nothing was sent, so no VM is at the slug.
+    const firstAttempt = journal.context === null;
+    // A retry boots what its first attempt journaled, whatever the image lists now: the snapshot whose context is the
+    // retained one. That is the image's own snapshot for a create journaled before the image listed a variant, and
+    // the variant after it; when the list no longer has that snapshot, the retry fails here and sends nothing.
+    let plan = yield* planFor(boots[0]?.snapshot ?? null, boots[0]?.variant ?? null);
+    for (const other of boots.slice(1)) {
+      if (firstAttempt || plan.context === journal.context) break;
+      plan = yield* planFor(other.snapshot, other.variant);
+    }
+    if (!firstAttempt && plan.context !== journal.context) return yield* Effect.fail(new UpstreamError({ operation: "createVmContext", status: null }));
+    const { body, metadata, request, context } = plan;
+    const imageId = approved === null ? null : plan.snapshot;
     // The tenant is the provider's customer (abuse protection tells tenants apart by it). It is sent outside the
     // digests above: it follows from the tenant id the name and metadata already carry, and a create journaled
     // before this field existed must still match its retained request and context.
@@ -106,13 +146,14 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
     // idempotency fingerprint carries the mesh (a key cannot be replayed with another), and whether the VM is on the
     // network is read from the provider's answer (`joined` below), never assumed from what was sent.
     const sent = networkId === null ? tagged : { ...tagged, networks: [{ vpc: networkId }] };
-    if (journal.context !== null && journal.context !== context) return yield* Effect.fail(new UpstreamError({ operation: "createVmContext", status: null }));
     yield* journal.beforeSend(context, {
       provider: yield* providerContext(config),
       environment: config.environment,
       request,
       ...((sourceId ?? imageId) === null ? {} : { source: yield* digest(JSON.stringify(["source", sourceId ?? imageId])) }),
     });
+    // From here the create reaches the provider, which is what the handler's vm_create line reports.
+    if (phases !== undefined) phases["bootVariant"] = plan.variant;
     // A receipt that differs from the request can never be committed: recovery checks the same fields. When the answer
     // to this request's own POST describes a VM that is provably this creation's (exact slug and every metadata value
     // this request sent, so only its source image or idle timeout differs), the VM is deleted before the create fails:
@@ -137,15 +178,22 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
       Effect.mapError(() => new UpstreamError({ operation: "verifyBootImage", status: null })),
       Effect.flatMap((snapshot) => snapshot.id === id ? Effect.void : Effect.fail(new UpstreamError({ operation: "verifyBootImage", status: null }))),
     );
-    // The exact-slug recovery read and the boot image read do not depend on each other, so they are in flight together
-    // (each is a provider round trip of 0.45 to 1.9 s). The outcome is the one the serial order gave: a failed recovery
-    // read fails the create with its own error, a recovered VM is the answer whatever the image read said, and only
-    // when nothing was recovered does a failed image read fail the create, before anything is sent. The image read's
-    // verdict is held as a value so that it cannot fail the pair.
+    // Neither read is on a normal create's path. The exact-slug recovery read is made only by a retry: a first attempt
+    // has sent nothing, its slug carries an id minted for this request, and a slug that does exist answers the create
+    // with an error, which is followed by this same read (recoverAfterMs below). The boot image read is made only for
+    // a snapshot this isolate has not yet seen the provider answer for under its own id; a snapshot id is immutable,
+    // so one answer holds until a create with it fails, which forgets it. A provider that no longer has the snapshot
+    // refuses the create itself, and a VM made from any other snapshot fails the receipt check and is deleted.
+    // When both reads are due they are in flight together (each is a provider round trip of 0.45 to 1.9 s), with the
+    // outcome the serial order gave: a failed recovery read fails the create with its own error, a recovered VM is
+    // the answer whatever the image read said, and only when nothing was recovered does a failed image read fail the
+    // create, before anything is sent. The image read's verdict is held as a value so that it cannot fail the pair.
+    const unverified = imageId !== null && !verifiedImages.has(imageId) ? imageId : null;
     const [existing, imageVerdict] = yield* Effect.all([
-      timedPhase(phases, "recoverMs", recover),
-      imageId === null ? Effect.succeed(Either.void) : timedPhase(phases, "verifyImageMs", Effect.either(verifyImage(imageId))),
+      firstAttempt ? Effect.succeed(Option.none<typeof Receipt.Type>()) : timedPhase(phases, "recoverMs", recover),
+      unverified === null ? Effect.succeed(Either.void) : timedPhase(phases, "verifyImageMs", Effect.either(verifyImage(unverified))),
     ], { concurrency: "unbounded" });
+    if (unverified !== null && Either.isRight(imageVerdict)) verifiedImages.add(unverified);
     if (phases !== undefined) phases["recovered"] = Option.isSome(existing);
     const created = Option.isSome(existing) ? existing.value : yield* Effect.gen(function* () {
       if (Either.isLeft(imageVerdict)) return yield* Effect.fail(imageVerdict.left);
@@ -156,9 +204,12 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
         Effect.flatMap(decode), Effect.flatMap(checkedSent),
       )).pipe(
         // A rejection counts only once the exact slug also answers 404: a 409 may mean the slug already exists.
-        Effect.catchAll((error) => timedPhase(phases, "recoverAfterMs", recover).pipe(Effect.flatMap((found) => Option.isSome(found)
-          ? Effect.sync(() => { if (phases !== undefined) phases["recovered"] = true; return found.value; })
-          : definitelyRejected(error.status) ? journal.rejected(token).pipe(Effect.zipRight(Effect.fail(error))) : Effect.fail(error)))),
+        Effect.catchAll((error) => timedPhase(phases, "recoverAfterMs", recover).pipe(Effect.flatMap((found) => {
+          if (Option.isSome(found)) return Effect.sync(() => { if (phases !== undefined) phases["recovered"] = true; return found.value; });
+          // The create failed and made nothing: the next create with this image asks the provider for it again first.
+          if (imageId !== null) verifiedImages.delete(imageId);
+          return definitelyRejected(error.status) ? journal.rejected(token).pipe(Effect.zipRight(Effect.fail(error))) : Effect.fail(error);
+        }))),
       );
     });
     const joined = networkId === null ? null : joinedOn(answer, networkId);

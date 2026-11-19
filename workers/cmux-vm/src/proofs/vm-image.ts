@@ -23,7 +23,14 @@ export const visibleVmImages = <C>(caller: Named<C, Principal>) => Effect.gen(fu
 });
 
 export interface VmImageAllowed<C> extends Proof<"VmImageAllowed", [C]> {}
-interface Evidence { readonly snapshotId: UpstreamId; readonly receipt: VmImage; readonly fingerprint: string }
+/** A size variant as the create reads it: the snapshot to boot when the asked size is exactly this one. */
+export interface VmImageVariant { readonly name: string; readonly snapshotId: UpstreamId; readonly vcpus: number; readonly memoryMib: number; readonly diskMib: number }
+/**
+ * `fingerprint` covers the image's id, revision and own snapshot only, never its variants: a create's idempotency
+ * fingerprint is then the one it had before variants existed, and listing or withdrawing a variant does not turn a
+ * retry into a conflict. Which snapshot a retry boots is fixed by its journal instead (src/upstream/live-create.ts).
+ */
+interface Evidence { readonly snapshotId: UpstreamId; readonly receipt: VmImage; readonly fingerprint: string; readonly variants: ReadonlyArray<VmImageVariant> }
 const Allowed = defineProof("VmImageAllowed");
 const evidence = new WeakMap<object, Evidence>();
 export const vmImageEvidenceOf = <C>(proof: VmImageAllowed<C>): Evidence => {
@@ -41,6 +48,7 @@ export const vmImageAllowed = <C>(caller: Named<C, Principal>, input: VmImageSel
   const digest = yield* Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([image.id, image.revision, image.snapshotId]))));
   const fingerprint = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
   const proof: VmImageAllowed<C> = Object.freeze({ ...Allowed.prove(caller) });
-  evidence.set(proof, Object.freeze({ snapshotId: UpstreamId.make(image.snapshotId), receipt: publicImage(image), fingerprint }));
+  const variants = image.variants.map((variant) => Object.freeze({ ...variant, snapshotId: UpstreamId.make(variant.snapshotId) }));
+  evidence.set(proof, Object.freeze({ snapshotId: UpstreamId.make(image.snapshotId), receipt: publicImage(image), fingerprint, variants }));
   return proof;
 });

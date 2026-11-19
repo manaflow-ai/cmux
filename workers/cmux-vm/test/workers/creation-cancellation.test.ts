@@ -35,20 +35,28 @@ it("cancels a retained allocation, keeps its tombstone, and frees quota without 
 });
 
 it("fences a create paused before provider send without ever sending it", async () => {
-  const t = await setup(), entered = gate(), resume = gate(), upstream = t.upstream.fetch;
+  // A first attempt makes no exact-slug read, so the provider call it can be held at before its send is the boot
+  // image read: an approved image this client has not read yet.
+  const SNAPSHOT = "operator-immutable-image-fixture", IMAGE = { id: "cloud-standard", revision: "r1" };
+  h = await makeHarness({ maxVms: 1, bootImages: JSON.stringify([{ ...IMAGE, displayName: "Cloud standard", snapshotId: SNAPSHOT, services: ["cloud-driver"] }]) });
+  const t = h, entered = gate(), resume = gate(), upstream = t.upstream.fetch;
+  t.upstream.snapshots.set(SNAPSHOT, { id: SNAPSHOT, sourceVmId: "operator-image-source", autoDeleteSeconds: null });
+  const token = await t.addServiceKey({ id: "cloud-driver", scopes: ["vm:read", "vm:write"], labels: { role: "cloud" } });
+  const headers = { authorization: `Bearer ${token}`, "x-cmux-team-id": "team_alpha", "idempotency-key": KEY };
+  const create = () => t.request("/v1/vms", headers, { method: "POST", body: { image: IMAGE, labels: { role: "cloud" } } });
   let waiting = true;
   t.upstream.fetch = async (request) => {
-    if (waiting && request.method === "GET" && new URL(request.url).pathname.startsWith("/v5/vms/")) { waiting = false; entered.release(); await resume.promise; }
+    if (waiting && request.method === "GET" && new URL(request.url).pathname.startsWith("/v5/snapshots/")) { waiting = false; entered.release(); await resume.promise; }
     return upstream(request);
   };
-  const original = t.create(); await entered.promise;
+  const original = create(); await entered.promise;
   try {
-    const cancelled = await t.cancel(); expect(cancelled.status).toBe(200);
+    const cancelled = await t.request("/v1/vm-creations/by-key/cancel", headers, { method: "POST" }); expect(cancelled.status).toBe(200);
     expect(await cancelled.json()).toMatchObject({ state: "cancelled" });
   } finally { resume.release(); await original; }
   expect((await original).status).not.toBe(201);
   expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(0);
-  expect((await t.create()).status).toBe(409);
+  expect((await create()).status).toBe(409);
 });
 
 it("retains an in-flight cancellation until its late allocation can be verified and deleted", async () => {
