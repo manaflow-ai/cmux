@@ -5,6 +5,9 @@ extension CmuxConfigSnapshot {
     /// `experiments.glassToolbarGroups`: Taste prototype: the agent chat header's buttons draw as round glass buttons, related actions share one glass capsule, with a search chip and shortcut keycaps (webviews useExperimentSwitch("glassToolbarGroups")). Off by default; off keeps today's header.
     public nonisolated static let glassToolbarGroupsPath = ["experiments", "glassToolbarGroups"]
     public nonisolated static let glassToolbarGroupsDefault = false
+    /// `experiments.transcriptWorkLog`: Taste prototype: a finished agent turn reads as a work log. Its steps stay in the closed Worked for, the edited-files card reads Changed N files +N -N over the session's branch with Preview, a sent file's chip says added to context, and hairline low-contrast borders replace fills (webviews useExperimentSwitch("transcriptWorkLog"), conversation/transcriptWorkLog.css). Off by default; off keeps today's transcript.
+    public nonisolated static let transcriptWorkLogPath = ["experiments", "transcriptWorkLog"]
+    public nonisolated static let transcriptWorkLogDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -22,6 +25,16 @@ nonisolated enum ExperimentsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.glassToolbarGroupsDefault),
                 keywords: ["experiments", "experimental", "prototype", "glass", "toolbar", "header", "buttons", "capsule", "keycaps"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.transcriptWorkLogPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.transcriptWorkLog", "Transcript Work Log"),
+                help: SettingsText.keyed("settings.experiments.transcriptWorkLog.help", "Shows a finished turn as a work log: its steps folded, a card of the files it changed, and what each message added to context."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.transcriptWorkLogDefault),
+                keywords: ["experiments", "experimental", "prototype", "agent", "chat", "transcript", "work log", "worked for", "diff", "changed files", "context"]
             ),
         ]
     }

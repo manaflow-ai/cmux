@@ -400,7 +400,13 @@ import { setReadAloudState } from "./conversation/readAloud";
 import { loadEditDiffHunks } from "./conversation/editDiffModel";
 import { loadHighlightedCode } from "./conversation/codeBlockModel";
 import { BackgroundTaskOutputContext, type BackgroundTaskOutputReader } from "./conversation/backgroundTaskOutput";
-import { SessionCwdContext, SessionEditsContext, sessionEdits, type SessionEdits } from "./turnChanges/sessionRows";
+import {
+  SessionCwdContext,
+  SessionEditsContext,
+  sessionEdits,
+  type SessionEdits,
+  setSessionBranch,
+} from "./turnChanges/sessionRows";
 import { startedNames, SubsessionNamesProvider, type StartedNames } from "./conversation/startedNames";
 import {
   headerChangesInPlace,
@@ -836,7 +842,7 @@ import {
   withStartedSessions,
 } from "./started/startedSessions";
 import { experimentArm } from "../../experiments/experiment";
-import { setExperimentSwitches } from "../../experiments/switches";
+import { setExperimentSwitches, useExperimentSwitch } from "../../experiments/switches";
 import { setSessionStatus, useSessionStatus } from "./sessionStatus";
 import { holdWebSwap, pageEditHold, pageReleaseHold } from "../../pages/shared/webSwap";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
@@ -2971,6 +2977,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     lastEditRows.current = edits;
     return edits.edits;
   }, [snapshot.rows]);
+  // The changes card names the branch under the Transcript Work Log (turnChanges/sessionRows.ts).
+  useEffect(() => setSessionBranch(snapshot.summary?.branch), [snapshot.summary?.branch]);
+  // Transcript Work Log (Settings > Advanced > Experiments): its recolors key off the root attribute
+  // (conversation/transcriptWorkLog.css).
+  const workLog = useExperimentSwitch("transcriptWorkLog");
+  useEffect(() => void document.documentElement.toggleAttribute("data-transcript-work-log", workLog), [workLog]);
   // The names this chat's start calls gave its sub-sessions, for a "Sent to" row whose chat left
   // the session list (conversation/startedNames.ts); the same map while no start was added.
   const lastStartedNames = useRef<StartedNames | undefined>(undefined);

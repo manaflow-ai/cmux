@@ -3,7 +3,7 @@
 // session. The pane provides them, the same array until an edit row changes, so a card's memos
 // survive the snapshots of a long chat.
 import { keptPrefix } from "../conversation/prefixFlatMap";
-import { createContext } from "react";
+import { createContext, useSyncExternalStore } from "react";
 import { isEditCard, type AcpmuxRow } from "../model";
 
 export const SessionEditsContext = createContext<readonly AcpmuxRow[] | undefined>(undefined);
@@ -43,3 +43,25 @@ export const isEditRow = isEditCard;
 
 /// The session's folder, so a tool row names a file in it by its path from there. The pane provides it.
 export const SessionCwdContext = createContext<string | undefined>(undefined);
+
+/// The session's git branch (the snapshot summary's), for the Transcript Work Log's changes card
+/// (EditedFilesCard.tsx). A module store the pane sets once per change, not a context: the card is
+/// deep inside the transcript's providers, and one value per page is all it needs.
+let branch: string | undefined;
+const branchListeners = new Set<() => void>();
+
+export function setSessionBranch(next: string | undefined): void {
+  if (next === branch) return;
+  branch = next;
+  for (const listener of branchListeners) listener();
+}
+
+export function useSessionBranch(): string | undefined {
+  return useSyncExternalStore(
+    (listener) => {
+      branchListeners.add(listener);
+      return () => branchListeners.delete(listener);
+    },
+    () => branch,
+  );
+}

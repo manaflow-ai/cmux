@@ -3416,7 +3416,12 @@ function attachmentBox(
       height: SENT_IMAGE_HEIGHT,
     });
   const chip = INLINE_FILE_CHIP;
-  const size = part.name.endsWith("/") ? undefined : fileSizeLabel(part.size, "en");
+  // The Transcript Work Log's chip says "added to context" in place of the size (PromptFile).
+  const size = experimentSwitchOn("transcriptWorkLog")
+    ? translate("worklog.addedToContext")
+    : part.name.endsWith("/")
+      ? undefined
+      : fileSizeLabel(part.size, "en");
   const content =
     2 * chip.side +
     chip.glyph +
@@ -4144,6 +4149,7 @@ import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { chatColumn, type ChatColumn } from "./chatWidth";
 import { chatDensityTextScale, currentChatMetrics, promptCoachEnabled } from "./chatDisplay";
+import { experimentSwitchOn } from "../../experiments/switches";
 import { messageOpened } from "./conversation/incomingOpened";
 import { inboxThreadKey } from "./conversation/inboxNotice";
 import { foldsThreads, inboxNoticeLook } from "./conversation/inboxNoticeLook";

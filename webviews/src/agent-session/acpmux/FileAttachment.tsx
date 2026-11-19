@@ -15,8 +15,17 @@ export type FileAttachmentInfo = {
   source?: AttachmentSource;
 };
 
-/** The same quiet file body in a draft and a sent message. Images keep their own thumbnails. */
-export function FileAttachment({ file, remove }: { file: FileAttachmentInfo; remove?: ReactNode }) {
+/** The same quiet file body in a draft and a sent message. Images keep their own thumbnails.
+ * `note`: a quiet word in place of the size (the Transcript Work Log's "added to context"). */
+export function FileAttachment({
+  file,
+  remove,
+  note,
+}: {
+  file: FileAttachmentInfo;
+  remove?: ReactNode;
+  note?: string;
+}) {
   const language = usePaneLanguage();
   const folder = file.name.endsWith("/");
   const type = file.name.split(".").at(-1)?.toLowerCase() ?? "";
@@ -27,7 +36,7 @@ export function FileAttachment({ file, remove }: { file: FileAttachmentInfo; rem
   const tailLength = Math.max(8, type.length + 1);
   const tail = chars.length > tailLength + 8 ? chars.slice(-tailLength).join("") : "";
   const head = tail ? chars.slice(0, -tailLength).join("") : file.name;
-  const size = folder ? undefined : fileSizeLabel(file.size, language);
+  const size = note ?? (folder ? undefined : fileSizeLabel(file.size, language));
   const from = useSourceLabel(file.source);
   return (
     <span

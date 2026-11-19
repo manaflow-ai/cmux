@@ -19,7 +19,8 @@ import { namesCheckpointFile, outsideRepository, turnCounts } from "../changes/t
 import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { pathKey, plainEditLabels, type AcpmuxRow } from "../model";
 import { turnChanges, type EditedFile, type UndoStatus } from "../turnChanges/model";
-import { SessionCwdContext, SessionEditsContext } from "../turnChanges/sessionRows";
+import { SessionCwdContext, SessionEditsContext, useSessionBranch } from "../turnChanges/sessionRows";
+import { useExperimentSwitch } from "../../../experiments/switches";
 import { useEditedFilesSettings } from "../turnChanges/settings";
 import { applyUndo, cancelUndo, checkUndo, useUndoState, type UndoState } from "../turnChanges/undoStore";
 import { setCardOpen, useCardOpen } from "../turnChanges/openStore";
@@ -29,6 +30,7 @@ import { Icon } from "../icons/Icon";
 import { ToolRows } from "./TurnRows";
 import { useTranscriptReadOnly } from "./readOnly";
 import "./EditedFilesCard.css";
+import "./transcriptWorkLog.css";
 
 /// `onOpenDiff` opens the turn's changes, at `path` when given; focus returns to `opener`.
 export function EditedFilesCard({
@@ -138,11 +140,19 @@ function Card({
   // Read only, Undo would write the owner's files.
   const readOnly = useTranscriptReadOnly();
   const undoable = !readOnly && row.ended === true && changes.files.some((file) => file.undo.kind !== "cannot");
-  const title = single
-    ? t("tools.edited.file", { file: single.path.split("/").pop() ?? single.path })
-    : total === 1
-      ? t("edited.one")
-      : t("tools.edited.files", { n: total });
+  // Transcript Work Log (taste build 9): "Changed 2 files +22 -10" over the session's branch, and
+  // Preview for View changes. The head keeps its two lines and 64px (model.ts `editedCardHeight`).
+  const workLog = useExperimentSwitch("transcriptWorkLog");
+  const branch = useSessionBranch();
+  const title = workLog
+    ? total === 1
+      ? t("worklog.changed.one")
+      : t("worklog.changed.other", { n: total })
+    : single
+      ? t("tools.edited.file", { file: single.path.split("/").pop() ?? single.path })
+      : total === 1
+        ? t("edited.one")
+        : t("tools.edited.files", { n: total });
   // Multi-file cards can fold their file list; a single file opens in the changes pane instead.
   const headToggle = !single && total > 0 && settings.show === "collapsed" ? () => setOpen(!open) : undefined;
   const headClick =
@@ -174,8 +184,27 @@ function Card({
           <DiffFile size={20} />
         </span>
         <div className="acpmux-edited-title">
-          <div>{title}</div>
-          <div className="acpmux-edited-sub">
+          {workLog ? (
+            <>
+              <div className="acpmux-worklog-headline">
+                <span>{title}</span>
+                {files.length > 0 && <Counts additions={counts.additions} deletions={counts.deletions} />}
+              </div>
+              <div className="acpmux-edited-sub acpmux-worklog-branch">
+                {branch ? (
+                  <>
+                    <Icon name="git.branch" size={14} />
+                    <bdi>{branch}</bdi>
+                  </>
+                ) : (
+                  counts.outside && <span className="acpmux-edited-outside">{t("turn.outside.card")}</span>
+                )}
+              </div>
+            </>
+          ) : (
+            <div>{title}</div>
+          )}
+          <div className="acpmux-edited-sub" hidden={workLog}>
             {files.length > 0 &&
               (reviewable ? (
                 <button
@@ -207,7 +236,14 @@ function Card({
                 className="acpmux-review-changes"
                 onClick={(event) => onOpenDiff(row.id, single?.path, event.currentTarget)}
               >
-                {t("edited.view")}
+                {workLog ? (
+                  <>
+                    <Icon name="link.external" size={14} />
+                    {t("worklog.preview")}
+                  </>
+                ) : (
+                  t("edited.view")
+                )}
               </button>
             )}
           </div>
