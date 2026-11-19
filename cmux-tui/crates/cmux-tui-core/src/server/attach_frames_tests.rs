@@ -128,15 +128,12 @@ fn connect(mux: &Arc<Mux>, transport: ClientTransport, capabilities: &[&str]) ->
     let (writer, outbound) = captured_writer();
     let client = mux.control_clients.register(transport, writer.clone());
     if !capabilities.is_empty() {
-        handle_command(
-            mux,
-            client,
-            command(json!({
-                "cmd": "set-client-info", "name": "frames test", "capabilities": capabilities,
-            })),
-            &writer,
-        )
-        .unwrap();
+        // The registry's filter `set-client-info` applies; the request's other gates (a
+        // WebSocket's hello, the remote entry's admission) are not what this tests.
+        let capabilities = capabilities.iter().map(|capability| capability.to_string()).collect();
+        mux.control_clients
+            .set_info(client, Some("frames test".into()), None, Some(capabilities))
+            .unwrap();
     }
     Viewer { client, writer, wire: Wire::new(outbound) }
 }
@@ -220,7 +217,9 @@ fn a_frames_snapshot_viewer_gets_output_frames_in_stream_order() {
         &viewer.writer,
     )
     .unwrap();
-    assert_eq!(reply["status"], "accepted", "{reply}");
+    // Accepted now, or throttled after the first READY and fired at the interval's end:
+    // either way the READY follows on the stream.
+    assert!(reply["status"] == "accepted" || reply["status"] == "snapshot_throttled", "{reply}");
     let snapshot = loop {
         match viewer.wire.next(Duration::from_secs(5)).expect("the requested snapshot") {
             Message::Json(value) if value["event"] == "snapshot" && value["phase"] == "ready" => {
