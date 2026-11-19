@@ -21,7 +21,15 @@ name: CI queue janitor
 # job queued with no runner for CI_JANITOR_ORPHAN_MINUTES (default 120) while
 # a newer job on the same labels got one, or a run still queued after a day.
 # These are lost runner assignments, not demand, so no queue threshold gates
-# them; release, tag and merge-queue orphans are only reported.
+# them; release, tag and merge-queue orphans are only reported. Linux-only
+# workflows get the same pass: the jobs of their oldest runs past the orphan
+# age (LINUX_JOB_READS a sweep) are read, and their lost assignments are
+# cancelled under their own cap (MAX_LINUX_ORPHAN_CANCELS); nightly, DEV and
+# promote runs are never read or cancelled.
+#
+# A read refused because the token's API budget is spent ends the sweep with
+# a "Skipped: ... spent until <reset>" summary and exit 0: nothing was
+# cancelled, and the next sweep after the reset runs.
 #
 # Each sweep also publishes the per-pool macOS queue it saw as the
 # `macos-pool-load` artifact, which pull request CI reads to overflow off a
@@ -67,9 +75,11 @@ env:
   SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
 
 # One sweep at a time; a second sweep waits rather than racing the first
-# one's cancellations, and never cancels it.
+# one's cancellations, and never cancels it. A dispatched dry run cancels
+# nothing, so it gets a group of its own: in the shared one, the next cron or
+# requested sweep replaced it while it waited (run 44277127205, 2026-11-18).
 concurrency:
-  group: ci-queue-janitor
+  group: ci-queue-janitor${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && format('-dry-run-{0}', github.run_id) || '' }}
   cancel-in-progress: false
 
 jobs:
