@@ -496,12 +496,34 @@ impl Worktree {
         let mut bare = git(git_dir);
         bare.args(["config", "--bool", "core.bare"]);
         let bare = output(bare).is_ok_and(|out| config_is_true(&out));
+        let mut shared_bare = Command::new("git");
+        shared_bare
+            .arg("config")
+            .arg("--file")
+            .arg(git_dir.join("config"))
+            .args(["--bool", "core.bare"]);
+        let shared_bare = output(shared_bare).is_ok_and(|out| config_is_true(&out));
         let mut extension = git(git_dir);
         extension.args(["config", "--bool", "extensions.worktreeConfig"]);
         let extension_enabled = output(extension).is_ok_and(|out| config_is_true(&out));
-        if bare && !extension_enabled {
+        if shared_bare {
+            // A bare mirror's `core.bare=true` used to live in the shared config.  Once
+            // worktreeConfig is enabled that value is inherited by every ordinary worktree,
+            // making `git status` there fail with "must be run in a work tree".  Move the
+            // setting to the mirror's own worktree config before enabling the extension, then
+            // remove it from the shared config so ordinary worktrees stay non-bare.
+            let main_config = git_dir.join("config.worktree");
+            let mut command = Command::new("git");
+            command.arg("config").arg("--file").arg(&main_config);
+            command.args(["core.bare", "true"]);
+            output(command)?;
+            if !extension_enabled {
+                let mut command = git(git_dir);
+                command.args(["config", "extensions.worktreeConfig", "true"]);
+                output(command)?;
+            }
             let mut command = git(git_dir);
-            command.args(["config", "extensions.worktreeConfig", "true"]);
+            command.args(["config", "--unset", "core.bare"]);
             output(command)?;
         }
 
@@ -557,6 +579,19 @@ impl Worktree {
     pub fn gitfile(admin: &Path) -> String {
         format!("gitdir: {}\n", admin.display())
     }
+}
+
+/// Whether remounting may replace the worktree's HEAD and index.  A symbolic HEAD means that
+/// somebody used ordinary Git in the mounted checkout (for example `git switch -c topic`), so a
+/// non-fresh remount must refuse instead of silently discarding that branch and its staged state.
+pub fn remount_needs_reset(admin: &Path, commit: &str, fresh: bool) -> anyhow::Result<bool> {
+    let head = std::fs::read_to_string(admin.join("HEAD")).ok();
+    if !fresh && head.as_deref().is_some_and(|head| head.trim_start().starts_with("ref:")) {
+        anyhow::bail!(
+            "existing projection worktree has a symbolic HEAD; refusing remount without --fresh"
+        );
+    }
+    Ok(fresh || head.is_none_or(|head| head.trim() != commit) || !admin.join("index").exists())
 }
 
 fn config_is_true(value: &[u8]) -> bool {

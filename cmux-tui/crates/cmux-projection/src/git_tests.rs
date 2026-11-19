@@ -285,6 +285,52 @@ fn bare_mirrors_enable_worktree_config_for_projection_excludes() {
 }
 
 #[test]
+fn bare_mirror_moves_core_bare_out_of_shared_config_without_breaking_ordinary_worktrees() {
+    let (dir, source_git, commit) = repo();
+    let source = source_git.parent().unwrap();
+    let mirror = dir.path().join("mirror.git");
+    let source_text = source.to_str().unwrap();
+    let mirror_text = mirror.to_str().unwrap();
+    run(dir.path(), &["clone", "--bare", source_text, mirror_text]);
+    let ordinary = dir.path().join("ordinary");
+    let ordinary_text = ordinary.to_str().unwrap();
+    run(
+        dir.path(),
+        &["--git-dir", mirror_text, "worktree", "add", "--detach", ordinary_text, &commit],
+    );
+
+    let at = dir.path().join("mnt");
+    Worktree::write(&mirror, "projected", &at, &commit, b"index", &[]).unwrap();
+    Worktree::write(&mirror, "projected", &at, &commit, b"index", &[]).unwrap();
+    assert_eq!(run(&ordinary, &["status", "--porcelain"]), "");
+
+    let shared = mirror.join("config");
+    let shared_text = shared.to_str().unwrap();
+    let shared_bare = Command::new("git")
+        .args(["config", "--file", shared_text, "--get", "core.bare"])
+        .output()
+        .unwrap();
+    assert!(!shared_bare.status.success(), "core.bare must not leak to ordinary worktrees");
+    let main = mirror.join("config.worktree");
+    let main_text = main.to_str().unwrap();
+    assert_eq!(run(dir.path(), &["config", "--file", main_text, "--get", "core.bare"]), "true\n");
+}
+
+#[test]
+fn symbolic_head_remount_is_refused_without_reset_and_preserves_the_index() {
+    let (dir, git_dir, commit) = repo();
+    let at = dir.path().join("mnt");
+    let first = Worktree::write(&git_dir, "projected", &at, &commit, b"initial", &[]).unwrap();
+    std::fs::write(first.admin.join("HEAD"), b"ref: refs/heads/topic\n").unwrap();
+    std::fs::write(first.admin.join("index"), b"staged-state\n").unwrap();
+
+    let error = remount_needs_reset(&first.admin, &commit, false).unwrap_err();
+    assert!(error.to_string().contains("symbolic HEAD"));
+    assert_eq!(std::fs::read(first.admin.join("index")).unwrap(), b"staged-state\n");
+    assert!(remount_needs_reset(&first.admin, &commit, true).unwrap());
+}
+
+#[test]
 fn object_reader_drains_non_blob_records_before_the_next_blob() {
     let (_dir, git_dir, commit) = repo();
     let work = git_dir.parent().unwrap();

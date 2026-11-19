@@ -291,9 +291,7 @@ mod linux {
         }
         // SAFETY: getuid and getgid cannot fail.
         let owner = unsafe { (libc::getuid(), libc::getgid()) };
-        let head_matches =
-            std::fs::read_to_string(admin.join("HEAD")).is_ok_and(|head| head.trim() == commit);
-        if args.fresh || !head_matches || !admin.join("index").exists() {
+        if git::remount_needs_reset(&admin, &commit, args.fresh)? {
             let index = git::index_bytes(&projection.index, owner.0, owner.1)?;
             Worktree::write(&git_dir, &name, &at, &commit, &index, &projection.real_dirs)?;
         }

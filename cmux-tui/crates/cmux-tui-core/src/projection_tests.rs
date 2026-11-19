@@ -235,6 +235,7 @@ fn git_takes_the_settings_in_a_mount_and_below_it_only() {
         let git = |args: &[&str]| {
             std::process::Command::new("git")
                 .env("HOME", &home)
+                .env("GIT_CONFIG_GLOBAL", home.join(".gitconfig"))
                 .env("GIT_CONFIG_NOSYSTEM", "1")
                 .arg("-C")
                 .arg(repo)
