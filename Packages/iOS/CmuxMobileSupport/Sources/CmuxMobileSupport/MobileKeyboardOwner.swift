@@ -7,7 +7,8 @@ public import UIKit
 /// no keyboard of this app is on screen, whatever the last keyboard
 /// notification said (``MobileKeyboardFrameTracker/dropKeyboardWithoutOwner()``).
 @MainActor
-public enum MobileKeyboardOwner {
+public struct MobileKeyboardOwner {
+    public init() {}
     /// The app's first responder. UIKit has no public accessor: an action
     /// sent to no target reaches the key window's first responder, which
     /// writes itself into the lookup it was sent from. With no key window
