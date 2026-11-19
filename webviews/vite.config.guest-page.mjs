@@ -28,7 +28,8 @@ const FIRST_FRAME_SHEETS = [
 ].map((file) => path.join(webviewsRoot, file));
 const TRANSCRIPT_SHEET_ID = "virtual:cmux-guest/transcript.css";
 const TRANSCRIPT_SHEET_PATH = path.join(pageRoot, "transcript.virtual.css");
-const transcriptSheet = {
+/** Also the Chief web page's (vite.config.chief-web.mjs): the same first frame, the same rest of the sheet. */
+export const transcriptSheet = {
   name: "cmux-guest-page-transcript-css",
   resolveId: (source) => (source === TRANSCRIPT_SHEET_ID ? TRANSCRIPT_SHEET_PATH : undefined),
   load: (id) => (id.split("?")[0] === TRANSCRIPT_SHEET_PATH ? agentPaneCSS(new Set(FIRST_FRAME_SHEETS)) : undefined),

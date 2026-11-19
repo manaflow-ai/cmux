@@ -34,10 +34,17 @@ let transcriptChunk: Promise<TranscriptModule> | undefined;
 /**
  * Loads the transcript's chunk once (ChiefTranscriptView.tsx); a failed load is forgotten, so the next
  * call tries again. The import is its own step, as on the guest page (GuestPage.tsx loadGuestTranscript):
- * the bundler wraps `import()` with its preload of the chunk's modules.
+ * the bundler wraps `import()` with its preload of the chunk's modules. The rest of the pane sheet
+ * (main.tsx) is in before the chunk resolves, so no row draws unstyled.
  */
 export function loadChiefTranscript(): Promise<TranscriptModule> {
-  const fetchChunk = async (): Promise<TranscriptModule> => import("./ChiefTranscriptView");
+  const fetchChunk = async (): Promise<TranscriptModule> => {
+    const [chunk] = await Promise.all([
+      import("./ChiefTranscriptView"),
+      import("../agent-session/guest/transcriptSheet"),
+    ]);
+    return chunk;
+  };
   transcriptChunk ??= fetchChunk().catch((error: unknown) => {
     transcriptChunk = undefined;
     throw error;
