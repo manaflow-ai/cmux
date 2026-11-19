@@ -39,6 +39,8 @@ export function defineExperiment<const Arm extends string>(experiment: Experimen
 
 export const EXPERIMENT_ID = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 export const ARM_ID = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+/** An arm description that records the pick ("Picked: ..."): the experiment is decided. */
+export const DECIDED = /\bPicked:/;
 /** The localStorage debug key. */
 export const EXPERIMENTS_STORAGE_KEY = "cmux.experiments";
 
@@ -94,6 +96,13 @@ export function validateExperiments(experiments: readonly Experiment[]): string[
     for (const arm of arms) {
       if (!ARM_ID.test(arm)) problems.push(`${experiment.id}#${arm}: arm ids are lower kebab case`);
       if (!experiment.arms[arm].description.trim()) problems.push(`${experiment.id}#${arm}: no description`);
+      // A recorded pick means the comparison is over: the winner ships as the plain code path and the
+      // experiment, its losing arms and their code go (the header above). Kept, the losing arms stay
+      // compiled into every page for a gallery cell nobody needs any more.
+      if (DECIDED.test(experiment.arms[arm].description))
+        problems.push(
+          `${experiment.id}#${arm}: the arm says it was picked: ship it as the plain code path and delete the experiment`,
+        );
     }
     const fallback: string = experiment.defaultArm;
     if (!Object.hasOwn(experiment.arms, fallback))
