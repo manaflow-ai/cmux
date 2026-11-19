@@ -43,7 +43,7 @@ pub fn run(opts: &Opts) -> Res<()> {
     let aux = CreateWindowAux::new()
         .override_redirect(1)
         .background_pixel(crate::workload::GRAY)
-        .event_mask(EventMask::KEY_PRESS | EventMask::EXPOSURE);
+        .event_mask(EventMask::KEY_PRESS | EventMask::BUTTON_PRESS | EventMask::EXPOSURE);
     conn.create_window(
         screen.root_depth,
         win,
@@ -76,7 +76,9 @@ pub fn run(opts: &Opts) -> Res<()> {
         let mut redraw = false;
         while let Some(ev) = conn.poll_for_event()? {
             match ev {
-                Event::KeyPress(_) => {
+                // A click counts too: a click bumps only the window it lands on, which proves
+                // where the host put the pointer (a monitor pick maps it through its origin).
+                Event::KeyPress(_) | Event::ButtonPress(_) => {
                     counter = counter.wrapping_add(1);
                     dirty_marker = true;
                 }

@@ -119,7 +119,7 @@ pub fn monitors(
         return Vec::new();
     };
     let whole = View { src: Rect { x: 0, y: 0, w: screen.0, h: screen.1 }, out: screen };
-    let mut list: Vec<Rect> = reply
+    let list: Vec<Rect> = reply
         .monitors
         .iter()
         .filter_map(|m| {
@@ -132,8 +132,17 @@ pub fn monitors(
         })
         .filter(|r| r.w >= 2 && r.h >= 2)
         .collect();
-    // Left to right, then top to bottom, as the macOS host orders displays.
-    list.sort_by_key(|r| (r.x, r.y));
+    distinct_monitors(list, screen)
+}
+
+/// Left to right, then top to bottom, as the macOS host orders displays; a monitor that is the
+/// whole screen (the picker's first entry already) or repeats another (mirrored outputs) is
+/// listed once.
+fn distinct_monitors(mut list: Vec<Rect>, screen: (u32, u32)) -> Vec<Rect> {
+    let whole = Rect { x: 0, y: 0, w: screen.0, h: screen.1 };
+    list.retain(|r| *r != whole);
+    list.sort_by_key(|r| (r.x, r.y, r.w, r.h));
+    list.dedup();
     list
 }
 
@@ -233,6 +242,15 @@ mod tests {
         assert_eq!(pick(Some(":99"), &listed), Ok(listed[0]), "an X display name");
         assert_eq!(pick(Some("2"), &listed), Ok(right));
         assert!(pick(Some("3"), &listed).unwrap_err().contains("3 listed"));
+    }
+
+    #[test]
+    fn a_monitor_that_is_the_whole_screen_or_a_mirror_is_listed_once() {
+        let a = Rect { x: 0, y: 0, w: 960, h: 1080 };
+        let b = Rect { x: 960, y: 0, w: 960, h: 1080 };
+        let whole = Rect { x: 0, y: 0, w: 1920, h: 1080 };
+        assert_eq!(distinct_monitors(vec![b, whole, a, b], (1920, 1080)), vec![a, b]);
+        assert_eq!(listing((1920, 1080), &distinct_monitors(vec![whole], (1920, 1080))).len(), 1);
     }
 
     #[test]
