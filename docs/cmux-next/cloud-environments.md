@@ -52,6 +52,9 @@ switch does not start or deploy a backend. Development and staging use the
 development mobile and device hub services until those services have separate
 staging deployments.
 
+Development connects GitHub with its own App, `cmux-cloud-dev`, and finishes connects on the
+staging console: [cloud-dev-github-app.md](cloud-dev-github-app.md).
+
 ## A dev build's own backend (a tag's stack)
 
 A DEV bundle (`com.cmuxterm.app.debug`, `com.cmuxterm.app.debug.<tag>`) can also use a tailnet
