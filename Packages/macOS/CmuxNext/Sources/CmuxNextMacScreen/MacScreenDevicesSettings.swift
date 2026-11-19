@@ -446,6 +446,7 @@ public final class MacScreenDevicesSettings {
         case .expired: L.t("devices.history.expired", "No answer in time")
         case .consentRequired: String(format: L.t("devices.history.consentRequired", "%@ hasn’t allowed screen sharing"), host)
         case .approveFailed: L.t("devices.history.approveFailed", "Approved, but the session couldn’t start")
+        case .moved: L.t("devices.history.moved", "Moved to another device")
         case .other: L.t("devices.history.other", "Ended")
         }
     }

@@ -252,7 +252,7 @@ public final class DeviceHub {
             pendingRequests.removeAll { $0.id == ticket.sessionId }
             tickets[ticket.sessionId] = ticket
             onSessionPush?(push)
-        case let .sessionDenied(id), let .sessionRevoked(id, _), let .sessionEnded(id, _):
+        case let .sessionDenied(id), let .sessionRevoked(id, _), let .sessionEnded(id, _, _):
             pendingRequests.removeAll { $0.id == id }
             tickets[id] = nil
             onSessionPush?(push)

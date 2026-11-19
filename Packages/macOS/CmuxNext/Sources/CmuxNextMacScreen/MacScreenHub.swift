@@ -130,6 +130,8 @@ public nonisolated enum MacScreenEndReason: Equatable, Sendable {
     case approveFailed
     /// The host's join consent did not allow a device the hub did not admit as the person's own.
     case consentRequired
+    /// The share moved (to another viewer or another host): a new session replaced this one.
+    case moved
     case other
 
     public init(_ reason: String?) {
@@ -147,6 +149,7 @@ public nonisolated enum MacScreenEndReason: Equatable, Sendable {
         case "expired": self = .expired
         case "approve_failed": self = .approveFailed
         case "consent_required": self = .consentRequired
+        case "moved": self = .moved
         default: self = .other
         }
     }
@@ -194,6 +197,7 @@ public nonisolated enum MacScreenEndReason: Equatable, Sendable {
         case .approveFailed: String(format: L.t("macScreen.hub.reason.approveFailed", "%@ allowed the session, but it couldn’t start. Try again."), host)
         case .expired: String(format: L.t("macScreen.hub.reason.expired", "%@ did not answer in time."), host)
         case .consentRequired: String(format: L.t("macScreen.hub.reason.consentRequired", "%@ hasn’t allowed screen sharing from this device."), host)
+        case .moved: L.t("macScreen.hub.reason.moved", "Screen sharing moved to another device.")
         case .other: L.t("macScreen.hub.reason.other", "The session ended.")
         }
     }
