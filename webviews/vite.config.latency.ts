@@ -46,6 +46,7 @@ export default {
         "latency-agent-pane": "test/latency/agent-pane.html",
         "latency-flows": "test/latency/flows.html",
         "latency-settings": "test/latency/settings.html",
+        "latency-history": "test/latency/history.html",
       },
     },
   },
