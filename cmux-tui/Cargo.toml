@@ -64,6 +64,7 @@ members = [
     "crates/cmux-cloud-machine",
     "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
+    "crates/cmux-auth-coordinator",
     "crates/cmux-cloud-handlers",
     "crates/cmux-window-rules",
     "crates/cmux-cloud-client",
@@ -79,6 +80,7 @@ members = [
     "crates/cmux-signed-bundle",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
+    "crates/cmux-projection",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
     "crates/cmux-netwatch",
@@ -145,6 +147,8 @@ members = [
     "crates/cmux-vault-egress",
     "crates/cmux-url-input",
     "crates/cmux-view-rows",
+    "crates/cmux-computer-use",
+    "crates/cmux-computer-use-ffi",
     "crates/acpmux-hot",
     "crates/cmux-command-class",
     "crates/cmux-source-scan",
@@ -189,6 +193,7 @@ default-members = [
     "crates/cmux-cloud-machine",
     "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
+    "crates/cmux-auth-coordinator",
     "crates/cmux-cloud-handlers",
     "crates/cmux-window-rules",
     "crates/cmux-cloud-client",
@@ -260,6 +265,8 @@ default-members = [
     "crates/cmux-device-kind",
     "crates/cmux-url-input",
     "crates/cmux-view-rows",
+    "crates/cmux-computer-use",
+    "crates/cmux-computer-use-ffi",
 ]
 exclude = [
     "vendor/crossterm",
@@ -313,6 +320,7 @@ cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-git = { path = "crates/cmux-git" }
 cmux-supervise-core = { path = "crates/cmux-supervise-core" }
 cmux-file-lock = { path = "crates/cmux-file-lock" }
+cmux-projection = { path = "crates/cmux-projection" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
 cmux-browser-import = { path = "crates/cmux-browser-import" }
@@ -395,6 +403,7 @@ cmux-terminal-sizing = { path = "crates/cmux-terminal-sizing" }
 cmux-mobile-core = { path = "crates/cmux-mobile-core" }
 cmux-cloud-wire = { path = "crates/cmux-cloud-wire" }
 cmux-vnc = { path = "crates/cmux-vnc" }
+cmux-computer-use = { path = "crates/cmux-computer-use", default-features = false }
 anyhow = "1"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["ws", "macros"] }
