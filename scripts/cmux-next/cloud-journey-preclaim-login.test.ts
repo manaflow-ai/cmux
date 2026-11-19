@@ -4,6 +4,15 @@ import { FIXTURE_LOGIN, runJourney } from "./cloud-journey-fake";
 // The journey plays the app's part on a warm spare (--preclaim-login): before create it copies the login on the
 // spare's cloud.spare.ready, and after the claim a login receipt for the machine leaves only the post-bind check.
 describe("the production journey copies the login on spare.ready, as the app's SpareReady path", () => {
+  test("ordinary and warmed journeys request the app's machine size, so the warm pool can satisfy either", () => {
+    for (const preclaim of [undefined, { receipt: true }]) {
+      const { steps, log } = runJourney({ preclaim, login: FIXTURE_LOGIN });
+      expect(steps.find((step) => step.step === "create machine")?.status).toBe("pass");
+      const sizes = log.filter((line) => line.startsWith("create size ")).map((line) => JSON.parse(line.slice("create size ".length)));
+      expect(sizes).toEqual([{ cpu: 4, memory_mb: 16384, disk_mb: 65536 }]);
+    }
+  });
+
   test("with a receipt, the full copy after bind is skipped and only the post-bind check runs", () => {
     const { steps, probe, log } = runJourney({ preclaim: { receipt: true }, login: FIXTURE_LOGIN });
     const create = log.indexOf("create");
