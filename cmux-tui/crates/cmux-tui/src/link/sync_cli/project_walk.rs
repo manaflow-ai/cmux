@@ -14,7 +14,7 @@ use cmux_projection::walk::{self, Found, Rules};
 use super::super::links;
 use super::super::local::{LocalFile, Source, holdable, permissions_of};
 use super::super::skips;
-use super::Served;
+use super::{Listing, Served};
 
 /// The copy's rules for a folder outside git ([`Rules::Copy`](super::super::local::Rules)).
 struct CopyRules<'a> {
@@ -46,7 +46,7 @@ fn threads() -> usize {
 
 /// The files (with what each is read from) and the symlinks of the folder `top` (canonical,
 /// outside git), as the copy would list them.
-pub(super) fn plain(top: &Path) -> anyhow::Result<(Vec<(String, Served)>, Vec<Item>)> {
+pub(super) fn plain(top: &Path) -> anyhow::Result<Listing> {
     let found = walk::walk(top, &CopyRules { top }, threads())?;
     let mut files = Vec::with_capacity(found.len());
     let mut kept = Vec::new();

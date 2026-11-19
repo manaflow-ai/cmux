@@ -71,6 +71,9 @@ fn code(answer: &Value) -> Option<&str> {
     answer.get("error_code").and_then(Value::as_str)
 }
 
+/// A copy's listing: its files, each with what it is read from, and its symlinks.
+type Listing = (Vec<(String, Served)>, Vec<Item>);
+
 /// One file of the manifest as this Mac reads it.
 struct Served {
     file: LocalFile,
@@ -436,7 +439,7 @@ fn list(folder: &Path) -> anyhow::Result<Listed> {
 
 /// The folder's files and symlinks as the copy lists them ([`local::listed`], no cap), each
 /// file's size and time from a second stat.
-fn list_copy(folder: &Path) -> anyhow::Result<(Vec<(String, Served)>, Vec<Item>)> {
+fn list_copy(folder: &Path) -> anyhow::Result<Listing> {
     let (set, _) = local::listed(folder, Rules::Copy, None)?;
     let files: Vec<(String, LocalFile)> = set.files.into_iter().collect();
     let stats = stat_all(&files);
