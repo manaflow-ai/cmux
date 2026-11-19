@@ -14,7 +14,7 @@ import Testing
     /// 1000 title changes on 30 workspaces before a frame: nothing reaches the store until the
     /// frame, then one publication with the 30 distinct rows at their newest titles (WS-9, WS-14).
     @Test(.timeLimit(.minutes(1))) func aBurstPublishesOnceAFrame() async throws {
-        let daemon = FloodDaemon(load: LiveFloodRig.Load(workspaces: 30))
+        let daemon = LiveFloodDaemon(load: LiveFloodRig.Load(workspaces: 30))
         let sync = WorkspaceSync(deviceID: "test", deviceName: "iPhone")
         await sync.bind(daemon, macID: "mac")
         await sync.refresh()
@@ -48,7 +48,7 @@ import Testing
     /// A caller that lists right after a change (create, duplicate) reads the change, even when
     /// it still waits for the frame and the Mac answers the list with `unchanged`.
     @Test(.timeLimit(.minutes(1))) func aListReadsWhatWaitsForTheFrame() async throws {
-        let daemon = FloodDaemon(load: LiveFloodRig.Load(workspaces: 5))
+        let daemon = LiveFloodDaemon(load: LiveFloodRig.Load(workspaces: 5))
         let sync = WorkspaceSync(deviceID: "test", deviceName: "iPhone")
         await sync.bind(daemon, macID: "mac")
         await sync.refresh()
