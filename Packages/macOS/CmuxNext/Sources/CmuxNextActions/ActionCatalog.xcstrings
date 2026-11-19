@@ -1,6 +1,17 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "action.workspace.subagentLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace Subagent Limit…"
+          }
+        }
+      }
+    },
     "customize.element.titlebar": {
       "extractionState": "manual",
       "localizations": {
