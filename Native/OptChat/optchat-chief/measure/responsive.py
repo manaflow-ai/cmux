@@ -8,11 +8,13 @@ sign the person can see is stamped when its event arrives on a `subscribe`
 connection to the same daemon the app reads: typing dots, the Chief's read
 cursor, a tapback, a reply draft, a run step or live frame, and each posted
 message. Nothing is estimated from the host's own trace; the trace only adds
-why (turns, requests, cache, steers).
+why (turns, requests, cache, steers). The read cursor counts only as a
+message's ack (the composer shows it per message), not as a sign of work.
 
 Per probe (one or more person messages, sent at fixed offsets):
   sign_ms     first visible sign of work after the first message
-              (typing, a tapback, a draft, a run step, a live frame, a message)
+              (typing, a tapback, a draft or thought, a run step, a live frame,
+              a message)
   useful_ms   first Chief text with a real sentence (not an ack-only line)
   final_ms    the last Chief message of the probe (for a delegated task: the
               first message after the subagent's report)
@@ -43,7 +45,7 @@ import scenario  # noqa: E402
 
 AGENT = "agent_mux"
 ACK_ONLY = re.compile(
-    r"^\s*(on it|looking|checking|got it|noted|ok(ay)?|sure|one (sec|moment)|working on it|let me (check|look))\b[^.!?\n]{0,40}[.!…]?\s*$",
+    r"^\s*(on it|looking|checking|got it|noted|ok(ay)?|sure|one (sec|moment)|working on it|let me (check|look))\b[^.!?\n\d]{0,40}[.!…]?\s*$",
     re.I,
 )
 
@@ -182,6 +184,15 @@ def _reply_to(msg):
     return r
 
 
+def _ms(stamp):
+    """RFC 3339 to epoch ms (0 when unreadable)."""
+    from datetime import datetime
+    try:
+        return int(datetime.fromisoformat(str(stamp).replace("Z", "+00:00")).timestamp() * 1000)
+    except ValueError:
+        return 0
+
+
 def signs(events, t0, t1, agent=AGENT):
     """Visible Chief signs between t0 and t1 (ms), each (t, kind, detail)."""
     out = []
@@ -192,8 +203,10 @@ def signs(events, t0, t1, agent=AGENT):
         ev = e.get("event")
         if ev == "conversation-typing" and e.get("participant") == agent and e.get("on"):
             out.append((t, "typing", None))
-        elif ev == "conversation-draft" and (e.get("text") or "").strip():
-            out.append((t, "draft", e.get("text")))
+        elif ev == "conversation-draft":
+            item = e.get("item") or {}
+            if (item.get("participant") or e.get("participant")) == agent and (item.get("text") or "").strip():
+                out.append((t, "thought" if item.get("kind") == "thought" else "draft", item.get("text")))
         elif ev in ("conversation-run-changed", "conversation-live"):
             out.append((t, "run", None))
         elif ev == "conversation-changed":
@@ -203,8 +216,10 @@ def signs(events, t0, t1, agent=AGENT):
             if kind == "message" and msg.get("author") == agent:
                 out.append((t, "message", msg))
             elif kind == "message-updated":
+                # The event carries every reaction on the message: count only a
+                # Chief tapback made in this window (`at` is RFC 3339).
                 for r in msg.get("reactions") or []:
-                    if r.get("author") == agent:
+                    if r.get("author") == agent and _ms(r.get("at")) >= t0:
                         out.append((t, "reaction", msg))
             elif kind == "read-cursor" and ch.get("participant") == agent:
                 out.append((t, "read", ch.get("seq")))
@@ -217,33 +232,42 @@ def measure_probe(probe, sent, events, t_end, trace):
     t0 = sent[0][0]
     sg = signs(events, t0, t_end)
     agent_msgs = [(t, d) for (t, k, d) in sg if k == "message"]
-    first_sign = next((t for (t, k, d) in sg if k in ("typing", "draft", "run", "message", "reaction")), None)
+    first_sign = next((t for (t, k, d) in sg if k in ("typing", "draft", "thought", "run", "message", "reaction")), None)
+    # Useful: Chief words with a whole sentence or an expected answer, never an
+    # ack-only line ("On it.") and never a fragment of a streaming draft.
+    wants = [m[2] for m in probe["msgs"] if m[2]]
     useful = None
     for (t, k, d) in sg:
         txt = d if k == "draft" else (_text(d) if k == "message" else None)
-        if txt and len(txt.strip()) >= 4 and not ACK_ONLY.match(txt):
+        if not txt or ACK_ONLY.match(txt):
+            continue
+        whole = k == "message" or re.search(r"[.!?:](\s|$)", txt.strip())
+        if any(re.search(w, txt, re.I) for w in wants) or (whole and len(txt.strip()) >= 12):
             useful = t
             break
     final = agent_msgs[-1][0] if agent_msgs else None
     if probe.get("delegated"):
         reports = [e["ts"] for e in trace if e.get("ev") == "spawn.report" and t0 <= e.get("ts", 0) <= t_end]
         if reports:
-            after = [t for (t, _) in agent_msgs if t >= reports[0]]
+            after = [t for (t, _) in agent_msgs if t >= reports[-1]]
             final = after[0] if after else None
     per = []
     for i, (t, mid, seq) in enumerate(sent):
         want = probe["msgs"][i][2]
         mine = signs(events, t, t_end)
+        # Ack: a sign that names THIS message (a tapback on it, a reply to it,
+        # an answer that lists it) or the Chief's read cursor passing it.
         ack = None
         for (ts, k, d) in mine:
             if k == "reaction" and d.get("id") == mid:
                 ack = ts
-            elif k == "message" and (_reply_to(d) == mid or mid in (d.get("answers") or []) or ts >= t):
+            elif k == "message" and (_reply_to(d) == mid or mid in (d.get("answers") or [])):
                 ack = ts
             elif k == "read" and seq is not None and d is not None and d >= seq:
                 ack = ts
             if ack:
                 break
+        nxt = next((ts for (ts, k, d) in mine if k == "message"), None)
         acted = None
         if want:
             for (ts, d) in agent_msgs:
@@ -251,6 +275,7 @@ def measure_probe(probe, sent, events, t_end, trace):
                     acted = ts
                     break
         per.append({"i": i, "sent": t, "ack_ms": ack - t if ack else None,
+                    "next_msg_ms": nxt - t if nxt else None,
                     "acted_ms": acted - t if acted else None, "expected": bool(want),
                     "ok": (acted is not None) if want else None})
     stale = None
@@ -316,7 +341,11 @@ def run(ctx):
                 log(f"sent {probe['id']}#{len(sent) - 1}")
             deadline = time.time() + ctx.get("timeout", 600)
             t_first = sent[0][0]
-            while time.time() < deadline and not idle(t_first):
+            went_idle = False
+            while time.time() < deadline:
+                if idle(t_first):
+                    went_idle = True
+                    break
                 time.sleep(0.5)
             t_end = int(time.time() * 1000)
             # Message ids for sends whose echo arrived after the lookup above.
@@ -327,7 +356,7 @@ def run(ctx):
                         if m.get("author") != AGENT and m.get("seq") == s[2]:
                             s[1] = m.get("id")
             res = measure_probe(probe, [tuple(s) for s in sent], rec.snapshot(), t_end, trace_events())
-            res["timeout"] = time.time() >= deadline
+            res["timeout"] = not went_idle
             results.append(res)
             log(f"probe {probe['id']}: sign {res['sign_ms']} ms, useful {res['useful_ms']} ms, final {res['final_ms']} ms, "
                 f"turns {res['turns']}, msgs {[(m['ack_ms'], m['acted_ms']) for m in res['msgs']]}")
@@ -366,6 +395,7 @@ def aggregate(dirs):
     for c in classes:
         rs = [r for r in rows if r["class"] == c]
         acks = [m["ack_ms"] for r in rs for m in r["msgs"]]
+        nexts = [m.get("next_msg_ms") for r in rs for m in r["msgs"]]
         acted = [m["acted_ms"] for r in rs for m in r["msgs"] if m["expected"]]
         later_acted = [m["acted_ms"] for r in rs for m in r["msgs"] if m["expected"] and m["i"] > 0]
         oks = [m["ok"] for r in rs for m in r["msgs"] if m["expected"]]
@@ -377,6 +407,7 @@ def aggregate(dirs):
             "useful": (_q([r["useful_ms"] for r in rs], .5), _q([r["useful_ms"] for r in rs], .9)),
             "final": (_q([r["final_ms"] for r in rs], .5), _q([r["final_ms"] for r in rs], .9)),
             "ack_each": (_q(acks, .5), _q(acks, .9)),
+            "next_msg_each": (_q(nexts, .5), _q(nexts, .9)),
             "acted_each": (_q(acted, .5), _q(acted, .9)),
             "acted_later": (_q(later_acted, .5), _q(later_acted, .9)),
             "correct": f"{sum(1 for o in oks if o)}/{len(oks)}",
