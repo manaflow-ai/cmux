@@ -36,8 +36,11 @@ public final class InTreePages {
                                                symbol: "rectangle.inset.filled", order: 44)
 
     /// The Debug Settings switch. Read once at launch: a change applies at the next launch.
+    /// The switch's Debug Settings key, readable off the main actor (the launch reads the file before the store).
+    public nonisolated static let key = "browser.inTreePages"
+
     public static let tunable = Tunable<Bool>.toggle(
-        "browser.inTreePages", section, "Pages in the window's view tree",
+        key, section, "Pages in the window's view tree",
         help: "Chromium pages draw as views inside their pane, with overlays and dividers as plain views: no page, overlay or divider windows. Applies at the next launch. Needs fork API 36; an older engine keeps child-window pages.",
         default: false, code: "InTreePages.tunable")
 

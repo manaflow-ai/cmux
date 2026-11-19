@@ -107,7 +107,7 @@ final class DebugSettingsService: InternalPageProvider {
     nonisolated static func launchInTreePages(_ url: URL?) -> Bool? {
         // concurrency-allow: one small Debug Settings file, read once at launch before the first window
         guard let url, let data = try? Data(contentsOf: url) else { return nil }
-        return TunableFile.decode(data)[InTreePages.tunable.key] as? Bool
+        return TunableFile.decode(data)[InTreePages.key] as? Bool
     }
 
     /// Debug Settings `icons.family` as the override file holds it at launch (`pack` without one).
