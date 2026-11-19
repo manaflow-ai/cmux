@@ -246,11 +246,11 @@ final class TabContentCache {
 
     // MARK: Browsers
 
-    func browser(for key: String, url: URL?, profile: BrowserProfileID? = nil) -> BrowserEntry {
+    func browser(for key: String, url: URL?, profile: BrowserProfileID? = nil, loadsAfterFrame: Bool = false) -> BrowserEntry {
         if let entry = browsers[key] { return entry }
         let profile = profile ?? browserProfile?(key) ?? .default
         if let page = MachineBrowserPages(cache: self).page(key: key, url: url, profile: profile) { return install(page, for: key) }
-        let tab = webKit.makeWebKitTab(id: BrowserTabID(rawValue: key), profile: profile, initialURL: pageRequests.staysOffThisMacLocalhost(key) ? nil : url)
+        let tab = webKit.makeWebKitTab(id: BrowserTabID(rawValue: key), profile: profile, initialURL: pageRequests.staysOffThisMacLocalhost(key) ? nil : url, loadsAfter: loadsAfterFrame ? afterFrame : nil) // a stand-in's first load after its chrome and omnibar focus
         return install(tab, for: key)
     }
 
@@ -293,7 +293,7 @@ final class TabContentCache {
             if crashedPages.contains(key), !startedDeferred.contains(key) { return deferred(tab, url: url) }
             onRestoredPageStart?(key)
         }
-        guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return tracked(browserTabs.historyStarts.page(tab, url: url, cache: self) ?? browser(for: key, url: url), tab) }
+        guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return tracked(browserTabs.historyStarts.page(tab, url: url, cache: self) ?? browser(for: key, url: url, loadsAfterFrame: ProvisionalTab.isProvisional(surface: tab.surface)), tab) }
         if let reason = browserTabs.cefUnavailable() { return chromiumUnavailable(tab, url: url, reason: reason) }
         if !pendingBrowsers.contains(key), let page = ChromiumNewTabNow(cache: self).page(tab, url: url) { return tracked(install(page, for: key), tab) }
         guard pendingBrowsers.insert(key).inserted, cef.notePoint("page_task") else { return nil }
