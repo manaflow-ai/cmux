@@ -75,6 +75,29 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// The panes beside the caller that are another agent's home (their pane ids): a beside run never puts its
     /// tab in a column that holds one, it makes its own column right of the caller. The control socket sets it.
     public var besideAgentHomes: Set<String> = []
+    /// A terminal's browser placed as a Cmd-click's from that terminal (the app's TabLifecycle): moved into a
+    /// new pane beside the terminal (`beside`), or opened in a pane that is there. One that stays in the
+    /// terminal's own pane (`inOwnPane`) opens behind the terminal, never over it: the program that runs there,
+    /// an agent or the person's shell, stays in view.
+    public mutating func placeTerminalBrowser(beside: Bool, inOwnPane: Bool) {
+        (besideCaller, newColumnBeside) = (beside, beside)
+        if !beside, inOwnPane { opensInBackground = true }
+    }
+
+    /// This run when the control socket sent it for a caller the app places (beside an agent, or from a terminal),
+    /// nil for any other run: a browser it opens goes through `openBrowser`'s placement.
+    public var callerPlaced: ActionInvocation? { viaControlSocket && (besideCaller || callerTerminal != nil) ? self : nil }
+
+    /// `openBrowser`'s invocation for a page this run opens: its target, caller and placement, with these arguments.
+    public func openingBrowser(url: String?, engine: String? = nil, profile: String? = nil) -> ActionInvocation {
+        var open = self
+        open.arguments = [:]
+        for (name, value) in [("url", url), ("engine", engine), ("profile", profile)] {
+            if let value { open.arguments[name] = .string(value) }
+        }
+        return open
+    }
+
     /// This run when the control router aimed it beside its agent caller (``besideCaller`` over the control
     /// socket), nil for any other run: its handler places the new tab through the app's beside placement.
     public var besideAgent: ActionInvocation? { viaControlSocket && besideCaller ? self : nil }

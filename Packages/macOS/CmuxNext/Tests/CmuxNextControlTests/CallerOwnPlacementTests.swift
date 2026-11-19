@@ -22,9 +22,9 @@ import Testing
     }
 
     /// An action the catalog marks destructive (it then needs `confirm`).
-    static func destructive(_ id: String, _ targets: [String], requires: [String] = []) -> ControlActionInfo {
+    static func destructive(_ id: String, _ targets: [String], requires: [String] = [], naming: ControlArgumentInfo? = nil) -> ControlActionInfo {
         var info = action(id, targets)
-        info.arguments = [ControlArgumentInfo(name: "confirm", title: "confirm", kind: .bool, isRequired: false)]
+        info.arguments = [ControlArgumentInfo(name: "confirm", title: "confirm", kind: .bool, isRequired: false)] + (naming.map { [$0] } ?? [])
         info.isDestructive = true
         info.requires = requires
         info.requiresMask = requires.isEmpty ? 0 : 1 << 1
@@ -40,7 +40,10 @@ import Testing
             action("renameWorkspace", ["workspace"]), action("closeTab", ["tab"]), action("commandPalette", []),
             action("newTab", ["workspace"]), action("newTab.default", ["tab"], arguments: ["cwd"]),
             action("screen.rename", ["screen"]), destructive("screen.closeOthers", ["screen"]), destructive("tabGroup.close", ["tab-group"]),
-            destructive("browser.pageInfo.deleteSiteData", ["pane"], requires: ["browserFocused"]), destructive("workspace.closeAll", []),
+            destructive("browser.pageInfo.deleteSiteData", ["pane"], requires: ["browserFocused"]),
+            destructive("workspace.closeAll", [], naming: ControlArgumentInfo(name: "window", title: "Window", kind: .target, isRequired: false, targetKind: "window")),
+            action("closeWindow", []), action("cloud.team.archive", ["workspace", "tab"], arguments: ["session"]),
+            action("bookmark.remove", ["bookmark"], arguments: ["bookmark"]),
         ], contextMask: 1 << 1, aliases: [:], targetKinds: ["tab", "tab-group", "pane", "column", "screen", "workspace", "workspace-group", "window"],
                        debugActionsAvailable: true)
     }
@@ -150,26 +153,54 @@ import Testing
         #expect(request.besideCaller)
     }
 
-    /// A person's shell in a workspace no window shows: its own pane, never the focused one. Its new terminal
-    /// is a tab in its own pane whether shown or not.
-    @Test func aTerminalWithNoAgentKeepsItsOwnPane() async throws {
+    /// A person's shell: its new terminal is a tab in its own pane, shown or not, never in the focused one.
+    @Test func aTerminalWithNoAgentKeepsItsNewTerminalInItsOwnPane() async throws {
         let shell = Self.terminal("tab-agent", "term-agent", agent: nil)
         let right = [Self.pane("pane-web", [Self.browser("tab-web")])]
-        let request = try await run("openBrowser", Self.snapshot(own: shell, right: right), args: ["url": "https://example.com"])
-        #expect(request.target == Self.tabTarget("tab-agent"), "a person's shell: its own pane, not the focused one: \(String(describing: request.target))")
-        #expect(!request.besideCaller)
-        #expect(!request.newColumnBeside)
-        let terminal = try await run("newSurface", Self.snapshot(own: shell, right: right, shown: true))
-        #expect(terminal.target == Self.tabTarget("tab-agent"))
-        #expect(!terminal.besideCaller)
+        for shown in [true, false] {
+            let terminal = try await run("newSurface", Self.snapshot(own: shell, right: right, shown: shown))
+            #expect(terminal.target == Self.tabTarget("tab-agent"))
+            #expect(!terminal.besideCaller)
+        }
+    }
+
+    /// A terminal no window shows (the person looks at another workspace) has nothing for the app to measure:
+    /// the router places its browser from the topology, as an agent chat's off screen. A plain shell and an
+    /// agent's terminal alike, with no target or aimed at the terminal's own tab (the CLI's `browser open`):
+    /// the pane of the column on its right, never another agent's column, else a new column right of it. Never
+    /// a tab in the terminal's own pane (fleet capture of build ff3b87ce78d6, 2026-11-18).
+    @Test(arguments: [true, false], [true, false])
+    func anUnshownTerminalsBrowserIsPlacedFromTheTopology(runsAgent: Bool, aimedAtOwnTab: Bool) async throws {
+        let own = Self.terminal("tab-agent", "term-agent", agent: runsAgent ? "claude" : nil)
+        func open(_ right: [ControlPaneInfo]) async throws -> ControlActionRequest {
+            let (router, executor) = install(Self.snapshot(own: own, right: right))
+            var params: [String: JSONValue] = ["action": "openBrowser", "args": ["url": "https://example.com"], "caller": Self.agent]
+            if aimedAtOwnTab { params["target"] = "tab:tab-agent" }
+            _ = try await router.handle(ControlRequest(id: "1", method: "action.run", params: params)).get()
+            return try #require(executor.all.first)
+        }
+        let helper = try await open([Self.pane("pane-web", [Self.browser("tab-web")])])
+        #expect(helper.target == Self.tabTarget("tab-web"), "the column on its right: \(String(describing: helper.target))")
+        #expect(helper.besideCaller)
+        #expect(!helper.newColumnBeside)
+        let alone = try await open([])
+        #expect(alone.target == Self.tabTarget("tab-agent"))
+        #expect(alone.besideCaller, "moved out of the terminal's own pane")
+        #expect(alone.newColumnBeside)
+        let taken = try await open([Self.pane("pane-other", [Self.chat("tab-other", session: "agent-2")])])
+        #expect(taken.target == Self.tabTarget("tab-agent"), "never another agent's column: \(String(describing: taken.target))")
+        #expect(taken.newColumnBeside)
+        #expect(taken.besideAgentHomes == ["pane-other"])
     }
 
     /// The three browser entry points of a person's shell agree: `cmux browser open` (openBrowser), `cmux open
-    /// URL` (browser.open_split) and `cmux browser tab new` (browser.page.new_tab) are each aimed at the shell's
-    /// own tab with its terminal as the caller, which the app opens right of the terminal.
-    @Test func aPlainShellsThreeBrowserEntryPointsAgree() async throws {
+    /// URL` (browser.open_split) and `cmux browser tab new` (browser.page.new_tab). While a window shows the
+    /// shell each is aimed at its own tab with its terminal as the caller, which the app opens right of the
+    /// terminal; while none does each is moved into a new column right of it.
+    @Test(arguments: [true, false])
+    func aPlainShellsThreeBrowserEntryPointsAgree(shown: Bool) async throws {
         let shell = Self.terminal("tab-agent", "term-agent", agent: nil)
-        let snapshot = Self.snapshot(own: shell, shown: true)
+        let snapshot = Self.snapshot(own: shell, shown: shown)
         let direct = try await run("openBrowser", snapshot, args: ["url": "https://example.com"])
         let (router, executor) = install(snapshot)
         let reply = try await router.handle(ControlRequest(id: "1", method: "browser.open_split", params: [
@@ -190,7 +221,8 @@ import Testing
             #expect(request.actionID == "openBrowser")
             #expect(request.target == Self.tabTarget("tab-agent"), "\(String(describing: request.target))")
             #expect(request.callerTerminal == "term-agent")
-            #expect(!request.besideCaller)
+            #expect(request.besideCaller == !shown)
+            #expect(request.newColumnBeside == !shown)
             #expect(!request.background)
         }
     }
@@ -221,10 +253,16 @@ import Testing
         ])).get()
         #expect(terminalExecutor.all.first?.besideCaller == true)
 
-        let identity = try await router.handle(ControlRequest(id: "3", method: "system.identify", params: [
-            "caller": Self.agent, "origin": "mcp",
-        ])).get()
-        #expect(identity["beside"] == ["pane": .null, "placement": "new_column"], "\(String(describing: identity["beside"]))")
+        // `origin: "mcp"` on the reads too: `beside` is never `own_pane` for the MCP server's caller.
+        for method in ["system.identify", "snapshot.get"] {
+            let reply = try await router.handle(ControlRequest(id: "3", method: method, params: ["caller": Self.agent, "origin": "mcp"])).get()
+            #expect(reply["beside"] == ["pane": .null, "placement": "new_column"], "\(method): \(String(describing: reply["beside"]))")
+        }
+        let helper = Self.snapshot(own: shell, right: [Self.pane("pane-web", [Self.browser("tab-web")])])
+        let (beside, _) = install(helper)
+        let withColumn = try await beside.handle(ControlRequest(id: "4", method: "system.identify", params: ["caller": Self.agent, "origin": "mcp"])).get()
+        #expect(withColumn["beside"]?["placement"] == "existing_column")
+        #expect(try await beside.handle(ControlRequest(id: "5", method: "system.identify", params: ["caller": Self.agent])).get()["beside"]?["placement"] == "own_pane")
     }
 
     @Test func anAgentsNewTerminalOpensBesideItInItsOwnFolder() async throws {
@@ -330,7 +368,8 @@ import Testing
         let (router, executor) = install(Self.snapshot())
         let refused = await router.handle(ControlRequest(id: "1", method: "action.run", params: ["action": "closeTab", "caller": Self.agent]))
         #expect(refused.failure?.code == "target_required")
-        #expect(refused.failure?.data?["tab"] == "tab-agent")
+        #expect(refused.failure?.message.contains("target tab:") == true, "it says what to pass: \(String(describing: refused.failure?.message))")
+        #expect(refused.failure?.message.contains("tab-agent") != true, "and never offers the agent its own tab")
         #expect(executor.all.isEmpty, "an agent's close with no target closed something")
 
         let shell = try await run("closeTab", Self.snapshot(own: Self.terminal("tab-agent", "term-agent", agent: nil)))
@@ -348,20 +387,60 @@ import Testing
             "action": .string(action), "args": ["confirm": true], "caller": Self.agent,
         ]))
         #expect(refused.failure?.code == "target_required", "\(action): \(String(describing: refused))")
-        #expect(refused.failure?.data?["tab"] == "tab-agent")
+        #expect(refused.failure?.message.contains("tab-agent") != true, "the refusal never offers the agent its own tab")
         #expect(executor.all.isEmpty, "\(action) ran")
-        // An agent session no tab shows gets the same refusal as a run it cannot be placed for.
+        // An agent session no tab shows is refused the same way.
         let unplaced = await router.handle(ControlRequest(id: "2", method: "action.run", params: [
             "action": .string(action), "args": ["confirm": true], "caller": ["agent_session": "gone"],
         ]))
-        #expect(unplaced.failure?.code == "caller_unavailable")
+        #expect(unplaced.failure?.code == "target_required")
         #expect(executor.all.isEmpty)
     }
 
-    /// A screen is a place a caller has of its own; a global action takes no target and is not refused.
-    @Test func aScreenRunUsesTheCallersOwnScreenAndAGlobalActionIsLeftAlone() async throws {
+    /// An action that names its object by its own argument is not refused, and is never aimed at the caller's own
+    /// tab or workspace: `cmux cloud archive-session --session S` archives S, and with no `--session` the refusal
+    /// says what to pass and does not offer the agent's own tab (that target archives the agent's own session).
+    @Test func aClosingRunNamedByItsOwnArgumentRunsOnThatObject() async throws {
+        let (router, executor) = install(Self.snapshot())
+        let refused = await router.handle(ControlRequest(id: "1", method: "action.run", params: ["action": "cloud.team.archive", "caller": Self.agent]))
+        #expect(refused.failure?.code == "target_required")
+        #expect(refused.failure?.message.contains("--session") == true, "\(String(describing: refused.failure?.message))")
+        #expect(refused.failure?.message.contains("tab-agent") != true)
+        #expect(refused.failure?.data?["arguments"] == ["session"])
+        #expect(executor.all.isEmpty)
+
+        let archived = try await run("cloud.team.archive", Self.snapshot(), args: ["session": "sess-9"])
+        #expect(archived.target == nil, "not also aimed at the agent's own workspace: \(String(describing: archived.target))")
+        #expect(archived.arguments["session"] == .string("sess-9"))
+        let removed = try await run("bookmark.remove", Self.snapshot(), args: ["bookmark": "Docs"])
+        #expect(removed.target == nil)
+        #expect(removed.arguments["bookmark"] == .string("Docs"))
+    }
+
+    /// Close All Workspaces and Close Window take no target: unnamed they act on the window the person has in
+    /// front. An agent must name the window, or cannot run the action at all; a person's shell is not refused.
+    @Test func anAgentNeverClosesThePersonsFrontWindow() async throws {
+        let (router, executor) = install(Self.snapshot())
+        let refused = await router.handle(ControlRequest(id: "1", method: "action.run", params: [
+            "action": "workspace.closeAll", "args": ["confirm": true], "caller": Self.agent,
+        ]))
+        #expect(refused.failure?.code == "target_required")
+        #expect(refused.failure?.message.contains("--window") == true, "\(String(describing: refused.failure?.message))")
+        let unnameable = await router.handle(ControlRequest(id: "2", method: "action.run", params: ["action": "closeWindow", "caller": Self.agent]))
+        #expect(unnameable.failure?.code == "person_required")
+        #expect(executor.all.isEmpty, "an agent closed the person's front window")
+
+        let named = try await run("workspace.closeAll", Self.snapshot(), args: ["confirm": true, "window": "window:win-1"])
+        #expect(named.target == nil)
+        #expect(named.arguments["window"] == .target(ControlTargetRef(kind: "window", id: "win-1")))
+        let shell = Self.snapshot(own: Self.terminal("tab-agent", "term-agent", agent: nil))
+        #expect(try await run("workspace.closeAll", shell, args: ["confirm": true]).actionID == "workspace.closeAll")
+        #expect(try await run("closeWindow", shell).target == nil)
+    }
+
+    /// A screen is a place a caller has of its own.
+    @Test func aScreenRunUsesTheCallersOwnScreen() async throws {
         #expect(try await run("screen.rename", Self.snapshot()).target == ControlTargetRef(kind: "screen", id: "screen-agent"))
-        #expect(try await run("workspace.closeAll", Self.snapshot(), args: ["confirm": true]).target == nil)
     }
 
     @Test func anAgentTheTopologyDoesNotShowIsRefusedAndAnUnknownTerminalIsLeftAlone() async throws {
@@ -409,21 +488,23 @@ import Testing
         #expect(try await run("closeTab", snapshot, caller: ["home_chat": true]).target == nil)
     }
 
-    /// An older CLI's `browser open` names the terminal's own tab: the app sends that browser where a Cmd-click's
-    /// goes (TabLifecycle), and the run says which panes beside the caller are another agent's, so it is never one.
+    /// The CLI's `browser open` names the terminal's own tab: while a window shows it the app sends that browser
+    /// where a Cmd-click's goes (TabLifecycle), and the run says which panes beside the caller are another
+    /// agent's, so it is never one.
     @Test func aBrowserAimedAtTheCallersOwnTabStillKnowsTheOtherAgentsPanes() async throws {
         let other = Self.pane("pane-other", [Self.terminal("tab-other", "term-other", agent: "codex")])
         for own in [Self.terminal("tab-agent", "term-agent", agent: "claude"), Self.terminal("tab-agent", "term-agent", agent: nil)] {
-            let (router, executor) = install(Self.snapshot(own: own, right: [other]))
+            let (router, executor) = install(Self.snapshot(own: own, right: [other], shown: true))
             _ = try await router.handle(ControlRequest(id: "1", method: "action.run", params: [
                 "action": "openBrowser", "target": "tab:tab-agent", "caller": Self.agent,
             ])).get()
             let request = try #require(executor.all.first)
             #expect(request.target == Self.tabTarget("tab-agent"))
+            #expect(!request.besideCaller, "the app's Cmd-click rule decides")
             #expect(request.besideAgentHomes == ["pane-other"])
         }
         // A plain shell's own run with no target carries them too.
-        let shell = Self.snapshot(own: Self.terminal("tab-agent", "term-agent", agent: nil), right: [other])
+        let shell = Self.snapshot(own: Self.terminal("tab-agent", "term-agent", agent: nil), right: [other], shown: true)
         #expect(try await run("openBrowser", shell).besideAgentHomes == ["pane-other"])
     }
 

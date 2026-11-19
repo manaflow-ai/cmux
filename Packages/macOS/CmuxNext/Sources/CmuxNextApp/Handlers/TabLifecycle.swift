@@ -249,15 +249,15 @@ enum TabLifecycle {
                 pane = invoked
                 docked = true
             }
-        } else if !invocation.besideCaller, let caller = invocation.callerTerminal, let from = ctx.services.paneController(for: invoked),
+        } else if !invocation.besideCaller, let caller = invocation.callerTerminal,
                   invoked.tabs.contains(where: { $0.id == invocation.target?.id && [$0.terminalID?.rawValue, $0.terminalResourceID?.rawValue].contains(caller) }) {
-            // A CLI or MCP browser at its own terminal's tab goes where a Cmd-click's would (LinkOpenPlacement, Lawrence 2026-11-15): the pane on its right, else a new pane beside it (AgentBesidePlacement).
-            let target = ctx.services.linkOpener.target(from: from, kind: .browser), id = from.layoutPaneID
-            // Never a column that holds another agent's pane (`besideAgentHomes`, ControlCallerPlacement): then a new pane beside the caller.
-            let taken = !invocation.besideAgentHomes.isEmpty && LinkOpener.rightColumn(beside: from).panes.contains { invocation.besideAgentHomes.contains($0) }
-            if case .pane(let right) = target, right != id, !taken, let shown = from.workspace?.panes[right] { pane = shown.pane } else { pane = invoked }
-            if taken { invocation.newColumnBeside = true } else if case .splitRight = target { invocation.newColumnBeside = true } else if case .newColumn = target { invocation.newColumnBeside = true }
-            invocation.besideCaller = invocation.newColumnBeside
+            // A CLI or MCP browser at its own terminal's tab goes where a Cmd-click's would (LinkOpenPlacement, Lawrence 2026-11-15): the pane on its right, else a new pane beside it (AgentBesidePlacement), never a
+            // column that holds another agent's pane (`besideAgentHomes`). A pane no window shows has nothing to measure: a new pane beside it, never its own pane (the control router places that case from the topology first).
+            let from = ctx.services.paneController(for: invoked), target = from.map { ctx.services.linkOpener.target(from: $0, kind: .browser) }
+            let taken = from.map { shown in !invocation.besideAgentHomes.isEmpty && LinkOpener.rightColumn(beside: shown).panes.contains { invocation.besideAgentHomes.contains($0) } } ?? false
+            if case .pane(let right)? = target, right != from?.layoutPaneID, !taken, let shown = from?.workspace?.panes[right] { pane = shown.pane } else { pane = invoked }
+            let splits = if target == nil { true } else if case .splitRight? = target { true } else if case .newColumn? = target { true } else if case .splitBelow? = target { true } else { taken }
+            invocation.placeTerminalBrowser(beside: splits, inOwnPane: pane === invoked) // in its own pane (`layout.linkPlacement: same-pane`): behind the terminal, never over it
         } else {
             pane = invoked
         }
@@ -329,7 +329,7 @@ enum TabLifecycle {
             controller.newBrowserTab(url: url, engine: engine, background: background, placementOwner: homePlacement, then: then)
             return
         }
-        openOffscreen(ctx, pane: pane, url: url, engine: engine, profile: nil, then: agentTab)
+        openOffscreen(ctx, pane: pane, url: url, engine: engine, profile: nil, background: background, then: agentTab)
     }
 
     /// The browser tab a lone agent chat leaves in its pane when it docks: a
@@ -355,12 +355,12 @@ enum TabLifecycle {
                                      placementOwner: placementOwner, then: agentTab)
             return
         }
-        openOffscreen(ctx, pane: pane, url: url, engine: engine, profile: profile, then: agentTab)
+        openOffscreen(ctx, pane: pane, url: url, engine: engine, profile: profile, background: background, then: agentTab)
     }
 
-    /// A new browser tab (in `profile`, else the cascade's) in a pane that is not on screen.
+    /// A new browser tab (in `profile`, else the cascade's) in a pane that is not on screen; `background`: not made the pane's shown tab (one on its way to a pane beside its caller).
     private static func openOffscreen(_ ctx: AppActionContext, pane: PaneModel, url: URL?, engine: String?, profile: String?,
-                                      then agentTab: (@MainActor (SurfaceID) -> Void)?) {
+                                      background: Bool = false, then agentTab: (@MainActor (SurfaceID) -> Void)?) {
         let browserTabs = ctx.services.cache.browserTabs
         if let refusal = browserTabs.refusal(in: pane) ?? browserTabs.refusal(for: url) { return ctx.refuse(refusal) }
         guard browserTabs.isAvailable(in: pane) else {
@@ -375,7 +375,7 @@ enum TabLifecycle {
         let logger = ctx.services.daemon.logger
         ctx.registry.track(Task {
             do {
-                let surface = try await browserTabs.open(choice, in: pane, url: address, profile: profile)
+                let surface = try await browserTabs.open(choice, in: pane, url: address, profile: profile, activate: !background)
                 agentTab?(surface)
                 return nil
             } catch {

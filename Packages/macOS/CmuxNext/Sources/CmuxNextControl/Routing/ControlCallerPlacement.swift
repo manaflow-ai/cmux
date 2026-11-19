@@ -7,9 +7,11 @@ import Foundation
 /// `browser.page.right` and the `beside` of `system.identify` and `snapshot.get` all read this one decision.
 ///
 /// - A terminal no agent runs in (a person's shell, a script): its own pane, for a new terminal or a file.
-/// - A browser from any terminal, an agent's or a person's, goes where a Cmd-click's would (TabLifecycle,
-///   Lawrence 2026-11-15): the pane on its right, else a new pane beside it; the run is aimed at the terminal's
-///   own tab and the app measures. A terminal no window shows: an agent's by the columns here, a shell's own pane.
+/// - A browser from any terminal, an agent's or a person's, opens right of it (Lawrence 2026-11-15): the pane on
+///   its right, else a new pane beside it. A window that shows the terminal measures it as a Cmd-click's
+///   (TabLifecycle; the run is aimed at the terminal's own tab). A terminal no window shows has nothing to
+///   measure: the columns here decide, as for an agent's chat off screen (the helper column's pane, never
+///   another agent's home, else a new column right of the terminal, made with daemon commands).
 /// - An agent (an agent chat, a Chief turn, a terminal whose hooks report an agent): its helper column, the column
 ///   right of its pane, unless that column is another agent's home (it holds another agent's chat, or a terminal an
 ///   agent runs in). Without a helper column, a new column directly right of its pane.
@@ -42,7 +44,9 @@ struct ControlCallerPlacement: Sendable, Equatable {
     /// terminal alike. Empty for a docked caller.
     var agentHomes: [String] = []
 
-    init(_ location: ControlCallerLocation) {
+    /// `browserFromTerminal`: the decision for a browser the caller's terminal opens. It goes right of the
+    /// terminal whoever runs there, so a terminal no agent runs in is placed as an agent's is.
+    init(_ location: ControlCallerLocation, browserFromTerminal: Bool = false) {
         self.location = location
         var homes: [String] = []
         if location.pane.dock == nil {
@@ -54,7 +58,7 @@ struct ControlCallerPlacement: Sendable, Equatable {
             }.map(\.id)
         }
         agentHomes = homes
-        guard Self.runsAgent(location) else {
+        guard browserFromTerminal || Self.runsAgent(location) else {
             kind = .ownPane
             return
         }

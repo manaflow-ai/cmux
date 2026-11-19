@@ -195,7 +195,8 @@ struct BrowserOpenSplitPlacement: Sendable, Equatable {
         /// The workspace `workspace_id` names.
         case workspace
         /// From the caller's terminal, one no agent runs in: aimed at its own tab. A browser then opens in the
-        /// pane on its right, else in a new pane beside it (its own pane when no window shows it); a file in its pane.
+        /// pane on its right, else in a new pane beside it, whether a window shows the terminal or not; a file
+        /// opens in its pane.
         case callerTerminal = "caller_terminal"
         /// The focused pane of the front window.
         case focusedPane = "focused_pane"

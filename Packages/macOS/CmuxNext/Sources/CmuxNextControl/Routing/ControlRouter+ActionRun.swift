@@ -132,7 +132,7 @@ extension ControlRouter {
         var placed = given
         // A run that names its caller and no target: an agent's closing run is refused; else the browser nearest
         // the caller, else the caller's own place.
-        try Self.requireTargetOfAgentClosing(placed, action: action, topology: call.snapshot.topology)
+        try Self.requireObjectOfAgentClosing(placed, action: action, topology: call.snapshot.topology)
         try Self.aimBrowserActionAtCaller(&placed, action: action, topology: call.snapshot.topology)
         try Self.placeAtCaller(&placed, action: action, topology: call.snapshot.topology)
         let request = try await resolvedTargets(placed, snapshot: call.snapshot, deadline: call.deadline)
