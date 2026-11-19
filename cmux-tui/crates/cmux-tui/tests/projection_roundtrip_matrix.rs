@@ -247,6 +247,12 @@ fn trip_as(case: &str, projected: bool, fill: impl FnOnce(&Side, &Path)) -> Resu
     let trip = Trip { mac, machine, local, folder, root };
     if !projected {
         assert_ne!(answer["mode"], "projected", "{answer}");
+        // A held copy answers at its head and sends the rest after: the folder reads ready once
+        // it is whole.
+        if answer["filling"] == true {
+            cmux_git::sync_barrier::wait_ready(&trip.folder, Duration::from_secs(120))
+                .unwrap_or_else(|error| panic!("the copy never filled: {error:#} {answer}"));
+        }
         return Ok(trip);
     }
     if answer["mode"] != "projected" {
