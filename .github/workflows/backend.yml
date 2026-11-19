@@ -668,6 +668,10 @@ jobs:
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        uses: ./.github/actions/zig-global-cache
       - name: Build Linux cmux-tui for the headless journey
         id: build-cmux-tui
         working-directory: cmux-tui
@@ -749,6 +753,12 @@ jobs:
       - name: Newer deployment inputs already queued; skip
         if: steps.source.outputs.deploy == 'false'
         run: echo "::notice::A newer backend push supersedes this deployment."
+      # The pre-merge pipeline (backend-migrations.yml) applies a migration to staging and production
+      # only, and migrations-development runs only for previews, so nothing else brings development up
+      # to the tree: one landed migration refused every development deploy after it (0008_build_space,
+      # 2026-11-18). Every file in this tree is already applied to staging and production (the required
+      # `backend migrations applied` gate; a contract file only after production runs it), so apply the
+      # pending ones here, then verify.
       - name: Development schema matches this commit
         if: steps.source.outputs.deploy == 'true'
         working-directory: backend/db
@@ -756,7 +766,7 @@ jobs:
           CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
           SHA: ${{ github.sha }}
         run: |
-          if ! out=$(bun migrate.ts --env development --verify 2>&1); then
+          if ! out=$(bun migrate.ts --env development 2>&1 && bun migrate.ts --env development --verify 2>&1); then
             echo "$out"
             msg="Development deploy refused for ${SHA:0:11}: $(echo "$out" | tail -1)."
             echo "::error title=Development deploy refused::$msg"

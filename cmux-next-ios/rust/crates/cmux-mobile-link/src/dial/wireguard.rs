@@ -81,6 +81,122 @@ const STUN_WAIT: Duration = Duration::from_millis(1500);
 /// every dial and roam on such a network 1.5 s (link-reliability-20261023.md).
 /// A second answer only adds a reflexive address the first usually shares.
 const STUN_GRACE: Duration = Duration::from_millis(150);
+/// STUN asked and nothing answered in this long: UDP looks blocked, and a
+/// TURN allocation running beside the wait starts its TCP or TLS attempt
+/// now instead of after its stagger (RFC 8305's 250 ms). STUN to the
+/// nearest server takes one round trip where UDP works.
+pub(crate) const STUN_SILENT: Duration = Duration::from_millis(250);
+
+/// The STUN wait's half of [`stun_turn_link`].
+struct StunSide {
+    /// True while STUN was asked and nothing answered in [`STUN_SILENT`].
+    udp_silent: watch::Sender<bool>,
+    /// True once the allocation beside the wait took a TCP or TLS carrier.
+    stream_ready: watch::Receiver<bool>,
+}
+
+/// The TURN allocation's half of [`stun_turn_link`].
+struct TurnSide {
+    udp_silent: watch::Receiver<bool>,
+    stream_ready: watch::Sender<bool>,
+}
+
+/// What a STUN wait and the TURN allocation beside it tell each other, so
+/// that a network that drops UDP costs neither the STUN wait
+/// ([`STUN_WAIT`]) nor the allocation's UDP wait: both used to run out
+/// in full before TURN over TLS carried the dial.
+fn stun_turn_link() -> (StunSide, TurnSide) {
+    let (silent_tx, silent_rx) = watch::channel(false);
+    let (ready_tx, ready_rx) = watch::channel(false);
+    (
+        StunSide { udp_silent: silent_tx, stream_ready: ready_rx },
+        TurnSide { udp_silent: silent_rx, stream_ready: ready_tx },
+    )
+}
+
+/// The clock of one STUN wait (a dial's gather or a roam's): [`STUN_WAIT`]
+/// at most, [`STUN_GRACE`] after the first answer. Beside a TURN
+/// allocation it raises `udp_silent` when nothing answered in
+/// [`STUN_SILENT`], and ends the wait at once when, with nothing answered,
+/// the allocation took a TCP or TLS carrier.
+struct StunClock {
+    deadline: Instant,
+    silent_at: Option<Instant>,
+    answered: bool,
+    side: Option<StunSide>,
+}
+
+impl StunClock {
+    /// `asked`: whether any STUN request went out (no request, no silence
+    /// to read anything into).
+    fn new(asked: bool, side: Option<StunSide>) -> Self {
+        let now = Instant::now();
+        let silent_at = (asked && side.is_some()).then(|| now + STUN_SILENT);
+        Self { deadline: now + STUN_WAIT, silent_at, answered: false, side }
+    }
+
+    /// A STUN server answered: UDP works, and the others get the grace.
+    fn answered(&mut self) {
+        self.answered = true;
+        self.silent_at = None;
+        self.deadline = self.deadline.min(Instant::now() + STUN_GRACE);
+        if let Some(side) = self.side.take() {
+            let _ = side.udp_silent.send(false);
+        }
+    }
+
+    /// The next item `recv` yields, or `None` once the wait is over.
+    async fn next<T>(&mut self, recv: impl std::future::Future<Output = Option<T>>) -> Option<T> {
+        tokio::pin!(recv);
+        loop {
+            let silent_at = self.silent_at;
+            let answered = self.answered;
+            let stream_ready = self.side.as_mut().map(|side| &mut side.stream_ready);
+            let stream_taken = async {
+                let ready = match stream_ready {
+                    Some(ready) if !answered => ready.wait_for(|ready| *ready).await.map(|_| ()).is_ok(),
+                    _ => false,
+                };
+                if !ready {
+                    std::future::pending::<()>().await;
+                }
+            };
+            let silence = async {
+                match silent_at {
+                    Some(at) => tokio::time::sleep_until(at).await,
+                    None => std::future::pending().await,
+                }
+            };
+            tokio::select! {
+                item = &mut recv => return item,
+                () = tokio::time::sleep_until(self.deadline) => return None,
+                () = stream_taken => return None,
+                () = silence => {
+                    self.silent_at = None;
+                    if let Some(side) = &self.side {
+                        let _ = side.udp_silent.send(true);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The TURN allocation beside a [`StunClock`]: at once when `eager`, else
+/// only once UDP looks blocked. It tells the clock when it took a TCP or
+/// TLS carrier.
+async fn turn_beside(options: &DialOptions, eager: bool, side: TurnSide) -> Option<TurnCarrier> {
+    let TurnSide { mut udp_silent, stream_ready } = side;
+    if !eager && udp_silent.wait_for(|silent| *silent).await.map(|_| ()).is_err() {
+        // The STUN wait ended without UDP looking blocked.
+        return None;
+    }
+    let turn = TurnCarrier::allocate_with(options, Some(udp_silent)).await;
+    if turn.as_ref().is_some_and(|turn| turn.transport.is_stream()) {
+        let _ = stream_ready.send(true);
+    }
+    turn
+}
 
 pub struct WireGuardDialer;
 
@@ -249,8 +365,8 @@ impl Gathered {
 }
 
 /// Host and server-reflexive endpoints of `socket`, and the STUN servers
-/// used.
-async fn gather_endpoints(socket: &UdpSocket, options: &DialOptions) -> Gathered {
+/// used. `side`: the link to a TURN allocation running beside this.
+async fn gather_endpoints(socket: &UdpSocket, options: &DialOptions, side: Option<StunSide>) -> Gathered {
     let none = Gathered { endpoints: Vec::new(), stun: Vec::new(), answered: 0 };
     if no_plain_udp(options) {
         return none;
@@ -269,11 +385,11 @@ async fn gather_endpoints(socket: &UdpSocket, options: &DialOptions) -> Gathered
             transactions.push(transaction);
         }
     }
-    let mut deadline = Instant::now() + STUN_WAIT;
+    let mut clock = StunClock::new(!transactions.is_empty(), side);
     let mut buffer = [0u8; 1500];
     let mut answered = 0;
     while !transactions.is_empty() {
-        let Ok(Ok((len, _))) = tokio::time::timeout_at(deadline, socket.recv_from(&mut buffer)).await else {
+        let Some((len, _)) = clock.next(async { socket.recv_from(&mut buffer).await.ok() }).await else {
             break;
         };
         let found = transactions.iter().position(|transaction| {
@@ -287,7 +403,7 @@ async fn gather_endpoints(socket: &UdpSocket, options: &DialOptions) -> Gathered
         if let Some(index) = found {
             transactions.swap_remove(index);
             answered += 1;
-            deadline = deadline.min(Instant::now() + STUN_GRACE);
+            clock.answered();
         }
     }
     Gathered { endpoints: offered(endpoints, options), stun: servers, answered }
@@ -1832,8 +1948,11 @@ impl Dialer for WireGuardDialer {
     ) -> DialFuture<'a> {
         Box::pin(async move {
             let socket = bind_udp().map_err(transport_error)?;
-            let (gathered, turn) =
-                tokio::join!(gather_endpoints(&socket, options), TurnCarrier::allocate(options));
+            let (stun_side, turn_side) = stun_turn_link();
+            let (gathered, turn) = tokio::join!(
+                gather_endpoints(&socket, options, Some(stun_side)),
+                turn_beside(options, true, turn_side)
+            );
             if no_plain_udp(options) && turn.is_none() {
                 return Err(DialError::Transport("no TURN allocation, and plain UDP is off".into()));
             }
@@ -2018,11 +2137,19 @@ impl Dialer for WireGuardDialer {
                 .map_err(|_| DialError::Unexpected("wg-init overlayIP is not IPv4".into()))?;
             let own_ip = if peer_ip == ANSWER_OVERLAY { DIALER_OVERLAY } else { ANSWER_OVERLAY };
             let socket = bind_udp().map_err(transport_error)?;
-            let gathered = gather_endpoints(&socket, options).await;
             // A Mac whose network answers no STUN (it drops UDP) takes its
             // own TURN allocation, over TLS when UDP to the server fails too.
+            // It starts once STUN has been silent for STUN_SILENT, beside
+            // the rest of the STUN wait, not after it.
+            let (stun_side, turn_side) = stun_turn_link();
+            let (gathered, turn) = tokio::join!(
+                gather_endpoints(&socket, options, Some(stun_side)),
+                turn_beside(options, no_plain_udp(options), turn_side)
+            );
             let wants_turn = no_plain_udp(options) || gathered.udp_looks_blocked();
-            let turn = if wants_turn { TurnCarrier::allocate(options).await } else { None };
+            // A STUN answer came after all: the early allocation is dropped
+            // (released) unused.
+            let turn = if wants_turn { turn } else { None };
             if no_plain_udp(options) && turn.is_none() {
                 return Err(DialError::Transport("no TURN allocation, and plain UDP is off".into()));
             }
@@ -2586,11 +2713,82 @@ mod tests {
         };
         let socket = bind_udp().unwrap();
         let started = Instant::now();
-        let gathered = gather_endpoints(&socket, &options).await;
+        let gathered = gather_endpoints(&socket, &options, None).await;
         let took = started.elapsed();
         assert_eq!(gathered.answered, 1, "{gathered:?}");
         assert!(took < Duration::from_millis(600), "gathering waited {took:?} for a silent STUN server");
         drop(silent);
+    }
+
+    /// The gather and the TURN allocation a dial (or a Mac's answer) runs
+    /// side by side, as the dialers do.
+    async fn gather_beside_turn(
+        options: &DialOptions,
+        eager: bool,
+    ) -> (Gathered, Option<TurnCarrier>, Duration) {
+        let socket = bind_udp().unwrap();
+        let (stun_side, turn_side) = stun_turn_link();
+        let started = Instant::now();
+        let (gathered, turn) = tokio::join!(
+            gather_endpoints(&socket, options, Some(stun_side)),
+            turn_beside(options, eager, turn_side)
+        );
+        (gathered, turn, started.elapsed())
+    }
+
+    /// A network that drops UDP (a hotel, a guest network): STUN never
+    /// answers and UDP to the TURN server goes nowhere. The dial must not
+    /// wait out the STUN wait (1.5 s) nor the TLS stagger and UDP's grace
+    /// before TURN over TLS carries it: it used to take about 1.5 s more
+    /// than on a network that passes UDP.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_network_that_drops_udp_reaches_turn_over_tls_without_waiting_out_udp() {
+        let turn = crate::testing::TestTurn::start().await;
+        turn.set_udp_blocked(true);
+        // Nothing listens there: no STUN answer ever comes.
+        let silent = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let mut ice = turn.ice.clone();
+        ice.urls.push(format!("stun:{}", silent.local_addr().unwrap()));
+        let options = DialOptions {
+            ice_servers: vec![ice],
+            turn_tls_roots: Some(std::sync::Arc::clone(&turn.roots)),
+            include_loopback: true,
+            ..DialOptions::default()
+        };
+        for eager in [true, false] {
+            let (gathered, carrier, took) = gather_beside_turn(&options, eager).await;
+            let carrier = carrier.expect("a TURN allocation over TLS");
+            assert!(carrier.transport.is_stream(), "eager {eager}: {:?}", carrier.transport);
+            assert!(gathered.udp_looks_blocked(), "eager {eager}: {gathered:?}");
+            // STUN_SILENT plus a loopback TLS allocation; the old order took
+            // STUN_WAIT (1.5 s) at least.
+            assert!(took < Duration::from_millis(900), "eager {eager}: UDP held the dial {took:?}");
+        }
+        drop(silent);
+    }
+
+    /// Where STUN answers, nothing changes: the allocation stays on UDP and
+    /// no TLS connection opens; a Mac (not eager) takes no allocation.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_network_that_answers_stun_opens_no_tls_connection() {
+        let turn = crate::testing::TestTurn::start().await;
+        let answering = answering_stun().await;
+        let mut ice = turn.ice.clone();
+        ice.urls.push(format!("stun:{answering}"));
+        let options = DialOptions {
+            ice_servers: vec![ice],
+            turn_tls_roots: Some(std::sync::Arc::clone(&turn.roots)),
+            include_loopback: true,
+            ..DialOptions::default()
+        };
+        let (gathered, carrier, _) = gather_beside_turn(&options, true).await;
+        assert_eq!(gathered.answered, 1, "{gathered:?}");
+        let carrier = carrier.expect("a TURN allocation over UDP");
+        assert!(!carrier.transport.is_stream(), "{:?}", carrier.transport);
+        let (gathered, carrier, _) = gather_beside_turn(&options, false).await;
+        assert_eq!(gathered.answered, 1, "{gathered:?}");
+        assert!(carrier.is_none(), "a Mac whose STUN answered took an allocation");
+        assert_eq!(turn.stream_connections(), 0, "a network that passes UDP opened a TLS connection");
     }
 
     #[test]
