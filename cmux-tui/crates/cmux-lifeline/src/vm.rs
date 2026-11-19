@@ -221,6 +221,14 @@ edge!(Running, pause, Pausing, "Pause was accepted; it has not completed yet.");
 edge!(Ready, pause, Pausing, "Pause was accepted; readiness is consumed.");
 edge!(Attached, pause, Pausing, "Pause was accepted; the attachment is no longer usable.");
 edge!(Pausing, paused, Paused, "The provider confirmed that the VM is paused.");
+edge!(Pausing, running, Running, "The provider confirmed running after a refused or failed pause.");
+edge!(Starting, paused, Paused, "The provider confirmed paused after a refused or failed resume.");
+edge!(
+    Starting,
+    stopped,
+    Stopped,
+    "The provider confirmed stopped after a refused or failed start."
+);
 edge!(Paused, resume, Starting, "Resume was accepted; readiness must be established again.");
 edge!(Stopped, start, Starting, "Start was accepted; readiness must be established again.");
 edge!(Deleting, deleted, Deleted, "The provider confirmed deletion.");
@@ -248,7 +256,7 @@ deletable!(
 
 macro_rules! fallible {
     ($($state:ident),+ $(,)?) => {$(
-        edge!($state, failed, Failed, "The operation failed authoritatively; retain the allocation for cleanup.");
+        edge!($state, failed, Failed, "The provider reported VM failure; retain the allocation for cleanup.");
     )+};
 }
 

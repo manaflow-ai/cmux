@@ -53,3 +53,16 @@ fn vm_lifecycle_wire_roundtrips_every_provider_state() {
     assert!("runing".parse::<Status>().is_err());
     assert_eq!("deleted".parse::<Status>().unwrap(), Status::Destroyed);
 }
+
+#[test]
+fn vm_lifecycle_operation_failure_is_not_vm_failure() {
+    // The Cloud mutation contract restores running on pause failure and paused
+    // on resume failure. An accepted mutation is not a terminal receipt.
+    let running = Vm::observed_running("vm-a");
+    let running = running.pause().running();
+    let paused = running.pause().paused();
+    let paused = paused.resume().paused();
+    assert_eq!(*paused.payload(), "vm-a");
+    let deleted = paused.delete().deleted();
+    assert_eq!(*deleted.payload(), "vm-a");
+}
