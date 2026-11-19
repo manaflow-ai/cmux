@@ -175,9 +175,50 @@ pub(super) fn full_access_device(
 /// (`PromptOptions::full_access_device`), where each rule reads the store again: its Full-access
 /// setting (`Hub::full_access_hold`) and whether it is the owner's own phone (D13,
 /// `Hub::local_claude_refusal`). It grants nothing by itself.
+///
+/// The owner's own peer daemon (`ConnAuth::peer_daemon`), forwarding for a Web client of its own,
+/// says when that client is the owner's own phone paired with it (`_meta.acpmux.ownerPhone`,
+/// [`attest_owner_phone`]): the phone is then named [`crate::pairing::peer_phone_id`], with the
+/// Full-access setting the forwarding daemon read. That link already controls every chat here as
+/// the owner's daemon (`Control::Peer` when it asks for itself), so its word gives the phone
+/// nothing the link lacks, as its `personVerified` does not (`requests::person_admitted`). The
+/// claim from any other connection (a Web client, a paired machine, the unix socket) is ignored.
 pub(super) fn sending_device(conn: &super::Conn, params: &Value) -> Option<String> {
-    let id = conn.device.as_deref().filter(|_| conn.auth == super::ConnAuth::Device)?;
-    (control_of(conn.origin, conn.auth, params) == crate::hub::Control::Web).then(|| id.to_owned())
+    if control_of(conn.origin, conn.auth, params) != crate::hub::Control::Web {
+        return None;
+    }
+    if conn.auth == super::ConnAuth::Device {
+        return conn.device.clone();
+    }
+    if conn.origin == super::Origin::Peer && conn.auth.peer_daemon() {
+        let full = params.pointer("/_meta/acpmux/ownerPhone/fullAccess")?.as_bool()?;
+        return Some(crate::pairing::peer_phone_id(full));
+    }
+    None
+}
+
+/// `_meta.acpmux.ownerPhone` on a request a daemon forwards to its peer: `{fullAccess}`, saying
+/// the Web client it forwards for is the owner's own phone ([`attest_owner_phone`]).
+pub(super) const OWNER_PHONE: &str = "ownerPhone";
+
+/// Says on a request forwarded to a peer ([`mark_forwarded`] first, which drops any client's
+/// own claim) that it comes from the owner's own phone, by this daemon's pairing store for this
+/// request (`Pairing::own_phone`, `Pairing::full_access`), so the peer controls a Claude chat it
+/// started for that phone as this daemon does for its own (D13, `Hub::local_claude_refusal`).
+/// Leo, 2026-11-15, typing from his iPhone to a chat another of his machines started: "im still
+/// hitting the \"Only the cmux app on this Mac can control a Claude chat started on this
+/// mac...\" when i try to type from iphone".
+pub(super) fn attest_owner_phone(
+    hub: &crate::hub::Hub,
+    conn: &super::Conn,
+    params: &Value,
+    forwarded: &mut Value,
+) {
+    let Some(device) = sending_device(conn, params).filter(|d| hub.pairing.own_phone(d)) else {
+        return;
+    };
+    let full = hub.pairing.full_access(&device);
+    crate::hub::merge_mux_meta(forwarded, serde_json::json!({OWNER_PHONE: {"fullAccess": full}}));
 }
 
 /// A request forwarded to a peer, which serves this daemon as Peer: one
@@ -227,6 +268,7 @@ pub(super) fn mark_forwarded_with_person(
     if let Some(mux) = forwarded.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         mux.remove("provenance");
         mux.remove(PERSON_PROVEN);
+        mux.remove(OWNER_PHONE);
     }
     if person_verified {
         crate::hub::merge_mux_meta(forwarded, serde_json::json!({PERSON_PROVEN: true}));

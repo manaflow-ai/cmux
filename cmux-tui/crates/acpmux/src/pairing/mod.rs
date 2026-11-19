@@ -128,6 +128,28 @@ pub struct DeviceAuth {
     pub role: Role,
 }
 
+/// The device id a request carries when the owner's own peer daemon forwards it for the owner's
+/// own phone (`server/remote_guard.rs` `sending_device`, `_meta.acpmux.ownerPhone`): the phone is
+/// paired with that daemon's Mac, not this one, so no record here names it. The forwarding daemon
+/// read its own store for the request and says whether the phone's Full-access setting is on;
+/// [`Pairing::own_phone`] and [`Pairing::full_access`] read that word back from the id. A store
+/// id is `dv-…` (`store::new_id`), so no record's id starts with this prefix.
+pub const PEER_PHONE_PREFIX: &str = "peer-phone:";
+
+/// The id of a phone the owner's peer daemon vouched for ([`PEER_PHONE_PREFIX`]).
+pub fn peer_phone_id(full_access: bool) -> String {
+    format!("{PEER_PHONE_PREFIX}{}", if full_access { "full-access" } else { "asks" })
+}
+
+/// Whether `id` is a vouched-for phone ([`peer_phone_id`]), and if so its Full-access setting.
+fn peer_phone_full_access(id: &str) -> Option<bool> {
+    match id.strip_prefix(PEER_PHONE_PREFIX)? {
+        "full-access" => Some(true),
+        "asks" => Some(false),
+        _ => None,
+    }
+}
+
 /// What the Full-access setting lets a machine do, shown where it is turned on.
 pub fn full_access_allows(name: &str) -> String {
     format!(
@@ -323,6 +345,9 @@ impl Pairing {
     /// from the store on every call, so turning it off or revoking the
     /// machine counts for its very next request.
     pub fn full_access(&self, id: &str) -> bool {
+        if let Some(full) = peer_phone_full_access(id) {
+            return full;
+        }
         self.lock().store.devices.iter().any(|d| d.id == id && d.grants_full_access())
     }
 
@@ -332,6 +357,9 @@ impl Pairing {
     /// (cmux-mobile-host `host.rs` `admitted`); removing the phone there revokes it. Read from the
     /// store on every call, as `full_access` is, so a removed phone's very next request is not.
     pub fn own_phone(&self, id: &str) -> bool {
+        if peer_phone_full_access(id).is_some() {
+            return true;
+        }
         self.lock()
             .store
             .devices

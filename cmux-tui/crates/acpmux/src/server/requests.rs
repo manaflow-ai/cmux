@@ -271,6 +271,7 @@ pub(super) async fn handle_notification(
                         &mut forwarded,
                         person_admitted(conn, &params),
                     );
+                    super::remote_guard::attest_owner_phone(hub, conn, &params, &mut forwarded);
                     person_stop::mark(conn, &params, &peer, &mut forwarded);
                     cancel_refused::forward(conn, peer, key, turn, forwarded).await;
                 }
