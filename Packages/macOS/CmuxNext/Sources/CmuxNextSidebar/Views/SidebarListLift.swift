@@ -26,7 +26,7 @@ import AppKit
     }
 
     /// `block` grown over the members' lines of the open groups among `rows`, each row placed by `frame`
-    /// (default: its layout frame). The lift, the landing and a settled drop all use it, so a group's card
+    /// (default: its content frame, `SidebarListView.contentFrame(for:)`). The lift, the landing and a settled drop all use it, so a group's card
     /// keeps one frame from lift to landing (#23975).
     static func withLines(_ list: SidebarListView, _ rows: [SidebarRow], _ block: NSRect,
                           frame: ((SidebarRow) -> CGRect)? = nil) -> NSRect {
@@ -37,7 +37,7 @@ import AppKit
     /// The members' lines of the open groups among `rows` (list coordinates).
     static func lines(_ list: SidebarListView, _ rows: [SidebarRow], frame: ((SidebarRow) -> CGRect)? = nil) -> [SidebarGroupLine] {
         // The list's own look (`styled`): `sidebar.showColors` off, no group color on the lifted card either.
-        list.styled(SidebarGroupLine.lines(rows, colors: list.lineColors) { frame?($0) ?? list.frame(for: $0) })
+        list.styled(SidebarGroupLine.lines(rows, colors: list.lineColors) { frame?($0) ?? list.contentFrame(for: $0) })
     }
 
     /// The lifted card's content: one live row view, or for several rows (a

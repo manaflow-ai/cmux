@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextSidebar
 import CmuxNextTestSupport
 import CmuxTheme
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -66,6 +67,10 @@ import Testing
         let window: NSWindow
         let root: NSView
         let sidebar: SidebarView
+        /// Where the stage's pointer is (screen coordinates): the list re-hit-tests its hover against it on every apply,
+        /// realization and layout (`SidebarListView.updateHover`), so the walk moves this pointer, not only the hover
+        /// key; with the real mouse elsewhere every snapshot's layout took the hover away again.
+        var pointer = NSPoint(x: -10_000, y: -10_000)
 
         init(style: SidebarRowStyle, dark: Bool) throws {
             _ = NSApplication.shared
@@ -93,6 +98,11 @@ import Testing
             model.workspacePin = (isPinned: { $0 == AASidebarRowStyleGalleryTests.pinned }, toggle: { _ in })
             sidebar = SidebarView(model: model, design: design)
             sidebar.frame = root.bounds
+            // The stage's own pointer, and a clock that never fires: no hover card opens over a hovered row.
+            let coordinator = HoverCardCoordinator(clock: ManualClock())
+            coordinator.appIsActive = { true }
+            coordinator.mouseButtonDown = { false }
+            sidebar.list.hoverCards = coordinator
             root.addSubview(sidebar)
             model.applyListPreferences(design.sidebarSections)
             window.orderFrontRegardless()
@@ -100,6 +110,7 @@ import Testing
             sidebar.list.reload(animated: false)
             // The + row is made at the sidebar's first layout.
             root.layoutSubtreeIfNeeded()
+            coordinator.pointerLocation = { [weak self] in self?.pointer ?? .zero }
         }
 
         /// The rows the hover walk visits: the first six list rows under the + row (headers and workspaces, top down).
@@ -112,9 +123,15 @@ import Testing
             }.prefix(6))
         }
 
-        /// Hovers `key` in the list (nil: no list row), and the + row when `newRow`.
+        /// Hovers `key` in the list (nil: no list row), and the + row when `newRow`: the pointer moves to the middle of
+        /// the row's hover rect (under the restyle its full-width band) and the list hit-tests it as a pointer move.
         func hover(_ key: SidebarRowKey?, newRow: Bool = false) {
-            sidebar.list.setHovered(key)
+            let list = sidebar.list
+            pointer = key.flatMap { list.displayed.row(for: $0) }.map { row in
+                let rect = list.hoverFrame(for: row)
+                return window.convertPoint(toScreen: list.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil))
+            } ?? NSPoint(x: -10_000, y: -10_000)
+            list.updateHover()
             sidebar.newWorkspaceRowView?.isHovered = newRow
         }
 
@@ -135,13 +152,15 @@ import Testing
         func close() { window.close() }
     }
 
-    /// Runs `body` with the shared settings at `style` (the rows read them) and motion off, restoring both after.
+    /// Runs `body` with the shared settings at `style` (the rows read them), calm mode off (it paints no hover fill)
+    /// and motion off, restoring all three after.
     static func with<T>(_ style: SidebarRowStyle, _ body: () throws -> T) rethrows -> T {
-        let saved = DesignSettings.shared.sidebarRowStyle
+        let saved = (DesignSettings.shared.sidebarRowStyle, DesignSettings.shared.calmMode)
         DesignSettings.shared.sidebarRowStyle = style
+        DesignSettings.shared.calmMode = .off
         Motion.reduceMotionOverride = true
         defer {
-            DesignSettings.shared.sidebarRowStyle = saved
+            (DesignSettings.shared.sidebarRowStyle, DesignSettings.shared.calmMode) = saved
             Motion.reduceMotionOverride = nil
         }
         return try body()
@@ -194,7 +213,11 @@ import Testing
                 #expect(walk.count == 6, "the walk has six rows to hover")
                 for key in walk {
                     stage.hover(key)
-                    try AAGroupHeaderDensityGalleryTests.write(try stage.snapshot(), to: out.appending(path: Self.hoverName(style, frame)))
+                    let image = try stage.snapshot()
+                    // The snapshot's layout re-hit-tests the hover: the row is still hovered and painted its fill.
+                    #expect(stage.sidebar.list.hoveredKey == key, "frame \(frame) hovers \(key)")
+                    #expect(stage.sidebar.list.rowViews[key]?.isHovered == true, "frame \(frame): the row is hovered")
+                    try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: Self.hoverName(style, frame)))
                     frame += 1
                 }
             }

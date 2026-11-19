@@ -154,7 +154,7 @@ class SidebarRowView: NSView {
     /// The title's ink: the editor's text keeps it.
     @objc dynamic var titleInk: NSColor? { nil }
     /// Where the rename editor may end, in this row's coordinates.
-    @objc dynamic var titleEditMaxX: CGFloat { bounds.width - Metrics.space3 }
+    @objc dynamic var titleEditMaxX: CGFloat { bounds.width - contentIndent - Metrics.space3 }
 
     @objc dynamic func hoverChanged() {
         // Hover entry is immediate; clearing a row's fill uses the `hoverOut` token (instant by
@@ -231,13 +231,37 @@ class SidebarRowView: NSView {
         didSet { if targetSize != oldValue { needsLayout = true } }
     }
 
-    /// Bounds to lay out content in: the target size while animating.
-    var layoutBounds: NSRect { NSRect(origin: .zero, size: targetSize ?? bounds.size) }
+    /// Bounds to lay out content in: the target size while animating, less `contentIndent` (its origin is where the
+    /// content starts).
+    var layoutBounds: NSRect {
+        let size = targetSize ?? bounds.size
+        return NSRect(x: 0, y: 0, width: max(0, size.width - contentIndent), height: size.height)
+    }
+
+    /// The row restyle (`SidebarRowRestyle`): the frame spans the full row width at any indent, and the content keeps
+    /// its indent this far in from the frame's leading edge. The bounds' origin moves left by it, so every subclass lays
+    /// its content out from 0 in `layoutBounds` as before, and the band drawn from `bounds.minX` stays inside the
+    /// row's bounds. 0 while the restyle is off: bounds, frames and hit testing as before.
+    var contentIndent: CGFloat = 0 {
+        didSet {
+            guard contentIndent != oldValue else { return }
+            setBoundsOrigin(NSPoint(x: -contentIndent, y: bounds.minY))
+            needsLayout = true
+        }
+    }
+
+    /// `frame` (the superview's coordinates) less `contentIndent` at its leading edge: where the content sits.
+    func contentFrame(of frame: CGRect) -> CGRect {
+        guard contentIndent != 0 else { return frame }
+        return CGRect(x: frame.minX + contentIndent, y: frame.minY, width: max(0, frame.width - contentIndent), height: frame.height)
+    }
 
     override func setFrameSize(_ newSize: NSSize) {
         let changed = newSize != frame.size
         super.setFrameSize(newSize)
         if changed { needsLayout = true }
+        // A frame change keeps the content's offset (AppKit keeps the bounds' origin; this holds it whatever it does).
+        if bounds.minX != -contentIndent { setBoundsOrigin(NSPoint(x: -contentIndent, y: bounds.minY)) }
     }
 
     override func viewDidChangeEffectiveAppearance() {

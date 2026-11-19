@@ -38,7 +38,7 @@ extension WorkspaceRowView {
         // The text's own width too: a time today ("1:26 AM") came out a few points short and ended in "…".
         // A status there (`trailingStatus`) truncates at 40% of the row; the name keeps the rest.
         let w = min(ceil(max(timeLabel.intrinsicContentSize.width, timeLabel.attributedStringValue.size().width + 2 * Self.labelInset)),
-                    (bounds.width * 0.4).rounded(.down))
+                    ((bounds.width - contentIndent) * 0.4).rounded(.down))
         let columns = SidebarStyle.columns(rowWidth: layoutBounds.width)
         timeLabel.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: w, height: height))
         timeLabel.frame.origin.y = SidebarStyle.textY(timeLabel, centerY: cy)

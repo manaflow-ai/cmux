@@ -289,7 +289,7 @@ extension SidebarListViewComponents {
         if rest, case let .position(position)? = drag.target, let group = position.group,
            let header = dropHeader(group, in: displayed) {
             // Into a group: where its members sit, by the one indent rule (`SidebarIndent`).
-            let stepIn = indent.offset(level: header.depth + 1, width: indentWidth) + restyleMembersStep
+            let stepIn = membersStepIn(depth: header.depth + 1)
             shape.origin.x = inset + stepIn
             shape.size.width = max(0, shape.size.width - stepIn)
         }
@@ -323,7 +323,9 @@ extension SidebarListViewComponents {
         // A group's card also covers its members' line, as it did when it lifted (SidebarListLift.blockFrame).
         let lifted = SidebarListLift.rows(self, for: drag.grabbedKey, hidden: drag.hiddenKeys)
         let settled = settledFrame(drag.hiddenKeys.compactMap { rowViews[$0] }).map { rows in
-            SidebarListLift.withLines(self, lifted, rows) { row in self.rowViews[row.key].map { self.convert($0.bounds, from: $0) } ?? self.frame(for: row) }
+            SidebarListLift.withLines(self, lifted, rows) { row in
+                self.rowViews[row.key].map { $0.contentFrame(of: self.convert($0.bounds, from: $0)) } ?? self.contentFrame(for: row)
+            }
         }
         let destination = slot ?? tile ?? settled ?? SidebarListLift.blockFrame(self, lifted) ?? drag.lift.frame
         landing = drag
@@ -587,7 +589,7 @@ extension SidebarListViewComponents {
     func dropStepIn(_ layout: SidebarLayout) -> CGFloat {
         guard case let .position(position)? = shownDrag?.target, let group = position.group,
               let header = dropHeader(group, in: layout) else { return 0 }
-        return indent.offset(level: header.depth + 1, width: indentWidth) + restyleMembersStep
+        return membersStepIn(depth: header.depth + 1)
     }
 
     /// An adopting apply's motion: kept rows spring from where they are,

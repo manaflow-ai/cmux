@@ -120,12 +120,15 @@ extension SidebarRowView {
     }
 
     /// The band: from the list's leading inset to the row's end, whatever the row's indent, so every row's hover and
-    /// selection span one width; the row's content keeps its indent. Constant per row (its own frame and the list's inset).
+    /// selection span one width; the row's content keeps its indent. Under the restyle the row's frame already starts at
+    /// the list's inset (`SidebarListView.frame(for:)`) and its content sits `contentIndent` in (the bounds' origin), so
+    /// the band starts at `bounds.minX` and never leaves the row's bounds; a group header's frame that reaches left of the
+    /// inset over its rail starts its band at the inset. Constant per row (its own frame and the list's inset).
     static func bandRect(_ row: SidebarRowView) -> CGRect {
         let b = row.layoutBounds
-        guard let list = row.superview as? SidebarListView else { return b }
-        let lead = list.inset - row.frame.minX
-        return CGRect(x: lead, y: b.minY, width: max(0, b.width - lead), height: b.height)
+        let reach = (row.superview as? SidebarListView).map { max(0, $0.inset - row.frame.minX) } ?? 0
+        let lead = -row.contentIndent + reach
+        return CGRect(x: lead, y: b.minY, width: max(0, b.maxX - lead), height: b.height)
     }
 
     private static func place(_ row: SidebarRowView) {

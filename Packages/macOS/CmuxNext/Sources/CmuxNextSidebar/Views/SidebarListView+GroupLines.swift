@@ -46,7 +46,8 @@ extension SidebarListViewComponents {
         let enrolling = current ? nil : enrollment(layout)
         return styled(SidebarGroupLine.lines(rows.filter { !suppressed.contains($0.key) }, colors: lineColors, nested: !legacyNestedRails,
                                              enrolling: enrolling) { row in
-            current ? rowViews[row.key]?.drawnFrame ?? frame(for: row) : frame(for: row)
+            // The rails follow the rows' content (`contentFrame`): under the row restyle a row's frame spans the full width.
+            current ? rowViews[row.key].map { $0.contentFrame(of: $0.drawnFrame) } ?? contentFrame(for: row) : contentFrame(for: row)
         }.filter { $0.group != edge })
     }
 

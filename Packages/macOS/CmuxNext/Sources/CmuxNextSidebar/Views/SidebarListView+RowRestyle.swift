@@ -12,13 +12,35 @@ extension SidebarListView {
     var restyleIndentStep: CGFloat { restyles ? SidebarRowRestyle.memberIndent : SidebarStyle.groupGutter }
 
     /// How far a group's members' content sits right of its header's under the restyle (their titles under the
-    /// header's, after its chevron); 0 off. A drop into a group lands there too (`SidebarListView+Drag`).
+    /// header's, after its chevron); 0 off.
     var restyleMembersStep: CGFloat { restyles ? SidebarRowRestyle.memberIndent : 0 }
 
     /// `restyleMembersStep` for a group's member row; 0 for a header, a row standing for its group and ungrouped rows.
     func restyleMemberStep(for row: SidebarRow) -> CGFloat {
         if case .group = row.key { return 0 }
         return row.group != nil && !row.standsForGroup ? restyleMembersStep : 0
+    }
+
+    /// `row`'s view frame (list coordinates): its content frame (`contentFrame(for:)`), or under the restyle that frame
+    /// widened to start at the list's inset (a group header that reaches further left over its rail keeps its reach),
+    /// so the row's band spans the full width inside the row's own bounds; the row draws its content
+    /// `contentIndent(for:)` in. Hit testing, drags, the sticky header and every view frame read this one.
+    func frame(for row: SidebarRow) -> NSRect {
+        let content = contentFrame(for: row)
+        guard restyles, content.minX > inset else { return content }
+        return NSRect(x: inset, y: content.minY, width: content.maxX - inset, height: content.height)
+    }
+
+    /// How far `row`'s content sits right of its view frame's leading edge (`SidebarRowView.contentIndent`); 0 off.
+    func contentIndent(for row: SidebarRow) -> CGFloat {
+        guard restyles else { return 0 }
+        return max(0, contentFrame(for: row).minX - inset)
+    }
+
+    /// Group members' content step under a drop into a group (the drag's card shape and slot underlay): the indent
+    /// rule's step-in, or under the restyle none, since every row's frame spans the full width there.
+    func membersStepIn(depth: Int) -> CGFloat {
+        restyles ? 0 : indent.offset(level: depth, width: indentWidth)
     }
 
     /// The rect a pointer hovers or clicks a row in: its frame, or under the restyle its full-width band (from the
