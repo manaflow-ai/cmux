@@ -557,11 +557,13 @@ class Case(unittest.TestCase):
             stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
             yield
 
-    def rows(self, world, rounds=1, form="one-key", film=None, sample=0):
-        """`run()` on the fake app: the report. `sample`: the seconds of --sample-s."""
+    def rows(self, world, rounds=1, form="one-key", film=None, sample=0, recent=(0, 0)):
+        """`run()` on the fake app: the report. `sample`: the seconds of --sample-s. `recent`: --recent-sites and
+        --recent-pages."""
         opts = argparse.Namespace(workspaces=3, live_shells=0, page_url="http://127.0.0.1:9/", seed_deadline=1.0, out=self.out,
                                   neighbours=2, rounds=rounds, film=film, keys="app-queue", hold_ms=3000.0, every_ms=500.0,
-                                  repeat_delay_ms=0.0, repeat_ms=0.0, deadline=1.0, sample_s=sample)
+                                  repeat_delay_ms=0.0, repeat_ms=0.0, deadline=1.0, sample_s=sample,
+                                  recent_sites=recent[0], recent_pages=recent[1], recent_deadline=600.0)
         app = argparse.Namespace(rpc=world.rpc, socket="/fake-app.sock", process=argparse.Namespace(pid=1))
         report = {"rows": [], "failures": []}
         with self.fakes(world):
@@ -1805,6 +1807,194 @@ class Launch(unittest.TestCase):
         self.assertEqual([line for line in lines if line.startswith("PREFLIGHT page engine:")],
                          ["PREFLIGHT page engine: engine=chromium default_engine=chromium chromium_state=ready unavailable=none webkit_fallbacks=0"])
         self.assertEqual(code, 0)
+
+
+class Recent:
+    """recent-pages.py as `run()` uses it: each call of `seed`, and what the fake app had at the call."""
+
+    LIST = [{"url": "http://127.0.0.1:9000/p/0", "icon": True}]  # what `listed` gives for the app's state
+
+    def __init__(self, world, invalid=(), lost=()):
+        """`invalid`: the reasons of `seed`. `lost`: the reasons of the judge after the rows."""
+        self.world, self.invalid, self.lost, self.calls, self.judged = world, list(invalid), list(lost), [], []
+
+    def seed(self, builder, state, sites, pages, seconds, wait):
+        before = len(self.world.calls)
+        state()
+        self.calls.append({"sites": sites, "pages": pages, "seconds": seconds, "rows_workspace": self.world.space,
+                           "state_calls": self.world.calls[before:], "builder": type(builder).__name__, "wait": wait is Stress.wait})
+        return {"asked": {"sites": sites, "pages": pages}, "visits_seen": pages, "state_reads": pages + 1, "invalid": list(self.invalid)}
+
+    def listed(self, state):
+        return self.LIST if isinstance(state, dict) else None
+
+    def after_rows(self, report, pages):
+        self.judged.append({"the_apps_list": pages is self.LIST, "calls": len(self.world.calls), "last_call": self.world.calls[-1]})
+        report["invalid"] += self.lost
+        return list(self.lost)
+
+
+class RecentPages(Case):
+    """--recent-sites and --recent-pages: `run()` gives the session its recent pages before the rows' workspace, the
+    report has what the option read, and a run with no option is the run of before."""
+    TODAY = ["failures", "rows", "session"]  # the keys of the report of `run()` before the option
+
+    def test_a_run_with_no_option_has_the_report_of_before_and_no_call_of_the_option(self):
+        world = World()
+        recent = Recent(world)
+        with mock.patch.object(M, "RECENT", recent, create=True):
+            report = self.rows(world)
+        self.assertEqual((sorted(report), recent.calls), (self.TODAY, []))
+
+    def test_the_option_gives_the_pages_before_the_rows_workspace_and_the_report_has_them(self):
+        world = World()
+        recent = Recent(world)
+        with mock.patch.object(M, "RECENT", recent, create=True):
+            report = self.rows(world, recent=(2, 4))
+        self.assertEqual(len(recent.calls), 1, "the option was not run")
+        call = recent.calls[0]
+        self.assertEqual((call["sites"], call["pages"], call["seconds"]), (2, 4, 600.0))
+        self.assertIsNone(call["rows_workspace"])  # the rows' workspace is made after the pages' workspace is closed
+        self.assertEqual((call["builder"], call["wait"]), ("Builder", True))
+        self.assertEqual(call["state_calls"], [("debug.new_tab", "state")])  # the option's read of the app's list
+        self.assertEqual(report.get("recent_pages"), {"asked": {"sites": 2, "pages": 4}, "visits_seen": 4, "state_reads": 5, "invalid": []})
+        self.assertEqual(sorted(report), sorted(self.TODAY + ["recent_pages"]))
+        self.assertEqual([why for why in report["failures"] if "recent pages" in why], [])
+        self.assertEqual(len(report["rows"]), 4)
+
+    def test_an_invalid_option_is_a_failure_of_the_run_and_the_rows_still_run(self):
+        world = World()
+        with mock.patch.object(M, "RECENT", Recent(world, invalid=["after the close: 3 of those 4 pages have no icon"]), create=True):
+            report = self.rows(world, recent=(2, 4))
+        self.assertEqual([why for why in report["failures"] if "recent pages" in why],
+                         ["recent pages: INVALID FOR THE OPTION (these rows are not rows of a session with recent pages): "
+                          "after the close: 3 of those 4 pages have no icon"])
+        self.assertEqual(len(report["rows"]), 4)
+
+    def with_the_row_lines(self, world, module, **options):
+        """`rows` with `module` as the option's module: (the report, the `recent_pages` mark of each row when its
+        `HELD-NEW-TAB-ROW` line was printed)."""
+        at_the_line, printed = [], M.printed
+
+        def line(row):
+            at_the_line.append(row.get("recent_pages"))
+            return printed(row)
+
+        with mock.patch.object(M, "RECENT", module, create=True), mock.patch.object(M, "printed", line):
+            report = self.rows(world, **options)
+        return report, at_the_line
+
+    def test_an_option_that_did_not_take_effect_marks_each_row_and_the_sentence_of_the_session(self):
+        world = World()
+        report, at_the_line = self.with_the_row_lines(world, Recent(world, invalid=["after the close: 3 of those 4 pages have no icon"]),
+                                                      recent=(2, 4))
+        mark = "INVALID FOR THE OPTION (these rows are not rows of a session with recent pages)"
+        self.assertEqual(len(report["rows"]), 4)
+        self.assertEqual([row.get("recent_pages") for row in report["rows"]], [mark] * 4)  # no row says `valid` with no mark
+        self.assertEqual(at_the_line, [mark] * 4)  # and each row's printed line has it
+        limit = report.get("session_limit")
+        self.assertIsNotNone(limit, "the report of a run whose option did not take effect has no sentence for it")
+        self.assertEqual(limit, getattr(M, "RECENT_NOT_TAKEN", None))
+        self.assertIn("did NOT take effect", limit)
+        self.assertIn("`recent_pages.invalid`", limit)  # where the report says why
+        self.assertIn("not known", limit)  # the favicon work in the rows
+        self.assertNotIn("only that of the recent pages", limit)  # the sentence of an option that took effect
+        self.assertIn("one folder", limit)  # the folders' limit holds in each case
+
+    def test_an_option_that_took_effect_marks_no_row_and_the_apps_list_is_judged_one_time_after_the_last_row(self):
+        world = World()
+        recent = Recent(world)
+        report, at_the_line = self.with_the_row_lines(world, recent, recent=(2, 4))
+        self.assertEqual(len(recent.judged), 1, "the app's list was not judged after the rows")
+        # The judge got the app's list of ONE read of the state, and that read is the run's last call: after the last row.
+        self.assertEqual(recent.judged[0], {"the_apps_list": True, "calls": len(world.calls), "last_call": ("debug.new_tab", "state")})
+        self.assertEqual(len(report["rows"]), 4)
+        self.assertEqual(([row.get("recent_pages") for row in report["rows"]], at_the_line), ([None] * 4, [None] * 4))
+        self.assertNotIn("session_limit", report)  # `main()`'s sentence stays
+        self.assertEqual([why for why in report["failures"] if "recent pages" in why], [])
+
+    def test_a_list_that_lost_pages_or_icons_in_the_rows_is_a_failure_and_marks_each_row_of_the_report(self):
+        world = World()
+        lost = "after the rows: the app's list has 4 pages of the sites, 3 with an icon; after the close it had 4 pages, 4 with an icon"
+        report, at_the_line = self.with_the_row_lines(world, Recent(world, lost=[lost]), recent=(2, 4))
+        mark = "INVALID FOR THE OPTION (these rows are not rows of a session with recent pages)"
+        self.assertEqual([why for why in report["failures"] if "recent pages" in why], [f"recent pages: {mark}: {lost}"])
+        self.assertEqual([row.get("recent_pages") for row in report["rows"]], [mark] * 4)
+        self.assertEqual(at_the_line, [None] * 4)  # the rows' lines were printed before the judge: the report has the mark
+        self.assertEqual(report.get("session_limit"), getattr(M, "RECENT_NOT_TAKEN", None))
+        self.assertEqual(report["recent_pages"]["invalid"], [lost])
+
+    def test_a_run_with_no_option_has_no_judge_after_the_rows(self):
+        world = World()
+        recent = Recent(world)
+        report, at_the_line = self.with_the_row_lines(world, recent)
+        self.assertEqual((recent.judged, sorted(report)), ([], self.TODAY))
+        self.assertEqual(at_the_line, [None] * len(report["rows"]))
+
+    def test_a_judge_after_the_rows_that_stops_is_a_failure_with_the_mark(self):
+        world = World()
+        recent = Recent(world)
+        recent.after_rows = mock.Mock(side_effect=OSError("no socket"))
+        report, _ = self.with_the_row_lines(world, recent, recent=(2, 4))
+        self.assertEqual(recent.after_rows.call_count, 1, "the app's list was not judged after the rows")
+        mark = "INVALID FOR THE OPTION (these rows are not rows of a session with recent pages)"
+        self.assertEqual([why for why in report["failures"] if "recent pages" in why],
+                         [f"recent pages: {mark}: after the rows: the judge of the app's list stopped: OSError('no socket')"])
+        self.assertEqual([row.get("recent_pages") for row in report["rows"]], [mark] * 4)
+
+    def test_more_sites_than_the_apps_list_has_places_is_not_run_before_a_launch(self):
+        self.assertEqual(getattr(M.RECENT, "MOST_SITES", None), 40, "the option has no limit of its sites")
+
+        class WentOn(Exception):
+            """The tool went on after its check of the option."""
+
+        with mock.patch.object(M.os, "makedirs", side_effect=WentOn):
+            code, lines = self.refused("--recent-sites", "41", "--recent-pages", "41")
+            self.assertEqual(code, 3, lines)
+            said = [line for line in lines if line.startswith("held-new-tab: NOT RUN: --recent-sites 41")]
+            self.assertTrue(said, lines)
+            self.assertIn("40 sites at most", said[0])
+            with self.assertRaises(WentOn):  # 40 sites: the check lets the run go on
+                self.refused("--recent-sites", "40", "--recent-pages", "40")
+
+    def refused(self, *args):
+        """`main()` with `args`: (its exit code, or the words of an argument parser that stopped; the printed lines)."""
+        said = io.StringIO()
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(M, "hid_grant", lambda: True))
+            stack.enter_context(mock.patch.object(sys, "argv", ["held-new-tab.py", "--app", BUNDLE, "--out", self.out, *args]))
+            stack.enter_context(contextlib.redirect_stdout(said))
+            stack.enter_context(contextlib.redirect_stderr(said))
+            try:
+                code = M.main()
+            except SystemExit as stop:
+                code = f"the argument parser stopped with {stop.code}"
+        return code, said.getvalue().splitlines()
+
+    def test_an_option_that_cannot_run_is_not_run_before_a_launch(self):
+        for args in (("--recent-sites", "3", "--recent-pages", "2"), ("--recent-pages", "5"), ("--recent-sites", "-1", "--recent-pages", "5")):
+            code, lines = self.refused(*args)
+            self.assertEqual(code, 3, (args, lines))
+            self.assertTrue([line for line in lines if line.startswith("held-new-tab: NOT RUN: --recent-sites")], (args, lines))
+            self.assertFalse(os.path.exists(os.path.join(self.out, "report.json")))
+
+
+class SessionLimit(unittest.TestCase):
+    """`session_limit` of the report: what the session does not have, with no recent pages and with them."""
+
+    def limit(self, sites):
+        sentence = getattr(M, "session_limit", None)
+        self.assertIsNotNone(sentence, "the tool has no sentence of the session's limit for the option")
+        return sentence(sites)
+
+    def test_a_run_with_no_option_has_the_sentence_of_before(self):
+        self.assertEqual(self.limit(0), M.SEED_LIMIT)
+
+    def test_a_run_with_recent_pages_does_not_say_that_no_favicon_work_is_in_its_rows(self):
+        text = self.limit(40)
+        self.assertNotIn("favicon work and", text)  # the sentence of before: no favicon work is in the rows
+        self.assertIn("`recent_pages`", text)  # where the report says what the icons are, and their limits
+        self.assertIn("one folder", text)  # the folders' limit holds with the option
 
 
 class Engine(unittest.TestCase):
