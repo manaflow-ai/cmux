@@ -157,6 +157,14 @@ final class FakeCmuxBillingServer: BillingAPI {
         graceUntil[originalTransactionID] = until
     }
 
+    /// The posts of purchases (not renewals). storekitd can still deliver a
+    /// renewal from an earlier test's session after clearTransactions(), so
+    /// "nothing was posted" and "the first post" checks read this.
+    var purchasePosts: [Post] { posts.filter { $0.payload.transactionReason == "PURCHASE" } }
+
+    /// The posts of one subscription, by its original transaction id.
+    func posts(original: UInt64) -> [Post] { posts.filter { $0.payload.originalTransactionID == original } }
+
     /// The posts whose transaction was refunded.
     var refundPosts: [Post] { posts.filter { $0.payload.revocationDate != nil } }
 

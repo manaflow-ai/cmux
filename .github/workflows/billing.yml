@@ -451,14 +451,18 @@ jobs:
             project)
               command -v xcodegen >/dev/null || brew install xcodegen
               xcodegen generate -q
-              # The project xcodegen just wrote (none is checked in). Signed
-              # ad hoc, not unsigned: storekitd serves the StoreKit
-              # configuration only to a host app whose signature carries
-              # get-task-allow ("installed for development"); with
-              # CODE_SIGNING_ALLOWED=NO every product load comes back empty.
-              projects=(*.xcodeproj)
-              xcodebuild test -project "${projects[0]}" -scheme BillingStoreKitTests "${common[@]}" \
-                CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= 2>&1 | tee "$log_path"
+              if [[ "$STOREKIT_PATH" == cmux-next-ios ]]; then
+                xcodebuild test -project CmuxMobileApp.xcodeproj -scheme BillingStoreKitTests "${common[@]}" CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$log_path"
+              else
+                # A billing package's own project (Packages/iOS/*Billing*/
+                # StoreKitTests), named in its project.yml. Its project.yml
+                # signs the host app ad hoc, not unsigned: storekitd serves
+                # the StoreKit configuration only to an app whose signature
+                # carries get-task-allow ("installed for development"); with
+                # CODE_SIGNING_ALLOWED=NO every product load comes back empty.
+                project="$(sed -n 's/^name:[[:space:]]*//p' project.yml | head -n 1).xcodeproj"
+                xcodebuild test -project "$project" -scheme BillingStoreKitTests "${common[@]}" 2>&1 | tee "$log_path"
+              fi
               ;;
             *)
               echo "::error::unknown StoreKit target kind: $STOREKIT_KIND"
