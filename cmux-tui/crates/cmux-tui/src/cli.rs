@@ -205,6 +205,8 @@ mod screen_help;
 #[cfg(unix)]
 mod script;
 #[cfg(unix)]
+mod settings_file;
+#[cfg(unix)]
 mod setup;
 #[cfg(unix)]
 mod share_cli;
@@ -922,6 +924,17 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             CommandPlan::AgentHooks(plan) => command::run_agent_hooks(global, plan),
             CommandPlan::Protocol(request) if global.all_sessions => {
                 federation::run_all_sessions(&global, *request)
+            }
+            // A settings write meant for the `--app-socket` app writes only its file.
+            #[cfg(unix)]
+            CommandPlan::Protocol(mut request) if settings_file::pins(&global, &request) => {
+                match settings_file::path(&global) {
+                    Ok(file) => {
+                        settings_file::pin(&mut request, &file);
+                        wire::run(global, *request)
+                    }
+                    Err(error) => wire::print_local_error(&error, global.output, 1),
+                }
             }
             CommandPlan::Protocol(request) => wire::run(global, *request),
             CommandPlan::SessionResetState(plan) => command::run_session_reset_state(global, plan),
