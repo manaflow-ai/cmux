@@ -9,7 +9,8 @@ line. `ingest` reads that last line (or a report.json / run dir: the rows come f
 Rows (labels: coordinators, rate), better = lower; each is a PERF_ROW of the report (perf-cron stores the same rows as
 webui.coord_sim.<metric>):
   delivery_ms, delivery_p99_ms: an event's agent write to a reader seeing it (p50, p95; p99)
-  events.lost, events.duplicated (events): exact counts over every (coordinator, reader) stream, target 0
+  events.lost, events.duplicated, events.lost_or_duplicated (events): exact counts over every (coordinator, reader)
+    stream, target 0
   attach_ms, first_paint_ms: a reader's attach under load, and to the first event it shows
   page_ms, scroll.over_33ms (ops): a reader paging history, and pages over two 60 Hz frames
   typing.ack_ms, typing.echo_ms: a prompt to the daemon's ack and to its echo
@@ -62,6 +63,9 @@ def rows_of_report(report: dict) -> list[dict]:
     dist("per_chat.rss_mb", g("per_chat", "rss_mb"), "MB")
     dist("per_chat.cpu_pct", g("per_chat", "cpu_pct"), "%")
     if g("files", "events") is True:
+        lost, dup = g("events", "lost"), g("events", "duplicated")
+        if isinstance(lost, int) and isinstance(dup, int):
+            one("events.lost_or_duplicated", lost + dup, "events")
         one("events.lost", g("events", "lost"), "events")
         one("events.duplicated", g("events", "duplicated"), "events")
     one("delivery_p99_ms", g("delivery_ms", "p99"), "ms")

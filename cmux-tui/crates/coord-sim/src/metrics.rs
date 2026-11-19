@@ -96,7 +96,13 @@ pub fn perf_rows(r: &Value) -> Vec<Value> {
     }
     // Only a run that read events can say none were lost.
     let events = r["files"]["events"].as_bool() == Some(true);
-    let ones: [(&str, &Value, &str, Option<f64>, f64, bool); 6] = [
+    // Lost plus duplicated: the one count NOW shows (each is also its own row).
+    let lost_or_dup = match (r["events"]["lost"].as_u64(), r["events"]["duplicated"].as_u64()) {
+        (Some(l), Some(d)) => json!(l + d),
+        _ => Value::Null,
+    };
+    let ones: [(&str, &Value, &str, Option<f64>, f64, bool); 7] = [
+        ("events.lost_or_duplicated", &lost_or_dup, "events", Some(0.0), 0.5, events),
         ("events.lost", &r["events"]["lost"], "events", Some(0.0), 0.5, events),
         ("events.duplicated", &r["events"]["duplicated"], "events", Some(0.0), 0.5, events),
         ("delivery_p99_ms", &r["delivery_ms"]["p99"], "ms", None, 10.0, true),
@@ -783,6 +789,7 @@ mod tests {
             "coord_sim.attach_ms",
             "coord_sim.events.lost",
             "coord_sim.events.duplicated",
+            "coord_sim.events.lost_or_duplicated",
             "coord_sim.daemon.rss_slope_mb_per_min",
             "coord_sim.per_chat.rss_mb",
             "coord_sim.typing.echo_ms",
