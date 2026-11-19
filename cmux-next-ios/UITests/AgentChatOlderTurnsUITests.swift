@@ -29,7 +29,8 @@ final class AgentChatOlderTurnsUITests: XCTestCase {
         app.launch()
         defer { app.terminate() }
 
-        XCTAssertTrue(app.navigationBars.buttons["More"].firstMatch.waitForExistence(timeout: 60),
+        // The pushed chat's composer (this layout has no navigation bar).
+        XCTAssertTrue(app.buttons["Reply to Codex"].firstMatch.waitForExistence(timeout: 60),
                       "the stress chat opens\n\(app.debugDescription)")
         // Resting on the newest turn: the turns past the window go to disk.
         RunLoop.current.run(until: Date().addingTimeInterval(3))
