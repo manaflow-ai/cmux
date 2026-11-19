@@ -12,6 +12,7 @@ No app, display or subprocess is run: the definitions are loaded without the scr
 - activate: the bench opens its bundle through LaunchServices and waits for a key window.
 """
 import ast
+import json
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -33,7 +34,8 @@ BENCH = definitions(ROOT / "pane-perf-terminal.py", {"moving_frames", "not_appli
                                                     "late_frames", "motion_arms", "commit_notes", "commit_placements",
                                                     "layout_spans", "placed_at", "part_times", "probe_notes",
                                                     "record_offset", "turn_notes", "stalls_in", "turn_text", "stall_text",
-                                                    "arm_tag"})
+                                                    "arm_tag", "window_look", "look_tag", "look_config",
+                                                    "look_terminal_lines", "look_problem"})
 ZOOM = definitions(ROOT / "pane-zoom-terminal.py", {"sample_frames"})
 
 
@@ -319,6 +321,108 @@ class MotionArms(unittest.TestCase):
         for value in ("", "both", "on,on", "on,of", ","):
             with self.assertRaises(ValueError, msg=value):
                 self.motion_arms(value)
+
+
+class WindowLook(unittest.TestCase):
+    """`--window-look`: a see-through window with a blur, written both ways the app reads it."""
+
+    def setUp(self):
+        namespace = loaded()
+        self.window_look, self.look_tag = namespace["window_look"], namespace["look_tag"]
+        self.look_config, self.look_terminal_lines = namespace["look_config"], namespace["look_terminal_lines"]
+
+    def test_opaque_is_the_default_and_changes_nothing(self):
+        # The launch, the config and each row's name stay as they were, so the old numbers compare.
+        config = {"layout": {"minimumPaneWidth": 80}}
+        for value in (None, "opaque"):
+            look = self.window_look(value)
+            self.assertIsNone(look)
+            self.assertEqual(self.look_tag(look), "")
+            self.assertIs(self.look_config(config, look), config)
+            self.assertEqual(self.look_terminal_lines(look), [])
+
+    def test_see_through_alone_takes_the_round_values_of_the_fixture(self):
+        self.assertEqual(self.window_look("see-through"),
+                         {"opacity": 0.8, "blur": "frosted", "terminal_opacity": 0.8, "terminal_blur": 20,
+                          "behind": "desktop"})
+
+    def test_each_value_is_an_argument(self):
+        look = self.window_look("see-through:opacity=0.5,blur=glass-clear,terminal-opacity=0.25,terminal-blur=8,"
+                                "behind=checker")
+        self.assertEqual(look, {"opacity": 0.5, "blur": "glass-clear", "terminal_opacity": 0.25, "terminal_blur": 8,
+                                "behind": "checker"})
+        self.assertEqual(self.window_look("see-through: blur = none")["blur"], "none")
+
+    def test_unset_leaves_a_key_out(self):
+        look = self.window_look("see-through:opacity=unset,blur=unset")
+        self.assertIsNone(look["opacity"])
+        self.assertIsNone(look["blur"])
+        self.assertEqual(self.look_config({}, look), {})
+        self.assertEqual(self.look_terminal_lines(look), ["background-opacity = 0.8", "background-blur = 20"])
+        only_app = self.window_look("see-through:terminal-opacity=unset,terminal-blur=unset")
+        self.assertEqual(self.look_terminal_lines(only_app), [])
+        self.assertEqual(self.look_config({}, only_app),
+                         {"appearance": {"backgroundOpacity": 0.8, "backgroundBlur": "frosted"}})
+
+    def test_the_app_config_gets_its_two_keys_and_keeps_the_rest(self):
+        config = {"layout": {"minimumPaneWidth": 80}, "appearance": {"theme": "dark"}}
+        made = self.look_config(config, self.window_look("see-through"))
+        self.assertEqual(made, {"layout": {"minimumPaneWidth": 80},
+                                "appearance": {"theme": "dark", "backgroundOpacity": 0.8, "backgroundBlur": "frosted"}})
+        self.assertEqual(config, {"layout": {"minimumPaneWidth": 80}, "appearance": {"theme": "dark"}})
+
+    def test_the_terminal_config_gets_an_opacity_and_a_blur_radius(self):
+        self.assertEqual(self.look_terminal_lines(self.window_look("see-through")),
+                         ["background-opacity = 0.8", "background-blur = 20"])
+        self.assertEqual(self.look_terminal_lines(self.window_look("see-through:terminal-opacity=1,terminal-blur=0")),
+                         ["background-opacity = 1", "background-blur = 0"])
+
+    def test_the_rows_name_says_each_value(self):
+        self.assertEqual(self.look_tag(self.window_look("see-through")), "see-through-0.8-frosted-0.8-20")
+        self.assertEqual(self.look_tag(self.window_look("see-through:blur=unset,terminal-blur=8,behind=stripes")),
+                         "see-through-0.8-unset-0.8-8-over-stripes")
+
+    def test_another_word_is_refused(self):
+        for value in ("", "glass", "see-through:", "see-through:opacity", "see-through:opacity=2",
+                      "see-through:opacity=-0.1", "see-through:opacity=nan", "see-through:blur=milk",
+                      "see-through:terminal-blur=-1", "see-through:terminal-blur=2.5", "see-through:shade=1",
+                      "see-through:opacity=0.5,opacity=0.6", "see-through:behind=unset", "opaque:opacity=0.5",
+                      "see-through:opacity=unset,blur=unset,terminal-opacity=unset,terminal-blur=unset"):
+            with self.assertRaises(ValueError, msg=value):
+                self.window_look(value)
+
+
+class LookProblem(unittest.TestCase):
+    """A see-through run does not go on as an opaque one: the launch's own 2 config files must hold the look."""
+
+    ENV = {"CMUX_NEXT_CONFIG_FILE": "/scratch/cmux.json", "CMUX_NEXT_GHOSTTY_CONFIG": "/scratch/ghostty"}
+
+    def problem(self, value, files, env=None):
+        namespace = loaded(json=json)
+        return namespace["look_problem"](namespace["window_look"](value), self.ENV if env is None else env,
+                                         read=files.__getitem__)
+
+    def test_an_opaque_window_reads_no_file(self):
+        self.assertIsNone(self.problem("opaque", {}, env={}))
+
+    def test_both_files_hold_the_look(self):
+        files = {"/scratch/cmux.json": json.dumps({"layout": {}, "appearance": {"backgroundOpacity": 0.8,
+                                                                                 "backgroundBlur": "frosted"}}),
+                 "/scratch/ghostty": "background-opacity = 0.8\nbackground-blur = 20\n"}
+        self.assertIsNone(self.problem("see-through", files))
+
+    def test_a_missing_key_or_line_is_named(self):
+        files = {"/scratch/cmux.json": json.dumps({"appearance": {"backgroundOpacity": 1, "backgroundBlur": "frosted"}}),
+                 "/scratch/ghostty": "background-opacity = 0.8\n"}
+        problem = self.problem("see-through", files)
+        self.assertIn("background-blur = 20", problem)
+        self.assertIn("appearance.backgroundOpacity", problem)
+        self.assertNotIn("backgroundBlur", problem)
+        self.assertNotIn("background-opacity = 0.8", problem)
+
+    def test_a_file_that_is_not_there_is_a_problem(self):
+        self.assertIn("not read", self.problem("see-through", {}))
+        self.assertIn("not read", self.problem("see-through", {}, env={}))
 
 
 class NotApplicable(unittest.TestCase):

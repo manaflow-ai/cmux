@@ -53,6 +53,16 @@ With --pane-motion on,off each round runs its actions one time for each arm, in 
 and its row `still` passes when no spring and no commit motion moved. Without the option the app's own setting
 runs one time and each row keeps its name.
 
+With --window-look see-through the window is a see-through window with a blur instead of the launch's opaque one. The
+look is written both ways the app reads it: `appearance.backgroundOpacity` and `appearance.backgroundBlur` in the app
+config, and `background-opacity` and `background-blur` (a radius) in the terminal config file. `see-through` alone
+takes round values (0.8, frosted, 0.8, 20); each value is an argument (`see-through:opacity=0.5,blur=glass,
+terminal-opacity=0.5,terminal-blur=8`; `unset` leaves a key out). The window is over the fixture's desktop, or with
+`behind=checker` (or `stripes`) over the app's own patterned panel (`debug.capture_backdrop`). Each row and summary of
+such a run is named <layout>-see-through-<opacity>-<blur>-<terminal opacity>-<terminal blur>, so it is never compared
+with an opaque window's rows, and the report's conditions hold the look (`window_look`). Without the option, or with
+`opaque`, the launch and each row's name stay as they were.
+
 With --browser-engine webkit the probe page and the --pages pages are WebKit pages instead (no `debug.cef` counters
 change then; Lawrence 2026-11-05: "resize webviews (both chrome and webkit) more often").
 
@@ -68,6 +78,7 @@ Usage: pane-perf-terminal.py --tag <tag> --app PATH [--layouts 1x2,4x2,6x5] [--b
        [--browser-engine chromium|webkit]
        [--actions split,close,column,zoom,window,drag,keys,scroll,idle,page] [--rounds 3] [--scrollback 5000] [--stream]
        [--record] [--json PATH] [--out DIR] [--gate] [--missed-budget N] [--pane-motion on,off]
+       [--window-look opaque|see-through[:KEY=VALUE,...]]
 """
 import argparse, glob, json, math, os, pathlib, signal, subprocess, sys, tempfile, time
 
@@ -104,6 +115,11 @@ parser.add_argument("--pane-motion", default=None,
 parser.add_argument("--stall-ms", type=int, default=None,
                     help="start the app with its main-thread watchdog at this threshold (CMUX_NEXT_HANG_THRESHOLD_MS, 4 "
                          "at the least): each row then lists the stalls of its action with the stack sampled in each")
+parser.add_argument("--window-look", default=None,
+                    help="opaque (the default: the launch as it was) or see-through[:opacity=0..1,"
+                         "blur=frosted|glass|glass-clear|none,terminal-opacity=0..1,terminal-blur=RADIUS,"
+                         "behind=desktop|checker|stripes]: a see-through window with a blur, set in the app config and "
+                         "in the terminal config file; its rows are named <layout>-see-through-<each value>")
 opts, _unknown = parser.parse_known_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
@@ -685,6 +701,106 @@ def set_pane_motion(on, hide_first=False):
     return None if seen is hide_first else f"probe_hide_first is {seen!r} after the call, not {hide_first!r}"
 
 
+def window_look(value):
+    """`--window-look`: None for `opaque` (and for no option: the launch, the config and each row's name stay as they
+    were), or the values of a see-through window with a blur. `see-through` alone takes round values; each value
+    is an argument (`see-through:opacity=0.5,blur=glass,terminal-opacity=0.5,terminal-blur=8,behind=checker`), and
+    `unset` leaves that key out. `opacity` and `blur` go to the app config (`appearance.backgroundOpacity`, 0 to 1,
+    and `appearance.backgroundBlur`: frosted, glass, glass-clear or none); `terminal-opacity` and `terminal-blur` go
+    to the terminal config file (`background-opacity`, and `background-blur`: a radius). `behind` is what the window
+    is over: `desktop` (what the screen shows there), or the app's own `checker` or `stripes` panel. Another word, or
+    a look that sets none of the 4 keys, raises ValueError."""
+    if value is None or value == "opaque":
+        return None
+    word, colon, rest = value.partition(":")
+    look = {"opacity": 0.8, "blur": "frosted", "terminal_opacity": 0.8, "terminal_blur": 20, "behind": "desktop"}
+    refused = ValueError("--window-look takes opaque or see-through[:opacity=0..1,blur=frosted|glass|glass-clear|none,"
+                         "terminal-opacity=0..1,terminal-blur=RADIUS,behind=desktop|checker|stripes] "
+                         f"(unset leaves a key out; one key at least stays), not {value!r}")
+    if word != "see-through" or (colon and not rest.strip()):
+        raise refused
+    seen = set()
+    for part in rest.split(",") if colon else []:
+        key, equals, text = (piece.strip() for piece in part.partition("="))
+        key = key.replace("-", "_")
+        if not equals or key not in look or key in seen:
+            raise refused
+        seen.add(key)
+        try:
+            if key == "behind":
+                found = text if text in ("desktop", "checker", "stripes") else None
+            elif text == "unset":
+                look[key] = None
+                continue
+            elif key == "blur":
+                found = text if text in ("frosted", "glass", "glass-clear", "none") else None
+            elif key == "terminal_blur":
+                found = int(text) if int(text) >= 0 else None
+            else:
+                found = float(text) if 0 <= float(text) <= 1 else None
+        except ValueError:
+            found = None
+        if found is None:
+            raise refused
+        look[key] = found
+    if all(look[key] is None for key in ("opacity", "blur", "terminal_opacity", "terminal_blur")):
+        raise refused
+    return look
+
+
+def look_tag(look):
+    """The part a see-through look adds to each row's layout name: each of its 4 values in the flag's order, then
+    what the window is over when that is not the desktop. An opaque window adds nothing."""
+    if not look:
+        return ""
+    values = [look["opacity"], look["blur"], look["terminal_opacity"], look["terminal_blur"]]
+    over = "" if look["behind"] == "desktop" else f"-over-{look['behind']}"
+    return "see-through-" + "-".join("unset" if value is None else format(value, "g") if isinstance(value, float)
+                                     else str(value) for value in values) + over
+
+
+def look_config(config, look):
+    """The app config with the look's `appearance.backgroundOpacity` and `appearance.backgroundBlur` (a copy; the
+    other keys stay). An opaque window gets `config` itself: the launch default."""
+    if not look:
+        return config
+    appearance = dict(config.get("appearance") or {})
+    if look["opacity"] is not None:
+        appearance["backgroundOpacity"] = look["opacity"]
+    if look["blur"] is not None:
+        appearance["backgroundBlur"] = look["blur"]
+    return {**config, "appearance": appearance} if appearance else dict(config)
+
+
+def look_terminal_lines(look):
+    """The look's lines of the terminal config file: an opacity and a blur radius. None for an opaque window."""
+    if not look:
+        return []
+    lines = []
+    if look["terminal_opacity"] is not None:
+        lines.append(f"background-opacity = {look['terminal_opacity']:g}")
+    if look["terminal_blur"] is not None:
+        lines.append(f"background-blur = {look['terminal_blur']}")
+    return lines
+
+
+def look_problem(look, env, read=None):
+    """Why the launched app did not get the look (None when it did, and for an opaque window): the app config and
+    the terminal config file of the launch's own environment must hold each key and line of the look."""
+    if not look:
+        return None
+    read = read or (lambda path: open(path).read())
+    try:
+        terminal = read(env["CMUX_NEXT_GHOSTTY_CONFIG"]).splitlines()
+        appearance = json.loads(read(env["CMUX_NEXT_CONFIG_FILE"])).get("appearance") or {}
+    except (KeyError, OSError, ValueError) as error:
+        return f"the launch's config files were not read: {error!r}"
+    missing = [line for line in look_terminal_lines(look) if line not in terminal]
+    wanted = look_config({}, look).get("appearance") or {}
+    missing += [f"appearance.{key}" for key, value in wanted.items() if appearance.get(key) != value]
+    return f"not in the launch's config: {missing}" if missing else None
+
+
 def not_applicable(step, columns):
     """Why `step` does not apply to a layout of `columns` columns (None when it does, and for STRESS: None
     columns). A drag presses the first vertical divider: a one-column layout (1x2) has none."""
@@ -1034,6 +1150,7 @@ def cleanup():
 def main():
     global app, SOCKET, BENCH, MEASURED
     arms = motion_arms(opts.pane_motion)  # another word than on or off ends the run here, before the app starts
+    look = window_look(opts.window_look)  # so does another word for the window's look
     os.makedirs(opts.out, exist_ok=True)
     # The shared launch (bench_launch.py): its bench environment, a session check that fails at once with
     # no-gui-session, the state-folder socket, and a BENCH-LAUNCH report (crash, sample, log tail) on failure.
@@ -1041,8 +1158,12 @@ def main():
     # no-activate the app reads no test window placement, so the window is placed through the socket below.
     # --stall-ms: the app's main-thread watchdog records, and samples a stack in, each stall from that many ms.
     stall_env = {"CMUX_NEXT_HANG_THRESHOLD_MS": str(opts.stall_ms)} if opts.stall_ms else {}
-    BENCH = BenchApp(APP, out=opts.out, config=CONFIG, env={"CMUX_NEXT_NO_ACTIVATE": None, **stall_env}, window=None, screen=None,
-                     log_name=f"app-{TAG}.log")
+    BENCH = BenchApp(APP, out=opts.out, config=look_config(CONFIG, look), env={"CMUX_NEXT_NO_ACTIVATE": None, **stall_env},
+                     window=None, screen=None, log_name=f"app-{TAG}.log")
+    if look_terminal_lines(look):
+        # A see-through window's terminal lines: the launch opens this file to append, so they stay in it.
+        with open(os.path.join(BENCH.scratch, "ghostty"), "w") as terminal_config:
+            terminal_config.write("\n".join(look_terminal_lines(look)) + "\n")
     try:
         BENCH.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
     except LaunchError as error:
@@ -1057,6 +1178,19 @@ def main():
     placed, window_problem = STRESS_MODULE.place_window(rpc)
     row("the window is placed on the main screen", f"{list(WINDOW)} pt on its screen", window_problem or str(placed.get("frame") if isinstance(placed, dict) else placed),
         window_problem is None)
+    behind = None
+    if look:
+        # No see-through row from an opaque window: the launch's own config files hold the look, or the run ends.
+        problem = look_problem(look, BENCH.launched_env or {})
+        if not problem and look["behind"] != "desktop":
+            behind = rpc("debug.capture_backdrop", {"pattern": look["behind"]})  # before the app takes the front
+            if not (isinstance(behind, dict) and behind.get("backdrop_number")):
+                problem = f"no {look['behind']} panel behind the window: {behind}"
+        row("the window has the see-through look", look_tag(look), problem or "in the app config and the terminal config file",
+            problem is None)
+        if problem:
+            UNMEASURED.append(f"window look: {problem}")
+            return
     front = activate(APP)
     print(f"activated: window key {front['window_key']}, frontmost {front['frontmost']}", flush=True)
     # The bench conditions: the environment the app was really started with (mocked agent chats, the
@@ -1064,6 +1198,14 @@ def main():
     # was key when it started (`layouts`).
     conditions = {"env": BENCH.launched_env, "window": STRESS_MODULE.window_on_screen(placed) if isinstance(placed, dict) else None,
                   "layouts": {}}
+    # The window's look: its values, what the window is over, and the backdrop the app says it shows (`debug.themes`).
+    themes = rpc("debug.themes")
+    shown = (themes.get("windows") or [{}])[0].get("backdrop") if isinstance(themes, dict) else None
+    conditions["window_look"] = {"look": "see-through" if look else "opaque", **(look or {}),
+                                 "terminal_config": look_terminal_lines(look), "backdrop_shown": shown,
+                                 "terminal_background": themes.get("ghostty_background") if isinstance(themes, dict) else None}
+    if look:
+        conditions["window_look"]["over"] = "the fixture's desktop" if behind is None else behind
     print("CONDITIONS " + json.dumps(conditions), flush=True)
     report = {"tag": TAG, "macos": macos, "host": host, "stream": opts.stream, "scrollback": opts.scrollback,
               "conditions": conditions, "runs": []}
@@ -1088,7 +1230,8 @@ def main():
         if name == "stress":
             # A bottom Dock over the window's lower edge, and chats the session replaced (none in STRESS).
             state.update(dock_overlap_pt=STRESS.get("dock_overlap_pt"), chat_fallbacks=STRESS.get("chat_fallbacks"))
-        label = name if state["window_key"] else f"{name}-inactive"
+        label = f"{name}-{look_tag(look)}" if look else name  # a see-through window's rows say its look's values
+        label = label if state["window_key"] else f"{label}-inactive"
         # One pass for each arm in each round (--pane-motion): the off arm's rows are named <label>-motion-off.
         tags = {arm: arm_tag(label, arm) for arm in arms or [None]}
         for tag in tags.values():
