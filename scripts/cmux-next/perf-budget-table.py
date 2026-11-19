@@ -8,8 +8,8 @@ the regression rule of perf-cron.py stays the only verdict (Lawrence 2026-10-23:
 
 A row's value is the worst (largest) newest value of the cron rows its regex matches (row names with the host left off,
 "panes.split.4x2.frame@cmux20-bench" is "panes.split.4x2.frame"), on any host. A row with no regex, no matching value,
-or only values older than its max_age_h is NOT MEASURED: never a pass (the rule of the cmux-fp budget gate,
-scripts/budget-remote.sh: "a number could not be measured" is its own count).
+or only values older than its max_age_h is NOT MEASURED: never a pass (the rule of the frame-pipeline lab's budget gate,
+its scripts/budget-remote.sh: "a number could not be measured" is its own count).
 
 The newest value of a cron row comes from the state the cron already keeps, one entry a row (so the cost does not grow
 with the number of measurements or the history): state['part_rows'] (every stored tip part, any verdict), the last
