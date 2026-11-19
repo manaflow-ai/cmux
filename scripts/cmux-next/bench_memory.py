@@ -392,6 +392,7 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
         if SAMPLE_GPU:
             gpu = GpuSampler()
             gpu.start()
+        server = windowserver_cpu() if SAMPLE_WINDOWSERVER else None
         time.sleep(measure)  # test script: the measured idle window
     rows = []
     for pid, (kind, cmd) in owned(app_pid, bundle).items():
@@ -437,12 +438,51 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
               "processes": rows}
     if gpu is not None:
         result["gpu"] = gpu.finish()
+    if measure > 0 and SAMPLE_WINDOWSERVER:
+        result["windowserver"] = windowserver_window(server, windowserver_cpu(), measure)
     return result
+
+
+def windowserver_cpu() -> dict | None:
+    """WindowServer's pid and lifetime CPU now (--windowserver): Core Animation composites every layer animation
+    there, so a render-server animation costs its CPU, not the app's. proc_pid_rusage (with wakeups) when this
+    account may read it, else `ps -o cputime` (any account; 10 ms resolution, no wakeups)."""
+    pid = next((p for p, _, cmd in process_table() if cmd.split(" ")[0].endswith("/WindowServer")), None)
+    if pid is None:
+        return None
+    got = usage(pid)
+    if got is not None:
+        return {"pid": pid, "cpu_ns": got[3], "wakeups": got[4], "source": "rusage"}
+    out = subprocess.run(["ps", "-o", "cputime=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    if not out:
+        return None
+    seconds = 0.0
+    try:
+        days, _, clock = out.rpartition("-")
+        for part in clock.split(":"):
+            seconds = seconds * 60 + float(part)
+        seconds += float(days or 0) * 86400
+    except ValueError:
+        return None
+    return {"pid": pid, "cpu_ns": int(seconds * 1e9), "wakeups": None, "source": "ps"}
+
+
+def windowserver_window(start: dict | None, end: dict | None, measure: float) -> dict:
+    """WindowServer's CPU % (and wakeups/s with rusage) over one window, from windowserver_cpu() at both ends."""
+    if not start or not end or start["pid"] != end["pid"]:
+        return {"error": "WindowServer not readable (or restarted) in the window"}
+    out = {"pid": end["pid"], "source": end["source"],
+           "cpu_pct": round(100 * (end["cpu_ns"] - start["cpu_ns"]) / 1e9 / measure, 3)}
+    if start["wakeups"] is not None and end["wakeups"] is not None:
+        out["wakeups_per_s"] = round((end["wakeups"] - start["wakeups"]) / measure, 2)
+    return out
 
 
 IO_KEYS = ("disk_read_mb_per_h", "disk_write_mb_per_h", "logical_write_mb_per_h")
 # --gpu: each measured window also samples the GPU's own counters (GpuSampler).
 SAMPLE_GPU = False
+# --windowserver: each measured window also reads WindowServer's CPU (windowserver_cpu).
+SAMPLE_WINDOWSERVER = False
 
 
 class _ThreadInfo(ctypes.Structure):
@@ -639,6 +679,8 @@ def print_sample(result, top: int):
               f"{entry.get('disk_write_mb_per_h', float('nan')):>13.2f}{entry.get('disk_read_mb_per_h', float('nan')):>13.2f}")
     if result.get("gpu"):
         print(f"   GPU (whole Mac, ioreg): {json.dumps(result['gpu'])}")
+    if result.get("windowserver"):
+        print(f"   WindowServer: {json.dumps(result['windowserver'])}")
     for kind, entry in result["kinds"].items():
         if "child_cpu_pct" in entry:
             print(f"   children of {kind:<22}{entry['child_cpu_pct']:>9.3f} CPU % (ended in the window)")
@@ -1136,6 +1178,83 @@ def open_workspace(app: App, recipe: str, url: str, index: int, chats: FakeChats
     return workspace
 
 
+def open_waiting(app: App, count: int, tabs: int, opened: list) -> dict:
+    """--waiting: `count` workspaces in all (the launch one counts), each new one a terminal that posts a
+    notification (OSC 777, as release-notes/next/clips/done-and-needs-you-rise.json makes them) and so waits unread,
+    plus `tabs` more terminal tabs in the launch workspace marked unread (Mark Tab Unread); then the launch workspace
+    is shown again. Every waiting row and tab is then unselected: what `notifications.attention.mark` draws as a
+    badge or a breathing glow. Returns what it made."""
+    launch = sorted(workspace_ids(app))
+    made = {"launch_workspaces": launch, "workspaces": 0, "tabs": 0, "tab_marks": 0, "errors": []}
+    for index in range(count - 1):
+        command = f"sleep 2; printf '\\033]777;notify;Waiting {index + 1};Needs you\\007'; sleep 3600"
+        argv = [app.cli_path, "--app-socket", app.socket, "--json", "action", "run", "newTab",
+                "--arg", f"name=Waiting {index + 1}", "--arg", f"command={command}", "--arg", "focus=false"]
+        out = subprocess.run(argv, capture_output=True, text=True, timeout=120)
+        try:
+            reply = json.loads(out.stdout or "{}")
+        except ValueError:
+            reply = {"error": (out.stdout + out.stderr).strip()[:300]}
+        created = [str(item) for item in reply.get("created", []) if str(item).startswith("ws_")] if isinstance(reply, dict) else []
+        if out.returncode != 0 or not created:
+            made["errors"].append(f"newTab {index + 1}: {(out.stderr or out.stdout).strip()[:200]}")
+            continue
+        opened.append(created[0])
+        made["workspaces"] += 1
+    if launch:
+        app.action("goToWorkspace", workspace=launch[0], focus=True)
+    tab_ids = []
+    for _ in range(tabs):
+        reply = app.run("newSurface")
+        tab = next((str(item) for item in reply.get("created", []) if str(item).startswith("tab_")), None)
+        if tab is None:
+            made["errors"].append(f"newSurface: {reply.get('error') or reply}"[:200])
+            continue
+        tab_ids.append(tab)
+    made["tabs"] = len(tab_ids)
+    if tab_ids:
+        # One more tab, shown, so every marked one is unselected whichever tab a script's new tab selects.
+        shown = next((str(item) for item in app.run("newSurface").get("created", []) if str(item).startswith("tab_")), None)
+        if shown:
+            app.call("action.run", {"action": "palette.goToTab", "target": {"kind": "tab", "id": shown}, "args": {},
+                                    "wait": True, "origin": "script", "idempotency_key": f"mutation_{uuid.uuid4().hex}"})
+        for tab in tab_ids:
+            reply = app.call("action.run", {"action": "toggleUnread", "target": {"kind": "tab", "id": tab}, "args": {},
+                                            "wait": True, "origin": "script", "idempotency_key": f"mutation_{uuid.uuid4().hex}"})
+            if reply.get("error"):
+                made["errors"].append(f"toggleUnread {tab}: {reply['error']}"[:200])
+            else:
+                made["tab_marks"] += 1
+    if launch:
+        app.action("goToWorkspace", workspace=launch[0], focus=True)
+    return made
+
+
+def unread_marks(app: App) -> dict:
+    """How many entries of `snapshot.get` say unread (keys with "unread" in their name, true or above 0): evidence
+    that the waiting scenario is in place, not a count the bench relies on."""
+    found: dict[str, int] = {}
+
+    def walk(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if "unread" in key.lower() and (value is True or (isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0)):
+                    found[key] = found.get(key, 0) + 1
+                walk(value)
+        elif isinstance(node, list):
+            for child in node:
+                walk(child)
+    walk(app.call("snapshot.get", timeout=30))
+    return found
+
+
+def main_window_state(app: App) -> dict:
+    """The main window's visible, occluded and miniaturized flags (`debug.window_list`; a bench or DEV build)."""
+    windows = (app.call("debug.window_list", timeout=30) or {}).get("windows") or []
+    main = next((w for w in windows if isinstance(w, dict) and w.get("kind") == "main"), None)
+    return {k: main.get(k) for k in ("visible", "occluded", "miniaturized", "key", "frame")} if main else {"error": "no main window"}
+
+
 def close_workspace(app: App, workspace: str):
     response = app.run("closeWorkspace", target=workspace)
     if response.get("error") or response.get("code"):
@@ -1587,10 +1706,23 @@ def main():
                              "and release timers, 30 s and 60 s) and sample again as settled-N")
     parser.add_argument("--gpu", action="store_true",
                         help="each measured window also samples the GPU's counters (ioreg IOAccelerator)")
+    parser.add_argument("--windowserver", action="store_true",
+                        help="each measured window also reads WindowServer's CPU (Core Animation composites there)")
+    parser.add_argument("--waiting", type=int, default=0, metavar="N",
+                        help="instead of --workspaces: N workspaces, every one but the launch workspace waiting unread "
+                             "(a terminal notification), the launch one shown; sampled as waiting-N (open_waiting)")
+    parser.add_argument("--waiting-tabs", type=int, default=0, metavar="K",
+                        help="--waiting: also K unselected terminal tabs marked unread in the launch workspace")
+    parser.add_argument("--waiting-minimize", action="store_true",
+                        help="--waiting: after waiting-N, minimize the window and sample again as minimized-N")
+    parser.add_argument("--snapshot-dir", metavar="DIR",
+                        help="--waiting: the main window's image before each waiting sample (debug.window_snapshot)")
     parser.add_argument("--out")
     args = parser.parse_args()
     global SAMPLE_GPU
     SAMPLE_GPU = args.gpu
+    global SAMPLE_WINDOWSERVER
+    SAMPLE_WINDOWSERVER = args.windowserver
     if args.axis and args.axis.startswith("chat-") and not args.fake_agent:
         parser.error("--axis chat-* needs --fake-agent (chats whose first turn is answered)")
     global CHAT_PROMPT
@@ -1717,6 +1849,27 @@ def main():
             report["axis"] = args.axis
             report["axis_made"] = run_axis(app, chats, args.axis, sorted(int(n) for n in args.items.split(",") if n),
                                            launch_workspaces, opened, settle_and_sample, args.settled_wait)
+            counts = []
+        if args.waiting:
+            report["waiting"] = open_waiting(app, args.waiting, args.waiting_tabs, opened)
+            print(f"== waiting: {json.dumps(report['waiting'])[:1500]}", flush=True)
+            time.sleep(5)  # test script: each new terminal posts its notification 2 s after it starts
+            phases = [f"waiting-{args.waiting}"] + ([f"minimized-{args.waiting}"] if args.waiting_minimize else [])
+            for label in phases:
+                if label.startswith("minimized-"):
+                    print(f"== minimize: {json.dumps(app.action('minimizeWindow'))[:300]}", flush=True)
+                    time.sleep(2)  # test script: the minimize animation ends before the settle
+                state = {"window": main_window_state(app), "unread": unread_marks(app)}
+                if args.snapshot_dir:
+                    os.makedirs(args.snapshot_dir, exist_ok=True)
+                    shot = app.call("debug.window_snapshot", {"kind": "main", "path": os.path.join(
+                        os.path.realpath(args.snapshot_dir), f"{label}.png")}, timeout=60) or {}
+                    state["snapshot"] = {k: shot.get(k) for k in ("path", "width", "height", "method", "error") if k in shot}
+                print(f"== {label} before the window: {json.dumps(state)[:1500]}", flush=True)
+                result = settle_and_sample(label)
+                result["waiting_state"] = state
+                result["window_after"] = main_window_state(app)
+                print(f"WAITING-SAMPLE {label} {json.dumps({'state': state, 'window_after': result['window_after']})[:1500]}", flush=True)
             counts = []
         if args.tabs:
             tab_counts = sorted(int(n) for n in args.tabs.split(",") if n)

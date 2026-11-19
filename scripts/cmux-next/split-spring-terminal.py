@@ -57,6 +57,11 @@ if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in
 if "--suite=memory-agents" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "memory-agents-cron.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=memory-agents"])
+# `--suite=idle-attention`: idle CPU, wakeups, WindowServer CPU and GPU with waiting tabs and rows drawn as a badge or
+# a glow (`notifications.attention.mark`), scripts/cmux-next/idle-attention.py.
+if "--suite=idle-attention" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "idle-attention.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=idle-attention"])
 # `--suite=renderer-rest`: each Chromium renderer's footprint, pages and V8 heap every 5 s while the empty app rests,
 # then after a GC and a memory-pressure purge (scripts/cmux-next/renderer-rest.py, CMUX-571 ram-baseline).
 if "--suite=renderer-rest" in sys.argv:
