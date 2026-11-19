@@ -7227,7 +7227,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [restartUnavailable, setRestartUnavailable] = useState(false);
   /// What the host sees of the daemon this handshake waits on (busy, starting or down, decided in
   /// Rust), asked while the waiting line shows: the line says which, and offers Restart agent
-  /// service only when it fits (a daemon that is only slow gets none until a long wait).
+  /// service only when it is down (a daemon that is only slow or starting never gets one).
   const serviceWait = useAgentServiceWait(waitingSince, askServiceWait);
   /// When this pane's connection to acpmux was lost (its client's `onLost`), until a handshake
   /// connects again: the quiet "Reconnecting…" line counts from it (HostRecoveringLine).

@@ -126738,265 +126738,265 @@
       }
     },
     "host.serviceBusy": {
-      "comment": "Agent pane: the agent service (acpmux) runs and took the connection but has not answered yet; {time} is how long the pane has waited, as m:ss",
+      "comment": "Agent pane: the agent service (acpmux) runs and took the connection but has not answered yet",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent service is busy ({time})"
+            "value": "Agent service is busy"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "خدمة الوكيل مشغولة ({time})"
+            "value": "خدمة الوكيل مشغولة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Servis agenta je zauzet ({time})"
+            "value": "Servis agenta je zauzet"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agenttjenesten er optaget ({time})"
+            "value": "Agenttjenesten er optaget"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Der Agentendienst ist ausgelastet ({time})"
+            "value": "Der Agentendienst ist ausgelastet"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "El servicio del agente está ocupado ({time})"
+            "value": "El servicio del agente está ocupado"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le service d’agent est occupé ({time})"
+            "value": "Le service d’agent est occupé"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Il servizio agente è occupato ({time})"
+            "value": "Il servizio agente è occupato"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "エージェントサービスは処理中です（{time}）"
+            "value": "エージェントサービスは処理中です"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "សេវាភ្នាក់ងារកំពុងរវល់ ({time})"
+            "value": "សេវាភ្នាក់ងារកំពុងរវល់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "에이전트 서비스가 처리 중입니다({time})"
+            "value": "에이전트 서비스가 처리 중입니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agenttjenesten er opptatt ({time})"
+            "value": "Agenttjenesten er opptatt"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Usługa agenta jest zajęta ({time})"
+            "value": "Usługa agenta jest zajęta"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O serviço do agente está ocupado ({time})"
+            "value": "O serviço do agente está ocupado"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Служба агента занята ({time})"
+            "value": "Служба агента занята"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "บริการเอเจนต์กำลังยุ่ง ({time})"
+            "value": "บริการเอเจนต์กำลังยุ่ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajan hizmeti meşgul ({time})"
+            "value": "Ajan hizmeti meşgul"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Служба агента зайнята ({time})"
+            "value": "Служба агента зайнята"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dịch vụ tác tử đang bận ({time})"
+            "value": "Dịch vụ tác tử đang bận"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "代理服务正忙（{time}）"
+            "value": "代理服务正忙"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "代理服務忙碌中（{time}）"
+            "value": "代理服務忙碌中"
           }
         }
       }
     },
     "host.serviceStarting": {
-      "comment": "Agent pane: the agent service (acpmux) process runs but does not take connections yet; {time} is how long the pane has waited, as m:ss",
+      "comment": "Agent pane: the agent service (acpmux) process runs but does not take connections yet",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent service is starting ({time})"
+            "value": "Agent service is starting"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "خدمة الوكيل قيد البدء ({time})"
+            "value": "خدمة الوكيل قيد البدء"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Servis agenta se pokreće ({time})"
+            "value": "Servis agenta se pokreće"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agenttjenesten starter ({time})"
+            "value": "Agenttjenesten starter"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Der Agentendienst startet ({time})"
+            "value": "Der Agentendienst startet"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "El servicio del agente se está iniciando ({time})"
+            "value": "El servicio del agente se está iniciando"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le service d’agent démarre ({time})"
+            "value": "Le service d’agent démarre"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Il servizio agente si sta avviando ({time})"
+            "value": "Il servizio agente si sta avviando"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "エージェントサービスを起動しています（{time}）"
+            "value": "エージェントサービスを起動しています"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "សេវាភ្នាក់ងារកំពុងចាប់ផ្ដើម ({time})"
+            "value": "សេវាភ្នាក់ងារកំពុងចាប់ផ្ដើម"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "에이전트 서비스를 시작하는 중입니다({time})"
+            "value": "에이전트 서비스를 시작하는 중입니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agenttjenesten starter ({time})"
+            "value": "Agenttjenesten starter"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Usługa agenta się uruchamia ({time})"
+            "value": "Usługa agenta się uruchamia"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O serviço do agente está iniciando ({time})"
+            "value": "O serviço do agente está iniciando"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Служба агента запускается ({time})"
+            "value": "Служба агента запускается"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "บริการเอเจนต์กำลังเริ่มทำงาน ({time})"
+            "value": "บริการเอเจนต์กำลังเริ่มทำงาน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajan hizmeti başlatılıyor ({time})"
+            "value": "Ajan hizmeti başlatılıyor"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Служба агента запускається ({time})"
+            "value": "Служба агента запускається"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dịch vụ tác tử đang khởi động ({time})"
+            "value": "Dịch vụ tác tử đang khởi động"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "代理服务正在启动（{time}）"
+            "value": "代理服务正在启动"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "代理服務正在啟動（{time}）"
+            "value": "代理服務正在啟動"
           }
         }
       }

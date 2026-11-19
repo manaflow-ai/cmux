@@ -9,7 +9,7 @@ import Foundation
 ///
 /// The host probes here (the home's `daemon.pid` process, one connect to the home's socket); the
 /// verdict is Rust's (cmux-agent-pane-policy `service_wait.rs`, op `service_wait`): busy (a process
-/// listens, the reply is late: Restart only after a long wait), starting (the process runs, its
+/// listens, the reply is late: never Restart), starting (the process runs, its
 /// socket does not take connections yet), down (neither: Restart at once). The page only draws it.
 public nonisolated struct AgentServiceWait: Sendable, Equatable {
     /// `busy`, `starting` or `down`.

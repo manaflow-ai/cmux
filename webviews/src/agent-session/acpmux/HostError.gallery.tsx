@@ -366,27 +366,17 @@ export default componentEntry<Props>({
         waitedMs: 70_000,
         service: { state: "busy", restart: false },
       },
-      note: "acpmux runs and took the connection, its reply is late (Leo's 1:10): says busy, offers no restart.",
-    },
-    "waiting-busy-long": {
-      props: {
-        message: "",
-        initialRetrying: false,
-        withRetry: false,
-        waitedMs: 200_000,
-        service: { state: "busy", restart: true },
-      },
-      note: "Busy past 3 minutes: Restart agent service comes back as quiet text, optional.",
+      note: "acpmux runs and took the connection, its reply is late (Leo's 1:10): a quiet busy note, no clock, never a restart.",
     },
     "waiting-starting": {
       props: {
         message: "",
         initialRetrying: false,
         withRetry: false,
-        waitedMs: 40_000,
+        waitedMs: 600_000,
         service: { state: "starting", restart: false },
       },
-      note: "The daemon process runs but its socket does not take connections yet: says starting, no restart.",
+      note: "The daemon process runs but its socket does not take connections yet, here for 10 minutes: still a quiet note, never a restart.",
     },
     "waiting-down": {
       props: {

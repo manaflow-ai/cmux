@@ -23,14 +23,16 @@ Each state is one row, so one turning into another moves nothing.
   host probes the pid file's process and one socket connect, Rust decides in
   cmux-agent-pane-policy `service_wait.rs`), then **Restart agent service** as quiet underlined
   text when it fits: an optional step, never a filled button. Nothing under it.
-  - busy (it listens, the reply is late): "Agent service is busy (m:ss)"; Restart only after 3 min.
+  - busy (it listens, the reply is late): "Agent service is busy", muted, no clock, never Restart.
   - starting (the process runs, the socket does not take connections yet): "Agent service is
-    starting (m:ss)"; Restart only after 3 min.
+    starting", the same way.
   - down (no process, nothing on the socket): "Agent service is not running", with Restart.
   - not said (a host that cannot tell): "Waiting for the agent service (m:ss)", with Restart.
 
   Leo, 2026-11-18, on "Waiting for the agent service (1:10)  Restart agent service" while the
-  daemon was alive and slow: "i cant connect to agent service? something? :(".
+  daemon was alive and slow: "i cant connect to agent service? something? :("; 2026-11-19: "the gui
+  is still unreliable on this nightly cuz of the agent service and whatnot too coupled to load and
+  size and history".
 - **Failure** (`HostUnavailableLine` with `selfRetrying` false): only for what asking again can't
   change (a chat too large to open, another build's acpmux holding the socket): the plain reason
   (hostLine.ts) with its one action (Retry, or Restart agent service) and Details.
@@ -46,8 +48,8 @@ connects." is the tone the line follows.
 ## Gallery
 
 `agent-pane.host-error`: `automatic` (picked: a long outage is only Reconnecting…), `outage-named`,
-`outage-timed` and `outage-before` (the line Leo saw); `waiting-busy`, `waiting-busy-long`,
-`waiting-starting`, `waiting-down`; `waiting` (picked), `waiting-restart`,
+`outage-timed` and `outage-before` (the line Leo saw); `waiting-busy`, `waiting-starting`
+(10 minutes in), `waiting-down`; `waiting` (picked), `waiting-restart`,
 `waiting-before`, `waiting-one-line`, `waiting-disclosure` and `waiting-to-failure`. Naming the
 machine is long at narrow widths and not what the person waits on; a running clock makes a wait they
 can't shorten feel longer.

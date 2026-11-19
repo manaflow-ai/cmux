@@ -155,8 +155,9 @@ export function HostWaitingLine({
   /// Restart agent service; none when the host cannot restart what this wait waits on.
   onRestart?(): void;
   /// What the host saw of the daemon (`acpmux.serviceWait`, decided in Rust: cmux-agent-pane-policy
-  /// service_wait.rs): busy (it listens, the reply is late), starting, or down; and whether Restart
-  /// fits. Undefined while the host has not said (or cannot tell): the plain waiting line.
+  /// service_wait.rs): busy (it listens, the reply is late) or starting, a quiet note with no clock
+  /// and no Restart; or down, "not running" with Restart. Undefined while the host has not said (or
+  /// cannot tell): the plain waiting line.
   service?: AgentServiceWait;
   otherwise?: ReactNode;
   /// A fixed clock for the gallery; the pane passes none and the line counts each second.
@@ -169,14 +170,14 @@ export function HostWaitingLine({
   const time = waitedText(waited);
   const message =
     service?.state === "busy"
-      ? t("host.serviceBusy", { time })
+      ? t("host.serviceBusy")
       : service?.state === "starting"
-        ? t("host.serviceStarting", { time })
+        ? t("host.serviceStarting")
         : service?.state === "down"
           ? t("host.serviceDown")
           : t("host.waitingService", { time });
-  // A daemon that is only slow is not offered a restart until the host says it fits (rule R5);
-  // one in flight keeps its held button.
+  // A daemon that is alive (busy, starting) is never offered a restart: only one that is down
+  // (rule R5; Leo 2026-11-19: the GUI is "too coupled to load"). One in flight keeps its button.
   const offered = onRestart && (restarting || service?.restart !== false);
   return (
     <output className="acpmux-host-line-group" data-host-waiting={service?.state ?? "waiting"}>

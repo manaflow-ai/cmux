@@ -304,7 +304,7 @@ test("a wait the host cannot restart keeps its time and shows no button", async 
 // Leo, 2026-11-18, on "Waiting for the agent service (1:10)  Restart agent service": "i cant connect
 // to agent service? something? :(". The daemon was alive and slow: the line says busy and offers no
 // restart until the host (Rust's verdict) says a restart fits.
-test("a busy agent service says so and offers no restart", async () => {
+test("a busy agent service is a quiet note with no clock and no restart, however long", async () => {
   const container = installDom();
   await act(async () => {
     root = createRoot(container);
@@ -312,21 +312,16 @@ test("a busy agent service says so and offers no restart", async () => {
       <HostWaitingLine since={0} now={70_000} service={{ state: "busy", restart: false }} onRestart={() => undefined} />,
     );
   });
-  expect(container.textContent).toBe("Agent service is busy (1:10)");
+  expect(container.textContent).toBe("Agent service is busy");
   expect(buttons(container)).toEqual([]);
   expect(container.querySelector("[data-host-waiting]")!.getAttribute("data-host-waiting")).toBe("busy");
-});
-
-test("a service busy for long offers Restart agent service as quiet text", async () => {
-  const container = installDom();
   await act(async () => {
-    root = createRoot(container);
-    root.render(
-      <HostWaitingLine since={0} now={200_000} service={{ state: "busy", restart: true }} onRestart={() => undefined} />,
+    root!.render(
+      <HostWaitingLine since={0} now={3_600_000} service={{ state: "busy", restart: false }} onRestart={() => undefined} />,
     );
   });
-  expect(container.textContent).toContain("Agent service is busy (3:20)");
-  expect(container.querySelector("button.acpmux-host-line-quiet")!.textContent).toBe("Restart agent service");
+  expect(container.textContent).toBe("Agent service is busy");
+  expect(buttons(container)).toEqual([]);
 });
 
 test("a starting service says so; a down one says it is not running and offers Restart", async () => {
@@ -337,7 +332,7 @@ test("a starting service says so; a down one says it is not running and offers R
       <HostWaitingLine since={0} now={40_000} service={{ state: "starting", restart: false }} onRestart={() => undefined} />,
     );
   });
-  expect(container.textContent).toBe("Agent service is starting (0:40)");
+  expect(container.textContent).toBe("Agent service is starting");
   expect(buttons(container)).toEqual([]);
   await act(async () => {
     root!.render(
