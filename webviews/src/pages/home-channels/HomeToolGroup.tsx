@@ -27,11 +27,12 @@ export function HomeToolGroup({
   const group = homeToolGroup(steps);
   const ToolRows = useToolRows();
   const [open, setOpen] = useState(!collapsed);
+  useEffect(() => setOpen(!collapsed), [collapsed]);
   useEffect(() => {
     if (!ToolRows) toolRowsLoaded(open ? "now" : "idle");
   }, [ToolRows, open]);
   return (
-    <details className="lg-home-tool-group" open={!collapsed} onToggle={(event) => setOpen(event.currentTarget.open)}>
+    <details className="lg-home-tool-group" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
       <summary className="lg-home-tool-summary">
         <span>{group.summary}</span>
         {group.entries.length > 0 && (
