@@ -294,29 +294,49 @@ public final class CloudAuth {
     /// build starts signed out.
     /// `memoryOnly` (a launch that signs in from an explicit file, ``LaunchSignIn/memoryOnly``) keeps the session
     /// in memory and never opens the Keychain or the file fallback.
+    /// A Team-signed production build (``CloudConfiguration/sharedSession``) also shares its session through
+    /// the shared Keychain item (``SharedSessionTokenStore``): its own session wins, then the shared item, then
+    /// a NIGHTLY handoff.
     static func tokenStore(configuration: CloudConfiguration, nightlySession: NightlySession?,
                            memoryOnly: Bool = false) -> any StackAuthTokenStoreProtocol {
         if memoryOnly { return MemoryStackTokenStore() }
-        guard configuration.adoptsNightlySession else {
-            let own = FallbackTokenStore(
-                primary: KeychainStackTokenStore(service: configuration.keychainService),
-                fallback: FileStackTokenStore(directory: configuration.credentialsDirectory)
-            )
-            let home = FileManager.default.homeDirectoryForCurrentUser
-            guard let previous = configuration.namespacedLegacyStorage(homeDirectory: home) else { return own }
-            // A session signed in while the update read the namespaced store is this app's own: adopted once,
-            // and cleared with a sign-out so the next launch does not sign the person back in.
-            let earlier = FallbackTokenStore(primary: KeychainStackTokenStore(service: previous.keychainService),
-                                             fallback: FileStackTokenStore(directory: previous.credentialsDirectory))
-            return ImportingTokenStore(primary: own, sources: [{
-                ImportedTokenPair(accessToken: await earlier.getStoredAccessToken(), refreshToken: await earlier.getStoredRefreshToken())
-            }], sharesSessions: false, forgetSources: { await earlier.clearTokens() },
-               sourceReadFailures: { await earlier.tokenReadFailureCount() })
+        let shared = configuration.sharedSession.map {
+            KeychainStackTokenStore(service: $0.keychainService, accessGroup: $0.accessGroup)
         }
-        let sources: [ImportingTokenStore.Source] = nightlySession.map { fetch in
-            [{ await fetch().flatMap { ImportedTokenPair(accessToken: $0.accessToken, refreshToken: $0.refreshToken) } }]
+        guard configuration.adoptsNightlySession else {
+            let own = ownTokenStore(configuration: configuration)
+            return shared.map { SharedSessionTokenStore(own: own, shared: $0) } ?? own
+        }
+        var sources: [ImportingTokenStore.Source] = shared.map { item in
+            [{
+                await consistentSession(refresh: { await item.getStoredRefreshToken() },
+                                        access: { await item.getStoredAccessToken() })
+                    .flatMap { ImportedTokenPair(accessToken: $0.accessToken, refreshToken: $0.refreshToken) }
+            }]
         } ?? []
+        if let fetch = nightlySession {
+            sources.append { await fetch().flatMap { ImportedTokenPair(accessToken: $0.accessToken, refreshToken: $0.refreshToken) } }
+        }
         return ImportingTokenStore(primary: MemoryStackTokenStore(), sources: sources)
+    }
+
+    /// This build's own Keychain store with its file fallback, adopting once from the namespaced store its
+    /// update used.
+    static func ownTokenStore(configuration: CloudConfiguration) -> any StackAuthTokenStoreProtocol {
+        let own = FallbackTokenStore(
+            primary: KeychainStackTokenStore(service: configuration.keychainService),
+            fallback: FileStackTokenStore(directory: configuration.credentialsDirectory)
+        )
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        guard let previous = configuration.namespacedLegacyStorage(homeDirectory: home) else { return own }
+        // A session signed in while the update read the namespaced store is this app's own: adopted once,
+        // and cleared with a sign-out so the next launch does not sign the person back in.
+        let earlier = FallbackTokenStore(primary: KeychainStackTokenStore(service: previous.keychainService),
+                                         fallback: FileStackTokenStore(directory: previous.credentialsDirectory))
+        return ImportingTokenStore(primary: own, sources: [{
+            ImportedTokenPair(accessToken: await earlier.getStoredAccessToken(), refreshToken: await earlier.getStoredRefreshToken())
+        }], sharesSessions: false, forgetSources: { await earlier.clearTokens() },
+           sourceReadFailures: { await earlier.tokenReadFailureCount() })
     }
 
     private static func stackClient(configuration: CloudConfiguration,
@@ -326,16 +346,13 @@ public final class CloudAuth {
             magicLinkCallbackURL: configuration.authWebOrigin.appendingPathComponent("auth/callback").absoluteString,
             apiBaseURL: configuration.apiBaseURL.absoluteString
         )
-        // A session adopted from cmux NIGHTLY is NIGHTLY's own: a sign-out here leaves it alive on the server.
+        // A session adopted from cmux NIGHTLY, or imported from the shared item, is the other build's own: a
+        // sign-out here leaves it alive on the server.
         var keepsServerSession: (@Sendable (String) async -> Bool)?
-        if let importing = tokenStore as? ImportingTokenStore {
+        let base: any StackAuthTokenStoreProtocol = (tokenStore as? CaptureFencedTokenStore)?.base ?? tokenStore
+        if let sharing = base as? any KeepsSharedSessions {
             keepsServerSession = { (refreshToken: String) async -> Bool in
-                await importing.isShared(refreshToken: refreshToken)
-            }
-        } else if let fenced = tokenStore as? CaptureFencedTokenStore,
-                  let importing = fenced.base as? ImportingTokenStore {
-            keepsServerSession = { (refreshToken: String) async -> Bool in
-                await importing.isShared(refreshToken: refreshToken)
+                await sharing.isShared(refreshToken: refreshToken)
             }
         }
         return StackAuthClient(config: config, tokenStore: .custom(tokenStore),
