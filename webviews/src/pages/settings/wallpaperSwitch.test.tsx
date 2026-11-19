@@ -6,11 +6,15 @@ import { installDom } from "./testDom";
 import {
   formatWhen,
   modeOf,
+  MODES,
+  MODES_KEY,
   nextWhen,
   parseWhen,
   renameWhen,
   writesFor,
+  type WallpaperMode,
   type WallpaperValues,
+  type WallpaperWrite,
 } from "./wallpaperSwitch";
 import type { Rendered } from "./testing";
 
@@ -60,6 +64,7 @@ describe("the model", () => {
     dark: null,
     schedule: null,
     dynamic: "appearance",
+    modes: null,
   };
   const choices = [{ id: SONOMA, title: "Sonoma", dynamic: true }];
 
@@ -94,12 +99,105 @@ describe("the model", () => {
     expect(
       writesFor("off", { ...off, background: "daily" }, { choices, lastFixed: "friedrich-forest-moonlight" }),
     ).toEqual([["appearance.background", "friedrich-forest-moonlight"]]);
+    // Nothing to put back: the desktop picture, never a blank window.
     expect(writesFor("off", { ...off, background: "daily" }, { choices, lastFixed: null })).toEqual([
-      ["appearance.background", "none"],
+      ["appearance.background", "desktop"],
     ]);
     expect(writesFor("off", { ...off, background: SONOMA, dynamic: "time" }, { choices, lastFixed: null })).toEqual([
       ["appearance.backgroundDynamic", null],
     ]);
+  });
+
+  // Leo, 2026-11-19: "switched around from the rotating to day/night/whatever but it lost the folder
+  // or something idk i couldn't get back into it? i couldn't see the preview anymore". Every ordered
+  // pair of modes, then back: the mode comes back with its own source, and Off always shows a picture.
+  describe("every mode switch and back keeps each mode's own background", () => {
+    const FOLDER = "folder:/Users/me/Wallpapers";
+    // Each mode as the person set it up, with its source.
+    const setUp: Record<WallpaperMode, WallpaperValues> = {
+      off: { ...off, background: HARBOR },
+      appearance: { ...off, background: "appearance", light: HARBOR, dark: "friedrich-forest-moonlight" },
+      schedule: { ...off, background: "schedule", schedule: { sunrise: HARBOR, sunset: "munch-scream" } },
+      sun: { ...off, background: SONOMA, dynamic: "time" },
+      rotate: { ...off, background: FOLDER },
+    };
+    // What cmux-config's store::backdrop_modes keeps on every write that leaves Off, Rotate or Sun.
+    const appKeeps = (before: WallpaperValues, after: WallpaperValues): WallpaperValues => {
+      const from = modeOf(before, choices);
+      if (from === modeOf(after, choices) || from === "appearance" || from === "schedule") return after;
+      if (from === "off" && before.background === "none") return after;
+      if (after.modes?.[from] !== before.modes?.[from]) return after;
+      return { ...after, modes: { ...after.modes, [from]: before.background } };
+    };
+    const apply = (values: WallpaperValues, writes: WallpaperWrite[]): WallpaperValues => {
+      const field: Record<string, keyof WallpaperValues> = {
+        "appearance.background": "background",
+        "appearance.backgroundLight": "light",
+        "appearance.backgroundDark": "dark",
+        "appearance.backgroundSchedule": "schedule",
+        "appearance.backgroundDynamic": "dynamic",
+      };
+      let next = values;
+      // One write at a time, as the page sends them, the app keeping a source after each.
+      for (const [key, value] of writes) {
+        expect(key).not.toBe(MODES_KEY);
+        const name = field[key]!;
+        const written = { ...next, [name]: value ?? (name === "dynamic" ? "appearance" : null) } as WallpaperValues;
+        next = appKeeps(next, written);
+      }
+      return next;
+    };
+    const source = (values: WallpaperValues) => ({
+      background: values.background,
+      light: values.light,
+      dark: values.dark,
+      schedule: values.schedule,
+      dynamic: values.dynamic,
+    });
+
+    for (const from of MODES) {
+      for (const to of MODES) {
+        if (from === to) continue;
+        test(`${from} → ${to} → ${from}`, () => {
+          const start = setUp[from];
+          // The other modes' own keys are set up too, as the person left them.
+          const before: WallpaperValues = {
+            ...start,
+            light: setUp.appearance.light,
+            dark: setUp.appearance.dark,
+            schedule: setUp.schedule.schedule,
+          };
+          const away = apply(before, writesFor(to, before, { choices, lastFixed: null }));
+          expect(modeOf(away, choices)).toBe(to);
+          // Off shows a picture: never none.
+          if (to === "off") expect(away.background).not.toBe("none");
+          const back = apply(away, writesFor(from, away, { choices, lastFixed: null }));
+          expect(modeOf(back, choices)).toBe(from);
+          expect(source(back)).toEqual(source(before));
+        });
+      }
+    }
+
+    test("a tour through every mode brings each one back as it was", () => {
+      let values: WallpaperValues = {
+        ...setUp.rotate,
+        light: setUp.appearance.light,
+        dark: setUp.appearance.dark,
+        schedule: setUp.schedule.schedule,
+      };
+      const seen: Partial<Record<WallpaperMode, string>> = {};
+      const tour: WallpaperMode[] = ["appearance", "schedule", "sun", "off", "rotate", "sun", "appearance", "off"];
+      for (const mode of tour) {
+        const current = modeOf(values, choices);
+        seen[current] ??= values.background;
+        values = apply(values, writesFor(mode, values, { choices, lastFixed: null }));
+        if (seen[mode] !== undefined && (mode === "rotate" || mode === "sun"))
+          expect(values.background).toBe(seen[mode]!);
+      }
+      // Off first came from Sun, so its picture is Sun's dynamic one, on its light and dark frames.
+      expect(values.modes).toEqual({ rotate: FOLDER, sun: SONOMA, off: SONOMA });
+      expect(values.background).toBe(seen.off ?? "desktop");
+    });
   });
 });
 
@@ -165,13 +263,13 @@ describe("Switch Automatically in the Background card", () => {
     await card();
     await click(mode("Sun"));
     expect(sets()).toEqual([
-      { key: "appearance.background", value: SONOMA },
       { key: "appearance.backgroundDynamic", value: "time" },
+      { key: "appearance.background", value: SONOMA },
     ]);
     expect(control().dataset.wallpaperSwitch).toBe("sun");
-    // Off keeps the picture and puts it back on its light and dark frames.
+    // Off comes back with its own picture, and Sun's goes back on its light and dark frames.
     await click(mode("Off"));
-    expect(value("appearance.background")).toBe(SONOMA);
+    expect(value("appearance.background")).toBe("friedrich-forest-moonlight");
     expect(page!.store.getSnapshot().rows.get("appearance.backgroundDynamic")?.customized).toBe(false);
   });
 
