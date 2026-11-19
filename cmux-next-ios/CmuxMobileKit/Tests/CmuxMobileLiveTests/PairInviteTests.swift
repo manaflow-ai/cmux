@@ -299,7 +299,10 @@ import Testing
     }
 
     /// A code from the other build on a listed computer (MacRoster lists one build per computer)
-    /// dials that build, though the listed one keeps the focus, even while every link is taken.
+    /// dials that build even while every link is taken, and since #46718 that build becomes the pick
+    /// (the remembered Mac steerToInvite writes), so it takes the focus and the computer's place.
+    /// Before #46718 the listed build kept the focus, which this test asserted; #46718 changed that
+    /// on purpose (the hand-off's phone stayed on another tag's build) and left this one red.
     @Test func aCodeFromTheOtherBuildOnAComputerDialsThatBuild() async throws {
         let userID = "user-a", teamID = "t-hidden-\(UUID().uuidString.prefix(8))"
         let pick = "cmuxMobile.live.mac.\(teamID)"
@@ -343,7 +346,9 @@ import Testing
         #expect(live.accept(invite))
         for _ in 0..<3000 where dialer.dialCount("m1b") == 0 { try? await Task.sleep(for: .milliseconds(1)) }
         #expect(dialer.dialCount("m1b") > 0)
-        #expect(live.focusedMacID == "m1")
+        for _ in 0..<3000 where live.focusedMacID != "m1b" { try? await Task.sleep(for: .milliseconds(1)) }
+        #expect(live.focusedMacID == "m1b")
+        #expect(store.activeTeam?.listedMacs.map(\.id) == ["m1b", "m2", "m3", "m4", "m5"])
     }
 
     /// The hand-off's path end to end (review.sh hands a tag's phone its Mac's code, `accept`): the code's
