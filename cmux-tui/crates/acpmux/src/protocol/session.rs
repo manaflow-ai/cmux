@@ -891,6 +891,31 @@ pub struct SessionsParams {
     pub pending_only: Option<bool>,
 }
 
+/// `_acpmux/usage` (capability `session-usage-v1`): what Session Info's Usage reads.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
+pub struct UsageParams {
+    /// The `digest` of the last reply the client holds: while the stats read the same, the reply
+    /// is `{digest, unchanged: true}` and carries none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub known: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageResult {
+    /// Names what `usage` holds: equal digests, equal stats (within one daemon run).
+    pub digest: String,
+    /// Every listed chat that reports usage, its `usageStats` by the `sessionId` its row lists it
+    /// under (this daemon's chats and the peers' rows). Absent with `unchanged`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<std::collections::BTreeMap<String, UsageStats>>,
+    /// `known` is `digest`: the client's stats stand.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unchanged: Option<bool>,
+}
+
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionsResult {

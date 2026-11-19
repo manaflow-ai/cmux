@@ -102,6 +102,10 @@ pub const CAPABILITIES: &[Capability] = &[
     // `_acpmux/sessions {pendingOnly: true}`: only the chats with a pending ask, without the
     // list's pace (the app's dialog list). Older daemons would answer the whole list.
     Capability { id: "session-list-pending-v1", wire: &[method::MUX_SESSIONS] },
+    // `_acpmux/usage`: every listed chat's `usageStats` and nothing else, `unchanged` while the
+    // digest the client holds is current (Session Info's Usage). Older daemons: the client reads
+    // the list's pages with `usage: true`.
+    Capability { id: "session-usage-v1", wire: &[method::MUX_USAGE] },
     // `_acpmux/info {sessionIds, row: true}`: the session list's rows of up to 100 chats by key,
     // the bytes `_acpmux/sessions` lists, and `_acpmux/status`'s `closedListed`. A list caller
     // that reads the v2 list's keys asks for the rows it prints (agent service v2, row 7b); a

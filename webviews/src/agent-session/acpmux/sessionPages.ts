@@ -55,6 +55,11 @@ export type SessionPage<S extends Summary> = { sessions: S[]; next?: string; run
  *  `afterSeq` (acpmux hub/row_log.rs). */
 export const LIST_FOLLOW_CAPABILITY = "session-list-follow-v1";
 
+/** The `initialize` capability of an acpmux that answers `_acpmux/usage`: every listed chat's
+ *  `usageStats` and nothing else, `unchanged` while the digest the client holds is current
+ *  (acpmux hub/usage_answer.rs). */
+export const USAGE_CAPABILITY = "session-usage-v1";
+
 /** A list position: the daemon run's `listEpoch` and a `listSeq` in it. */
 type Cursor = { epoch: string; seq: number };
 
@@ -138,6 +143,10 @@ export class SessionPager<S extends Summary> {
    * notice below it is older than the row held (`fresh`).
    */
   follows = false;
+  /** This connection's acpmux has `USAGE_CAPABILITY`: `usage` asks it alone, not every page. */
+  usageAlone = false;
+  /** The last `_acpmux/usage` answer and its digest, which the next ask sends (`usage`). */
+  private usageHeld?: { digest: string; usage: Map<string, unknown> };
   private cursor?: Cursor;
   private reading?: Cursor;
   private listedAt = 0;
@@ -403,6 +412,7 @@ export class SessionPager<S extends Summary> {
    * `MAX_PAGES` ends it with what came.
    */
   async usage(): Promise<Map<string, unknown>> {
+    if (this.usageAlone) return this.usageByDigest();
     const found = new Map<string, unknown>();
     const seen = new Set<string>();
     let cursor: string | undefined;
@@ -417,6 +427,28 @@ export class SessionPager<S extends Summary> {
       if (cursor !== undefined) seen.add(cursor);
     } while (cursor !== undefined);
     return found;
+  }
+
+  /**
+   * `usage` from an acpmux with `USAGE_CAPABILITY`: one `_acpmux/usage`, its cost the chats that
+   * report usage, not the list. It sends the digest of the answer held, and an `unchanged` reply
+   * keeps that answer, so Session Info shown again reads no stats while none changed. A refusal (a
+   * host whose pane policy predates the method) or a reply that is neither reads the pages, now
+   * and from then on.
+   */
+  private async usageByDigest(): Promise<Map<string, unknown>> {
+    const held = this.usageHeld;
+    const reply: any = await this.request("_acpmux/usage", held ? { known: held.digest } : {}).catch(() => undefined);
+    const digest = typeof reply?.digest === "string" ? reply.digest : undefined;
+    if (digest && reply.unchanged === true && held?.digest === digest) return held.usage;
+    if (digest && reply.usage && typeof reply.usage === "object") {
+      const usage = new Map<string, unknown>(Object.entries(reply.usage));
+      this.usageHeld = { digest, usage };
+      return usage;
+    }
+    this.usageHeld = undefined;
+    this.usageAlone = false;
+    return this.usage();
   }
 
   /** Ends the pages in flight. */

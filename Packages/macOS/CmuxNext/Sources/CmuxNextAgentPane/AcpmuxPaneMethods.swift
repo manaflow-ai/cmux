@@ -25,6 +25,9 @@ nonisolated enum AcpmuxPaneMethods {
         // The session list's later pages (sessionPages.ts, cx-2lv1k): the same summaries watch answers,
         // read by cursor after watch's first page.
         "_acpmux/sessions",
+        // Session Info's Usage: every listed chat's usage alone (sessionPages.ts `usageByDigest`; acpmux
+        // hub/usage_answer.rs), in place of every page of `_acpmux/sessions` with `usage`.
+        "_acpmux/usage",
         // A peer chat drawn from this Mac's copy while its machine is down (direct.ts drawPeerCopy,
         // peerCopy.ts; acpmux hub/peer_snapshot/read.rs). A read like `_acpmux/events`, before the
         // attach that brings the chat into scope, so not session-scoped; acpmux answers it to this

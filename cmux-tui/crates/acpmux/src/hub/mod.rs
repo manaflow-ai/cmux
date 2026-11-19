@@ -156,6 +156,7 @@ pub(crate) mod row_log;
 pub(crate) mod subagent_transcript;
 mod team_information;
 mod team_sent;
+mod usage_answer;
 pub(crate) mod workflow_index;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 pub use list_guard::{RequestHold, RequestStage};
@@ -878,6 +879,8 @@ pub struct Hub {
     pub(crate) requests_in_flight: Arc<std::sync::atomic::AtomicUsize>,
     /// Each chat's spend and context as its harness recorded them (`usage_view.rs`).
     pub(crate) usage_stats: usage_view::UsageCache,
+    /// `_acpmux/usage`'s last answer, kept by its list position (`usage_answer.rs`).
+    pub(crate) usage_answers: usage_answer::UsageAnswers,
     /// What every turn here cost, indexed by day and session (`hub/ledger`, `_acpmux/ledger`).
     pub(crate) ledger: ledger::Ledger,
     /// `_acpmux/models` replies now asking peers for theirs
@@ -1415,6 +1418,7 @@ impl Hub {
             list_order: Default::default(),
             requests_in_flight: Default::default(),
             usage_stats: Default::default(),
+            usage_answers: Default::default(),
             ledger,
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             review_index: Default::default(),

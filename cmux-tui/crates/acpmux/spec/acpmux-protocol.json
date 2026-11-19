@@ -281,6 +281,16 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/usage",
+      "params": {
+        "$ref": "#/types/UsageParams"
+      },
+      "result": {
+        "$ref": "#/types/UsageResult"
+      }
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/attach",
       "params": {
         "$ref": "#/types/AttachParams"
@@ -7664,6 +7674,49 @@
       "required": [
         "sessionId",
         "on"
+      ],
+      "type": "object"
+    },
+    "UsageParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/usage` (capability `session-usage-v1`): what Session Info's Usage reads.",
+      "properties": {
+        "known": {
+          "description": "The `digest` of the last reply the client holds: while the stats read the same, the reply\nis `{digest, unchanged: true}` and carries none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "UsageResult": {
+      "properties": {
+        "digest": {
+          "description": "Names what `usage` holds: equal digests, equal stats (within one daemon run).",
+          "type": "string"
+        },
+        "unchanged": {
+          "description": "`known` is `digest`: the client's stats stand.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "usage": {
+          "additionalProperties": {
+            "$ref": "#/types/UsageStats"
+          },
+          "description": "Every listed chat that reports usage, its `usageStats` by the `sessionId` its row lists it\nunder (this daemon's chats and the peers' rows). Absent with `unchanged`.",
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "digest"
       ],
       "type": "object"
     },
