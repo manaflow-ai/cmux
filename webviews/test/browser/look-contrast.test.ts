@@ -8,14 +8,15 @@
 // with a draft (the Send button live); the default transcript with a prompt bubble, tool rows, a peer
 // message card, a link, a permission card, and an opened tool run.
 //
-// KNOWN lists the pairs the shipping default draws under the minimum today, each with its reason; a
+// KNOWN (support/contrastKnown.ts) lists the pairs the shipping default draws under the minimum today, each with its reason; a
 // pair that is not in it fails the test, and a KNOWN pair that no longer fails fails it too, so the
 // list only shrinks. Captures go to $FAST_CHECKS_OUT/look-contrast when it is set.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
-import { belowMinimum, distinctPairs, formatPair, readContrast, type ContrastLine } from "../support/contrastWalk";
+import { belowMinimum, distinctPairs, formatPair, readContrast } from "../support/contrastWalk";
+import { KNOWN, knownFor, type Known } from "../support/contrastKnown";
 import { galleryFrame, warmGalleryFrame } from "../support/galleryFrame";
 import { requireBrowserLane } from "../support/requireBrowserLane";
 
@@ -92,57 +93,6 @@ await requireBrowserLane("look-contrast.test.ts", async () => {
       atLeast: 6,
     },
   ];
-
-  /**
-   * Pairs the shipping default draws under the minimum today, each with its cause. An entry matches a
-   * failing line whose element (the last step of its path) has `element`'s class, of `kind`. A failing
-   * line no entry matches fails its scene; an entry that matches nothing in any scene fails the last
-   * test, so a fixed pair leaves the list.
-   */
-  type Known = { element: string; kind: ContrastLine["kind"]; cause: string };
-  const KNOWN: Known[] = [
-    {
-      element: "acpmux-md-placeholder",
-      kind: "text",
-      cause:
-        "the composer placeholder's tone, --acpmux-composer-placeholder (styles.css: 34% text over the base): 2.37:1 light, 2.71:1 dark; a deliberate placeholder tone, a design call",
-    },
-    {
-      element: "acpmux-mode-text",
-      kind: "text",
-      cause:
-        "the mode chip ('Manual') draws --agent-muted, the theme's textSecondary: #828282 on white 3.84:1, #838383 on #1e1e1e 4.4:1 and on Codex's #292929 box 3.84:1; the theme token, not the chat's CSS",
-    },
-    {
-      element: "cv-worked__lead",
-      kind: "text",
-      cause: "the live run's 'Running' line draws --agent-muted (the theme's textSecondary), as the mode chip",
-    },
-    {
-      element: "cv-shimmer__base",
-      kind: "text",
-      cause: "the live run's tool line draws --agent-muted (the theme's textSecondary), as the mode chip",
-    },
-    {
-      element: "acpmux-permission-command-preview",
-      kind: "text",
-      cause:
-        "the permission card's command preview draws --agent-soft (the theme's soft text, #828282 / #838383): 3.43:1 light, 3.82:1 dark on its 5% tint",
-    },
-    {
-      element: "acpmux-permission-keys-or",
-      kind: "text",
-      cause:
-        "the '/' between a permission button's two key letters (aria-hidden) at 45% of the button's ink (styles.css): 2.8 to 4.4:1",
-    },
-  ];
-  /** The KNOWN entry for a failing line: its own element's classes, or its parent's for a bare tag (code). */
-  const knownFor = (line: ContrastLine) => {
-    const steps = line.selector.split(" > ");
-    const own = steps.at(-1)!.split(".").slice(1);
-    const classes = own.length ? own : (steps.at(-2)?.split(".").slice(1) ?? []);
-    return KNOWN.find((known) => known.kind === line.kind && classes.includes(known.element));
-  };
   const matched = new Set<Known>();
 
   const { createServer } = await import("vite");
@@ -184,9 +134,14 @@ await requireBrowserLane("look-contrast.test.ts", async () => {
     await page.locator(scene.ready).first().waitFor();
     await page.evaluate(() => document.fonts.ready);
     if (scene.act) await scene.act(page);
-    // Hover and focus fades finish before the read.
+    // Hover and focus fades finish before the read: once the pointer has left, every finite
+    // animation and transition is run to its end, then two frames paint the settled colors.
     await page.mouse.move(1, 1);
-    await page.waitForTimeout(400);
+    await settle(page);
+    await page.evaluate(() => {
+      for (const animation of document.getAnimations())
+        if (Number.isFinite(animation.effect?.getComputedTiming().endTime as number)) animation.finish();
+    });
     await settle(page);
   }
 

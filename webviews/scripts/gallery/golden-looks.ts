@@ -5,9 +5,11 @@
 // from the base and its head.
 //
 //   bun run golden:looks [--looks cmux,claude] [--schemes light,dark] [--out DIR] [--window 1280x2000]
-//     [--setup DIR ...] [--native DIR]
+//     [--setup DIR ...] [--native DIR] [--every]
 //
 // --setup adds a look from any setup folder (a look's own repo, ~/src/my-look), beside the built-in ones.
+// --every adds every other look the checkout carries (each shipped theme file, examples/ setup folder and
+// theme file: goldenLooks.ts discoverLooks), as the golden contrast test draws them.
 // --native adds the native sidebar and tab bar captures (Swift AAGoldenLookGalleryTests, its
 // golden-look-gallery/<look>-<scheme>.png) as a column beside each look's window.
 // On a lane VM: `cmux-ci test --artifact /tmp/golden -- bun run golden:looks --out "$FAST_CHECKS_OUT/golden"`.
@@ -27,6 +29,7 @@ const { values } = parseArgs({
     window: { type: "string", default: "1280x2000" },
     setup: { type: "string", multiple: true, default: [] },
     native: { type: "string" },
+    every: { type: "boolean", default: false },
     scale: { type: "string", default: "1" },
   },
 });
@@ -35,6 +38,7 @@ const out = path.resolve(values.out!);
 mkdirSync(out, { recursive: true });
 // The gallery's looks module reads outside setups from this (dev-server/goldenLooks.ts).
 process.env.CMUX_GOLDEN_SETUPS = values.setup!.map((dir) => path.resolve(dir)).join(",");
+if (values.every) process.env.CMUX_GOLDEN_EVERY_LOOK = "1";
 const { readGoldenLooks } = await import("../../dev-server/goldenLooks");
 const registry = readGoldenLooks();
 for (const skip of registry.skipped) console.log(`golden: skipped ${skip.id}: ${skip.reason}`);
