@@ -348,6 +348,13 @@ CmuxWallpaperDecision cmux_wallpaper_schedule(const CmuxWallpaperScheduleInput *
 uint32_t cmux_wallpaper_gpu_strikes(uint32_t strikes, float gpu_ms);
 
 /*
+ The floats in the Frame uniform (`cmux_wallpaper_frame_pack` writes this
+ many, `CMUX_WALLPAPER_FRAME_FLOATS`): the host sizes its buffer from this,
+ never from a number of its own, so a Frame that grows cannot overrun it.
+ */
+size_t cmux_wallpaper_frame_floats(void);
+
+/*
  Writes the `CMUX_WALLPAPER_FRAME_FLOATS` floats (4 bytes each) of the
  Frame uniform for `input` to `out`. False, and nothing written, when
  either is null.

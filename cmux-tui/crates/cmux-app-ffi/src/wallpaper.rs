@@ -541,7 +541,7 @@ pub extern "C" fn cmux_wallpaper_gpu_strikes(strikes: u32, gpu_ms: f32) -> u32 {
 /// never from a number of its own, so a Frame that grows cannot overrun it.
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_wallpaper_frame_floats() -> usize {
-    FRAME_FLOATS
+    CMUX_WALLPAPER_FRAME_FLOATS
 }
 
 /// Writes the `CMUX_WALLPAPER_FRAME_FLOATS` floats (4 bytes each) of the

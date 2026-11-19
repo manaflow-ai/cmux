@@ -120,13 +120,14 @@ fn wallpaper(px: vec2<f32>) -> vec4<f32> {
     // theme gets more of it for the same apparent contrast.
     let contrast = pb.z * mix(1.8, 1.0, dark);
     let tone = mix(frame.ink.rgb, frame.accent.rgb, smoothstep(0.08, 0.7, lit));
-    let alpha = contrast + (mix(0.75, 0.9, dark) - contrast) * smoothstep(0.0, 0.85, lit);
+    // A lit dot peaks lower in dark: a bright accent on a dark paper reads louder than on a light one.
+    let alpha = contrast + (mix(0.75, 0.6, dark) - contrast) * smoothstep(0.0, 0.85, lit);
     var col = mix(frame.paper.rgb, tone, disc * alpha);
 
     // A small soft halo around a lit dot, gone before the cell's edge.
     let ring = max(dist - r, 0.0);
     let halo = lit * exp(-ring * ring * 90.0) * (1.0 - smoothstep(0.34, 0.5, dist)) * (1.0 - disc);
-    let haloA = halo * mix(0.22, 0.32, dark);
+    let haloA = halo * mix(0.22, 0.14, dark);
     // In dark the halo adds light; in light it tints the paper.
     col = mix(mix(col, frame.accent.rgb, haloA), col + frame.accent.rgb * haloA, dark);
     return vec4<f32>(max(col, vec3<f32>(0.0)), 1.0);
