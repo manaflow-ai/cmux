@@ -23,6 +23,19 @@ export function withCloudStartFolder(snapshot: AcpmuxSnapshot, startCwd: string 
   return { ...snapshot, summary: { ...snapshot.summary, sessionId: "", cwd: startCwd } } as AcpmuxSnapshot;
 }
 
+/// The agent and model a Cloud start runs, on the composer while the start shows in place of a chat that has none
+/// (a page with no session, or the empty local chat it replaces): the model chip names what was sent (cmux#45774).
+export function withCloudStartPick(
+  snapshot: AcpmuxSnapshot,
+  pick: { harness: string; model?: string } | undefined,
+): AcpmuxSnapshot {
+  if (!pick) return snapshot;
+  return {
+    ...snapshot,
+    summary: { ...snapshot.summary, harness: pick.harness, ...(pick.model ? { model: pick.model } : {}) },
+  } as AcpmuxSnapshot;
+}
+
 /// The harness and model a pick on this sessionless page holds (a switch that has not failed), for
 /// the `chat.new` that starts the chat in the picked folder: `switchTo` then carries the pick's
 /// model and options there. Empty when nothing is held.

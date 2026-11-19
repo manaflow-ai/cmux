@@ -119,7 +119,7 @@ import {
   withHandshakeNewTab,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
-import { heldPick, withCloudStartFolder, withDraftFolder } from "./newtab/draftFolder";
+import { heldPick, withCloudStartFolder, withCloudStartPick, withDraftFolder } from "./newtab/draftFolder";
 import {
   cloudModePickFor as cloudModeFor,
   cloudSendAgent,
@@ -5053,6 +5053,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const cloudStartShown = cloudStart !== undefined && (!snapshot.sessionId || emptyLocalChat);
   /// The folder the shown start copies (none for a folderless one): the composer's folder chip names it (cmux#46023).
   const cloudStartFolderShown = cloudStartShown ? cloudStart?.cwd : undefined;
+  const cloudStartPickShown = cloudStartShown ? cloudStart?.pick : undefined;
   const cloudStarting = cloudStart?.state === "starting";
   /// Nothing that starts a chat goes from this tab while a Cloud start is out, stalled or not: if it
   /// still opens its chat, the host closes this tab, with a chat started here in it.
@@ -5431,6 +5432,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         start.home,
         signingIn,
         setUpNeed,
+        start.harness ? { harness: start.harness, ...(start.model ? { model: start.model } : {}) } : undefined,
       ),
     );
     void started.then((answer) => {
@@ -7635,13 +7637,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     else if (shownQueue !== snapshot.queue) withCommands.queue = [...shownQueue];
     // While a Cloud start shows in place of the chat, the chip names the folder that start copies (cmux#46023),
     // unless the person picked a folder here since: the next send copies that pick, so the chip names it.
+    const withPick = withCloudStartPick(withCommands, cloudStartPickShown);
     return projectDraft
-      ? withDraftFolder(withCommands, projectDraft)
-      : withCloudStartFolder(withCommands, cloudStartFolderShown);
+      ? withDraftFolder(withPick, projectDraft)
+      : withCloudStartFolder(withPick, cloudStartFolderShown);
   }, [
     snapshot,
     projectDraft,
     cloudStartFolderShown,
+    cloudStartPickShown,
     continueAvailable,
     forkable,
     forkSeq,
