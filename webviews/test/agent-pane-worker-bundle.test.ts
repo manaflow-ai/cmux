@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { normalizeTheme } from "@shikijs/core";
 import type { Metafile } from "esbuild";
 import { bundledLanguages } from "../src/agent-session/acpmux/shiki";
 import { HIGHLIGHTED_LANGUAGES } from "../src/agent-session/acpmux/shikiLanguages";
@@ -59,11 +60,21 @@ test("the bundled worker highlights every supported language sent by the page", 
       worker.postMessage({ ...body, id: String(sequence++) });
     });
   try {
-    const theme = {
+    // The page sends each theme resolved, as @pierre/diffs 1.6's resolveThemes makes it: its
+    // editor colors beside the normalized TextMate theme the worker's Shiki draws with.
+    const textmate = normalizeTheme({
       name: "worker-test",
       type: "dark",
       colors: { "editor.foreground": "#ffffff", "editor.background": "#000000" },
       tokenColors: [{ scope: "keyword", settings: { foreground: "#ff0000" } }],
+    });
+    const theme = {
+      name: textmate.name,
+      type: textmate.type,
+      fg: textmate.fg,
+      bg: textmate.bg,
+      colors: textmate.colors,
+      textmate,
     };
     expect(
       (
