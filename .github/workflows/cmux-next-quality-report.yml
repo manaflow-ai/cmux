@@ -103,9 +103,12 @@ jobs:
         # cmux-tui-core-lib 954 s, row 7c) on an 8-CPU runner; this job runs on 4.
         timeout-minutes: 60
         working-directory: cmux-tui
+        # `timeout` ends the script's whole process group inside the step's limit. When the CI runner cuts a step it
+        # signals only the step's shell, and a cargo left behind holds cmux-tui/target's lock, so the home below waits
+        # out its own limit on "Blocking waiting for file lock" and writes nothing (Nov 19).
         run: |
           set -o pipefail
-          ../scripts/cmux-next/run-v2-gates.sh
+          timeout --signal=TERM --kill-after=60s 3300s ../scripts/cmux-next/run-v2-gates.sh
 
       - name: Write the v2 god-small input
         id: v2-home
