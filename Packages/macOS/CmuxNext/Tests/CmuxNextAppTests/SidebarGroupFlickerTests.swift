@@ -461,6 +461,12 @@ import Testing
             var runs = Event.allCases.map { FlickerRun(event: $0, newWorkspace: true) }
             runs.append(FlickerRun(event: .insertAbove, second: .memberGrows, newWorkspace: true))
             runs.append(FlickerRun(event: .insertAbove, second: .insertBelow, newWorkspace: true))
+            // A scripted create (`cmux workspace new`) reaches the list twice: its row, then the same rows again a few
+            // frames later (its placement's echo). A recording drew the group back above the new row for one frame
+            // between them with no row's frame changed: a drawn position, not a layout.
+            runs.append(FlickerRun(event: .insertAbove, intent: false, second: .insertAbove))
+            runs.append(FlickerRun(event: .insertAbove, intent: false, second: .insertAbove, newWorkspace: true))
+            runs.append(FlickerRun(event: .insertAbove, second: .insertAbove, newWorkspace: true))
             for intent in [true, false] {
                 runs.append(FlickerRun(event: .memberGrows, intent: intent, topCollapsed: true))
                 runs += Event.allCases.map { FlickerRun(event: $0, intent: intent) }
