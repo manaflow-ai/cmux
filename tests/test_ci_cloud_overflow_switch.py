@@ -418,6 +418,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn(f"name: {switch.PROBE_JOB}\n", self.text)
 
     def test_watch_runs_off_blacksmith_and_passes_every_switched_variable(self) -> None:
+        # It detects a Blacksmith outage, so it never runs on Blacksmith (review of #46492, F1).
         self.assertIn("runs-on: ubuntu-24.04 # github-hosted-required:", self.text)
         names = set(switch.SWITCHED_VARIABLES) | {switch.RECORD_VARIABLE, switch.OVERRIDES_VARIABLE,
                                                   "CMUX_CI_XCODE_APP_PR"}
@@ -450,8 +451,16 @@ class WorkflowTests(unittest.TestCase):
 
 class RepoVariableCheckTests(unittest.TestCase):
     def env(self, **extra: str) -> dict[str, str]:
-        return {"CMUX_CI_RUNNER_VARIABLES": "MACOS_RUNNER_PR=glaeda-std-xcode-26.6\nLINUX_RUNNER=ubuntu-24.04\n",
-                "CI_OWNED_POOL_SLOTS": "", "CMUX_CI_XCODE_APP_PR": PIN, **extra}
+        return {"CMUX_CI_RUNNER_VARIABLES": "MACOS_RUNNER_PR=glaeda-std-xcode-26.6\n"
+                                            "LINUX_RUNNER=blacksmith-2vcpu-ubuntu-2404\n",
+                "CI_OWNED_POOL_SLOTS": "", "CMUX_CI_XCODE_APP_PR": PIN,
+                "RUNNER_POOLS": '{"linux": "blacksmith-2vcpu-ubuntu-2404"}', **extra}
+
+    def test_a_hosted_linux_value_is_drift_unless_the_switch_wrote_it(self) -> None:
+        hosted = self.env(CMUX_CI_RUNNER_VARIABLES="LINUX_RUNNER=ubuntu-24.04\n")
+        self.assertTrue(any("GitHub-hosted" in p for p in check.problems(hosted)))
+        record = {"changed": {"LINUX_RUNNER": {"before": None, "after": "ubuntu-24.04"}}}
+        self.assertEqual(check.problems({**hosted, "CI_CLOUD_OVERFLOW_SAVED": json.dumps(record)}), [])
 
     def test_an_owned_label_is_drift_without_the_record(self) -> None:
         self.assertTrue(check.problems(self.env()))

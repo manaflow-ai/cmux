@@ -270,6 +270,28 @@ Adding one (for example Petal, https://github.com/kiruna-labs/petal) means writi
 `targets/petal.sh` with these verbs and passing `--arg=targets=rd,webrtc,petal`. Its numbers then
 appear under `targets.petal` in the same schema.
 
+### External contenders (`eval.py external`)
+
+A contender whose host and viewer live outside this repository plugs in through two commands, with
+no target script here:
+
+```
+python3 scripts/measure/screen-stream-eval/eval.py external NAME OUT.json \
+  --host-cmd 'start the host; touch "$EVAL_STATE/host-ready"' \
+  --viewer-cmd 'connect, drive the marker, write "$EVAL_READBACK"' \
+  [--host-stop-cmd CMD] [--takes 3] [--keep DIR]
+```
+
+The host serves the same marker (`cmux-rd testapp`, or `mac-marker`); the viewer decodes the stream,
+reads the marker's counter from each decoded frame (`src/marker.rs`) and writes the readback, one
+JSON line per key sample (`g2g_ms` or `lost`), per motion second (`bytes`, `frames`), the first frame
+(`ms`) and each end's CPU (`eval.py external --help` lists the records). Each take gets a fresh host;
+OUT.json is the usual target with `motion.kbps`, `motion.fps` and `extra.takes`, every number the
+median of the takes that measured it, and a missing record stays null. `eval.py readback FILE OUT`
+folds one readback without running anything, so the `rd` path's own bench output, converted to the
+same records, lands in the same columns. Running `rd` through this hook too keeps one harness and one set
+of definitions for every contender.
+
 ## Results
 
 `artifacts/screen-stream-eval/results.json` (schema `cmux.screen-stream-eval/1`, the docstring of
@@ -297,6 +319,17 @@ Each target also leaves its raw files under
 `outcome: unknown`; a complete run is `pass` only when the cmux key p50 is at most 160 ms, otherwise
 `fail`. The row includes the exact source-results SHA-256, host/viewer/link/revision, and motion FPS
 observations. It never invents a comparison number from a one-Mac loopback run.
+
+`gate.json` is the budget gate (`budget_gate.py check results.json`; cmuxterm-hq
+`docs/design/screen-share-under-100ms.md`, "Budget per stage", piece 6). It judges the `rd` target's
+key split, stage by stage, against the page's p50 budgets: Screen (render), Capture (sck + pickup +
+gate), Encode, Send + Network + Reassembly (transport, against the sum of the three budgets), Decode
+and Total (to the decoded frame). Input and Present stay "not measured" until the per-frame stage
+ledger (`cmux.rd-stage-ledger/1`) is in the target; a target that carries a
+`cmux.screen-share-budget/1` record under `budget` (or a `screen-share-vs.py --out` file) is judged
+from that record instead. A stage over budget fails the daily run with an error naming it; a run
+that measured no stage fails too. The workflow's `budget` input (`STAGE=MS ...`) replaces budgets
+for one dispatched run, to prove the gate end to end; the daily run passes none.
 
 ## Linux, kernel netem jitter (no Mac)
 
@@ -386,6 +419,31 @@ is decoded, not when it is presented on the viewer's screen. Real networks are G
 Trust: the run token, rd's stream token and the WebRTC pairing link cross the LAN in plain HTTP.
 The agent runs only the fixed view verbs, with checked arguments, from its own checkout. A measure
 Mac's LAN is the boundary, as its console is (below).
+
+### Held-and-burst link profiles
+
+`mac-holds.sh` shapes the host Mac's egress to the viewer's addresses with dummynet, as root (on the
+fleet, `fleet-sudo HOST /bin/bash mac-holds.sh ...`), and nothing else on the Mac:
+
+```
+mac-holds.sh start wifi-away 900 VIEWER_IP [VIEWER_WIFI_IP]   # a watchdog clears it after 900 s
+mac-holds.sh holds                                            # each hold's start and end, CLOCK_MONOTONIC and wall
+mac-holds.sh clear; mac-holds.sh show                         # show must list no pipe 07730
+```
+
+`wifi-away` comes from a Wi-Fi capture of a laptop away from its access point:
+- 4 ms base delay and 2% random loss
+- a 50 to 100 ms hold every 0.53 s
+- long holds of 300 to 580 ms (median about 455 ms) at irregular gaps (median 3.4 s, 0.5 to 11 s)
+
+A held packet is not dropped: it waits and leaves with the others at the hold's end. The schedule
+comes from a fixed seed, and `wifi-away-schedule.jsonl` is that schedule for 900 s (`mac-holds.sh
+schedule wifi-away 900`), so a later run can check it gets the same holds.
+`wifi-short`, `wifi-long` and `wifi-loss` keep only the short holds, only the long holds, or only the
+loss. `stall` is a 600 ms hold every 5 s.
+
+The script refuses any pipe delay under 1 ms. A zero-delay dummynet pipe panicked a macOS fleet Mac
+twice. `bash test-mac-holds.sh` checks the refusal with a stub `dnctl`, needs no root, and runs on Linux.
 
 ## Needs
 
