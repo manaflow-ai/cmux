@@ -45,6 +45,8 @@
 # gpu=1 (the GPU's utilization per window, PERF-IDLE-GPU lines), agent_state=working|blocked (the launch workspace's
 # terminal reports an agent in that state before the first window; the daemon's list-agents after each window is a
 # PERF-IDLE-NOTE line) and snapshot=1 (the main window after each window, .build/perf-idle/snapshots/window-LABEL.png).
+# runs=NAME;SETTINGS;STATE|NAME;SETTINGS;STATE: one fresh app run per entry on the same build and Mac (SETTINGS and STATE
+# may be empty), its sample labels NAME/LABEL, e.g. runs='off;;|calm;{"appearance":{"agentGlow":true}};|glow;{"appearance":{"agentGlow":true}};blocked'.
 # Output: PERF-IDLE lines (PERF-IDLE-PROC: the app's top processes with their commands, and VMMAP lines); JSON under
 # .build/perf-idle.
 set -euo pipefail
@@ -54,7 +56,7 @@ agents=""
 infinite="" days=3
 axes="" items="1,10,100" visible_items="1,4,10" settled=90
 reload_config=() purge=() release=() attribute=() crash_env=() vmmap=()
-app_config=() gpu=() agent_report=() snapshot=()
+app_config=() gpu=() agent_report=() snapshot=() runs=""
 for arg in "$@"; do
   case "$arg" in
     --config=*) reload_config=(--config "${arg#--config=}") ;;
@@ -77,7 +79,8 @@ for arg in "$@"; do
     settings=*) app_config=(--config "${arg#settings=}") ;;
     gpu=1) gpu=(--gpu) ;;
     agent_state=*) agent_report=(--agent-report "${arg#agent_state=}") ;;
-    snapshot=1) snapshot=(--window-snapshot ".build/perf-idle/snapshots") ;;
+    snapshot=1) snapshot=(1) ;;
+    runs=*) runs="${arg#runs=}" ;;
     *) echo "perf-10x-idle.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -133,26 +136,44 @@ for path in sys.argv[1:]:
   print(f"PERF-IDLE-STOP daemon {path} {data.get('stopped')} teardown={json.dumps(data.get('teardown') or {})[:300]}")
 PY
 
-echo "PERF-IDLE-LOAD app $(uptime | sed 's/.*load averages*: //')"
-python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$counts" --mix terminal \
-  --settle 20 --measure "$measure" --top 8 ${attribute[@]+"${attribute[@]}"} ${vmmap[@]+"${vmmap[@]}"} \
-  ${app_config[@]+"${app_config[@]}"} ${gpu[@]+"${gpu[@]}"} ${agent_report[@]+"${agent_report[@]}"} \
-  ${snapshot[@]+"${snapshot[@]}"} --out "$work/app.json" > "$work/app.log" 2>&1 || { status=$?; tail -n 60 "$work/app.log"; }
-# Which process is which (the top list names each command) and, with vmmap=, where each one's footprint is.
-grep -E '^ +[0-9.]+ MB  RSS|^VMMAP ' "$work/app.log" | sed 's/^ */PERF-IDLE-PROC app /' || true
-grep '^PERF-ATTR ' "$work/app.log" | sed 's/^PERF-ATTR /PERF-ATTR app /' || true
-grep -E '^== (agent report|agents after|window snapshot)' "$work/app.log" | sed 's/^== /PERF-IDLE-NOTE app /' || true
-python3 - "$work/app.json" <<'PY' || status=$?
+# One app run, or one per runs= entry (NAME;SETTINGS_JSON;AGENT_STATE, |-separated), each a fresh launch of the
+# same build on the same Mac; a run's sample labels are NAME/LABEL.
+if [[ -n "$runs" ]]; then IFS='|' read -r -a run_list <<< "$runs"; else run_list=(""); fi
+for run in "${run_list[@]}"; do
+  run_name="" run_args=()
+  if [[ -n "$run" ]]; then
+    IFS=';' read -r run_name run_settings run_state <<< "$run"
+    [[ -n "${run_settings:-}" ]] && run_args+=(--config "$run_settings")
+    [[ -n "${run_state:-}" ]] && run_args+=(--agent-report "$run_state")
+  else
+    run_args=(${app_config[@]+"${app_config[@]}"} ${agent_report[@]+"${agent_report[@]}"})
+  fi
+  out="app${run_name:+-$run_name}"
+  shots=()
+  (( ${#snapshot[@]} )) && shots=(--window-snapshot "$work/snapshots${run_name:+/$run_name}")
+  echo "PERF-IDLE-LOAD app${run_name:+ $run_name} $(uptime | sed 's/.*load averages*: //')"
+  python3 scripts/cmux-next/bench_memory.py --app "$app" --workspaces "$counts" --mix terminal \
+    --settle 20 --measure "$measure" --top 8 ${attribute[@]+"${attribute[@]}"} ${vmmap[@]+"${vmmap[@]}"} \
+    ${run_args[@]+"${run_args[@]}"} ${gpu[@]+"${gpu[@]}"} ${shots[@]+"${shots[@]}"} \
+    --out "$work/$out.json" > "$work/$out.log" 2>&1 || { status=$?; tail -n 60 "$work/$out.log"; }
+  # Which process is which (the top list names each command) and, with vmmap=, where each one's footprint is.
+  grep -E '^ +[0-9.]+ MB  RSS|^VMMAP ' "$work/$out.log" | sed 's/^ */PERF-IDLE-PROC app /' || true
+  grep '^PERF-ATTR ' "$work/$out.log" | sed 's/^PERF-ATTR /PERF-ATTR app /' || true
+  grep -E '^== (agent report|agents after|window snapshot)' "$work/$out.log" | sed "s|^== |PERF-IDLE-NOTE app ${run_name:+$run_name }|" || true
+  python3 - "$work/$out.json" "$run_name" <<'PY' || status=$?
 import json, sys
 data = json.load(open(sys.argv[1]))
+prefix = f"{sys.argv[2]}/" if sys.argv[2] else ""
 for s in data.get("samples", []):
+    label = prefix + s["label"]
     for kind, e in s["kinds"].items():
-        print(f"PERF-IDLE app {s['label']} workspaces={s['workspaces']} kind={kind} n={e['count']} cpu_pct={e.get('cpu_pct')} "
+        print(f"PERF-IDLE app {label} workspaces={s['workspaces']} kind={kind} n={e['count']} cpu_pct={e.get('cpu_pct')} "
               f"wakeups_per_s={e.get('wakeups_per_s')} rss_mb={e['rss_mb']} footprint_mb={e['footprint_mb']} "
               f"disk_write_mb_per_h={e.get('disk_write_mb_per_h')} disk_read_mb_per_h={e.get('disk_read_mb_per_h')}")
     if s.get("gpu"):
-        print(f"PERF-IDLE-GPU app {s['label']} workspaces={s['workspaces']} {json.dumps(s['gpu'])}")
+        print(f"PERF-IDLE-GPU app {label} workspaces={s['workspaces']} {json.dumps(s['gpu'])}")
 PY
+done
 fi
 if [[ -n "$axes" ]]; then
   # One fresh app per axis, so each starts from an idle launch (0 items).

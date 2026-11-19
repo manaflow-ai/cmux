@@ -32,7 +32,7 @@ from benchlib.bench import Bench, BenchError, Context
 HARNESS = "scripts/measure/perf-10x-idle.sh"
 PASS_THROUGH = ("counts", "measure", "agents", "purge", "release", "attribute", "infinite", "days",
                 "chat_renderer_crash", "vmmap", "axes", "items", "visible_items", "settled", "settings", "gpu",
-                "agent_state", "snapshot")
+                "agent_state", "snapshot", "runs")
 DEFAULTS = {"counts": "1,10", "measure": "60"}
 FIELD = re.compile(r"(\w+)=(\S+)")
 APP_LINE = re.compile(r"^PERF-IDLE (app|app-agents) (\S+) (.*)$")
