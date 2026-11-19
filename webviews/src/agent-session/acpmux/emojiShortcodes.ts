@@ -89,15 +89,25 @@ export function loadEmojiShortcodes(): Promise<EmojiShortcodes> {
   return table;
 }
 
-/// Folds each record's search text (EmojiRecord.searchText) while the page is idle, a few ms at a time.
-function warmIdle(records: readonly EmojiRecord[], from = 0): void {
-  const idle = globalThis.requestIdleCallback;
+/// The longest one idle slice of warmIdle may run. An idle period can be 50 ms long, and a slice that
+/// filled it was one ~40 ms task right after the person's first key, which the next key waited behind.
+export const WARM_SLICE_MS = 4;
+
+/// Folds each record's search text (EmojiRecord.searchText) while the page is idle, a few ms at a time:
+/// at most WARM_SLICE_MS per slice, and never past the idle deadline. Ends once every record is folded.
+export function warmIdle(
+  records: readonly EmojiRecord[],
+  from = 0,
+  now: () => number = () => performance.now(),
+  idle: ((run: (deadline?: IdleDeadline) => void) => void) | undefined = globalThis.requestIdleCallback,
+): void {
   const slice = (deadline?: IdleDeadline) => {
     let at = from;
-    const end = deadline ? Infinity : from + 100;
-    while (at < records.length && at < end && (!deadline || deadline.timeRemaining() > 2))
-      void records[at++]!.searchText;
-    if (at < records.length) warmIdle(records, at);
+    const stop = now() + Math.min(WARM_SLICE_MS, deadline ? deadline.timeRemaining() - 1 : WARM_SLICE_MS);
+    // One record at least, so a busy page still makes progress on each idle callback.
+    do void records[at++]?.searchText;
+    while (at < records.length && now() < stop);
+    if (at < records.length) warmIdle(records, at, now, idle);
   };
   if (idle) idle(slice);
   else setTimeout(slice, 0);
