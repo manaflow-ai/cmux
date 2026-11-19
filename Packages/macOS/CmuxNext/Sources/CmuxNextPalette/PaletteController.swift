@@ -323,7 +323,10 @@ public final class PaletteController {
         contentView?.animateIn()
         if let onPresented {
             let presented = ContinuousClock.now
-            CATransaction.setMainCompletion {
+            // Timed at the frame commit that first shows the panel. Not the turn's CATransaction completion: that
+            // waits for every animation added after it in the turn (the search field's spinner while a provider
+            // loads), so an open was reported hundreds of ms after its frame, or after a reader gave up on it.
+            scheduleAfterFrameCommit {
                 let committed = ContinuousClock.now
                 onPresented(PaletteOpenTiming(
                     input: input, model: started.duration(to: modelDone), panel: modelDone.duration(to: panelDone),
