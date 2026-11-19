@@ -78,7 +78,7 @@ main() {
   cmux_signing_runtime_guard || exit 3
   # The build's layout (bundle_layout: stub executable and CmuxNextApp.framework or not), from the DMG's own app.
   mkdir -p "$out/mnt-layout"
-  if hdiutil attach "$out/app.dmg" -nobrowse -readonly -mountpoint "$out/mnt-layout" >/dev/null; then
+  if hdiutil attach "$out/app.dmg" -nobrowse -readonly -noautofsck -mountpoint "$out/mnt-layout" >/dev/null; then
     bundle_layout "$(find "$out/mnt-layout" -maxdepth 1 -name '*.app' | head -1)" "$out/layout.txt" LF
     hdiutil detach "$out/mnt-layout" >/dev/null || hdiutil detach -force "$out/mnt-layout" >/dev/null
   else
