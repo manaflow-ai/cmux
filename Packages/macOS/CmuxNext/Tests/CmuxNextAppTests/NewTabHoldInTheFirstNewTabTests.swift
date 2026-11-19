@@ -28,7 +28,8 @@ import Testing
 /// The rule of these rows: a letter that a person types in a new tab whose field is ready goes to that tab. It does
 /// not wait for another tab's page, and it is not lost.
 ///
-/// 5 rows.
+/// 8 rows. Rows 6, 7 and 8 (a letter in the second new tab, and its key hold ends with no report of its page) are
+/// in `NewTabHoldInTheFirstNewTabTests+UnreadyEnd.swift`.
 /// - Row 1: the letter is not kept by the second tab's hold.
 /// - Row 2: the letter is not dropped when the second tab's hold ends at its limit.
 /// - Row 3, what must stay: a letter that the person types in the SECOND new tab before its page reported waits
