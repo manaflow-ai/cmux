@@ -447,15 +447,6 @@
       "constrained_by": "cmux scripts/ci/side_lane_placement.py (cmux#27429 on feat-cmux-next, cmux#27449 on main), run with SIDE_LABEL = vars.CI_SIDE_LANE_RUNNER on a trusted run: `runner` is route_label(), the side label itself or the same label on a wider class while it has more live room (compatible_labels(); std is the widest), else pool_label() of it, the owned pool label, while no compatible side runner is online. CI_SIDE_LANE_RUNNER names glaeda-side-std-xcode-26.6 today, which has no wider class, and its owned pool label at the 26.6 pin is glaeda-std-xcode-26.6; a light value would add its std forms. Empty when the runners cannot be read or SIDE_LABEL is empty (a fork, owned pools off).",
       "empty_falls_back_to": "vars.CI_SIDE_LANE_RUNNER, then vars.MACOS_RUNNER_26, then the literal blacksmith-6vcpu-macos-26, in the same runs-on expression; the smoke reads the owned route only when vars.CI_PR_POOL_OWNED is 1 and on attempt 1, and the place step is continue-on-error, so a failed pick reads as empty."
     },
-    "nightly-next-cua-signed-host.yml:pick.runner": {
-      "labels": [
-        "vars.CI_SIDE_LANE_RUNNER",
-        "glaeda-side-std-xcode-26.6",
-        "glaeda-std-xcode-26.6"
-      ],
-      "constrained_by": "cmux nightly-next-cua-signed-host.yml pick's place step (cmux#28223) runs scripts/ci/side_lane_placement.py with SIDE_LABEL = vars.CI_SIDE_LANE_RUNNER when vars.CI_PR_POOL_OWNED is 1 on a trusted run, the same picker and contract as nightly-next-launch-smoke.yml:pick.runner: `runner` is the side label itself or the same label on a wider class while it has more live room (std is the widest), else its owned pool label, glaeda-std-xcode-26.6 at the 26.6 pin. Empty when the runners cannot be read or SIDE_LABEL is empty (a fork, owned pools off).",
-      "empty_falls_back_to": "the literal blacksmith-6vcpu-macos-26 in the same runs-on expression; signed-host reads `runner` only when the pick's owned_jobs is non-empty and its 12 and 6 vCPU Blacksmith lists do not name cua-signed-host, and the place step is continue-on-error, so a failed pick reads as empty and signed-host is skipped when no route was placed."
-    },
     "nightly.yml:build-nightly-app.light_mini_runner": {
       "labels": [
         "vars.CI_SIDE_LANE_RUNNER",
