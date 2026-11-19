@@ -418,6 +418,13 @@ if Path(sys.argv[0]).name == "git":
         if state.get("pin_age_min") is None: sys.exit(128)
         import time
         print(int(time.time()) - 60 * state["pin_age_min"]); sys.exit(0)
+    if args[0] == "log" and "--format=%ct" in args:
+        # `git log --format=%ct PIN..RELEASE -- INPUTS`: the times of the FFI commits the base's pin lacks, newest
+        # first; the test gives the oldest one's age, else the read fails.
+        if state.get("unpinned_age_min") is None: sys.exit(128)
+        import time
+        print(int(time.time()) - 60 * min(5, state["unpinned_age_min"]))
+        print(int(time.time()) - 60 * state["unpinned_age_min"]); sys.exit(0)
     if args[0] == "show":
         # `git show REV:PATH`: the files of the re-pin branch's head (the test's pr_files), nothing else.
         rev, _, file = args[-1].partition(":")
@@ -564,7 +571,7 @@ class RePinPublication(unittest.TestCase):
                   runs=(), ancestry=(), runs_read="ok", jobs=None, same_inputs=False,
                   workflow=WORKFLOW, pr_files=None, current_pin=None, diff_exit=None,
                   jobs_read="ok", base_result="newer", base_enabled="true", pin_age_min=None,
-                  staged_on=None, base_checks=(), base_checks_read="ok", checks_read="ok"):
+                  unpinned_age_min=None, staged_on=None, base_checks=(), base_checks_read="ok", checks_read="ok"):
         step = pin_step(yaml.safe_load(workflow.read_text())["jobs"]["repin"])
         with tempfile.TemporaryDirectory() as temp:
             work = Path(temp)
@@ -615,7 +622,7 @@ class RePinPublication(unittest.TestCase):
                 "status_read": status_read, "runs": list(runs), "ancestry": [list(pair) for pair in ancestry],
                 "runs_read": runs_read, "jobs": jobs or {}, "same_inputs": same_inputs,
                 "pr_files": pr_files or {}, "diff_exit": diff_exit, "jobs_read": jobs_read,
-                "pin_age_min": pin_age_min, "staged_on": staged_on, "base_checks": list(base_checks),
+                "pin_age_min": pin_age_min, "unpinned_age_min": unpinned_age_min, "staged_on": staged_on, "base_checks": list(base_checks),
                 "base_checks_read": base_checks_read, "checks_read": checks_read}))
             env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STATE=str(state_path),
                        GH_TOKEN="pr-token", APP_TOKEN="contents-token", READ_TOKEN="read-token", TAG=TAG, CHECKSUM="f" * 64,
@@ -1100,6 +1107,22 @@ class RePinPublication(unittest.TestCase):
                 if not holds:
                     self.assertIn("no newer run holds its re-pin", result.stderr)
 
+    def test_a_young_release_does_not_hold_once_the_oldest_unpinned_ffi_commit_is_past_the_bound(self):
+        # 2026-11-18: four FFI pushes 07:56Z to 09:46Z, each 25 to 45 min apart. Every release run held its re-pin for
+        # the next one (44262749842 for 44269219861, then 44272641346, then 44279092668): each release's own commit was
+        # young, so the bound never ended a hold, and the pin trailed the base's oldest unpinned FFI commit past the
+        # 120 min grace. The bound reads that oldest commit's age; this release's commit alone is not enough.
+        newer = "7" * 40
+        for unpinned, holds in ((90, False), (10, True), (None, True)):
+            with self.subTest(unpinned=unpinned):
+                result, state = self.run_repin(runs=[{"id": 9, "status": "in_progress", "head_sha": newer}],
+                                               ancestry=[(self.NEWEST, newer)], jobs={"9": []}, pin_age_min=5,
+                                               unpinned_age_min=unpinned)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual("Re-pin held" in result.stdout, holds, result.stdout + result.stderr)
+                if not holds:
+                    self.assertIn("no newer run holds its re-pin", result.stderr)
+
     def test_a_run_waiting_for_hours_does_not_hold(self):
         # A run stuck waiting for a runner or an approval would hold every re-pin until it ends, maybe for days.
         newer = "7" * 40
@@ -1437,12 +1460,30 @@ class BuildGoesAheadOfThePullRequestQueue(unittest.TestCase):
     PROMOTE = "glaeda-promote-trusted-std-xcode-26.6"
     SMALL = "blacksmith-6vcpu-macos-26"
 
-    def runner(self, promote: str, event: str = "push", attempt: int = 1) -> str:
+    NIGHTLY_SLOT = "glaeda-nightly-std-xcode-26.6"
+
+    def runner(self, promote: str, event: str = "push", attempt: int = 1, slot: str = "off",
+               owner: str = "manaflow-ai") -> str:
+        """The build's runs-on; `slot` is vars.CI_RELEASE_PIN_SLOT (`off` here reads the routes behind the slot)."""
         build = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["build"]
         return evaluate(workflow_jobs.single_runs_on(build), {
-            "github": {"repository_owner": "manaflow-ai", "event_name": event, "run_attempt": attempt},
-            "vars": {"CI_NEXT_PROMOTE_POOL": promote, "MACOS_RUNNER_26": self.SMALL,
+            "github": {"repository_owner": owner, "event_name": event, "run_attempt": attempt},
+            "vars": {"CI_NEXT_PROMOTE_POOL": promote, "MACOS_RUNNER_26": self.SMALL, "CI_RELEASE_PIN_SLOT": slot,
                      "RUNNER_POOLS": json.dumps({"macos_26": self.SMALL})}})
+
+    def test_every_attempt_takes_the_nightly_slot_ahead_of_pull_request_jobs(self):
+        # RELEASE_FIRST (claude-sr2-coord, 2026-11-16): run 43869638705's build, a dispatch, queued 1 to 4 hours on
+        # glaeda-side-std-xcode-26.6 behind PR jobs. glaeda's nightly slot label carries no PR job, and glaeda's
+        # hook ranks this build as a nightly job there.
+        for event in ("push", "workflow_dispatch"):
+            for attempt in (1, 2, 3):
+                for promote in ("", self.PROMOTE):
+                    with self.subTest(event=event, attempt=attempt, promote=promote):
+                        self.assertEqual(self.runner(promote, event, attempt, slot=""), self.NIGHTLY_SLOT)
+
+    def test_the_slot_switch_off_and_a_fork_keep_their_routes(self):
+        self.assertEqual(self.runner(self.PROMOTE, slot="off"), self.PROMOTE)
+        self.assertEqual(self.runner(self.PROMOTE, slot="", owner="someone"), "macos-26")
 
     def snapshot(self, path: str) -> dict:
         janitor = load_module("queue_janitor", ROOT / "scripts/ci/queue_janitor.py")
@@ -1494,7 +1535,10 @@ class BuildRescueToBlacksmith(unittest.TestCase):
         self.workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         self.rescue_module = load_module("app_ffi_rescue", ROOT / "scripts/ci/app_ffi_rescue.py")
 
-    def runner(self, rescue: str, twelve: bool = False, switch: str = "pr-rescue", six: bool = True) -> str:
+    def runner(self, rescue: str, twelve: bool = False, switch: str = "pr-rescue", six: bool = True,
+               pin_slot: str = "off") -> str:
+        # pin_slot: vars.CI_RELEASE_PIN_SLOT; unset ("") sends the build to the nightly slot (RELEASE_FIRST), so the
+        # owned routes these tests pin are read with it `off`.
         build = self.workflow["jobs"]["build"]
         return evaluate(workflow_jobs.single_runs_on(build), {
             "github": {"repository_owner": "manaflow-ai", "event_name": "workflow_dispatch", "run_attempt": 1},
@@ -1502,8 +1546,8 @@ class BuildRescueToBlacksmith(unittest.TestCase):
             "needs": {"placement": {"outputs": {"placed_attempt": "1",
                                                 "blacksmith_12_jobs": " app-ffi-build " if twelve else "",
                                                 "blacksmith_6_jobs": " app-ffi-build " if six else ""}}},
-            "vars": {"CI_SIDE_LANE_RUNNER": self.SIDE, "CI_BLACKSMITH_MACOS": switch, "RUNNER_POOLS": json.dumps(
-                {"macos_26": self.SMALL, "macos_26_large": self.LARGE})}})
+            "vars": {"CI_SIDE_LANE_RUNNER": self.SIDE, "CI_BLACKSMITH_MACOS": switch, "CI_RELEASE_PIN_SLOT": pin_slot,
+                     "RUNNER_POOLS": json.dumps({"macos_26": self.SMALL, "macos_26_large": self.LARGE})}})
 
     def test_a_rescued_run_takes_the_placements_blacksmith_slot_ahead_of_every_owned_route(self):
         self.assertEqual(self.runner("blacksmith"), self.SMALL)
@@ -1514,17 +1558,21 @@ class BuildRescueToBlacksmith(unittest.TestCase):
     def test_an_ordinary_run_keeps_its_owned_route(self):
         self.assertEqual(self.runner(""), self.SIDE)
         self.assertEqual(self.runner("something-else"), self.SIDE)
+        # with the switch unset the ordinary run takes the nightly slot; a rescue still goes first
+        self.assertEqual(self.runner("", pin_slot=""), "glaeda-nightly-std-xcode-26.6")
+        self.assertEqual(self.runner("blacksmith", pin_slot=""), self.SMALL)
 
     POOL = "glaeda-promote-trusted-light-xcode-26.6"
 
-    def pool_runner(self, pool: str, rescue: str = "", event: str = "push", attempt: int = 1) -> str:
+    def pool_runner(self, pool: str, rescue: str = "", event: str = "push", attempt: int = 1,
+                    pin_slot: str = "off") -> str:
         build = self.workflow["jobs"]["build"]
         return evaluate(workflow_jobs.single_runs_on(build), {
             "github": {"repository_owner": "manaflow-ai", "event_name": event, "run_attempt": attempt},
             "inputs": {"rescue": rescue, "rescue_pool": ""},
             "needs": {"placement": {"outputs": {"placed_attempt": "1",
                                                 "blacksmith_6_jobs": " app-ffi-build " if rescue else ""}}},
-            "vars": {"CI_FFI_RELEASE_POOL": pool, "CI_SIDE_LANE_RUNNER": self.SIDE,
+            "vars": {"CI_FFI_RELEASE_POOL": pool, "CI_SIDE_LANE_RUNNER": self.SIDE, "CI_RELEASE_PIN_SLOT": pin_slot,
                      "CI_NEXT_PROMOTE_POOL": "glaeda-promote-trusted-std-xcode-26.6",
                      "RUNNER_POOLS": json.dumps({"macos_26": self.SMALL, "macos_26_large": self.LARGE})}})
 
@@ -1537,6 +1585,9 @@ class BuildRescueToBlacksmith(unittest.TestCase):
     def test_a_rescue_still_goes_first_and_unset_keeps_the_earlier_routes(self):
         self.assertEqual(self.pool_runner(self.POOL, rescue="blacksmith"), self.SMALL)
         self.assertEqual(self.pool_runner(""), self.SIDE)
+        # the dedicated pool, when set, goes ahead of the nightly slot; unset, the nightly slot takes the build
+        self.assertEqual(self.pool_runner(self.POOL, pin_slot=""), self.POOL)
+        self.assertEqual(self.pool_runner("", pin_slot=""), "glaeda-nightly-std-xcode-26.6")
 
     def test_only_this_workflow_reads_the_ffi_release_pool(self):
         readers = sorted(path.name for path in (ROOT / ".github/workflows").glob("*.yml")

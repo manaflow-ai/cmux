@@ -73,6 +73,7 @@ function useClient(device: Device, stream: string, long: boolean, run: number) {
       if (pending === 0) setDone(true);
     });
     // Fixture playback: each event arrives at its recorded offset (the gallery's intentional delay).
+    // gallery-capture: every arm's play `replay` waits for the last event (data-sync-done).
     const timers = events.map((event) => setTimeout(() => batcher.push(event), event.at));
     if (events.length === 0) setDone(true);
     return () => timers.forEach(clearTimeout);
