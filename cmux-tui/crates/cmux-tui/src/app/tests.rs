@@ -8,6 +8,7 @@ mod completed_selection;
 mod copy_mode;
 mod deferred_input;
 mod docked_workspaces;
+mod frame_work;
 mod graphics_pointer;
 mod host_input;
 mod idle_wait;
