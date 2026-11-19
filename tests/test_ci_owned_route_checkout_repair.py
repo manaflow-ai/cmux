@@ -79,6 +79,25 @@ class OwnedRouteCheckoutRepair(unittest.TestCase):
                         # A sparse job keeps its sparse set; a full one must leave sparse mode first.
                         self.assertEqual("sparse-checkout disable" in run, not sparse)
 
+    def test_every_repair_runs_only_in_a_checkout(self) -> None:
+        # Blacksmith runners report RUNNER_ENVIRONMENT=self-hosted too. A job whose checkout is
+        # skipped or fails (tree-owner-wait's checkout runs only with an owner_run_id, and is
+        # continue-on-error) has no .git, and a bare reset there failed the job with
+        # "fatal: not a git repository" (exit 128; run 44506344350, cmux#47212).
+        unguarded = []
+        seen = 0
+        for path in sorted(WORKFLOWS.glob("*.yml")):
+            lines = path.read_text().splitlines()
+            for index, line in enumerate(lines):
+                if line.strip() != "git reset -q --hard HEAD":
+                    continue
+                seen += 1
+                guard = next((lines[j] for j in range(index - 1, max(index - 4, -1), -1) if "RUNNER_ENVIRONMENT" in lines[j]), "")
+                if "git rev-parse --git-dir" not in guard:
+                    unguarded.append(f"{path.name}:{index + 1}")
+        self.assertGreaterEqual(seen, 6, "the repair steps moved; this test checks nothing")
+        self.assertEqual(unguarded, [], "a reused-checkout repair that resets even where no checkout ran")
+
 
 if __name__ == "__main__":
     unittest.main()

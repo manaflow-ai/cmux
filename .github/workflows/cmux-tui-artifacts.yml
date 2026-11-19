@@ -262,7 +262,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && git rev-parse --git-dir >/dev/null 2>&1; then
             git sparse-checkout disable 2>/dev/null || true
             git reset -q --hard HEAD
           fi
@@ -955,7 +955,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && git rev-parse --git-dir >/dev/null 2>&1; then
             git reset -q --hard HEAD
           fi
 
@@ -1678,7 +1678,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && git rev-parse --git-dir >/dev/null 2>&1; then
             git sparse-checkout disable 2>/dev/null || true
             git reset -q --hard HEAD
           fi
@@ -1939,7 +1939,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && git rev-parse --git-dir >/dev/null 2>&1; then
             git reset -q --hard HEAD
           fi
 
@@ -2002,7 +2002,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && git rev-parse --git-dir >/dev/null 2>&1; then
             git sparse-checkout disable 2>/dev/null || true
             git reset -q --hard HEAD
           fi
@@ -3189,7 +3189,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && git rev-parse --git-dir >/dev/null 2>&1; then
             git sparse-checkout disable 2>/dev/null || true
             git reset -q --hard HEAD
           fi
@@ -3255,7 +3255,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && git rev-parse --git-dir >/dev/null 2>&1; then
             git reset -q --hard HEAD
           fi
 
@@ -3467,7 +3467,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && git rev-parse --git-dir >/dev/null 2>&1; then
             git reset -q --hard HEAD
           fi
 
@@ -3524,7 +3524,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && git rev-parse --git-dir >/dev/null 2>&1; then
             git reset -q --hard HEAD
           fi
 
@@ -3854,7 +3854,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && git rev-parse --git-dir >/dev/null 2>&1; then
             git sparse-checkout disable 2>/dev/null || true
             git reset -q --hard HEAD
           fi
@@ -4419,7 +4419,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && git rev-parse --git-dir >/dev/null 2>&1; then
             git sparse-checkout disable 2>/dev/null || true
             git reset -q --hard HEAD
           fi
@@ -4464,7 +4464,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && git rev-parse --git-dir >/dev/null 2>&1; then
             git reset -q --hard HEAD
           fi
 
@@ -4539,7 +4539,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && git rev-parse --git-dir >/dev/null 2>&1; then
             git sparse-checkout disable 2>/dev/null || true
             git reset -q --hard HEAD
           fi
@@ -4582,7 +4582,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && git rev-parse --git-dir >/dev/null 2>&1; then
             git sparse-checkout disable 2>/dev/null || true
             git reset -q --hard HEAD
           fi
@@ -4637,7 +4637,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && git rev-parse --git-dir >/dev/null 2>&1; then
             git sparse-checkout disable 2>/dev/null || true
             git reset -q --hard HEAD
           fi
@@ -4705,7 +4705,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && git rev-parse --git-dir >/dev/null 2>&1; then
             git sparse-checkout disable 2>/dev/null || true
             git reset -q --hard HEAD
           fi
@@ -4769,7 +4769,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && git rev-parse --git-dir >/dev/null 2>&1; then
             git reset -q --hard HEAD
           fi
 
@@ -4863,7 +4863,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && git rev-parse --git-dir >/dev/null 2>&1; then
             git sparse-checkout disable 2>/dev/null || true
             git reset -q --hard HEAD
           fi
@@ -4937,7 +4937,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && git rev-parse --git-dir >/dev/null 2>&1; then
             git sparse-checkout disable 2>/dev/null || true
             git reset -q --hard HEAD
           fi
@@ -5046,7 +5046,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && git rev-parse --git-dir >/dev/null 2>&1; then
             git reset -q --hard HEAD
           fi
 
@@ -5117,7 +5117,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && git rev-parse --git-dir >/dev/null 2>&1; then
             git sparse-checkout disable 2>/dev/null || true
             git reset -q --hard HEAD
           fi
@@ -5199,7 +5199,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && git rev-parse --git-dir >/dev/null 2>&1; then
             git reset -q --hard HEAD
           fi
 
@@ -5292,7 +5292,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && git rev-parse --git-dir >/dev/null 2>&1; then
             git reset -q --hard HEAD
           fi
 
