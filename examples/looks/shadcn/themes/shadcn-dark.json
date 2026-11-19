@@ -18,10 +18,32 @@
     "selection": "#262626",
     "accent": "#e5e5e5",
     "1": "#ff6467",
-    "9": "#ff6467"
+    "9": "#ff6467",
+    // The terminal palette, whole: the slots above as sampled, the rest at a neutral chroma, each
+    // solved in OKLCH over the page (5.5:1, the bright ones 8.5:1, 8 the dim gray 3.4:1), and the
+    // cursor in the accent.
+    "0": "#3f444a",
+    "2": "#439854",
+    "3": "#a78206",
+    "4": "#5388d5",
+    "5": "#b66db4",
+    "6": "#0d969c",
+    "7": "#fafafa",
+    "8": "#61666c",
+    "10": "#47c078",
+    "11": "#d2a40a",
+    "12": "#7fa9ff",
+    "13": "#e88ad7",
+    "14": "#05bccc",
+    "15": "#dfe1e3",
+    "cursor": "#e5e5e5"
   },
   // No hue: Send, focus and selection come from the light primary above.
   "appearance.accent": "neutral",
+  // The terminal face: Geist Mono at 13 pt, the monospaced twin of the chat's Geist;
+  // without it installed, the terminal keeps its built-in face.
+  "terminal.fontFamily": "Geist Mono",
+  "terminal.fontSize": 13,
   // Pending: the selected sidebar row as shadcn's gray --sidebar-accent, not the primary (cmux #46516).
   // "appearance.selection": "neutral",
 

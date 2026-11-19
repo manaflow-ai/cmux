@@ -14,6 +14,37 @@
   // drawer's active indicator), accent = primary.
   "colors": { "background": "#fef7ff", "foreground": "#1d1b20", "selection": "#e8def8", "accent": "#6750a4" },
   "appearance.accent": "theme",
+  // The terminal: the page and ink above, the cursor in the accent, the selection, and all sixteen
+  // ANSI colors at a tonal chroma, each solved in OKLCH over the page (5.2:1, the bright ones
+  // 4.7:1, 7 the gray 4.8:1, 15 3:1; 8, the dim gray, 3.4:1).
+  "ghostty": [
+    "background = #fef7ff",
+    "foreground = #1d1b20",
+    "cursor-color = #6750a4",
+    "cursor-text = #fef7ff",
+    "selection-background = #e8def8",
+    "selection-foreground = #1d1b20",
+    "palette = 0=#1d1b20",
+    "palette = 1=#ac4a46",
+    "palette = 2=#1f7837",
+    "palette = 3=#836504",
+    "palette = 4=#3669b4",
+    "palette = 5=#954f94",
+    "palette = 6=#06757a",
+    "palette = 7=#6a6f76",
+    "palette = 8=#83878f",
+    "palette = 9=#bc4c3a",
+    "palette = 10=#018146",
+    "palette = 11=#8b6c01",
+    "palette = 12=#446cc8",
+    "palette = 13=#a84f99",
+    "palette = 14=#027c88",
+    "palette = 15=#8f9195"
+  ],
+  // The terminal face: Roboto Mono at 13 pt, the type scale's monospaced face; without it
+  // installed, the terminal keeps its built-in face.
+  "terminal.fontFamily": "Roboto Mono",
+  "terminal.fontSize": 13,
   // Selected text as Android draws it: primary at 40%.
   "appearance.highlightColor": "#6750a466",
 

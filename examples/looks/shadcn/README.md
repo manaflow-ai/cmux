@@ -37,6 +37,9 @@ It is built only from public surfaces, so you can copy any part of it:
 | `themes/shadcn-dark.json` | The same in shadcn's `.dark` tokens |
 | `agent-pane/theme.css` | The prompt bubble, outlined cards, muted text and underlined foreground links with `cmux.agentPane.style/1` tokens only, every color mixed from the theme's own; and the menu tokens (pending) for shadcn's `DropdownMenu` |
 | `customize/` | A shadcn `HoverCard`: a semibold title with the status as an outline `Badge`, the task as its description, and `text-xs` muted lines with small icons; rows in regular weight with a dot while work runs |
+| `markdown/theme.css` | The Markdown viewer's paint: semibold headings, the second level over a hairline, code on the muted fill with the 10 px radius, quotes on a 2 px border. Only `--cmux-md-*` properties on `:root`, every color mixed from the page's own |
+
+The rest of cmux wears the look too. The terminal is Geist Mono at 13 pt (the monospaced twin of the chat's Geist; without it installed, the terminal keeps its built-in face) with a full sixteen-color palette at a neutral chroma, colors 1 to 7 and 9 to 14 held to WCAG AA over its page (8, the dim gray, to 3:1); the Markdown viewer opens in the system face at 16 px with the chat's line height and code scale in a 100-character column, and `markdown/theme.css` paints it; diffs use muted colors with change bars; sidebar group colors are grays.
 
 ```sh
 cmux setup install github.com/manaflow-ai/cmux-shadcn-look

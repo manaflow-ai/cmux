@@ -21,6 +21,9 @@ It is built only from public surfaces, so you can copy any part of it:
 | `themes/material-dark.json` | The M3 dark baseline: surface #141218, surface-container #211F26, secondary-container #4A4458, primary #D0BCFF |
 | `agent-pane/theme.css` | The 20 px tonal prompt bubble with no edge, filled cards with no outline, on-surface-variant secondary text and primary links, all as `cmux.agentPane.style/1` tokens mixed from the theme's own colors. Also M3 menus as `--menu-*` tokens (cmux#46846) |
 | `customize/` | A hover card drawn as an M3 rich tooltip (subhead, supporting text, list rows with leading icons, the waiting reason as a primary action line), and drawer rows in Label Large weight that show the circular progress arc while work runs |
+| `markdown/theme.css` | The Markdown viewer's paint: regular-weight headlines with no rule, code in a filled container tinted by primary with the medium 12 px shape, quotes on a primary rule. Only `--cmux-md-*` properties on `:root`, every color mixed from the page's own |
+
+The rest of cmux wears the look too. The terminal is Roboto Mono at 13 pt (the type scale's monospaced face; without it installed, the terminal keeps its built-in face) with a full sixteen-color palette at a tonal chroma, colors 1 to 7 and 9 to 14 held to WCAG AA over its page (8, the dim gray, to 3:1); the Markdown viewer opens in the system face at 16 px with the chat's line height and code scale in a 86-character column, and `markdown/theme.css` paints it; diffs use theme colors with change bars.
 
 ```sh
 cmux setup install github.com/manaflow-ai/cmux-material-look

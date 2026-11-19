@@ -20,6 +20,9 @@ It is built only from public surfaces, so you can copy any part of it:
 | `themes/apple-dark.json` | Dark. Content `#1E1E1E`, text `#DDDDDD` (white at 85%), systemBlue `#0A84FF`, selection `#3F638B`, the sidebar `#2D2D2D` at 80%, grouped `#1C1C1E`, code and diffs on Xcode's Default (Dark) `#1F1F24`, the Apple System Colors terminal theme |
 | `agent-pane/theme.css` | The 18 px accent-tinted prompt bubble with no edge, cards on the quaternary fill with a separator hairline, secondary text, links in linkColor (systemBlue a step toward the label), and macOS menus (pending, below): `cmux.agentPane.style/1` tokens only, every color mixed from the theme's own |
 | `customize/` | A hover card laid out like a macOS popover (bold title and age, then gray secondary lines) and source-list rows in regular weight with the native spinner |
+| `markdown/theme.css` | The Markdown viewer's paint: bold headings with no rule, code on the quaternary fill with 8 px corners, quotes on a gray bar. Only `--cmux-md-*` properties on `:root`, every color mixed from the page's own |
+
+The rest of cmux wears the look too. The terminal is SF Mono at 12 pt (the face and size the system's own terminal opens in) with the base terminal theme's system palette; the Markdown viewer opens in the system face at 15 px with the chat's line height and code scale in a 94-character column, and `markdown/theme.css` paints it; diffs use theme colors with change bars; sidebar group colors are glass tints.
 
 Both theme files set the same proportions, from Tahoe's own: a 52 pt unified toolbar, a 240 pt
 sidebar with 28 pt rows, 13 pt chrome text, Safari's 12 pt tab titles in a 30 pt strip with tabs

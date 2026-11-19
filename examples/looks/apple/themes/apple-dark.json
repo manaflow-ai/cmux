@@ -14,6 +14,9 @@
   // selection: selectedTextBackgroundColor. accent: systemBlue.
   "colors": { "background": "#1e1e1e", "foreground": "#dddddd", "selection": "#3f638b", "accent": "#0a84ff" },
   "appearance.accent": "blue",
+  // The terminal face: SF Mono at 12 pt, the face and size the system's own terminal opens in.
+  "terminal.fontFamily": "SF Mono",
+  "terminal.fontSize": 12,
 
   // Material: the window is behind-window glass (NSVisualEffectView); only the sidebar lets it show.
   "appearance.background": "none",
