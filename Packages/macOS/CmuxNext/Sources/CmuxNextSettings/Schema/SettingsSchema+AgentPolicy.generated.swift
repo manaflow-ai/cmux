@@ -267,15 +267,23 @@ extension SettingsSchema {
         "appearance.metrics.tabMinActiveWidth", "appearance.metrics.tabMinInactiveWidth",
         "appearance.metrics.tabPinnedWidth", "appearance.metrics.sidebarWidth", "appearance.metrics.columnGap",
         "appearance.metrics.dividerThickness", "appearance.metrics.dividerHitWidth",
-        "appearance.metrics.titlebarHeight", "appearance.metrics.sidebarRowHeight", "browser.toolbar.back",
-        "browser.toolbar.forward", "browser.toolbar.reload", "browser.toolbar.home", "browser.toolbar.extensions",
-        "browser.toolbar.downloads", "browser.toolbar.media", "browser.toolbar.profile", "browser.toolbar.menu",
-        "browser.omnibox.color", "browser.omnibox.popupColor", "browser.omnibox.popupHoverColor", "layout.stripMargin",
+        "appearance.metrics.titlebarHeight", "appearance.metrics.sidebarRowHeight",
+        "appearance.metrics.sidebarRowInset", "appearance.metrics.sidebarRowPadding",
+        "appearance.metrics.sidebarRowGap", "appearance.metrics.sidebarRowHeightWithSubtitle",
+        "appearance.metrics.toolbarButtonSize", "appearance.metrics.toolbarButtonGap",
+        "appearance.metrics.toolbarButtonCornerRadius", "appearance.metrics.toolbarButtonActiveFill",
+        "appearance.metrics.headerDivider", "appearance.metrics.spacingScale", "appearance.metrics.composerPadding",
+        "appearance.metrics.composerMinHeight", "browser.toolbar.back", "browser.toolbar.forward",
+        "browser.toolbar.reload", "browser.toolbar.home", "browser.toolbar.extensions", "browser.toolbar.downloads",
+        "browser.toolbar.media", "browser.toolbar.profile", "browser.toolbar.menu", "browser.omnibox.color",
+        "browser.omnibox.popupColor", "browser.omnibox.popupHoverColor", "layout.stripMargin",
         "layout.columnWidthPresets", "window.trafficLightClearance", "sidebar.workspaceIcons",
         // Whether old chats' logs are compressed on disk, and after how long: lossless (opening a chat brings its log back), a local disk policy.
         "agents.chats.coldArchive", "agents.chats.coldArchiveAfterDays",
         // Whether a chat's pull request link opens the cmux GitHub page or github.com in a cmux tab: both stay in cmux, with no network, privacy or destructive effect.
         "browser.openPullRequestsInGitHubPage",
+        // Which of the person's own connections a thread may move to when one runs out: it adds no connection and spends nothing past a connection's own limit.
+        "models.spreadUsage",
     ]
 
     /// True when an agent may change `descriptor`, false when it may not, nil

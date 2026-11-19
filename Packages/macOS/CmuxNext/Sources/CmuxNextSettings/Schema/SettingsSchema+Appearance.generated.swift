@@ -213,6 +213,54 @@ extension LayoutMetricSetting {
     public nonisolated static let sidebarRowHeightPath = ["appearance", "metrics", "sidebarRowHeight"]
     public nonisolated static let sidebarRowHeightRange: ClosedRange<Double> = 20...48
     public nonisolated static let sidebarRowHeightPlaceholder: Double = 24
+    /// `appearance.metrics.sidebarRowInset`: Leo 2026-11-19: "the layout and proportions as well"; "if it cant be hot swapped, that's probably an issue with our api/sdk". A look (theme file) sets it; unset draws today's layout.
+    public nonisolated static let sidebarRowInsetPath = ["appearance", "metrics", "sidebarRowInset"]
+    public nonisolated static let sidebarRowInsetRange: ClosedRange<Double> = 0...24
+    public nonisolated static let sidebarRowInsetPlaceholder: Double = 6
+    /// `appearance.metrics.sidebarRowPadding`: Leo 2026-11-19: "the layout and proportions as well"; "if it cant be hot swapped, that's probably an issue with our api/sdk". A look (theme file) sets it; unset draws today's layout.
+    public nonisolated static let sidebarRowPaddingPath = ["appearance", "metrics", "sidebarRowPadding"]
+    public nonisolated static let sidebarRowPaddingRange: ClosedRange<Double> = 0...24
+    public nonisolated static let sidebarRowPaddingPlaceholder: Double = 8
+    /// `appearance.metrics.sidebarRowGap`: Leo 2026-11-19: "the layout and proportions as well"; "if it cant be hot swapped, that's probably an issue with our api/sdk". A look (theme file) sets it; unset draws today's layout.
+    public nonisolated static let sidebarRowGapPath = ["appearance", "metrics", "sidebarRowGap"]
+    public nonisolated static let sidebarRowGapRange: ClosedRange<Double> = 0...12
+    public nonisolated static let sidebarRowGapPlaceholder: Double = 2
+    /// `appearance.metrics.sidebarRowHeightWithSubtitle`: Leo 2026-11-19: "the layout and proportions as well"; "if it cant be hot swapped, that's probably an issue with our api/sdk". A look (theme file) sets it; unset draws today's layout.
+    public nonisolated static let sidebarRowHeightWithSubtitlePath = ["appearance", "metrics", "sidebarRowHeightWithSubtitle"]
+    public nonisolated static let sidebarRowHeightWithSubtitleRange: ClosedRange<Double> = 28...96
+    public nonisolated static let sidebarRowHeightWithSubtitlePlaceholder: Double = 37
+    /// `appearance.metrics.toolbarButtonSize`: Leo 2026-11-19: "the layout and proportions as well"; "if it cant be hot swapped, that's probably an issue with our api/sdk". A look (theme file) sets it; unset draws today's layout.
+    public nonisolated static let toolbarButtonSizePath = ["appearance", "metrics", "toolbarButtonSize"]
+    public nonisolated static let toolbarButtonSizeRange: ClosedRange<Double> = 16...40
+    public nonisolated static let toolbarButtonSizePlaceholder: Double = 20
+    /// `appearance.metrics.toolbarButtonGap`: Leo 2026-11-19: "the layout and proportions as well"; "if it cant be hot swapped, that's probably an issue with our api/sdk". A look (theme file) sets it; unset draws today's layout.
+    public nonisolated static let toolbarButtonGapPath = ["appearance", "metrics", "toolbarButtonGap"]
+    public nonisolated static let toolbarButtonGapRange: ClosedRange<Double> = 0...16
+    public nonisolated static let toolbarButtonGapPlaceholder: Double = 6
+    /// `appearance.metrics.toolbarButtonCornerRadius`: Leo 2026-11-19: "the layout and proportions as well"; "if it cant be hot swapped, that's probably an issue with our api/sdk". A look (theme file) sets it; unset draws today's layout.
+    public nonisolated static let toolbarButtonCornerRadiusPath = ["appearance", "metrics", "toolbarButtonCornerRadius"]
+    public nonisolated static let toolbarButtonCornerRadiusRange: ClosedRange<Double> = 0...20
+    public nonisolated static let toolbarButtonCornerRadiusPlaceholder: Double = 6
+    /// `appearance.metrics.toolbarButtonActiveFill`: Leo 2026-11-19: "the layout and proportions as well"; "if it cant be hot swapped, that's probably an issue with our api/sdk". A look (theme file) sets it; unset draws today's layout.
+    public nonisolated static let toolbarButtonActiveFillPath = ["appearance", "metrics", "toolbarButtonActiveFill"]
+    public nonisolated static let toolbarButtonActiveFillRange: ClosedRange<Double> = 0...0.4
+    public nonisolated static let toolbarButtonActiveFillPlaceholder: Double = 0.14
+    /// `appearance.metrics.headerDivider`: Leo 2026-11-19: "the layout and proportions as well"; "if it cant be hot swapped, that's probably an issue with our api/sdk". A look (theme file) sets it; unset draws today's layout.
+    public nonisolated static let headerDividerPath = ["appearance", "metrics", "headerDivider"]
+    public nonisolated static let headerDividerRange: ClosedRange<Double> = 0...1
+    public nonisolated static let headerDividerPlaceholder: Double = 0
+    /// `appearance.metrics.spacingScale`: Leo 2026-11-19: "the layout and proportions as well"; "if it cant be hot swapped, that's probably an issue with our api/sdk". A look (theme file) sets it; unset draws today's layout.
+    public nonisolated static let spacingScalePath = ["appearance", "metrics", "spacingScale"]
+    public nonisolated static let spacingScaleRange: ClosedRange<Double> = 0.5...2
+    public nonisolated static let spacingScalePlaceholder: Double = 1
+    /// `appearance.metrics.composerPadding`: Leo 2026-11-19: "the layout and proportions as well"; "if it cant be hot swapped, that's probably an issue with our api/sdk". A look (theme file) sets it; unset draws today's layout.
+    public nonisolated static let composerPaddingPath = ["appearance", "metrics", "composerPadding"]
+    public nonisolated static let composerPaddingRange: ClosedRange<Double> = 0...24
+    public nonisolated static let composerPaddingPlaceholder: Double = 8
+    /// `appearance.metrics.composerMinHeight`: Leo 2026-11-19: "the layout and proportions as well"; "if it cant be hot swapped, that's probably an issue with our api/sdk". A look (theme file) sets it; unset draws today's layout.
+    public nonisolated static let composerMinHeightPath = ["appearance", "metrics", "composerMinHeight"]
+    public nonisolated static let composerMinHeightRange: ClosedRange<Double> = 32...160
+    public nonisolated static let composerMinHeightPlaceholder: Double = 48
 }
 
 extension BordersSetting {
