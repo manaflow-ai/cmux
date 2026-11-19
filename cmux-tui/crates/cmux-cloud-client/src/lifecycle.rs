@@ -10,7 +10,7 @@
 
 use cmux_cloud_wire::{
     CloudMachine, CloudMachineDeleteOp, CloudMachineDeleteParams, CloudMachinePauseOp,
-    CloudMachinePauseParams, CloudMachineStartOp, CloudMachineStartParams,
+    CloudMachinePauseParams, CloudMachineStartOp, CloudMachineStartParams, CloudMachineStatus,
 };
 use cmux_lifeline::vm::{
     Attached, Deleted, Deleting, Failed, Observed, Paused, Pausing, Provisioning, Ready, Running,
@@ -123,7 +123,7 @@ impl std::error::Error for ObserveError {}
 /// lifecycle capability; parsing through the shared lifeline status rejects
 /// it before any operation is available.
 pub fn observe(scope: &Scope, record: CloudMachine) -> Result<ObservedMachine, ObserveError> {
-    let status: Status = record.status.as_str().parse().map_err(|_| ObserveError::InvalidStatus)?;
+    let status = cloud_status(&record.status)?;
     if let Some(expected) = scope.team() {
         if expected != record.team {
             return Err(ObserveError::TeamMismatch {
@@ -135,6 +135,25 @@ pub fn observe(scope: &Scope, record: CloudMachine) -> Result<ObservedMachine, O
     let machine = scope.machine(&record.id).map_err(ObserveError::Handle)?;
     let snapshot = Snapshot { machine, team: record.team, revision: record.revision };
     Ok(wrap(status.bind(snapshot)))
+}
+
+/// Convert only statuses the Cloud machine wire contract can actually emit.
+/// The shared lifeline vocabulary also contains `stopped`, `destroyed` and
+/// `unknown` for other providers and reconciliation, but those words are not
+/// Cloud machine statuses and must not grant a Cloud capability.
+fn cloud_status(status: &CloudMachineStatus) -> Result<Status, ObserveError> {
+    match status {
+        CloudMachineStatus::Provisioning
+        | CloudMachineStatus::Starting
+        | CloudMachineStatus::Running
+        | CloudMachineStatus::Pausing
+        | CloudMachineStatus::Paused
+        | CloudMachineStatus::Deleting
+        | CloudMachineStatus::Failed => {
+            status.as_str().parse().map_err(|_| ObserveError::InvalidStatus)
+        }
+        _ => Err(ObserveError::InvalidStatus),
+    }
 }
 
 fn wrap(observed: Observed<Snapshot>) -> ObservedMachine {
@@ -178,7 +197,7 @@ fn validate_record(expected: &Snapshot, record: &CloudMachine) -> Result<Status,
             actual: record.team.clone(),
         });
     }
-    record.status.as_str().parse().map_err(|_| ObserveError::InvalidStatus)
+    cloud_status(&record.status)
 }
 
 /// The consumed capability and key for one mutation intent.

@@ -63,8 +63,13 @@ fn lifecycle_capabilities_reject_invalid_operations_and_reuse() {
             Some("E0599"),
         ),
         (
-            "reservation_power",
+            "preclaimed_reservation_power",
             "async fn check(p: Capability<Preclaimed>, c: &LifecycleClient) { p.delete(c, \"key\").await; }",
+            Some("E0599"),
+        ),
+        (
+            "claimed_reservation_power",
+            "async fn check(p: Capability<Claimed>, c: &LifecycleClient) { p.delete(c, \"key\").await; }",
             Some("E0599"),
         ),
         (
@@ -75,7 +80,7 @@ fn lifecycle_capabilities_reject_invalid_operations_and_reuse() {
     ];
     for (name, body, diagnostic) in cases {
         let source = out.join(format!("{name}.rs"));
-        fs::write(&source, format!("#![allow(dead_code, unused_imports)]\nuse cmux_cloud_client::lifecycle::{{Capability, Pending, LifecycleClient}};\nuse cmux_lifeline::vm::{{Running, Paused, Deleted, Unknown, Preclaimed}};\n{body}\n")).unwrap();
+        fs::write(&source, format!("#![allow(dead_code, unused_imports)]\nuse cmux_cloud_client::lifecycle::{{Capability, Pending, LifecycleClient}};\nuse cmux_lifeline::vm::{{Running, Paused, Deleted, Unknown, Preclaimed, Claimed}};\n{body}\n")).unwrap();
         let output = Command::new("rustc")
             .args(["--edition=2024", "--crate-type=lib", "--emit=metadata"])
             .arg("--out-dir")

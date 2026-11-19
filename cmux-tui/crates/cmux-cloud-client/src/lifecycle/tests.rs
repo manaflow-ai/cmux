@@ -31,6 +31,12 @@ fn provider_status_is_strict_at_the_capability_boundary() {
     let mut future = record("running", "7");
     future.status = CloudMachineStatus::Unknown("ready".to_owned());
     assert!(matches!(observe(&scope(), future), Err(ObserveError::InvalidStatus)));
+
+    for word in ["stopped", "destroyed", "deleted", "unknown"] {
+        let mut extra = record("running", "7");
+        extra.status = CloudMachineStatus::Unknown(word.to_owned());
+        assert!(matches!(observe(&scope(), extra), Err(ObserveError::InvalidStatus)), "{word}");
+    }
 }
 
 #[test]
