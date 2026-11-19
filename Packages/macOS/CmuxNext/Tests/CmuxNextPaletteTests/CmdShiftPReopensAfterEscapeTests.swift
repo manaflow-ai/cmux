@@ -14,6 +14,7 @@ struct CmdShiftPReopensAfterEscapeTests {
         _ = NSApplication.shared
         let palette = PaletteController(registry: .standard(), sources: PaletteSources(), frecencyPersistence: nil)
         defer { palette.closeForTest() }
+        palette.bindRegistryActions()
         palette.prepare(step: 0)
         palette.prepare(step: 1)
         var states: [String] = []
