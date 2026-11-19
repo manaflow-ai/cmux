@@ -77,9 +77,9 @@ struct AgentTabContent {
         let images = pane.services.agentTabs.launchImages
         // From the tab's record, so a tab its launch defers (no view yet) is judged as what it is.
         let newTab = view.map { $0.model.newTab != nil } ?? pane.services.agentTabs.isNewTabPage(key)
-        // A New Tab page with no saved image of its own draws the last New Tab frame (cx-ec99), unless
-        // it shows in Chromium: that page draws over the frame as it comes in, both seen at once.
-        let newTabFrame = { view?.model.newTab == nil || view?.pageDrawsOverCovers == true ? nil : AgentPaneNewTabFrame.shared.image(size: paneView.contentHost.bounds.size, appearance: paneView.launchImageAppearance) }
+        // A New Tab page with no saved image of its own draws the last New Tab frame (cx-ec99), one
+        // in Chromium too: that page lies outside the window until it painted (``AgentPaneView/holdChromiumPageUntilPainted()``).
+        let newTabFrame = { view?.model.newTab == nil ? nil : AgentPaneNewTabFrame.shared.image(size: paneView.contentHost.bounds.size, appearance: paneView.launchImageAppearance) }
         let saved = { images.takeCovering(images.slot(key, machine: pane.daemon.machineID), newTab: newTab, size: paneView.contentHost.bounds.size, appearance: paneView.launchImageAppearance, in: paneView) }
         let image = { saved() ?? newTabFrame() }
         if paneView.launchImageView == nil, let image = image() { paneView.showLaunchImage(image) } else if paneView.launchImageView == nil {
@@ -87,7 +87,7 @@ struct AgentTabContent {
             images.whenReadEnds(images.slot(key, machine: pane.daemon.machineID)) { [weak pane] in guard let pane, pane.currentTabKey == key, pane.view.launchImageView == nil else { return }; let view = pane.services.agentTabs.existingView(key, machine: pane.daemon.machineID); if view?.model.hasPainted != true { AgentTabContent(pane: pane).drawLastPage(key, until: view) } }
         }
         guard let imageView = paneView.launchImageView, let view else { return }
-        view.standOverPicture()
+        view.standOverPicture(); view.holdChromiumPageUntilPainted() // a Chromium New Tab page draws over the picture only whole, once it painted
         // The image's limit takes it only once the page has drawn. A chat read at launch can take
         // longer than that limit (acpmux's attach, and the page holds its first frame until the
         // chat is read), and the frame it would hand the pane to is empty.

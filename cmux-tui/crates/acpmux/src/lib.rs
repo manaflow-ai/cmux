@@ -67,14 +67,14 @@ pub mod codex_app_server;
 #[cfg(unix)]
 mod codex_auth_file;
 mod codex_cloud_auth;
+pub mod codex_cmux_entry;
 pub mod codex_desktop;
 pub mod complete;
+pub mod computer_use;
 pub mod config;
 pub mod conn_origin;
 pub mod context_inventory;
 pub mod cpu_class;
-pub mod cua_socket;
-pub mod cua_v2;
 pub mod cwd_pin;
 pub mod daemon;
 pub(crate) mod daemon_parts;
@@ -84,6 +84,7 @@ pub mod deliver;
 pub mod deps;
 pub mod desktop_bridge;
 pub mod desktop_link;
+pub mod directory_input;
 pub mod folder_instructions;
 #[cfg(all(test, unix))]
 mod fork_tests;
@@ -209,6 +210,7 @@ mod platform;
 pub mod pricing;
 pub mod probe_cleanup;
 pub mod probe_prompt;
+mod proc_start;
 pub mod prompt_cache_env;
 pub mod prompt_class;
 pub mod prompt_context;
@@ -314,7 +316,11 @@ pub mod touched_files;
 pub mod transcript;
 pub mod trust;
 pub mod trust_auto;
+/// The ratatui terminal UI (feature `tui`, off by default: acpmux is headless; the `cmux` multicall
+/// binary turns it on). Its entry for the CLI is `tui_entry`.
+#[cfg(feature = "tui")]
 pub mod tui;
+pub mod tui_entry;
 pub mod turn_attestation;
 pub(crate) mod turn_errors;
 pub(crate) mod uniichat_endpoint;
