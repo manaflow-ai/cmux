@@ -1317,6 +1317,8 @@ class Orchestrator:
             setup = {"session": session, "peer_key": viewer_key, "scope": "control", "stun": [],
                      "display": "main", "max_fps": self.a.max_fps,
                      "viewer": {"user": "viewer", "install": "screen-share-vs"}}
+            if self.a.encode_profile:
+                setup["encode_profile"] = self.a.encode_profile
             host.stdin.write(json.dumps(setup) + "\n")
             host.stdin.flush()
             host_key, cands = None, []
@@ -1815,6 +1817,9 @@ def main():
     r.add_argument("--samples", type=int, default=30)
     r.add_argument("--fps-seconds", type=int, default=10)
     r.add_argument("--max-fps", type=int, default=60)
+    r.add_argument("--encode-profile", choices=("standard", "ultra"),
+                   help="the cmux stack's profile, asked in the setup line as the app's viewer "
+                        "asks it (default: none sent, so the host runs standard)")
     r.add_argument("--clock-count", type=int, default=200)
     r.add_argument("--timeout", type=float, default=120)
     r.add_argument("--vnc-user", default=os.environ.get("VNC_USERNAME"))
