@@ -104,9 +104,9 @@ public struct CloudVMResizePlanValidator: Sendable {
         switch planID {
         case "max":
             productMemoryCeiling = 64 * 1_024
-        case "go":
-            productMemoryCeiling = 4 * 1_024
-        case "pro", "team", "founders", "founders-edition":
+        case "go", "pro", "team", "founders", "founders-edition":
+            // Plus (`go`) sells Pro's machine sizes: 2–8 vCPU, 4–16 GiB RAM,
+            // 16–128 GiB disk (`maxMemoryMbForPlan` on the server).
             productMemoryCeiling = 16 * 1_024
         default:
             // A missing or unknown plan must fail closed to the free tier;
@@ -130,9 +130,9 @@ public struct CloudVMResizePlanValidator: Sendable {
         let advertisedVcpus = positiveLimit(rawLimits["maxVcpus"])
             ?? max(1, maxMemoryMb / 2_048)
         let maxVcpus = min(advertisedVcpus, max(1, maxMemoryMb / 2_048))
-        let productDiskCeiling = planID == "max"
-            ? 256 * 1_024
-            : planID == "go" ? 16 * 1_024 : 128 * 1_024
+        // Mirrors `maxDiskMbForPlan`: Max grows to 256 GiB, every other plan
+        // (Plus, Pro, Team, Founder's, and the free fallback) to 128 GiB.
+        let productDiskCeiling = planID == "max" ? 256 * 1_024 : 128 * 1_024
         let maxDiskMb = min(
             positiveLimit(rawLimits["maxDiskMb"]) ?? productDiskCeiling,
             productDiskCeiling
