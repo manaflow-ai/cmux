@@ -16,6 +16,8 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::History { .. }
             | Command::SessionSearch(..)
             | Command::TagCmd { .. }
+            | Command::Archive { .. }
+            | Command::Unarchive { .. }
             | Command::RulesCmd { .. }
             | Command::Compare { .. }
             | Command::Preset { .. }
@@ -120,6 +122,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         Command::TagCmd { session, assignments, remove, ttl } => {
             orchestrate::tag(connect(true).await?, &session, assignments, remove, ttl, json_out)
                 .await
+        }
+        Command::Archive { sessions } => {
+            crate::cli::archive::run(connect(true).await?, sessions, true, json_out).await
+        }
+        Command::Unarchive { sessions } => {
+            crate::cli::archive::run(connect(true).await?, sessions, false, json_out).await
         }
         Command::RulesCmd { session, rules, clear } => {
             orchestrate::rules(connect(true).await?, &session, rules, clear, json_out).await

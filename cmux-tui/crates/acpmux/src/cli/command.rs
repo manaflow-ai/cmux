@@ -328,6 +328,19 @@ pub enum Command {
     /// `--json` with no filter is every session's full record.
     #[command(alias = "list", alias = "list-sessions", after_help = crate::cli::ls_table::HELP)]
     Ls(crate::cli::run::LsArgs),
+    /// Archive chats: off the chat lists until unarchived; `ls --archived` lists them. One
+    /// archived already keeps its archive.
+    Archive {
+        /// Session names or ids (`host/name` for a peer's).
+        #[arg(required = true)]
+        sessions: Vec<String>,
+    },
+    /// Bring archived chats back to the lists. One that is not archived is left as it is.
+    Unarchive {
+        /// Session names or ids (`host/name` for a peer's).
+        #[arg(required = true)]
+        sessions: Vec<String>,
+    },
     /// Open the TUI on a session, or on the session list.
     #[command(alias = "a")]
     Attach {

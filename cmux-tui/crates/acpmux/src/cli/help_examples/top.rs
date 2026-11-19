@@ -19,6 +19,20 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "archive",
+        &[
+            ("Take two finished chats off the lists", "acpmux archive docs-cleanup api-review"),
+            ("The same, with each outcome as JSON", "acpmux --json archive docs-cleanup"),
+        ],
+    ),
+    (
+        "unarchive",
+        &[
+            ("Bring a chat back to the lists", "acpmux unarchive api-review"),
+            ("The same, with each outcome as JSON", "acpmux --json unarchive api-review"),
+        ],
+    ),
+    (
         "machine-auth",
         &[
             (

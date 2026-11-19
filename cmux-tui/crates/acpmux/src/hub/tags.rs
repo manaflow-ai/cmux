@@ -43,6 +43,16 @@ impl Hub {
             for k in remove {
                 m.tags.remove(k);
             }
+            // The automatic archive's marker describes that archive only: any other change of
+            // `archived` (an unarchive, an archive by hand, a `_acpmux/tag` write) drops it
+            // (`inactive_archive.rs`).
+            use super::inactive_archive::{ARCHIVED_BY_TAG, ARCHIVED_TAG};
+            let sets = |key: &str| set.is_some_and(|set| set.contains_key(key));
+            if (sets(ARCHIVED_TAG) || remove.iter().any(|k| k == ARCHIVED_TAG))
+                && !sets(ARCHIVED_BY_TAG)
+            {
+                m.tags.remove(ARCHIVED_BY_TAG);
+            }
         }
         self.child_tags.note(session);
         self.lane_tags_changed(session);
