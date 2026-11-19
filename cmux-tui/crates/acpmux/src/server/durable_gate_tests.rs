@@ -32,14 +32,26 @@ fn hub_and_durability(
     journal: &SimStorage,
     kept_sync_quiet: Duration,
 ) -> (Arc<crate::hub::Hub>, crate::store::Durability) {
-    let mut config = Config::default();
-    config.store.mode = StoreMode::Local;
-    let journal_config = cmux_journal::Config {
+    hub_with_journal(home, journal, cmux_journal::Config { kept_sync_quiet, ..journal_config() })
+}
+
+/// The tests' journal: retries quickly.
+fn journal_config() -> cmux_journal::Config {
+    cmux_journal::Config {
         retry_min: Duration::from_millis(1),
         retry_max: Duration::from_millis(5),
-        kept_sync_quiet,
         ..cmux_journal::Config::default()
-    };
+    }
+}
+
+/// [`hub_and_durability`] with the journal `journal_config`.
+fn hub_with_journal(
+    home: &Path,
+    journal: &SimStorage,
+    journal_config: cmux_journal::Config,
+) -> (Arc<crate::hub::Hub>, crate::store::Durability) {
+    let mut config = Config::default();
+    config.store.mode = StoreMode::Local;
     let store = crate::store::open_with_journal(
         &config.store,
         home,
@@ -304,6 +316,34 @@ async fn agent_output_waits_for_the_changes_before_it_not_after() {
     assert!(
         took < SYNC + SYNC / 2,
         "agent output waited {took:?}, past the first change's sync ({SYNC:?}) for the second's"
+    );
+}
+
+/// The turn bench (`benches/turn_overhead.rs`, 2026-11-19): the journal's group window held a
+/// turn's lines. The first acked change after a quiet time is synced at once; one within
+/// `ack_group_window` of that sync waited out the rest of the window, though a client was waiting
+/// to see it. A connection that holds a line for a change asks for its sync: the second change is
+/// answered after its own sync, not at the window's end.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_change_a_client_waits_for_does_not_wait_out_the_group_window() {
+    const WINDOW: Duration = Duration::from_millis(800);
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(65);
+    let config = cmux_journal::Config { ack_group_window: WINDOW, ..journal_config() };
+    let (hub, _) = hub_with_journal(home.path(), &journal, config);
+    let (input, mut outgoing) = connect(&hub).await;
+    // The first change after a quiet time: synced at once, and the window starts.
+    send(&input, Message::request(2, method::MUX_MARK_UNREAD, json!({"sessionId": CHAT}))).await;
+    let reply = until(&mut outgoing, |line| line["id"] == 2).await;
+    assert!(reply.get("error").is_none(), "markUnread: {reply}");
+    let started = Instant::now();
+    send(&input, Message::request(3, method::MUX_MARK_UNREAD, json!({"sessionId": OTHER}))).await;
+    let reply = until(&mut outgoing, |line| line["id"] == 3).await;
+    let took = started.elapsed();
+    assert!(reply.get("error").is_none(), "markUnread: {reply}");
+    assert!(
+        took < WINDOW / 2,
+        "the second change waited {took:?} for the group window ({WINDOW:?})"
     );
 }
 
