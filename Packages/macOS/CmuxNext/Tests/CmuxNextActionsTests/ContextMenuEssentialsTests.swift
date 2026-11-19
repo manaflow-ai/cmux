@@ -47,8 +47,11 @@ struct ContextMenuEssentialsTests {
         let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"))
         // The group rows keep their own top-level section (Lawrence 2026-10-14: "my groups UI is lost").
         // Move ▸ (its first row: Move to Top) stays on top (u2418: Move to Top of Group was not found under More).
+        // Show Nested Sessions sits just above it, as on the chat row's menu (Leo); this registry hides no row. It
+        // draws once the pinned app library carries its catalog row (BoundActionCatalogTests.awaitingRepin).
+        let nested: [String] = ActionCatalog.all.contains { $0.id == "workspace.toggleNestedSessions" } ? ["workspace.toggleNestedSessions"] : []
         #expect(rows(menu) == ["renameWorkspace", "palette.toggleWorkspacePin", "palette.workspaceColor", "workspace.newBelow",
-                               "home.messageAbout", "palette.moveWorkspaceToTop", "—",
+                               "home.messageAbout"] + nested + ["palette.moveWorkspaceToTop", "—",
                                "moveWorkspaceToGroup", "groupSelectedWorkspaces", "removeWorkspaceFromGroup", "—", "palette.copyWorkspaceLink", "More", "—",
                                "closeWorkspace"])
         // Move to Group > Frontend names the group as a target, as the handler needs.

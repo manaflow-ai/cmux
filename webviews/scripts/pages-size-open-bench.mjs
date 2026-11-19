@@ -49,6 +49,7 @@ const pages = [
   "feed",
   "files",
   "github",
+  "glass-parity",
   "group-editor",
   "history",
   "home-channels",

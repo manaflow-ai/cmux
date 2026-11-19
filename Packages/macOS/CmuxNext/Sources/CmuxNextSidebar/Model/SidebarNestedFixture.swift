@@ -38,6 +38,10 @@ public nonisolated struct SidebarNestedFixture: Sendable {
         /// beside a group of one differently named member and a group of two (Leo 2026-10-29: "why is there all
         /// this weird stuff at the bottom of the sidebar").
         case soleMember
+        /// The session tree as Claude's desktop app draws nested sessions (`sidebar.sessionTree`): a chat
+        /// with the sessions it started under it, one working, one waiting on you, one finished unread, and
+        /// one that started two of its own (folded by default, its count and state chips showing).
+        case sessionTree
     }
 
     /// The state this fixture captures.
@@ -45,10 +49,15 @@ public nonisolated struct SidebarNestedFixture: Sendable {
     /// The sidebar rows: one local machine section holding the scenario's group tree.
     public let sections: [SidebarSection]
 
-    /// Who started whom (the session tree's `parents`), for ``Scenario/needsYou``; empty for the others.
+    /// Who started whom (the session tree's `parents`), for ``Scenario/needsYou`` and ``Scenario/sessionTree``;
+    /// empty for the others.
     public var parents: [WorkspaceID: WorkspaceID] {
-        guard scenario == .needsYou else { return [:] }
-        let links = ["settings": "release", "shrink": "settings", "notes": "release", "changelog": "notes"]
+        let links: [String: String] = switch scenario {
+        case .needsYou: ["settings": "release", "shrink": "settings", "notes": "release", "changelog": "notes"]
+        case .sessionTree: ["explore": "billing", "migration": "billing", "review": "billing", "rollout": "billing",
+                            "changelog": "rollout", "dashboards": "rollout"]
+        default: [:]
+        }
         return Dictionary(uniqueKeysWithValues: links.map { (WorkspaceID("w-\($0.key)"), WorkspaceID("w-\($0.value)")) })
     }
 
@@ -103,6 +112,8 @@ public nonisolated struct SidebarNestedFixture: Sendable {
             nodes = Self.needsYouRows.map(SidebarNode.workspace)
         case .soleMember:
             nodes = Self.soleMembers
+        case .sessionTree:
+            nodes = Self.sessionTreeRows.map(SidebarNode.workspace)
         }
         sections = [SidebarSection(kind: .machine(machine), nodes: nodes)]
     }
@@ -119,6 +130,19 @@ public nonisolated struct SidebarNestedFixture: Sendable {
         ws("notes", "Release notes", activity: .working), ws("changelog", "Changelog", activity: .waiting(kind: .permission)),
         ws("flaky", "Flaky test hunt", activity: .error), ws("login", "Cloud sign-in", activity: .waiting(kind: .auth)),
         ws("docs", "Docs sweep", unread: .dot), ws("icons", "Icon pass", unread: .count(2)), ws("api", "API cleanup", busy: true),
+    ]
+
+    /// ``Scenario/sessionTree``'s rows, in model order (``parents`` nests them).
+    private static let sessionTreeRows: [SidebarWorkspace] = [
+        ws("billing", "Ship the billing redesign", activity: .working),
+        ws("explore", "Map the invoice code", activity: .working),
+        ws("migration", "Write the migration", activity: .waiting(kind: .permission)),
+        ws("review", "Review the pull request", unread: .dot),
+        ws("rollout", "Plan the rollout"),
+        ws("changelog", "Draft the changelog", activity: .working),
+        ws("dashboards", "Check the dashboards"),
+        ws("flaky", "Fix the flaky upload test", unread: .dot),
+        ws("notes", "Release notes for 1.4"),
     ]
 
     private static func group(_ id: String, _ name: String, _ color: GroupColor, parent: String? = nil, folded: Bool = false,

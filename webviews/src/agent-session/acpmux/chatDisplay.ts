@@ -120,6 +120,15 @@ export const TRAY_TUCKED_KEY = "agentPane.display.trayTucked";
 /// or the right…"). Not part of ChatDisplay: switching it measures no transcript row again.
 export const TRAY_HANDLE_KEY = "agentPane.display.trayHandle";
 export type TrayHandleSide = "left" | "middle" | "right";
+/// Settings > Agent Chat > Subagents, the running tray by default: `transcript` draws a chat's
+/// subagents as cards in the transcript where they started (subagents/SubagentGroup.tsx), running,
+/// done or failed, with no tray line for them, as Claude's desktop app nests them under the parent
+/// chat (Leo: "Claude Code (and the Claude desktop app's Code tab) shows subagents and sub-sessions
+/// nested under the parent chat."). subagents/runningTray.ts `useSubagentTray` combines it with the
+/// Debug tunable, which still wins when off. Not part of ChatDisplay: switching it measures no
+/// transcript row again (the rows themselves change).
+export const SUBAGENTS_DISPLAY_KEY = "agentPane.display.subagents";
+export type SubagentsDisplay = "tray" | "transcript";
 /// Settings > Agent Chat > Unread Banner, off by default (Lawrence, 2026-11-11 standup: the "where
 /// you left off" arrow "I don't think that's good", match Codex): the floating "3 new turns since 3:42"
 /// banner at the transcript's top start while the "New" line is off screen
@@ -394,6 +403,7 @@ let minimapOn = false;
 let pinnedPlanOn = false;
 let trayTuckedOn = false;
 let trayHandle: TrayHandleSide = "middle";
+let subagentsShown: SubagentsDisplay = "tray";
 let unreadBanner: UnreadBannerMode = "off";
 let threadMinimapArm: ThreadMinimapArm | null = null;
 let transcriptView: TranscriptView = "normal";
@@ -425,6 +435,7 @@ export function setChatDisplay(value: unknown): void {
   const storedBanner = raw[UNREAD_BANNER_KEY];
   const banner: UnreadBannerMode = isUnreadBannerMode(storedBanner) ? storedBanner : "off";
   const handle = raw[TRAY_HANDLE_KEY] === "left" || raw[TRAY_HANDLE_KEY] === "right" ? raw[TRAY_HANDLE_KEY] : "middle";
+  const subagents: SubagentsDisplay = raw[SUBAGENTS_DISPLAY_KEY] === "transcript" ? "transcript" : "tray";
   const threadMinimap = resolveThreadMinimapArm(raw);
   const stored = raw[TRANSCRIPT_VIEW_KEY];
   const view = isTranscriptView(stored) ? stored : "normal";
@@ -454,6 +465,7 @@ export function setChatDisplay(value: unknown): void {
     pinnedPlan === pinnedPlanOn &&
     trayTucked === trayTuckedOn &&
     handle === trayHandle &&
+    subagents === subagentsShown &&
     banner === unreadBanner &&
     threadMinimap === threadMinimapArm &&
     view === transcriptView &&
@@ -469,6 +481,7 @@ export function setChatDisplay(value: unknown): void {
   pinnedPlanOn = pinnedPlan;
   trayTuckedOn = trayTucked;
   trayHandle = handle;
+  subagentsShown = subagents;
   unreadBanner = banner;
   threadMinimapArm = threadMinimap;
   transcriptView = view;
@@ -600,6 +613,11 @@ const trayHandleSnapshot = () => trayHandle;
 /// Where the hat's tuck chevron and pull tab sit along the composer's top edge (TRAY_HANDLE_KEY).
 export const useTrayHandle = (): TrayHandleSide =>
   useSyncExternalStore(subscribe, trayHandleSnapshot, trayHandleSnapshot);
+/// Where a chat's subagents draw (SUBAGENTS_DISPLAY_KEY): the running tray, or cards in the transcript.
+export const subagentsDisplay = (): SubagentsDisplay => subagentsShown;
+/// Calls `listener` after every `display` event that changed something; returns the unsubscribe.
+/// For a store that combines a display key with its own state (subagents/runningTray.ts).
+export const subscribeChatDisplay = subscribe;
 /// Whether the chat minimap is on (CHAT_MINIMAP_KEY).
 export const useChatMinimap = (): boolean => useSyncExternalStore(subscribe, minimapSnapshot, minimapSnapshot);
 /// The rail's arm, separate from the measured chat look so switching it remeasures no transcript row.
