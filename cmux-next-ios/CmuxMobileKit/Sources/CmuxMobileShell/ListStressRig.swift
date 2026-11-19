@@ -33,6 +33,11 @@ final class ListStressRig: NSObject {
     /// `CMUX_MOBILE_LIST_PAN=1`: the passes pan sideways (the diff's unwrapped code).
     private var horizontal: Bool { settings.pans }
     private var live: Task<Void, Never>?
+    /// Home's measurement line for the stress suite (`CMUX_MOBILE_LIST_HUD=1`): the lab's HUD fed
+    /// by a probe on Home's list, as JSON in a tiny label's accessibility value (`lab.hud`).
+    private var homeHUD: HomeStressHUD?
+    /// Rows the live Mac changed (the HUD's `changes`).
+    private var liveChanges = 0
     let log = Logger(subsystem: "dev.cmux.mobile", category: "frames")
 
     init(settings: ListStressSettings, shell: ShellModel) {
@@ -175,6 +180,9 @@ final class ListStressRig: NSObject {
             shell.tab = .feed
         case "home":
             MacHomeFeed.shared.seedStressRows(count: settings.count, macID: "mac-studio")
+            if ProcessInfo.processInfo.environment["CMUX_MOBILE_LIST_HUD"] == "1" {
+                homeHUD = HomeStressHUD(changes: { [weak self] in self?.liveChanges ?? 0 })
+            }
             shell.tab = .home
         default:
             log.error("FRAMELOG list-stress unknown screen \(screen, privacy: .public)")
@@ -275,6 +283,7 @@ final class ListStressRig: NSObject {
                     try? await Task.sleep(for: .seconds(1 / hz))
                     tick += 1
                     MacHomeFeed.shared.stressLiveTick(tick, changes: rows)
+                    liveChanges += rows
                 }
             }
             return
@@ -458,6 +467,44 @@ final class ListStressRig: NSObject {
         if settings.exitsWhenDone {
             FrameLogFile.flush()
             exit(0)
+        }
+    }
+}
+/// Home's measurement line for the stress suite: ``PagedLabHUD`` fed by a probe on Home's list
+/// (``HomeListProbeHook``), shown as a one-point label whose accessibility value is the HUD's JSON
+/// (`lab.hud`, as the lab's), refreshed four times a second.
+@MainActor
+final class HomeStressHUD {
+    private let hud = PagedLabHUD()
+    private let probe = PagedListProbe()
+    private let label = UILabel()
+    private var refresh: Task<Void, Never>?
+
+    init(changes: @escaping @MainActor () -> Int) {
+        probe.pageLanded = { [hud] shift, rows in hud.landed(shift: shift, rows: rows) }
+        probe.scrolling = { [hud] moving in hud.scrolling(moving) }
+        probe.frameShift = { [hud] shift in hud.sampled(shift) }
+        probe.shiftDetail = { [hud] shift, detail in hud.shifted(shift, detail) }
+        probe.slid = { [hud] frames in hud.slid(frames) }
+        probe.held = { [hud] rows in hud.hold(rows) }
+        HomeListProbeHook.shared.probe = probe
+        label.isAccessibilityElement = true
+        label.accessibilityIdentifier = "lab.hud"
+        label.accessibilityTraits = .staticText
+        label.text = "hud"
+        label.alpha = 0.02
+        label.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
+        label.isUserInteractionEnabled = false
+        refresh = Task { @MainActor [hud, label, probe] in
+            while !Task.isCancelled {
+                if label.window == nil,
+                   let window = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first {
+                    window.addSubview(label)
+                }
+                label.accessibilityValue = hud.json(edge: "end", changes: changes())
+                _ = probe
+                try? await Task.sleep(for: .milliseconds(250))
+            }
         }
     }
 }

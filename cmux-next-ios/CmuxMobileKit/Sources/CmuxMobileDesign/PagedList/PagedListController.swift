@@ -85,6 +85,9 @@ public final class PagedListProbe {
     public var slid: ((_ frames: Int) -> Void)?
     /// Rows arrived at the newest end under a resting finger and wait for it to lift.
     public var held: ((_ rows: Int) -> Void)?
+    /// Each snapshot apply: the rows redrawn in place (reconfigured, by id) and whether rows came,
+    /// went or moved.
+    public var applied: ((_ reconfigured: [AnyHashable], _ rowsChanged: Bool) -> Void)?
 
     public init() {}
 }
@@ -259,6 +262,10 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     var row: (Item) -> Row
     var edgeView: (PagedListEdge, PagedListEnd) -> AnyView
     var swipeActions: ((Item) -> [PagedListAction])?
+    /// A full swipe runs the first action (UIKit's default); off, it runs none.
+    var fullSwipe = true
+    /// Items that head a `.down` list: not its newest rows (``PagedList/pagedHeader(_:)``).
+    var header: Set<Item.ID> = []
     var loadMore: () -> Void = {}
     /// Reads the newer rows a windowed model holds on disk.
     var loadNewer: () -> Void = {}
@@ -445,7 +452,9 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     }
 
     /// The newest row's id (the top of a `.down` list, the bottom of an `.up` one).
-    private func newestID(in ids: [Item.ID]) -> Item.ID? { direction == .down ? ids.first : ids.last }
+    private func newestID(in ids: [Item.ID]) -> Item.ID? {
+        direction == .down ? (header.isEmpty ? ids.first : ids.first { !header.contains($0) }) : ids.last
+    }
 
     /// Shows `given` (top to bottom) and both edges' states. Rows whose value changed are drawn
     /// again in place; rows that came or went above the reader leave what they read where it was;
@@ -484,7 +493,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         let oldNewest = newestID(in: order)
         var arrivals = 0
         if loaded, heldNewest, let oldNewest, oldNewest != newestID(in: newOrder), let at = newOrder.firstIndex(of: oldNewest) {
-            arrivals = direction == .down ? at : newOrder.count - 1 - at
+            arrivals = direction == .down ? at - newOrder[..<at].count(where: header.contains) : newOrder.count - 1 - at
         }
         let animates = animatesNewest && !UIAccessibility.isReduceMotionEnabled
         // A finger on the list, or a fling still moving it, holds the rows under it: rows that arrive
@@ -537,6 +546,9 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         // No diff animation: a page lands out of view, or under a reader who stays put; rows that
         // arrive at the newest end slide in on the list's spring below.
         dataSource.apply(snapshot, animatingDifferences: false)
+        if let applied = probe?.applied {
+            applied(reconfigure.compactMap { if case .row(let id) = $0 { AnyHashable(id) } else { nil } }, rowsChanged)
+        }
         collectionView.layoutIfNeeded()
         arriving = false
         // Rows that came or went: put the reader back now, also mid-fling (an `.up` list's older page
@@ -1181,7 +1193,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             return one
         }
         let configuration = UISwipeActionsConfiguration(actions: contextual)
-        configuration.performsFirstActionWithFullSwipe = true
+        configuration.performsFirstActionWithFullSwipe = fullSwipe
         return configuration
     }
 }
