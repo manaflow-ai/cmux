@@ -1,0 +1,294 @@
+name: Agent turn overhead (staging Cloud VM)
+
+# The turn bench (cmux-tui/crates/acpmux/benches/turn_overhead.rs: a real `acpmux daemon run`, a stand-in model
+# that answers at once, the chat pane's client core, the cost of each turn by stage) run inside a fresh staging
+# Cloud machine signed in as the agent test account, never a person's login. Leo asked for it: "for our agent path:
+# a mock model that answers instantly, 100 turns through acpmux/agent-service into a cmux chat (local, and Cloud on
+# vm:new with the agent test account, never Leo's login)".
+#
+# Two jobs, so the measured commit's code never runs beside the account's secrets:
+# - build: the measured ref is data. Its release acpmux and the bench binary are built on Linux (the runner, Rust
+#   and cache steps of cmux-tui-spec.yml's acpmux-tests job) and handed on as an artifact.
+# - cloud: scripts from this workflow's own ref only. It signs in the way cloud-journey.ts does (Stack password
+#   sign-in, CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD in cmux-next-vm-image-dev, as cloud-journey-pr.yml and
+#   cloud-rd-link-readback.yml), makes a machine, puts both binaries on it in fs/write pieces (cloud-devloop.ts
+#   uploadPieces), runs the bench there in the background and reads its files back. The binaries never run on
+#   the runner. The machine is deleted in an always() step; its `cmux-test-` name also has the platform delete it
+#   6 hours on if that step never runs (as cloud-state-latency.ts names its machine).
+#
+# Manual only; nothing gates on it.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: The commit, branch or tag to measure (empty is the dispatching ref)
+        required: false
+        default: ""
+        type: string
+      turns:
+        description: Turns to time (after 5 warm-up turns)
+        required: false
+        default: "100"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-turn-cloud-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # The runner expression of cmux-tui-spec.yml's acpmux-tests job.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 40
+    outputs:
+      glibc: ${{ steps.build.outputs.glibc }}
+      target_tmp: ${{ steps.build.outputs.target_tmp }}
+      sha: ${{ steps.build.outputs.sha }}
+    steps:
+      - name: Refuse a malformed turn count
+        env:
+          TURNS: ${{ inputs.turns }}
+        run: |
+          if ! printf '%s' "$TURNS" | grep -Eqx '[1-9][0-9]{0,3}'; then
+            echo "::error::turns must be a whole number from 1 to 9999"
+            exit 1
+          fi
+
+      # The workflow's own ref: the Rust setup action.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      # The measured ref, as data: built here, run only on the Cloud machine.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          path: measured
+          persist-credentials: false
+          submodules: false
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: measured/cmux-tui -> target
+          shared-key: cmux-tui-acpmux-tests
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+
+      - name: Build acpmux (release) and the turn bench
+        id: build
+        working-directory: measured/cmux-tui
+        env:
+          CARGO_NET_RETRY: "10"
+          CARGO_HTTP_TIMEOUT: "120"
+        run: |
+          set -euo pipefail
+          cargo build --release --locked -p acpmux --bin acpmux
+          cargo bench --no-run --locked -p acpmux --bench turn_overhead --message-format=json > "$RUNNER_TEMP/bench-build.json"
+          bench="$(python3 -I -c '
+          import json, sys
+          paths = [m["executable"] for m in map(json.loads, open(sys.argv[1]))
+                   if m.get("reason") == "compiler-artifact" and m["target"]["name"] == "turn_overhead" and m.get("executable")]
+          print(paths[-1])' "$RUNNER_TEMP/bench-build.json")"
+          target="${CARGO_TARGET_DIR:-$PWD/target}"
+          case "$target" in /*) ;; *) target="$PWD/$target" ;; esac
+          out="$RUNNER_TEMP/agent-turn-bins"
+          mkdir -p "$out"
+          cp "$target/release/acpmux" "$out/acpmux"
+          cp "$bench" "$out/turn_overhead"
+          cd "$out"
+          file acpmux turn_overhead
+          sha256sum acpmux turn_overhead | tee SHA256SUMS
+          # The newest glibc symbol version either binary needs: the machine's glibc must be at least this.
+          glibc="$(objdump -T acpmux turn_overhead | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -Vu | tail -1)"
+          echo "runner $(ldd --version | head -1); the binaries need glibc $glibc"
+          {
+            echo "glibc=$glibc"
+            # The bench's hermetic HOME is under Cargo's target tmp, a path compiled in (daemon_env.rs scratch_base).
+            echo "target_tmp=$target/tmp"
+            echo "sha=$(git -C "$GITHUB_WORKSPACE/measured" rev-parse HEAD)"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-turn-bins
+          path: ${{ runner.temp }}/agent-turn-bins
+          retention-days: 1
+          if-no-files-found: error
+
+  cloud:
+    needs: build
+    # The staging agent test account's pair, as cloud-journey-pr.yml.
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    # The build job's runner expression.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 45
+    steps:
+      # Trusted scripts only: this workflow's own ref.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+          sparse-checkout: scripts/cmux-next
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: agent-turn-bins
+          path: ${{ runner.temp }}/agent-turn-bins
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Write the Cloud driver
+        run: |
+          mkdir -p "$RUNNER_TEMP/driver" "$RUNNER_TEMP/agent-turn-out"
+          cat > "$RUNNER_TEMP/driver/agent-turn-cloud.ts" <<'TS'
+          // run: make a machine, put the binaries on it, run the bench, read its files back. delete: the machine.
+          // Sign-in and calls as cloud-devloop.ts and cloud-state-latency.ts; exec and delete through cloud-journey.ts.
+          import { gzipSync } from "node:zlib";
+          import { createHash } from "node:crypto";
+          import { readFileSync, writeFileSync, existsSync } from "node:fs";
+          const root = `${process.env.GITHUB_WORKSPACE}/scripts/cmux-next`;
+          const { Api, Journey, STACK, STACK_API, directExec, resolveBackend, scrub } = await import(`${root}/cloud-journey.ts`);
+          const { uploadPieces } = await import(`${root}/cloud-devloop.ts`);
+          const env = process.env as Record<string, string>;
+          const backend = resolveBackend("staging");
+          const api = new Api(backend.api);
+          const J = new Journey(backend, null, {});
+          const say = (s: string) => console.log(scrub(s, J.secrets));
+          const stack = STACK[backend.stack];
+          const signIn = await fetch(`${STACK_API}/api/v1/auth/password/sign-in`, {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-stack-access-type": "client", "x-stack-project-id": stack.project, ...(stack.clientKey ? { "x-stack-publishable-client-key": stack.clientKey } : {}) },
+            body: JSON.stringify({ email: env.CMUX_DOGFOOD_STACK_EMAIL, password: env.CMUX_DOGFOOD_STACK_PASSWORD }),
+          });
+          const session: any = await signIn.json().catch(() => ({}));
+          if (signIn.status !== 200 || typeof session.access_token !== "string") throw new Error(`Stack sign-in HTTP ${signIn.status}`);
+          api.bearer = session.access_token;
+          J.secrets.push(env.CMUX_DOGFOOD_STACK_PASSWORD, session.access_token, session.refresh_token ?? "");
+          const tag = `agent-turn-${env.GITHUB_RUN_ID}-${env.GITHUB_RUN_ATTEMPT}`;
+          if (process.argv[2] === "delete") {
+            if (!existsSync(env.MACHINE_FILE)) { say("no machine was made"); process.exit(0); }
+            const machine = readFileSync(env.MACHINE_FILE, "utf8").trim();
+            await api.deleteMachine(machine, `${tag}-delete`);
+            say(`deleted ${machine}`);
+            process.exit(0);
+          }
+          await api.op("user.ensure", {}, `${tag}-ensure`);
+          const made = await api.op("cloud.machine.create", { name: `cmux-test-${tag}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-create`);
+          const machine: string = made.machine.id;
+          writeFileSync(env.MACHINE_FILE, machine);
+          let row = made.machine;
+          for (const until = Date.now() + 300_000; !(row.status === "running" && row.host); ) {
+            if (row.status === "failed" || Date.now() > until) throw new Error(`${machine} ${row.status}`);
+            await Bun.sleep(2000);
+            row = await api.read("cloud.machine.get", { machine });
+          }
+          say(`machine ${machine} running, image ${row.image?.id ?? "?"}`);
+          const exec = directExec(api, machine, J);
+          const must = async (command: string, timeoutMs = 60_000) => {
+            const r = await exec(command, timeoutMs);
+            if (r.code !== 0) throw new Error(`exit ${r.code}: ${scrub((r.stderr || r.stdout).slice(-600), J.secrets)}`);
+            return r.stdout;
+          };
+          // The machine's glibc against the newest version the binaries need (the build job's objdump).
+          const facts = (await must(`ldd --version | head -1; . /etc/os-release; echo "$PRETTY_NAME $(uname -m) cpu=$(nproc)"`)).trim();
+          say(`guest: ${facts.replace(/\n/g, "; ")}; the binaries need glibc ${env.NEED_GLIBC}`);
+          const guestGlibc = facts.split("\n")[0].match(/(\d+\.\d+)\s*$/)?.[1] ?? "0";
+          const older = (a: string, b: string) => { const [x, y] = [a, b].map((v) => v.split(".").map(Number)); return x[0] < y[0] || (x[0] === y[0] && x[1] < y[1]); };
+          if (older(guestGlibc, env.NEED_GLIBC)) throw new Error(`the machine's glibc ${guestGlibc} is older than the ${env.NEED_GLIBC} the binaries need`);
+          const D = "/home/cmux/.cache/agent-turn";
+          // The bench's hermetic HOME goes under the runner's Cargo target tmp, compiled in: make that path here.
+          await must(`set -e; sudo -n install -d -o "$(id -un)" -m 700 '${env.TARGET_TMP}'; rm -rf ${D}; mkdir -p ${D}`);
+          for (const name of ["acpmux", "turn_overhead"]) {
+            const bytes = readFileSync(`${env.BINS}/${name}`);
+            const sum = createHash("sha256").update(bytes).digest("hex");
+            const gz = gzipSync(bytes, { level: 6 });
+            const t0 = Date.now();
+            await must(`mkdir -p ${D}/${name}.in`);
+            const n = await uploadPieces({ write: async (_m: string, file: string, data: Uint8Array) => {
+              const w = await api.raw("POST", `/v1/cloud/machines/${machine}/fs/write`, { path: file, dataBase64: Buffer.from(data).toString("base64"), mode: 0o644 }, 120_000);
+              if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`fs/write ${file}: HTTP ${w.status}`);
+            } }, machine, `${D}/${name}.in`, gz);
+            await must(`set -e; cd ${D}; cat ${name}.in/* | gunzip > ${name}; rm -rf ${name}.in; echo '${sum}  ${name}' | sha256sum -c --quiet; chmod 755 ${name}`, 120_000);
+            say(`uploaded ${name}: ${(bytes.length / 1e6).toFixed(1)} MB (${(gz.length / 1e6).toFixed(1)} MB gzip, ${n} pieces) in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+          }
+          // In the background with its own fds (the exec answers at once), so no exec time cap cuts the run: each poll
+          // is one short exec.
+          await must(`cd ${D} && rm -f s.md r.json bench.log bench.exit && { setsid nohup sh -c './turn_overhead --turns ${env.TURNS} --daemon ${D}/acpmux --summary ${D}/s.md --json ${D}/r.json > bench.log 2>&1; echo $? > bench.exit' < /dev/null > /dev/null 2>&1 & }`);
+          const t0 = Date.now();
+          let code = "";
+          while (!(code = (await must(`cat ${D}/bench.exit 2>/dev/null || true`)).trim())) {
+            if (Date.now() - t0 > 20 * 60_000) throw new Error("the bench ran past 20 minutes");
+            await Bun.sleep(5000);
+          }
+          say(`bench exit ${code} after ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+          const out = env.OUT;
+          say((await must(`tail -c 20000 ${D}/bench.log`)));
+          writeFileSync(`${out}/summary.md`, await must(`cat ${D}/s.md 2>/dev/null || true`));
+          writeFileSync(`${out}/r.json`, await must(`cat ${D}/r.json 2>/dev/null || true`));
+          writeFileSync(`${out}/guest.txt`, `${facts}\n`);
+          process.exit(code === "0" ? 0 : 1);
+          TS
+
+      - name: Run the turn bench on a staging Cloud machine
+        timeout-minutes: 35
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          MACHINE_FILE: ${{ runner.temp }}/agent-turn-machine
+          BINS: ${{ runner.temp }}/agent-turn-bins
+          OUT: ${{ runner.temp }}/agent-turn-out
+          NEED_GLIBC: ${{ needs.build.outputs.glibc }}
+          TARGET_TMP: ${{ needs.build.outputs.target_tmp }}
+          TURNS: ${{ inputs.turns }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CMUX_DOGFOOD_STACK_EMAIL:-}" ] || [ -z "${CMUX_DOGFOOD_STACK_PASSWORD:-}" ]; then
+            echo "::error::the staging agent Stack pair is missing from cmux-next-vm-image-dev"
+            exit 1
+          fi
+          bun "$RUNNER_TEMP/driver/agent-turn-cloud.ts" run
+
+      - name: Summarize
+        if: always()
+        env:
+          SHA: ${{ needs.build.outputs.sha }}
+        run: |
+          OUT="$RUNNER_TEMP/agent-turn-out"
+          {
+            echo '## Cloud VM (staging, agent test account)'
+            echo
+            echo "Commit \`$SHA\`; guest: $(tr '\n' ' ' < "$OUT/guest.txt" 2>/dev/null || echo unknown)"
+            echo
+            if [ -s "$OUT/summary.md" ]; then cat "$OUT/summary.md"; else echo 'No summary came back (see the run step).'; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -s "$OUT/r.json" ]; then echo "AGENT-TURN $(cat "$OUT/r.json")"; fi
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: agent-turn-cloud-rows
+          path: ${{ runner.temp }}/agent-turn-out/r.json
+          retention-days: 3
+          if-no-files-found: warn
+
+      - name: Delete the run's machine
+        if: always()
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          MACHINE_FILE: ${{ runner.temp }}/agent-turn-machine
+        run: |
+          if [ ! -s "$MACHINE_FILE" ]; then echo "no machine was made"; exit 0; fi
+          bun "$RUNNER_TEMP/driver/agent-turn-cloud.ts" delete
