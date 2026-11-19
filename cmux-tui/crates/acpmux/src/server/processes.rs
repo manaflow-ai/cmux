@@ -20,7 +20,6 @@ use crate::protocol::process::ProcessBackgroundParams;
 use crate::rpc::{Message, RpcError, method};
 use serde_json::{Value, json};
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 
 /// The reply to a process method, or None for any other method.
 pub(super) async fn dispatch(
@@ -142,7 +141,8 @@ pub(super) fn push_update(conn: &Conn, ev: &HubEvent) {
     if conn.origin.web_class() {
         return;
     }
-    if !conn.watch_all.load(Ordering::SeqCst) && conn.sub_opts(&ev.session_id).is_none() {
+    // A hidden page hears its own chats' processes only (`list_shown.rs`).
+    if !conn.lists() && conn.sub_opts(&ev.session_id).is_none() {
         return;
     }
     let process = rec.msg.get("process").cloned().unwrap_or(Value::Null);

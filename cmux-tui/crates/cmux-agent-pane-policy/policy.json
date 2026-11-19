@@ -98,7 +98,7 @@
     "session/prompt": {"params": ["sessionId", "prompt", "_meta"], "acpmux": ["promptId", "steer", "interrupt", "context", "surface", "inlineParts", "promptSuggestion"]},
     "session/set_model": {"params": ["sessionId", "modelId"], "acpmux": []},
     "session/cancel": {"params": ["sessionId"], "acpmux": []},
-    "_acpmux/watch": {"params": ["enabled", "limit", "afterSeq", "listEpoch"], "acpmux": []},
+    "_acpmux/watch": {"params": ["enabled", "limit", "afterSeq", "listEpoch", "shown"], "acpmux": []},
     "_acpmux/sessions": {"params": ["limit", "cursor", "usage"], "acpmux": []},
     "_acpmux/events": {"params": ["sessionId", "afterSeq", "beforeSeq", "limit", "maxBytes", "kinds", "promptIndex", "subagent"], "acpmux": []},
     "_acpmux/attachment": {"params": ["sessionId", "id"], "acpmux": []},

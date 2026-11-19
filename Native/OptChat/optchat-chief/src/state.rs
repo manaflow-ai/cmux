@@ -539,6 +539,19 @@ pub struct SubRecord {
     /// goal.rs): the tick reads it again until it reports.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub goal_held: bool,
+    /// It works under the goal (goal.rs): its session's stop condition lets
+    /// it end a turn only when its task is done.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub goal: bool,
+    /// This run began on its own after its last run ended (its session went
+    /// busy with no tell or spawn from the Chief: an acpmux notice, or the
+    /// person in its chat). Cleared when the run ends.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reopened: bool,
+    /// This run's session closed under it and the host sent the prompt that
+    /// resumes it (`resume_closed`): a second close ends the run.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub closed_resumed: bool,
 }
 
 /// How many tell keys a subagent keeps for dedupe.

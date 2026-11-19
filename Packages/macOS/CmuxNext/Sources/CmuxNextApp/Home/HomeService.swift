@@ -78,13 +78,10 @@ final class HomeService {
     @ObservationIgnored var activationObserver: (any NSObjectProtocol)?
     /// The store's home workspace (`workspace-kind-v1`), from `workspace.ensure_home`.
     var homeWorkspaceID: ResourceID?
-    /// An `ensure_home` is in flight. A tree snapshot taken meanwhile can
-    /// show the new home workspace before its kind row, so launch waits for
-    /// the answer before it decides on a first workspace (`needsFirstWorkspace`).
-    var homeEnsureInFlight = false
-    /// The latest `ensure_home`; only it clears `homeEnsureInFlight`.
-    @ObservationIgnored var homeEnsureGeneration = 0
+    /// Its `ensure_home` requests: in flight, answered, and whether the launch waits for Home (`HomeEnsureState`).
+    @ObservationIgnored let ensure = HomeEnsureState()
     @ObservationIgnored var homeWorkspaceTask: Task<Void, Never>?
+    @ObservationIgnored let ensureOwner = HomeEnsureOwnerWait() // the ensure whose Chief tab step is on the owner
     /// The last step the home workspace setup reached, for `debug.home`.
     @ObservationIgnored var homeWorkspaceStep = "not started"
     /// The chief tab creation's idempotency key (one per creation).
@@ -278,8 +275,8 @@ final class HomeService {
                 // after a stop: start the host now if it does not run.
                 if homeWasOpened { homeDidOpen(asked: false) }
                 // The Chief tab may wait on this owner (a local Chief with history
-                // takes it back from a placed chief): check it again now.
-                if let local = services.machines.local.connection,
+                // takes it back from a placed chief): check it again now, unless the running ensure waits for this owner (CMUX-571).
+                if let local = services.machines.local.connection, !ensureOwner.follows(current: ensure.generation, connected: connection),
                    services.machines.local.supports(DaemonCapability.workspaceKind.rawValue) {
                     ensureHomeWorkspace(local)
                 }

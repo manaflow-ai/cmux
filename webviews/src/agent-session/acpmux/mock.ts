@@ -336,6 +336,9 @@ export class MockAcpmuxSocket {
   private openTurns = new Set<string>();
   /// A new chat opens in the project of the session the reader last opened.
   private attached = sessionId;
+  /// The page said it is hidden (`_acpmux/watch {shown: false}`, with `session-list-shown-v1` in
+  /// `cmuxAcpmuxMockCapabilities`): as acpmux (server/list_shown.rs), other chats' changes are not sent.
+  private listHidden = false;
   private closed = false;
   /// Prompts run one at a time, as the daemon queues them.
   private queue: Promise<unknown> = Promise.resolve();
@@ -629,8 +632,14 @@ export class MockAcpmuxSocket {
           typeof params.harness === "string" ? params.harness : undefined,
           typeof params.model === "string" ? params.model : undefined,
         );
-      case "_acpmux/watch":
-        return this.watch(params);
+      case "_acpmux/watch": {
+        if (typeof params.shown === "boolean") this.listHidden = !params.shown;
+        const answer = this.watch(params);
+        // `limit: 1` (turns watching on) reads one row.
+        return params.limit === 1 && Array.isArray(answer.sessions)
+          ? { ...answer, sessions: answer.sessions.slice(0, 1) }
+          : answer;
+      }
       // A session this daemon lists (mockFixture.ts `mockResolvable`), by link, id or HOST/NAME.
       case "_acpmux/resolve": {
         const query = String(params.query ?? "").trim();
@@ -1231,6 +1240,7 @@ export class MockAcpmuxSocket {
     if (index < 0) return;
     const changed = { ...this.sessions[index], ...fields, ...(moved ? { updatedAt: Date.now() } : {}) };
     this.sessions[index] = changed;
+    if (this.listHidden && target !== this.attached) return;
     this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "updated", session: changed } });
   }
 
@@ -1358,8 +1368,9 @@ export class MockAcpmuxSocket {
     return { follow: true, sessions, gone, more: false, ...at };
   }
 
-  /// Every `session_changed` the mock sends, counted (`cmuxAcpmuxMockNotices`, bench/session-scale-scroll.bench.ts),
-  /// stamped with its list position when the list follows, and kept from a connection whose watch is off.
+  /// Every `session_changed` the mock sends, counted when a bench set `cmuxAcpmuxMockNotices` up
+  /// (bench/session-scale-scroll.bench.ts; a test that never asks gets no new global), stamped with its
+  /// list position when the list follows, and kept from a connection whose watch is off.
   private deliver(message: unknown): void {
     const notice = message as { method?: string; params?: { kind?: string; session?: { sessionId?: unknown } } };
     if (notice.method === "_acpmux/session_changed") {
@@ -1374,7 +1385,7 @@ export class MockAcpmuxSocket {
       }
       if (!this.watching) return;
       const globals = globalThis as { cmuxAcpmuxMockNotices?: number };
-      globals.cmuxAcpmuxMockNotices = (globals.cmuxAcpmuxMockNotices ?? 0) + 1;
+      if (typeof globals.cmuxAcpmuxMockNotices === "number") globals.cmuxAcpmuxMockNotices += 1;
     }
     queueMicrotask(() => {
       if (this.readyState === 1) this.onmessage?.({ data: JSON.stringify(message) });

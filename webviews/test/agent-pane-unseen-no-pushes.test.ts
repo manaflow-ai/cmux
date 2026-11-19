@@ -167,7 +167,13 @@ async function openPane() {
   let count = 0;
   let last: any;
   const client = await AcpmuxDirectClient.connect(
-    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://unseen.invalid/", token: "t", sessionId: SELECTED },
+    {
+      protocolVersion: 1,
+      transport: "acpmux-websocket",
+      endpoint: "ws://unseen.invalid/",
+      token: "t",
+      sessionId: SELECTED,
+    },
     (message: any) => {
       if (message?.type !== "snapshot") return;
       count += 1;

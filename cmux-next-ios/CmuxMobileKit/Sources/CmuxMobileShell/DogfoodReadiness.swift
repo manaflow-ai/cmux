@@ -1,6 +1,7 @@
 #if DEBUG && os(iOS)
 import CmuxMobileAuth
 import CmuxMobileLive
+import CmuxMobileModel
 import Foundation
 import OSLog
 
@@ -48,6 +49,9 @@ struct DogfoodReadiness {
         let dev_tag: String
         let git_sha: String
         let api_base_url: String
+        /// The Cloud service this launch uses (`CloudBackendOverride.cloudService`): the tag's
+        /// `CMUX_NEXT_CLOUD_BACKEND` when the hand-off passed one (`review.sh --backend`), else the build's.
+        let cloud_backend: String
         let account_email: String
         let user_id: String
         let signed_in: Bool
@@ -67,15 +71,23 @@ struct DogfoodReadiness {
     let environment: [String: String]
     let bundleID: String
     let info: [String: Any]
+    let defaults: UserDefaults
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment, bundle: Bundle = .main) {
         self.init(environment: environment, bundleID: bundle.bundleIdentifier ?? "", info: bundle.infoDictionary ?? [:])
     }
 
-    init(environment: [String: String], bundleID: String, info: [String: Any]) {
+    init(environment: [String: String], bundleID: String, info: [String: Any], defaults: UserDefaults = .standard) {
         self.environment = environment
         self.bundleID = bundleID
         self.info = info
+        self.defaults = defaults
+    }
+
+    /// The Cloud service this launch uses, as the receipt names it (DEBUG builds only write one).
+    var cloudBackend: String {
+        CloudBackendOverride.cloudService(environment: environment, infoValue: info["CmuxMobileCloudAPIBase"] as? String,
+                                          defaults: defaults, debug: true)?.url.absoluteString ?? ""
     }
 
     /// The launcher asked for a receipt.
@@ -112,6 +124,7 @@ struct DogfoodReadiness {
             dev_tag: devTag,
             git_sha: info["CmuxMobileSourceCommit"] as? String ?? "",
             api_base_url: apiBase.absoluteString,
+            cloud_backend: cloudBackend,
             account_email: email.lowercased(),
             user_id: userID,
             signed_in: true,
@@ -131,6 +144,7 @@ struct DogfoodReadiness {
             dev_tag: devTag,
             git_sha: info["CmuxMobileSourceCommit"] as? String ?? "",
             api_base_url: apiBase?.absoluteString ?? "",
+            cloud_backend: cloudBackend,
             account_email: "",
             user_id: "",
             signed_in: false,

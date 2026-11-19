@@ -96,11 +96,16 @@ jobs:
     # with LINUX_RUNNER on a 16-vCPU Blacksmith size, roll 44282278310 queued 41 min for plan and 20+ min for promote,
     # each a minute of work, while Blacksmith's vCPU cap had room for a small job. Only the bake needs the big runner.
     # Never on the roll's own commits (they change the lock), and only on feat-cmux-next.
+    # Attempt 1 takes the owned GCP build lane (cmux-gcp-lane-build-x64, the label the nightly tree's short jobs
+    # use): plan holds no secret, no environment and a read-only token, and Blacksmith's vCPU cap with saturated
+    # hosted runners left roll 44351236121's plan queued 6 h 51 min. A re-run takes the pools. platform-readiness
+    # and promote (the production App key), the bake (Freestyle key) and report (a contents: write token) stay
+    # off the shared lane VMs.
     if: >-
       github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' &&
       !(github.event_name == 'push' && (startsWith(github.event.head_commit.message, 'cmux-vm: image roll ') ||
       startsWith(github.event.head_commit.message, 'cmux-vm: image rollback ')))
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-lane-build-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -122,6 +127,14 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
+      # The owned GCP build lanes reuse the workspace: after an earlier job's sparse checkout a checkout there left tracked files missing (run 44398113924), so write HEAD's files again.
+      - name: Repair a reused self-hosted checkout
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+            git reset -q --hard HEAD
+          fi
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"

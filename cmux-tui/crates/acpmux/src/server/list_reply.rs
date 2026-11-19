@@ -243,13 +243,20 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
     crate::hub::session_pages::refuse_watch_filters(params)?;
     let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
     let tools = with_tools(params)?;
+    let shown = super::list_shown::shown(params)?;
+    let after = follow_cursor(hub, params)?;
     conn.watch_tools.store(on && tools, Ordering::SeqCst);
-    conn.watch_all.store(on, Ordering::SeqCst);
+    let was_watching = conn.watch_all.swap(on, Ordering::SeqCst);
+    // Hidden or shown (`list_shown.rs`): a show follows from no later than the last position
+    // this connection was sent while shown.
+    let change = super::list_shown::set(hub, conn, shown, on);
+    let after = super::list_shown::follow_from(change, after);
     // The position the reply is current to, read once the watch is on: every change after it is
     // a notice on this connection (`row_log.rs`).
     let head = hub.list_cursor().0;
+    super::list_shown::answered(conn, change, was_watching, head);
     let own_only = conn.origin == super::Origin::Peer;
-    if on && let Some(after) = follow_cursor(hub, params)? {
+    if on && let Some(after) = after {
         // Rows changed after the client's cursor, never the list: its cost is the changes.
         if let Some(done) = follow(hub, conn, after, own_only, tools).await {
             return done;

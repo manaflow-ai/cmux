@@ -1410,13 +1410,19 @@
     },
     {
       "kind": "request",
-      "name": "_acpmux/computer_use_enroll",
+      "name": "_acpmux/computer_use_call",
       "params": true,
       "result": true
     },
     {
       "kind": "request",
-      "name": "_acpmux/computer_use_endpoint",
+      "name": "_acpmux/computer_use_machines",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/computer_use_state",
       "params": true,
       "result": true
     },
@@ -7914,6 +7920,13 @@
           "description": "The `listEpoch` that `afterSeq` came with: a cursor of another daemon run is reset.",
           "type": [
             "string",
+            "null"
+          ]
+        },
+        "shown": {
+          "description": "Whether the page that watches is shown (capability `session-list-shown-v1`,\n`server/list_shown.rs`). False: the connection hears `_acpmux/session_changed` only for\nthe chats it is attached to (the reply is the usual list or follow). True after false,\nwith `afterSeq`: the follow starts no later than the last position the connection was\nsent while shown, so it holds exactly the rows changed while hidden. Absent: unchanged\n(shown for a client that never says).",
+          "type": [
+            "boolean",
             "null"
           ]
         },
