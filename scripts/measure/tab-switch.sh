@@ -257,7 +257,7 @@ frames_main() {
     cp "${CARGO_TARGET_DIR:-$root/cmux-tui/target}/release/examples/scale_home" "$tmp/scale_home" && chmod 0755 "$tmp/scale_home"
   fi
   app_under_test "$build" "$config" "$dmg" "$tmp" "$root" tabswitch TSW || exit 3
-  local app_args=("${APP_ARGS[@]}") label="$APP_LABEL"
+  local app_args=(${APP_ARGS[@]+"${APP_ARGS[@]}"}) label="$APP_LABEL"
   local gate_args=()
   [[ "$gate" == 0 ]] && gate_args=(--no-gate)
   local scenario_args=()

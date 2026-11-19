@@ -67,7 +67,7 @@ br_main() {
   local list=() seen=" "
   IFS=, read -r -a list <<<"$arms"
   [[ ${#list[@]} -gt 0 ]] || { echo "arms= names at least one of cold, hide, close, quit" >&2; exit 2; }
-  for arm in "${list[@]}"; do
+  for arm in ${list[@]+"${list[@]}"}; do
     case "$arm" in cold|hide|close|quit) ;; *) echo "arms= takes cold, hide, close, quit: not $arm" >&2; exit 2 ;; esac
     case "$seen" in *" $arm "*) echo "arms= names $arm twice" >&2; exit 2 ;; esac
     seen="$seen$arm "
@@ -95,12 +95,12 @@ br_main() {
   mkdir -p "$mount"
   hdiutil attach "$out/head.dmg" -nobrowse -readonly -mountpoint "$mount" >/dev/null || { echo "BR attach failed"; exit 3; }
   found="$(find "$mount" -maxdepth 1 -name '*.app' | head -1)"
-  for arm in "${list[@]}"; do
+  for arm in ${list[@]+"${list[@]}"}; do
     mkdir -p "$out/$arm" && ditto "$found" "$out/$arm/$(basename "$found")" || { hdiutil detach -force "$mount" >/dev/null; exit 3; }
   done
   hdiutil detach "$mount" >/dev/null || hdiutil detach -force "$mount" >/dev/null
   echo "BR app $(basename "$found") $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$out/${list[0]}/$(basename "$found")/Contents/Info.plist" 2>/dev/null)"
-  for arm in "${list[@]}"; do
+  for arm in ${list[@]+"${list[@]}"}; do
     br_arm "$out" "$arm" "$runs" "$settle" "$idle" "$([[ "$arm" == quit ]] && echo "$setting")" || rc=1
   done
   touch "$out/runs.jsonl" "$out/idle.jsonl"

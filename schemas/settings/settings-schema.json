@@ -1359,18 +1359,6 @@
             }
           },
           {
-            "key" : "settings.group.computerUse",
-            "rows" : [
-              "computerUse.enabled",
-              "computerUse.driver",
-              "computerUse.livePreview"
-            ],
-            "title" : {
-              "key" : "settings.group.computerUse",
-              "text" : "Computer Use"
-            }
-          },
-          {
             "key" : "settings.group.cmuxRemote",
             "rows" : [
               "remote.endSharingOnQuit",
@@ -1467,6 +1455,16 @@
               "key" : "settings.group.folderTrust",
               "text" : "Folder Trust"
             }
+          },
+          {
+            "key" : "settings.group.agentTools",
+            "rows" : [
+              "agents.cmuxMcp"
+            ],
+            "title" : {
+              "key" : "settings.group.agentTools",
+              "text" : "cmux Tools"
+            }
           }
         ],
         "id" : "agents",
@@ -1479,7 +1477,7 @@
           "text" : "Agents"
         },
         "trail" : [
-          "computerUse",
+          "agentTools",
           "harnesses",
           "agentHarnesses",
           "agentIntegrations",
@@ -1495,24 +1493,33 @@
         ],
         "groups" : [
           {
-            "key" : "settings.group.mcpServers",
+            "key" : "settings.group.computerUse",
             "rows" : [
-              "agents.mcpServers.enabled"
+              "computerUse.mode",
+              "computerUse.deniedApps",
+              "computerUse.allowOwnMachines",
+              "computerUse.pauseOnTakeover",
+              "computerUse.showCursor",
+              "computerUse.cursorTag",
+              "computerUse.settle",
+              "computerUse.livePreview",
+              "computerUse.menus",
+              "computerUse.allowForeground"
             ],
             "title" : {
-              "key" : "settings.group.mcpServers",
-              "text" : "Agent Chats"
+              "key" : "settings.group.computerUse",
+              "text" : "Computer Use"
             }
           }
         ],
-        "id" : "mcpServers",
+        "id" : "computerUse",
         "lead" : [
-          "mcpServers"
+          "computerUse"
         ],
-        "symbol" : "server.rack",
+        "symbol" : "cursorarrow.click.2",
         "title" : {
-          "key" : "settings.category.mcpServers",
-          "text" : "MCP Servers"
+          "key" : "settings.category.computerUse",
+          "text" : "Computer Use"
         },
         "trail" : [
 
@@ -2172,6 +2179,7 @@
               "labs.voiceRoomURL",
               "labs.machineJoin",
               "labs.liveCode",
+              "customize.fromTheApp",
               "appearance.experimentalControls"
             ],
             "title" : {
@@ -2298,7 +2306,7 @@
         "categories" : [
           "chat",
           "agents",
-          "mcpServers",
+          "computerUse",
           "models",
           "cloud",
           "chief"
@@ -11237,191 +11245,81 @@
     },
     {
       "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.computerUse",
-        "text" : "Computer Use"
-      },
-      "help" : {
-        "key" : "settings.computerUse.enabled.help",
-        "text" : "Agents can see and use your apps. macOS asks for Accessibility and Screen Recording."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "computerUse.enabled",
-      "keywords" : [
-        "computer use",
-        "agents",
-        "automation",
-        "screen recording",
-        "accessibility",
-        "helper"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "computerUse",
-        "enabled"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : {
-        "key" : "settings.computerUse.enabled.summary",
-        "text" : "Lets agents see and use your apps"
-      },
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get"
-          ],
-          "reason" : "agent_settable_false",
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:computerUse.enabled"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.computerUse.enabled",
-        "text" : "Computer Use"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "legacy",
-        "upstream"
+        "fullAccess",
+        "approvedApps",
+        "askEveryTime",
+        "lookOnly",
+        "off"
       ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "choices" : [
         {
           "title" : {
-            "key" : "settings.computerUse.driver.legacy",
-            "text" : "Legacy"
+            "key" : "settings.computerUse.mode.fullAccess",
+            "text" : "Full Access"
           },
-          "value" : "legacy"
+          "value" : "fullAccess"
         },
         {
           "title" : {
-            "key" : "settings.computerUse.driver.upstream",
-            "text" : "Upstream"
+            "key" : "settings.computerUse.mode.approvedApps",
+            "text" : "Approved Apps"
           },
-          "value" : "upstream"
+          "value" : "approvedApps"
+        },
+        {
+          "title" : {
+            "key" : "settings.computerUse.mode.askEveryTime",
+            "text" : "Ask Every Time"
+          },
+          "value" : "askEveryTime"
+        },
+        {
+          "title" : {
+            "key" : "settings.computerUse.mode.lookOnly",
+            "text" : "Look Only"
+          },
+          "value" : "lookOnly"
+        },
+        {
+          "title" : {
+            "key" : "settings.computerUse.mode.off",
+            "text" : "Off"
+          },
+          "value" : "off"
         }
       ],
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "upstream",
+      "default" : "fullAccess",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.computerUse",
         "text" : "Computer Use"
       },
       "help" : {
-        "key" : "settings.computerUse.driver.help",
-        "text" : "Upstream is the new helper; macOS asks for its permissions again."
+        "key" : "settings.computerUse.mode.help",
+        "text" : "What agents may do with the apps on this Mac. Denied apps are never used, in any mode."
       },
       "kept_on_reset_all" : false,
-      "key" : "computerUse.driver",
+      "key" : "computerUse.mode",
       "keywords" : [
         "computer use",
-        "driver",
-        "cua",
-        "upstream",
-        "legacy",
-        "helper"
+        "agents",
+        "automation",
+        "apps",
+        "access",
+        "permission",
+        "look only",
+        "approve"
       ],
       "kind" : "choice",
       "page_hidden" : false,
       "path" : [
         "computerUse",
-        "driver"
+        "mode"
       ],
       "placeholder" : null,
       "refuses" : [
@@ -11431,8 +11329,8 @@
       ],
       "section" : "general",
       "summary" : {
-        "key" : "settings.computerUse.driver.summary",
-        "text" : "Which helper runs Computer Use"
+        "key" : "settings.computerUse.mode.summary",
+        "text" : "What agents may do with your apps"
       },
       "surfaces" : {
         "cli" : {
@@ -11491,7 +11389,7 @@
 
           ],
           "reason" : null,
-          "row" : "setting:computerUse.driver"
+          "row" : "setting:computerUse.mode"
         },
         "socket" : {
           "aliases" : [
@@ -11518,8 +11416,195 @@
         }
       },
       "title" : {
-        "key" : "settings.computerUse.driver",
-        "text" : "Computer Use Driver"
+        "key" : "settings.computerUse.mode",
+        "text" : "Computer Use"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+        "com.apple.keychainaccess",
+        "com.apple.Passwords",
+        "com.1password.*",
+        "com.agilebits.onepassword*",
+        "com.bitwarden.*",
+        "com.dashlane.*",
+        "com.lastpass.*",
+        "com.nordpass.*",
+        "me.proton.pass",
+        "org.keepassxc.keepassxc",
+        "com.markmcguill.strongbox",
+        "in.sinew.enpass*",
+        "com.keepersecurity.*",
+        "1password.exe",
+        "bitwarden.exe",
+        "keepass.exe",
+        "keepassxc.exe",
+        "org.keepassxc.KeePassXC",
+        "1password",
+        "bitwarden",
+        "com.apple.systempreferences",
+        "com.apple.Terminal",
+        "com.googlecode.iterm2",
+        "com.mitchellh.ghostty",
+        "net.kovidgoyal.kitty",
+        "com.github.wez.wezterm",
+        "org.alacritty",
+        "dev.warp.*",
+        "windowsterminal.exe",
+        "cmd.exe",
+        "powershell.exe",
+        "pwsh.exe",
+        "org.gnome.Terminal",
+        "org.gnome.Ptyxis",
+        "org.kde.konsole",
+        "com.cmuxterm.app",
+        "com.cmuxterm.app.*"
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.computerUse",
+        "text" : "Computer Use"
+      },
+      "help" : {
+        "key" : "settings.computerUse.deniedApps.help",
+        "text" : "Apps no agent may use, in any mode: an app ID, an ID prefix ending in *, or name: and the app's name."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "computerUse.deniedApps",
+      "keywords" : [
+        "computer use",
+        "deny",
+        "block",
+        "apps",
+        "password",
+        "terminal",
+        "exclude"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "computerUse",
+        "deniedApps"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.computerUse.deniedApps.summary",
+        "text" : "Apps agents may never use"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:computerUse.deniedApps"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.computerUse.deniedApps",
+        "text" : "Denied Apps"
       },
       "validation" : "portable"
     },
@@ -11528,8 +11613,737 @@
         true,
         false
       ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.computerUse",
+        "text" : "Computer Use"
+      },
+      "help" : {
+        "key" : "settings.computerUse.allowOwnMachines.help",
+        "text" : "Agents on your other machines, signed in to the same account, may use this Mac's apps."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "computerUse.allowOwnMachines",
+      "keywords" : [
+        "computer use",
+        "remote",
+        "machines",
+        "devices",
+        "same account"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "computerUse",
+        "allowOwnMachines"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.computerUse.allowOwnMachines.summary",
+        "text" : "Agents on your other machines may use this Mac"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:computerUse.allowOwnMachines"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.computerUse.allowOwnMachines",
+        "text" : "Allow My Other Machines"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.computerUse",
+        "text" : "Computer Use"
+      },
+      "help" : {
+        "key" : "settings.computerUse.pauseOnTakeover.help",
+        "text" : "While you use the mouse or keyboard, agents wait before their next click or key press."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "computerUse.pauseOnTakeover",
+      "keywords" : [
+        "computer use",
+        "pause",
+        "takeover",
+        "mouse",
+        "keyboard",
+        "interrupt"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "computerUse",
+        "pauseOnTakeover"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.computerUse.pauseOnTakeover.summary",
+        "text" : "Agents wait while you use this Mac"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:computerUse.pauseOnTakeover"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.computerUse.pauseOnTakeover",
+        "text" : "Pause When I Use the Mouse or Keyboard"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.computerUse",
+        "text" : "Computer Use"
+      },
+      "help" : {
+        "key" : "settings.computerUse.showCursor.help",
+        "text" : "A blue cursor shows wherever an agent clicks or types."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "computerUse.showCursor",
+      "keywords" : [
+        "computer use",
+        "cursor",
+        "pointer",
+        "blue",
+        "overlay"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "computerUse",
+        "showCursor"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.computerUse.showCursor.summary",
+        "text" : "A blue cursor shows where agents act"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:computerUse.showCursor"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.computerUse.showCursor",
+        "text" : "Show Agent Cursor"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "hover",
+        "always",
+        "never"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.computerUse.cursorTag.hover",
+            "text" : "When I Point at It"
+          },
+          "value" : "hover"
+        },
+        {
+          "title" : {
+            "key" : "settings.computerUse.cursorTag.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        },
+        {
+          "title" : {
+            "key" : "settings.computerUse.cursorTag.never",
+            "text" : "Never"
+          },
+          "value" : "never"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "hover",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.computerUse",
+        "text" : "Computer Use"
+      },
+      "help" : {
+        "key" : "settings.computerUse.cursorTag.help",
+        "text" : "Each agent cursor can carry a tag: the agent's workspace name, or a tag the agent sets. Show it when your pointer is over the cursor, always, or never."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "computerUse.cursorTag",
+      "keywords" : [
+        "computer use",
+        "cursor",
+        "tag",
+        "label",
+        "workspace",
+        "name",
+        "hover"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "computerUse",
+        "cursorTag"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.computerUse.cursorTag.summary",
+        "text" : "When the agent cursor shows its tag"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:computerUse.cursorTag"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.computerUse.cursorTag",
+        "text" : "Agent Cursor Tag"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "adaptive",
+        "anthropic",
+        "openai"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.computerUse.settle.adaptive",
+            "text" : "Wait for the change (adaptive)"
+          },
+          "value" : "adaptive"
+        },
+        {
+          "title" : {
+            "key" : "settings.computerUse.settle.anthropic",
+            "text" : "Fixed 2 s, then screenshot (Anthropic)"
+          },
+          "value" : "anthropic"
+        },
+        {
+          "title" : {
+            "key" : "settings.computerUse.settle.openai",
+            "text" : "Screenshot at once (OpenAI)"
+          },
+          "value" : "openai"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "adaptive",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.computerUse",
+        "text" : "Computer Use"
+      },
+      "help" : {
+        "key" : "settings.computerUse.settle.help",
+        "text" : "What an agent waits for after each click or key press before it looks again: the screen to stop changing, a fixed 2 seconds, or nothing."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "computerUse.settle",
+      "keywords" : [
+        "computer use",
+        "settle",
+        "wait",
+        "delay",
+        "screenshot",
+        "action",
+        "anthropic",
+        "openai"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "computerUse",
+        "settle"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.computerUse.settle.summary",
+        "text" : "What agents wait for after each action"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:computerUse.settle"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.computerUse.settle",
+        "text" : "After Each Action"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
       "consumers" : [
         "cmux-next"
       ],
@@ -11594,7 +12408,7 @@
         },
         "mcp" : {
           "aliases" : [
-            "settings.unset"
+
           ],
           "app_aliases" : [
 
@@ -11606,11 +12420,9 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
+            "settings.get"
           ],
-          "reason" : null,
+          "reason" : "agent_settable_false",
           "row" : null
         },
         "palette" : {
@@ -11658,6 +12470,295 @@
       "title" : {
         "key" : "settings.computerUse.livePreview",
         "text" : "Live Preview in Chat"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "open",
+        "refuse"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.computerUse.menus.open",
+            "text" : "Open Menus"
+          },
+          "value" : "open"
+        },
+        {
+          "title" : {
+            "key" : "settings.computerUse.menus.refuse",
+            "text" : "Never Open Menus"
+          },
+          "value" : "refuse"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "open",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.computerUse",
+        "text" : "Computer Use"
+      },
+      "help" : {
+        "key" : "settings.computerUse.menus.help",
+        "text" : "Agents may open pop-up and context menus of apps in the background to choose an item. Menu bar menus never open in the background."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "computerUse.menus",
+      "keywords" : [
+        "computer use",
+        "menu",
+        "pop-up",
+        "popup",
+        "context menu",
+        "right click",
+        "background"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "computerUse",
+        "menus"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.computerUse.menus.summary",
+        "text" : "Agents may open menus in background apps"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:computerUse.menus"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.computerUse.menus",
+        "text" : "Menus in Background Apps"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.computerUse",
+        "text" : "Computer Use"
+      },
+      "help" : {
+        "key" : "settings.computerUse.allowForeground.help",
+        "text" : "Advanced. Agents may bring an app to the front and move your pointer when it takes no background input."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "computerUse.allowForeground",
+      "keywords" : [
+        "computer use",
+        "foreground",
+        "focus",
+        "pointer",
+        "advanced",
+        "background"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "computerUse",
+        "allowForeground"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.computerUse.allowForeground.summary",
+        "text" : "Advanced: agents may take focus and move the pointer"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:computerUse.allowForeground"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.computerUse.allowForeground",
+        "text" : "Allow Foreground Input"
       },
       "validation" : "portable"
     },
@@ -15163,140 +16264,6 @@
         true,
         false
       ],
-      "agent_refusal" : "network",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.mcpServers",
-        "text" : "Agent Chats"
-      },
-      "help" : {
-        "key" : "settings.agents.mcpServers.enabled.help",
-        "text" : "New chats can use the servers listed above."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "agents.mcpServers.enabled",
-      "keywords" : [
-        "mcp",
-        "servers",
-        "integrations",
-        "connections",
-        "agents",
-        "tools"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "agents",
-        "mcpServers",
-        "enabled"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get"
-          ],
-          "reason" : "agent_settable_false",
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:agents.mcpServers.enabled"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.agents.mcpServers.enabled",
-        "text" : "Saved Servers in Agent Chats"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
@@ -15714,7 +16681,7 @@
         false
       ],
       "agent_refusal" : null,
-      "agent_settable" : true,
+      "agent_settable" : false,
       "consumers" : [
         "cmux-next"
       ],
@@ -15777,7 +16744,7 @@
         },
         "mcp" : {
           "aliases" : [
-            "settings.unset"
+
           ],
           "app_aliases" : [
 
@@ -15789,11 +16756,9 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
+            "settings.get"
           ],
-          "reason" : null,
+          "reason" : "agent_settable_false",
           "row" : null
         },
         "palette" : {
@@ -92685,7 +93650,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.chiefDock",
@@ -101600,6 +102565,142 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.customizeFromTheApp.help",
+        "text" : "Hold Option over a part of the window to see what changes it, and right-click it for Customize…. Turn this off to hide both."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "customize.fromTheApp",
+      "keywords" : [
+        "customize",
+        "inspector",
+        "option",
+        "hover",
+        "right-click",
+        "theme",
+        "labs"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "customize",
+        "fromTheApp"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:customize.fromTheApp"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.labs.customizeFromTheApp",
+        "text" : "Customize From the Window"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
@@ -104887,6 +105988,169 @@
       "title" : {
         "key" : "settings.agents.modelRouter.model",
         "text" : "cmux Model Router Model"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "ask",
+        "on",
+        "off"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.agents.cmuxMcp.ask",
+            "text" : "Ask"
+          },
+          "value" : "ask"
+        },
+        {
+          "title" : {
+            "key" : "settings.agents.cmuxMcp.on",
+            "text" : "On"
+          },
+          "value" : "on"
+        },
+        {
+          "title" : {
+            "key" : "settings.agents.cmuxMcp.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "ask",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentTools",
+        "text" : "cmux Tools"
+      },
+      "help" : {
+        "key" : "settings.agents.cmuxMcp.help",
+        "text" : "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.cmuxMcp",
+      "keywords" : [
+        "mcp",
+        "mcp server",
+        "cmux tools",
+        "computer use",
+        "claude",
+        "codex",
+        "coding agents",
+        "agents",
+        "onboarding"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "cmuxMcp"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.agents.cmuxMcp.summary",
+        "text" : "Whether agents you start in cmux get cmux’s tools"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.cmuxMcp"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.cmuxMcp",
+        "text" : "cmux Tools for Agents in cmux"
       },
       "validation" : "portable"
     },
