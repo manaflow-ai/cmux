@@ -446,6 +446,8 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
                 row["logical_write_mb_per_h"] = round((io_end[2] - io_start[pid][2]) * per_hour, 2)
         if kind == "cef-renderer":
             row["priority"] = task_priority(pid)
+            if "--extension-process" in cmd:
+                row["extension"] = True
         rows.append(row)
     rows.sort(key=lambda row: -row["footprint_mb"])
     kinds = {}
@@ -1503,7 +1505,7 @@ setInterval(beat, 1000);
 
 
 class PageFrames:
-    """--axis page-*: Chromium pages (siteN.localhost, a renderer each under site isolation) that ask for every
+    """--axis page-*: Chromium pages (siteN.test, a renderer each under site isolation) that ask for every
     animation frame and report their rAF count to this script once a second. The count over a measured window is
     the frames each page got: the begin-frame rate of a visible producer, and of a hidden one (0 is the goal).
     A frozen page sends nothing; it got no frames either. Also times a hidden page's show: from the request to
@@ -1555,8 +1557,13 @@ class PageFrames:
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.port = self.server.server_address[1]
 
+    # The pages' sites: siteN.test, mapped to 127.0.0.1 by RESOLVER_RULE (a DEBUG dev build takes the switch through
+    # CMUX_NEXT_CEF_EXTRA_SWITCHES, as bench_renderer_sharing.py does). siteN.localhost loaded nothing in the app (0
+    # requests in two fleet runs), and a .test name is its own site, so each page has a renderer of its own.
+    RESOLVER_RULE = "host-resolver-rules=MAP *.test 127.0.0.1"
+
     def url(self, index: int) -> str:
-        return f"http://site{index}.localhost:{self.port}/"
+        return f"http://site{index}.test:{self.port}/"
 
     def note_open(self, index: int, reply: dict) -> None:
         """The app's reply to a page open (the first few, for the report's `page_debug`)."""
@@ -1606,6 +1613,32 @@ class PageFrames:
             return {"page": index, "first_frame_ms": None, "timeout_s": deadline_s}
         return {"page": index, "visible_ms": round(got["shown"] - asked * 1000, 1),
                 "first_frame_ms": round(got["frame"] - asked * 1000, 1)}
+
+
+def renderer_owners(app: "App", processes: list) -> list:
+    """Each Chromium renderer of a sample with its base priority, CPU and what it holds: the browser tabs the app's
+    `resources` report puts in it (url and title), and whether it is an extension renderer. A renderer that holds no
+    tab holds a cmux page (chat, settings), the spare renderer or an extension's page."""
+    try:
+        report = app.call("resources", {"interval_ms": 100}, timeout=20) or {}
+    except Exception as e:  # noqa: BLE001 - a build without the op still gets its rows
+        report = {"error": str(e)[:200]}
+    held: dict[int, list] = {}
+    for tab in report.get("tabs") or []:
+        for process in tab.get("processes") or []:
+            if process.get("role") in (None, "renderer") and str(process.get("pid", "")).isdigit():
+                held.setdefault(int(process["pid"]), []).append(
+                    {"kind": tab.get("kind"), "url": str(tab.get("url") or "")[:80], "title": str(tab.get("title") or "")[:40]})
+    out = []
+    for row in processes:
+        if row.get("kind") != "cef-renderer":
+            continue
+        out.append({"pid": row["pid"], "priority": row.get("priority"), "cpu_pct": row.get("cpu_pct"),
+                    "footprint_mb": row.get("footprint_mb"), "extension": bool(row.get("extension")),
+                    "tabs": held.get(row["pid"], [])})
+    if report.get("error"):
+        out.append({"error": str(report["error"])[:200]})
+    return out
 
 
 def tab_urls(spec: str, count: int) -> list[str]:
@@ -1809,7 +1842,10 @@ def main():
             raise SystemExit("bench-memory: --socket needs --app-pid")
         socket_path, app_pid = args.socket, args.app_pid
     else:
-        extra = {"CMUX_NEXT_CEF_EXTRA_SWITCHES": args.cef_switches} if args.cef_switches else {}
+        switches = [s for s in args.cef_switches.split(":") if s]
+        if args.axis and args.axis.startswith("page-"):
+            switches.insert(0, PageFrames.RESOLVER_RULE)
+        extra = {"CMUX_NEXT_CEF_EXTRA_SWITCHES": ":".join(switches)} if switches else {}
         if args.app_vm_stacks:
             extra["MallocStackLogging"] = "lite"  # --app-vm-stacks: malloc_history needs the allocation stacks
         config = json.loads(args.config)
@@ -1851,6 +1887,7 @@ def main():
             result = sample(app_pid, bundle, label, len(opened) + 1, measure, child_ns)
             if frames_before is not None:
                 result["page_frames"] = PageFrames.window(frames_before, PAGES.snapshot(), measure)
+                result["renderers"] = renderer_owners(app, result["processes"])
                 print(f"   page frames: {json.dumps(result['page_frames'])}", flush=True)
         finally:
             if scroller:
