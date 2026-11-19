@@ -12,7 +12,9 @@ import Foundation
 /// - `list`: `{harnesses: _acpmux/harnesses, models: _acpmux/models | null}`.
 /// - `add {kind, name, id?, replace?, command, args | baseUrl, model, apiKey?}`, on a click only, passed to acpmux's
 ///   add (`replace` only when it names the same id; acpmux refuses an id it has before any key is stored). `{id}`.
-/// - `doctor {id}`: `_acpmux/harness/doctor {id, prompt: true}`, `{ok, steps}`.
+/// - `doctor {id, chief?}`: `_acpmux/harness/doctor {id, prompt: true, chief: true, chiefId?}`,
+///   `{ok, steps}` (an open-source brain is checked from the edited Chief's own brain home, as
+///   its turns run).
 @MainActor
 final class ChiefBackendPageRoute: PageProvider {
     nonisolated static let prefix = "cmux.chief.backend."
@@ -39,7 +41,9 @@ final class ChiefBackendPageRoute: PageProvider {
                 return ["id": .string(try await add(backend))]
             case Self.prefix + "doctor":
                 guard let id = params["id"]?.stringValue, !id.isEmpty else { throw PageError.invalidParams("id is required") }
-                return try await center.doctor(id: id)
+                // The Chief being edited (none for a new one): its brain home runs the check.
+                let chief = params["chief"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+                return try await center.doctor(id: id, forChief: true, chiefId: chief)
             default:
                 throw PageError.unknownOp(op)
             }

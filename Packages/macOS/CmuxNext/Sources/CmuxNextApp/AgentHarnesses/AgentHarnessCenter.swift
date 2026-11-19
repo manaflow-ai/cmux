@@ -110,12 +110,18 @@ final class AgentHarnessCenter {
     /// Starts the harness and runs the ACP handshake (`_acpmux/harness/doctor`); Settings shows
     /// the steps. `noPrompt` stops after session/new (no model call); otherwise the check sends one
     /// real hello turn (`prompt: true`), what the Chief editor needs before it saves a backend.
+    /// `forChief`: the Chief editor's check, which runs an open-source brain (Hermes, OpenClaw)
+    /// from the Chief's own brain home, as a Chief turn runs it (acpmux `chief: true`); `chiefId`
+    /// names the Chief being edited (else the default Chief's home).
     @discardableResult
-    func doctor(id: String, noPrompt: Bool = false) async throws -> JSONValue {
+    func doctor(id: String, noPrompt: Bool = false, forChief: Bool = false, chiefId: String? = nil) async throws -> JSONValue {
         doctors[id] = ["running": true]
         publish()
         do {
-            let answer = try await manage(.doctor, noPrompt ? ["id": id, "noPrompt": true] : ["id": id, "prompt": true])
+            var params: [String: any Sendable] = noPrompt ? ["id": id, "noPrompt": true] : ["id": id, "prompt": true]
+            if forChief { params["chief"] = true }
+            if forChief, let chiefId { params["chiefId"] = chiefId }
+            let answer = try await manage(.doctor, params)
             doctors[id] = answer
             publish()
             return answer
