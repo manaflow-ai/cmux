@@ -40,7 +40,7 @@ jobs:
       contents: write
     # Called only by nightly.yml, so a nightly job: it runs on the nightly's signing Mac like the rest of the
     # nightly (CLAUDE.md "Nightlies run on one signing Mac"; the tail jobs moved the same way in #46803), never
-    # Blacksmith and never GitHub-hosted (Leo, 2026-11-19: "Fuck GitHub."). It asks for no id-token, and its
+    # Blacksmith and never GitHub-hosted (Leo, 2026-11-19: "F*** GitHub."). It asks for no id-token, and its
     # steps are checkout and python3, which the Mac has.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-trusted-next-signing' }}
     timeout-minutes: 10
