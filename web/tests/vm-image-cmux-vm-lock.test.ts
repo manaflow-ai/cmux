@@ -547,9 +547,9 @@ describe("cmux-rd (the cmux.rd/1 Linux host, role desktop; release cmux-rd-v<V> 
     }
   });
 
-  test("0.2.3 is pinned from release cmux-rd-v0.2.3 (#39099, #39159, run 42567226980) by URL, sha256, size and checksums.txt, baked in role desktop", () => {
+  test("0.2.7 is pinned from release cmux-rd-v0.2.7 (#45503, run 44184934311) by URL, sha256, size and checksums.txt, baked in role desktop", () => {
     const pinned = readInputsLock().programs.find((p) => p.name === "cmux-rd")!;
-    expect(pinned).toMatchObject({ ...cmuxRdReleaseShape("0.2.3"), sha256: "06549da6bf9a54d991e01c4d6489517718676a2575d1cb7bdcbfaa5d2d4357b8", size: 7186170 });
+    expect(pinned).toMatchObject({ ...cmuxRdReleaseShape("0.2.7"), sha256: "92961c9ebd6b1e7370a6dc1687a3ea864da9c133720daaf51a117aad2f45553d", size: 9392448 });
     expect(pinned.firstUse).toBeUndefined();
     expect(bakedPrograms(readInputsLock()).map((p) => p.name)).toContain("cmux-rd");
   });
