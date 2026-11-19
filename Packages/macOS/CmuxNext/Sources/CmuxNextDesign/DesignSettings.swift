@@ -149,6 +149,10 @@ public final class DesignSettings {
     /// `appearance.liveWallpaperFrameRate`: the most frames per second a live wallpaper draws (15, 30 or
     /// 60; ``BackdropLiveView``). A running wallpaper reads it on its next frame; a held one when it runs again.
     public var liveWallpaperFrameRate = 30
+    /// `appearance.liveWallpaperGrade`: how much the tritone grade tones a live wallpaper (`Frame.grade`,
+    /// cmux-wallpaper's `grade.rs`), 0 (the default: its own colors) to 1 (``BackdropLiveView``). As
+    /// with the frame rate, a running wallpaper reads it on its next frame; a held one when it runs again.
+    public var liveWallpaperGrade = 0.0
     /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default
     /// (`AnimationKindsSetting.defaultEnabled`), new workspaces off.
     public var enabledAnimations: Set<MotionKind> = [.newTab]

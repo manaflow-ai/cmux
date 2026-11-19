@@ -265,6 +265,270 @@
         }
       }
     },
+    "settings.appearance.liveWallpaperGrade": {
+      "comment": "Settings row title: how much a tritone grade (darks, midtones and lights mapped to three theme colors) tones a live wallpaper (a moving background drawn by code).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تدرج ثلاثي الألوان للخلفية الحية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trotonski ton žive pozadine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tretone for levende baggrunde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dreiton für Live-Hintergründe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live Wallpaper Tritone"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tritono del fondo animado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trichromie des fonds d’écran animés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tricromia degli sfondi animati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブ壁紙のトライトーン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពណ៌បីកម្រិតនៃផ្ទាំងរូបភាពផ្ទាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "라이브 배경화면 트라이톤"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tretone for levende bakgrunner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trzy tony tapety na żywo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tritom do papel de parede animado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тритон живых обоев"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โทนสามสีของภาพพื้นหลังแบบเคลื่อนไหว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canlı duvar kâğıdı üç tonu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тритон живих шпалер"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ba tông màu cho hình nền động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "动态壁纸三色调"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動態背景圖片三色調"
+          }
+        }
+      }
+    },
+    "settings.appearance.liveWallpaperGrade.help": {
+      "comment": "Help text of the Live Wallpaper Tritone setting.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يلوّن الخلفية الحية بثلاثة من ألوان السمة: الظلال بالأغمق بين لوني الخلفية والنص، والألوان المتوسطة بلون التمييز، والأضواء بالأفتح. القيمة 0 تُبقي ألوان الخلفية الأصلية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tonira živu pozadinu u tri boje teme: tamne dijelove u tamniju od boja pozadine i teksta, srednje tonove u boju naglaska, svijetle u svjetliju. 0 zadržava vlastite boje pozadine."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toner en levende baggrund i tre temafarver: mørke partier i den mørkeste af baggrunds- og tekstfarven, mellemtoner i accentfarven, lyse partier i den lyseste. 0 beholder baggrundens egne farver."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tönt einen Live-Hintergrund in drei Designfarben: Tiefen in der dunkleren aus Hintergrund- und Textfarbe, Mitteltöne in der Akzentfarbe, Lichter in der helleren. 0 behält die eigenen Farben des Hintergrunds."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tones a live wallpaper in three theme colors: darks in the darker of the background and text colors, midtones in the accent, lights in the lighter. 0 keeps the wallpaper's own colors."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiñe el fondo animado con tres colores del tema: las sombras con el más oscuro entre el color de fondo y el del texto, los tonos medios con el color de acento y las luces con el más claro. 0 conserva los colores propios del fondo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teinte un fond d’écran animé avec trois couleurs du thème : les ombres dans la plus sombre des couleurs de fond et de texte, les tons moyens dans la couleur d’accentuation, les lumières dans la plus claire. 0 garde les couleurs propres du fond."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tinge uno sfondo animato con tre colori del tema: le ombre con il più scuro tra colore di sfondo e del testo, i mezzitoni con il colore di accento, le luci con il più chiaro. 0 mantiene i colori propri dello sfondo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブ壁紙をテーマの3色で色調補正します。暗部は背景色と文字色の暗いほう、中間調はアクセントカラー、明部は明るいほうになります。0 では壁紙本来の色のままです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លាបពណ៌ផ្ទាំងរូបភាពផ្ទាល់ដោយពណ៌រូបរាងបី៖ ផ្នែកងងឹតជាពណ៌ងងឹតជាងរវាងពណ៌ផ្ទៃខាងក្រោយ និងពណ៌អត្ថបទ ផ្នែកកណ្ដាលជាពណ៌សង្កត់ ផ្នែកភ្លឺជាពណ៌ភ្លឺជាង។ 0 រក្សាពណ៌ដើមរបស់ផ្ទាំងរូបភាព។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "라이브 배경화면을 테마의 세 가지 색으로 물들입니다. 어두운 부분은 배경색과 텍스트 색 중 더 어두운 색, 중간 톤은 강조 색, 밝은 부분은 더 밝은 색이 됩니다. 0이면 배경화면 고유의 색을 유지합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toner en levende bakgrunn i tre temafarger: mørke partier i den mørkeste av bakgrunns- og tekstfargen, mellomtoner i aksentfargen, lyse partier i den lyseste. 0 beholder bakgrunnens egne farger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barwi tapetę na żywo trzema kolorami motywu: cienie najciemniejszym z kolorów tła i tekstu, półtony kolorem akcentu, światła jaśniejszym z nich. 0 zachowuje własne kolory tapety."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tinge o papel de parede animado com três cores do tema: as sombras com a mais escura entre a cor de fundo e a do texto, os tons médios com a cor de destaque e as luzes com a mais clara. 0 mantém as cores próprias do papel de parede."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тонирует живые обои тремя цветами темы: тени — более тёмным из цветов фона и текста, полутона — акцентным цветом, света — более светлым. При 0 обои сохраняют свои цвета."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปรับโทนภาพพื้นหลังแบบเคลื่อนไหวด้วยสีของธีมสามสี: ส่วนมืดใช้สีที่เข้มกว่าระหว่างสีพื้นหลังกับสีข้อความ โทนกลางใช้สีเน้น ส่วนสว่างใช้สีที่อ่อนกว่า ค่า 0 คงสีเดิมของภาพพื้นหลังไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canlı duvar kâğıdını üç tema rengiyle tonlar: koyu alanlar arka plan ve metin renklerinden koyu olanla, orta tonlar vurgu rengiyle, açık alanlar açık olanla. 0 duvar kâğıdının kendi renklerini korur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тонує живі шпалери трьома кольорами теми: тіні — темнішим із кольорів тла й тексту, півтони — акцентним кольором, світлі ділянки — світлішим. За 0 шпалери зберігають власні кольори."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phủ tông hình nền động bằng ba màu của chủ đề: vùng tối theo màu tối hơn giữa màu nền và màu chữ, vùng trung tính theo màu nhấn, vùng sáng theo màu sáng hơn. 0 giữ nguyên màu gốc của hình nền."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用主题的三种颜色为动态壁纸调色：暗部取背景色和文字颜色中较暗的一个，中间调取强调色，亮部取较亮的一个。为 0 时保留壁纸本来的颜色。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用主題的三種顏色為動態背景圖片調色：暗部取背景色與文字顏色中較暗的一個，中間調取強調色，亮部取較亮的一個。為 0 時保留背景圖片本來的顏色。"
+          }
+        }
+      }
+    },
     "settings.choice.liveWallpaperFrameRate.15": {
       "comment": "Live Wallpaper Frame Rate choice: 15 frames per second.",
       "extractionState": "manual",

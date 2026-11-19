@@ -172,7 +172,8 @@ per frame: the field changes only per picture.
 - One row, `appearance.liveWallpaperFrameRate`, after Wallpaper Tint in the same group: 15, 30 (default)
   or 60 frames per second.
 - `appearance.liveWallpaperGrade` (Live Wallpaper Tritone) after it: the tritone grade's amount, 0 (default,
-  off) to 1 in steps of 0.05. A held wallpaper draws once when it changes.
+  off) to 1 in steps of 0.05. As with the frame rate, a running wallpaper takes a change on its next frame,
+  a held one when it runs again.
 
 ## The first-party set
 

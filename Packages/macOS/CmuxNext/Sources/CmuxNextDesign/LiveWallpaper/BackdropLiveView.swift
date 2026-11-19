@@ -258,6 +258,7 @@ public final class BackdropLiveView: NSView {
         frame.sinceMoved = cmux_wallpaper_pointer_since_moved(&pointer, now)
         frame.buttonDown = pointer.inside && NSEvent.pressedMouseButtons != 0
         frame.params = wallpaper.params
+        frame.grade = Float(DesignSettings.shared.liveWallpaperGrade)
         let drawn = renderer.draw(frame.packed(trail: trail, at: now, scale: scale), pipeline: pipeline, drawableSize: CGSize(width: CGFloat(width), height: CGFloat(height))) {
             [weak self] milliseconds in
             MainDelivery().run { self?.frameCompleted(milliseconds) }
