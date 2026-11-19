@@ -132,10 +132,6 @@ public final class TerminalProjectingSession: TerminalSession {
         emit(segments)
     }
 
-    /// A claim on the Mac (alternate screen) keeps its lease: the page renews
-    /// it on leaving and coming back. The primary screen claims nothing.
-    public func renewSizeClaim() { if macClaims { inner.renewSizeClaim() } }
-
     /// The Mac holds the scrollback the projection re-wraps: it asks for the
     /// reader's rows. Phone rows are never fewer than the host rows they wrap.
     public func requestHistoryRows(_ rows: Int) { inner.requestHistoryRows(rows) }
