@@ -66,14 +66,18 @@ test("manual expansion survives final answer chunks and completion without losin
   expect(next.rows.find((row) => row.id === answer.id)?.text).toBe(nextAnswer.text);
 });
 
-test("commentary is never selected as the final answer and every explicit final remains outside", () => {
+// A closed fold keeps only the turn's answer in sight (Lawrence, 2026-11-19: "in collapsed, literally
+// everything but final assistant message should be collapsed"): an earlier explicit final folds too.
+test("commentary is never selected as the final answer and only the last explicit final remains outside", () => {
   const anotherFinal = { ...answer, id: "second-answer", text: "One more result." };
   const tailComment = { ...commentary, id: "tail-commentary", text: "Checking the follow-up." };
-  const done = turnViewFrom([...work, answer, anotherFinal, tailComment, summary], new Set(), {
-    ...options,
-    working: false,
-  });
-  expect(shownIds(done.rows)).toEqual(["prompt", foldId, "answer", "second-answer", "summary"]);
+  const rows = [...work, answer, anotherFinal, tailComment, summary];
+  const done = turnViewFrom(rows, new Set(), { ...options, working: false });
+  expect(shownIds(done.rows)).toEqual(["prompt", foldId, "second-answer", "summary"]);
+  // Opened, the earlier final reads in its place, once.
+  const opened = turnViewFrom(rows, new Set([foldId]), { ...options, working: false });
+  expect(opened.rows.filter((row) => row.id === "answer")).toHaveLength(1);
+  expect(shownIds(opened.rows).indexOf("answer")).toBeLessThan(shownIds(opened.rows).indexOf("second-answer"));
   expect(done.rows.find((row) => row.id === "summary")?.text).toBe(anotherFinal.text);
   const noFinal = turnViewFrom([...work, summary], new Set(), { ...options, working: false });
   expect(noFinal.rows.some((row) => row.id === commentary.id)).toBe(false);
@@ -223,4 +227,19 @@ test("commentary folds beside an explicit final receipt once the turn ends, and 
   }
   const opened = turnViewFrom(completed, toggleTurnFold(completed, new Set(), foldId), settled);
   expect(opened.rows.filter((row) => row.id === finding.id)).toHaveLength(1);
+});
+
+// A Codex turn that failed before its final answer has no answer to keep in sight. Its last reply
+// stays beside the closed fold, so the fold never hides everything the agent said.
+test("a phased turn with no final answer keeps its last reply beside the closed fold", () => {
+  const finding = row("finding", "assistant", {
+    at: 3_000,
+    text: "The caller passes a stale token, which is why every retry fails.\n\nI'm checking where it is cached.",
+    assistantPhase: "commentary",
+  });
+  const failed = { ...summary, status: "failed" };
+  const rows = [prompt, commentary, call, finding, { ...call, id: "call-2" }, failed];
+  const closed = turnViewFrom(rows, new Set(), { ...options, working: false });
+  expect(closed.rows.find((row) => row.kind === WORKED)?.foldOpen).toBe(false);
+  expect(closed.rows.filter((row) => row.kind === "assistant").map((row) => row.id)).toEqual(["finding"]);
 });
