@@ -255,6 +255,7 @@ export function useTrayMotion(
       // replays; its listeners go with it, or with the card.
       const settle = () => {
         node.removeAttribute(TRAY_ENTER_ATTR);
+        node.style.removeProperty(TRAY_ENTER_HEIGHT);
         node.removeEventListener("animationend", ended);
         node.removeEventListener("animationcancel", ended);
       };
@@ -262,6 +263,8 @@ export function useTrayMotion(
         if (event.target === node) settle();
       };
       if (entersRef.current && motionAllowed(node)) {
+        // Read before the mark, while the card stands at its whole height: one layout per entrance.
+        node.style.setProperty(TRAY_ENTER_HEIGHT, `${node.offsetHeight}px`);
         node.setAttribute(TRAY_ENTER_ATTR, "");
         node.addEventListener("animationend", ended);
         node.addEventListener("animationcancel", ended);

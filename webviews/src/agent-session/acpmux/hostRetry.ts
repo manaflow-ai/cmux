@@ -226,9 +226,14 @@ export function hostRecoveryLine(state: {
   relinkingSince?: number;
   restoring?: HostRestoring;
   failureShown?: boolean;
+  /// When the wait the waiting line counts began (HostWaitingLine `since`), if one runs. That line
+  /// takes over only once its own wait reaches the deadline, which starts at the first handshake after
+  /// the drop, a moment after `relinkingSince`: "Reconnecting…" stays until then, so no frame between
+  /// the two lines draws neither (the line went for a second at the 25 s mark and came back).
+  waitingSince?: number;
   now: number;
 }): { kind: "restoring"; waitedMs: number } | { kind: "reconnecting" } | undefined {
-  const { relinkingSince, restoring, failureShown, now } = state;
+  const { relinkingSince, restoring, failureShown, waitingSince, now } = state;
   if (restoring) {
     const waitedMs = restoring.waitedMs + Math.max(0, now - restoring.at);
     // A restore is as quiet as a reconnect until it has lasted as long: the usual one ends sooner.
@@ -236,6 +241,13 @@ export function hostRecoveryLine(state: {
   }
   if (relinkingSince === undefined || failureShown) return undefined;
   const waited = now - relinkingSince;
-  if (waited < RECONNECT_LINE_AFTER_MS || waited >= HOST_ERROR_DEADLINE_MS) return undefined;
+  if (waited < RECONNECT_LINE_AFTER_MS) return undefined;
+  // Only a wait that began while this line showed hands over from it: a handshake started after the
+  // deadline brings no "Reconnecting…" back.
+  const handsOver =
+    waitingSince !== undefined &&
+    waitingSince - relinkingSince < HOST_ERROR_DEADLINE_MS &&
+    now - waitingSince < HOST_ERROR_DEADLINE_MS;
+  if (waited >= HOST_ERROR_DEADLINE_MS && !handsOver) return undefined;
   return { kind: "reconnecting" };
 }
