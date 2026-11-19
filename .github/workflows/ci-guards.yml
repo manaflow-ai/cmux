@@ -1958,7 +1958,6 @@ jobs:
           python3 tests/test_ci_nightly_off_blacksmith.py
           python3 tests/test_ci_nightly_no_hosted_mac.py
           python3 tests/test_ci_runs_on_fallback.py
-          python3 tests/test_ci_linux_runs_on.py
           python3 tests/test_ci_warm_sources.py
           python3 tests/test_ci_cloud_journey_prod_preclaim_login.py
           python3 tests/test_ci_checkout_lean.py

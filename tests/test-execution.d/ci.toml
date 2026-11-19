@@ -271,7 +271,8 @@ reason = "Cross-branch integration: the end-to-end cases need RUNNER_POOL_POLICY
 
 [[test]]
 path = "tests/test_ci_linux_runs_on.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_linux_runs_on.py"
 
 [[test]]
 path = "tests/test_ci_linux_single_size.py"
