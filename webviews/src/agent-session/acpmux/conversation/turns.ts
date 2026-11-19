@@ -1652,7 +1652,7 @@ const isOwnSteer = (row: AcpmuxRow) => !row.incoming && !row.received;
 /// agent's message does only after a reply that stays in sight beside the closed fold: with none, the
 /// fold above it would close onto the next one with nothing between them, so it folds in place, the
 /// nearest fold's entry. The default `answer` arm keeps one work disclosure across received
-/// messages, with the person's replies beside it; only a personal steer splits that disclosure.
+/// messages, with only the turn's answer beside it; only a personal steer splits that disclosure.
 const startsFold = (row: AcpmuxRow, replied: boolean) =>
   splitsFold(row) && (isOwnSteer(row) || (replied && experimentArm(turnFoldReplies) !== "answer"));
 /// A reply that lets another agent's message start a fold (`startsFold`), read the same way off the
@@ -1723,7 +1723,7 @@ const isUnsent = (row: AcpmuxRow) => Boolean(row.pending || row.failed);
 /// The tagged ask (nextStepAsk.ts) of the reply right before a message that was not the person's
 /// (another agent's, a notice) steered into the turn, with the reply that asked it: the newest such,
 /// so long as the person said nothing in the turn after it. Each steer's reply is the last words
-/// before it (`repliesIn`), which stay in sight.
+/// before it (`repliesIn`); a cut-off reply stays in sight under every arm (`keptOut`).
 function steeredAsk(body: readonly AcpmuxRow[]): { reply: AcpmuxRow; ask: NextStepAsk } | undefined {
   let steered = false;
   for (let at = body.length - 1; at >= 0; at -= 1) {
@@ -2023,14 +2023,20 @@ function shapeTurn(
   // with the work, however long, and reads in order once the fold opens, where `replies` still marks
   // each so it keeps its action row (Lawrence, 2026-11-19: "in collapsed, literally everything but
   // final assistant message should be collapsed"). A reply whose question another agent's message
-  // cut off stays out: its card waits on the person, under it (`cutOff`).
+  // cut off stays out: its card waits on the person, under it (`cutOff`). A turn with no answer (a
+  // Codex turn that failed before its `final_answer`) keeps its last reply out instead, so the closed
+  // fold never hides everything the agent said.
   const repliesArm = experimentArm(turnFoldReplies);
-  const keptOut: ReadonlySet<string> = repliesArm === "answer" ? new Set(cutOff ? [cutOff.reply.id] : []) : replies;
+  const lastWords = answer ? undefined : [...body].reverse().find((row) => replies.has(row.id));
+  const keptOut: ReadonlySet<string> =
+    repliesArm === "answer"
+      ? new Set([...(cutOff ? [cutOff.reply.id] : []), ...(lastWords ? [lastWords.id] : [])])
+      : replies;
   const steerDialogue = steerDialogueIn(body);
   // A turn the person steered still has one fold (Leo, 2026-11-07, on a closed "Worked for 5m 15s"
   // with "Finished 2 background tasks and ran 8 commands" beside it: "this could have been, like,
-  // tucked inside the worked for"). The reply before the steer and the steer stay in sight, as every
-  // reply does, but the work around them stays under Worked for rather than drawing as run lines
+  // tucked inside the worked for"). The reply before the steer and the steer stay in sight
+  // (`steerDialogue`), but the work around them stays under Worked for rather than drawing as run lines
   // beside it; opened, those run lines draw open, "as if you just expanded the whole worked for
   // entirely" (turnFoldSteered.experiment.ts).
   const steeredArm = !inOrder && style.conclusion && steerDialogue.size ? experimentArm(turnFoldSteered) : undefined;
@@ -2079,8 +2085,10 @@ function shapeTurn(
     // earlier reply folds with the work (`keptOut`, Lawrence, 2026-11-19); the other arms keep each
     // reply in its place among the lines of the work around it (`aroundReplies`; Leo, 2026-11-06:
     // "your intermediate message got lost. that can never happen").
+    // A `final_answer` before another agent's message is an earlier message too: under the `answer`
+    // arm only the turn's answer (`said`, drawn below) stays beside the closed fold.
     const out = (row: AcpmuxRow) =>
-      isFinalAnswer(row) ||
+      (repliesArm !== "answer" && isFinalAnswer(row)) ||
       staysOut(row) ||
       (!open && taskLook === "card" && startsTask(row)) ||
       (!open &&
@@ -2241,10 +2249,10 @@ function shapeTurn(
                 ? withoutDrafts(row).filter((part) => !isEdit(part))
                 : renderRows([row], version),
       );
-    // Closed over a turn that said something before its answer, the replies read in order and the
-    // work around them stays under Worked for, as chatgpt.com draws it: no tool call shows beside a
-    // closed fold. The experiment's other arms fold that work into lines before and after each reply
-    // (turnFoldReplies.experiment.ts).
+    // Closed over a turn that said something before its answer, the default `answer` arm folds those
+    // replies with the work; the `replies` arm keeps them in order with the work under Worked for, as
+    // chatgpt.com draws it: no tool call shows beside a closed fold. The other arms fold that work
+    // into lines before and after each reply (turnFoldReplies.experiment.ts).
     // A steered turn's one fold keeps every run under Worked for (`nested`): its replies alone draw.
     const around = open || repliesArm === "answer" ? undefined : nested ? "replies" : repliesArm;
     const between =
