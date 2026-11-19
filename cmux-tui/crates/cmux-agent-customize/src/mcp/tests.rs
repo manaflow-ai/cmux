@@ -278,6 +278,17 @@ fn claude_refuses_what_it_cannot_do() {
     let err = apply(&h.paths, &target(Agent::Claude, "bad name", None, None), &Edit::Remove, &opts)
         .unwrap_err();
     assert!(err.contains("not a server name"), "{err}");
+    // An add never replaces the person's own server of that name.
+    let before = fs::read_to_string(&h.paths.claude_json).unwrap();
+    let err = apply(
+        &h.paths,
+        &target(Agent::Claude, "agent-memory", Some(Scope::User), None),
+        &Edit::Add(stdio("agent-memory", "/bin/other")),
+        &opts,
+    )
+    .unwrap_err();
+    assert!(err.contains("already has a user server named agent-memory"), "{err}");
+    assert_eq!(fs::read_to_string(&h.paths.claude_json).unwrap(), before);
     fs::write(&h.paths.claude_json, "{ not json").unwrap();
     let err = apply(
         &h.paths,
@@ -332,6 +343,15 @@ fn codex_lists_and_round_trips_with_comments() {
             ("docs".into(), "user", false)
         ]
     );
+    let err = apply(
+        &h.paths,
+        &target(Agent::Codex, "repo", Some(Scope::User), None),
+        &Edit::Add(stdio("repo", "/bin/other")),
+        &opts,
+    )
+    .unwrap_err();
+    assert!(err.contains("already has a user server named repo"), "{err}");
+    assert_eq!(fs::read_to_string(&config).unwrap(), CODEX_TOML);
     let docs = listing.servers.iter().find(|s| s.name == "docs").unwrap();
     assert_eq!(docs.transport, "http");
     assert_eq!(docs.headers, vec!["Authorization ($DOCS_TOKEN)"]);
