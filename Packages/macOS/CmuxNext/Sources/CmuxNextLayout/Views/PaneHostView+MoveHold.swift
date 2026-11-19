@@ -17,6 +17,8 @@ import CmuxNextDesign
 /// - A second change before the release keeps the hold. A pane that has the held size again at the release resizes
 ///   nothing. A pane that a second change makes larger than the held size ends the hold in that change's frame
 ///   (`PaneClipView.setFrameSize`).
+/// - A resize key before the release begins the key's hold with the held picture. That hold keeps the same corner,
+///   so the release moves nothing and gives no size: the one size comes after the key's landing.
 extension PaneHostView: PaneCommitMotionContentHost {
     /// The held content's frame in the clip; nil with no hold.
     var moveContentFrame: CGRect? { clipView.moveHeldSize.map { CGRect(origin: clipView.bounds.origin, size: $0) } }
@@ -39,6 +41,9 @@ extension PaneHostView: PaneCommitMotionContentHost {
         // A pane that a close took out takes no size: it goes with the picture it had. A pane that a zoom covers
         // comes back with the unzoom, so it takes its size here, in the frame that hides it.
         guard let screen = superview as? ScreenContentView, !screen.context.isClosing(pane) else { return }
+        // A resize key in the move began the key's hold with this picture: that hold keeps it at the same corner and
+        // gives the one size after the key's landing. The content only takes that hold's frame here.
+        guard !holdsUntilAfterLanding else { return layOutLetGoContent() }
         let rest = clipView.bounds.size
         guard rest != held else { return }
         content.notifyPaneMotionWillRest(sizeChange: CGSize(width: rest.width - held.width, height: rest.height - held.height))
