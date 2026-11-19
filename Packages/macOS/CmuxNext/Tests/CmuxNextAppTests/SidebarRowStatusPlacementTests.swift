@@ -104,9 +104,14 @@ struct SidebarRowStatusPlacementTests {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
         let key = SidebarTunables.agentMark.key
-        defer { TunableStore.shared.set(key, nil) }
         let value = SidebarAgentMarkVariant.replacesStatus.tunableValue
         try #require(TunableStore.shared.set(key, value) == value, "the variant takes the override")
+        // Rows read the tunables through the shared watch's snapshot: refresh it in this turn, as a set's observation would.
+        SidebarTunablesWatch.shared.changed()
+        defer {
+            TunableStore.shared.set(key, nil)
+            SidebarTunablesWatch.shared.changed()
+        }
         var badged = Self.workspace(.waiting(kind: .permission), unread: .dot)
         badged.kind = .harness
         let (view, window) = Self.row(badged, placement: .leading)
