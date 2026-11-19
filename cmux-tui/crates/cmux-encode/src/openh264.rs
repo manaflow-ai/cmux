@@ -540,10 +540,11 @@ unsafe fn init(
     p.bEnableDenoise = false;
     p.bEnableBackgroundDetection = opts.background_detection;
     p.bEnableAdaptiveQuant = opts.adaptive_quant;
-    if let Some(q) = opts.min_qp {
+    let (min_qp, max_qp) = qp_range(opts, screen);
+    if let Some(q) = min_qp {
         p.iMinQp = c_int::from(q);
     }
-    if let Some(q) = opts.max_qp {
+    if let Some(q) = max_qp {
         p.iMaxQp = c_int::from(q);
     }
     p.bEnableSceneChangeDetect = false;
@@ -582,6 +583,27 @@ unsafe fn init(
         )?;
     }
     Ok(())
+}
+
+/// Camera usage's quantizer range: OpenH264's own low end, and H.264's coarsest step at the top.
+pub const CAMERA_MIN_QP: u8 = 12;
+pub const CAMERA_MAX_QP: u8 = 51;
+
+/// The quantizer range an instance is initialized with (`None`: OpenH264's choice).
+///
+/// Screen usage keeps OpenH264's 26-35, so text stays sharp. Camera usage (full-screen motion,
+/// [`MOTION_CHANGE`]) gets [`CAMERA_MIN_QP`]-[`CAMERA_MAX_QP`] instead of OpenH264's 12-42:
+/// it applies 12-42 whenever either bound is unset. At 42 a 1080p frame of full-screen motion
+/// still costs ~150 KB, so at a 50 Mbit/s target the rate controller could only hold its rate by
+/// skipping every third frame: 43 fps, and a key press whose frame was skipped waited a frame
+/// longer (screen stream eval, lan 0 %: 37.5 fps and 38 ms p50 against 60 fps and 13 ms for an
+/// H.264 relay). Up to 51 it codes each frame coarser instead and keeps the frame rate. The
+/// bench's `minqp=`/`maxqp=` options win over both.
+fn qp_range(opts: &OpenH264Options, screen: bool) -> (Option<u8>, Option<u8>) {
+    if screen {
+        return (opts.min_qp, opts.max_qp);
+    }
+    (Some(opts.min_qp.unwrap_or(CAMERA_MIN_QP)), Some(opts.max_qp.unwrap_or(CAMERA_MAX_QP)))
 }
 
 /// A new instance's first frame (the share's start keyframe, or the one after a usage move)
