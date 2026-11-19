@@ -19,8 +19,8 @@ extension Glass {
     /// popover density, so a web menu beside a native one was a lighter glass.
     /// The roles a web surface may ask for by name instead of its level's (`data-host-glass-role`,
     /// hostGlass.ts `HostGlassRole`): a dialog's neutral glass, as a native dialog card draws it
-    /// (CmuxDialogCardSurface, `.sheet`).
-    public nonisolated static let hostGlassRoles: [String: SurfaceRole] = ["sheet": .sheet]
+    /// (CmuxDialogCardSurface, `.sheet`), and a toast's.
+    public nonisolated static let hostGlassRoles: [String: SurfaceRole] = ["sheet": .sheet, "toast": .toast]
 
     public nonisolated static func hostTintLevel(_ level: GlassLevel) -> GlassLevel {
         level == .chrome ? .popover : level
