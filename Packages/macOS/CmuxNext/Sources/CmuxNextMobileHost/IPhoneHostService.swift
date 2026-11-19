@@ -46,8 +46,10 @@ public final class IPhoneHostService {
         var stackProjectID: String
         /// Per-bundle state (device id, hostd log).
         var stateDirectory: URL
-        /// The name the paired list is sealed under (``MobileHostPairedStore/sealName(bundleID:storageNamespace:)``).
-        var pairingSealName: String?
+        /// The name this build's Keychain items are kept under, the paired list's seal and this Mac's
+        /// identity key (``MobileHostPairedStore/sealName(bundleID:storageNamespace:)``): the bundle id,
+        /// and a dev build's Cloud backend namespace with it.
+        var keychainName: String?
         var accessToken: @Sendable (_ forceRefresh: Bool) async throws -> String
         /// The app's own cmux-tui daemon socket.
         var daemonSocket: @MainActor () async throws -> String
@@ -625,7 +627,11 @@ public final class IPhoneHostService {
                 // The key phones pin for this Mac (Keychain; created on first use), read off the
                 // main actor: a Keychain call must never hold launch (a re-signed rig app's access
                 // prompt did, and the watchdog killed it).
-                let store = MobileHostMacIdentityStore(bundleID: dependencies.stateDirectory.deletingLastPathComponent().lastPathComponent,
+                // Named for this build (keychainName), never for the folder above the state folder: with a
+                // backend namespace that folder is the namespace, one login item every dev build on that
+                // backend shared, readable only by the build that made it (-25293 for the others).
+                let store = MobileHostMacIdentityStore(bundleID: dependencies.keychainName
+                                                       ?? dependencies.stateDirectory.deletingLastPathComponent().lastPathComponent,
                                                 stateDirectory: dependencies.stateDirectory, loginKeychain: loginKeychain)
                 // task-owner: one Keychain read per hostd start; awaited here
                 if self?.identityRefusalsKey != key { self?.identityRefusals = 0; self?.identityBackoff.reset() }
