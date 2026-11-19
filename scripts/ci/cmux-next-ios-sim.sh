@@ -152,8 +152,9 @@
 #           and this commit in Info.plist, for the simulator and for devices.
 #           The device app is unsigned (CODE_SIGNING_ALLOWED=NO); the person's
 #           Mac signs it with its Apple Development identity. Then the
-#           simulator check: the app signed in with the worker's agent account
-#           (<fleet dir>/secrets/ios-agent-stack.env, never printed), proven by
+#           simulator check: the app signed in with the agent account's session
+#           from the submitter's Mac (cmux-ci run --sign-in agent, read with
+#           scripts/lib/fleet-signin-session.sh, never printed), proven by
 #           its DEBUG readiness receipt (session auto_login), then relaunched
 #           with no credentials and proven again (session restored), with a
 #           screenshot of each and a recording. The artifact (evidence.zip)
@@ -773,33 +774,29 @@ handoff_sim_status="" handoff_sim_reason=""
 if [[ "$mode" == handoff ]]; then
   t0=$SECONDS
   handoff_check() {
-    # The worker's host dir (the step inherits CMUX_CI_HOST_DIR from the worker); a step with
-    # --label ios-agent-signin lands only on a worker whose file passed the worker's own checks.
-    local creds="${CMUX_CI_HOST_DIR:-${CMUX_CI_FLEET_DIR:-/Users/Shared/cmux-build-fleet}}/secrets/ios-agent-stack.env"
+    # The step's own sign-in session, sealed from the submitter's Mac (cmux-ci run --sign-in agent,
+    # hq build-fleet `sign_in`): no worker account file, no password. Only the auto_login launch
+    # gets its refresh token, and it is dropped from this shell after the legs.
     local receipt client nonce data rec_pid=""
-    [[ -f "$creds" && ! -L "$creds" && -O "$creds" && -r "$creds" ]] ||
-      { handoff_sim_reason="no agent account this step can read on $(hostname -s) ($creds); send the step with --label ios-agent-signin"; return 1; }
-    [[ "$(stat -f %Lp "$creds")" =~ ^[0-7]00$ ]] ||
-      { handoff_sim_reason="the agent account file on $(hostname -s) is readable by others; it must be 0600"; return 1; }
+    # shellcheck source=scripts/lib/fleet-signin-session.sh
+    source scripts/lib/fleet-signin-session.sh
+    cmux_fleet_signin_load || { handoff_sim_reason="$CMUX_FLEET_SIGNIN_ERROR"; return 1; }
     local account
-    account="$(python3 -I cmux-next-ios/scripts/handoff_receipt.py env-value "$creds" CMUX_UITEST_STACK_EMAIL)" ||
-      { handoff_sim_reason="the agent account file has no CMUX_UITEST_STACK_EMAIL"; return 1; }
+    account="$CMUX_FLEET_SIGNIN_EMAIL"
     client="$(python3 -I -c 'import uuid,sys; print(uuid.uuid5(uuid.NAMESPACE_URL, "cmux-ios-dogfood-client:%s:%s" % (sys.argv[1], sys.argv[2])))' "$bundle_id" "$udid")"
     receipt="$work/readiness.json"
-    simctl io "$udid" recordVideo --codec h264 --force "$out/recording.mp4" >"$work/recording.log" 2>&1 &
+    # xcrun itself in the background, never the simctl() wrapper: `wrapper &` is a subshell, which
+    # ignores SIGINT (an async command in a non-interactive shell) and waits on its xcrun, so the
+    # SIGINT below never reached the recorder and the step hung until its 6 h timeout (2026-11-18).
+    xcrun simctl --set "$sims" io "$udid" recordVideo --codec h264 --force "$out/recording.mp4" >"$work/recording.log" 2>&1 &
     rec_pid=$!
     sleep 1  # the recorder's first frame; a bounded start, it has no ready signal
     for leg in auto_login restored; do
       nonce="$(python3 -I -c 'import secrets; print(secrets.token_hex(16))')"
       simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
       if [[ "$leg" == auto_login ]]; then
-        # In a subshell, so the password is in no command line and leaves with it.
-        ( set +x
-          SIMCTL_CHILD_CMUX_MOBILE_STACK_EMAIL="$account"
-          SIMCTL_CHILD_CMUX_MOBILE_STACK_PASSWORD="$(python3 -I cmux-next-ios/scripts/handoff_receipt.py env-value "$creds" CMUX_UITEST_STACK_PASSWORD)"
-          export SIMCTL_CHILD_CMUX_MOBILE_STACK_EMAIL SIMCTL_CHILD_CMUX_MOBILE_STACK_PASSWORD
-          SIMCTL_CHILD_CMUX_DOGFOOD_READINESS_NONCE="$nonce" SIMCTL_CHILD_CMUX_DOGFOOD_CLIENT_ID="$client" \
-            xcrun simctl --set "$sims" launch "$udid" "$bundle_id" >/dev/null ) ||
+        SIMCTL_CHILD_CMUX_DOGFOOD_READINESS_NONCE="$nonce" SIMCTL_CHILD_CMUX_DOGFOOD_CLIENT_ID="$client" \
+          cmux_fleet_signin_simctl --set "$sims" launch "$udid" "$bundle_id" >/dev/null ||
           { handoff_sim_reason="simctl launch failed ($leg)"; break; }
       else
         SIMCTL_CHILD_CMUX_DOGFOOD_READINESS_NONCE="$nonce" SIMCTL_CHILD_CMUX_DOGFOOD_CLIENT_ID="$client" \
@@ -827,7 +824,9 @@ if [[ "$mode" == handoff ]]; then
       fi
       note "- simulator $leg: $verdict (screens/signed-in-$leg.png)"
     done
-    if [[ -n "$rec_pid" ]]; then kill -INT "$rec_pid" 2>/dev/null || true; wait "$rec_pid" 2>/dev/null || true; fi
+    cmux_fleet_signin_forget
+    # recordVideo finishes the file on SIGINT; one that has not stopped in 30 s is ended (bounded).
+    if [[ -n "$rec_pid" ]]; then kill -INT "$rec_pid" 2>/dev/null || true; for _ in $(seq 1 30); do kill -0 "$rec_pid" 2>/dev/null || break; sleep 1; done; ! kill -0 "$rec_pid" 2>/dev/null || kill -TERM "$rec_pid" 2>/dev/null || true; wait "$rec_pid" 2>/dev/null || true; fi
     simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
     [[ -z "$handoff_sim_reason" ]]
   }
@@ -1524,10 +1523,19 @@ if [[ "$mode" == pair-e2e ]]; then
     ./scripts/download-prebuilt-ghosttykit.sh >"$work/ghosttykit.log" 2>&1 ||
       { tail -20 "$work/ghosttykit.log"; echo "error: could not download GhosttyKit.xcframework" >&2; exit 1; }
   fi
+  # ghostty-vt-sys (ghostty-next) needs the fleet's pinned Zig 0.17 (the worker's tools, as
+  # its probe reports); PATH can name /usr/local's 0.16, which it refuses ("Your Zig version
+  # v0.16.0 does not meet the required build version of v0.17.0", steps
+  # e00987962032845838c55ef5 and b9658de920bf40d484a998ac). Only ZIG, which ghostty-vt-sys
+  # reads first: the classic Ghostty CLI helper reads CMUX_ZIG and needs its own 0.16, as
+  # scripts/measure/projection.sh sets it.
+  fleet_zig=/Users/Shared/cmux-build-fleet/tools/bin/zig
+  vt_zig="${ZIG:-}"
+  [[ -z "$vt_zig" && -x "$fleet_zig" ]] && vt_zig="$fleet_zig"
   # A fleet build (CMUX_FLEET_BUILD_TAG) builds acpmux, optchat-chief and
   # cmux-mobile-host on a cache miss and requires them in the bundle.
   set +e
-  CMUX_FLEET_BUILD_TAG="$mac_tag" ./scripts/reload.sh --tag "$mac_tag" --derived-data "$mac_dd" \
+  ZIG="$vt_zig" CMUX_FLEET_BUILD_TAG="$mac_tag" ./scripts/reload.sh --tag "$mac_tag" --derived-data "$mac_dd" \
     --no-global-cli-links >"$work/mac-build.log" 2>&1
   status=$?
   set -e

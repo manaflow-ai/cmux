@@ -15,19 +15,20 @@ on:
 
 permissions: {}
 
-# An edit that leaves the `Classic API change:` line as it was takes a group of its own, so it never
-# cancels a real run.
+# The description only matters through its `Classic API change:` line. An edit with no such line
+# before or after it (a title, a HOLD line) cannot change the verdict: it takes no runner and its
+# own group, so it never cancels a push's run (pattern pr-edit-fans-out-ci in cmuxterm-hq
+# docs/handbook: 130 HOLD-line edits on 2026-11-17 queued this workflow 39 times). A base change
+# re-runs it: the diff it judges moved.
 concurrency:
-  group: classic-api-guard-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && !github.event.changes.base && !(github.event.changes.body && (contains(github.event.pull_request.body, 'Classic API change:') || contains(github.event.changes.body.from, 'Classic API change:'))) && format('-edit-{0}', github.run_id) || '' }}
+  group: classic-api-guard-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && !github.event.changes.base && !(github.event.changes.body && (contains(github.event.pull_request.body, 'Classic API change:') || contains(github.event.changes.body.from, 'Classic API change:'))) && '-metadata' || '' }}
   cancel-in-progress: true
 
 jobs:
   classic-api:
-    name: classic-api-guard
-    # An edit re-runs it when it adds, changes or removes a `Classic API change:` line (the one thing it reads
-    # from the description) or retargets the pull request; any other edit starts no runner. Into
-    # feat-cmux-next, the only base this copy runs for, it only warns, so a skip reads the same as its
-    # answer (tests/test_ci_edit_events_start_no_runner.py).
+    # A skipped run would read as a pass and replace a failing one, so the edit that skips it
+    # publishes another name.
+    name: ${{ github.event.action == 'edited' && !github.event.changes.base && !(github.event.changes.body && (contains(github.event.pull_request.body, 'Classic API change:') || contains(github.event.changes.body.from, 'Classic API change:'))) && 'classic-api-guard metadata edit (ignored)' || 'classic-api-guard' }}
     if: ${{ !(github.event.action == 'edited' && !github.event.changes.base && !(github.event.changes.body && (contains(github.event.pull_request.body, 'Classic API change:') || contains(github.event.changes.body.from, 'Classic API change:')))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
