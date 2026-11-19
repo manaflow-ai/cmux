@@ -175,5 +175,7 @@ import Testing
         #expect(descriptor.isPersonOnly, "a socket caller cannot open it and have the person line submit for it")
         let workspace = try #require(ActionRegistry.standard().descriptor(for: "workspace.subagentLimit"))
         #expect(workspace.isPersonOnly)
+        #expect(workspace.surfacePlan.palette.isOffered)
+        #expect(workspace.surfacePlan.contextMenus.map(\.context) == [.workspace])
     }
 }
