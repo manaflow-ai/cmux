@@ -5,6 +5,7 @@ import AppKit
 @testable import CmuxNextDaemon
 import CmuxNextDesign
 @testable import CmuxNextSettings
+import CmuxNextTabs
 import CmuxNextTestSupport
 import Foundation
 import Testing
@@ -188,6 +189,145 @@ struct NewTabCommandListKeptTests {
         #expect(end.started == start.started + 1, "the hold started \(end.started - start.started) listings in \(hold.asks) asks")
         #expect(end.dropped == start.dropped, "the hold dropped \(end.dropped - start.dropped) finished lists in \(hold.asks) asks")
         #expect(without == 0, "\(without) of the hold's \(hold.pages.count) pages do not have the list after its hand-over")
+    }
+
+    // MARK: - The web page
+
+    /// The web New Tab page (the default kind), made cold as the pages of a hold are: a second page takes the list
+    /// that is there, in place, and no catalog action is read for it. Its person's first input reads the actions
+    /// again with no ask of the row, in later frames.
+    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+    func aSecondWebPageTakesTheListWithNoNewReadAndReadsAgainAtItsFirstInput() async throws {
+        try await Self.web("cn-list-kept-web") { web in
+            let services = web.services, tabs = services.agentTabs, lister = services.newTabActions
+            let before = lister.counts
+            NewTabPage.open(in: web.pane, seed: nil)
+            let key = Self.focus(services)
+            // Two asks: a page whose view is made after the first hand-over has the list at the second.
+            let handed = await Self.listed(services)
+            let again = await Self.listed(services)
+            let shown = lister.counts
+            let pages = web.others()
+            print("new-tab-list: a second web page: \(shown.started - before.started) listings started, \(shown.actionsRead - before.actionsRead) catalog "
+                + "actions read again, \(handed.frames) + \(again.frames) frames with a lister task; the focus context \(key) in the key's turn, \(Self.focus(services)) now")
+            #expect(shown.started == before.started,
+                    "the second page started \(shown.started - before.started) listings and read \(shown.actionsRead - before.actionsRead) catalog actions again")
+            try #require(pages.count == 1, "the second key opened \(pages.count) New Tab pages")
+            let view = try #require(tabs.views[pages[0]], "the second page has no view after two hand-overs")
+            #expect(view.model.newTab?.omnibar.actions == web.list.actions,
+                    "the second page has \(view.model.newTab?.omnibar.actions.count ?? 0) of the \(web.list.actions.count) actions")
+
+            // The page's own report of its person's first input. The row asks for nothing: it is only the display.
+            _ = await view.model.respond(to: .touched)
+            let limit = Self.frameLimit(services)
+            var fired = 0
+            while lister.counts.started == shown.started, fired < limit {
+                services.mainWork.frameDidFire()
+                fired += 1
+            }
+            let started = lister.counts
+            #expect(started.started == shown.started + 1, "the first input started \(started.started - shown.started) listings in \(fired) frames")
+            let read = await Self.listed(services)
+            let end = lister.counts
+            print("new-tab-list: the first input in a web page: the listing's first task \(fired) frames later; \(end.started - shown.started) listings "
+                + "started, \(end.actionsRead - shown.actionsRead) catalog actions read, \(read.frames) frames with a lister task after the row's ask")
+            #expect(end.started == shown.started + 1, "the first input and one ask started \(end.started - shown.started) listings")
+        }
+    }
+
+    /// Two New Tab keys inside one frame (a large session has long frames): the older page is not its pane's
+    /// selection at the next frame, so it has no view when the lister's first task runs. The two pages start no
+    /// listing, and the older one takes the list, with no read, when its view is made.
+    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+    func twoWebPagesInOneFrameStartNoListing() async throws {
+        try await Self.web("cn-list-kept-web-pair") { web in
+            let services = web.services, tabs = services.agentTabs, lister = services.newTabActions
+            let before = lister.counts
+            // No frame and no turn of the main thread comes between the two keys.
+            NewTabPage.open(in: web.pane, seed: nil)
+            NewTabPage.open(in: web.pane, seed: nil)
+            let key = Self.focus(services)
+            let handed = await Self.listed(services)
+            let again = await Self.listed(services)
+            let held = lister.counts
+            let pair = web.others()
+            let unseen = pair.filter { tabs.views[$0] == nil }
+            print("new-tab-list: two web pages in one frame: \(pair.count) pages, \(unseen.count) with no view; \(held.started - before.started) listings "
+                + "started, \(held.actionsRead - before.actionsRead) catalog actions read again, \(handed.frames) + \(again.frames) frames with a lister "
+                + "task; the focus context \(key) in the keys' turn, \(Self.focus(services)) now")
+            #expect(held.started == before.started,
+                    "the two pages started \(held.started - before.started) listings and read \(held.actionsRead - before.actionsRead) catalog actions again")
+            try #require(pair.count == 2 && unseen.count == 1, "the fixture did not make the case: \(pair.count) pages, \(unseen.count) with no view")
+            let newer = try #require(pair.compactMap { tabs.views[$0] }.first)
+            #expect(newer.model.newTab?.omnibar.actions == web.list.actions,
+                    "the page with a view has \(newer.model.newTab?.omnibar.actions.count ?? 0) of the \(web.list.actions.count) actions")
+
+            // The person selects the older page: its view is made at the next frame.
+            web.pane.select(CmuxNextTabs.TabID(unseen[0].key))
+            let made = await Self.listed(services)
+            let last = await Self.listed(services)
+            let end = lister.counts
+            let older = web.others().compactMap { tabs.views[$0] }.first { $0 !== newer }
+            print("new-tab-list: the older page at its view's make: \(end.started - held.started) listings started, \(end.actionsRead - held.actionsRead) "
+                + "catalog actions read again, \(made.frames) + \(last.frames) frames with a lister task")
+            let view = try #require(older, "the older page has no view after it was selected")
+            #expect(view.model.newTab?.omnibar.actions == web.list.actions,
+                    "the older page has \(view.model.newTab?.omnibar.actions.count ?? 0) of the \(web.list.actions.count) actions")
+            #expect(end.started == held.started,
+                    "the older page started \(end.started - held.started) listings and read \(end.actionsRead - held.actionsRead) catalog actions again")
+        }
+    }
+
+    /// What a web row starts from: an app with one web New Tab page, made cold, that has the palette's actions.
+    @MainActor private struct Web {
+        let services: AppServices
+        let pane: PaneController
+        /// The first page's view.
+        let first: AgentPaneView
+        /// The list the lister gives with the focus on the first page.
+        let list: Listed
+        /// The keys of the New Tab pages before the first one.
+        let known: Set<AgentTabKey>
+
+        /// The New Tab pages that came after the first one, by their keys of now (a key changes when the store answers).
+        func others() -> [AgentTabKey] {
+            let tabs = services.agentTabs
+            return tabs.newTabPages.keys.filter { !known.contains($0) && tabs.views[$0] !== first }
+        }
+    }
+
+    /// The registry's focus context, as a number for a print.
+    private static func focus(_ services: AppServices) -> String { "\(services.registry.context.rawValue)" }
+
+    /// Runs `body` in an app (with its own daemon) whose pane shows one web New Tab page that has the list. No page
+    /// is prepared, so each page of the row is made cold, as the pages of a hold are.
+    private static func web(_ install: String, _ body: @MainActor (Web) async throws -> Void) async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: install)
+            try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
+            let (_, pane) = try await NewTabOpenFramesTests.focusedPane(services)
+            let pool = services.newTabSpares
+            pool.dropAll()
+            pool.makeSpare = { _ in nil }
+            defer { pool.makeSpare = nil }
+            let tabs = services.agentTabs
+            let known = Set(tabs.newTabPages.keys)
+            let start = focus(services)
+            NewTabPage.open(in: pane, seed: nil)
+            let key = focus(services)
+            let cold = await listed(services)
+            let read = focus(services)
+            // The focus goes to the page in its first frames. A second ask gives the list of that focus.
+            let settled = await listed(services)
+            let list = try #require(settled.list, "the first page's second ask never got a list")
+            let page = try #require(tabs.newTabPages.keys.first { !known.contains($0) }, "Cmd-T opened no New Tab page")
+            let first = try #require(tabs.views[page], "the first page has no view after its listing")
+            try #require(!list.actions.isEmpty && first.model.newTab?.omnibar.actions.isEmpty == false, "the first page did not get a list")
+            let counts = services.newTabActions.counts
+            print("new-tab-list: the first web page: \(counts.started) listings started in two asks, \(cold.frames) + \(settled.frames) frames with a lister "
+                + "task; the focus context \(start) before the key, \(key) in the key's turn, \(read) after the first hand-over, \(focus(services)) now")
+            try await body(Web(services: services, pane: pane, first: first, list: list, known: known))
+        }
     }
 
     // MARK: - The app
