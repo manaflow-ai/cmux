@@ -114,7 +114,7 @@ final class NewTabInputCoordinator {
         // One opening at a time per window: an earlier one ends here, and its keys wait for this page.
         let replaced = entry(for: window), earlier = replaced?.keyboard.persons == true ? replaced?.buffer.takeKeys() ?? [] : [] // a script's hold: its keys were typed where the keyboard is, and go on there now
         release(in: window)
-        let keyboard = NewTabHoldKeyboard(in: window, persons: ActionRunScope.isPersonsAction(), replacing: replaced?.keyboard, standIn: TerminalHostView.keyboardOwner, drawn: { AgentPaneView.chromiumAgentPane(under: $0, in: window) })
+        let keyboard = NewTabHoldKeyboard(in: window, persons: ActionRunScope.isPersonsAction(), replacing: replaced?.keyboard, standIn: TerminalHostView.keyboardOwner, drawn: { $0.isChromiumPageWindow ? AgentPaneView.chromiumAgentPane(under: $0, in: window) : nil })
         // The pane focus had at the opening, when the opening may move focus (a person's, not a script's).
         var focusedAtOpening = ActionRunScope.viewChangeAllowed() ? pane.services.windowController(showing: pane)?.focus.state.pane : nil
         let buffer = NewTabInputBuffer(began: now(), held: earlier, focusField: { [weak pane, weak window] in
@@ -266,9 +266,7 @@ final class NewTabInputCoordinator {
     private static func chromiumPageWindow(in window: NSWindow) -> NSWindow? {
         if let key = NSApp.keyWindow, key !== window, key.parent === window { return key }
         guard window.firstResponder === window || window.firstResponder == nil else { return nil }
-        return window.childWindows?.first { child in
-            child.isVisible && AgentPaneView.chromiumAgentPane(under: child, in: window).map { !$0.isHiddenOrHasHiddenAncestor } == true
-        }
+        return window.childWindows?.first { $0.isVisible && AgentPaneView.chromiumAgentPane(under: $0, in: window) != nil }
     }
 
     private func install(_ entry: Entry, in window: NSWindow) {

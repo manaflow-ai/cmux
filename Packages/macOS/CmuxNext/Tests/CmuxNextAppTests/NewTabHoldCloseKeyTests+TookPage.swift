@@ -18,7 +18,8 @@ extension NewTabHoldCloseKeyTests {
     /// lookup's answer after the key is not asked: it gives another view then, as a place gives when 2 page views are
     /// at it.
     /// (A test of the rule's own type, with the key window as a parameter: a row can not make a child window key with
-    /// certainty. The lookup of the app, which needs a page in Chromium, has no row.)
+    /// certainty. The lookup of the app has its rows in `AgentPaneUnderAPageWindowTests`; no row has a page in Chromium
+    /// in a hold.)
     @Test func aHoldForgetsWhatHadTheKeyboardOnlyWhenTheNewTabTookItsPageView() throws {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: CGRect(x: 200, y: 200, width: 300, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
@@ -81,15 +82,28 @@ extension NewTabHoldCloseKeyTests {
 
         // The view that showed the page at the key is gone before the take: the page window stays the owner, so its
         // key is dropped and goes to no other place.
-        var gone: NSView? = NSView(frame: page.frame)
-        let viewGone = NewTabHoldKeyboard(in: window, keyWindow: pageWindow, drawn: { _ in gone })
-        gone = nil
+        weak var probe: NSView?
+        let viewGone: NewTabHoldKeyboard = autoreleasepool {
+            let gone = NSView(frame: page.frame)
+            probe = gone
+            return NewTabHoldKeyboard(in: window, keyWindow: pageWindow, drawn: { _ in gone })
+        }
+        try #require(probe == nil, "setup: the view that showed the page window's page at the key is not gone")
         viewGone.newTabTook(page)
         viewGone.endedUnready = true
         let droppedWithNoView = viewGone.drops(keyFor: pageWindow)
         #expect(droppedWithNoView, "the view that showed the page window's page at the key was gone at the take, and a key for that window was not dropped")
+
+        // No page of the window's place showed at the key (a cold page in its paint hold with no page before it): the
+        // lookup answers no view. The page window stays the owner, whichever view the new tab takes.
+        let noView = NewTabHoldKeyboard(in: window, keyWindow: pageWindow, drawn: { _ in nil })
+        noView.newTabTook(page)
+        noView.endedUnready = true
+        let droppedWithNoAnswer = noView.drops(keyFor: pageWindow)
+        #expect(droppedWithNoAnswer, "the lookup answered no view at the key, and a key for the page window was not dropped")
         print("NewTabHoldCloseKeyTests: a page window had the keyboard at the key: asked for its view \(asked) time at the key; "
             + "the new tab took that view: a key for the window dropped: \(droppedForItsPage); "
-            + "it took another view: dropped: \(droppedForAnother); the view of the key was gone: dropped: \(droppedWithNoView)")
+            + "it took another view: dropped: \(droppedForAnother); the view of the key was gone: dropped: \(droppedWithNoView); "
+            + "the lookup answered no view at the key: dropped: \(droppedWithNoAnswer)")
     }
 }
