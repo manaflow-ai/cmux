@@ -1,6 +1,8 @@
 //! The live proof of docs/automations-desktop-parity.md, with the real binary,
 //! a real runner process and the real clock (about four minutes, so it runs
-//! only with `CMUX_AUTOMATION_LIVE=1`):
+//! only with `CMUX_AUTOMATION_LIVE=1`, or in a fleet step whose key ends in
+//! `automation-live`: `cmux-ci run … --key NAME-automation-live --script
+//! scripts/ci/cmux-tui-rust-check.sh --arg test --arg automation_live --arg cmux-tui`):
 //!
 //! 1. A schedule fires: an automation every minute runs at its minute.
 //! 2. A sleep is caught up: the runner stops for two and a half minutes (the
@@ -117,7 +119,9 @@ fn state(run: &Value) -> &str {
 
 #[test]
 fn automation_live_a_schedule_fires_a_sleep_is_caught_up_and_a_failure_shows() {
-    if std::env::var("CMUX_AUTOMATION_LIVE").as_deref() != Ok("1") {
+    let asked = std::env::var("CMUX_AUTOMATION_LIVE").as_deref() == Ok("1")
+        || std::env::var("CMUX_CI_STEP_KEY").is_ok_and(|k| k.ends_with("automation-live"));
+    if !asked {
         eprintln!("skipped: set CMUX_AUTOMATION_LIVE=1 (about four minutes of real time)");
         return;
     }
