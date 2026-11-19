@@ -112,6 +112,7 @@ public final class StreamedBrowserModel: BrowserTabState {
     public private(set) var showsPicture = false
     /// The page holds the picture it showed (`freeze`).
     @ObservationIgnored public private(set) var isFrozen = false
+    @ObservationIgnored private var closedForGood = false
     /// The page's open `<select>` popup (`rb.menu.show` of kind `select`): the page shows
     /// its options until the person picks or cancels, or the page closes it.
     public private(set) var selectMenu: OpenMenu?
@@ -320,7 +321,11 @@ public final class StreamedBrowserModel: BrowserTabState {
         let before = visible
         appActive = active
         visibilityChanged(from: before)
+        if active, isFrozen { decoder.redrawLastPicture() }
     }
+
+    /// Closed (the tab went, or the directory reset with its link).
+    public var isClosed: Bool { closedForGood }
 
     /// Whether the page is on screen now (and laid out): what opens again on
     /// a new link (``StreamedBrowserDirectory/linkChanged()``).
@@ -362,6 +367,7 @@ public final class StreamedBrowserModel: BrowserTabState {
     }
 
     public func close() {
+        closedForGood = true
         connection?.close()
         connection = nil
         sink = nil

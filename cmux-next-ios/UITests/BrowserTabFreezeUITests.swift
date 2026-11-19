@@ -80,6 +80,7 @@ final class BrowserTabFreezeUITests: XCTestCase {
     }
 
     /// Whether two captures differ below the status bar (its clock may tick).
+    @MainActor
     static func differs(_ a: XCUIScreenshot, _ b: XCUIScreenshot) -> Bool {
         guard let ca = a.image.cgImage, let cb = b.image.cgImage, ca.width == cb.width, ca.height == cb.height else { return true }
         let top = ca.height / 12

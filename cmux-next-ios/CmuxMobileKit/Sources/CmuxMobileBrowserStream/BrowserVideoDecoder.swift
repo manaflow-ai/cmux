@@ -77,12 +77,23 @@ public final class BrowserVideoDecoder: @unchecked Sendable {
             guard self.frozen != frozen else { return }
             self.frozen = frozen
             guard !frozen else { return }
-            guard let held = heldPixels else { return thawed(false) }
+            guard let held = heldPixels else {
+                // The layer may have lost its picture meanwhile (flushed in the background).
+                if let lastPixels { enqueue(lastPixels) }
+                return thawed(false)
+            }
             heldPixels = nil
             lastPixels = held
             enqueue(held)
             thawed(true)
         }
+    }
+
+    /// Draws the last picture again (the app came back while the decoder holds a
+    /// frame: iOS may have flushed the layer in the background, and a frozen
+    /// decoder draws nothing new until it thaws).
+    public func redrawLastPicture() {
+        queue.async { [self] in if let lastPixels { enqueue(lastPixels) } }
     }
 
     /// Drops the decoder (link gone, or the page stalled); the next keyframe
