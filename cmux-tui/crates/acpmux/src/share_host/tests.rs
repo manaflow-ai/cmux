@@ -420,12 +420,7 @@ fn helpers_are_found_in_order_and_staged_beside_the_apps_slot() {
     let root = tempfile::tempdir().unwrap();
     let own = root.path().join("cmux DEV.app");
     let nightly = root.path().join("cmux NIGHTLY.app");
-    // DEV: a Computer Use helper without the executable, and the separate helper.
-    std::fs::create_dir_all(own.join("Contents/Library/cmux Computer Use.app/Contents/MacOS"))
-        .unwrap();
     let own_helper = helper_bundle(&own, "cmux DEV Screen Sharing.app");
-    // NIGHTLY: the Computer Use helper carries it, and comes before an older separate helper.
-    let nightly_cua = helper_bundle(&nightly, "cmux Computer Use.app");
     let nightly_helper = helper_bundle(&nightly, "cmux NIGHTLY Screen Sharing.app");
     // Not a helper: another bundle in the same folder.
     std::fs::create_dir_all(nightly.join("Contents/Library/cmux Remote.app")).unwrap();
@@ -442,7 +437,6 @@ fn helpers_are_found_in_order_and_staged_beside_the_apps_slot() {
             helper::Source::Env(env),
             helper::Source::Join(join),
             helper::Source::App(own_helper),
-            helper::Source::App(nightly_cua),
             helper::Source::App(nightly_helper),
         ]
     );
@@ -453,41 +447,6 @@ fn helpers_are_found_in_order_and_staged_beside_the_apps_slot() {
         )
     );
     assert_eq!(
-        helper::staging_root(Path::new("/Users/p"), "com.cmuxterm.cua"),
-        Path::new(
-            "/Users/p/Library/Application Support/cmux-next/screen-sharing/com.cmuxterm.cua/daemon"
-        )
-    );
-    // The Computer Use helper's copy is also keyed by its main executable, what macOS names.
-    assert_eq!(
-        helper::digest_parts_for("com.cmuxterm.cua"),
-        [
-            "Contents/MacOS/cmux-screen-sharing",
-            "Contents/_CodeSignature/CodeResources",
-            "Contents/Info.plist",
-            "Contents/MacOS/cmux-cua",
-        ]
-    );
-    assert_eq!(
-        helper::digest_parts_for("com.cmuxterm.app.screen-sharing"),
-        cmux_signed_bundle::digest_parts("cmux-screen-sharing").to_vec()
-    );
-    // The Computer Use helper is checked against its pinned Developer ID requirement, never the
-    // source's own; a separate helper against what the caller reads.
-    let cua = helper::requirement_for("com.cmuxterm.cua", Path::new("/x"), |_| {
-        panic!("the Computer Use helper's requirement is pinned")
-    });
-    assert_eq!(cua.as_deref(), Ok(crate::agent_tools::cua_helper::REQUIREMENT));
-    assert!(cua.unwrap().starts_with("identifier \"com.cmuxterm.cua\" and anchor apple generic"));
-    let separate =
-        helper::requirement_for("com.cmuxterm.app.screen-sharing", Path::new("/x"), |p| {
-            Ok(format!("designated of {}", p.display()))
-        });
-    assert_eq!(separate.as_deref(), Ok("designated of /x"));
-    assert!(helper::is_helper_bundle_id("com.cmuxterm.cua"));
-    assert!(!helper::is_helper_bundle_id("com.cmuxterm.cua.screen-sharing"));
-    assert!(!helper::is_helper_bundle_id("com.cmuxterm.cuax"));
-    assert_eq!(
         helper::app_of(Path::new("/Applications/cmux.app/Contents/Resources/bin/acpmux")),
         Some("/Applications/cmux.app".into())
     );
@@ -495,46 +454,6 @@ fn helpers_are_found_in_order_and_staged_beside_the_apps_slot() {
     assert!(helper::is_helper_bundle_id("com.cmuxterm.app.nightly.screen-sharing"));
     assert!(!helper::is_helper_bundle_id("com.example.screen-sharing"));
     assert!(!helper::is_helper_bundle_id("com.cmuxterm.app.x/../y.screen-sharing"));
-}
-
-#[test]
-fn a_computer_use_helper_copy_runs_the_screen_sharing_executable_and_keys_on_both() {
-    let root = tempfile::tempdir().unwrap();
-    let nightly = root.path().join("cmux NIGHTLY.app");
-    let cua = helper_bundle(&nightly, "cmux Computer Use.app");
-    std::fs::write(cua.join("Contents/MacOS/cmux-cua"), b"cua").unwrap();
-    std::fs::create_dir_all(cua.join("Contents/_CodeSignature")).unwrap();
-    std::fs::write(cua.join("Contents/_CodeSignature/CodeResources"), b"seal").unwrap();
-    std::fs::write(cua.join("Contents/Info.plist"), b"plist").unwrap();
-    let copy_tree = |from: &Path, to: &Path| -> Result<(), String> {
-        for part in ["Contents/MacOS/cmux-screen-sharing", "Contents/MacOS/cmux-cua"]
-            .into_iter()
-            .chain(["Contents/_CodeSignature/CodeResources", "Contents/Info.plist"])
-        {
-            std::fs::create_dir_all(to.join(part).parent().unwrap()).map_err(|e| e.to_string())?;
-            std::fs::copy(from.join(part), to.join(part)).map_err(|e| e.to_string())?;
-        }
-        Ok(())
-    };
-    let parts = helper::digest_parts_for("com.cmuxterm.cua");
-    let staging = helper::staging_root(root.path(), "com.cmuxterm.cua");
-    let staged =
-        cmux_signed_bundle::stage_with(&cua, &staging, &parts, copy_tree, |_| Ok(())).unwrap();
-    assert!(staged.app.ends_with("cmux Computer Use.app"));
-    assert_eq!(
-        staged.executable(helper::EXECUTABLE),
-        staged.app.join("Contents/MacOS/cmux-screen-sharing")
-    );
-    assert!(staged.executable(helper::EXECUTABLE).is_file());
-    // A copy whose Computer Use executable differs is refused, though the Screen Sharing one
-    // is the same.
-    let other = helper::staging_root(&root.path().join("other"), "com.cmuxterm.cua");
-    let tamper = |from: &Path, to: &Path| {
-        copy_tree(from, to)?;
-        std::fs::write(to.join("Contents/MacOS/cmux-cua"), b"evil").map_err(|e| e.to_string())
-    };
-    let refused = cmux_signed_bundle::stage_with(&cua, &other, &parts, tamper, |_| Ok(()));
-    assert_eq!(refused, Err("the copy differs from the source bundle".into()));
 }
 
 #[test]
