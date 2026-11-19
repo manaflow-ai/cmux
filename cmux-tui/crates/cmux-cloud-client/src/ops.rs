@@ -39,7 +39,7 @@ pub async fn call<O: Op>(
     key: Option<&str>,
     origin: Option<Origin>,
 ) -> Result<Answer<O::Result, O::Error>, ApiError> {
-    call_with_options(http, base_url, params, key, origin, None).await
+    call_with_options::<O>(http, base_url, params, key, origin, None).await
 }
 
 /// Sends an op with an optimistic-concurrency precondition. Mutations should

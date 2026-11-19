@@ -323,7 +323,7 @@ where
             None => Err(ApiError::unreadable("a mutation answer omitted its revision")),
         },
         Answer::Refused(error) => {
-            Err(Answer::<T, E>::Refused(error).into_result().expect_err("refused answer"))
+            Err(Answer::<T, E>::Refused(error).into_result().err().expect("refused answer"))
         }
     }
 }
