@@ -2312,11 +2312,12 @@ mod tests {
     /// parked phone as the phone back, and would unpark while the phone
     /// sleeps. The pinger here is held between its beat and its send (it
     /// waits on the ping table, which another thread holds) until the park
-    /// was accepted.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    /// was accepted. A blocked pinger blocks its runtime worker too: the beat
+    /// is long enough that at most one more beat fires before the release.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
     async fn a_keepalive_ping_deferred_past_a_park_stays_unsent() {
         let (a, b) = tokio::io::duplex(1024 * 1024);
-        let beat = Duration::from_millis(200);
+        let beat = Duration::from_secs(1);
         let config =
             LinkConfig { keepalive: Some(beat), keepalive_timeout: Duration::from_secs(30), aligned: true };
         let phone = Link::new(a, Role::Phone, config, None);
