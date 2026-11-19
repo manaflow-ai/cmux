@@ -4,9 +4,12 @@ import XCTest
 ///
 /// - A full-screen app (vim) gets one PTY resize per settled toggle (R1-1);
 ///   the Mac answers with its grid, a mirror reset and a replay. Until the
-///   new grid is drawn the old one stays pinned to the top (row 1 at the
-///   toolbar's edge, not moving), then it swaps in once, with no grid in
-///   between: no blank grid, no letterbox note, no torn frame.
+///   new grid is drawn the old one moves in one motion with the keyboard
+///   (Leo, 2026-11-19: one motion, not several steps): a composer rising
+///   over it carries it up, its last row on the composer every frame; a
+///   composer going away leaves it pinned to the top. Then the new grid
+///   swaps in once, with no grid in between: no blank grid, no letterbox
+///   note, no torn frame.
 /// - A shell never resizes for the keyboard; its rows ride the keyboard,
 ///   never against it, never blank, and never snap after it stops.
 ///
@@ -133,8 +136,9 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
             }
         }
         XCTAssertEqual(values["inter"], "0", "intermediate grids drawn: \(values["offlog"] ?? "?")")
-        // Row 1 stays where its grid first showed until the next swap, held
-        // still or live, whatever is drawn above it.
+        // Row 1 stays where its grid first showed until the next swap, or
+        // moves there with the composer, held still or live, whatever is
+        // drawn above it.
         XCTAssertEqual(values["rowoff"], "0", "frames with row 1 off its place: largest \(values["rowmax"] ?? "?") pt at \(values["offlog"] ?? "?")")
         XCTAssertEqual(steps.count, 10, "five shows and five hides (\(values["demo"] ?? "-"))")
         if exactResizes {
@@ -145,9 +149,14 @@ final class TerminalKeyboardToggleFlickerUITests: XCTestCase {
         XCTAssertEqual(values["blank"], "0", "frames with a blank grid")
         XCTAssertEqual(values["note"], "0", "frames with the letterbox note")
         XCTAssertEqual(values["sized"], "0", "frames where the surface changed size")
-        // Through every toggle the grid stays pinned to the top: row 1 at the
-        // toolbar's edge on every frame (held stills included), never riding
-        // the composer.
+        // One motion: a rising composer never covers the grid's last row (the
+        // app's input or status line) while the keyboard opens. The grid
+        // used to stand still while the composer rose over it, and its last
+        // rows came back only with the Mac's redraw after the keyboard stopped.
+        XCTAssertEqual(values["cover"], "0", "frames with the composer over the grid's last row: largest \(values["covermax"] ?? "?") pt at \(values["offlog"] ?? "?")")
+        // Through every toggle row 1 is at the toolbar's edge on every frame
+        // (held stills included), or under it while the grid rides the
+        // composer up; its top never moves on its own.
         XCTAssertEqual(values["topoff"], "0", "frames with row 1 off the toolbar's edge: largest \(values["topmax"] ?? "?") pt at \(values["offlog"] ?? "?")")
         XCTAssertEqual(values["topmove"], "0", "frames where the grid's top moved without a swap: \(values["offlog"] ?? "?")")
         // Hiding, the gap below the old grid is background only.
