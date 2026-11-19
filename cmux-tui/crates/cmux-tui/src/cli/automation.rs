@@ -549,7 +549,7 @@ fn runner_json(store: &Store) -> Value {
 
 /// A run as `history --json` gives it: the record, its automation's name, its
 /// log file, and for a prompt run that started, the agent chat it is.
-fn run_json(store: &Store, a: &Automation, r: &Run) -> Value {
+fn run_row_json(store: &Store, a: &Automation, r: &Run) -> Value {
     let mut v = serde_json::to_value(r).unwrap_or(Value::Null);
     if let Value::Object(map) = &mut v {
         map.insert("automation_name".into(), json!(a.name));
@@ -894,7 +894,7 @@ fn history(args: &[String], out: &Out) -> Outcome {
     });
     rows.truncate(limit);
     if output == OutputMode::Json {
-        out.value(&json!({ "runs": rows.iter().map(|(x, r)| run_json(&store, x, r)).collect::<Vec<_>>() }));
+        out.value(&json!({ "runs": rows.iter().map(|(x, r)| run_row_json(&store, x, r)).collect::<Vec<_>>() }));
         return Ok(0);
     }
     if rows.is_empty() {
