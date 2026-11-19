@@ -22,4 +22,24 @@ struct CEFPageGestureTests {
         tracker.record(.keyDown, on: 7, button: 0, flags: [], timestamp: 3)
         #expect(gestures == [7, 7, 7])
     }
+
+    /// A <select>'s popup is a menu Chromium tracks itself; the pick never reaches the event
+    /// monitor, and the click that opened it is spent before the page acts on the choice. Settings
+    /// > Agents refused every pick ("set needs a click in the page"). The menu closing is the
+    /// person's gesture on the key page window; it grants nothing to a window that is no page's.
+    @Test func aChoiceInAPopupChromiumShowsIsTheKeyPagesGesture() {
+        let tracker = CEFLinkClickTracker()
+        var gestures: [Int32] = []
+        tracker.onGesture = { gestures.append($0) }
+        let host = NSObject(), page = NSObject(), other = NSObject()
+        tracker.targets = { [CEFClickTarget(browser: 9, hostWindow: ObjectIdentifier(host), frame: CGRect(x: 0, y: 0, width: 400, height: 300))] }
+        tracker.recordMenuChoice(in: ObjectIdentifier(page), parent: ObjectIdentifier(host), center: CGPoint(x: 200, y: 150))
+        #expect(gestures == [9], "the pick in the page's popup is its gesture")
+        tracker.recordMenuChoice(in: ObjectIdentifier(host), parent: nil, center: CGPoint(x: 200, y: 150))
+        tracker.recordMenuChoice(in: ObjectIdentifier(other), parent: ObjectIdentifier(other), center: CGPoint(x: 200, y: 150))
+        #expect(gestures == [9], "a choice while the cmux window or another window is key is no page's gesture")
+        let popup = NSMenu(), submenu = NSMenu()
+        popup.addItem(withTitle: "read-only", action: nil, keyEquivalent: "").submenu = submenu
+        #expect(!CEFLinkClickTracker.inMenuBar(submenu), "a popup's own menu is not the menu bar")
+    }
 }

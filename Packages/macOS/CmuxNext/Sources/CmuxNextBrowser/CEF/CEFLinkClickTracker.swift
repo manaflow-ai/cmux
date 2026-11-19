@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 
 /// The last mouse-up on a Chromium page, recorded by the app (the shim
 /// reports a disposition but not the click's modifiers).
@@ -30,8 +31,10 @@ final class CEFLinkClickTracker {
     /// The last left or middle mouse-up on each Chromium page, by browser id.
     private(set) var clicks: [Int32: CEFLinkClickRecord] = [:]
     private var monitor: Any?
+    /// Menus opening and closing (the app's one seam for them), kept while clicks are recorded.
+    private var menus: MenuTracking?
     /// The pages a click can land on now (the runtime's shown tabs).
-    private var targets: () -> [CEFClickTarget] = { [] }
+    var targets: () -> [CEFClickTarget] = { [] }
     /// A mouse down, mouse up or key down on page `browser`: a fresh user
     /// gesture (the tab's `AutomaticDownloadGate`, an app page's write). The
     /// shim reports no gesture for downloads, so the app's own input events
@@ -59,6 +62,38 @@ final class CEFLinkClickTracker {
             self?.record(event)
             return event
         }
+        // A choice in a menu Chromium itself shows for the page (a <select>'s popup) is made in the
+        // menu's own tracking loop, which the monitor above never sees: the click that opened it
+        // is long spent by the time the page acts on the choice. The menu ending its tracking is
+        // posted at once, before the choice reaches the page.
+        let menus = MenuTracking()
+        menus.subscribe { [weak self] change in
+            guard case .ended(let menu) = change else { return }
+            self?.recordMenuChoice(menu, keyWindow: NSApp.keyWindow)
+        }
+        self.menus = menus
+    }
+
+    /// `menu` closed (a row chosen, or dismissed) while `keyWindow` is key: the person's gesture on
+    /// the page whose window that is, as a key down is and as the host's own Chromium menu counts
+    /// its close. A menu of the app's menu bar is no page's gesture.
+    func recordMenuChoice(_ menu: NSMenu?, keyWindow: NSWindow?) {
+        guard let menu, !Self.inMenuBar(menu), let window = keyWindow else { return }
+        recordMenuChoice(in: ObjectIdentifier(window), parent: window.parent.map(ObjectIdentifier.init),
+                         center: CGPoint(x: window.frame.midX, y: window.frame.midY))
+    }
+
+    /// ``recordMenuChoice(_:keyWindow:)`` for the key window `window` (its `parent`, its screen
+    /// `center`): a gesture only when that window is a shown page's.
+    func recordMenuChoice(in window: ObjectIdentifier, parent: ObjectIdentifier?, center: CGPoint) {
+        guard let browser = CEFLinkClicks.browser(clickedIn: window, parent: parent, at: center, targets: targets()) else { return }
+        onGesture(browser)
+    }
+
+    static func inMenuBar(_ menu: NSMenu) -> Bool {
+        var top = menu
+        while let parent = top.supermenu { top = parent }
+        return top === NSApp?.mainMenu
     }
 
     func record(_ event: NSEvent) {

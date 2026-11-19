@@ -48,11 +48,13 @@ public final class SettingsAgentConfig: PageProvider {
         self.exists = exists
     }
 
-    /// The app's: the bundled CLI run as a child process, files opened by NSWorkspace.
-    public convenience init(cli: @escaping @MainActor () async -> URL?, enabled: @escaping @MainActor () -> Bool) {
+    /// The app's: the bundled CLI run as a child process; `openFile` is the app's editor in the
+    /// current workspace (NSWorkspace when the host gives none).
+    public convenience init(cli: @escaping @MainActor () async -> URL?, enabled: @escaping @MainActor () -> Bool,
+                            openFile: Opener? = nil) {
         self.init(cli: cli, enabled: enabled,
                   runCLI: { try await SettingsAgentConfig.run($0, $1, $2) },
-                  openFile: { url in NSWorkspace.shared.openInBackground(url) },
+                  openFile: openFile ?? { url in NSWorkspace.shared.openInBackground(url) },
                   exists: { await SettingsAgentConfig.fileExists($0) })
     }
 
