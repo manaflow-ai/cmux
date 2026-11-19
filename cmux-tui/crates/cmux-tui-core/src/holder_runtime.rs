@@ -11,13 +11,13 @@
 //! (`mux::holder_adoption`); a holder crash loses no shell, because the
 //! daemon still holds every master and hands them to a new holder.
 //!
-//! On by default on Linux (CMUX-571: one holder replaces a `cmux-tui-host`
-//! per terminal; Leo, 2026-11-14: "separate the health of the overall
-//! process from the falliability of crash prone bits"); off elsewhere unless
-//! `CMUX_TUI_TERMINAL_HOST_MODEL=holder`. `CMUX_TUI_TERMINAL_HOST_MODEL=hosts`
-//! keeps the per-terminal hosts (a diagnostic and test override, not a user
-//! setting). A holder that cannot start never costs a terminal: the create
-//! runs it on a host of its own ([`serves`]).
+//! Off by default on every platform: a `cmux-tui-host` per terminal stays
+//! the default until Leo's words turn the holder on (CMUX-571; Leo,
+//! 2026-11-14: "separate the health of the overall process from the
+//! falliability of crash prone bits"). `CMUX_TUI_TERMINAL_HOST_MODEL=holder`
+//! turns it on; `=hosts`, unset, empty or anything else keeps the
+//! per-terminal hosts. With the holder on, a holder that cannot start never
+//! costs a terminal: the create runs it on a host of its own ([`serves`]).
 
 mod service;
 mod sink;
@@ -47,15 +47,11 @@ pub(crate) fn serves(host_root: &std::path::Path) -> bool {
 }
 
 /// Whether `model` (the value of `CMUX_TUI_TERMINAL_HOST_MODEL`) puts new
-/// terminals on the holder: `holder` does, `hosts` does not, and anything
-/// else (unset, empty, unknown) takes the platform's default: the holder on
-/// Linux, per-terminal hosts elsewhere.
+/// terminals on the holder: only `holder` does. `hosts` and anything else
+/// (unset, empty, unknown) keep a host per terminal, the default everywhere
+/// until Leo turns the holder on.
 fn model_enabled(model: Option<&str>) -> bool {
-    match model.map(str::trim) {
-        Some("holder") => true,
-        Some("hosts") => false,
-        _ => cfg!(target_os = "linux"),
-    }
+    matches!(model.map(str::trim), Some("holder"))
 }
 
 #[cfg(test)]
@@ -63,11 +59,12 @@ mod model_tests {
     use super::model_enabled;
 
     #[test]
-    fn the_holder_is_the_linux_default_and_hosts_stays_an_override() {
+    fn the_holder_is_off_unless_the_model_names_it() {
         assert!(model_enabled(Some("holder")));
+        assert!(model_enabled(Some(" holder ")));
         assert!(!model_enabled(Some("hosts")));
-        assert_eq!(model_enabled(None), cfg!(target_os = "linux"));
-        assert_eq!(model_enabled(Some("")), cfg!(target_os = "linux"));
-        assert_eq!(model_enabled(Some("bogus")), cfg!(target_os = "linux"));
+        assert!(!model_enabled(None));
+        assert!(!model_enabled(Some("")));
+        assert!(!model_enabled(Some("bogus")));
     }
 }

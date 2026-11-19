@@ -607,7 +607,7 @@ fn a_standalone_holder_that_hangs_before_ready_falls_back_to_the_built_in_holder
     let _ = fs::remove_file(&stand_in);
 }
 
-/// CMUX-571: with the holder the Linux default, a holder that cannot serve
+/// CMUX-571: with the holder on, a holder that cannot serve
 /// this session must never cost a terminal. Here its token cannot be read or
 /// written (`holder.token` is a directory), so no holder service can start:
 /// a new terminal runs on a terminal host of its own, the path every terminal

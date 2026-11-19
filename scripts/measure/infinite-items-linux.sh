@@ -7,7 +7,8 @@
 #     copy of cmux-tui alone), so every terminal host re-execs the daemon's own file as before host_exe/linux.rs: the
 #     slim host's before (BEFORE lines) and after from one build on one runner in one job.
 #   infinite-items-linux.sh before=hosts ...: first runs the same build with CMUX_TUI_TERMINAL_HOST_MODEL=hosts (a
-#     cmux-tui-host per terminal, the Linux default before CMUX-571), then the product default (one holder).
+#     cmux-tui-host per terminal), then the product default (also hosts while the holder is off by default).
+#   infinite-items-linux.sh ... --terminal-host-model=holder: measures the one holder (the harness ignores the caller's env).
 #   infinite-items-linux.sh musl=1 ...: builds the shipped musl flavor (cargo-zigbuild, x86_64-unknown-linux-musl) and
 #     measures those binaries.
 # Builds release acpmux and cmux-tui (cmux-tui/), then prints INFINITE and PERF_ROW lines.
