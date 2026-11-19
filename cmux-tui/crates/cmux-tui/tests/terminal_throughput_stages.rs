@@ -25,7 +25,10 @@
 //!
 //! For the daemon stages it also prints the busiest threads (CPU % of the
 //! burst) of the daemon and the terminal host, and the viewer's events, so the
-//! stage that caps the rate shows as a thread near 100 %. Linux cuts thread
+//! stage that caps the rate shows as a thread near 100 %. The viewer runs in
+//! this test's process, which that sample does not read, so it reports its own
+//! thread's CPU and the share of the burst it spent scanning lines and
+//! decoding base64: a viewer near 100 % caps itself, not the daemon. Linux cuts thread
 //! names to 15 bytes, so each carries its id: in a host, `terminal-host-p` with
 //! the lower id is the parser (`terminal-host-parser`, started first), the
 //! higher one the PTY reader (`terminal-host-pty`).
@@ -330,6 +333,12 @@ struct ViewerStats {
     replays: u64,
     other: HashMap<String, u64>,
     last_output: Option<Instant>,
+    first_output: Option<Instant>,
+    /// The viewer thread's CPU seconds at its first and its last output.
+    cpu_first_output: Option<f64>,
+    cpu_last_output: f64,
+    /// Seconds spent scanning lines and decoding `output` data.
+    decode_seconds: f64,
 }
 
 impl Viewer {
@@ -365,7 +374,9 @@ impl Viewer {
                     };
                     pending.extend_from_slice(&buf[..n]);
                     let mut start = 0;
+                    let decode_started = Instant::now();
                     let mut got = stats.lock().unwrap();
+                    let outputs_before = got.outputs;
                     while let Some(offset) = pending[start..].iter().position(|b| *b == b'\n') {
                         let line = &pending[start..start + offset];
                         start += offset + 1;
@@ -386,6 +397,13 @@ impl Viewer {
                             other => *got.other.entry(other.to_string()).or_default() += 1,
                         }
                     }
+                    got.decode_seconds += decode_started.elapsed().as_secs_f64();
+                    if got.outputs > outputs_before {
+                        let cpu = thread_cpu_seconds();
+                        got.cpu_first_output.get_or_insert(cpu);
+                        got.first_output.get_or_insert_with(Instant::now);
+                        got.cpu_last_output = cpu;
+                    }
                     drop(got);
                     pending.drain(..start);
                 }
@@ -405,6 +423,15 @@ impl Viewer {
         }
         self.stats()
     }
+}
+
+/// CPU seconds the calling thread has used.
+fn thread_cpu_seconds() -> f64 {
+    let mut now = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: `now` is a valid timespec for clock_gettime to fill.
+    let status = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut now) };
+    assert_eq!(status, 0, "clock_gettime: {}", std::io::Error::last_os_error());
+    now.tv_sec as f64 + now.tv_nsec as f64 / 1e9
 }
 
 /// The string value of `"key":"..."` in a JSON line with no escapes in it.
@@ -478,11 +505,22 @@ fn burst(daemon: &Daemon, scripts: &Path, payload_path: &Path, label: &str, view
         }
         let viewed = started.elapsed().as_secs_f64();
         let stats = attached.finish();
+        // Timed to the last output: the quiet wait above is not the viewer's.
+        let to_last =
+            stats.last_output.map_or(viewed, |at| at.duration_since(started).as_secs_f64());
+        // The viewer's CPU and decode time over its own window, first output to last.
+        let busy = (stats.cpu_last_output - stats.cpu_first_output.unwrap_or(0.0)).max(0.0);
+        let window = match (stats.first_output, stats.last_output) {
+            (Some(first), Some(last)) => last.duration_since(first).as_secs_f64().max(1e-6),
+            _ => to_last,
+        };
         row["viewer"] = json!({
             "outputs": stats.outputs, "output_bytes": stats.output_bytes,
             "bytes_per_output": stats.output_bytes.checked_div(stats.outputs).unwrap_or(0),
             "replays": stats.replays, "other_events": stats.other,
-            "seconds_to_last_output": viewed, "mb_s_to_last_output": mb_s(stats.output_bytes as usize, viewed),
+            "seconds_to_last_output": to_last, "mb_s_to_last_output": mb_s(stats.output_bytes as usize, to_last),
+            "viewer_cpu_pct": (busy / window * 1000.0).round() / 10.0,
+            "decode_pct": (stats.decode_seconds / window * 1000.0).round() / 10.0,
         });
     }
     // Best effort: the next burst runs in its own terminal either way.
@@ -637,11 +675,13 @@ fn terminal_throughput_by_stage() {
             .collect();
         let viewer = row.get("viewer").map_or(String::new(), |v| {
             format!(
-                "{} outputs, {} B each, {} replays, {:.1} MB/s to last output",
+                "{} outputs, {} B each, {} replays, {:.1} MB/s to last output, viewer {} % CPU ({} % decoding)",
                 v["outputs"],
                 v["bytes_per_output"],
                 v["replays"],
-                v["mb_s_to_last_output"].as_f64().unwrap_or(0.0)
+                v["mb_s_to_last_output"].as_f64().unwrap_or(0.0),
+                v["viewer_cpu_pct"],
+                v["decode_pct"]
             )
         });
         table.push_str(&format!(
