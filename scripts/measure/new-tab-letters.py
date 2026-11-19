@@ -40,7 +40,8 @@ import time
 CMD, SHIFT, T, W, X, NEXT_TAB, PREVIOUS_TAB = 55, 56, 17, 13, 7, 30, 33
 GAP_MS = 30.0
 SWITCH_WAIT_MS, CLOSE_WAIT_MS = 100.0, 60.0
-FORMS = ("reselect", "three-key", "two-key", "from-chat", "switch-next", "switch-previous", "close-move")
+# The order of a run: the budget cuts the last forms, so the guard is last.
+FORMS = ("reselect", "close-move", "from-chat", "three-key", "switch-next", "switch-previous", "two-key")
 WANT_DROPPED = {"from-chat": 1}
 NO_CHORD = ("two-key",)
 BUDGET_S = 900.0  # of all cases of a run: a case that would start later is `not_run`
