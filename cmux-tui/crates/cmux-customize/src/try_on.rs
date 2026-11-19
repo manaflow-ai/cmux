@@ -89,6 +89,12 @@ impl Customize {
         self.ensure_baseline(now_ms)?;
         let _lock = self.store().lock()?;
         let running = self.live_try_on_locked()?;
+        // The library as it was before the first try-on in a row, so a
+        // revert puts back exactly that.
+        let library = running
+            .as_ref()
+            .and_then(|running| running.library.clone())
+            .or_else(|| self.library_mark());
         if let Some(profile) = profile {
             self.preview_profile_locked(profile, origin, now_ms)?;
         }
@@ -107,6 +113,7 @@ impl Customize {
             expires_ms: now_ms.saturating_add(duration_ms),
             label: applied.generation.label.clone(),
             origin: origin.to_owned(),
+            library,
         };
         self.store().put_try_on(Some(&try_on))?;
         Ok(TriedOn { try_on, applied, replaced: running })
@@ -201,6 +208,12 @@ impl Customize {
         };
         let label = format!("changes made while trying on: {}", try_on.label);
         let restored = self.restore_locked(to, Kind::Autosaved, origin, &label, now_ms)?;
+        // The library goes back with it: what nobody kept leaves it, and
+        // what was off before is off again. A library that cannot be
+        // written never fails the revert.
+        if let Some(mark) = &try_on.library {
+            let _ = self.library_follow_locked(&mark.on, Some(&mark.names), now_ms);
+        }
         Ok(Some(Settled::Reverted { try_on, restored }))
     }
 }
