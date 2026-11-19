@@ -11,6 +11,7 @@ import tempfile
 import unittest
 from unittest import mock
 import urllib.error
+import urllib.parse
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -951,6 +952,567 @@ class BotTokenFirst(unittest.TestCase):
         text = (ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text()
         self.assertIn("HOSTED_LIGHT_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}", text)
         self.assertIn("HOSTED_LIGHT_FALLBACK_TOKEN: ${{ github.token }}", text)
+
+class BacklogFake:
+    """GitHub for the backlog pass: listings, runs, pulls, jobs and earlier passes' logs, by request path. Every call,
+    read or write, counts in `reads`."""
+
+    repo = "manaflow-ai/cmux"
+
+    def __init__(self, runs: list[dict], jobs: dict[int, list[dict]], pulls: dict[int, dict] | None = None,
+                 branch_pulls: dict[str, list[dict]] | None = None, *, settles: bool = True,
+                 remaining: int = 12_500) -> None:
+        self.runs, self.jobs_by_run = {r["id"]: r for r in runs}, jobs
+        self.pulls, self.branch_pulls = pulls or {}, branch_pulls or {}
+        self.settles, self.remaining_core = settles, remaining
+        self.calls: list[tuple] = []
+        self.listings: list[str] = []
+        self.started_meanwhile: set[int] = set()
+        self.reads = 0
+        # Earlier backlog passes, oldest first: (pass run id, its log lines).
+        self.passes: list[tuple[int, list[str]]] = []
+
+    def record_pass(self, lines: list[str], *, minutes_ago: float = 10) -> None:
+        self.passes.append((10 ** 15 + len(self.passes), [f"{ago(minutes_ago * 60)} {line}" for line in lines]))
+
+    def settle(self) -> None:
+        for run_id, run_ in self.runs.items():
+            if run_.get("status") == "cancelling":
+                self.runs[run_id] = {**run_, "status": "completed"}
+
+    def rate_limit(self):
+        self.reads += 1
+        return self.remaining_core, NOW.timestamp() + 1800
+
+    def request(self, method, path):
+        self.reads += 1
+        assert method == "GET", path
+        parsed = urllib.parse.urlparse(path)
+        query = dict(urllib.parse.parse_qsl(parsed.query))
+        if parsed.path == f"/actions/workflows/{rescue.BACKLOG_WORKFLOW}/runs":
+            return {"workflow_runs": [{"id": pass_id, "created_at": ago(600)}
+                                      for pass_id, _ in reversed(self.passes)][:int(query["per_page"])]}
+        if parsed.path == "/actions/runs" and "head_sha" in query:
+            return {"workflow_runs": [r for r in self.runs.values() if r["head_sha"] == query["head_sha"]]}
+        if parsed.path == "/actions/runs":
+            self.listings.append(path)
+            low, high = (rescue.parse_time(part) for part in query["created"].split(".."))
+            rows = [r for r in self.runs.values()
+                    if query["status"] in (r["status"], r.get("conclusion")) and r["event"] == query["event"]
+                    and low <= rescue.parse_time(r["created_at"]) <= high]
+            rows.sort(key=lambda r: (r["created_at"], r["id"]), reverse=True)
+            page = int(query.get("page", 1))
+            return {"total_count": len(rows), "workflow_runs": rows[(page - 1) * 100:page * 100]}
+        if parsed.path.startswith("/actions/runs/"):
+            found = dict(self.runs[int(parsed.path.rsplit("/", 1)[1])])
+            return {**found, "status": "in_progress"} if found["status"] == "cancelling" else found
+        if parsed.path.startswith("/pulls/"):
+            return self.pulls[int(parsed.path.rsplit("/", 1)[1])]
+        if parsed.path == "/pulls":
+            return self.branch_pulls.get(query["head"].split(":", 1)[1], [])
+        raise AssertionError(path)
+
+    def jobs(self, run_id):
+        self.reads += 1
+        if run_id >= 10 ** 15:
+            return [{"id": run_id + 1, "name": "backlog"}]
+        if run_id in self.started_meanwhile and any(c == ("jobs", run_id) for c in self.calls):
+            return [job("x", status="in_progress", runner_id=7)]
+        self.calls.append(("jobs", run_id))
+        return self.jobs_by_run.get(run_id, [])
+
+    def job_log(self, job_id):
+        self.reads += 1
+        return dict(self.passes)[job_id - 1]
+
+    def cancel(self, run_id):
+        self.reads += 1
+        self.calls.append(("cancel", run_id))
+        self.runs[run_id] = {**self.runs[run_id], "status": "completed" if self.settles else "cancelling",
+                             "conclusion": "cancelled"}
+
+    def force_cancel(self, run_id):
+        self.reads += 1
+        self.calls.append(("force-cancel", run_id))
+
+    def rerun_failed(self, run_id):
+        self.reads += 1
+        self.calls.append(("rerun", run_id))
+        self.runs[run_id] = {**self.runs[run_id], "run_attempt": 2, "status": "queued", "conclusion": None}
+
+
+def backlog_run(run_id: int, *, age_min: float = 200, event: str = "pull_request", status: str = "queued",
+                attempt: int = 1, workflow: str = "web-validation.yml", head: str = HEAD, pr: int | None = None,
+                pr_head: str = HEAD, repo: str = "manaflow-ai/cmux") -> dict:
+    return {"id": run_id, "event": event, "run_attempt": attempt, "status": status, "head_sha": head,
+            "head_branch": f"lane/{run_id}", "created_at": ago(age_min * 60),
+            "path": f".github/workflows/{workflow}",
+            "head_repository": {"full_name": repo, "owner": {"login": repo.split("/")[0]}},
+            "pull_requests": [] if pr is None else [{"number": pr, "head": {"sha": pr_head}}]}
+
+
+def backlog(fake: BacklogFake, *, dry_run=False, declared=("pr-checks.yml",), actions=rescue.BACKLOG_ACTIONS,
+            now=NOW, since=None):
+    """One pass. Like the workflow, it starts from the earlier passes' logs and leaves its own for the next."""
+    if not fake.passes:
+        fake.record_pass(rescue.journal_lines({}), minutes_ago=20)
+    lines, counts = rescue.backlog_sweep(fake, now=now, dry_run=dry_run, declared=declared, actions=actions,
+                                         since=since, sleep=lambda _s: None, clock=lambda: 0.0)
+    fake.record_pass(lines)
+    return lines, counts
+
+
+def two_passes(fake: BacklogFake, **kwargs):
+    """A pass, then the next one ten minutes later; the counts of each."""
+    _, first = backlog(fake, **kwargs)
+    fake.settle()
+    _, second = backlog(fake, now=NOW + dt.timedelta(minutes=10), **kwargs)
+    return first, second
+
+
+def own_heads(runs: list[dict]) -> dict[int, dict]:
+    """Give each run its own pull request at its own head (one head's newer run would stand in for the older one's
+    re-run); the open pull requests by number."""
+    pulls = {}
+    for run_ in runs:
+        head = f"{run_['id']:040x}"
+        run_.update(head_sha=head, pull_requests=[{"number": run_["id"], "head": {"sha": head}}])
+        pulls[run_["id"]] = {"state": "open", "head": {"sha": head}}
+    return pulls
+
+
+def backlog_mutations(fake: BacklogFake) -> list[tuple]:
+    return [call for call in fake.calls if call[0] in ("cancel", "rerun", "force-cancel")]
+
+
+OPEN_AT_HEAD = {"state": "open", "head": {"sha": HEAD}}
+
+
+class Backlog(unittest.TestCase):
+    """--backlog: pull request runs whose every unfinished job sat 30+ min on hosted Ubuntu, at any age under 24 h."""
+
+    def test_a_three_hour_old_run_at_its_head_is_cancelled_and_re_run_by_the_next_pass(self):
+        fake = BacklogFake([backlog_run(1, pr=11)], {1: [job("changes", waited=3 * 3600), job("plan", waited=3 * 3600)]},
+                           pulls={11: OPEN_AT_HEAD})
+        lines, counts = backlog(fake)
+        self.assertEqual(backlog_mutations(fake), [("cancel", 1)])
+        self.assertEqual((counts["cancelled"], counts["journalled"], counts["superseded"]), (1, 1, 0))
+        self.assertIn("1 cancelled (0 superseded), 0 earlier cancels re-run, 1 wait for their re-run", lines[-3])
+        self.assertTrue(lines[-2].startswith("hosted-backlog journal: run 1 cancelled "))
+        lines, counts = backlog(fake, now=NOW + dt.timedelta(minutes=10))
+        self.assertEqual(backlog_mutations(fake), [("cancel", 1), ("rerun", 1)])
+        self.assertEqual((counts["recovered"], counts["pending"]), (1, 0))
+        self.assertEqual(lines[-1], "hosted-backlog journal end: 0 cancelled runs wait for their re-run")
+
+    def test_cancels_that_never_settle_in_their_pass_are_all_re_run_by_the_next(self):
+        # cmux#45886 polled 120 s for each cancel to settle and re-ran only those that did: on 2026-11-18 almost none
+        # did, and every pass left about 20 pull request heads cancelled with no checks and no later re-run.
+        runs = [backlog_run(700 + i, age_min=100 + i, pr=1) for i in range(rescue.BACKLOG_PENDING_MAX)]
+        fake = BacklogFake(runs, {r["id"]: [job("x", waited=6000)] for r in runs}, pulls=own_heads(runs),
+                           settles=False)
+        first, second = two_passes(fake)
+        cancelled = sorted(c[1] for c in backlog_mutations(fake) if c[0] == "cancel")
+        reran = sorted(c[1] for c in backlog_mutations(fake) if c[0] == "rerun")
+        self.assertEqual(len(cancelled), rescue.BACKLOG_PENDING_MAX)
+        self.assertEqual((first["recovered"], first["pending"]), (0, rescue.BACKLOG_PENDING_MAX))
+        self.assertEqual(reran, cancelled)
+        self.assertEqual((second["recovered"], second["pending"], second["cancelled"]),
+                         (rescue.BACKLOG_PENDING_MAX, 0, 0))
+
+    def test_a_cancel_still_unsettled_is_force_cancelled_once_and_kept(self):
+        fake = BacklogFake([backlog_run(710, pr=1)], {710: [job("x", waited=6000)]}, pulls={1: OPEN_AT_HEAD},
+                           settles=False)
+        backlog(fake)
+        for minutes in (10, 20):
+            _, counts = backlog(fake, now=NOW + dt.timedelta(minutes=minutes))
+            self.assertEqual(counts["pending"], 1)
+        self.assertEqual(backlog_mutations(fake), [("cancel", 710), ("force-cancel", 710)])
+        fake.settle()
+        _, counts = backlog(fake, now=NOW + dt.timedelta(minutes=30))
+        self.assertEqual(backlog_mutations(fake)[-1], ("rerun", 710))
+
+    def test_a_cancel_never_re_run_in_the_recovery_window_is_reported_and_dropped(self):
+        fake = BacklogFake([backlog_run(711, pr=1)], {711: [job("x", waited=6000)]}, pulls={1: OPEN_AT_HEAD},
+                           settles=False)
+        backlog(fake)
+        lines, counts = backlog(fake, now=NOW + rescue.BACKLOG_RECOVER_WINDOW + dt.timedelta(minutes=1))
+        self.assertEqual((counts["expired"], counts["pending"]), (1, 0))
+        self.assertTrue(any(line.startswith("::warning") and "run 711" in line for line in lines))
+
+    def test_current_head_cancels_wait_while_the_journal_is_full(self):
+        runs = [backlog_run(720 + i, age_min=100 + i, pr=1) for i in range(rescue.BACKLOG_PENDING_MAX + 5)]
+        fake = BacklogFake(runs, {r["id"]: [job("x", waited=6000)] for r in runs}, pulls={1: OPEN_AT_HEAD},
+                           settles=False)
+        _, first = backlog(fake, actions=rescue.BACKLOG_ACTIONS_MAX)
+        self.assertEqual(first["cancelled"], rescue.BACKLOG_PENDING_MAX)
+        _, second = backlog(fake, now=NOW + dt.timedelta(minutes=5), actions=rescue.BACKLOG_ACTIONS_MAX)
+        self.assertEqual(second["cancelled"], 0)   # none settled: nothing more is cancelled at a current head
+
+    def test_no_journal_means_no_current_head_cancel(self):
+        fake = BacklogFake([backlog_run(730, pr=1)], {730: [job("x", waited=6000)]}, pulls={1: OPEN_AT_HEAD})
+        fake.request = mock.Mock(side_effect=RuntimeError("HTTP 502"))
+        lines, counts = rescue.backlog_sweep(fake, now=NOW, dry_run=False, declared=())
+        self.assertEqual(backlog_mutations(fake), [])
+        self.assertTrue(any("no earlier pass's journal could be read" in line for line in lines))
+        self.assertFalse(any(rescue.JOURNAL_END in line for line in lines))
+
+    def test_a_pass_never_makes_more_calls_than_its_bound(self):
+        # Listings, jobs, pull requests, re-reads, journal reads, recovery and every cancel and re-run, counted
+        # together: cmux#45886 counted only first job reads, and its settle loop made up to 500 more calls a pass.
+        runs = [backlog_run(400 + i, age_min=100 + i, pr=1) for i in range(300)]
+        stranded_runs = [{**backlog_run(500_000 + i, pr=1), "status": "completed", "conclusion": "cancelled"}
+                         for i in range(40)]
+        pulls = own_heads(runs + stranded_runs)
+        superseded = [backlog_run(800 + i, age_min=100 + i, pr=2) for i in range(60)]
+        pulls[2] = {"state": "open", "head": {"sha": "f" * 40}}
+        fake = BacklogFake(runs + superseded + stranded_runs, {r["id"]: [job("x", waited=6000)] for r in runs + superseded},
+                           pulls=pulls, settles=False)
+        stranded = {r["id"]: rescue.Journalled(NOW - dt.timedelta(minutes=30)) for r in stranded_runs}
+        fake.record_pass(rescue.journal_lines(stranded))
+        for minutes in (0, 10, 20, 30):
+            before = fake.reads
+            lines, counts = backlog(fake, now=NOW + dt.timedelta(minutes=minutes), actions=rescue.BACKLOG_ACTIONS_MAX)
+            self.assertLessEqual(fake.reads - before, rescue.BACKLOG_READS)
+            self.assertEqual(counts["requests"], fake.reads - before)
+            self.assertIn(f"of {rescue.BACKLOG_READS} API calls", lines[-2 - counts["pending"]])
+            self.assertLessEqual(counts["pending"], max(rescue.BACKLOG_PENDING_MAX, 40))
+            fake.settle()
+        self.assertEqual(sum(1 for c in fake.calls if c[0] == "rerun" and c[1] >= 500_000), 40)
+
+    def test_a_pass_with_a_spent_budget_cancels_nothing_and_exits_0(self):
+        fake = BacklogFake([backlog_run(740, pr=1)], {740: [job("x", waited=6000)]}, pulls={1: OPEN_AT_HEAD},
+                           remaining=rescue.BACKLOG_READS + rescue.POOL_RESERVE - 1)
+        with tempfile.TemporaryDirectory() as tmp, mock.patch("builtins.print") as printed:
+            summary = Path(tmp) / "summary.md"
+            code = rescue.main(["--backlog"], {"GITHUB_STEP_SUMMARY": str(summary)}, client=fake, now=NOW)
+            text = summary.read_text()
+        self.assertEqual(code, 0)
+        self.assertEqual(backlog_mutations(fake), [])
+        self.assertEqual(fake.reads, 1)   # the rate limit, nothing else
+        self.assertIn("skipped: the token has 649 core API calls left", text)
+        self.assertFalse(any(rescue.JOURNAL_END in str(call) for call in printed.call_args_list))
+
+    def test_an_unreadable_rate_limit_skips_the_pass(self):
+        fake = BacklogFake([backlog_run(741, pr=1)], {741: [job("x", waited=6000)]}, pulls={1: OPEN_AT_HEAD})
+        fake.rate_limit = mock.Mock(side_effect=RuntimeError("HTTP 500"))
+        lines, _ = rescue.backlog_sweep(fake, now=NOW, dry_run=False, declared=())
+        self.assertEqual(backlog_mutations(fake), [])
+        self.assertIn("rate limit could not be read", lines[0])
+
+    def test_the_journal_survives_a_skipped_pass(self):
+        fake = BacklogFake([backlog_run(742, pr=1)], {742: [job("x", waited=6000)]}, pulls={1: OPEN_AT_HEAD},
+                           settles=False)
+        backlog(fake)
+        fake.remaining_core = 10
+        backlog(fake, now=NOW + dt.timedelta(minutes=10))   # skipped: its log has no journal
+        fake.remaining_core = 12_500
+        fake.settle()
+        _, counts = backlog(fake, now=NOW + dt.timedelta(minutes=20))
+        self.assertEqual(counts["recovered"], 1)
+
+    def test_runs_the_first_backlog_passes_left_stranded_are_re_run(self):
+        # cmux#45886's passes logged "...; cancelled, but the cancel did not settle in 120 s; re-run it by hand" and
+        # never journalled. The first pass with a journal reads those logs back to the newest journal (none yet), or
+        # every log back to --recover-since.
+        for since in (None, NOW - dt.timedelta(hours=2)):
+            with self.subTest(since=since):
+                stranded = [{**backlog_run(600 + i, pr=1), "status": "completed", "conclusion": "cancelled"}
+                            for i in range(3)]
+                moved = {**backlog_run(603, pr=2), "status": "completed", "conclusion": "cancelled"}
+                pulls = own_heads(stranded)
+                pulls[2] = {"state": "closed", "head": {"sha": HEAD}}
+                fake = BacklogFake(stranded + [moved], {}, pulls=pulls)
+                for run_ in stranded[:2] + [moved]:
+                    fake.record_pass([f"run {run_['id']} (web-validation.yml, pull_request, lane/x): 2 jobs queued on "
+                                      "hosted Ubuntu, the oldest 300 min; cancelled, but the cancel did not settle in "
+                                      "120 s; re-run it by hand", "20 candidate runs, 20 read, 20 stalled, 20 cancelled "
+                                      "(0 superseded), 0 re-run"], minutes_ago=60)
+                fake.record_pass(["run 602 (pr-checks.yml, pull_request, lane/y): x; cancelled, re-run refused (HTTP "
+                                  "500); re-run it by hand"], minutes_ago=50)
+                lines, counts = backlog(fake, since=since)
+                self.assertEqual(sorted(c[1] for c in backlog_mutations(fake)), [600, 601, 602])
+                self.assertEqual(counts["recovered"], 3)
+                self.assertIn("3 earlier cancels re-run", lines[-2])
+
+    def test_a_pass_stopped_before_its_journal_still_has_its_cancels_re_run(self):
+        runs = [backlog_run(760, pr=1)]
+        fake = BacklogFake(runs, {760: [job("x", waited=6000)]}, pulls=own_heads(runs), settles=False)
+        fake.record_pass(rescue.journal_lines({}), minutes_ago=20)
+        printed: list[str] = []
+        rescue.backlog_sweep(fake, now=NOW, dry_run=False, declared=(), echo=printed.append)
+        fake.record_pass([line for line in printed if "the next pass re-runs it" in line])   # killed before the end
+        fake.settle()
+        _, counts = backlog(fake, now=NOW + dt.timedelta(minutes=10))
+        self.assertEqual(backlog_mutations(fake), [("cancel", 760), ("rerun", 760)])
+        self.assertEqual(counts["recovered"], 1)
+
+    def test_another_pull_requests_target_run_at_the_same_base_does_not_stand_in_for_the_re_run(self):
+        # A pull_request_target run's head_sha is the base commit, shared by every pull request on that base.
+        mine = {**backlog_run(770, event="pull_request_target", head="b" * 40, pr=1, pr_head=HEAD),
+                "status": "completed", "conclusion": "cancelled"}
+        theirs = {**backlog_run(771, event="pull_request_target", head="b" * 40, pr=2, pr_head="e" * 40),
+                  "status": "completed", "conclusion": "success"}
+        fake = BacklogFake([mine, theirs], {}, pulls={1: OPEN_AT_HEAD, 2: {"state": "open", "head": {"sha": "e" * 40}}})
+        fake.record_pass(rescue.journal_lines({770: rescue.Journalled(NOW - dt.timedelta(minutes=20))}))
+        backlog(fake)
+        self.assertEqual(backlog_mutations(fake), [("rerun", 770)])
+
+    def test_an_unread_newer_log_keeps_its_cancels_for_a_later_pass(self):
+        # The newest pass's log fails to read twice: falling back to an older whole journal would drop that pass's
+        # cancels. This pass holds current-head cancels and writes a partial journal; the next reads past it.
+        runs = [{**backlog_run(780, pr=1), "status": "completed", "conclusion": "cancelled"}, backlog_run(781, pr=1)]
+        pulls = own_heads(runs)
+        fake = BacklogFake(runs, {781: [job("x", waited=6000)]}, pulls=pulls)
+        fake.record_pass(rescue.journal_lines({}), minutes_ago=30)
+        fake.record_pass(rescue.journal_lines({780: rescue.Journalled(NOW - dt.timedelta(minutes=15))}))
+        newest_job = fake.passes[-1][0] + 1
+        real_log, failures = fake.job_log, [0]
+
+        def flaky(job_id):
+            if job_id == newest_job and failures[0] < 2:
+                failures[0] += 1
+                raise RuntimeError("HTTP 502")
+            return real_log(job_id)
+        fake.job_log = flaky
+        lines, counts = backlog(fake)
+        self.assertEqual(backlog_mutations(fake), [])
+        self.assertTrue(lines[-1].startswith(rescue.JOURNAL_PARTIAL))
+        backlog(fake, now=NOW + dt.timedelta(minutes=10))
+        self.assertEqual(backlog_mutations(fake), [("rerun", 780), ("cancel", 781)])
+
+    def test_a_cancel_whose_answer_was_lost_is_journalled(self):
+        runs = [backlog_run(790, pr=1)]
+        fake = BacklogFake(runs, {790: [job("x", waited=6000)]}, pulls=own_heads(runs))
+        real_cancel = fake.cancel
+
+        def timed_out(run_id):
+            real_cancel(run_id)
+            raise RuntimeError("POST /actions/runs/790/cancel: timed out")
+        fake.cancel = timed_out
+        _, counts = backlog(fake)
+        self.assertEqual((counts["journalled"], counts["pending"]), (1, 1))
+        _, counts = backlog(fake, now=NOW + dt.timedelta(minutes=10))
+        self.assertEqual(backlog_mutations(fake)[-1], ("rerun", 790))
+
+    def test_dispatched_run_ids_are_the_only_runs_read_under_the_same_rules(self):
+        # The cancel guard refuses an agent's cancel of an open pull request's head run and points at this dispatch.
+        stalled, moved, fresh = backlog_run(44238822296, pr=1), backlog_run(44238822326, pr=2), backlog_run(3, pr=1)
+        running = backlog_run(4, pr=1)
+        push, nightly, rerun = (backlog_run(5, event="push"), backlog_run(6, workflow="nightly.yml", pr=1),
+                                backlog_run(7, attempt=2, pr=1))
+        runs = [stalled, moved, fresh, running, push, nightly, rerun]
+        pulls = own_heads([stalled])
+        pulls[2] = {"state": "open", "head": {"sha": "c" * 40}}
+        jobs = {r["id"]: [job("x", waited=6 * 3600)] for r in runs}
+        jobs[4] = [job("x", waited=6000), job("build", status="in_progress", runner_id=3)]
+        fake = BacklogFake(runs + [backlog_run(8, pr=1)], {**jobs, 8: [job("x", waited=6000)]}, pulls=pulls)
+        fake.record_pass(rescue.journal_lines({}))
+        with tempfile.TemporaryDirectory() as tmp, mock.patch("builtins.print") as printed:
+            code = rescue.main(["--backlog"], {"BACKLOG_RUN_IDS": "44238822296, 44238822326,4,5,6,7"}, client=fake,
+                               now=NOW)
+        text = "\n".join(str(call.args[0]) for call in printed.call_args_list if call.args)
+        self.assertEqual(code, 0)
+        self.assertEqual(backlog_mutations(fake), [("cancel", 44238822296), ("cancel", 44238822326)])
+        self.assertEqual(fake.listings, [])   # the queue is not listed
+        self.assertIn("hosted-backlog journal: run 44238822296 cancelled", text)
+        self.assertNotIn("journal: run 44238822326", text)   # superseded: cancel only
+        self.assertIn("run 5: a push run, not a pull request's; left alone", text)
+        self.assertIn("run 6: workflow nightly.yml is never touched", text)
+        self.assertIn("run 7: attempt 2, not 1", text)
+        self.assertIn("left alone", text.split("run 4 ")[1])
+        fake.record_pass(text.splitlines())
+        _, counts = backlog(fake, now=NOW + dt.timedelta(minutes=10), actions=0)
+        self.assertEqual(backlog_mutations(fake)[-1], ("rerun", 44238822296))
+
+    def test_dispatched_run_ids_count_against_the_bound_and_the_budget_check(self):
+        runs = [backlog_run(900 + i, pr=1) for i in range(200)]
+        fake = BacklogFake(runs, {r["id"]: [job("x", waited=6000)] for r in runs}, pulls=own_heads(runs))
+        fake.record_pass(rescue.journal_lines({}))
+        before = fake.reads
+        _, counts = rescue.backlog_sweep(fake, now=NOW, dry_run=False, declared=(), actions=rescue.BACKLOG_ACTIONS_MAX,
+                                         run_ids=[r["id"] for r in runs])
+        self.assertLessEqual(fake.reads - before, rescue.BACKLOG_READS)
+        spent = BacklogFake(runs, {}, pulls={}, remaining=10)
+        rescue.backlog_sweep(spent, now=NOW, dry_run=False, declared=(), run_ids=[900])
+        self.assertEqual((spent.reads, backlog_mutations(spent)), (1, []))
+
+    def test_a_journal_entry_someone_re_ran_or_superseded_is_dropped(self):
+        rerun_meanwhile = {**backlog_run(750, pr=1), "run_attempt": 2, "status": "completed", "conclusion": "success"}
+        moved = {**backlog_run(751, pr=2), "status": "completed", "conclusion": "cancelled"}
+        newer_head = {**backlog_run(752, pr=1), "status": "completed", "conclusion": "cancelled"}
+        newer = {**backlog_run(753, age_min=40, pr=1), "status": "completed", "conclusion": "success",
+                 "head_branch": "lane/752"}
+        fake = BacklogFake([rerun_meanwhile, moved, newer_head, newer], {},
+                           pulls={1: OPEN_AT_HEAD, 2: {"state": "open", "head": {"sha": "e" * 40}}})
+        fake.record_pass(rescue.journal_lines({i: rescue.Journalled(NOW - dt.timedelta(minutes=20))
+                                               for i in (750, 751, 752)}))
+        _, counts = backlog(fake)
+        self.assertEqual(backlog_mutations(fake), [])
+        self.assertEqual(counts["pending"], 0)
+
+    def test_a_pull_request_target_run_is_covered(self):
+        target = backlog_run(2, event="pull_request_target", head="b" * 40, pr=12, pr_head=HEAD)
+        fake = BacklogFake([target], {2: [job("guard", waited=7200)]}, pulls={12: OPEN_AT_HEAD})
+        two_passes(fake)
+        self.assertEqual(backlog_mutations(fake), [("cancel", 2), ("rerun", 2)])
+
+    def test_a_superseded_head_is_cancelled_but_not_re_run(self):
+        moved = {"state": "open", "head": {"sha": "c" * 40}}
+        fake = BacklogFake([backlog_run(3, pr=13)], {3: [job("check", waited=7200)]}, pulls={13: moved})
+        first, second = two_passes(fake)
+        self.assertEqual(backlog_mutations(fake), [("cancel", 3)])
+        self.assertEqual((first["superseded"], first["pending"]), (1, 0))
+
+    def test_a_closed_pull_request_found_by_branch_is_cancelled_but_not_re_run(self):
+        fake = BacklogFake([backlog_run(4)], {4: [job("check", waited=7200)]},
+                           branch_pulls={"lane/4": [{"state": "closed", "head": {"sha": HEAD}}]})
+        two_passes(fake)
+        self.assertEqual(backlog_mutations(fake), [("cancel", 4)])
+
+    def test_a_run_whose_pull_request_cannot_be_told_is_left_alone(self):
+        fake = BacklogFake([backlog_run(5)], {5: [job("check", waited=7200)]})
+        lines, _ = backlog(fake)
+        self.assertEqual(backlog_mutations(fake), [])
+        self.assertTrue(any("could not be told" in line for line in lines))
+
+    def test_a_job_queued_under_30_minutes_is_not_touched(self):
+        fake = BacklogFake([backlog_run(6, pr=16)], {6: [job("check", waited=29 * 60)]}, pulls={16: OPEN_AT_HEAD})
+        backlog(fake)
+        self.assertEqual(backlog_mutations(fake), [])
+
+    def test_a_run_with_a_job_running_or_on_another_label_is_left_alone(self):
+        running = [job("check", waited=7200), job("build", status="in_progress", runner_id=3)]
+        blacksmith = [job("check", waited=7200), job("build", labels=("blacksmith-4vcpu-ubuntu-2404",), waited=7200)]
+        fake = BacklogFake([backlog_run(7, pr=17), backlog_run(8, pr=18)], {7: running, 8: blacksmith},
+                           pulls={17: OPEN_AT_HEAD, 18: OPEN_AT_HEAD})
+        backlog(fake)
+        self.assertEqual(backlog_mutations(fake), [])
+
+    def test_push_schedule_dispatch_nightly_later_attempts_and_forks_are_never_touched(self):
+        runs = [backlog_run(20, event="push"), backlog_run(21, event="schedule"),
+                backlog_run(22, event="workflow_dispatch"), backlog_run(23, workflow="nightly.yml", pr=1),
+                backlog_run(24, attempt=2, pr=1), backlog_run(25, repo="someone/cmux", pr=1)]
+        fake = BacklogFake(runs, {r["id"]: [job("x", waited=7200)] for r in runs}, pulls={1: OPEN_AT_HEAD})
+        _, counts = backlog(fake)
+        self.assertEqual(backlog_mutations(fake), [])
+        self.assertEqual(counts["candidates"], 0)
+        self.assertTrue(all("event=pull_request" in path for path in fake.listings))
+
+    def test_the_minute_pass_keeps_its_declared_runs_under_90_minutes(self):
+        runs = [backlog_run(30, age_min=60, workflow="pr-checks.yml", pr=1),
+                backlog_run(31, age_min=60, workflow="web-validation.yml", pr=1),
+                backlog_run(32, age_min=120, workflow="pr-checks.yml", pr=1)]
+        fake = BacklogFake(runs, {r["id"]: [job("x", waited=50 * 60)] for r in runs}, pulls={1: OPEN_AT_HEAD})
+        backlog(fake)
+        self.assertEqual(sorted(c[1] for c in backlog_mutations(fake) if c[0] == "cancel"), [31, 32])
+        unread = BacklogFake([dict(r) for r in runs], {r["id"]: [job("x", waited=50 * 60)] for r in runs},
+                             pulls={1: OPEN_AT_HEAD})
+        backlog(unread, declared=None)
+        self.assertEqual([c[1] for c in backlog_mutations(unread) if c[0] == "cancel"], [32])
+
+    def test_runs_older_than_a_day_are_not_listed(self):
+        fake = BacklogFake([backlog_run(40, age_min=25 * 60, pr=1)], {40: [job("x", waited=7200)]},
+                           pulls={1: OPEN_AT_HEAD})
+        _, counts = backlog(fake)
+        self.assertEqual(counts["candidates"], 0)
+
+    def test_a_job_that_started_after_the_read_is_not_cancelled(self):
+        fake = BacklogFake([backlog_run(41, pr=1)], {41: [job("x", waited=7200)]}, pulls={1: OPEN_AT_HEAD})
+        fake.started_meanwhile.add(41)
+        backlog(fake)
+        self.assertEqual(backlog_mutations(fake), [])
+
+    def test_a_dry_run_mutates_nothing(self):
+        fake = BacklogFake([backlog_run(42, pr=1)], {42: [job("x", waited=7200)]}, pulls={1: OPEN_AT_HEAD})
+        lines, _ = backlog(fake, dry_run=True)
+        self.assertEqual(backlog_mutations(fake), [])
+        self.assertTrue(any("would cancel, and re-run next pass" in line for line in lines))
+
+    def test_recovery_in_a_dry_run_mutates_nothing_and_keeps_the_journal(self):
+        settled = {**backlog_run(67, pr=1), "status": "completed", "conclusion": "cancelled"}
+        fake = BacklogFake([settled], {}, pulls={1: OPEN_AT_HEAD})
+        fake.record_pass(rescue.journal_lines({67: rescue.Journalled(NOW - dt.timedelta(minutes=20))}))
+        lines, counts = backlog(fake, dry_run=True)
+        self.assertEqual(backlog_mutations(fake), [])
+        self.assertTrue(any("would re-run (dry run)" in line for line in lines))
+        self.assertEqual(counts["pending"], 1)
+
+    def test_cancels_are_bounded_oldest_queued_first(self):
+        runs = [backlog_run(100 + i, age_min=100 + i, pr=1) for i in range(30)]
+        runs.append(backlog_run(99, age_min=500, status="in_progress", pr=1))
+        fake = BacklogFake(runs, {r["id"]: [job("x", waited=6000)] for r in runs}, pulls={1: OPEN_AT_HEAD})
+        backlog(fake, actions=5)
+        cancelled = [c[1] for c in backlog_mutations(fake) if c[0] == "cancel"]
+        self.assertEqual(cancelled, [129, 128, 127, 126, 125])
+
+    def test_superseded_cancels_count_against_the_bound(self):
+        moved = {"state": "open", "head": {"sha": "c" * 40}}
+        runs = [backlog_run(200 + i, age_min=100 + i, pr=1) for i in range(10)]
+        fake = BacklogFake(runs, {r["id"]: [job("x", waited=6000)] for r in runs}, pulls={1: moved})
+        _, counts = backlog(fake, actions=3)
+        self.assertEqual((counts["cancelled"], counts["superseded"]), (3, 3))
+
+    def test_old_runs_that_started_a_job_spend_a_bounded_share_of_reads(self):
+        runs = [backlog_run(300 + i, age_min=100 + i, status="in_progress", pr=1) for i in range(50)]
+        busy = [job("build", status="in_progress", runner_id=9)]
+        fake = BacklogFake(runs, {r["id"]: busy for r in runs}, pulls={1: OPEN_AT_HEAD})
+        _, counts = backlog(fake)
+        self.assertEqual(counts["read"], rescue.BACKLOG_IN_PROGRESS_READS)
+        self.assertEqual(backlog_mutations(fake), [])
+
+    def test_a_deep_queue_is_walked_from_its_oldest_slice(self):
+        runs = [backlog_run(1000 + i, age_min=40 + i * 1.2, pr=1) for i in range(1100)]
+        fake = BacklogFake(runs, {r["id"]: [job("x", waited=40 * 60)] for r in runs}, pulls={1: OPEN_AT_HEAD})
+        _, counts = backlog(fake, actions=3)
+        cancelled = [c[1] for c in backlog_mutations(fake) if c[0] == "cancel"]
+        self.assertEqual(cancelled, [2099, 2098, 2097])
+        self.assertLessEqual(counts["requests"], rescue.BACKLOG_READS)
+
+    def test_main_reads_tokens_and_the_action_bound_from_the_environment(self):
+        fake = BacklogFake([backlog_run(50, pr=1), backlog_run(51, age_min=210, pr=1)],
+                           {50: [job("x", waited=7200)], 51: [job("x", waited=7200)]}, pulls={1: OPEN_AT_HEAD})
+        fake.record_pass(rescue.journal_lines({}))
+        with tempfile.TemporaryDirectory() as tmp, mock.patch("sys.stdout"):
+            summary = Path(tmp) / "summary.md"
+            rescue.main(["--backlog"], {"BACKLOG_ACTIONS": "1", "GITHUB_STEP_SUMMARY": str(summary)},
+                        client=fake, now=NOW, sleep=lambda _s: None)
+            self.assertIn("Hosted backlog rescue", summary.read_text())
+        self.assertEqual(backlog_mutations(fake), [("cancel", 51)])
+
+    def test_main_reads_the_recovery_start_from_the_environment(self):
+        with mock.patch.object(rescue, "backlog_sweep", return_value=([], {})) as swept, mock.patch("sys.stdout"):
+            rescue.main(["--backlog"], {"BACKLOG_RECOVER_SINCE": "2026-11-18T08:50:00Z"}, client=object(), now=NOW)
+        self.assertEqual(swept.call_args.kwargs["since"], dt.datetime(2026, 11, 18, 8, 50, tzinfo=dt.timezone.utc))
+
+    def test_the_bot_token_reads_and_writes_and_the_workflow_token_only_reads(self):
+        client = None
+        with mock.patch.object(rescue, "backlog_sweep", return_value=([], {})) as swept, mock.patch("sys.stdout"):
+            rescue.main(["--backlog"], {"HOSTED_LIGHT_TOKEN": "bot", "GH_TOKEN": "workflow", "GH_REPO": "o/r"},
+                        now=NOW)
+            client = swept.call_args.args[0]
+        self.assertEqual((client.token, client.write_token, client.fallback), ("bot", "bot", "workflow"))
+
+    def test_the_workflow_is_scheduled_dispatchable_and_bounded(self):
+        import yaml
+        path = ROOT / ".github/workflows/ci-hosted-backlog-rescue.yml"
+        workflow = yaml.safe_load(path.read_text())
+        events = workflow.get("on", workflow.get(True))
+        self.assertIn("schedule", events)
+        self.assertEqual(set(events["workflow_dispatch"]["inputs"]), {"dry_run", "actions", "recover_since", "run_ids"})
+        self.assertFalse(workflow["concurrency"]["cancel-in-progress"])
+        job_ = workflow["jobs"]["backlog"]
+        self.assertIn("CI_HOSTED_LIGHT_RESCUE_DISABLED", job_["if"])
+        self.assertEqual(job_["permissions"], {"actions": "write", "contents": "read", "pull-requests": "read"})
+        self.assertNotIn("ubuntu-24.04\",", job_["runs-on"])  # never queues behind the hosted backlog it drains
+        [checkout] = [s for s in job_["steps"] if s.get("with", {}).get("ref") == "main"]
+        self.assertFalse(checkout["with"]["persist-credentials"])
+        [step] = [s for s in job_["steps"] if "hosted_light_rescue.py" in str(s.get("run", ""))]
+        self.assertIn("--backlog", step["run"])
+        self.assertEqual(step["env"]["GH_TOKEN"], "${{ github.token }}")
+        self.assertIn("inputs.recover_since", step["env"]["BACKLOG_RECOVER_SINCE"])
+        self.assertIn("inputs.run_ids", step["env"]["BACKLOG_RUN_IDS"])
+        self.assertIn(rescue.BACKLOG_WORKFLOW, str(path))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -994,7 +994,9 @@ nobody serves.
 
 | Pool | Members (first is preferred) |
 | --- | --- |
-| `linux` | Blacksmith 32 vCPU, Blacksmith 16 vCPU |
+| `linux` | Blacksmith 4 vCPU, Blacksmith 16 vCPU |
+| `linux_8` | Blacksmith 8, then 4, then 16 vCPU |
+| `linux_16` | Blacksmith 16, then 8, then 32 vCPU |
 | `linux_arm64` | Blacksmith 4 vCPU ARM64 |
 | `windows` | Blacksmith 4 vCPU Windows |
 | `macos_15` | Blacksmith macOS 15 |
@@ -1021,7 +1023,14 @@ same stall rule as `simple_pool_picker.blacksmith_stalled()`, and the
 dead-label entries once #27114 lands). It marks those labels dead, points each
 pool at its first unmarked member, and writes `RUNNER_POOLS` only on a change.
 A mark expires after 30 minutes unless seen again; a label seen starting a job
-is cleared at once. With every member marked, the pool keeps its first. A
+is cleared at once, and a label the janitor saw start a job in the last 15
+minutes (`label_started`, `RECENT_START`) is never marked, whatever its probe
+saw: Blacksmith caps the org on vCPUs at once, so under load a probe can wait
+out its minutes on a size that keeps starting jobs (on 2026-11-18 at 02:00Z
+4 vCPU was marked dead while it ran 6 jobs). A Blacksmith Linux pool lists its
+smaller sizes before its larger ones (`spec_problems()` refuses otherwise), so
+a size the cap starves moves its jobs down, not up into the sizes the cap
+starves first. With every member marked, the pool keeps its first. A
 malformed `RUNNER_POOLS` is rewritten from these declarations, never crashed
 on. Jobs already queued on a dead member keep that label (GitHub binds it when
 it creates the job); moving them is the queue janitor's dead-label re-dispatch

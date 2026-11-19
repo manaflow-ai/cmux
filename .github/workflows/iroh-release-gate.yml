@@ -308,9 +308,11 @@ jobs:
         run: |
           set -euo pipefail
           # ios-e2e-run.sh uses AXe for accessibility and HID input. Hosted
-          # runners do not guarantee it in PATH, so install the maintained
-          # Homebrew formula explicitly before any simulator interaction.
-          brew install cameroncooke/axe/axe
+          # runners do not guarantee it in PATH, so install it before any
+          # simulator interaction. Not the Homebrew tap: its formula's install
+          # DSL fails on the runners' Homebrew (job 132861077367). The
+          # installer puts axe on GITHUB_PATH for later steps.
+          PATH="$(./scripts/install-axe-ci.sh):$PATH"
           command -v axe
           axe --version
 
