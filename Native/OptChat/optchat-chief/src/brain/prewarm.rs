@@ -14,6 +14,19 @@ impl Brain {
     /// prompt), and else the preset the session names (the family's own
     /// when the turn left the default harness's family; None: the port's
     /// turn preset).
+    /// [`Self::session_presets`] for a turn on `harness`: an open-source brain's own turn preset
+    /// (brain_home.rs), else its family's.
+    pub(super) fn harness_presets(
+        &self,
+        harness: &str,
+        family: Family,
+    ) -> (Option<String>, Option<String>) {
+        match self.settings.brains.get(harness) {
+            Some(brain) => (None, brain.preset.clone()),
+            None => self.session_presets(family),
+        }
+    }
+
     pub(super) fn session_presets(&self, family: Family) -> (Option<String>, Option<String>) {
         let cached = (matches!(self.settings.engine, Engine::Acpmux) && family == Family::Claude)
             .then(|| self.settings.turn_preset.clone())
@@ -73,8 +86,11 @@ impl Brain {
         {
             return;
         }
-        let (engine, _, _) = self.next_engine();
-        let (cached, plain) = self.session_presets(self.family_of(&engine.harness));
+        let (mut engine, _, _) = self.next_engine();
+        // A brain that cannot run now is never started: the stand-in harness is (turns.rs).
+        let _ = self.brain_stand_in(&mut engine);
+        let (cached, plain) =
+            self.harness_presets(&engine.harness, self.family_of(&engine.harness));
         if cached.is_some() {
             // The pooled Claude Code reads its cache settings when it
             // starts: the next turn's TTL, and whether that turn carries our

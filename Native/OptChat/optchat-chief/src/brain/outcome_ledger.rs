@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 use cmux_conversation::{Op, Part};
 
 use super::{Brain, Phase, Source, now_ms};
-use crate::state::Untold;
+use crate::state::{SubStatus, Untold};
 
 /// The first word of an outcome retry turn's note.
 pub const UNTOLD_TAG: &str = "[untold]";
@@ -70,9 +70,6 @@ impl Brain {
 
     /// The owner took Chief post `op`: every subagent it names is told.
     pub(super) fn outcome_posted(&mut self, op: &Op) {
-        if self.state.untold.is_empty() {
-            return;
-        }
         let Op::MessageSend { parts, .. } = op else {
             return;
         };
@@ -84,6 +81,27 @@ impl Brain {
             })
             .collect::<Vec<_>>()
             .join("\n");
+        // Every open subagent it names was told now (`<open-items>`).
+        let now = self.now();
+        let mut told = false;
+        for sub in self
+            .state
+            .spawns
+            .values_mut()
+            .flat_map(|r| r.subs.iter_mut())
+        {
+            let open = sub.at_work() || sub.waiting() || sub.status == SubStatus::Done;
+            if open && names(&text, &sub.id) {
+                sub.told_ms = now;
+                told = true;
+            }
+        }
+        if self.state.untold.is_empty() {
+            if told {
+                self.save();
+            }
+            return;
+        }
         let before = self.state.untold.len();
         self.state.untold.retain(|u| !names(&text, &u.id));
         if self.state.untold.len() != before {

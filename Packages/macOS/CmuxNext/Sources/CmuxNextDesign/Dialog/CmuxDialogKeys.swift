@@ -43,7 +43,7 @@ public nonisolated struct CmuxDialogKeys {
             guard others == .command else { return nil }
             if character == "." { return spec.cancelButton.map { .press($0.id) } }
             let lowered = Character(character.lowercased())
-            return spec.buttons.first { $0.key == lowered && !$0.personOnly }.map { .press($0.id) }
+            return spec.buttons.first { $0.key == lowered && !$0.personOnly && $0.isEnabled }.map { .press($0.id) }
         }
     }
 
