@@ -253,9 +253,7 @@ impl Recipe {
 
     /// The parts it changes, by name (`settings`, `views`, `keybindings`).
     pub fn parts(&self) -> Vec<&'static str> {
-        let Ok(profile) = self.profile() else {
-            return Vec::new();
-        };
+        let Ok(profile) = self.profile() else { return Vec::new() };
         let mut parts: Vec<Part> = profile.files.keys().map(|path| Part::of(path)).collect();
         if !profile.settings.is_empty() {
             parts.push(Part::Settings);

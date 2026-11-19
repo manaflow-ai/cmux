@@ -133,9 +133,7 @@ fn each_app_recipe_binds_its_apps_new_chat_key_to_its_agent() {
 fn every_shortcut_a_recipe_binds_is_an_action_cmux_has() {
     for recipe in RECIPES {
         let profile = recipe.profile().unwrap();
-        let Some(text) = profile.files.get("keybindings.json") else {
-            continue;
-        };
+        let Some(text) = profile.files.get("keybindings.json") else { continue };
         let parsed = cmux_config::keybindings::parse(text);
         assert!(parsed.diagnostics.is_empty(), "{}: {:?}", recipe.name, parsed.diagnostics);
         assert!(!parsed.entries.is_empty(), "{}: binds nothing", recipe.name);

@@ -11,9 +11,11 @@ import Testing
 /// inverse and default-background cells in a window, the window server composites it, and every sampled cell must be
 /// the color Ghostty draws for the config (its theme's background, foreground and palette, a truecolor cell its own
 /// value) within 2/255 per channel in sRGB: Ghostty 1.4.0 itself lands within 1/255 of them (Display P3 round trip,
-/// cmux-lawrence-2). It runs plain and over a background picture, where the terminal used to show the picture at the
-/// window's tint instead of its own background (`TerminalGhosttyBackgroundOverArtTests`). A picture is stood in by a
-/// mid-gray layer under the terminal: what a see-through terminal would show.
+/// cmux-lawrence-2). It runs plain, over a background picture at Opacity 1 (an opaque window: every cell exact), and
+/// over a picture at Opacity 0.85 (user, Nov 17: "we need to have both rich colors and proper transparency"): there
+/// every explicit cell, the text and the inverse cell stay exact, and the default background is what lies under the
+/// terminal, not a second ground (the window's sheet is checked in `TerminalTransparencyOverPictureTests`). A picture
+/// is stood in by a mid-gray layer under the terminal.
 @MainActor @Suite(.serialized, .closesItsWindows) struct TerminalGhosttyPixelParityTests {
     /// The largest channel step allowed, in 0...255 sRGB.
     nonisolated static let tolerance = 2
@@ -94,9 +96,14 @@ import Testing
         return channels.map { $0.sorted()[$0.count / 2] }
     }
 
+    /// The window Opacity over the picture for each run; nil runs plain, with no picture.
+    nonisolated static let pictureOpacities: [Double?] = [nil, 1, 0.85]
+
     @Test(.enabled("this host puts windows on screen") { await MaskedScreenshotTests.hostShowsWindows() },
-          arguments: [false, true])
-    func everyCellIsTheColorGhosttyDraws(overPicture: Bool) async throws {
+          arguments: pictureOpacities)
+    func everyCellIsTheColorGhosttyDraws(pictureOpacity: Double?) async throws {
+        let overPicture = pictureOpacity != nil
+        let seeThrough = (pictureOpacity ?? 1) < 1
         _ = NSApplication.shared
         _ = GhosttyRuntime.shared
         try #require(GhosttyConfigBackground.loaded.opacity >= 1, "this host's Ghostty config is see-through: Ghostty shows what is behind it too")
@@ -111,6 +118,7 @@ import Testing
         defer { io.finish(); session.view.removeFromSuperview(); window.close() }
         let scope = ThemeScope(level: .room)
         scope.pinBackdrop(overPicture ? .selection(.art(.dahlDresdenMoonlight)) : .none)
+        scope.pinBackdropTint(pictureOpacity)
         let root = NSView(frame: window.contentLayoutRect)
         root.wantsLayer = true
         // The picture's stand-in: what a see-through terminal shows.
@@ -128,11 +136,16 @@ import Testing
         // see-through and they reload with a transparent default background (`GhosttyRuntime.setSeeThrough`), so
         // every frame with the pattern is drawn as the person sees it.
         let loaded = ContinuousClock.now + .seconds(5)
-        while GhosttyRuntime.seeThroughLoaded != overPicture, ContinuousClock.now < loaded {
+        while GhosttyRuntime.seeThroughLoaded != seeThrough, ContinuousClock.now < loaded {
             try await Task.sleep(for: .milliseconds(50))
         }
-        try #require(GhosttyRuntime.seeThroughLoaded == overPicture, "the surfaces never loaded the \(overPicture ? "see-through" : "opaque") config")
-        let (bytes, swatches) = Self.pattern(colors)
+        try #require(GhosttyRuntime.seeThroughLoaded == seeThrough, "the surfaces never loaded the \(seeThrough ? "see-through" : "opaque") config")
+        let (bytes, patternSwatches) = Self.pattern(colors)
+        var swatches = patternSwatches
+        if seeThrough {
+            // The default background is what lies under the terminal: here the picture's stand-in alone.
+            for index in swatches.indices where swatches[index].name.hasPrefix("default bg") { swatches[index].expected = [128, 128, 128] }
+        }
         io.send(.output(bytes))
 
         // The frame with the pattern; then more passes for the window server.
@@ -168,7 +181,7 @@ import Testing
             if mismatches.isEmpty { break }
             waiting = "cells differ"
         }
-        #expect(mismatches.isEmpty, "\(overPicture ? "over a picture" : "plain"): \(mismatches.count) of \(swatches.count) cells differ from Ghostty: \(mismatches.joined(separator: "; "))")
+        #expect(mismatches.isEmpty, "\(pictureOpacity.map { "over a picture at Opacity \($0)" } ?? "plain"): \(mismatches.count) of \(swatches.count) cells differ from Ghostty: \(mismatches.joined(separator: "; "))")
     }
 }
 
