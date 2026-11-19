@@ -53,6 +53,9 @@ public struct AgentPaneMoveTarget: Equatable, Sendable {
 /// whether the panes beside the chat show, and which toggles are lit).
 public struct AgentPaneHeaderHooks {
     public var run: @MainActor (String, String?) -> Void
+    /// Names the chat's tab with no prompt (the inline rename form, `pane.action {id: "renameTab",
+    /// name}`); an empty name clears it. A host without tabs does nothing.
+    public var rename: @MainActor (String) -> Void = { _ in }
     public var toggle: @MainActor (String, String?) -> Void
     public var tabState: @MainActor () -> AgentPaneHeaderState
     /// Opens side session `fork` of chat session `chat` beside the chat's tab (New side chat, a
@@ -240,6 +243,12 @@ extension AgentPaneModel {
             if toggle { header.toggle(id, folder) } else { header.run(id, folder) }
             // `ran`: the page knows the App took the action (a host without panes, such as the
             // gallery, answers null), so its diff link opens the diff beside the chat, not in place.
+            return AgentPaneReply.success(["ran": true])
+        case .renameTab(let name):
+            guard newTab == nil, let header else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action renameTab")
+            }
+            header.rename(name)
             return AgentPaneReply.success(["ran": true])
         case .moveToMachine(let machineID, let session):
             guard newTab == nil, let header,

@@ -73,9 +73,8 @@ extension AgentTabStore {
             else { toggles.open(id, cwd: cwd, extra: extra, chat: chat, store: store, actions: actions) }
         }
         model.header?.shown = { watch.current } // the palette's switches: the page's last state, no watch armed
-        model.chatMenuItems = actions.menuItems
-        model.sessionMenuItems = actions.sessionMenuItems
-        model.onSearchWeb = actions.searchWeb
+        model.header?.rename = { name in actions.run("renameTab", cwd: nil, extra: ["name": .string(name)]) } // the inline rename form: no prompt
+        (model.chatMenuItems, model.sessionMenuItems, model.onSearchWeb) = (actions.menuItems, actions.sessionMenuItems, actions.searchWeb)
     }
 
     /// [+] New tab's column: a New Tab page in the chat's folder (or `cwd`, New Chat Here), moved to

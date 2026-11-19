@@ -137,6 +137,28 @@ public final class DesignSettings {
             NotificationCenter.default.post(name: WindowMaterialView.inactiveDimDidChange, object: nil)
         }
     }
+    /// `experiments.elevationLadder` (taste experiment, off by default): web pages draw tooltips,
+    /// menus, popovers and sheets on one radius and lift ladder (`data-elevation-ladder`).
+    public var elevationLadder = false
+    /// `experiments.focusDimming` and `experiments.focusDimAmount` (taste experiment, off by
+    /// default): an inactive window's web chrome loses its color by the amount, and panes without
+    /// focus dim by half of it (``LayoutStyle/inactiveDim(dimsInactive:)``); the window's inactive
+    /// wash desaturates its glass by the amount (``WindowMaterialView``). Posts
+    /// `WindowMaterialView.inactiveDimDidChange`.
+    public var focusDimming = false {
+        didSet {
+            guard focusDimming != oldValue else { return }
+            NotificationCenter.default.post(name: WindowMaterialView.inactiveDimDidChange, object: nil)
+        }
+    }
+    public var focusDimAmount = 0.35 {
+        didSet {
+            guard focusDimAmount != oldValue, focusDimming else { return }
+            NotificationCenter.default.post(name: WindowMaterialView.inactiveDimDidChange, object: nil)
+        }
+    }
+    /// The dim the focus-dimming experiment asks for: its amount while on, else 0.
+    public var focusDim: Double { focusDimming ? focusDimAmount : 0 }
     /// `appearance.wallpaperTint`: where the desktop shows through the window, its tint takes the
     /// desktop picture's hue (``WallpaperTint``), as macOS tints its own windows. Off until the
     /// setting reaches it (``SettingsApplier``).

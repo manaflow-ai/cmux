@@ -1,0 +1,250 @@
+/* The mock desktop of ui.focus-dimming (FocusDimming.gallery.tsx). Only the mock's frame lives
+   here; the dimming itself is the app's own ui/focusDimming.css. */
+.fdg-desk {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 560px;
+  box-sizing: border-box;
+  padding: 24px;
+  gap: 16px;
+  background-size: cover;
+  background-position: center;
+  font-family: var(--font-ui);
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  color: var(--agent-text);
+  color-scheme: dark;
+  --agent-text: rgb(236, 236, 240);
+  --agent-muted: rgba(236, 236, 240, 0.62);
+  --agent-page-bg: rgb(30, 31, 36);
+  --agent-border: rgba(255, 255, 255, 0.1);
+  --agent-accent: rgb(232, 122, 84);
+  --agent-accent-soft: rgba(232, 122, 84, 0.22);
+  --agent-lit-glyph: rgb(240, 140, 100);
+  --agent-on-accent: rgb(255, 255, 255);
+  --fdg-link: rgb(110, 170, 255);
+  --fdg-shadow-key: 0 0 0 0.5px rgba(0, 0, 0, 0.35), 0 18px 50px rgba(0, 0, 0, 0.35);
+  --fdg-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.22);
+  --fdg-caption-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+.fdg-desk[data-scheme="light"] {
+  color-scheme: light;
+  --agent-text: rgb(28, 28, 32);
+  --agent-muted: rgba(28, 28, 32, 0.58);
+  --agent-page-bg: rgb(250, 250, 252);
+  --agent-border: rgba(0, 0, 0, 0.1);
+  --agent-accent: rgb(204, 92, 56);
+  --agent-accent-soft: rgba(204, 92, 56, 0.16);
+  --agent-lit-glyph: rgb(204, 92, 56);
+  --fdg-link: rgb(30, 110, 230);
+}
+.fdg-scene {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 24px;
+}
+.fdg-pair {
+  position: relative;
+  flex: 1.15;
+  min-width: 0;
+}
+.fdg-pair > .fdg-window {
+  position: absolute;
+  width: 74%;
+  height: 76%;
+}
+.fdg-pair > .fdg-window[data-slot="back"] {
+  top: 0;
+  left: 0;
+}
+.fdg-pair > .fdg-window[data-slot="front"] {
+  right: 0;
+  bottom: 0;
+}
+.fdg-pair > .fdg-window[data-key] {
+  z-index: 1;
+}
+.fdg-split-wrap {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+.fdg-split-wrap > .fdg-window {
+  flex: 1;
+}
+
+.fdg-window {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 16px;
+  box-shadow: var(--fdg-shadow-key);
+}
+.fdg-window:not([data-key]) {
+  box-shadow: var(--fdg-shadow);
+}
+.fdg-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 0;
+  border-bottom: 0.5px solid var(--agent-border);
+}
+.fdg-dots {
+  display: flex;
+  gap: 8px;
+}
+.fdg-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--fdg-dot);
+}
+/* The window buttons are the system's: grey on any window that is not key, with or without the switch. */
+.fdg-window[data-page-inactive] .fdg-dot {
+  background: color-mix(in srgb, var(--agent-text) 22%, transparent);
+}
+.fdg-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--agent-text);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fdg-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: var(--agent-muted);
+}
+.fdg-tool[data-lit] {
+  background: var(--agent-accent-soft);
+  color: var(--agent-lit-glyph);
+}
+.fdg-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.fdg-sidebar {
+  display: flex;
+  width: 30%;
+  min-width: 96px;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 0;
+}
+.fdg-row {
+  overflow: hidden;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: var(--agent-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fdg-row[data-selected] {
+  background: var(--agent-accent-soft);
+}
+.fdg-row-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-inline-end: 8px;
+  border-radius: 50%;
+  background: var(--agent-accent);
+}
+.fdg-content {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  background: var(--agent-page-bg);
+}
+.fdg-panes {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  /* An unfocused pane fades toward the window's own background, as the app's page does. */
+  background: var(--agent-page-bg);
+}
+.fdg-panes > .fdg-content {
+  min-width: 0;
+}
+.fdg-panes > .fdg-content + .fdg-content {
+  border-inline-start: 0.5px solid var(--agent-border);
+}
+.fdg-heading {
+  font-weight: 600;
+}
+.fdg-text {
+  color: var(--agent-text);
+}
+.fdg-muted {
+  color: var(--agent-muted);
+}
+.fdg-link {
+  color: var(--fdg-link);
+}
+.fdg-composer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding: 8px 8px 8px 12px;
+  border: 0.5px solid var(--agent-border);
+  border-radius: 12px;
+  color: var(--agent-muted);
+}
+.fdg-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-inline-start: auto;
+  border-radius: 50%;
+  background: var(--agent-accent);
+  color: var(--agent-on-accent);
+}
+.fdg-pane-label {
+  align-self: flex-start;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  color: var(--agent-muted);
+  font-size: var(--text-caption, 11px);
+}
+.fdg-caption {
+  color: var(--agent-text);
+  font-weight: 600;
+  text-shadow: var(--fdg-caption-shadow);
+}
+.fdg-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  align-self: flex-start;
+  padding: 4px 12px;
+  border-radius: 12px;
+}
+.fdg-controls input[type="range"] {
+  width: 160px;
+}
+.fdg-value {
+  min-width: 3ch;
+  font-variant-numeric: tabular-nums;
+}

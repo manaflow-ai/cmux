@@ -123,10 +123,12 @@ test("the title draws no fill in any state (header.css)", () => {
 // The pane's own tab names the chat there; the header's title shows only in the header's own row.
 test("the tab row shows no chat title (App.tsx)", () => {
   const app = readFileSync(join(import.meta.dir, "..", "App.tsx"), "utf8");
-  const titles = [...app.matchAll(/\{([^{}]*)<ThreadTitle\b/g)].map((match) => match[1]!.replace(/\s+/g, " ").trim());
+  const titles = [...app.matchAll(/\{([^{}]*)<(?:Renamable|Thread)Title\b/g)].map((match) =>
+    match[1]!.replace(/\s+/g, " ").trim(),
+  );
   expect(titles.length).toBeGreaterThan(0);
   // Every title is inside one of those guarded expressions; none sits in the JSX unguarded.
-  expect(titles.length).toBe(app.match(/<ThreadTitle\b/g)!.length);
+  expect(titles.length).toBe(app.match(/<(?:Renamable|Thread)Title\b/g)!.length);
   for (const guard of titles) expect(guard).toMatch(/!inTabRow\b/);
 });
 

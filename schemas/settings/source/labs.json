@@ -152,6 +152,86 @@
             "theme",
             "labs"
           ]
+        },
+        {
+          "key": "experiments.elevationLadder",
+          "name": "elevationLadder",
+          "note": "Taste experiment (13), off by default: one elevation ladder for floating web surfaces (tooltip 6 px, menu and popover 12 px, sheet 12 px, fullscreen 16 px, each with its lift and glass level), popovers whose arrow is a notch in one outline, Session Info as grouped inner cards with no dividers, and rename as an inline popover form. Web pages get it as `data-elevation-ladder` on <html> (AgentPaneTheme, WebTheme).",
+          "title": {
+            "key": "settings.experiments.elevationLadder",
+            "text": "Elevation Ladder"
+          },
+          "help": {
+            "key": "settings.experiments.elevationLadder.help",
+            "text": "One set of corner radii and shadows for tooltips, menus, popovers and sheets."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "labs",
+            "elevation",
+            "popover",
+            "tooltip",
+            "menu",
+            "sheet",
+            "radius",
+            "shadow",
+            "glass"
+          ]
+        },
+        {
+          "key": "experiments.focusDimming",
+          "name": "focusDimming",
+          "note": "Taste experiment (15), off by default: a window that is not key loses the color of its glass and chrome, and split panes without focus dim a little, both by experiments.focusDimAmount. Web pages get `data-focus-dimming` and `--cmux-focus-dim` on <html>; native panes take the amount as their inactive dim (LayoutStyle+InactiveDim).",
+          "title": {
+            "key": "settings.experiments.focusDimming",
+            "text": "Focus Dimming"
+          },
+          "help": {
+            "key": "settings.experiments.focusDimming.help",
+            "text": "Windows in the background lose their color, and panes without focus dim."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "labs",
+            "focus",
+            "dim",
+            "inactive",
+            "unfocused",
+            "window",
+            "pane",
+            "split",
+            "desaturate"
+          ]
+        },
+        {
+          "key": "experiments.focusDimAmount",
+          "name": "focusDimAmount",
+          "note": "How strong experiments.focusDimming is: 0 changes nothing, 1 takes all the color from an inactive window's chrome; unfocused panes dim by half of it.",
+          "title": {
+            "key": "settings.experiments.focusDimAmount",
+            "text": "Focus Dimming Amount"
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.05,
+            "unit": "fraction"
+          },
+          "default": 0.35,
+          "keywords": [
+            "experiments",
+            "focus",
+            "dim",
+            "amount",
+            "strength",
+            "inactive",
+            "unfocused"
+          ]
         }
       ]
     }

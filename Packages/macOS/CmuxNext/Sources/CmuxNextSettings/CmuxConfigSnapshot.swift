@@ -96,6 +96,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var liveCode = CmuxConfigSnapshot.liveCodeDefault
     /// `customize.fromTheApp`: the Customize Inspector (hold Option) and right-click Customize…; off when unset.
     public var customizeFromTheApp = CmuxConfigSnapshot.customizeFromTheAppDefault
+    /// `experiments.elevationLadder`: the floating web surfaces' elevation ladder (taste experiment); off when unset.
+    public var elevationLadder = CmuxConfigSnapshot.elevationLadderDefault
+    /// `experiments.focusDimming` (off when unset) and `experiments.focusDimAmount` (0...1, 0.35 when unset).
+    public var focusDimming = CmuxConfigSnapshot.focusDimmingDefault, focusDimAmount = CmuxConfigSnapshot.focusDimAmountDefault
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`, `browser.freezeHiddenTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `browser.links.*`: what modified link clicks do; Chrome's when unset.
@@ -377,6 +381,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(Self.parseLabsToggle(root, path: machineJoinPath, fallback: machineJoinDefault), \.machineJoin)
         snapshot.take(Self.parseLabsToggle(root, path: liveCodePath, fallback: liveCodeDefault), \.liveCode)
         snapshot.take(Self.parseLabsToggle(root, path: customizeFromTheAppPath, fallback: customizeFromTheAppDefault), \.customizeFromTheApp)
+        snapshot.take(Self.parseLabsToggle(root, path: elevationLadderPath, fallback: elevationLadderDefault), \.elevationLadder)
+        snapshot.take(Self.parseLabsToggle(root, path: focusDimmingPath, fallback: focusDimmingDefault), \.focusDimming)
+        snapshot.take(Self.parseLabsFraction(root, path: focusDimAmountPath, range: focusDimAmountRange, fallback: focusDimAmountDefault),
+                      \.focusDimAmount)
         snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
         snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)
         snapshot.take(LinkRouting.parse(root), \.linkRouting)

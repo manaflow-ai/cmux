@@ -32,6 +32,17 @@ extension CmuxConfigSnapshot {
         }
         return (text.trimmingCharacters(in: .whitespacesAndNewlines), nil)
     }
+
+    /// A Labs number in `range` (`experiments.focusDimAmount`): absent is `fallback`; a value that is
+    /// not a number is `fallback` plus a diagnostic; a number outside `range` is clamped into it.
+    static func parseLabsFraction(_ root: JSONValue, path: [String], range: ClosedRange<Double>,
+                                  fallback: Double) -> (Double, SettingsDiagnostic?) {
+        guard let value = root.value(at: path) else { return (fallback, nil) }
+        guard let number = value.doubleValue, number.isFinite else {
+            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: path.joined(separator: "."), message: "expected a number"))
+        }
+        return (min(max(number, range.lowerBound), range.upperBound), nil)
+    }
 }
 
 extension CmuxConfigSnapshot {

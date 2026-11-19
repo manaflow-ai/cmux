@@ -456,6 +456,15 @@
     },
     {
       "agent": "settable",
+      "why": "Taste experiments change only how surfaces look, and turning one off puts the default look back.",
+      "keys": [
+        "experiments.elevationLadder",
+        "experiments.focusDimming",
+        "experiments.focusDimAmount"
+      ]
+    },
+    {
+      "agent": "settable",
       "why": "Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).",
       "keys": [
         "home.channelsEnabled"

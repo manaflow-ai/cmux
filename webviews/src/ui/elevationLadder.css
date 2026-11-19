@@ -1,0 +1,161 @@
+/* THE ELEVATION LADDER (experiments.elevationLadder; ui/elevationLadder.ts). One step per floating layer,
+   each a corner, a lift and a glass level, rising together: a tooltip sits closest to the page with the
+   smallest corner and the lightest shadow, a menu or popover lifts off the page, a sheet lifts further
+   and a fullscreen surface lifts the most with the largest corner. The host sets data-elevation-ladder
+   on the root while the setting is on; with it off nothing here applies and every surface keeps its
+   look. ui.css imports this sheet for the pages; the agent pane gets it through elevationLadder.ts,
+   which Popover imports.
+
+   The glass levels (design-scale.json `glass`, glass/hostGlass.ts): a tooltip is the chip level, a menu
+   the menu level, a popover the popover level, a sheet the sheet role's veil, a fullscreen surface the
+   chrome level. A surface outside the primitives takes a step with data-elevation="tooltip", "popover",
+   "sheet" or "fullscreen" next to .ui-glass. */
+:root[data-elevation-ladder] {
+  --elev-tooltip-radius: 6px;
+  --elev-popover-radius: 12px;
+  --elev-sheet-radius: 12px;
+  --elev-fullscreen-radius: 16px;
+  /* Each lift is built from the one subtle elevation scale (--elevation-1, --elevation-2; desktop.css,
+     test/subtle-elevation.test.ts: no drop of its own, tight blur, low alpha): a higher step stacks
+     more of the scale's drops, so it reads darker and lifted while each layer stays tight. */
+  --elev-tooltip-shadow: var(--elevation-1);
+  --elev-popover-shadow: var(--elevation-2);
+  --elev-sheet-shadow: var(--elevation-2), var(--elevation-1);
+  --elev-fullscreen-shadow: var(--elevation-2), var(--elevation-2), var(--elevation-1);
+  /* The notch's lift (NotchOutline.tsx): --elevation-2's geometry (down 2, blur 6), drawn outside the
+     notched outline by an SVG filter; its colour is the scale's alpha. */
+  --elev-notch-shade: color-mix(in srgb, black 11%, transparent);
+  --elev-tooltip-backdrop: var(--ds-glass-chip-blur);
+  --elev-menu-backdrop: var(--ds-glass-menu-blur);
+  --elev-popover-backdrop: var(--ds-glass-popover-blur);
+  --elev-sheet-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
+  --elev-fullscreen-backdrop: var(--ds-glass-chrome-blur);
+
+  /* A popup reads its corner from the ladder (popupSurface.css). A row's highlight stays concentric:
+     --ui-row-radius is the popup's corner less its padding. Its drop (--ui-popup-drop) and the
+     tooltip's (--tooltip-shadow) are already the popover and tooltip steps. */
+  --ui-popup-radius: var(--elev-popover-radius);
+}
+
+/* Tooltip: the chip level, its 6px corner. Hover cards (.ui-card) are popover-level surfaces. */
+:root[data-elevation-ladder] :is(.ui-tooltip, .ui-title-tooltip):not(.ui-card) {
+  border-radius: var(--elev-tooltip-radius); /* concentric-allow: a tooltip holds text, no buttons; the ladder's tooltip step */
+}
+:root[data-elevation-ladder] :is(.ui-tooltip, .ui-title-tooltip).ui-glass:not(.ui-card) {
+  --glass-backdrop: var(--elev-tooltip-backdrop);
+}
+:root[data-elevation-ladder] .ui-card.ui-glass {
+  --glass-elevation: var(--elev-popover-shadow);
+}
+
+/* Menu and popover: their own glass levels, the 12px corner and lift through the popup tokens above. */
+:root[data-elevation-ladder] .ui-popup.ui-glass:is(.ui-menu, .ui-context-menu) {
+  --glass-backdrop: var(--elev-menu-backdrop);
+}
+:root[data-elevation-ladder] .ui-popup.ui-glass.ui-popover {
+  --glass-backdrop: var(--elev-popover-backdrop);
+}
+
+/* Sheet: the sheet role's veil and further lift. A dialog keeps its corner, which is concentric with
+   its buttons (popupSurface.css), and takes the sheet's lift. */
+:root[data-elevation-ladder] .ui-sheet {
+  border-radius: var(--elev-sheet-radius) var(--elev-sheet-radius) 0 0; /* concentric-allow: an edge-attached sheet takes the ladder's sheet step; its buttons sit in its own padded body */
+  background: var(--surface-sheet-veil);
+  -webkit-backdrop-filter: var(--elev-sheet-backdrop);
+  backdrop-filter: var(--elev-sheet-backdrop);
+  box-shadow: var(--elev-sheet-shadow);
+}
+:root[data-elevation-ladder] .ui-sheet-top {
+  /* concentric-allow: the same sheet step, on the top edge */
+  border-radius: 0 0 var(--elev-sheet-radius) var(--elev-sheet-radius);
+}
+:root[data-elevation-ladder] :is(.ui-sheet-leading, .ui-sheet-trailing) {
+  /* concentric-allow: a side sheet runs the window's full height, square to both edges */
+  border-radius: 0;
+}
+:root[data-elevation-ladder] .ui-dialog.ui-glass {
+  --glass-elevation: var(--elev-sheet-shadow);
+}
+
+/* A surface that names its step. */
+:root[data-elevation-ladder] [data-elevation="tooltip"].ui-glass {
+  --glass-tint: var(--tooltip-tint);
+  --glass-backdrop: var(--elev-tooltip-backdrop);
+  --glass-elevation: var(--elev-tooltip-shadow);
+  border-radius: var(--elev-tooltip-radius);
+}
+:root[data-elevation-ladder] [data-elevation="popover"].ui-glass {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-popover-tint), transparent);
+  --glass-backdrop: var(--elev-popover-backdrop);
+  --glass-elevation: var(--elev-popover-shadow);
+  border-radius: var(--elev-popover-radius);
+}
+:root[data-elevation-ladder] [data-elevation="sheet"].ui-glass {
+  --glass-tint: var(--surface-sheet-veil);
+  --glass-backdrop: var(--elev-sheet-backdrop);
+  --glass-elevation: var(--elev-sheet-shadow);
+  border-radius: var(--elev-sheet-radius);
+}
+:root[data-elevation-ladder] [data-elevation="fullscreen"].ui-glass {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-chrome-tint), transparent);
+  --glass-backdrop: var(--elev-fullscreen-backdrop);
+  --glass-elevation: var(--elev-fullscreen-shadow);
+  border-radius: var(--elev-fullscreen-radius);
+}
+
+/* A notched popover (Popover `notch`, NotchOutline.tsx): its box draws no fill, frost, rim or shadow
+   of its own; the notch layer, its first child, draws them in the notched outline. The box is the
+   layer's containing block and stacking context, so the layer sits under the content and may stand
+   past the box by the notch's height. */
+:root[data-elevation-ladder] .ui-popup.ui-glass[data-notch] {
+  /* How far the layer starts outside the box: the notch's height (notchOutline.ts NOTCH_HEIGHT). */
+  --ui-notch-reach: 9px;
+  position: relative;
+  z-index: 0;
+  overflow: visible;
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  /* No rim or drop on the box: the glass's box-shadow reads these (glass.css). */
+  --glass-rim-shadow: 0 0 transparent;
+  --glass-elevation: 0 0 transparent;
+}
+.ui-notch {
+  position: absolute;
+  inset: calc(-1 * var(--ui-notch-reach, 9px));
+  z-index: -1;
+  pointer-events: none;
+}
+.ui-notch > svg {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+.ui-notch-shade {
+  flood-color: var(--elev-notch-shade);
+}
+.ui-notch-glass {
+  position: absolute;
+  inset: 0;
+  background: var(--glass-tint);
+  -webkit-backdrop-filter: var(--elev-popover-backdrop);
+  backdrop-filter: var(--elev-popover-backdrop);
+}
+.ui-notch-rim path {
+  fill: none;
+  stroke: var(--glass-edge);
+  stroke-width: var(--cmux-hairline, 0.5px);
+}
+/* Reduce Transparency: the notched glass is the opaque popup surface, as every glass is there. */
+@media (prefers-reduced-transparency: reduce) {
+  .ui-notch-glass {
+    background: var(--glass-opaque);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+:root[data-reduce-transparency] .ui-notch-glass {
+  background: var(--glass-opaque);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}

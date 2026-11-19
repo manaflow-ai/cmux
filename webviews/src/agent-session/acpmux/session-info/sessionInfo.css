@@ -1828,3 +1828,38 @@ ul > li.acpmux-session-info-rows-rest {
   border: 0;
   pointer-events: none;
 }
+
+/* The elevation ladder (experiments.elevationLadder, ui/elevationLadder.css): the panel is a popover on
+   the ladder, its 12px corner and the popover lift, and its blocks are grouped inner cards: each block a
+   soft fill of the text with no hairline around or between them, and no rule under Show less. The cards
+   sit one step in from the panel's edge and one step apart, and each corner is the panel's less that
+   step, so card and panel are concentric. A section's grip still hangs in the card's leading padding. */
+:root[data-elevation-ladder] .acpmux-session-info {
+  --acpmux-session-info-panel-radius: var(--elev-popover-radius);
+  --acpmux-session-info-ladder-inset: var(--grid-base);
+  --acpmux-session-info-group-radius: calc(var(--elev-popover-radius) - var(--acpmux-session-info-ladder-inset));
+  --acpmux-session-info-group-fill: color-mix(in srgb, var(--agent-text) 5%, transparent);
+  --glass-elevation: var(--elev-popover-shadow);
+}
+:root[data-elevation-ladder] .acpmux-session-info__body[data-layout="glance"] {
+  gap: var(--acpmux-session-info-ladder-inset);
+  padding-right: var(--acpmux-session-info-ladder-inset);
+  padding-bottom: var(--acpmux-session-info-ladder-inset);
+  padding-left: var(--acpmux-session-info-ladder-inset);
+}
+:root[data-elevation-ladder] .acpmux-session-info:not([data-chrome="close"]) .acpmux-session-info__body[data-layout="glance"] {
+  padding-top: var(--acpmux-session-info-ladder-inset);
+}
+:root[data-elevation-ladder] .acpmux-session-info__body[data-layout="glance"] > .acpmux-session-info-group {
+  padding: var(--grid-base) var(--grid-gap);
+  border: 0;
+  border-radius: var(--acpmux-session-info-group-radius);
+  background: var(--acpmux-session-info-group-fill);
+}
+:root[data-elevation-ladder] .acpmux-session-info__body[data-layout="glance"] > .acpmux-session-info-group + .acpmux-session-info-group::before {
+  content: none;
+}
+:root[data-elevation-ladder] .acpmux-session-info-more > .acpmux-session-info-more__rule,
+:root[data-elevation-ladder] .acpmux-session-info-more:hover > .acpmux-session-info-more__rule {
+  border-top-color: transparent;
+}

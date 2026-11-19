@@ -61,6 +61,9 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     /// The Ghostty config's unfocused-pane dim; when it dims, it replaces
     /// `inactivePaneDimming` on every unfocused pane.
     public var unfocusedPaneDim = UnfocusedPaneDim()
+    /// The focus-dimming experiment's pane dim (`experiments.focusDimming`, half its amount); 0, the
+    /// default, leaves the dims above. Above 0 it dims every unfocused pane of a split.
+    public var focusDimExperiment: CGFloat = 0
     /// Debug Settings `focus.ringAlpha`: the ring's foreground share in place
     /// of `focusRing.contrast`; nil follows the setting. Read here, in the
     /// observed style, so a slider move repaints the ring at once.
@@ -137,6 +140,7 @@ extension LayoutStyle {
         style.inactiveTabStrength = FocusIndicatorTunables.inactiveTabStrength.value
         style.unfocusedPaneDim = DesignSettings.shared.unfocusedPaneDim
         style.inactivePaneDimming = Palette.inactivePaneDim
+        style.focusDimExperiment = CGFloat(DesignSettings.shared.focusDim) / 2
         style.attention = DesignSettings.shared.attention
         if !style.drawsLines {
             // No outlines: the focused pane is marked by the others' dim

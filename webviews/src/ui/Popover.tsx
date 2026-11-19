@@ -1,7 +1,10 @@
 // A popover over Base UI Popover, anchored to an element or a point (the editor caret). Non-modal:
 // the page stays usable; Escape and a press outside close it, and focus returns where it was.
-import type { ReactNode } from "react";
+import { useCallback, useRef, type ReactNode } from "react";
 import { Popover as BasePopover } from "@base-ui/react/popover";
+import { useElevationLadder } from "./elevationLadder";
+import { useNotchOutline } from "./NotchOutline";
+import { NOTCH_HEIGHT } from "./notchOutline";
 import { useOverlayPosition, usePortalContainer } from "./UiProvider";
 import { cx } from "./cx";
 import { useNativePopup, type NativePopupDescription } from "./nativePopup";
@@ -85,6 +88,9 @@ export interface PopoverProps {
     onEvent?(event: NativePopupEvent): void;
     onDismiss?(): void;
   };
+  /** With the elevation ladder on (experiments.elevationLadder), its arrow: a smooth notch in its own
+   *  outline, pointing at the anchor (NotchOutline.tsx). Off, nothing changes. */
+  notch?: boolean;
   children: ReactNode;
 }
 
@@ -103,9 +109,15 @@ export function Popover({
   initialFocus,
   finalFocus,
   native,
+  notch = false,
   children,
 }: PopoverProps) {
   const popupClassName = cx("ui-popup ui-glass ui-popover", className);
+  const notched = useElevationLadder() && notch;
+  const anchorRef = useRef(anchor);
+  anchorRef.current = anchor;
+  const readAnchor = useCallback(() => virtualAnchor(anchorRef.current)?.getBoundingClientRect(), []);
+  const { ref: notchRef, outline } = useNotchOutline(notched, readAnchor);
   const edges = useScrollEdges();
   const container = usePortalContainer();
   const positionMethod = useOverlayPosition();
@@ -143,20 +155,25 @@ export function Popover({
           collisionAvoidance={popupCollision(flip)}
           collisionPadding={padding}
           align={align}
-          sideOffset={UI_ANCHOR_GAP}
+          // A notch's tip stands where the gap ends, so the panel moves out by the notch's height.
+          sideOffset={notched ? UI_ANCHOR_GAP + NOTCH_HEIGHT : UI_ANCHOR_GAP}
         >
           <BasePopover.Popup
+            ref={notched ? notchRef : undefined}
             // A shifted popup may use the window's height, not only the room on its side (popupSurface.css).
             data-popup-shift={flip === "shift" ? "" : undefined}
             className={cx(popupClassName, fade && "ui-popup-scroll-shell")}
-            // The App's popover glass under the page (glass/hostGlass.ts).
-            data-host-glass={hostGlass ? "popover" : undefined}
-            data-host-glass-cover={hostGlass ? "" : undefined}
+            // The App's popover glass under the page (glass/hostGlass.ts). It draws a rounded rect, so a
+            // notched popover keeps the page's own glass, in its own outline.
+            data-host-glass={hostGlass && !notched ? "popover" : undefined}
+            data-host-glass-cover={hostGlass && !notched ? "" : undefined}
+            data-notch={notched ? "" : undefined}
             id={id}
             aria-label={label}
             initialFocus={initialFocus}
             finalFocus={finalFocus}
           >
+            {outline}
             {fade ? (
               <div ref={edges} className="ui-popup-scroll ui-scroll-edge-fade">
                 {children}

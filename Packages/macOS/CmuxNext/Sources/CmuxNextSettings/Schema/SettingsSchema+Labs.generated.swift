@@ -20,6 +20,16 @@ extension CmuxConfigSnapshot {
     /// `customize.fromTheApp`: Opt-in Customize surfaces in the window: holding Option over a big part shows the Customize Inspector (its settings, theme colors, Change This… and Reset), and the right-click menus of those parts end with Customize…. Off by default; off hides both, and nothing else changes. Leo 2026-11-15 (ask-9634dbcdac): opt-in UI needs a way back, which is turning this off.
     public nonisolated static let customizeFromTheAppPath = ["customize", "fromTheApp"]
     public nonisolated static let customizeFromTheAppDefault = false
+    /// `experiments.elevationLadder`: Taste experiment (13), off by default: one elevation ladder for floating web surfaces (tooltip 6 px, menu and popover 12 px, sheet 12 px, fullscreen 16 px, each with its lift and glass level), popovers whose arrow is a notch in one outline, Session Info as grouped inner cards with no dividers, and rename as an inline popover form. Web pages get it as `data-elevation-ladder` on <html> (AgentPaneTheme, WebTheme).
+    public nonisolated static let elevationLadderPath = ["experiments", "elevationLadder"]
+    public nonisolated static let elevationLadderDefault = false
+    /// `experiments.focusDimming`: Taste experiment (15), off by default: a window that is not key loses the color of its glass and chrome, and split panes without focus dim a little, both by experiments.focusDimAmount. Web pages get `data-focus-dimming` and `--cmux-focus-dim` on <html>; native panes take the amount as their inactive dim (LayoutStyle+InactiveDim).
+    public nonisolated static let focusDimmingPath = ["experiments", "focusDimming"]
+    public nonisolated static let focusDimmingDefault = false
+    /// `experiments.focusDimAmount`: How strong experiments.focusDimming is: 0 changes nothing, 1 takes all the color from an inactive window's chrome; unfocused panes dim by half of it.
+    public nonisolated static let focusDimAmountPath = ["experiments", "focusDimAmount"]
+    public nonisolated static let focusDimAmountDefault: Double = 0.35
+    public nonisolated static let focusDimAmountRange: ClosedRange<Double> = 0...1
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -43,7 +53,7 @@ nonisolated enum LabsSettingsSchema {
                 section: .advanced,
                 group: group,
                 title: SettingsText.keyed("settings.labs.voiceRoom", "Voice Room"),
-                help: SettingsText.keyed("settings.labs.voiceRoom.help", "An unofficial room where you talk with people and Chief. While a room is open, cmux transcribes your mic and reads your screen's text on this Mac, then sends that text to the room."),
+                help: SettingsText.keyed("settings.labs.voiceRoom.help", "While a room is open, cmux sends a transcript of your mic and your screen's text to it."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.voiceRoomDefault),
                 keywords: ["labs", "voice", "room", "call", "meeting", "transcribe", "screen", "record", "chief"]
@@ -63,7 +73,7 @@ nonisolated enum LabsSettingsSchema {
                 section: .advanced,
                 group: group,
                 title: SettingsText.keyed("settings.labs.machineJoin", "Screen Sharing for Joined Machines"),
-                help: SettingsText.keyed("settings.labs.machineJoin.help", "Shows this Mac's Screen sharing and Control switches in Settings > Devices once it has joined your machines. Both stay off until you turn them on."),
+                help: SettingsText.keyed("settings.labs.machineJoin.help", "Shows Screen sharing and Control in Settings > Devices once this Mac joins."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.machineJoinDefault),
                 keywords: ["labs", "machine", "join", "add", "device", "line", "curl", "remote", "mesh"]
@@ -73,7 +83,7 @@ nonisolated enum LabsSettingsSchema {
                 section: .advanced,
                 group: group,
                 title: SettingsText.keyed("settings.labs.liveCode", "Live Code"),
-                help: SettingsText.keyed("settings.labs.liveCode.help", "In a live code build of cmux, Swift changes you compile from your own checkout apply to the running app without waiting for a new build. Turn it off to go back to normal. Takes effect after cmux restarts."),
+                help: SettingsText.keyed("settings.labs.liveCode.help", "Swift changes you compile apply to the running app. Takes effect after cmux restarts."),
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.liveCodeDefault),
                 keywords: ["labs", "live", "code", "hot", "reload", "patch", "inject", "swift", "develop"]
@@ -87,6 +97,35 @@ nonisolated enum LabsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.customizeFromTheAppDefault),
                 keywords: ["customize", "inspector", "option", "hover", "right-click", "theme", "labs"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.elevationLadderPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.elevationLadder", "Elevation Ladder"),
+                help: SettingsText.keyed("settings.experiments.elevationLadder.help", "One set of corner radii and shadows for tooltips, menus, popovers and sheets."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.elevationLadderDefault),
+                keywords: ["experiments", "labs", "elevation", "popover", "tooltip", "menu", "sheet", "radius", "shadow", "glass"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.focusDimmingPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.focusDimming", "Focus Dimming"),
+                help: SettingsText.keyed("settings.experiments.focusDimming.help", "Windows in the background lose their color, and panes without focus dim."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.focusDimmingDefault),
+                keywords: ["experiments", "labs", "focus", "dim", "inactive", "unfocused", "window", "pane", "split", "desaturate"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.focusDimAmountPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.focusDimAmount", "Focus Dimming Amount"),
+                kind: .number(SettingNumber(CmuxConfigSnapshot.focusDimAmountRange, step: 0.05, unit: .fraction)),
+                default: .number(CmuxConfigSnapshot.focusDimAmountDefault),
+                keywords: ["experiments", "focus", "dim", "amount", "strength", "inactive", "unfocused"]
             ),
         ]
     }

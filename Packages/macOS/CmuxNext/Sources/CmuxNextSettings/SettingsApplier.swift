@@ -71,6 +71,9 @@ public final class SettingsApplier {
         if design.colorTransition != snapshot.colorTransition.transition { design.colorTransition = snapshot.colorTransition.transition }
         if design.inactiveWindowDim != snapshot.inactiveWindowDim { design.inactiveWindowDim = snapshot.inactiveWindowDim }
         if design.wallpaperTint != snapshot.wallpaperTint { design.wallpaperTint = snapshot.wallpaperTint }
+        if design.elevationLadder != snapshot.elevationLadder { design.elevationLadder = snapshot.elevationLadder }
+        if design.focusDimming != snapshot.focusDimming { design.focusDimming = snapshot.focusDimming }
+        if design.focusDimAmount != snapshot.focusDimAmount { design.focusDimAmount = snapshot.focusDimAmount }
         let hoverCardDelay = Duration.milliseconds(Int(snapshot.hoverCards.delayMilliseconds.rounded()))
         if design.hoverCardDelay != hoverCardDelay { design.hoverCardDelay = hoverCardDelay }
         let workspaceHoverCard = snapshot.hoverCards.workspaceCardOptions
