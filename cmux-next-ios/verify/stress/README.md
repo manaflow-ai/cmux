@@ -7,12 +7,12 @@ GUI agent, a Codex agent chat), and Feed events posted all the time. Each cycle 
 sampler records the phone app's and the Mac app's CPU and memory.
 
 - `stress.py`: the loop (on top of `verify/e2e`'s rig: a hidden tagged Mac app and a headless simulator).
-- `fleet-step.sh`: one run as a fleet step, from a Mac build job and an iPhone build step.
+- `scripts/ci/cmux-next-ios-sim.sh shots stress=...`: one run as a fleet step (builds both apps on the worker).
 - `render_report.py`: the run folder as one self-contained HTML log.
 
 ```sh
-cmux-ci run --class simulator --script cmux-next-ios/verify/stress/fleet-step.sh --ref SHA \
-  --arg mac_job=JOB --arg ios_job=JOB --arg cycles=4 --artifact artifacts/stress/evidence.zip --timeout 7200
+cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA \
+  --arg shots --arg stress=cycles:4,start:4,add:4,max:24,feed:4 --artifact artifacts/ios-sim/evidence.zip --timeout 7200
 ```
 
 Only Codex agents are started. Codex reaches its model through the worker's subrouter config.

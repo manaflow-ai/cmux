@@ -93,11 +93,12 @@ class Recorder:
 class Load:
     """Grows the Mac's work: workspaces with Codex agents (terminal and GUI, alternating), and Feed events."""
 
-    def __init__(self, mac, rec, codex_bin, node_bin, proj_root, feed_interval):
+    def __init__(self, mac, rec, codex_bin, node_bin, proj_root, feed_interval, codex_home=None):
         self.mac, self.rec = mac, rec
         self.codex = codex_bin
         self.path = f"{os.path.dirname(codex_bin)}:{node_bin}:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"
         self.proj_root = proj_root
+        self.env_prefix = f"PATH={self.path}" + (f" CODEX_HOME={codex_home}" if codex_home else "")
         self.feed_interval = feed_interval
         self.agents = []  # {"kind","ws","name","term"|"chat","started"}
         self.stop = threading.Event()
@@ -125,7 +126,7 @@ class Load:
                 policy = "--ask-for-approval on-request --sandbox read-only" if (n // 2) % 2 == 0 else \
                     "--ask-for-approval never --sandbox workspace-write"
                 self.mac.cmux("terminal", term, "write", "--text",
-                              f"clear; cd {proj} && PATH={self.path} {self.codex} --no-daemon {policy}\n")
+                              f"clear; cd {proj} && {self.env_prefix} {self.codex} --no-daemon {policy}\n")
                 rec["term"] = term
                 rec["policy"] = policy
                 threading.Thread(target=self._codex_first_prompt, args=(term, task), daemon=True).start()
@@ -521,6 +522,7 @@ def main():
     ap.add_argument("--mac-app", required=True)
     ap.add_argument("--ios-app", required=True)
     ap.add_argument("--codex", default=os.path.expanduser("~/a146/npm/bin/codex"))
+    ap.add_argument("--codex-home", help="CODEX_HOME for every Codex this run starts (default: Codex's own)")
     ap.add_argument("--node-bin", default=os.path.expanduser("~/.local/share/cmux-node/node-v24.20.0-darwin-arm64/bin"))
     ap.add_argument("--sim-name", default="cmux-a146-stress")
     ap.add_argument("--cycles", type=int, default=6)
@@ -540,12 +542,13 @@ def main():
     rig = os.path.expanduser(f"~/cmux-next-ios-e2e/{os.path.basename(mac_app)[len('cmux DEV '):-4]}")
     mac = Mac(rig, mac_app, cleanup=not a.keep, log=rec.log).prepare()
     mac.seed_pairing(names=[a.sim_name])
-    mac.launch_env = {"PATH": f"{os.path.dirname(a.codex)}:{a.node_bin}:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"}
+    mac.launch_env = {"PATH": f"{os.path.dirname(a.codex)}:{a.node_bin}:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin",
+                      **({"CODEX_HOME": a.codex_home} if a.codex_home else {})}
     udid = ensure_sim(a.sim_name, rec.log)
     sim = Sim(udid, os.path.join(a.out, "shots"))
     rec.jsonl("meta.jsonl", {"mac_app": os.path.basename(mac_app), "mac_bundle": mac.bundle_id, "mac_tag": mac.tag,
                              "ios_app": a.ios_app, "sim": {"name": a.sim_name, "udid": udid}, "args": vars(a)})
-    load = Load(mac, rec, a.codex, a.node_bin, os.path.join(rig, "proj"), a.feed_interval)
+    load = Load(mac, rec, a.codex, a.node_bin, os.path.join(rig, "proj"), a.feed_interval, a.codex_home)
     stop = threading.Event()
     st = Stress(sim, mac, a.out, a.ios_app, rec.log, rec, load)
     try:
