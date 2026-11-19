@@ -113,6 +113,8 @@ public final class LiveCoordinator {
     /// The phone's keys; nil (tests, mock) skips pairing.
     @ObservationIgnored let pairing: LinkPairing?
     @ObservationIgnored let clock: any Clock<Duration>
+    /// `clock`'s now, for the instants kept beside its sleeps (link idle times, link down since).
+    @ObservationIgnored let instants: ClockInstants
     @ObservationIgnored private var presence: PresenceListener?
     @ObservationIgnored private var isBackgrounded = false
     /// Major connectivity incidents of a cmux team account, for the team's Slack (PROTOCOL.md
@@ -220,6 +222,7 @@ public final class LiveCoordinator {
             LinkPairing(keys: $0, phoneID: identity.link, name: deviceName, pins: pins ?? .forAccount(userID), push: push)
         }
         self.clock = clock
+        instants = ClockInstants(clock)
         discovery = MacDiscoveryPoll(clock: clock)
         self.transport = transport
         self.relayOnly = relayOnly
@@ -718,10 +721,10 @@ public final class LiveCoordinator {
     /// (`MacLinkPolicy.idleAfter`), and the banner, pairing and Chief follow.
     private func setFocus(_ macID: String?) {
         guard macID != focusedMacID else { return }
-        if let old = focusedMacID { lastShown[old] = ContinuousClock.now }
+        if let old = focusedMacID { lastShown[old] = instants.now() }
         focusedMacID = macID
         appearance.focus(macID: macID)
-        if let macID { lastShown[macID] = ContinuousClock.now }
+        if let macID { lastShown[macID] = instants.now() }
         pairingState = focused.pairingState
         chiefFollowsFocus()
         ChiefComputer.shared.macChanged()
@@ -732,7 +735,7 @@ public final class LiveCoordinator {
     func applyLinks(_ dialable: [MacDevice]? = nil) {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
         let macs = dialable ?? dialableMacs(team)
-        let now = ContinuousClock.now
+        let now = instants.now()
         // nil (Workspaces, the Feed): every listed Mac. Another build of a listed Mac is
         // never "shown" by that: it keeps its link only for the idle window after
         // something named it (`touch`), then closes.
@@ -775,7 +778,7 @@ public final class LiveCoordinator {
     /// is dialed then (lazy links).
     public func showing(macIDs: Set<String>?) {
         guard macIDs != showingMacs else { return }
-        let now = ContinuousClock.now
+        let now = instants.now()
         for id in showingMacs ?? Set(sessions.keys) { lastShown[id] = now }
         showingMacs = macIDs
         applyLinks()
