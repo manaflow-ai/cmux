@@ -287,6 +287,14 @@ extension MacScreenHomeView {
             reason.setContentCompressionResistancePriority(.required, for: .horizontal)
             reason.setAccessibilityIdentifier("macScreen.home.\(state == .blocked ? "blocked" : "notShared").\(device.name)")
             views.append(reason)
+            // One step its host takes, not just a grey word (Leo, 2026-11-18: "idk why that was greyed").
+            let fix: ScreenPicker.Fix = state == .blocked ? .deviceAccess : .shareThisMac
+            let host = device.name
+            views.append(MacScreenButton(L.t("macScreen.guide.setUp", "Set Up…"), compact: true, id: "macScreen.home.setUp.\(device.name)") { [weak self] in
+                guard let self, let hub = devices?.box.hub else { return }
+                let thisMac = MacScreenHostSetupGuide.ThisMac(id: hub.identity.id, name: hub.thisDevice?.name ?? hub.deviceName)
+                MacScreenHostSetupGuide(host: host, fix: fix, thisMac: thisMac).present(in: window)
+            })
         case .offline:
             break
         }
