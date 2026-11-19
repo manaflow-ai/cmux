@@ -124,7 +124,7 @@ bench() {
     bench_port=$netem_port
     eval_flags+=(--eval-netem-relay 1)
   fi
-  CMUX_RD_EVAL_QUALITY="$EVAL_STATE/quality" "$rd" bench "${eval_flags[@]}" --addr "${EVAL_PEER:-127.0.0.1}:$bench_port" --user owner --token-fd 3 "$@" 3< <(cat "$EVAL_STATE/token")
+  CMUX_RD_EVAL_QUALITY="$EVAL_STATE/quality" "$rd" bench ${eval_flags[@]+"${eval_flags[@]}"} --addr "${EVAL_PEER:-127.0.0.1}:$bench_port" --user owner --token-fd 3 "$@" 3< <(cat "$EVAL_STATE/token")
 }
 
 case "$verb" in
