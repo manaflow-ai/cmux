@@ -28,6 +28,7 @@ import { reactCompilerPlugin } from "./reactCompilerPlugin.mjs";
 import { tailwindPlugin } from "./tailwindCompile.mjs";
 import { jsonParsePlugin } from "./jsonParsePlugin.mjs";
 import { katexStylePlugin } from "./katexStylePlugin.mjs";
+import { packedShikiPlugin } from "./packedShikiPlugin.mjs";
 import { writeFrameSites } from "./frameSites.mjs";
 
 const [entry, shikiAlias, outfile, ...rest] = process.argv.slice(2);
@@ -110,6 +111,8 @@ const result = await build({
         tailwindPlugin,
         jsonParsePlugin,
         katexStylePlugin({ split }),
+        // Shiki's grammars and themes stored deflated, inflated on import (CMUX-570, app size).
+        packedShikiPlugin,
       ],
   metafile: Boolean(cssInputsFile || metafileOut || preloadFile || frameSitesFile),
   // External maps add no comment to the scripts: they are the same code, and only the chunks'
