@@ -434,72 +434,35 @@ test("the session detail's usage limits reach the summary, and malformed ones re
   expect(plain.summary()?.usageLimits).toBe("Weekly: 62% remaining");
 });
 
-test("usage limits a chat reports after it opened reach the summary without a reattach", async () => {
-  // Claude: each rate_limit_event names one window; they merge by id over the detail's.
-  const claude = await connect(
-    fakeDaemon(
-      record([
-        ["mux", "user_message", { text: "hello" }],
-        [
-          "in",
-          "session_info_update",
-          update({
-            sessionUpdate: "session_info_update",
-            _meta: { acpmux: { usageLimits: { windows: [{ id: "session", usedPercent: 41 }], plan: "max" } } },
-          }),
-        ],
-      ]),
-      "claude-sr2",
-      2,
-      { usageLimits: { windows: [{ id: "weekly", usedPercent: 12 }] } },
-    ),
+test("usage limits acpmux reports after the chat opened reach the summary without a reattach", async () => {
+  const detail = { windows: [{ id: "weekly", usedPercent: 12 }] };
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "hello" }],
+      // Already in the detail: replayed with the page, it never takes the detail's back.
+      ["mux", "usage_limits", { usageLimits: { windows: [{ id: "weekly", usedPercent: 3 }] } }],
+    ]),
+    "claude-sr2",
+    2,
+    { usageLimits: detail },
   );
-  expect(claude.summary()?.usageLimits).toEqual({
+  const { summary } = await connect(daemon);
+  expect(summary()?.usageLimits).toEqual(detail);
+
+  // acpmux merged the report (hub/permissions.rs); the pane applies it whole.
+  const merged = {
     windows: [
       { id: "weekly", usedPercent: 12 },
-      { id: "session", usedPercent: 41 },
+      { id: "session", usedPercent: 41, resetsAt: 1_793_570_400 },
     ],
     plan: "max",
-  });
-  // Codex: the plan snapshot replaces them; another limit's snapshot changes nothing.
-  const codex = await connect(
-    fakeDaemon(
-      record([
-        ["mux", "user_message", { text: "hello" }],
-        [
-          "in",
-          "session_info_update",
-          update({
-            sessionUpdate: "session_info_update",
-            _meta: {
-              codexAppServer: {
-                rateLimits: {
-                  primary: { usedPercent: 7, windowDurationMins: 300, resetsAt: 1_793_570_400 },
-                  secondary: { usedPercent: 30, windowDurationMins: 10080 },
-                  planType: "pro",
-                },
-              },
-            },
-          }),
-        ],
-        [
-          "in",
-          "session_info_update",
-          update({
-            sessionUpdate: "session_info_update",
-            _meta: { codexAppServer: { rateLimits: { limitId: "gpt-x", primary: { usedPercent: 99 } } } },
-          }),
-        ],
-      ]),
-      "codex",
-      3,
-    ),
-  );
-  expect(codex.summary()?.usageLimits).toEqual({
-    windows: [
-      { id: "session", usedPercent: 7, windowMins: 300, resetsAt: 1_793_570_400 },
-      { id: "weekly", usedPercent: 30, windowMins: 10080 },
-    ],
-    plan: "pro",
-  });
+  };
+  daemon.push(record([["mux", "usage_limits", { usageLimits: merged }]], 3));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(summary()?.usageLimits).toEqual(merged);
+
+  // A Codex report with no plan window left clears them: unreported, not a stale ring.
+  daemon.push(record([["mux", "usage_limits", { usageLimits: null }]], 4));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(summary()?.usageLimits).toBeUndefined();
 });

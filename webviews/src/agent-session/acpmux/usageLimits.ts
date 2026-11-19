@@ -43,62 +43,6 @@ export function usageLimitsOf(value: unknown): AcpmuxUsageLimits | undefined {
   };
 }
 
-/// One Codex rate-limit window (`primary`, `secondary`) as acpmux names it
-/// (codex_app_server/usage_limits.rs `window`).
-function codexWindow(slot: string, value: unknown): Record<string, unknown> | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const { usedPercent, windowDurationMins, resetsAt } = value as Record<string, unknown>;
-  if (!finite(usedPercent)) return undefined;
-  const mins = finite(windowDurationMins) && windowDurationMins > 0 ? windowDurationMins : undefined;
-  const id = mins === 300 ? "session" : mins === 10080 ? "weekly" : mins !== undefined ? `${mins}m` : slot;
-  return {
-    id,
-    usedPercent: Math.round(Math.min(100, Math.max(0, usedPercent)) * 100) / 100,
-    ...(mins !== undefined ? { windowMins: mins } : {}),
-    ...(finite(resetsAt) && resetsAt > 0 ? { resetsAt } : {}),
-  };
-}
-
-/// The chat's `usageLimits` after a live `session_info_update`, as acpmux keeps them
-/// (hub/permissions.rs): Claude's `_meta.acpmux.usageLimits` merged by window id onto the saved
-/// ones, Codex's plan snapshot (`_meta.codexAppServer.rateLimits`) in place of them. Unchanged
-/// (`saved` itself) when the update carries neither, so the ring does not wait for a reattach.
-export function liveUsageLimits(saved: unknown, update: any): unknown {
-  const claude = update?._meta?.acpmux?.usageLimits;
-  if (claude && typeof claude === "object" && !Array.isArray(claude)) {
-    const old = saved && typeof saved === "object" ? (saved as { windows?: unknown; plan?: unknown }) : undefined;
-    const windows: Record<string, unknown>[] = Array.isArray(old?.windows) ? [...old.windows] : [];
-    for (const w of Array.isArray(claude.windows) ? claude.windows : []) {
-      if (!w || typeof w.id !== "string") continue;
-      const at = windows.findIndex((o) => o?.id === w.id);
-      if (at >= 0) windows[at] = w;
-      else windows.push(w);
-    }
-    const plan = typeof claude.plan === "string" ? claude.plan : old?.plan;
-    return { windows, ...(typeof plan === "string" ? { plan } : {}) };
-  }
-  const snapshot = update?._meta?.codexAppServer?.rateLimits;
-  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return saved;
-  // Another limit's (a model's) windows are not the plan's.
-  if (typeof snapshot.limitId === "string" && snapshot.limitId !== "codex") return saved;
-  const windows = (["primary", "secondary"] as const)
-    .map((slot) => codexWindow(slot, snapshot[slot]))
-    .filter((w) => w !== undefined);
-  const raw = snapshot.credits;
-  const credits =
-    raw?.unlimited === true
-      ? { unlimited: true }
-      : raw?.hasCredits === true && nonEmpty(raw.balance)
-        ? { balance: raw.balance.trim() }
-        : undefined;
-  if (!windows.length && !credits) return undefined;
-  return {
-    windows,
-    ...(nonEmpty(snapshot.planType) ? { plan: snapshot.planType } : {}),
-    ...(credits ? { credits } : {}),
-  };
-}
-
 function windowName(id: string, t: Translate): string {
   switch (id) {
     case "session":

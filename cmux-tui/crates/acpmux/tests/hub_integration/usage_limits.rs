@@ -34,6 +34,16 @@ async fn a_claude_chat_keeps_its_accounts_usage_limits() {
         .collect();
     assert_eq!(sent.len(), 2, "{sent:?}");
     assert_eq!(sent.last(), Some(&want), "{sent:?}");
+    // Each change also goes out whole as a `mux` record, merged here, for an open pane to apply.
+    let merged: Vec<Value> = hub
+        .events(&id, 0, 10_000)
+        .unwrap()
+        .iter()
+        .filter(|e| e.dir == "mux" && e.kind == "usage_limits")
+        .map(|e| e.msg["usageLimits"].clone())
+        .collect();
+    assert_eq!(merged.len(), 2, "{merged:?}");
+    assert_eq!(merged.last(), Some(&want), "{merged:?}");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
