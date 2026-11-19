@@ -9,6 +9,8 @@
 # Prints L10-STEP lines and one L10 {json} verdict (exit 3: the NIGHTLY predates projection windows).
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 3
+# shellcheck source=scripts/measure/build-heartbeat.sh
+source "$PWD/scripts/measure/build-heartbeat.sh" # a quiet build prints a line every 5 min, under the step's silent limit
 out="$PWD/.build/projection"
 rm -rf "$out" && mkdir -p "$out"
 dmg=nightly app="" extra=()
@@ -50,7 +52,9 @@ if [[ "$app" == build ]]; then
     export ZIG
     echo "L10 zig $need for ghostty-next: $ZIG"
   fi
+  measure_heartbeat_start "L10 build" "$out/reload.log"
   CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag l10proj 2>&1 | tee "$out/reload.log" >/dev/null
+  measure_heartbeat_stop
   bundle="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
   [[ -n "$bundle" && -d "$bundle" ]] || { echo "L10 the tagged build printed no app"; grep -E "error:|BUILD FAILED" "$out/reload.log" | head -n 40; exit 3; }
   echo "L10 app $bundle (built here)"

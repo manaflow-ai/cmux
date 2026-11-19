@@ -27,6 +27,8 @@
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 here="$PWD"
+# shellcheck source=scripts/measure/build-heartbeat.sh
+source "$here/scripts/measure/build-heartbeat.sh" # a quiet build prints a line every 5 min, under the step's silent limit
 ref="" seconds=30 load=0 startup=90 warm=0 warm_seconds=15
 for arg in "$@"; do
   case "$arg" in
@@ -160,7 +162,9 @@ if [[ -z "${CMUX_TUI_CLIENT_LOCAL:-}" ]] && ! ./scripts/cmux-next/pin-cmux-tui.s
   }
   export CMUX_TUI_CLIENT_LOCAL
 fi
+measure_heartbeat_start "FRESH-HOME build" "$out/reload.log"
 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" --no-global-cli-links >"$out/reload.log" 2>&1
+measure_heartbeat_stop
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
 if [[ -z "$app" || ! -d "$app" ]]; then
   echo "FRESH-HOME cannot run: the tagged build printed no app path" >&2

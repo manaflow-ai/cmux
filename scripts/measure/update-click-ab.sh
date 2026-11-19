@@ -17,6 +17,8 @@
 # own "N ms in all", when it ended before the relaunch), v2_first_frame and
 # v2_home_first_page (from v2's process start), click_to_home (install_clicked to v2's Home first page).
 set -uo pipefail
+# shellcheck source=scripts/measure/build-heartbeat.sh
+source "$(cd "$(dirname "$0")/../.." && pwd)/scripts/measure/build-heartbeat.sh" # a quiet build prints a line every 5 min, under the step's silent limit
 
 # One function, called on the last line: bash has read all of it before a checkout changes this file.
 main() {
@@ -113,8 +115,10 @@ build_app() {
     fi
     ./scripts/download-prebuilt-ghosttykit.sh >>"$out/build-$side.log" 2>&1 || { echo "UCA GhosttyKit download failed" >&2; return 3; }
   fi
-  CMUX_FLEET_BUILD_TAG=ucab ./scripts/cmux-next/build-acpmux.sh >>"$out/build-$side.log" 2>&1 || { echo "UCA acpmux build $side failed" >&2; tail -n 40 "$out/build-$side.log" >&2; return 3; }
+  measure_heartbeat_start "UCA build $side" "$out/build-$side.log"
+  CMUX_FLEET_BUILD_TAG=ucab ./scripts/cmux-next/build-acpmux.sh >>"$out/build-$side.log" 2>&1 || { measure_heartbeat_stop; echo "UCA acpmux build $side failed" >&2; tail -n 40 "$out/build-$side.log" >&2; return 3; }
   CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag ucab --no-global-cli-links --config bench >>"$out/build-$side.log" 2>&1
+  measure_heartbeat_stop
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/build-$side.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
     echo "UCA build $side failed: no app path" >&2

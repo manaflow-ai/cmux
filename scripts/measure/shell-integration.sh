@@ -38,6 +38,8 @@ for arg in "$@"; do
 done
 root="$(git rev-parse --show-toplevel)"
 cd "$root" || exit 2
+# shellcheck source=scripts/measure/build-heartbeat.sh
+source "$root/scripts/measure/build-heartbeat.sh" # a quiet build prints a line every 5 min, under the step's silent limit
 out="$root/artifacts/shell-integration"
 rm -rf "$out"
 mkdir -p "$out"
@@ -92,7 +94,9 @@ fi
 
 if [[ "$app" == 1 ]]; then
   tag="shellint"
+  measure_heartbeat_start "shell-integration build" "$out/reload.log"
   CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" > "$out/reload.log" 2>&1
+  measure_heartbeat_stop
   app_path="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
   if [[ -z "$app_path" || ! -d "$app_path" ]]; then
     grep -E "error:|BUILD FAILED" "$out/reload.log" | head -n 60 >&2

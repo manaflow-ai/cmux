@@ -12,7 +12,7 @@ root="$(mktemp -d)"
 trap 'rm -rf "$root"' EXIT
 fail() { echo "build-heartbeat: $*" >&2; exit 1; }
 
-# shellcheck source=../build-heartbeat.sh
+# shellcheck source=scripts/measure/build-heartbeat.sh
 source "$here/build-heartbeat.sh"
 
 # The heartbeat names the build, its elapsed time and its log's last line, on stderr only.
@@ -41,6 +41,18 @@ first="$MEASURE_HEARTBEAT_PID"
 MEASURE_HEARTBEAT_S=1 measure_heartbeat_start "b" "$log" 2>/dev/null
 kill -0 "$first" 2>/dev/null && fail "a second start left the first heartbeat running"
 measure_heartbeat_stop
+
+# The caller's EXIT trap (launch-ready's report, a temp folder's removal) runs once, at the caller's exit: never when
+# the heartbeat stops.
+exits="$(bash -c 'source "$1"; trap "echo CALLER_EXIT" EXIT; MEASURE_HEARTBEAT_S=1 measure_heartbeat_start x /dev/null 2>/dev/null; sleep 1.5; measure_heartbeat_stop; echo stopped' _ "$here/build-heartbeat.sh")"
+[[ "$exits" == $'stopped\nCALLER_EXIT' ]] || fail "the caller's EXIT trap ran when the heartbeat stopped: $(echo "$exits" | tr '\n' ' ')"
+
+# launch-ready.sh sources a copy of nightly-fresh-launch.sh (without its main) from its output folder, with $0 its own
+# path: the copy still finds the helper.
+sed '/^main "\$@"; exit \$?$/d' "$here/nightly-fresh-launch.sh" >"$root/nightly-fresh-launch-lib.sh"
+(cd "$here/../.." && bash -c 'source "$1" && declare -F measure_heartbeat_start >/dev/null && declare -F build_dmg >/dev/null' \
+  "$here/launch-ready.sh" "$root/nightly-fresh-launch-lib.sh") \
+  || fail "launch-ready.sh's copy of nightly-fresh-launch.sh does not load build-heartbeat.sh"
 
 # Detector: a measurement script that sends reload.sh's output only to a file (> or >> a file, or tee into
 # /dev/null) must start the heartbeat. A build whose output reaches the step log (tee to the console) needs none.
