@@ -16,7 +16,7 @@ use std::fs;
 use std::io::Write as _;
 use std::os::unix::fs::{FileExt as _, MetadataExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -25,6 +25,10 @@ use crate::{Fetch, FetchError};
 
 /// The size of a chunk of a big file, and the largest file fetched whole.
 pub const CHUNK: u64 = 4 * 1024 * 1024;
+/// The cache leaves free 1/`CACHE_RESERVE_PART` of the disk it is on, at most
+const CACHE_RESERVE_PART: u64 = 10;
+/// `CACHE_RESERVE_MAX`: that room stays for what the agent writes.
+const CACHE_RESERVE_MAX: u64 = 2 * 1024 * 1024 * 1024;
 /// The most files one directory readahead batch asks for.
 const BATCH_FILES: usize = 256;
 /// The most bytes one directory readahead batch asks for.
@@ -40,8 +44,9 @@ pub mod errno {
     pub const EISDIR: i32 = 21;
     pub const EINVAL: i32 = 22;
     pub const ENOTEMPTY: i32 = 39;
+    pub const ENOSPC: i32 = 28;
 }
-use errno::{EEXIST, EINVAL, EIO, EISDIR, ENOENT, ENOTDIR, ENOTEMPTY, EXDEV};
+use errno::{EEXIST, EINVAL, EIO, EISDIR, ENOENT, ENOSPC, ENOTDIR, ENOTEMPTY, EXDEV};
 
 /// Which file (entry) and which part of it: a chunk number, or [`WHOLE`] / [`COPY_UP`].
 type Key = (u32, u32);
@@ -97,9 +102,41 @@ pub struct Overlay {
     inflight: Mutex<HashSet<Key>>,
     landed: Condvar,
     temp: AtomicU64,
+    /// The last cache store failed (a full disk): directory readahead is off until one succeeds,
+    /// since what it fetches could not be kept and every read would fetch its folder again.
+    cache_failing: AtomicBool,
     remote_reads: AtomicU64,
     remote_bytes: AtomicU64,
     cache_hits: AtomicU64,
+}
+
+/// A file being written in the scratch folder: removed when dropped unless [`Temp::place`] moved
+/// it into place, so a write that fails half way (a full disk, a fetch that failed) leaves nothing
+/// behind holding the space until the next mount.
+struct Temp {
+    path: PathBuf,
+    placed: bool,
+}
+
+impl Temp {
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Renames it to `to`.
+    fn place(mut self, to: &Path) -> std::io::Result<()> {
+        fs::rename(&self.path, to)?;
+        self.placed = true;
+        Ok(())
+    }
+}
+
+impl Drop for Temp {
+    fn drop(&mut self) {
+        if !self.placed {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
 }
 
 /// Keys this thread is fetching; dropping it lets others waiting on them go on.
@@ -200,6 +237,7 @@ impl Overlay {
             inflight: Mutex::new(HashSet::new()),
             landed: Condvar::new(),
             temp: AtomicU64::new(0),
+            cache_failing: AtomicBool::new(false),
             remote_reads: AtomicU64::new(0),
             remote_bytes: AtomicU64::new(0),
             cache_hits: AtomicU64::new(0),
@@ -371,13 +409,25 @@ impl Overlay {
             text.push_str(path);
             text.push('\n');
         }
-        let temp = self.scratch_path();
-        fs::write(&temp, text).map_err(|error| io_errno(&error))?;
-        fs::rename(&temp, &self.whiteouts_file).map_err(|error| io_errno(&error))
+        let temp = self.scratch_file();
+        let saved = fs::write(temp.path(), text).and_then(|()| temp.place(&self.whiteouts_file));
+        if let Err(error) = saved {
+            // Not on disk (a full disk): not in effect either, so a reopen agrees with now.
+            if on {
+                inner.whiteouts.remove(path);
+            } else {
+                inner.whiteouts.insert(path.to_owned());
+            }
+            return Err(io_errno(&error));
+        }
+        Ok(())
     }
 
-    fn scratch_path(&self) -> PathBuf {
-        self.scratch.join(format!("t{}", self.temp.fetch_add(1, Ordering::Relaxed)))
+    fn scratch_file(&self) -> Temp {
+        Temp {
+            path: self.scratch.join(format!("t{}", self.temp.fetch_add(1, Ordering::Relaxed))),
+            placed: false,
+        }
     }
 
     // MARK: Reads
@@ -505,11 +555,16 @@ impl Overlay {
         Some(bytes)
     }
 
+    /// Keeps fetched bytes in the cache. A failure (a full disk) only means the next read fetches
+    /// them again: the read itself has its bytes.
     fn store(&self, key: Key, bytes: &[u8]) {
-        let temp = self.scratch_path();
-        if fs::write(&temp, bytes).is_ok() && fs::rename(&temp, self.cache_path(key)).is_err() {
-            let _ = fs::remove_file(&temp);
+        if !self.cache_has_room(bytes.len() as u64) {
+            self.cache_failing.store(true, Ordering::Relaxed);
+            return;
         }
+        let temp = self.scratch_file();
+        let kept = fs::write(temp.path(), bytes).and_then(|()| temp.place(&self.cache_path(key)));
+        self.cache_failing.store(kept.is_err(), Ordering::Relaxed);
     }
 
     /// Waits until no other thread fetches `key`, then claims it.
@@ -544,7 +599,8 @@ impl Overlay {
         }
         let mut batch = vec![index];
         let mut bytes = self.manifest.entry(index).map_or(0, |entry| entry.size);
-        if let Some(entry) = self.manifest.entry(index) {
+        let readahead = !self.cache_failing.load(Ordering::Relaxed);
+        if let Some(entry) = self.manifest.entry(index).filter(|_| readahead) {
             let folder = self.manifest.path_of(entry.parent);
             let (first, siblings) = self.manifest.children(entry.parent);
             let mut inflight = self.inflight.lock().unwrap_or_else(PoisonError::into_inner);
@@ -672,8 +728,8 @@ impl Overlay {
             }
             Kind::File => {}
         }
-        let temp = self.scratch_path();
-        let mut file = fs::File::create(&temp).map_err(|error| io_errno(&error))?;
+        let temp = self.scratch_file();
+        let mut file = fs::File::create(temp.path()).map_err(|error| io_errno(&error))?;
         if entry.size <= CHUNK {
             file.write_all(&self.whole(index)?).map_err(|error| io_errno(&error))?;
         } else {
@@ -688,8 +744,8 @@ impl Overlay {
             UNIX_EPOCH + Duration::from_nanos(u64::try_from(entry.mtime_ns).unwrap_or(0));
         let _ = file.set_modified(modified);
         drop(file);
-        let _ = fs::set_permissions(&temp, fs::Permissions::from_mode(entry.mode));
-        fs::rename(&temp, self.up(path)).map_err(|error| io_errno(&error))
+        let _ = fs::set_permissions(temp.path(), fs::Permissions::from_mode(entry.mode));
+        temp.place(&self.up(path)).map_err(|error| io_errno(&error))
     }
 
     /// Brings `path` into the upper layer when it is only in the lower one.
@@ -700,7 +756,60 @@ impl Overlay {
         }
     }
 
+    /// Runs `op`, and once more after emptying the cache when it ran out of disk: the cache holds
+    /// only bytes the Mac still has, so the agent's own writes always come first.
+    fn with_room<T>(&self, op: impl Fn() -> Result<T, i32>) -> Result<T, i32> {
+        match op() {
+            Err(ENOSPC) if self.free_cache() => op(),
+            done => done,
+        }
+    }
+
+    /// Deletes every cached byte (whole files and chunks; the next read fetches them again).
+    /// Whether anything was freed.
+    fn free_cache(&self) -> bool {
+        let Ok(read) = fs::read_dir(&self.cache) else { return false };
+        let mut freed = false;
+        for entry in read.flatten() {
+            if entry.file_name() != "manifest-id" && fs::remove_file(entry.path()).is_ok() {
+                freed = true;
+            }
+        }
+        freed
+    }
+
+    /// Whether the cache may keep `len` more bytes: never into the last [`CACHE_RESERVE_PART`] of
+    /// the disk (at most [`CACHE_RESERVE_MAX`]), which stays for what the agent writes.
+    fn cache_has_room(&self, len: u64) -> bool {
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::ffi::OsStrExt as _;
+            let Ok(path) = std::ffi::CString::new(self.cache.as_os_str().as_bytes()) else {
+                return true;
+            };
+            // SAFETY: `path` is a NUL-terminated string and `stat` a zeroed out-parameter.
+            let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+            if unsafe { libc::statvfs(path.as_ptr(), &raw mut stat) } != 0 {
+                return true;
+            }
+            let block = stat.f_frsize;
+            let total = stat.f_blocks.saturating_mul(block);
+            let free = stat.f_bavail.saturating_mul(block);
+            let reserve = (total / CACHE_RESERVE_PART).min(CACHE_RESERVE_MAX);
+            free.saturating_sub(len) >= reserve
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = len;
+            true
+        }
+    }
+
     pub fn write(&self, ino: u64, offset: u64, data: &[u8]) -> Result<u32, i32> {
+        self.with_room(|| self.write_once(ino, offset, data))
+    }
+
+    fn write_once(&self, ino: u64, offset: u64, data: &[u8]) -> Result<u32, i32> {
         let path = self.path_of(ino)?;
         self.ensure_upper(&path)?;
         let file = open_for_write(&self.up(&path))?;
@@ -719,12 +828,15 @@ impl Overlay {
 
     pub fn create(&self, parent: u64, name: &str, mode: u32) -> Result<Attr, i32> {
         let (parent, child) = self.child(parent, name)?;
-        self.make_room(&parent, &child)?;
-        fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(self.up(&child))
-            .map_err(|error| io_errno(&error))?;
+        self.with_room(|| self.make_room(&parent, &child))?;
+        self.with_room(|| {
+            fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(self.up(&child))
+                .map(drop)
+                .map_err(|error| io_errno(&error))
+        })?;
         let _ = fs::set_permissions(self.up(&child), fs::Permissions::from_mode(mode & 0o7777));
         self.lookup_path(&child)
     }
@@ -844,6 +956,16 @@ impl Overlay {
     }
 
     pub fn setattr(
+        &self,
+        ino: u64,
+        size: Option<u64>,
+        mode: Option<u32>,
+        mtime_ns: Option<i64>,
+    ) -> Result<Attr, i32> {
+        self.with_room(|| self.setattr_once(ino, size, mode, mtime_ns))
+    }
+
+    fn setattr_once(
         &self,
         ino: u64,
         size: Option<u64>,
