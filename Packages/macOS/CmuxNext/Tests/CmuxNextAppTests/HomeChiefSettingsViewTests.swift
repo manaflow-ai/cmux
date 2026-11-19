@@ -65,6 +65,25 @@ import Testing
         #expect(opened == 1)
     }
 
+    @Test func reviewSetupReopensTheHomeChecklist() throws {
+        let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: OfflineChief())
+        var opened = 0
+        view.onReviewSetup = { opened += 1 }
+        let link = try #require(Self.subviews(of: view).compactMap { $0 as? NSButton }
+            .first { $0.accessibilityIdentifier() == "cmux.home.chief.reviewSetup" })
+        #expect(link.accessibilityLabel() == HomeEngineStrings.reviewSetup)
+        link.performClick(nil)
+        #expect(opened == 1)
+    }
+
+    @Test func reviewSetupCanBeDisabledWhenOnboardingIsSkipped() throws {
+        let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: OfflineChief())
+        view.reviewSetupEnabled = false
+        let link = try #require(Self.subviews(of: view).compactMap { $0 as? NSButton }
+            .first { $0.accessibilityIdentifier() == "cmux.home.chief.reviewSetup" })
+        #expect(!link.isEnabled)
+    }
+
     private static func subviews(of view: NSView) -> [NSView] {
         view.subviews + view.subviews.flatMap { subviews(of: $0) }
     }

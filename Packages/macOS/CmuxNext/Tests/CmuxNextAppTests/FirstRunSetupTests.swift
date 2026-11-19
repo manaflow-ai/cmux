@@ -60,6 +60,58 @@ import Testing
         #expect(!setup.shows)
     }
 
+    @Test func aDismissedCardCanBeReopenedWithoutResettingItsRows() throws {
+        let defaults = try defaults()
+        let setup = FirstRunSetup(defaults: defaults)
+        #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
+        setup.end()
+        #expect(!setup.shows)
+        #expect(defaults.bool(forKey: OnboardingWindowPresenter.historyShownKey))
+
+        setup.reopen()
+        #expect(setup.shows)
+        #expect(setup.isReviewing)
+        #expect(defaults.string(forKey: FirstRunSetup.stateKey) == "pending")
+        #expect(defaults.bool(forKey: OnboardingWindowPresenter.historyShownKey), "reopening keeps completed rows answered")
+        #expect(FirstRunSetup(defaults: defaults).isReviewing, "reopening persists across relaunch")
+    }
+
+    @Test(arguments: [false, true]) func completedCardsOnlyStayVisibleWhenReopened(reviewing: Bool) async throws {
+        let defaults = try defaults()
+        let original = FirstRunSetup(defaults: defaults)
+        #expect(original.begin(isFirstRun: true, replacedKeys: Self.replaced))
+        if reviewing { original.end() }
+        original.reopen()
+        // Relaunch exercises persistence; calling Review on an existing first-run card must not change its mode.
+        let setup = FirstRunSetup(defaults: defaults)
+        let source = MockAgentSignInSource(agents: [OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .signedIn)])
+        let provider = SetupCardPageProvider(setup: setup, agents: source, environment: SetupCardEnvironment(
+            account: { (true, nil) }, signInAccount: {}, cliState: { "installed" }, installCLI: { _ in }, openAgents: {},
+            historySources: { false }, importHistory: { false }))
+        defer { provider.stop() }
+        await until { provider.allDone }
+        #expect(provider.allDone)
+        var received = false
+        let subscription = try await provider.subscribe("cmux.setup.changed", filter: [:], context: click(1)) { _ in received = true }
+        defer { subscription.cancel() }
+        await until { received }
+        #expect(received)
+        #expect(setup.shows == reviewing)
+        _ = try await provider.call("cmux.setup.hide", params: [:], context: click(2))
+        #expect(!setup.shows)
+        let relaunch = FirstRunSetup(defaults: defaults)
+        #expect(!relaunch.shows && !relaunch.isReviewing)
+    }
+
+    @Test func aSkippedLaunchCannotReopenTheCard() throws {
+        let defaults = try defaults()
+        let setup = FirstRunSetup(defaults: defaults, skipsOnboarding: true)
+        setup.reopen()
+        #expect(!setup.shows)
+        #expect(!setup.isReviewing)
+        #expect(defaults.string(forKey: FirstRunSetup.stateKey) == nil)
+    }
+
     /// Chats found on this Mac: the card's chat history row opens Bring your history on a click, and its once flag
     /// is set only once that page showed or the row was dismissed. None found: no row.
     @Test func theChatHistoryRowOpensBringYourHistory() async throws {

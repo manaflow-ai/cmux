@@ -5,15 +5,20 @@ public import Observation
 /// window ... just drop user into main screen asap"). A first run starts it in place of the first-run windows:
 /// the Agents window and the CLI toast at launch mark themselves shown, so their rows on the card are the one
 /// place they are offered. Bring your history keeps its own once flag: the card's chat history row sets it
-/// only once that page showed or the row (or the card) was dismissed. Hide or every row done ends it for good, per
-/// channel (`defaults`). Settings keeps every row.
+/// only once that page showed or the row (or the card) was dismissed. Hide or every row done ends first-run setup,
+/// per channel (`defaults`). Home settings can reopen it for review without resetting the rows.
 @MainActor
 @Observable
 public final class FirstRunSetup {
     /// UserDefaults: "pending" while the card shows, "ended" once hidden or done.
     public static let stateKey = "home.firstRun.setupCard"
+    /// UserDefaults: the Home settings link reopened the card for review, so a relaunch keeps a completed card open.
+    private static let reviewKey = "home.firstRun.setupCard.reviewing"
     /// Whether Home shows the card now.
     public private(set) var shows: Bool
+    /// Whether a person explicitly reopened the card to review completed rows. A review stays visible even when
+    /// every row is already complete; a normal first-run card still ends as soon as its rows finish.
+    public private(set) var isReviewing: Bool
     /// Bring your history showed, or its row was dismissed (``OnboardingWindowPresenter/historyShownKey``).
     public private(set) var historyDone: Bool
     @ObservationIgnored private let defaults: UserDefaults
@@ -24,11 +29,15 @@ public final class FirstRunSetup {
         self.defaults = defaults
         self.skipsOnboarding = skipsOnboarding
         shows = !skipsOnboarding && defaults.string(forKey: Self.stateKey) == "pending"
+        isReviewing = !skipsOnboarding && defaults.bool(forKey: Self.reviewKey)
         historyDone = defaults.bool(forKey: OnboardingWindowPresenter.historyShownKey)
     }
 
     @ObservationIgnored private let skipsOnboarding: Bool
     @ObservationIgnored private var agentsModel: AgentsStepModel?
+
+    /// Whether Home can offer the review link for this launch configuration.
+    public var canReopen: Bool { !skipsOnboarding }
 
     /// The card's agent installs and sign-ins, one for every card this launch: a card made again (another Home
     /// conversation, a new window) shows an install already running, starts no second one, and the install's
@@ -57,6 +66,8 @@ public final class FirstRunSetup {
               !defaults.bool(forKey: OnboardingWindowPresenter.agentsShownKey) else { return false }
         for key in [OnboardingWindowPresenter.agentsShownKey] + replacedKeys { defaults.set(true, forKey: key) }
         defaults.set("pending", forKey: Self.stateKey)
+        defaults.removeObject(forKey: Self.reviewKey)
+        isReviewing = false
         shows = true
         return true
     }
@@ -72,11 +83,27 @@ public final class FirstRunSetup {
         return defaults.string(forKey: Self.stateKey) == nil ? .windows : .cardOwns
     }
 
-    /// Hide, or every row done: the card leaves for good, and its chat history row with it.
+    /// Hide, or every row done during first run: dismiss the card and its chat history row.
     public func end() {
-        guard defaults.string(forKey: Self.stateKey) != "ended" else { return }
+        guard defaults.string(forKey: Self.stateKey) != "ended" else {
+            defaults.removeObject(forKey: Self.reviewKey)
+            isReviewing = false
+            return
+        }
         historyAnswered()
         defaults.set("ended", forKey: Self.stateKey)
+        defaults.removeObject(forKey: Self.reviewKey)
+        isReviewing = false
         shows = false
+    }
+
+    /// Reopens the checklist from Home after first-run setup has ended. Row completion flags stay intact,
+    /// so the person can review unfinished work without being asked to repeat completed steps.
+    public func reopen() {
+        guard !skipsOnboarding, !shows else { return }
+        defaults.set("pending", forKey: Self.stateKey)
+        defaults.set(true, forKey: Self.reviewKey)
+        isReviewing = true
+        shows = true
     }
 }
