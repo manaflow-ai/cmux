@@ -72,6 +72,8 @@ export type StartedSession = {
   /// When its last turn ended stopped, for a sub-session that is idle: its rows say "Stopped" and
   /// offer Resume (subagents/resumeState.ts ``subsessionResumeRow``).
   stoppedAt?: number;
+  /// The tracker beads linked to it (sessionList.ts ``sessionBeads``): its rows name the work it is on.
+  beads?: string[];
 };
 
 export function startedState(entry: AcpmuxSessionEntry): StartedState {
@@ -184,6 +186,7 @@ export function startedSessions(
         ...(state === "idle" && entry.startedBy === chatId && entry.stoppedAt !== undefined
           ? { stoppedAt: entry.stoppedAt }
           : {}),
+        ...(entry.beads ? { beads: entry.beads } : {}),
       };
     })
     .sort((a, b) => (a.createdAt ?? Infinity) - (b.createdAt ?? Infinity));

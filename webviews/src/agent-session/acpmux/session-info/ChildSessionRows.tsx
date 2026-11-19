@@ -53,6 +53,13 @@ export function ChildSessionRows({
                 <span className="acpmux-summary-text">
                   <span className="acpmux-summary-agent__name">{child.title}</span>
                 </span>
+                {/* The beads it works on, by the id `acpmux resolve` finds it by (Leo, 2026-11-19: "linking
+                  beads to agents and vice versa"). */}
+                {child.beads && (
+                  <span className="acpmux-summary-meta acpmux-summary-agent__beads" data-beads={child.beads.join(" ")}>
+                    {child.beads.join(", ")}
+                  </span>
+                )}
                 <span className="acpmux-summary-meta acpmux-summary-agent__state">
                   {label.working && <Spinner size={ROW_ICON} loading />}
                   {label.text}
