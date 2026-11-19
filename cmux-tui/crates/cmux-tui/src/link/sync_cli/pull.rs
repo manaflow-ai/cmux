@@ -201,8 +201,11 @@ fn pull_based(
         }
     }
     let mut conflicts = Vec::new();
+    let mut reasons = Vec::new();
     // Text files both sides changed on the same lines: their merge.
     let mut overlaps: Vec<(String, Vec<u8>)> = Vec::new();
+    // Projected files both sides changed: the machine's version, staged, to go beside this Mac's.
+    let mut beside: Vec<(String, PathBuf)> = Vec::new();
     let mut planned = Vec::new();
     let mut unchanged = 0u64;
     let mut paths: BTreeSet<&String> = manifest
@@ -250,8 +253,25 @@ fn pull_based(
         }
         texts
     };
+    // Every name of the base and the machine, and each folder above one, as the Mac's disk compares
+    // names: made when the machine has a new path.
+    let mut folded_names: Option<BTreeMap<String, BTreeSet<&str>>> = None;
     for relative in paths {
-        let base = manifest.files.get(relative);
+        let listed = manifest.files.get(relative);
+        // A projected folder's file the machine changed or deleted: its base is this Mac's file
+        // while it is still as projected, else unknown (both changed).
+        let resolved = match (listed, found.get(relative)) {
+            (Some(pushed), Some(Found::File(revision)))
+                if revision.as_ref() == Some(&pushed.revision) =>
+            {
+                None
+            }
+            (Some(pushed), _) if super::project::is_stand_in(&pushed.sha256) => {
+                Some(projected_base(&root, &local, relative, pushed)?)
+            }
+            _ => None,
+        };
+        let base = resolved.as_ref().or(listed);
         let pushed_link = manifest.links.get(relative);
         let pushed_side = match (base, pushed_link) {
             (Some(pushed), _) => {
@@ -317,6 +337,20 @@ fn pull_based(
             skipped += 1;
             continue;
         }
+        // A new name that a Mac's disk reads as another one (`Readme.md` beside `README.md`, or
+        // below `SRC/` beside `src/`) would land on it there: a conflict, never an overwrite.
+        if new {
+            let names = folded_names.get_or_insert_with(|| {
+                folded_index(manifest.files.keys().chain(manifest.links.keys()).chain(found.keys()))
+            });
+            if let Some(other) = folds_onto(names, relative) {
+                reasons.push(format!(
+                    "{relative}: a Mac's disk reads it as {other}, so it can't come back beside it"
+                ));
+                conflicts.push(relative.clone());
+                continue;
+            }
+        }
         let here = local_side(&root, relative)?;
         let step = if here == machine {
             match &machine {
@@ -352,7 +386,20 @@ fn pull_based(
                     conflicts.push(relative.clone());
                     continue;
                 }
-                _ => {
+                (_, staged) => {
+                    // A projected file both sides changed has no base to merge against: the
+                    // machine's version goes beside this Mac's, never over it.
+                    if base.is_some_and(|pushed| super::project::is_stand_in(&pushed.sha256)) {
+                        match staged {
+                            Some(staged) => {
+                                beside.push((relative.clone(), staging.0.join(&staged.name)));
+                            }
+                            None => reasons.push(format!(
+                                "{relative}: changed on this Mac since it was projected, and the \
+                                 machine changed it too"
+                            )),
+                        }
+                    }
                     conflicts.push(relative.clone());
                     continue;
                 }
@@ -375,9 +422,9 @@ fn pull_based(
         };
         planned.push(Planned { relative: relative.clone(), local: here, step });
     }
+    drop(folded_names);
 
     let mut git_plan: Option<GitPlan> = None;
-    let mut reasons = Vec::new();
     if let Some(dirs) = git.as_ref().filter(|_| !plain_in_git) {
         let at = git_back::Where { folder: &local, common_dir: &dirs.common, staging: &staging.0 };
         match git_back::plan(&mut remote, remote_root, &at, &manifest, &hooks)? {
@@ -401,6 +448,21 @@ fn pull_based(
                 Ok(side) => {
                     reasons.push(format!(
                         "{relative}: both changed the same lines; the merge is in {side}"
+                    ));
+                    merge_files.push(side);
+                }
+                Err(error) => reasons.push(format!("{relative}: {error:#}")),
+            }
+        }
+        for (relative, staged) in beside {
+            let written = std::fs::read(&staged)
+                .map_err(anyhow::Error::from)
+                .and_then(|bytes| merge::write_conflict(&root, &relative, &bytes));
+            match written {
+                Ok(side) => {
+                    reasons.push(format!(
+                        "{relative}: changed on this Mac since it was projected, and the machine \
+                         changed it too; the machine's is in {side}"
                     ));
                     merge_files.push(side);
                 }
@@ -902,6 +964,53 @@ fn ignored(local: &Path, paths: &[(String, bool, Found)]) -> anyhow::Result<BTre
         .filter(|path| !path.is_empty())
         .map(|path| String::from_utf8_lossy(path).trim_end_matches('/').to_string())
         .collect())
+}
+
+/// The base of a projected file ([`super::project::stand_in`]): this Mac's file, hashed, while it
+/// still has the size and mtime it was projected with; else the stand-in, which matches nothing
+/// (this Mac changed it since).
+fn projected_base(
+    root: &Dir,
+    local: &Path,
+    relative: &str,
+    pushed: &Pushed,
+) -> anyhow::Result<Pushed> {
+    let unchanged = std::fs::symlink_metadata(local.join(relative))
+        .is_ok_and(|meta| super::project::stand_in_matches(&pushed.sha256, &meta));
+    if unchanged && let Side::File { sha256, .. } = local_side(root, relative)? {
+        return Ok(Pushed { sha256, ..pushed.clone() });
+    }
+    Ok(pushed.clone())
+}
+
+/// Every path of `paths` and every folder above one, by its name as a Mac's disk compares names
+/// ([`names::folded_path`]).
+fn folded_index<'a>(
+    paths: impl Iterator<Item = &'a String>,
+) -> BTreeMap<String, BTreeSet<&'a str>> {
+    let mut index: BTreeMap<String, BTreeSet<&'a str>> = BTreeMap::new();
+    for path in paths {
+        for prefix in prefixes(path) {
+            index.entry(names::folded_path(prefix)).or_default().insert(prefix);
+        }
+    }
+    index
+}
+
+/// `a`, `a/b` and `a/b/c` of `a/b/c`.
+fn prefixes(path: &str) -> impl Iterator<Item = &str> {
+    path.match_indices('/')
+        .map(|(cut, _)| path.get(..cut).unwrap_or(path))
+        .chain(std::iter::once(path))
+}
+
+/// Another name of `index` that `relative`, or a folder above it, reads as on a Mac's disk.
+fn folds_onto<'a>(index: &BTreeMap<String, BTreeSet<&'a str>>, relative: &str) -> Option<&'a str> {
+    prefixes(relative).find_map(|prefix| {
+        index
+            .get(&names::folded_path(prefix))
+            .and_then(|known| known.iter().copied().find(|other| *other != prefix))
+    })
 }
 
 /// This Mac's file at `relative`, read through folder handles. A path
