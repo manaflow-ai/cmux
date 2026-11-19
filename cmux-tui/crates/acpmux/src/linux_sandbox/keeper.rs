@@ -651,13 +651,10 @@ fn init_prefix(
     Ok(prefix)
 }
 
-/// Setup collections are finite. Signal relay ends with session; on failure,
-/// SIGKILL/reaping has a five-second deadline and kill_on_drop is a final backstop.
-async fn run(options: Options) -> Result<i32> {
-    let term = signal(SignalKind::terminate()).map_err(|e| e.to_string())?;
-    let int = signal(SignalKind::interrupt()).map_err(|e| e.to_string())?;
-    let hup = signal(SignalKind::hangup()).map_err(|e| e.to_string())?;
-    let paths = &options.paths;
+/// The remote chain's parsed write policy and its full read-deny list for
+/// `paths`. The keeper's plan and the hub's canary alias probe both use it, so
+/// the probe looks up exactly the names the plan hides.
+pub(crate) fn remote_policy(paths: &Paths) -> Result<(rules::WritePolicy, Vec<PathBuf>)> {
     let params = [
         ("CWD", &paths.cwd),
         ("TMPDIR", &paths.tmp),
@@ -671,19 +668,24 @@ async fn run(options: Options) -> Result<i32> {
     let policy = rules::WritePolicy::from_profile(crate::remote_chain_profile::PROFILE, &params)
         .map_err(|e| e.to_string())?;
     let mut denies = policy.read_denies();
-    denies.extend(
-        [
-            ".local/share/keyrings",
-            ".password-store",
-            ".mozilla",
-            ".config/google-chrome",
-            ".config/chromium",
-            ".config/BraveSoftware",
-            ".pki",
-            ".claude/.credentials.json",
-        ]
-        .map(|p| paths.home.join(p)),
-    );
+    denies.extend(bwrap::LINUX_READ_DENIES.iter().map(|p| paths.home.join(p)));
+    Ok((policy, denies))
+}
+
+/// The canary's alias probe for a remote chain bound to `paths`.
+pub(crate) fn remote_alias_probe(paths: &Paths) -> Result<bwrap::AliasProbe> {
+    let (_, denies) = remote_policy(paths)?;
+    bwrap::alias_probe(paths, &denies)
+}
+
+/// Setup collections are finite. Signal relay ends with session; on failure,
+/// SIGKILL/reaping has a five-second deadline and kill_on_drop is a final backstop.
+async fn run(options: Options) -> Result<i32> {
+    let term = signal(SignalKind::terminate()).map_err(|e| e.to_string())?;
+    let int = signal(SignalKind::interrupt()).map_err(|e| e.to_string())?;
+    let hup = signal(SignalKind::hangup()).map_err(|e| e.to_string())?;
+    let paths = &options.paths;
+    let (policy, denies) = remote_policy(paths)?;
     let writable = [
         paths.cwd.clone(),
         paths.tmp.clone(),

@@ -112,6 +112,7 @@ impl Desktop for MacDesktop {
     }
 
     fn drain(&mut self, out: &mut Vec<Rect>) -> Res<()> {
+        self.capture.recover()?;
         self.capture.drain(out);
         Ok(())
     }
