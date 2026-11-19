@@ -70,8 +70,8 @@ public nonisolated enum SplitGeometry {
         case let .leaf(pane):
             result.panes[pane] = rect
         case let .split(id, axis, ratio, a, b):
-            let t = style.dividerThickness
             let extent = axis == .horizontal ? rect.width : rect.height
+            let t = dividerThickness(style.dividerThickness, extent: extent, scale: scale)
             let available = max(0, extent - t)
             let childMinimums = minimums[id] ?? (minimumSize(of: a, style: style), minimumSize(of: b, style: style))
             let minimumA = childMinimums.a.extent(along: axis)
@@ -167,6 +167,18 @@ public nonisolated enum SplitGeometry {
             .min { abs($0.at - aExtent) < abs($1.at - aExtent) }
         let ratio = snap?.ratio ?? Double(aExtent / available)
         return min(max(ratio, SplitRatio.range.lowerBound), SplitRatio.range.upperBound)
+    }
+
+    /// The divider a split of `extent` shows: `thickness` on whole device pixels (at least one when
+    /// it is not 0), never more than the split itself (cmux-layout-reducer
+    /// `split_layout::divider_thickness`, whose random walk of layouts found both). A 1 pt token at
+    /// scale 1.5 is 1.5 px: the divider's far edge and every pane after it sat half a pixel off the
+    /// grid. A split smaller than its divider (a tree deeper than its window) drew the divider past
+    /// its rect, over its neighbours and out of the screen.
+    public static func dividerThickness(_ thickness: CGFloat, extent: CGFloat, scale: CGFloat) -> CGFloat {
+        guard thickness > 0 else { return 0 }
+        let onGrid = scale > 0 ? max(1, (thickness * scale).rounded()) / scale : thickness
+        return min(onGrid, max(0, extent))
     }
 
     public static func roundToPixel(_ value: CGFloat, scale: CGFloat) -> CGFloat {
