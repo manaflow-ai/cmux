@@ -28,6 +28,8 @@ anyhow = "1"
 # no hub carrier at all (c10f26a1a on Linux, 2026-11-15).
 [features]
 tailnet = ["acpmux/tailnet"]
+# Off: the shipped standalone acpmux is headless, and hands its TUI commands to a `cmux`.
+tui = ["acpmux/tui"]
 hub-carrier = ["acpmux/hub-carrier"]
 
 [lints]

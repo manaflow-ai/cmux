@@ -106,12 +106,12 @@ describe("cloud MCP protocol", () => {
       }
     }
     const byName = Object.fromEntries(CLOUD_MCP_TOOLS.map((tool) => [tool.name, tool.annotations]));
-    expect(byName.send_input.destructiveHint).toBe(true);
-    expect(byName.run_agent.readOnlyHint).toBe(false);
-    expect(byName.list_machines.readOnlyHint).toBe(true);
+    expect(byName.terminal_input_write.destructiveHint).toBe(true);
+    expect(byName.agent_run.readOnlyHint).toBe(false);
+    expect(byName.machine_list.readOnlyHint).toBe(true);
     // Terminal reads go through execVm, which resumes a paused (billed) machine.
-    expect(byName.read_terminal.readOnlyHint).toBe(false);
-    expect(byName.list_terminals.readOnlyHint).toBe(false);
+    expect(byName.terminal_read.readOnlyHint).toBe(false);
+    expect(byName.terminal_list.readOnlyHint).toBe(false);
   });
 });
 

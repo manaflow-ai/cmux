@@ -23,7 +23,7 @@ public struct DaemonLanePolicy: Sendable {
     /// phone in the sizing order (`host-size-policy-v1`).
     let deviceID: String
 
-    /// `PhoneAccessGate.allowsStartingSessions`, read per request.
+    /// Whether a phone may start workspaces and terminals here, read per request.
     let allowsStartingSessions: @Sendable () -> Bool
 
     public init(deviceID: String, allowsStartingSessions: @escaping @Sendable () -> Bool = { true }) {
@@ -36,6 +36,9 @@ public struct DaemonLanePolicy: Sendable {
     /// person turned off starting new workspaces from a phone.
     public static let startsSessions: Set<String> = Set(creationFields.keys)
         .union(["new-browser-tab", "reopen-saved-tab-group", "move-tab-to-new-workspace", "move-tab-group-to-new-workspace"])
+
+    /// The refusal of a `startsSessions` command while starting is off.
+    static let startRefusal = "starting new workspaces from a phone is turned off on this Mac"
 
     /// URL schemes a phone may open in a browser tab (`new-browser-tab`, `browser-navigate`, a split's
     /// `url`): web pages only, never `file:` or another local scheme.
@@ -189,7 +192,7 @@ public struct DaemonLanePolicy: Sendable {
             return .refuse(Self.errorLine(id: id, code: "forbidden", message: "phones open only http and https pages"))
         }
         if Self.startsSessions.contains(command), !allowsStartingSessions() {
-            return .refuse(Self.errorLine(id: id, code: "forbidden", message: PhoneAccessGate.startRefusal))
+            return .refuse(Self.errorLine(id: id, code: "forbidden", message: Self.startRefusal))
         }
         if command == "reopen-saved-tab-group" || command == "delete-saved-tab-group",
            let why = Self.savedGroupRefusal(object, reopen: command == "reopen-saved-tab-group") {

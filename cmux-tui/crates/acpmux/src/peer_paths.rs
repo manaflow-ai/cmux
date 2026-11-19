@@ -9,10 +9,17 @@
 //! - Which alive path carries the session is the transport selector's call
 //!   (`cmux_transport::Selector`): the lower smoothed round trip wins, with hysteresis, and any
 //!   direct path beats the hub relay.
+//! - Relay first: a peer whose paths include a streaming hub relay opens on the relay and its
+//!   remembered path at once, so no link waits on a direct path that may never answer (a
+//!   punch that fails, a black-holed WireGuard endpoint). A direct path takes the session from
+//!   the relay only after [`UPGRADE_AFTER`] probe answers in a row at no worse a round trip,
+//!   and gives it back when it fails or the relay beats it (the selector's relay-first rules).
+//!   A peer without a hub relay keeps the direct-first order.
 //!
 //! This file is pure: times are milliseconds the caller passes in, so the rules are tested
 //! without clocks or sockets.
 
+use crate::peer_path_stats::LinkStats;
 use cmux_transport::{
     PathId, PathKind, PathState as SelectorState, ProbeOutcome, Selector, SelectorConfig,
 };
@@ -30,6 +37,9 @@ pub const TRUST_FOR: Duration = Duration::from_millis(6_500);
 pub const RECOVERY_FIRST: Duration = Duration::from_secs(3);
 /// ...and the gap doubles up to this.
 pub const RECOVERY_CAP: Duration = Duration::from_secs(60);
+/// Relay first: probe answers in a row a direct path needs before it takes the session from
+/// the hub relay (doubled each time it was dropped back to the relay).
+pub const UPGRADE_AFTER: u8 = 2;
 
 /// What carries the peer link, as clients see it (`carrier` in `_acpmux/peers` and
 /// `_acpmux/peer_state_changed`).
@@ -121,7 +131,8 @@ impl Via {
 
     /// The selector compares paths by class first and only then by round trip: every path
     /// that reaches the peer itself (link, WireGuard, a URL, ssh) is one class, so the round
-    /// trip picks among them; the hub relay is the relayed class, used only when none is up.
+    /// trip picks among them; the hub relay is the relayed class, which a direct path replaces
+    /// once it is up (under relay first, once it proved itself: [`UPGRADE_AFTER`]).
     fn kind(self) -> PathKind {
         match self {
             Self::Hub => PathKind::DoRelay,
@@ -174,19 +185,29 @@ pub struct Paths {
     /// Remembered from an earlier run (`peer_last_good.rs`): dialed first while no path has
     /// answered yet.
     remembered: Option<Via>,
+    /// What this link's paths did (`peer_path_stats.rs`).
+    stats: LinkStats,
+    /// Relay first: the hub relay streams, so a cold connect opens on it at once.
+    relay_first: bool,
 }
 
 /// The selector's rules with this file's clock: a path is reported lost once, when its trust
-/// ran out (or its connection failed), so one loss makes it dead.
-fn selector_config() -> SelectorConfig {
-    SelectorConfig { dead_after_lost: 1, ..SelectorConfig::default() }
+/// ran out (or its connection failed), so one loss makes it dead. Relay first, a direct path
+/// takes the session from the relay after [`UPGRADE_AFTER`] answers.
+fn selector_config(relay_first: bool) -> SelectorConfig {
+    SelectorConfig {
+        dead_after_lost: 1,
+        upgrade_streak: if relay_first { UPGRADE_AFTER } else { 0 },
+        ..SelectorConfig::default()
+    }
 }
 
 impl Paths {
-    /// The paths `vias` (duplicates and order do not matter; the hub has no stream yet and is
-    /// listed, never dialed).
+    /// The paths `vias` (duplicates and order do not matter; the hub without the hub carrier
+    /// has no stream and is listed, never dialed). With a streaming hub they are relay first.
     pub fn new(vias: &[Via]) -> Self {
-        let mut selector = Selector::new(selector_config());
+        let relay_first = vias.iter().any(|via| *via == Via::Hub && via.streams());
+        let mut selector = Selector::new(selector_config(relay_first));
         let mut paths = Vec::new();
         let mut sorted = vias.to_vec();
         sorted.sort();
@@ -204,7 +225,46 @@ impl Paths {
                 });
             }
         }
-        Self { selector, paths, remembered: None }
+        Self { selector, paths, remembered: None, stats: LinkStats::default(), relay_first }
+    }
+
+    /// Whether a cold connect opens on the hub relay at once (see the module rules).
+    pub fn relay_first(&self) -> bool {
+        self.relay_first
+    }
+
+    /// How many paths of [`Self::dial_order`] a cold connect dials at once before it
+    /// staggers the rest: when the relay leads, the relay and the path after it (the
+    /// remembered or measured one); else one.
+    pub fn dial_together(&self, now: u64) -> usize {
+        if self.relay_leads(now) { 2 } else { 1 }
+    }
+
+    /// Whether the hub relay leads a cold connect: relay first, the relay is not dead, and no
+    /// direct path carries the session (a link moving to the direct path the selector picked
+    /// dials that path alone first, so the relay never wins it back in the race).
+    fn relay_leads(&self, now: u64) -> bool {
+        self.relay_first
+            && self.health(Via::Hub, now) != Some(Health::Dead)
+            && self.active().is_none_or(|via| via == Via::Hub)
+    }
+
+    /// A cold connect opened `via` and the link runs on it: it is alive now, before any pong
+    /// measured it, so it holds the session until probes show a better path. Returns the new
+    /// active path when this changed it. Relay first only: a direct-first peer's paths wait
+    /// for their pongs, as before.
+    pub fn opened(&mut self, via: Via, now: u64) -> Option<Option<Via>> {
+        if !self.relay_first {
+            return None;
+        }
+        let path = self.find_mut(via)?;
+        path.last_pong = Some(now);
+        path.dead_at = None;
+        path.recoveries = 0;
+        path.recover_at = None;
+        let id = path.id;
+        let switch = self.selector.on_opened(id).ok()??;
+        Some(switch.to.and_then(|id| self.via_of(id)))
     }
 
     /// Add path `via` to a live set (a backup path found after the first dial,
@@ -272,13 +332,15 @@ impl Paths {
 
     /// A pong on `via` after `rtt`. Returns the new active path when this changed it.
     pub fn pong(&mut self, via: Via, rtt: Duration, now: u64) -> Option<Option<Via>> {
+        let answering = self.answering(via)?;
+        let rtt_us = u64::try_from(rtt.as_micros()).unwrap_or(u64::MAX).max(1);
+        self.stats.pong(via, rtt_us, answering);
         let path = self.find_mut(via)?;
         path.last_pong = Some(now);
         path.dead_at = None;
         path.recoveries = 0;
         path.recover_at = None;
         let id = path.id;
-        let rtt_us = u64::try_from(rtt.as_micros()).unwrap_or(u64::MAX).max(1);
         let switch = self.selector.on_probe(id, ProbeOutcome::Answered { rtt_us }).ok()??;
         Some(switch.to.and_then(|id| self.via_of(id)))
     }
@@ -287,6 +349,8 @@ impl Paths {
     /// ended): it is dead now, without waiting out its trust. Returns the new active path when
     /// this changed it.
     pub fn failed(&mut self, via: Via, now: u64) -> Option<Option<Via>> {
+        let answering = self.answering(via)?;
+        self.stats.failed(via, answering);
         let path = self.find_mut(via)?;
         let id = path.id;
         if path.dead_at.is_none() {
@@ -296,6 +360,33 @@ impl Paths {
         path.recover_at = Some(now.saturating_add(recovery_gap(path.recoveries)));
         let switch = self.selector.on_probe(id, ProbeOutcome::Lost).ok()??;
         Some(switch.to.and_then(|id| self.via_of(id)))
+    }
+
+    /// Whether `via` answered and is not dead (alive, or alive and since silent); None when it
+    /// is not one of these paths.
+    fn answering(&self, via: Via) -> Option<bool> {
+        let state = self.selector.path(self.find(via)?.id).map(|path| path.state);
+        Some(matches!(state, Some(SelectorState::Alive | SelectorState::Suspect)))
+    }
+
+    /// This link's counters (`peer_path_stats.rs`).
+    pub fn stats(&self) -> &LinkStats {
+        &self.stats
+    }
+
+    /// A cold connect that started at `started` dialed `order` and opened on `winner` at `now`.
+    pub fn record_opened(&mut self, order: &[Via], winner: Via, started: u64, now: u64) {
+        self.stats.opened(order, winner, started, now);
+    }
+
+    /// The live link runs on `via` from `now` (None: it ended).
+    pub fn serving(&mut self, via: Option<Via>, now: u64) {
+        self.stats.serving(via, now);
+    }
+
+    /// `linkStats` of `_acpmux/peers` (`LinkStats::view`).
+    pub fn stats_view(&self, now: u64) -> Value {
+        self.stats.view(now)
     }
 
     /// The clock moved: every alive path whose trust ran out is dead. Returns the new active
@@ -395,7 +486,20 @@ impl Paths {
 
     /// The order a cold connect dials the stream paths in: the active path, the alive ones by
     /// round trip, the one remembered from an earlier run, then the rest (dead ones last).
+    /// Relay first, the hub relay leads (unless it is dead or a direct path carries the
+    /// session), and the rest follow in that order.
     pub fn dial_order(&self, now: u64) -> Vec<Via> {
+        let mut order = self.direct_first_order(now);
+        if self.relay_leads(now)
+            && let Some(at) = order.iter().position(|via| *via == Via::Hub)
+        {
+            order.remove(at);
+            order.insert(0, Via::Hub);
+        }
+        order
+    }
+
+    fn direct_first_order(&self, now: u64) -> Vec<Via> {
         let rank = |via: Via| -> (u8, u64) {
             let health = self.health(via, now);
             let rtt = self.rtt(via).map_or(u64::MAX, millis);
