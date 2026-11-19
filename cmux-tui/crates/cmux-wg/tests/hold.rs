@@ -223,7 +223,10 @@ async fn a_held_tunnel_does_not_retransmit_unacknowledged_output() {
     pair.accepted.write_all(b"late output").await.unwrap();
     // Its first transmission goes out (and is lost) before the hold.
     tokio::time::sleep(Duration::from_millis(5)).await;
+    // Both ends hold, as a parked link's do: unheld, the phone's own idle
+    // connection would end on its 60 s user timeout during the silence.
     pair.mac.hold(Some(Duration::from_secs(10 * 60))).await.unwrap();
+    pair.phone.hold(Some(Duration::from_secs(10 * 60))).await.unwrap();
     let sent = |sim: &SimNet| (sim.sent_from(addr(MAC)), sim.sent_bytes_from(addr(MAC)));
     let before = sent(&pair.sim);
     tokio::time::sleep(Duration::from_secs(5 * 60)).await;
@@ -239,6 +242,7 @@ async fn a_held_tunnel_does_not_retransmit_unacknowledged_output() {
     pair.sim.set_link(addr(PHONE), addr(MAC), link(false));
     pair.phone.refresh().await.unwrap();
     pair.mac.hold(None).await.unwrap();
+    pair.phone.hold(None).await.unwrap();
     let mut late = [0u8; 11];
     tokio::time::timeout(Duration::from_secs(10), pair.dialed.read_exact(&mut late))
         .await
