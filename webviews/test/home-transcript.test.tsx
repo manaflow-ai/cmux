@@ -121,6 +121,9 @@ test("Home renders a grouped tool summary and keeps details behind it", async ()
   expect(block.kind).toBe("tools");
   if (block.kind !== "tools") throw new Error("expected a tool block");
   await act(async () => root!.render(<HomeToolGroup row={block.row} steps={tools} agentNames={new Map()} collapsed />));
+  // ToolRows is an idle-loaded chunk on Home; let its dynamic import and the subscribed render land.
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 100)));
+  await settleReact();
   const summary = container.querySelector(".lg-home-tool-summary")!;
   expect(summary.textContent).toContain("Ran 1 command, 1 read");
   expect(summary.textContent).toContain("bun test");
