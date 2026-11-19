@@ -4,7 +4,7 @@
 
 import { Markdown } from "./Markdown";
 import { MessageBoundary } from "./MessageBoundary";
-import { useStreamReveal } from "./revealedMarkdownModel";
+import { useStreamReveal, useHeldReveal } from "./revealedMarkdownModel";
 import type { ClaimCheck } from "../model";
 /// An assistant reply, revealed over frames while it streams. A reply that fails to draw falls
 /// back to its plain text (MessageBoundary), never taking the pane with it.
@@ -68,6 +68,8 @@ function Revealed({
   artifactRevision?: number;
 }) {
   const { visible, fresh, now } = useStreamReveal(text, streaming);
+  // The turn's end fold reads whether the reply's last lines are still to show (turnEndFold.ts).
+  useHeldReveal(artifactIdentity, visible.length < text.length);
   // Marks draw on the whole reply only: a phrase still revealing would move under its mark.
   const whole = !streaming && visible.length === text.length;
   // Until all of it shows, the reply draws as streaming: the frame after the stream ends still
