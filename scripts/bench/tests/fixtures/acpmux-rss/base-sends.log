@@ -1,0 +1,17 @@
+RSS-READER 0 added=None connected=true error=null
+RSS-READER 1 added=None connected=true error=null
+RSS-CONFIG {"bytes":400,"chatMessages":40,"chunks":50,"coords":4,"dhat":false,"every":20,"god":"01a1d000-0000-7000-8000-000000000000","lists":0,"par":8,"peerChanges":0,"peerRows":200,"peers":2,"promptTargets":4,"prompts":0,"readers":2,"retries":0,"rounds":200,"sends":20,"sessions":200,"stalled":0,"watchers":2}
+RSS-HEAD round rssMB hwmMB cpuS thr fds outboxN pending inboxN peerListsB ops sends retries peerChg prompts lists watchMB
+RSS-ROW 0 93 93 3.3 47 53 0 0 0 0 0 0 0 0 0 0 0
+RSS-ROW 20 135 135 5.4 52 57 200 0 400 0 400 400 0 0 0 0 0
+RSS-ROW 40 188 188 8.5 53 57 200 0 800 0 800 800 0 0 0 0 0
+RSS-ROW 60 242 242 12.0 53 57 200 0 1200 0 1200 1200 0 0 0 0 0
+RSS-ROW 80 295 295 16.5 53 57 200 0 1600 0 1600 1600 0 0 0 0 0
+RSS-ROW 100 348 351 22.2 55 57 200 0 2000 0 2000 2000 0 0 0 0 0
+RSS-ROW 120 401 401 31.2 55 57 200 0 2400 0 2400 2400 0 0 0 0 0
+RSS-ROW 140 454 454 41.9 55 57 200 0 2800 0 2800 2800 0 0 0 0 0
+RSS-ROW 160 507 507 53.9 55 57 200 0 3200 0 3200 3200 0 0 0 0 0
+RSS-ROW 180 564 564 67.3 55 57 200 0 3600 0 3600 3600 0 0 0 0 0
+RSS-ROW 200 620 620 82.3 55 57 200 0 4000 0 4000 4000 0 0 0 0 0
+RSS-ROW 201 657 657 82.5 55 57 200 0 4000 0 4000 4000 0 0 0 0 0
+RSS-SLOPE {"mbPer1000OpsSecondHalf":160.09033203125,"mbPer1000OpsWholeRun":141.0283203125,"mbSecondHalf":256.14453125,"mbWholeRun":564.11328125,"opsSecondHalf":1600,"opsWholeRun":4000}
