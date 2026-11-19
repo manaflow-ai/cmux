@@ -247,26 +247,31 @@ pub fn follow(
             Duration::from_secs(60),
             &mut |v| early.push(v),
         );
-        for v in early.drain(..) {
-            if note_slow(&v) {
-                f.told_slow += 1;
-            }
-            if v.get("method").and_then(Value::as_str) == Some("_acpmux/event") {
-                if let Some(p) = v.get("params") {
-                    take(p, "live", &mut f, &mut cursor);
-                }
-            }
-        }
+        f.told_slow += early.iter().filter(|v| note_slow(v)).count() as u64;
         match reply {
             Ok(page) => {
                 for e in page.get("events").and_then(Value::as_array).into_iter().flatten() {
                     take(e, "page", &mut f, &mut cursor);
                 }
-                // A page that did not reach the end: the rest comes on the next attachment.
+                // A page that did not reach the end: the rest comes on the next attachment, after
+                // the page's `pageThrough`, the way acpmux's own replay client pages
+                // (`peer_runtime_io.rs`, `caught_up`). Live records that came early are past a gap
+                // still to be paged, so a client drops them; counting them would move the cursor
+                // over the gap.
                 if page.get("hasMore").and_then(Value::as_bool) == Some(true) {
+                    if let Some(through) = page.get("pageThrough").and_then(Value::as_u64) {
+                        cursor = cursor.max(through);
+                    }
                     f.bytes += c.bytes_in;
                     *f.ends.entry("page_more".into()).or_insert(0) += 1;
                     continue;
+                }
+                for v in early.drain(..) {
+                    if v.get("method").and_then(Value::as_str) == Some("_acpmux/event")
+                        && let Some(p) = v.get("params")
+                    {
+                        take(p, "live", &mut f, &mut cursor);
+                    }
                 }
             }
             Err(e) => {
