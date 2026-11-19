@@ -25,7 +25,12 @@ playwright_version="$(python3 -c 'import json; print(json.load(open("package.jso
 export PLAYWRIGHT_BROWSERS_PATH="${CMUX_CI_CACHE_DIR:-$HOME/Library/Caches/cmux-ci}/playwright-$playwright_version"
 ./node_modules/.bin/playwright install webkit && ../scripts/ci/ensure-system-chrome.sh
 echo "host: $(hostname) sha: $(git rev-parse HEAD) bun: $(bun --version)"
-out="$(mktemp -d)/settings-switch.json"
+scratch="$(mktemp -d)"
+# Remove the scratch folder on every exit (a failed build, a TERM), not only at the end: a leaked one holds a build.
+trap 'rm -rf -- "$scratch"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+out="$scratch/settings-switch.json"
 bun scripts/latency/run.ts --page settings --runs "${CMUX_SETTINGS_SWITCH_RUNS:-40}" --no-fail --json "$out"
 python3 -I - "$out" <<'PY'
 import json, sys

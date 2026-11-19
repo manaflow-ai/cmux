@@ -125,6 +125,17 @@ extension AgentPaneNewTab {
         return page
     }
 
+    /// The page with the open tabs and other workspaces of `lists` in its bar; nil keeps the page's own. A page
+    /// whose view is made after its tab opened gets the lists of then. The folders stay
+    /// the page's own, as at a refresh (``AgentPaneView/refreshNewTabPlaces(tabs:workspaces:)``).
+    public func listing(_ lists: NewTabPlaces.Lists?) -> AgentPaneNewTab {
+        guard let lists else { return self }
+        var page = self
+        page.omnibar.tabs = lists.tabs
+        page.omnibar.workspaces = lists.workspaces
+        return page
+    }
+
     /// The newest chats a local page posted (`newTab.warm`), for the next page's ``warm``.
     @MainActor public internal(set) static var warmed: String?
     /// The largest `newTab.warm` the host keeps.
@@ -206,13 +217,17 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
         public var keywords: [String]
         /// The action's shortcut keycaps (`["⌘", "T"]`); nil without one.
         public var keycaps: [String]?
+        /// The command palette's symbol name.
+        public var symbol: String?
 
-        public init(id: String, title: String, detail: String? = nil, keywords: [String] = [], keycaps: [String]? = nil) {
+        public init(id: String, title: String, detail: String? = nil, keywords: [String] = [],
+                    keycaps: [String]? = nil, symbol: String? = nil) {
             self.id = id
             self.title = title
             self.detail = detail
             self.keywords = keywords
             self.keycaps = keycaps
+            self.symbol = symbol
         }
     }
 
@@ -308,7 +323,7 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
             "folders": folders,
             "projects": projects,
             "actions": actions.map { action in
-                optional([("id", action.id), ("title", action.title), ("detail", action.detail)])
+                optional([("id", action.id), ("title", action.title), ("detail", action.detail), ("symbol", action.symbol)])
                     .merging(["keywords": action.keywords]) { left, _ in left }
                     .merging(action.keycaps.map { ["keycaps": $0] } ?? [:]) { left, _ in left }
             },

@@ -423,9 +423,11 @@ export function playTurnEnd(
   const starts = new Map<HTMLElement, { top?: number; opacity?: number; shown?: number }>();
   /// Each row's and copy's laid-out top at the last pass: with its translate then, where it was drawn.
   const laid = new Map<HTMLElement, number>();
+  /// The copies taken out before the fold ended (a row came in under them, below).
+  const dropped = new Set<HTMLElement>();
   const pass = () => {
     const nodes = [...mounted(thread)];
-    if (gone.length > 0 && fold.copies.size === 0 && copyMoves.size === 0) {
+    if (gone.length > 0 && fold.copies.size === 0 && copyMoves.size === 0 && dropped.size === 0) {
       // The rows that went: each copy goes in before the rows that stay, so they draw over it.
       const below = nodes[0] ?? null;
       for (const row of gone) {
@@ -433,9 +435,43 @@ export function playTurnEnd(
         fold.copies.add(row.copy!);
       }
     }
-    const copies = gone.map((row) => row.copy!).filter((copy) => fold.copies.has(copy));
     // Every place is read before anything plays, so a pass lays the page out once.
     const tops = layoutTops(nodes);
+    // The lowest row the swap kept, where it was drawn then, and how far from its place it starts. A
+    // row that comes in under it (the next turn's prompt, its live line and reply, arriving while the
+    // fold plays) moves with it: placed where it lands and drawn there at once, it sat over the kept
+    // row still sliding into place, by as much as that row's move (Leo, 2026-11-18, a coordinator's
+    // chat: "not sure if we've fixed this doubled up looking ass text fixed yet";
+    // agent-pane-stream-row-overlap, the replayed coordinator chat: a reply 242 px from its place over
+    // the next turn's first tool row, 158 px).
+    let lowest = -Infinity;
+    let lowestWas = -Infinity;
+    let carried = 0;
+    nodes.forEach((node, index) => {
+      const before = was.get(node.dataset.rowId!);
+      if (before && tops[index]! > lowest) {
+        lowest = tops[index]!;
+        lowestWas = before.top;
+        carried = (starts.get(node)?.top ?? before.top) - tops[index]!;
+      }
+    });
+    const arrives = (node: HTMLElement, index: number) => !was.has(node.dataset.rowId!) && tops[index]! > lowest;
+    // The copies of what the ended turn drew under its last kept row (its live line) go once the next
+    // turn's rows come in there: those rows take that place, and a copy fading under them drew its
+    // text through theirs (the same replay: the new tool row over the old "Thinking" line, 107 px).
+    if (Number.isFinite(lowest) && nodes.some(arrives))
+      for (const row of gone)
+        if (row.top > lowestWas && fold.copies.has(row.copy!)) {
+          for (const animation of copyMoves.get(row.copy!)?.animations ?? []) {
+            animation.cancel();
+            fold.animations.delete(animation);
+          }
+          copyMoves.delete(row.copy!);
+          fold.copies.delete(row.copy!);
+          dropped.add(row.copy!);
+          row.copy!.remove();
+        }
+    const copies = gone.map((row) => row.copy!).filter((copy) => fold.copies.has(copy));
     const copyTops = layoutTops(copies);
     // Each box's height and paddings, read with the places (only while a copy shows): where each row's
     // and copy's text draws (`coverClip`).
@@ -530,6 +566,17 @@ export function playTurnEnd(
       // Its path, for the copies under or over it (`coverClip`), with the clip it starts under (below).
       const path = boxes.length ? { from: tops[index]!, to: tops[index]!, ...boxes[index]! } : undefined;
       if (path) paths.push(path);
+      if (arrives(node, index) && (Math.abs(carried) >= 0.5 || moving.has(node))) {
+        // Under every row the swap kept: it slides with the lowest of them, on the same clock, and
+        // fades in as a row the swap added does unless it plays its own entrance.
+        const enters = node.matches(".acpmux-row--enter, .acpmux-row--message-enter");
+        const from = starts.get(node)?.opacity ?? 0;
+        restart(node, moving, { delta: carried, fades: !enters, animations: [] }, () => [
+          [{ translate: `0 ${carried}px` }, { translate: "0 0" }],
+          ...(enters ? [] : [[{ opacity: from }, { opacity: 1 }]]),
+        ]);
+        return;
+      }
       if (!before) {
         // A row the swap added fades in where it lands, unless it plays its own entrance.
         if (node.matches(".acpmux-row--enter, .acpmux-row--message-enter")) return;

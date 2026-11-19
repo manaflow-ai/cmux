@@ -12,6 +12,10 @@ use cmux_json::JsonSet as _;
 mod acp;
 #[cfg(unix)]
 mod agent_browser_provider;
+#[cfg(unix)]
+mod agent_computer_use;
+#[cfg(unix)]
+mod agent_mcp_choice;
 use cmux_tui_hooks as agent_hook_install;
 mod agent_plugin_config;
 #[cfg(unix)]
@@ -43,7 +47,10 @@ mod cloud_environment;
 #[cfg(unix)]
 mod coderouter_usage;
 #[cfg(unix)]
+#[cfg(unix)]
 mod codex_wrapper;
+#[cfg(not(target_os = "macos"))]
+mod computer_use_worker;
 mod config;
 mod daemon_build;
 mod headless;
@@ -1857,6 +1864,8 @@ pub fn main() -> std::process::ExitCode {
     acpmux::hub::install_build(acpmux_build_id::build());
     #[cfg(unix)]
     cmux_tui_core::git_seed::on_seeded(warm_seeded_deps);
+    // The daemon's `device-setup` (the app's set-up buttons) runs `cmux device setup|start`'s code.
+    cmux_tui_core::device_setup::on_device_setup(devices::setup::daemon_run);
     // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
     #[cfg(unix)]
     if std::env::args_os()
