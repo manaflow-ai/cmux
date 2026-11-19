@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import Foundation
 
 /// Live preview (R93): the palette shows a value before it is written.
@@ -20,6 +21,7 @@ extension SettingsController {
         // From the settings under the theme file, so a previewed theme file replaces the active one.
         var root = edit(themeFile == nil ? snapshot.root : rootUnderThemeFile)
         var lookSounds: [NotificationSoundPreferences.LookEvent: String] = [:]
+        var themeDensity: DensityTokens?
         if let name = ThemeFileSetting.name(in: root) {
             // The theme file applies (the last load's read: no disk read here), then the previewed
             // value over it, so a previewed key shows even where the file sets it.
@@ -29,8 +31,12 @@ extension SettingsController {
             // Another file previews as choosing it applies: whole, with no exceptions (#44894).
             let kept = name == themeFile?.name ? ThemeFileExceptionsSetting.keys(in: root) : []
             if let overlay {
-                root = edit(overlay.applied(to: root, managed: Set(managedKeys.keys).union(kept)))
+                let held = Set(managedKeys.keys).union(kept)
+                root = edit(overlay.applied(to: root, managed: held))
                 lookSounds = overlay.sounds
+                // A previewed density row shows over the file's own density, as any previewed key over the file.
+                let densityRows = [DensitySetting.configPath, CustomDensitySelectionSetting.configPath]
+                themeDensity = densityRows.contains(descriptor.path) ? nil : overlay.density(under: held)
             }
         }
         var previewed = CmuxConfigSnapshot.parse(root, validDensities: SettingsApplier.validDensities,
@@ -38,6 +44,7 @@ extension SettingsController {
                                                  configDirectory: file.url.deletingLastPathComponent())
         // The previewed look's sound pack, as a load reads it (SettingsController.load).
         previewed.notifications.sounds.lookSounds = lookSounds
+        previewed.themeDensity = themeDensity
         applier.apply(previewed)
         previewingKey = descriptor.id
         previewSnapshot = previewed
