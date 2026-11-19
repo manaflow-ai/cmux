@@ -17,7 +17,7 @@ import Testing
 @MainActor final class PageMoves {
     private let services: AppServices
     private let wiredBuilt: ((String) -> Void)?
-    private let wiredPanes: (draws: (String) -> Bool, letGo: (String) -> Void)
+    private let wiredPanes: (draws: (String, PaneController?) -> Bool, letGo: (String) -> Void)
     private let start = ContinuousClock.now
     private var seen: [AgentPaneView]
     private var had: [String: AgentPaneView] = [:]
