@@ -1089,7 +1089,8 @@ class Rows(Case):
         # person did not use: no page was made for it, so the row counts it as `warm`, and `idle` says how many.
         report = self.rows(World(ready_opens_are_idle_pages=True))
         hold = next(row for row in report["rows"] if row["scenario"] == "hold")
-        self.assertEqual((hold["opens"]["warm"], hold["opens"]["cold"], hold["opens"]["idle"]), (2, 2, 2))
+        self.assertEqual((hold["opens"]["warm"], hold["opens"]["cold"]), (2, 2))  # first: a row that reads `spare` only says (0, 4)
+        self.assertEqual(hold["opens"].get("idle"), 2)
         self.assertEqual(hold["opens"]["main_ms"]["warm"], {"n": 2, "p50": 3.0, "p95": 3.0, "p99": 3.0, "max": 3.0, "sum": 6.0})
         self.assertEqual(hold["opens"]["main_ms"]["cold"]["n"], 2)
 
