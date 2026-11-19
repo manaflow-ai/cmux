@@ -992,7 +992,12 @@ impl Hub {
     /// read ([`ProcessTable::older_snapshot`]), as [`Self::list_recent_processes`] replies: `omitted`
     /// how many ended before this page, `endedBefore` the end that splits them (absent once none
     /// is left). Session Info's finished list reads it as it scrolls to its end.
-    pub(crate) fn list_older_processes(&self, session: &Session, recent: usize, before: u64) -> Value {
+    pub(crate) fn list_older_processes(
+        &self,
+        session: &Session,
+        recent: usize,
+        before: u64,
+    ) -> Value {
         let (processes, older, cutoff) = self.process_table(session).older_snapshot(recent, before);
         recent_values(processes, older, cutoff, recent, PROCESS_PAGE_BUDGET, output_len)
     }

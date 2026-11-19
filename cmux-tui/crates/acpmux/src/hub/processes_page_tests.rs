@@ -293,7 +293,11 @@ fn older_pages_walk_back_from_the_split_to_the_first_end_once_each() {
         assert!(page.iter().all(|p| p.state != ProcessState::Running));
         assert!(page.iter().all(|p| (split..before).contains(&p.ended_at.unwrap())));
         let last = older == 0;
-        assert!(page.len() <= 101 && (last || page.len() >= 100), "page {pages} holds {}", page.len());
+        assert!(
+            page.len() <= 101 && (last || page.len() >= 100),
+            "page {pages} holds {}",
+            page.len()
+        );
         assert_eq!(older + page.len(), left, "omitted shrinks by the page");
         for p in &page {
             assert!(seen.insert(p.id.clone()), "{} read twice", p.id);

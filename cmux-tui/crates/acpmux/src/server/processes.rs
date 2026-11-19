@@ -60,7 +60,9 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
             return Err(RpcError::invalid_params("endedWithin requires recent"));
         }
         if before.is_some() && (recent.is_none() || within.is_some()) {
-            return Err(RpcError::invalid_params("endedBefore requires recent and takes no endedWithin"));
+            return Err(RpcError::invalid_params(
+                "endedBefore requires recent and takes no endedWithin",
+            ));
         }
         if calls.is_some() && (recent.is_some() || paging.is_some()) {
             return Err(RpcError::invalid_params("calls takes no recent, limit or cursor"));
