@@ -49,6 +49,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -429,10 +430,14 @@ def clippy(repo: Path, base: str) -> int:
             # rustup's cargo reads the pin from the working directory: install it, with clippy, first. rustup checks
             # that it lives in CARGO_HOME, which a job may point at its own directory (runner-cargo-home), so rustup
             # runs with the home it was installed in; toolchains live in RUSTUP_HOME either way.
-            home = Path.home() / ".cargo"
-            setup_env = {**os.environ, "CARGO_HOME": str(home)} if (home / "bin" / "rustup").is_file() else None
+            rustup = shutil.which("rustup")
+            setup_env = {**os.environ, "CARGO_HOME": str(Path(rustup).resolve().parents[1])} if rustup else None
             for setup in (["rustup", "toolchain", "install"], ["rustup", "component", "add", "clippy"]):
-                subprocess.run(setup, cwd=repo / root, env=setup_env)
+                done = subprocess.run(setup, cwd=repo / root, env=setup_env)
+                if done.returncode:
+                    print(f"::warning title={root} toolchain::`{' '.join(setup)}` exited {done.returncode} "
+                          f"(CARGO_HOME={setup_env and setup_env['CARGO_HOME']}); clippy runs with what is installed",
+                          flush=True)
         rc, refusals = run_cargo(command, repo / root, dict(os.environ))
         print("::endgroup::", flush=True)
         if rc:
