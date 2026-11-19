@@ -569,7 +569,7 @@ fn read_bytes() -> u64 {
 fn adopt_reads(hub: &Arc<Hub>, session: &Arc<Session>) -> String {
     let env = hub.remote_host_env_current(session, "inc");
     let after = hub.last_host_seq(session, "inc");
-    hub.seed_subagents_from_log(session);
+    hub.seed_subagents_from_log(session, "inc");
     let work = hub.recovery_work(session, "inc", after);
     let running = session.subagents.lock().unwrap().running_count();
     format!("{env} {after} {running} {}", work_fields(&work))
@@ -636,4 +636,130 @@ async fn a_second_adoption_reads_what_followed_the_first_not_the_log() {
     );
     assert!(long_size > 5 * short_size, "{short_size} {long_size}");
     assert!(long * 5 <= short * 6, "read {long} bytes of a long log, {short} of a short one");
+}
+
+/// `value` with every array sorted: a set's order is its hasher's.
+fn canonical(mut value: Value) -> Value {
+    fn sort(value: &mut Value) {
+        match value {
+            Value::Array(items) => {
+                items.iter_mut().for_each(sort);
+                items.sort_by_key(|v| v.to_string());
+            }
+            Value::Object(map) => map.values_mut().for_each(sort),
+            _ => {}
+        }
+    }
+    sort(&mut value);
+    value
+}
+
+/// Everything the adoption reads of host `incarnation` recover, in a fixed order.
+fn adoption_state(hub: &Arc<Hub>, session: &Arc<Session>, incarnation: &str) -> String {
+    let work = hub.open_work(session, incarnation);
+    format!(
+        "{} {} {} {} {}",
+        hub.remote_host_env_current(session, incarnation),
+        hub.last_host_seq(session, incarnation),
+        canonical(serde_json::to_value(hub.subagents_from_log(session, incarnation)).unwrap()),
+        canonical(serde_json::to_value(&work).unwrap()),
+        work_fields(&work),
+    )
+}
+
+/// The logs the equivalence test folds: an open last turn (a steer, an unanswered ask, receipts,
+/// a subagent's tool), a withdrawal, a closed last turn, a carried turn, a later host started
+/// under the remote env policy with a compaction running.
+fn checkpoint_logs() -> Vec<Log> {
+    let open = hosted_log_of(3, 2);
+    let mut withdrawn = hosted_log_of(3, 2);
+    withdrawn.push(
+        "mux",
+        "permission_withdrawn",
+        json!({"agentRequestId": 6_000, "incarnation": "inc"}),
+        false,
+    );
+    let mut closed = hosted_log_of(3, 2);
+    let last_start = closed.records.iter().rposition(|r| r.kind == "turn_started").unwrap();
+    closed.records.truncate(last_start);
+    let mut carried = Log { records: Vec::new(), host_seq: 0 };
+    carried.push("mux", "host_started", json!({"incarnation": "inc"}), false);
+    carried.turn(1, 1);
+    let to = json!({"turnId": "t2", "promptId": "p-late", "prompt": "late", "client": "cli", "seq": 7, "promptIds": ["p-late"]});
+    carried.push(
+        "mux",
+        "turn_result",
+        json!({"turnId": "t1", "status": "completed", "carriedTo": to}),
+        false,
+    );
+    carried.push("mux", "turn_control", json!({"turnId": "t2", "control": "web"}), false);
+    let started = json!({"turnId": "t2", "promptId": "p-late", "prompt": "late", "client": "cli", "carried": {"fromTurnId": "t1", "promptIds": ["p-late"]}});
+    carried.push("mux", "turn_started", started, false);
+    let steer = json!({"jsonrpc": "2.0", "id": 3, "method": "session/prompt", "params": {"sessionId": "own", "_meta": {"steer": true, "promptId": "p-steer"}}});
+    carried.push("out", "session/prompt", steer, true);
+    let mut next = hosted_log_of(3, 2);
+    next.end_turn(3);
+    let policy = crate::agent::REMOTE_ENV_POLICY_ID;
+    next.push(
+        "mux",
+        "host_started",
+        json!({"incarnation": "next", "remoteEnvPolicy": policy}),
+        false,
+    );
+    next.turn(4, 2);
+    next.ask(9_100, false);
+    next.update(json!({"sessionUpdate": "compaction", "state": "running"}));
+    vec![open, withdrawn, closed, carried, next]
+}
+
+/// An adoption resumed from a checkpoint recovers what a fold of the whole log recovers: for
+/// each log, a checkpoint saved by an adoption of each host incarnation when the log ended at
+/// every record, then the rest of the log, against a fresh read of it all.
+#[tokio::test]
+async fn an_adoption_resumed_from_its_checkpoint_matches_a_whole_read() {
+    let incarnations = ["inc", "old", "gone", "next"];
+    for (n, log) in checkpoint_logs().iter().enumerate() {
+        let (hub, root) = hub_with(1, log).await;
+        let session = hub.resolve("chat0").unwrap();
+        hub.catch_up(&session);
+        let whole: Vec<String> =
+            incarnations.iter().map(|i| adoption_state(&hub, &session, i)).collect();
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&root);
+        let mut resumed = 0;
+        for split in 1..log.records.len() {
+            let head = Log { records: log.records[..split].to_vec(), host_seq: 0 };
+            let (hub, root) = hub_with(1, &head).await;
+            let session = hub.resolve("chat0").unwrap();
+            // An adoption of each host when the log ended at `split`.
+            let mut saved = Vec::new();
+            let file = hub.store.session_dir("chat0").unwrap().join("adoption-checkpoint.json");
+            for incarnation in incarnations {
+                let _ = std::fs::remove_file(&file);
+                hub.recovery_work(&session, incarnation, 0);
+                saved.push(hub.store.adoption_checkpoint("chat0"));
+            }
+            for record in &log.records[split..] {
+                hub.store.append("chat0", record).unwrap();
+            }
+            session.seq.store(log.records.len() as u64, Ordering::SeqCst);
+            for ((incarnation, bytes), whole) in incarnations.iter().zip(saved).zip(&whole) {
+                let _ = std::fs::remove_file(&file);
+                if let Some(bytes) = bytes {
+                    hub.store.save_adoption_checkpoint("chat0", &bytes).unwrap();
+                    let inputs = hub.fold_inputs(&session);
+                    assert!(
+                        hub.adoption_checkpoint(&session, incarnation, &inputs).is_some(),
+                        "log {n} split {split} {incarnation}: its checkpoint was not used"
+                    );
+                    resumed += 1;
+                }
+                let state = adoption_state(&hub, &session, incarnation);
+                assert_eq!(&state, whole, "log {n} split {split} {incarnation}");
+            }
+            hub.shutdown_all().await;
+            let _ = std::fs::remove_dir_all(&root);
+        }
+        assert!(resumed * 2 > log.records.len() * incarnations.len(), "log {n}: {resumed} resumed");
+    }
 }
