@@ -151,6 +151,52 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
     return crate::mac::open(cfg, cursor_metadata);
 }
 
+/// A Mac desktop opening on its own thread before the viewer's Start: ScreenCaptureKit's start
+/// and first frame (about 1 s, measured from Start before this) run while the link connects,
+/// so the session captures as soon as the viewer starts it. Nothing is sent before Start.
+#[cfg_attr(not(feature = "link"), allow(dead_code))]
+#[cfg(target_os = "macos")]
+pub struct Opening {
+    thread: std::thread::JoinHandle<Res<(crate::mac::MacDesktop, crate::mac::MacFrames)>>,
+    cursor_metadata: bool,
+}
+
+/// Starts opening the display's desktop for `cfg` (as [`open`] would) on its own thread, or
+/// None for a synthetic source, which opens at once at Start.
+#[cfg_attr(not(feature = "link"), allow(dead_code))]
+#[cfg(target_os = "macos")]
+pub fn open_ahead(cfg: &SessionCfg, cursor_metadata: bool) -> Option<Opening> {
+    if synthetic_size().is_some() {
+        return None;
+    }
+    let cfg = cfg.clone();
+    let thread = std::thread::Builder::new()
+        .name("cmux-rd-open".into())
+        .spawn(move || crate::mac::open_halves(&cfg, cursor_metadata))
+        .ok()?;
+    Some(Opening { thread, cursor_metadata })
+}
+
+#[cfg_attr(not(feature = "link"), allow(dead_code))]
+#[cfg(target_os = "macos")]
+impl Opening {
+    /// The opened desktop at the session's Start, set to the session's start bitrate (the
+    /// link's path picks it after the desktop opened). None when the session negotiated the
+    /// other cursor choice: this desktop is dropped (its capture stops) and the caller opens
+    /// one with [`open`].
+    pub fn finish(self, cursor_metadata: bool, start_kbps: u32) -> Option<Res<Halves>> {
+        let opened =
+            self.thread.join().unwrap_or_else(|_| Err("opening the desktop panicked".into()));
+        if cursor_metadata != self.cursor_metadata {
+            return None;
+        }
+        Some(opened.map(|(desktop, mut frames)| {
+            frames.set_bitrate(start_kbps);
+            (Box::new(desktop) as Box<dyn Desktop>, Box::new(frames) as Box<dyn FrameSource>)
+        }))
+    }
+}
+
 /// The size of the generated picture `--source synthetic` picked instead of the display (macOS
 /// bench builds; src/synthetic.rs), else None.
 #[cfg(target_os = "macos")]

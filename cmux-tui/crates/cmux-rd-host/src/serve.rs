@@ -365,6 +365,43 @@ pub fn run(opts: &Opts) -> Res<()> {
     Ok(())
 }
 
+/// The session's configuration: the same before Start (the desktop opening ahead) and at
+/// Start, except for what the link's path decides (`start_kbps`, `frames_in_flight`).
+#[allow(clippy::too_many_arguments)]
+fn session_cfg(
+    opts: &Opts,
+    setup: &Setup,
+    display: &str,
+    capture: CaptureBackend,
+    max_fps: u32,
+    max_kbps: u32,
+    start_kbps: u32,
+    frames_in_flight: u32,
+) -> SessionCfg {
+    SessionCfg {
+        display: display.to_owned(),
+        max_fps,
+        start_kbps,
+        max_kbps,
+        preset: String::new(),
+        profile: opts.str_or("profile", "high"),
+        codec: opts.str_or("codec", crate::host::DEFAULT_CODEC),
+        content: "screen".into(),
+        openh264_lib: None,
+        threads: crate::encoder::default_threads(),
+        stats_every_ms: 1000,
+        settle_us: crate::host::DEFAULT_SETTLE_US,
+        upstream_record: None,
+        upstream_record_max_bytes: 0,
+        max_width: setup.max_width,
+        // On by default: the frame that shows an input's effect goes out at once instead of
+        // waiting out the frame-rate interval. `--input-frame-now 0` turns it off.
+        input_frame_now: opts.flag_or("input-frame-now", true),
+        frames_in_flight,
+        capture,
+    }
+}
+
 /// Waits for the link and the viewer's hello and start, then streams.
 fn serve_session(
     opts: &Opts,
@@ -375,6 +412,29 @@ fn serve_session(
     carrier: &mut ServeCarrier,
 ) -> Res<String> {
     let started = Instant::now();
+    // The viewer's rate wins; else the display's refresh rate (60 when it cannot be read).
+    let max_fps = setup.max_fps.unwrap_or_else(|| crate::desktop::default_max_fps(display));
+    let max_kbps = opts.num_or("max-kbps", 50_000)?;
+    let start_kbps = |path_kind: Option<&str>, path_medium: Option<&str>, rtt_us: Option<u64>| {
+        opts.num_or("start-kbps", default_start_kbps(path_kind, path_medium, rtt_us, max_kbps))
+    };
+    // macOS: the desktop opens while the link connects. ScreenCaptureKit's start and first
+    // frame took about 1 s when they ran after the viewer's Start (95% of its first frame).
+    // It opens at the bitrate of an unknown path; Start sets the path's.
+    #[cfg(target_os = "macos")]
+    let opening = crate::desktop::open_ahead(
+        &session_cfg(
+            opts,
+            setup,
+            display,
+            capture,
+            max_fps,
+            max_kbps,
+            start_kbps(None, None, None)?,
+            2,
+        ),
+        crate::desktop::reports_cursor(),
+    );
     let mut hello = None;
     let mut start = None;
     // The current path's class and medium (wire names), from the last path change.
@@ -475,43 +535,24 @@ fn serve_session(
             return Ok(format!("refused: {reason:?}"));
         }
     };
-    let display = display.to_owned();
-    // The viewer's rate wins; else the display's refresh rate (60 when it cannot be read).
-    let max_fps = setup.max_fps.unwrap_or_else(|| crate::desktop::default_max_fps(&display));
-    let max_kbps = opts.num_or("max-kbps", 50_000)?;
-    let start_kbps = opts.num_or(
-        "start-kbps",
-        default_start_kbps(path_kind, path_medium, carrier.link.rtt_us, max_kbps),
-    )?;
-    let cfg = SessionCfg {
-        display,
-        max_fps,
-        start_kbps,
-        max_kbps,
-        preset: String::new(),
-        profile: opts.str_or("profile", "high"),
-        codec: opts.str_or("codec", crate::host::DEFAULT_CODEC),
-        content: "screen".into(),
-        openh264_lib: None,
-        threads: crate::encoder::default_threads(),
-        stats_every_ms: 1000,
-        settle_us: crate::host::DEFAULT_SETTLE_US,
-        upstream_record: None,
-        upstream_record_max_bytes: 0,
-        max_width: setup.max_width,
-        // On by default: the frame that shows an input's effect goes out at once instead of
-        // waiting out the frame-rate interval. `--input-frame-now 0` turns it off.
-        input_frame_now: opts.flag_or("input-frame-now", true),
-        // Enough frames in flight to cover the path's round trip, at least two: the next
-        // frame encodes while the last one waits for its acknowledgement.
-        frames_in_flight: carrier
-            .link
-            .rtt_us
-            .map_or(2, |rtt| cmux_rd_engine::frames_in_flight_for(rtt, max_fps))
-            .max(2),
-        capture,
-    };
-    let mut media = MediaSession::open(&cfg, MAX_DATAGRAM, &negotiated.caps, sink)?;
+    let start_kbps = start_kbps(path_kind, path_medium, carrier.link.rtt_us)?;
+    // Enough frames in flight to cover the path's round trip, at least two: the next
+    // frame encodes while the last one waits for its acknowledgement.
+    let frames_in_flight = carrier
+        .link
+        .rtt_us
+        .map_or(2, |rtt| cmux_rd_engine::frames_in_flight_for(rtt, max_fps))
+        .max(2);
+    let cfg =
+        session_cfg(opts, setup, display, capture, max_fps, max_kbps, start_kbps, frames_in_flight);
+    let mut media =
+        MediaSession::open_with(&cfg, MAX_DATAGRAM, &negotiated.caps, sink, |cursor_metadata| {
+            #[cfg(target_os = "macos")]
+            if let Some(opened) = opening.and_then(|o| o.finish(cursor_metadata, cfg.start_kbps)) {
+                return opened;
+            }
+            crate::desktop::open(&cfg, cursor_metadata)
+        })?;
     let (width, height) = media.size();
     carrier.send_control(&Control::Welcome {
         encoder: media.encoder_name(),

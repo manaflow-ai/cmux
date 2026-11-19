@@ -65,6 +65,13 @@ pub struct MacFrames {
 /// Starts the display's capture and opens both halves of the session's desktop.
 /// `cursor_metadata`: capture without the cursor and report it through `Desktop::cursor`.
 pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
+    let (desktop, frames) = open_halves(cfg, cursor_metadata)?;
+    Ok((Box::new(desktop), Box::new(frames)))
+}
+
+/// [`open`]'s halves as their own types, which are `Send`: `desktop::open_ahead` opens them
+/// on another thread.
+pub fn open_halves(cfg: &SessionCfg, cursor_metadata: bool) -> Res<(MacDesktop, MacFrames)> {
     if cfg.codec != "videotoolbox" {
         return Err(format!(
             "codec {} is not available on a macOS host (it encodes captured surfaces with videotoolbox)",
@@ -75,7 +82,8 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
     let cursor_metadata = cursor_metadata && cursor::available();
     let capture =
         Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, !cursor_metadata)?;
-    capture.wait_first_frame(FIRST_FRAME_TIMEOUT_NS)?;
+    // The size is set when the stream starts: the encoder session (about 100 ms) is made
+    // while ScreenCaptureKit delivers its first frame, not after it.
     let (width, height) = capture.size();
     let encoder = VideoToolbox::new(
         width,
@@ -84,6 +92,7 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
         cfg.start_kbps,
         cfg.profile == "baseline",
     )?;
+    capture.wait_first_frame(FIRST_FRAME_TIMEOUT_NS)?;
     let name =
         format!("{} from screencapturekit iosurface", cmux_encode::H264Encoder::name(&encoder));
     let injector = Injector::new(capture.bounds(), (width, height))?;
@@ -99,7 +108,7 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
     };
     let cursor =
         cursor_metadata.then(|| cursor::CursorReader::new(capture.bounds(), (width, height)));
-    Ok((Box::new(MacDesktop { capture, injector, cursor }), Box::new(frames)))
+    Ok((MacDesktop { capture, injector, cursor }, frames))
 }
 
 impl Desktop for MacDesktop {

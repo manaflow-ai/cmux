@@ -233,8 +233,22 @@ impl MediaSession {
         negotiated_caps: &[String],
         sink: Box<dyn UpstreamSink>,
     ) -> Res<Self> {
+        Self::open_with(cfg, max_datagram, negotiated_caps, sink, |cursor_metadata| {
+            crate::desktop::open(cfg, cursor_metadata)
+        })
+    }
+
+    /// [`MediaSession::open`] with the desktop from `open_desktop`, called with whether the
+    /// viewer draws the cursor (serve's desktop opened ahead of Start, `desktop::open_ahead`).
+    pub fn open_with(
+        cfg: &SessionCfg,
+        max_datagram: usize,
+        negotiated_caps: &[String],
+        sink: Box<dyn UpstreamSink>,
+        open_desktop: impl FnOnce(bool) -> Res<crate::desktop::Halves>,
+    ) -> Res<Self> {
         let open_us = now_us();
-        let (desktop, frames) = crate::desktop::open(cfg, wants_cursor(negotiated_caps))?;
+        let (desktop, frames) = open_desktop(wants_cursor(negotiated_caps))?;
         let ready_us = now_us();
         let mut session =
             Self::with_desktop(desktop, frames, cfg, max_datagram, negotiated_caps, sink)?;
