@@ -98,6 +98,12 @@ machine (a stopped machine fails the run), editing the body (delete and make it 
   runs the latest missed minute once, late, and skips the older one with its reason) and
   `automations-failure` (a failed run with its reason and log). `cmux automation show-page --name
   NAME` opens one automation with its newest log.
+- Live, on a fleet Mac (2026-11-19, `tests/automation_live_journey.rs`, fleet step key
+  `a-auto7-automation-live`, 211 s, real runner, real clock): `Every minute` ran at its minute
+  (succeeded, 0 s late); the runner was off for 150 s, then on again: the newest missed minute ran
+  once, 31 s late, and the older one was recorded as skipped `superseded`; `Nightly build` failed
+  with reason `exit_3`, its log holds `building` and `error: 2 tests failed`, and the list shows one
+  unread failure.
 
 Not built here (next): worktree-per-run, saved "always allow" per
 automation, failover between machines (platonic ideal section 4), archive and bulk mark-read.
