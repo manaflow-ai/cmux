@@ -913,8 +913,10 @@ class FilmsCase(unittest.TestCase):
     def test_the_group_cap_is_the_6_films_with_a_speed_and_the_group_kinds_stays_the_9(self):
         ids = [spec["id"] for spec in M.FILMS]
         self.assertEqual([i for i in ids if M.GROUPS["cap"](i)], ["T-C", "T-Z.2", "T-ZT", "T-C.N", "T-Z.N", "T-ZT.N"])
-        # (The 8 films of the group `pages` have a speed too, and they are no films of the group `cap`.)
-        self.assertEqual({spec["id"]: spec["speed"] for spec in M.FILMS if spec.get("speed") and not M.GROUPS["pages"](spec["id"])},
+        # (The 8 films of the group `pages` and the 2 new films of the group `close` have a speed too, and they are no
+        # films of the group `cap`.)
+        self.assertEqual({spec["id"]: spec["speed"] for spec in M.FILMS
+                          if spec.get("speed") and not M.GROUPS["pages"](spec["id"]) and spec["id"] not in ("B-C", "A-C")},
                          {"T-C": "fast", "T-Z.2": "fast", "T-ZT": "fast", "T-C.N": "normal", "T-Z.N": "normal", "T-ZT.N": "normal"})
         self.assertEqual([i for i in ids if M.GROUPS["kinds"](i)], [f"{kind}-{act}" for kind in "TBA" for act in ("D", "SD", "Z")])
         self.assertEqual(len(ids), len(set(ids)))
@@ -1662,6 +1664,45 @@ class FilmsCase(unittest.TestCase):
         row, world = report["films"][0], launches[-1].world
         self.assertEqual((code, row["status"], row["left_open"]), (1, "not_made", []))
         self.assertEqual([pane["id"] for pane in world.spaces[HOME]["panes"]], ["pane-of-home"])
+
+    def test_the_group_close_is_a_split_with_its_close_on_each_of_the_3_pane_kinds(self):
+        ids = [spec["id"] for spec in M.FILMS]
+        specs = {spec["id"]: spec for spec in M.FILMS}
+        close = [i for i in ids if M.GROUPS["close"](i)]
+        self.assertEqual(close, ["T-C", "B-C", "A-C"])
+        # Each one has the speed `fast` set and read back, so its row has the app's spans: `made` only with the 2
+        # `layout` spans of its 2 acts. The close goes to the NEW pane only (the read between the 2 keys).
+        self.assertEqual([(specs[i]["setup"], specs[i]["acts"], specs[i]["speed"], specs[i]["springs"], specs[i]["layout"]) for i in close],
+                         [(kind, M.SPLIT_CLOSE, "fast", ("split", "paneClose"), (2, 2)) for kind in "TBA"])
+        self.assertEqual([specs[i]["title"] for i in ("B-C", "A-C")], ["A split, then a close, in a row of 2 loaded browser pages, speed fast",
+                                                                      "A split, then a close, in a row of 2 chats with a thread that streams, speed fast"])
+        # The 2 new films are films of no older group, and each older group keeps its films.
+        self.assertFalse([i for i in ("B-C", "A-C") if any(M.GROUPS[group](i) for group in ("kinds", "mixed", "plist", "extra", "cap", "pages"))])
+        self.assertEqual([i for i in ids if M.GROUPS["kinds"](i)], [f"{kind}-{act}" for kind in "TBA" for act in ("D", "SD", "Z")])
+        self.assertEqual([i for i in ids if M.GROUPS["cap"](i)], ["T-C", "T-Z.2", "T-ZT", "T-C.N", "T-Z.N", "T-ZT.N"])
+        self.assertEqual(len([i for i in ids if M.GROUPS["pages"](i)]), 8)
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_the_films_of_the_group_close_are_made_with_the_close_of_the_new_pane_and_2_layout_spans(self):
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "close")
+        rows = report["films"]
+        self.assertEqual((code, [(row["id"], row["status"], row["panes"], row["panes_before"], row["panes_after"], row["layout_spans"]) for row in rows]),
+                         (0, [("T-C", "made", ["redraw", "stream"], 2, 2, 2), ("B-C", "made", ["page", "page"], 2, 2, 2),
+                              ("A-C", "made", ["chat", "chat"], 2, 2, 2)]))
+        for row in rows:
+            self.assertEqual((row["keys"], [act["label"] for act in row["acts"]], row["acts"][1]["new_pane"], row["speed"]),
+                             ("Cmd-D, Cmd-W", ["Cmd-D", "read: the tabs of the pane with the focus", "Cmd-W"], True, "fast"), row["id"])
+            self.assertIn("the new pane before the close, the `layout` spans", row["act_check"], row["id"])
+        # The chat film alone needs the page mock: 2 launches, as for the group `kinds`.
+        self.assertEqual(([row["agent_page_mock"] for row in rows], len(launches)), ([False, False, True], 2))
+
+    def test_a_close_film_of_a_page_or_a_chat_set_up_sends_no_close_to_a_pane_of_the_set_up(self):
+        code, report, lines, launches = self.run_films({"split-keeps-focus"}, "--films", "B-C,A-C", "--launch-form", "one-key")
+        rows = report["films"]
+        self.assertEqual((code, [(row["id"], row["status"], [act["label"] for act in row["acts"]]) for row in rows]),
+                         (1, [(i, "not_made", ["Cmd-D", "read: the tabs of the pane with the focus"]) for i in ("B-C", "A-C")]))
+        for row in rows:
+            self.assertIn(M.NO_NEW_PANE, row.get("reason", ""), row["id"])
 
 
 if __name__ == "__main__":
