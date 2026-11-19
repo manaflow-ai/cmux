@@ -2,7 +2,7 @@
 //! the branch and makes a fresh worktree of it on the target (`run/session_move.rs`); this adds
 //! what the branch lacks, so the agent finds its folder there as it left it here.
 //!
-//! - [`snapshot`] reads the index against HEAD and then the working tree against that index:
+//! - [`snapshot`] reads the index and final working tree independently against HEAD:
 //!   tracked changes, deletions and untracked files that are not ignored are carried as binary
 //!   patches while staged and unstaged changes stay distinct. It goes through a copy of the index,
 //!   so the person's index, working tree and refs never change (the seed's way,
@@ -18,14 +18,14 @@
 //! VM or a mini on an older build still gives up its changes and takes them. On another machine
 //! a registry file (`.npmrc`, `.pypirc`) is not read for a token, so it stays there.
 //!
-//! The target receives the staged patch in its index and the remaining patch in its working tree;
+//! The target receives the index snapshot and final working tree snapshot separately;
 //! the source keeps its own copy: the chat never runs here again, so nothing writes it.
 
 use crate::cli::hosts::RemoteOut;
 use anyhow::{Context as _, Result, anyhow, bail};
 use base64::Engine as _;
 use serde_json::{Value, json};
-use std::path::Path;
+use std::{collections::BTreeSet, path::Path};
 
 /// Runs one of the fixed scripts where the folder is, its stdin given.
 pub(crate) type Exec<'a> = &'a dyn Fn(&str, &[u8]) -> Result<RemoteOut>;
@@ -34,7 +34,7 @@ pub(crate) type Exec<'a> = &'a dyn Fn(&str, &[u8]) -> Result<RemoteOut>;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Carry {
     pub base: String,
-    /// `git diff --binary` from `base` to the working tree; empty when nothing is carried.
+    /// `git diff --binary` from `base` to the working tree; empty when the final worktree matches `base`.
     pub patch: Vec<u8>,
     /// `git diff --cached --binary` from `base` to the source index.
     pub staged_patch: Vec<u8>,
@@ -49,7 +49,7 @@ impl Carry {
     pub fn record(&self) -> Value {
         let left: Vec<Value> =
             self.left_out.iter().map(|(p, why)| json!({"path": p, "why": why})).collect();
-        json!({"files": self.files, "bytes": self.patch.len(), "leftOut": left})
+        json!({"files": self.files, "bytes": self.staged_patch.len() + self.patch.len(), "leftOut": left})
     }
 }
 
@@ -65,8 +65,8 @@ base64 <"$s" | tr -d '\n'
 echo"#;
 
 /// The fixed script that makes the patches: the top folder, the base commit and the untracked
-/// files to add (NUL-separated, base64) on three lines of stdin. Prints the number of files the
-/// final patch touches, the staged and final patch sizes, then both patches in base64, whatever
+/// files to add (NUL-separated, base64) on three lines of stdin. Prints the changed paths
+/// (NUL-separated, base64), staged and final patch sizes, then both patches in base64, whatever
 /// their size: a move never leaves work behind for being large. Exit 4: HEAD is no longer the
 /// base.
 const PATCH_SCRIPT: &str = r#"read -r top || exit 2; read -r base || exit 2; read -r keep
@@ -89,6 +89,7 @@ else git read-tree HEAD || exit 3; fi
 GIT_LITERAL_PATHSPECS=1; export GIT_LITERAL_PATHSPECS
 g() { git -c core.fsmonitor=false -c core.quotepath=false "$@"; }
 g diff --cached --binary --full-index --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ "$base" >"$s/staged" || exit 3
+g diff --cached --name-only -z --no-renames "$base" >"$s/names" || exit 3
 # `--sparse`: a sparse checkout's changes inside its cone carry like any other.
 g add --sparse --update -- . || exit 3
 if [ -n "$keep" ]; then
@@ -96,8 +97,9 @@ if [ -n "$keep" ]; then
   g add --sparse --pathspec-from-file="$s/keep" --pathspec-file-nul -- || exit 3
 fi
 tree=$(g write-tree) || exit 3
-g diff --name-only -z --no-renames "$base" "$tree" >"$s/names" || exit 3
-tr -cd '\000' <"$s/names" | wc -c | tr -d ' '
+g diff --name-only -z --no-renames "$base" "$tree" >>"$s/names" || exit 3
+base64 <"$s/names" | tr -d '\n'
+echo
 wc -c <"$s/staged" | tr -d ' '
 g diff --binary --full-index --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ "$base" "$tree" >"$s/patch" || exit 3
 size=$(wc -c <"$s/patch" | tr -d ' ')
@@ -161,8 +163,10 @@ pub(crate) fn snapshot(exec: Exec<'_>, top: &Path, local: bool) -> Result<Carry>
         return Err(failed(&out, "reading the uncommitted changes"));
     }
     let mut lines = out.stdout.lines();
+    let names = decode(lines.next().unwrap_or_default()).context("the changed paths")?;
+    let files = names.split(|b| *b == 0).filter(|p| !p.is_empty()).collect::<BTreeSet<_>>().len();
     let mut number = || lines.next().and_then(|l| l.trim().parse::<usize>().ok());
-    let (Some(files), Some(staged_size), Some(size)) = (number(), number(), number()) else {
+    let (Some(staged_size), Some(size)) = (number(), number()) else {
         bail!("reading the uncommitted changes answered no counts");
     };
     let staged_patch = decode(lines.next().unwrap_or_default()).context("the staged patch")?;
@@ -193,7 +197,7 @@ fn leave_out(_top: &Path, _relative: &[u8]) -> Option<&'static str> {
 }
 
 /// The fixed script that applies carried patches in the chat's new folder on the target: the
-/// folder, base commit, staged patch and final worktree patch are base64 lines on stdin. The
+/// folder and base commit are plain lines, followed by base64 staged and final worktree patches. The
 /// staged patch updates only the index; the final patch updates only the worktree. Exit 4: the
 /// worktree there is not at the base.
 pub(crate) const APPLY_SCRIPT: &str = r#"read -r d || exit 2; read -r base || exit 2; read -r staged || exit 2; read -r patch || exit 2
