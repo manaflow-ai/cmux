@@ -106,16 +106,32 @@ public nonisolated struct CloudMoveCLI: Sendable {
         /// `machine` was made for this send by this plan (the platform's workspace machine it created now): a start
         /// that can't go on deletes it, as one the App made for it. A machine it found or a reservation it bound is never deleted.
         public var madeForSend: Bool = false
+        /// The route the sent create took (the ledger's, from `create-sent --route`); nil: not sent, or sent on the
+        /// relay before routes were kept. A retry takes it: the server keeps each key per caller.
+        public var createRoute: CloudCreateRoute?
+        /// The ledger keeps a sent create's route (this cmux-tui and this app's Rust core both know it). Without it a
+        /// retry could not tell a direct send from a relayed one, so every create of the start is the relay's.
+        public var keepsCreateRoute: Bool = false
 
         public init(machine: String? = nil, newName: String? = nil, createKey: String, tabKey: String,
                     environmentId: String? = nil, setup: CloudStartSetup? = nil, targetPane: String? = nil,
-                    createTeam: String? = nil, createSent: Bool = false, madeForSend: Bool = false) {
+                    createTeam: String? = nil, createSent: Bool = false, madeForSend: Bool = false,
+                    createRoute: CloudCreateRoute? = nil, keepsCreateRoute: Bool = false) {
             (self.machine, self.newName, self.createKey, self.tabKey, self.targetPane) = (machine, newName, createKey, tabKey, targetPane)
             (self.createTeam, self.createSent, self.environmentId, self.setup) = (createTeam, createSent, environmentId, setup)
-            self.madeForSend = madeForSend
+            (self.madeForSend, self.createRoute, self.keepsCreateRoute) = (madeForSend, createRoute, keepsCreateRoute)
         }
 
-        enum CodingKeys: String, CodingKey { case machine, newName, createKey, tabKey, targetPane, createTeam, createSent, environmentId, setup, madeForSend }
+        /// Whether the app's create for this start may go straight to the Cloud API as the person (`ownCreate`):
+        /// only a start the person's own gesture in this app began (`personsOwnRun`), on a ledger that keeps the
+        /// route, and not after the direct route refused this start once (`relayOnly`). The request then picks the
+        /// route (``CloudMachineRequest/createRoute(personsOwnCreate:team:)``): a sent key keeps its first.
+        public func ownCreate(personsOwnRun: Bool, relayOnly: Bool = false) -> Bool { keepsCreateRoute && personsOwnRun && !relayOnly }
+
+        /// The route to record with a send on `route`: nil for a ledger that keeps none (it takes no `--route`).
+        public func recorded(_ route: CloudCreateRoute) -> CloudCreateRoute? { keepsCreateRoute ? route : nil }
+
+        enum CodingKeys: String, CodingKey { case machine, newName, createKey, tabKey, targetPane, createTeam, createSent, environmentId, setup, madeForSend, createRoute, keepsCreateRoute }
 
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -129,6 +145,9 @@ public nonisolated struct CloudMoveCLI: Sendable {
             environmentId = try container.decodeIfPresent(String.self, forKey: .environmentId)
             setup = try container.decodeIfPresent(CloudStartSetup.self, forKey: .setup)
             madeForSend = try container.decodeIfPresent(Bool.self, forKey: .madeForSend) ?? false
+            // A route this app does not know is none: with the create sent, that is the relay (``CloudMachineRequest/createRoute(personsOwnCreate:team:)``).
+            createRoute = try container.decodeIfPresent(String.self, forKey: .createRoute).flatMap(CloudCreateRoute.init(rawValue:))
+            keepsCreateRoute = try container.decodeIfPresent(Bool.self, forKey: .keepsCreateRoute) ?? false
         }
     }
 
@@ -450,8 +469,12 @@ public nonisolated struct CloudMoveCLI: Sendable {
         (try await run(["verb": "start-chat-create-begin", "key": key, "account": account, "name": name, "createKey": createKey]).answer, ())
     }
 
-    public func startChatCreateSent(key: String, account: String, team: String, createKey: String) async throws -> (Answer, Void) {
-        (try await run(["verb": "start-chat-create-sent", "key": key, "account": account, "team": team, "createKey": createKey]).answer, ())
+    /// `route`: how the create goes out, kept with its key (``StartChatPlan/recorded(_:)``; nil names none, the relay).
+    /// A key already sent on the other route is refused, before anything goes out.
+    public func startChatCreateSent(key: String, account: String, team: String, createKey: String, route: CloudCreateRoute? = nil) async throws -> (Answer, Void) {
+        var call = ["verb": "start-chat-create-sent", "key": key, "account": account, "team": team, "createKey": createKey]
+        if let route { call["route"] = route.rawValue }
+        return (try await run(call).answer, ())
     }
 
     public func startChatCreateRefused(key: String, account: String, createKey: String) async throws -> (Answer, Void) {

@@ -196,10 +196,10 @@ fn main() -> std::process::ExitCode {
             }
         }
         Some(
-            tool @ ("zoom" | "date" | "spawn" | "tell" | "peers" | "react" | "reply" | "send"
-            | "stop" | "sleep" | "watch" | "remember" | "transcript" | "control"
-            | "profile" | "chiefs" | "escalate-auth" | "escalate_auth" | "cloud-workspace"
-            | "cloud_workspace"),
+            tool @ ("zoom" | "date" | "recall" | "memory_read" | "memory_write" | "memory_forget"
+            | "spawn" | "tell" | "peers" | "react" | "reply" | "send" | "stop" | "sleep"
+            | "watch" | "remember" | "transcript" | "control" | "profile" | "chiefs"
+            | "escalate-auth" | "escalate_auth" | "cloud-workspace" | "cloud_workspace"),
         ) => {
             let socket = flags
                 .value("socket")
@@ -401,6 +401,10 @@ fn main() -> std::process::ExitCode {
                                 optchat_chief::chief_settings::TRUSTED_AGENTS => {
                                     s.trusted_agents =
                                         optchat_chief::chief_settings::parse_trusted_agents(value)?
+                                }
+                                optchat_chief::chief_settings::RELAY_MCP_SERVERS => {
+                                    s.relay_mcp_servers =
+                                        optchat_chief::chief_settings::parse_mcp_servers(value)?
                                 }
                                 _ => return Err(format!("unknown setting {key:?}")),
                             }
