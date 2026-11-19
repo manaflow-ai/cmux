@@ -49,17 +49,20 @@ const imageReads = () => h.upstream.callsTo("GET", /^\/v5\/snapshots\//);
 /** The provider calls made so far, as `METHOD path-kind`, in order. */
 const providerCalls = () => h.upstreamRequests.map((call) => `${call.method} ${call.path.replace(/^\/v5\/vms\/cmux-vm-.*$/u, "/v5/vms/<slug>").replace(/^\/v5\/snapshots\/.*$/u, "/v5/snapshots/<id>").replace(/^\/v5\/vms\/[^/]+\/resize$/u, "/v5/vms/<id>/resize").replace(/^\/v5\/vms\/vm-[^/]+$/u, "/v5/vms/<id>")}`);
 
-/** Collects the vm_create log lines while `run` runs. */
-const createLines = async (run: () => Promise<void>) => {
+/** Collects the JSON log lines of one event while `run` runs. */
+const linesOf = async (event: string, run: () => Promise<void>) => {
   const lines: Array<Record<string, unknown>> = [];
   const spy = vi.spyOn(console, "error").mockImplementation((line: unknown) => {
     if (typeof line !== "string" || !line.startsWith("{")) return;
     const parsed = record(JSON.parse(line));
-    if (parsed["event"] === "vm_create") lines.push(parsed);
+    if (parsed["event"] === event) lines.push(parsed);
   });
   try { await run(); } finally { spy.mockRestore(); }
   return lines;
 };
+const createLines = (run: () => Promise<void>) => linesOf("vm_create", run);
+const BOTH = { createSwitches: { sizedImageServiceIds: [SERVICE], noReadsServiceIds: [SERVICE] } } satisfies HarnessOptions;
+const OTHER_LARGE = "operator-image-large-rebaked-fixture";
 
 describe("an approved image's large snapshot", () => {
   it("boots when the create asks for exactly its size, and no resize follows", async () => {
@@ -181,7 +184,132 @@ describe("an approved image's large snapshot", () => {
   });
 });
 
+describe("a retry after the entry lost or replaced its large snapshot", () => {
+  /** Attempt 1 boots the large snapshot, loses the create's answer and cannot read the slug: the VM exists, unrecorded. */
+  const lostLargeBoot = async (requestKey: string) => {
+    await harness(BOTH);
+    const key = await serviceKey();
+    h.upstream.faults.lostCreateResponses = 1;
+    h.upstream.fail("get", 500);
+    expect((await imageCreate(key, LARGE_SHAPE, requestKey)).status).toBe(503);
+    expect(providerCalls()).toEqual(["POST /v5/vms", "GET /v5/vms/<slug>"]);
+    expect(h.upstream.vms.size).toBe(1);
+    expect(h.resources.filter((row) => row.kind === "vm")).toHaveLength(0);
+    return key;
+  };
+
+  for (const [what, catalog] of [["dropped", [ENTRY]], ["replaced", [{ ...ENTRY, large: { snapshotId: OTHER_LARGE, ...LARGE_SHAPE } }]]] as const) {
+    it(`returns the VM the first attempt made when the entry's large snapshot was ${what}, and creates no second one`, async () => {
+      const key = await lostLargeBoot(`one-call-large-${what}`);
+      h.upstream.snapshots.set(OTHER_LARGE, { id: OTHER_LARGE, sourceVmId: "operator-image-source", autoDeleteSeconds: null, resources: { cpu: 4, memory: 16384, storage: 65536 } });
+      h.setBootImages(JSON.stringify(catalog));
+      let retry: Response | undefined;
+      const lines = await createLines(async () => { retry = await imageCreate(key, LARGE_SHAPE, `one-call-large-${what}`); });
+      expect(retry?.status).toBe(201);
+      expect(JSON.parse(await retry!.text())).toMatchObject({ resources: LARGE_SHAPE, bootImage: { ...IMAGE, displayName: "Cloud standard" } });
+      expect(providerCreates().map((call) => record(call.json)["snapshotId"])).toEqual([LARGE]);
+      expect(providerCalls()).toEqual(["POST /v5/vms", "GET /v5/vms/<slug>", "GET /v5/vms/<slug>"]);
+      expect(providerResizes()).toHaveLength(0);
+      expect(h.upstream.vms.size).toBe(1);
+      expect(h.resources.filter((row) => row.kind === "vm")).toHaveLength(1);
+      expect(lines[0]).toMatchObject({ ok: true, recovered: true, imageVariant: "unlisted", createMs: null });
+    });
+  }
+
+  it("does not adopt a VM at the slug booted from another snapshot than the one journaled", async () => {
+    const key = await lostLargeBoot("one-call-large-foreign");
+    for (const vm of h.upstream.vms.values()) vm.snapshotId = "some-other-snapshot";
+    h.setBootImages(JSON.stringify([ENTRY]));
+    expect((await imageCreate(key, LARGE_SHAPE, "one-call-large-foreign")).status).toBe(503);
+    expect(providerCreates()).toHaveLength(1);
+    expect(h.resources.filter((row) => row.kind === "vm")).toHaveLength(0);
+  });
+
+  it("creates nothing from the entry as it is now when the first attempt made nothing", async () => {
+    await harness(BOTH);
+    const key = await serviceKey();
+    h.upstream.fail("create", 500);
+    expect((await imageCreate(key, LARGE_SHAPE, "one-call-large-nothing")).status).toBe(503);
+    h.setBootImages(JSON.stringify([ENTRY]));
+    expect((await imageCreate(key, LARGE_SHAPE, "one-call-large-nothing")).status).toBe(503);
+    expect(providerCreates()).toHaveLength(1);
+    expect(h.upstream.vms.size).toBe(0);
+  });
+});
+
+describe("a large snapshot that boots bigger than was asked", () => {
+  it("is deleted and the create fails, with nothing recorded", async () => {
+    await harness(SIZED);
+    // The entry says 4 vCPU / 16 GiB / 64 GiB; the snapshot really boots with a 128 GiB disk.
+    h.upstream.snapshots.set(LARGE, { id: LARGE, sourceVmId: "operator-image-source", autoDeleteSeconds: null, resources: { cpu: 4, memory: 16384, storage: 131072 } });
+    const key = await serviceKey();
+    let made: Response | undefined;
+    const lines = await createLines(async () => { made = await imageCreate(key, LARGE_SHAPE, "one-call-oversized"); });
+    expect(made?.status).toBe(503);
+    expect(providerCreates().map((call) => record(call.json)["snapshotId"])).toEqual([LARGE]);
+    expect(h.upstream.vms.size).toBe(0);
+    expect(h.resources.filter((row) => row.kind === "vm")).toHaveLength(0);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ ok: false, imageVariant: "large", oversized: true });
+  });
+
+  it("is not adopted by a retry when its delete failed", async () => {
+    await harness(SIZED);
+    h.upstream.snapshots.set(LARGE, { id: LARGE, sourceVmId: "operator-image-source", autoDeleteSeconds: null, resources: { cpu: 8, memory: 16384, storage: 65536 } });
+    const key = await serviceKey();
+    h.upstream.fail("delete", 500);
+    const discards = await linesOf("vm_create_discard_failed", async () => {
+      expect((await imageCreate(key, LARGE_SHAPE, "one-call-oversized-kept")).status).toBe(503);
+    });
+    expect(discards).toHaveLength(1);
+    expect(discards[0]).toMatchObject({ reason: "oversized", status: 500 });
+    expect(String(discards[0]!["vmId"])).toMatch(/^vm_/u);
+    expect(JSON.stringify(discards[0])).not.toContain([...h.upstream.vms.keys()][0]);
+    expect(h.upstream.vms.size).toBe(1);
+    const lines = await createLines(async () => { expect((await imageCreate(key, LARGE_SHAPE, "one-call-oversized-kept")).status).toBe(503); });
+    expect(lines[0]).toMatchObject({ ok: false, oversized: true });
+    expect(h.resources.filter((row) => row.kind === "vm")).toHaveLength(0);
+    expect(providerCreates()).toHaveLength(1);
+  });
+
+  it("says oversized false on an ordinary create's line", async () => {
+    await harness(SIZED);
+    const key = await serviceKey();
+    const lines = await createLines(async () => { expect((await imageCreate(key, LARGE_SHAPE)).status).toBe(201); });
+    expect(lines[0]).toMatchObject({ imageVariant: "large", oversized: false });
+  });
+});
+
 describe("a create with no provider read before it", () => {
+  it("answers 503 for a create the provider failed with a 5xx, and sends no second create under the key inside the grace window", async () => {
+    await harness(NO_READS);
+    const key = await serviceKey();
+    h.upstream.fail("create", 500);
+    expect((await imageCreate(key, undefined, "one-call-5xx")).status).toBe(503);
+    // A 5xx does not prove nothing was made: the send stays uncertain, and a retry reads the slug but does not send.
+    expect(providerCalls()).toEqual(["POST /v5/vms", "GET /v5/vms/<slug>"]);
+    expect((await imageCreate(key, undefined, "one-call-5xx")).status).toBe(503);
+    expect(providerCalls()).toEqual(["POST /v5/vms", "GET /v5/vms/<slug>", "GET /v5/vms/<slug>"]);
+    expect(h.upstream.vms.size).toBe(0);
+  });
+
+  it("logs a mismatched VM whose delete failed", async () => {
+    await harness(NO_READS);
+    const key = await serviceKey();
+    const provider = h.upstream.fetch;
+    h.upstream.fetch = async (request) => {
+      const answer = await provider(request);
+      if (request.method !== "POST" || new URL(request.url).pathname !== "/v5/vms" || answer.status !== 201) return answer;
+      return Response.json({ ...record(await answer.json()), snapshotId: "some-other-snapshot" }, { status: 201 });
+    };
+    h.upstream.fail("delete", 500);
+    const discards = await linesOf("vm_create_discard_failed", async () => { expect((await imageCreate(key)).status).toBe(503); });
+    expect(discards).toHaveLength(1);
+    expect(discards[0]).toMatchObject({ reason: "receipt", status: 500 });
+    expect(JSON.stringify(discards[0])).not.toContain([...h.upstream.vms.keys()][0]);
+    expect(h.resources.filter((row) => row.kind === "vm")).toHaveLength(0);
+  });
+
   it("sends only the create on a first attempt", async () => {
     await harness(NO_READS);
     const key = await serviceKey();
