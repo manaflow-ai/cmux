@@ -128,7 +128,7 @@ enum AgentHandlers {
         })
         registry.bind("palette.computerUse.accessibility", run: { _ in context.services.onboarding.computerUseSetup.open(.accessibility) })
         registry.bind("palette.computerUse.screenRecording", run: { _ in context.services.onboarding.computerUseSetup.open(.screenRecording) })
-        registry.bindAgentPane { invocation in
+        registry.bindAgentPane(customizeRows: { context.services.settings?.snapshot.customizeFromTheApp == true }) { invocation in
             if openOnHost(invocation, context: context) { return }
             openLocalChat(invocation, context: context)
         }
@@ -500,10 +500,16 @@ enum AgentHandlers {
             paneless = opensPaneless
         case nil: throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path))
         }
-        let pane = paneless ? nil : context.paneController(invocation)
-        guard paneless || pane != nil else { return }
         // Open as Text applies on the file's machine, including Cloud Markdown.
         let asText = invocation["asText"]?.boolValue ?? (invocation["asText"]?.stringValue == "true")
+        // A pane no window shows (an agent's workspace off screen): a tab there, the view unchanged (user, 2026-11-18).
+        if !paneless, target == .tab, let parked = context.parkedPane(invocation) {
+            if let reason = context.services.viewers.openFile(URL(fileURLWithPath: path), parkedIn: parked, userChose: invocation.origin == .user,
+                                                              asText: asText) { throw ActionFailure(message: reason) }
+            return
+        }
+        let pane = paneless ? nil : context.paneController(invocation)
+        guard paneless || pane != nil else { return }
         if let pane, !pane.daemon.isLocal {
             let url = URL(fileURLWithPath: path)
             switch rules.chatFileCheck(path: path, target: target.rawValue, remote: true) {

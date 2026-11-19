@@ -108,6 +108,7 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
+  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -578,6 +579,8 @@ import {
   cloudStartTeam,
   makeCloudSignInRetry,
   grantedCloudStart,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
@@ -4705,6 +4708,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setChooseFolder(start.chooseFolder);
   }, []);
   const earlyNewTab = useEarlyNewTabContext(callNative, takeEarlyNewTab, markContextKnown);
+  // A context that came with no shared part while this document keeps none: asked again (newtab/sharedPart.ts).
+  const checkSharedPart = useLostSharedPart(callNative, setNewTab);
   // Agent chats live in the window's one sidebar (Projects and Recents); the pane opens what it picks.
   const selectSession = useCallback((sessionId: string) => {
     newTabStartGeneration.current += 1;
@@ -4840,11 +4845,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// before anything is said. Cloud is still this chat's choice: its first Send starts the chat on a
   /// Cloud machine, and the host closes this tab with the empty chat (`replacesChat`, AgentPaneHandOff).
   /// Sandboxed is not: its run's result would be this chat's, which already is one.
+  /// A model pick of another agent on the empty chat (GPT-6.1 Sol on a Claude page) opens that agent's session here
+  /// at once, and the switch stays in flight until it settles: the chat is still empty and still this one's to replace,
+  /// so Cloud stays picked through it. Before, a Send in that window went to the new local session (cmux#45774).
   const emptyLocalChat =
     freshChat &&
     Boolean(snapshot.sessionId) &&
-    snapshot.summary?.sessionId === snapshot.sessionId &&
-    snapshot.switching === undefined &&
+    (snapshot.summary?.sessionId === snapshot.sessionId || snapshot.switching !== undefined) &&
+    snapshot.switching?.phase !== "failed" &&
     sessionSelection?.state !== "pending" &&
     surface !== "quick" &&
     !snapshot.summary?.peer &&
@@ -4852,8 +4860,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     snapshot.origin !== "remote" &&
     snapshot.origin !== "peer" &&
     cloudMachineID === undefined;
-  /// Cloud as where this new chat runs: wherever Sandboxed is, and in an empty local chat too.
-  const cloudOfferable = sandboxOfferable || emptyLocalChat;
+  /// A new chat whose only start is an agent or model pick (GPT-6.1 Sol on a Claude page): its switch
+  /// is no chat starting here, so Cloud stays offered and the pick goes with the Cloud start (cmux#45946).
+  const pickOnlyChat = pickOnlyNewChat({
+    fresh: freshChat,
+    sessionId: snapshot.sessionId,
+    summarySessionId: snapshot.summary?.sessionId,
+    switching: snapshot.switching !== undefined,
+    selectionPending: sessionSelection?.state === "pending",
+    quick: surface === "quick",
+  });
+  /// Cloud as where this new chat runs: wherever Sandboxed is, in an empty local chat, and on a page
+  /// that holds only a pick.
+  const cloudOfferable = sandboxOfferable || emptyLocalChat || pickOnlyChat;
   const cloudOffered = sandbox.checked && cloudOfferable;
   /// The chat a Cloud reserve made here names as the one its Send replaces: the empty local chat, else none.
   const cloudReserveReplaces = emptyLocalChat ? (snapshot.sessionId ?? undefined) : undefined;
@@ -4994,7 +5013,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   cloudComposeEligible.current = cloudPicked && cloudOfferable ? { replaces: cloudReserveReplaces } : false;
   const cloudPickedNotOffered = cloudPicked && !cloudOffered;
   const [startCloud] = useState(() =>
-    grantedCloudStart(reservedCloudCall(callNative, cloudReservation), cloudFolderGrant),
+    grantedCloudStart(
+      pickedChatCloudCall(reservedCloudCall(callNative, cloudReservation), (ms) => harnessSwitch.pickSession(ms)),
+      cloudFolderGrant,
+    ),
   );
   const [cloudStartKeys] = useState(() => makeCloudStartKeys());
   const [cloudStart, setCloudStart] = useState<CloudStartProgress>();
@@ -5448,7 +5470,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // A folder the host refused before binding the compose's reservation: that machine is given back now.
       if (!answer.ok && answer.code === "cloud_folder_too_big" && request.reservationKey)
         cloudReservation.returned(request.reservationKey);
-      if (answer.ok) cloudRetryFolder.current = undefined;
+      if (answer.ok) {
+        cloudRetryFolder.current = undefined;
+        // The chat opened on its machine: a pick's local session on this page (pickOnlyChat) is nobody's now.
+        harnessSwitch.cancel();
+      }
       setCloudStart((current) => cloudStartEnded(current, key, answer));
       if (!answer.ok && !cloudStartSaid(answer))
         notices.transient(translate("composer.offloadNotRun", { action: translate("composer.cloud") }));
@@ -5470,6 +5496,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     generation: newTabGeneration,
   });
   useEffect(() => {
+    // The empty chat's own first session (a model pick of another agent opened it at once, `emptyLocalChat`) is
+    // still this new chat: a Cloud start sent from it keeps its card, its held prompt and its reservation here.
+    // Dropping them hid the start and its failure, and the prompt with it (cmux#45774).
+    const shown = cloudShownView.current;
+    if (
+      shown.session === undefined &&
+      shown.generation === newTabGeneration &&
+      snapshot.sessionId !== undefined &&
+      sandbox.mode === "cloud" &&
+      emptyLocalChat
+    ) {
+      cloudShownView.current = { session: snapshot.sessionId, generation: newTabGeneration };
+      return;
+    }
     setSandboxDraftMoved(false);
     setSandboxViewing(false);
     sandboxWake.current = undefined;
@@ -8492,6 +8532,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // The early context lacks the folder the handshake filled in (seed, start folder) and, on a
         // cold page, the palette's actions whose places event came before its listener: add them.
         else if (!reconnect) setNewTab((current) => withHandshakeNewTab(current, host));
+        if (!reconnect) checkSharedPart(host.newTab);
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
         const seeded = composerDraft(host.draft);
@@ -10182,6 +10223,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     queryClient,
     toggleInspector,
     earlyNewTab,
+    checkSharedPart,
     restartGate,
     sandbox,
     cloudTypingPrewarm,
@@ -12747,12 +12789,27 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   (projectDraft ? cloudStartFolder(projectDraft) : composerCloudStartFolder(composerSnapshot.summary));
                 // Each send records its complete folder, so a Retry repeats this send's folder, never an older one's.
                 cloudRetryFolder.current = folder;
+                const held = heldPick(composerSnapshot);
+                const shownModel = composerSnapshot.summary?.model;
+                const cloudShownAgent = {
+                  harness: held.harness ?? composerSnapshot.summary?.harness ?? healthHarness,
+                  model: held.model ?? (shownModel && shownModel !== "default" ? shownModel : undefined),
+                };
                 const started = sendToCloud(
                   text,
                   shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
                   {
                     ...folder,
-                    ...heldPick(composerSnapshot),
+                    // The agent and model the composer shows, as the New Tab page's Cloud send names them
+                    // (cloudSendAgent): a pick held by a switch, else the chat's, else the picker's face. Before,
+                    // only a switch's pick went, so a page showing GPT-6.1 Sol started Claude on the machine.
+                    ...cloudSendAgent(
+                      composerSnapshot.catalog.find((entry) => entry.id === cloudShownAgent.harness)?.family,
+                      cloudShownAgent.harness ?? "",
+                      cloudShownAgent.model,
+                    ),
+                    // The Mode chip holds its pick under the chat's own harness (none on a blank page): the send
+                    // reads it there too, so a pick the chip shows is never dropped for the picker face's harness.
                     ...cloudStartModePick(composerSnapshot.summary?.harness),
                     // The picker's effort and account go with its model (cmux-tui/docs/model-connections.md).
                     ...cloudPickExtras(composerSnapshot.summary),
