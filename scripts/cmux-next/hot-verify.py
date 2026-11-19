@@ -167,11 +167,38 @@ def log(message: str) -> None:
     print(f"hot-verify: {message}", file=sys.stderr, flush=True)
 
 
+# A line where a tool says why it failed: cargo's and git's `error:`/`fatal:`, rustc's `error[E0425]:`, and a
+# compiler's `path:line:col: error: ...` (Zig, Swift, clang).
+ERROR_LINE = re.compile(r"(?:error(?:\[\w+\])?|fatal):\s|:\d+:\d+: error: ")
+
+
+def why_failed(output: str, most: int = 300) -> str:
+    """Why a tool failed, in at most MOST characters: its error lines, the last ones that fit, else the end of its
+    output. A failed cargo build ends with the build script's panic and "waiting for other jobs to finish",
+    so its last 300 characters hid the cause: `cmux app try .` on cmux17 (2026-11-19) said only "zig build of
+    libghostty-vt failed with exit status: 2", while the line before said "Your Zig version v0.16.0 does not meet
+    the required build version of v0.17.0"."""
+    text = (output or "").strip()
+    lines = [line.strip() for line in text.splitlines()]
+    # A panic's message is the line after `thread 'main' panicked at FILE:LINE:COL:` (a build script's own why).
+    said = [line for i, line in enumerate(lines)
+            if ERROR_LINE.search(line) or (i and line and "panicked at" in lines[i - 1])]
+    kept, size = [], 0
+    for line in reversed(said):
+        if line in kept:
+            continue
+        if kept and size + len(line) + 3 > most:
+            break
+        kept.append(line)
+        size += len(line) + 3
+    return " | ".join(reversed(kept))[:most] if kept else text[-most:]
+
+
 def git(repo: Path, *args: str, check: bool = True, env: dict | None = None, timeout: float = GIT_SECONDS) -> str:
     done = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, errors="replace",
                           env={**os.environ, "GIT_TERMINAL_PROMPT": "0", **(env or {})}, timeout=timeout)
     if check and done.returncode != 0:
-        raise Usage(f"git {' '.join(args[:3])}: {done.stderr.strip()[-300:]}")
+        raise Usage(f"git {' '.join(args[:3])}: {why_failed(done.stderr, 300)}")
     return done.stdout.strip() if done.returncode == 0 else ""
 
 
@@ -602,7 +629,7 @@ class Side:
         done = subprocess.run([str(self.script), args[0], self.name, *args[1:]], capture_output=True, text=True,
                               errors="replace", timeout=timeout)
         if done.returncode != 0:
-            raise LookError(f"side-instance.sh {args[0]} {self.name}: {(done.stderr or done.stdout).strip()[-300:]}")
+            raise LookError(f"side-instance.sh {args[0]} {self.name}: {why_failed(done.stderr or done.stdout, 300)}")
         return done.stdout.strip()
 
     def exists(self) -> bool:
@@ -773,7 +800,7 @@ class Shooter:
         done = subprocess.run(["screencapture", "-x", "-o", f"-l{wid}", str(path)], capture_output=True, text=True,
                               timeout=30)
         if done.returncode != 0 or not path.is_file() or path.stat().st_size == 0:
-            raise LookError(f"screencapture -l{wid}: {(done.stderr or done.stdout).strip()[-200:]}")
+            raise LookError(f"screencapture -l{wid}: {why_failed(done.stderr or done.stdout, 200)}")
         return "screencapture"
 
 
@@ -854,7 +881,7 @@ class Video:
         except (OSError, subprocess.TimeoutExpired):
             process.kill()
             _, err = process.communicate()
-        return (err or "").strip()[-300:]
+        return why_failed(err, 300)
 
     def stop(self) -> Path:
         if self.recorder is not None:
@@ -970,7 +997,7 @@ def swift_tool(source: Path, *flags: str) -> Path:
                               capture_output=True, text=True, timeout=300)
         if done.returncode != 0:
             part.unlink(missing_ok=True)
-            raise LookError(f"{name} did not compile: {done.stderr.strip()[-300:]}")
+            raise LookError(f"{name} did not compile: {why_failed(done.stderr, 300)}")
         os.replace(part, binary)
     return binary
 
@@ -1012,7 +1039,7 @@ def crop_video(mp4: Path, box: tuple[float, float, float, float], scale: float, 
     if done.returncode == 0 and dest.is_file() and dest.stat().st_size > 0:
         return None
     dest.unlink(missing_ok=True)
-    return (done.stderr or done.stdout).strip()[-300:] or f"crop-video exited {done.returncode}"
+    return why_failed(done.stderr or done.stdout, 300) or f"crop-video exited {done.returncode}"
 
 
 def cut_to_window(mp4: Path, frame: dict | None, display: tuple[float, float] | None) -> str | None:
@@ -1298,11 +1325,11 @@ def apply_web(repo: Path, planned: dict, src_tree: Path | None, side: Side, scra
         done = subprocess.run([str(HERE / "fetch-web-bundles.sh"), "--key", key, "--out", str(bundles)],
                               capture_output=True, text=True, timeout=APPLY_SECONDS)
         if done.returncode != 0:
-            raise LookError(f"fetch-web-bundles.sh --key {key[:12]}: {done.stderr.strip()[-300:]}")
+            raise LookError(f"fetch-web-bundles.sh --key {key[:12]}: {why_failed(done.stderr, 300)}")
         done = subprocess.run([str(HERE / "web-overlay.sh"), "install", str(bundles), "--commit", head], env=env,
                               capture_output=True, text=True, timeout=300)
         if done.returncode != 0:
-            raise LookError(f"web-overlay.sh install: {done.stderr.strip()[-300:]}")
+            raise LookError(f"web-overlay.sh install: {why_failed(done.stderr, 300)}")
         time.sleep(SETTLE_WEB)
         return {"how": "published bundles", "key": key}
     if not shutil.which("bun"):
@@ -1322,7 +1349,7 @@ def apply_web(repo: Path, planned: dict, src_tree: Path | None, side: Side, scra
     done = subprocess.run([str(HERE / "web-overlay.sh"), "server", "--local", "--worktree", str(tree), "--port",
                            str(port)], env=env, capture_output=True, text=True, timeout=APPLY_SECONDS)
     if done.returncode != 0:
-        raise LookError(f"web-overlay.sh server --local: {(done.stderr or done.stdout).strip()[-300:]}")
+        raise LookError(f"web-overlay.sh server --local: {why_failed(done.stderr or done.stdout, 300)}")
     time.sleep(SETTLE_DEV_SERVER)
     return {"how": "dev server", "port": port}
 
@@ -1337,7 +1364,7 @@ def apply_ffi_baseline(rules: Path, planned: dict, side: Side) -> dict:
     done = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=APPLY_SECONDS)
     if done.returncode != 0:
         raise LookError(f"hot-apply.py apply --parts ffi exited {done.returncode}: "
-                        f"{(done.stderr or done.stdout).strip()[-400:]}")
+                        f"{why_failed(done.stderr or done.stdout, 400)}")
     receipt = {}
     with contextlib.suppress(ValueError, IndexError):
         receipt = json.loads(done.stdout.strip().splitlines()[-1])
@@ -1379,7 +1406,7 @@ def apply_rust(rules: Path, planned: dict, src_tree: Path | None, side: Side, sc
             done = subprocess.run(["cargo", "build", "--release", "-p", "cmux-tui", "--bin", "cmux-tui"],
                                   cwd=src_tree / "cmux-tui", capture_output=True, text=True, timeout=3600)
             if done.returncode != 0:
-                raise LookError(f"cargo build cmux-tui: {done.stderr.strip()[-300:]}")
+                raise LookError(f"cargo build cmux-tui: {why_failed(done.stderr, 300)}")
             binary = src_tree / "cmux-tui/target/release/cmux-tui"
     if binary is not None:
         argv += ["--binary", str(binary)]
@@ -1392,7 +1419,7 @@ def run_hot_apply_rust(argv: list[str], side: Side, how: str) -> dict:
     done = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=APPLY_SECONDS)
     if done.returncode != 0:
         raise LookError(f"hot-apply.py apply --parts rust exited {done.returncode}: "
-                        f"{(done.stderr or done.stdout).strip()[-400:]}")
+                        f"{why_failed(done.stderr or done.stdout, 400)}")
     receipt = {}
     with contextlib.suppress(ValueError, IndexError):
         receipt = json.loads(done.stdout.strip().splitlines()[-1])
