@@ -188,13 +188,13 @@ PARTS = [
     {"name": "memory-agents", "args": [*MEASURE, "--config=bench", "--suite=memory-agents", "--agents=10"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents",
      "run_seconds": 2400},  # 1500 s for the bench, plus a cold bench build (800 s) when this part runs first
-    # The app's memory growth per simulated hour (memory-day-replay.py): a typical day of use replayed in about 10
+    # The app's memory growth per simulated hour (memory-day-replay.py): a typical day of use replayed in about 18
     # minutes on the bench build (a chat workspace, a terminal tab with output, a browser tab, switches, the oldest
     # workspace closed, each simulated hour), MB/h per process kind (app, Chromium renderers, GPU, daemons, total).
     # Target flat: each row's budget is its noise floor (memory-day-replay.py FLOOR_MB_PER_H).
     {"name": "memory-day", "args": [*MEASURE, "--config=bench", "--suite=memory-day"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-day",
-     "run_seconds": 2400},  # about 12 minutes of replay, plus a cold bench build (800 s) when this part runs first
+     "run_seconds": 3600},  # measured 3152 s on cmux23 (2026-11-19, step e76354f35bf3): a cold bench build (about 2100 s) and the replay (about 1050 s)
     # Terminal throughput (scripts/cmux-next/terminal-throughput-bench.py): a 200 MB burst through a NEXT terminal and
     # through standalone Ghostty on the same host, MB/s each and NEXT/Ghostty. Reporting only (REPORT_ONLY_ROW_RE): the
     # CMUX-571 goal terminal-throughput reads terminal.throughput.ratio. One step runs both terminals. NEXT runs in the
