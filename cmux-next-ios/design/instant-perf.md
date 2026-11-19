@@ -18,7 +18,11 @@ parsing) is `plans/feat-ios-instant-list/DESIGN.md` in manaflow-ai/cmuxterm-hq.
   with `CMUX_INSTANT_PERF_STRICT=1` (`TEST_RUNNER_CMUX_INSTANT_PERF_STRICT=1` under
   xcodebuild), on a quiet harness; elsewhere a miss is listed in the JSON line's
   `failing` and printed as `INSTANTPERF warning:`. The god budget and the ratio
-  always assert.
+  always assert, except the ratio of a metric timed under a load the test makes on
+  purpose (`home_list_first_screen_under_load`, `record(underLoad: true)`): that
+  ratio follows how the host shares its caches and allocator with the load, so it
+  is enforced only under `CMUX_INSTANT_PERF_STRICT=1`, like the small budget (base
+  kit jobs read it from passing to 1.41x on the same code, 2026-11-17).
 - **Ratio (1.2x)**: god at most 1.2x small, computed as
   `god / max(small, 1 ms)`. Below 1 ms nobody sees a difference, and a
   sub-millisecond small would make any ratio noise; the floor keeps "god costs
@@ -68,6 +72,8 @@ Home reads windows (since the windowed Home read): the first screen asks cmux-mo
 one read parsed off the main actor, and an event reads only its conversation's row (`ids`, with
 its `index` and the list's `total`). The rows this phone last read show before any of it
 (`MacHomeRowsCache`: the first 200 rows per account and Mac, 2 MB in all, deleted at sign-out).
+A launch reads only their head file (the first 40 rows) in the same turn, so the first frame draws
+them; the whole kept list follows off the main thread.
 A host without windows refuses the params and the phone reads the whole list, as before.
 
 The god fixtures are degenerate on purpose: Home rows with pins, ~80 Chiefs

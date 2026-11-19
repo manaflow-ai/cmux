@@ -602,7 +602,12 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       // the trail bound; the `spring` arm keeps a line to `below`, the rest of it moving at once.
       // Each move says which it is: a finite `below` after a send's rise keeps to it again (a rise
       // kept to the chase's rest let later streamed text pass under the composer past the bound).
-      rising = (arm === "blocks" && !held) || below === Number.POSITIVE_INFINITY;
+      // A move down while a rise still draws the rows down (the room a cleared composer card gives
+      // back a pass after a prompt's rows came) shortens that rise: kept to `below`, the rest of the
+      // rise moved at once and that room then drew the rows back down (the `spring`, `chunk` and
+      // `linear` arms' bounce as a prompt comes in, 149 px up in a frame and 10 to 32 px back).
+      rising =
+        (arm === "blocks" && !held) || below === Number.POSITIVE_INFINITY || (rising && !held && moved > 0 && x > 0);
       // Within the bound before this move, a block that lands past it starts a stretch of its own
       // with all of BURST_S (the last stretch's deadline moved it up to a line a frame, its time
       // already spent).

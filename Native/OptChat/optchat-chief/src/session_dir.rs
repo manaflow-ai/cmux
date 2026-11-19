@@ -657,6 +657,7 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
         setup.chiefs_tool,
     );
     write_if_changed(&paths.session.join("AGENTS.md"), agents.as_bytes())?;
+    own_claude_md(&paths.session, matches!(setup.tools, Tools::Cli(_)))?;
     // The Mac host never runs the Cloud mode; it would take Claude's files.
     match setup.tools {
         Tools::Mcp | Tools::Cloud(_) => {
@@ -831,10 +832,29 @@ pub fn write_subagent(paths: &Paths, setup: &SessionSetup, text: &str) -> io::Re
         &dir.join(".claude").join("settings.local.json"),
         settings.as_bytes(),
     )?;
+    own_claude_md(dir, matches!(setup.tools, Tools::Cli(_)))?;
     match setup.tools {
         Tools::Mcp | Tools::Cloud(_) => remove_if_present(&dir.join("AGENTS.md")),
         Tools::Cli(_) => write_if_changed(&dir.join("AGENTS.md"), text.as_bytes()),
     }
+}
+
+/// The one line in a Chief or subagent folder's `.claude/CLAUDE.md`.
+const OWN_CLAUDE_MD: &str = "Your instructions are your system prompt. This folder's AGENTS.md holds the same text for other harnesses: do not read it.\n";
+
+/// With `on` (the layout whose system prompt is the preset's, AGENTS.md kept
+/// for other harnesses), writes `dir/.claude/CLAUDE.md`, Claude's own
+/// instruction file there, so acpmux's cross-harness fallback
+/// (folder_instructions.rs) sends no copy of the folder's AGENTS.md
+/// (tests/folder_context.rs: 33 KB a Chief turn, 15 KB a subagent's first
+/// prompt); else removes it.
+fn own_claude_md(dir: &Path, on: bool) -> io::Result<()> {
+    let path = dir.join(".claude").join("CLAUDE.md");
+    if !on {
+        return remove_if_present(&path);
+    }
+    std::fs::create_dir_all(dir.join(".claude"))?;
+    write_if_changed(&path, OWN_CLAUDE_MD.as_bytes())
 }
 
 /// The subagent directory's AGENTS.md for a codex subagent beside a Claude
