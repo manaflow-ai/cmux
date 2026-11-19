@@ -174,13 +174,20 @@ test("the pointer and the arrow keys move one selection in the suggestions", asy
   const last = rows().length - 1;
   expect(last).toBeGreaterThanOrEqual(1);
   expect(selected()).toEqual([0]);
-  await act(async () => {
-    rows()[last]!.dispatchEvent(new dom!.window.MouseEvent("mousemove", { bubbles: true }));
-  });
+  const move = (index: number, screenY: number) =>
+    act(async () => {
+      rows()[index]!.dispatchEvent(new dom!.window.MouseEvent("mousemove", { bubbles: true, screenX: 40, screenY }));
+    });
+  await move(last, 100);
   expect(selected(), "the hovered row is the selection").toEqual([last]);
   expect(rows()[last]!.getAttribute("aria-selected")).toBe("true");
   await press(field, "ArrowUp");
   expect(selected(), "the arrow keys go on from the hovered row").toEqual([last - 1]);
+  // WebKit's mousemove after the list scrolls under a still pointer: the same spot keeps the keys' row.
+  await move(last, 100);
+  expect(selected(), "a still pointer does not take the selection back").toEqual([last - 1]);
+  await move(last, 101);
+  expect(selected(), "a moved pointer does").toEqual([last]);
 });
 
 test.each(["terminal", "browser", "chat"] as const)(

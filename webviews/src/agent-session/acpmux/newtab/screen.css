@@ -30,10 +30,10 @@
 /* The suggestions are the composer's: its row height, glyph and type steps at its density (composerLocation.css
    scopes them here), so the list never reads bigger than the box it serves (Lucas 2026-11-13). Its corner is the box's
    (--nt-box-radius) at every density, and a row is concentric with it: the list's padding is 7 of the corner's 20 and
-   the row's corner the other 13, so padding plus row corner is the box's corner and a 28 px row is never a capsule
-   (POLISH.md) (CMUX-652; standup 2026-11-18: "match the border radius of the
+   the row's corner the other 13, so padding plus row corner is the box's corner. A larger prompt text grows the corner,
+   so the row's corner stops a pixel under half its height and a 28 px row is never a capsule (POLISH.md) (CMUX-652; standup 2026-11-18: "match the border radius of the
    composer palette with the text input"; Lucas: "we need to make it concentric"). */
-.nt-popover{--ui-row-height:var(--acpmux-composer-control,28px);--nt-row-text:calc(13px * var(--nt-base-text-scale,1));--nt-row-detail:calc(12px * var(--nt-base-text-scale,1));--ui-popup-radius:var(--nt-box-radius);--ui-popup-padding:calc(var(--nt-box-radius) * 7 / 20);--ui-row-radius:calc(var(--nt-box-radius) - var(--ui-popup-padding) + var(--cmux-composer-row-radius-extra,0px));--ui-row-padding-inline:calc(var(--ds-space-2) * var(--nt-density,1));box-sizing:border-box;width:var(--anchor-width);padding:0;border-radius:var(--ui-popup-radius,var(--ds-radius-popup));color:var(--agent-text);font-family:var(--font-ui);-webkit-font-smoothing:antialiased;}
+.nt-popover{--ui-row-height:var(--acpmux-composer-control,28px);--nt-row-text:calc(13px * var(--nt-base-text-scale,1));--nt-row-detail:calc(12px * var(--nt-base-text-scale,1));--ui-popup-radius:var(--nt-box-radius);--ui-popup-padding:calc(var(--nt-box-radius) * 7 / 20);--ui-row-radius:min(calc(var(--nt-box-radius) - var(--ui-popup-padding) + var(--cmux-composer-row-radius-extra,0px)),calc(var(--ui-row-height) / 2 - 1px));--ui-row-padding-inline:calc(var(--ds-space-2) * var(--nt-density,1));box-sizing:border-box;width:var(--anchor-width);padding:0;border-radius:var(--ui-popup-radius,var(--ds-radius-popup));color:var(--agent-text);font-family:var(--font-ui);-webkit-font-smoothing:antialiased;}
 /* The suggestions belong to the field: a menu the composer opens (model, reasoning, access: the dropdown layer) covers them, whichever opened last, as Codex desktop's composer menus do (Leo 10-15: the model menu opened under them). A dialog's scrim, on the same layer and portaled later, still dims them. */
 .ui-positioner:has(>.nt-popover){z-index:var(--layer-overlay)}
 .nt-popover .nt-rows{--popup-scroll-cap:360px;box-sizing:border-box;padding:var(--ui-popup-padding);max-height:min(48vh,360px,var(--available-height,360px));overflow:auto;overscroll-behavior:contain}
@@ -56,7 +56,7 @@
 .nt-row-title{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .nt-row-detail{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim);font-size:var(--nt-row-detail,var(--text-detail));letter-spacing:var(--text-detail--letter-spacing)}
 .nt-row-action{flex:none;margin-left:auto;display:flex;align-items:center;gap:var(--ds-space-1);color:var(--acpmux-composer-dim);font-size:var(--nt-row-detail,var(--text-detail));letter-spacing:var(--text-detail--letter-spacing);opacity:0}
-.nt-row.is-selected .nt-row-action,.nt-row:not(.nt-rows > *):hover .nt-row-action,.nt-row-host:hover .nt-row-action,.nt-row-host:has([data-popup-open]) .nt-row-action{opacity:1}
+.nt-row.is-selected .nt-row-action,.nt-row:hover .nt-row-action,.nt-row-host:hover .nt-row-action,.nt-row-host:has([data-popup-open]) .nt-row-action{opacity:1}
 .nt-row-action kbd{padding:var(--grid-half-step) var(--ds-space-1);border-radius:4px;background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft);font:var(--text-caption)/1 var(--font-ui)}
 .nt-row-shortcut{flex:none;margin-left:auto;display:flex;align-items:center;gap:var(--ds-space-1);color:var(--acpmux-composer-dim);font-size:var(--nt-row-detail,var(--text-detail));letter-spacing:var(--text-detail--letter-spacing)}
 /* The palette's keycaps use the control corner less one spacing step, as the Send menu's caps do. */
@@ -92,8 +92,9 @@
 .nt-card-badge{flex:none;padding:0 var(--ds-space-1);border-radius:var(--ds-radius-control);background:var(--ds-surface-inset);color:var(--acpmux-composer-dim);font-size:var(--text-caption);line-height:1.6;white-space:nowrap}
 .nt-cards[data-variant="list"] .nt-card-badge{order:-1}
 .nt-card[data-state=input] .nt-card-message{color:var(--agent-warning,var(--agent-text))}
-/* Hover as Edge draws it (cx-f6i7): the fill eases in fast and clears at once (--agent-motion-hover-out, 0 by default). */
-@media (prefers-reduced-motion:no-preference){.nt-row,.nt-card,.nt-open-tab,.nt-tool,.nt-all-row{transition:background-color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out),color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out)}.nt-row:hover,.nt-card:hover,.nt-open-tab:hover,.nt-tool:hover,.nt-all-row:hover{transition-duration:var(--agent-motion-hover,.08s)}}
+/* Hover as Edge draws it (cx-f6i7): the fill eases in fast and clears at once (--agent-motion-hover-out, 0 by default).
+   Not on a suggestion: its fill is the selection, which clears at once when a key moves it off the hovered row. */
+@media (prefers-reduced-motion:no-preference){.nt-row,.nt-card,.nt-open-tab,.nt-tool,.nt-all-row{transition:background-color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out),color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out)}.nt-row:not(.nt-rows > *):hover,.nt-card:hover,.nt-open-tab:hover,.nt-tool:hover,.nt-all-row:hover{transition-duration:var(--agent-motion-hover,.08s)}}
 /* Shell mode on the new tab field (`!` first): a `!` glyph in the theme's magenta before a
    monospace command, inside the same box. */
 .nt-field-slot {

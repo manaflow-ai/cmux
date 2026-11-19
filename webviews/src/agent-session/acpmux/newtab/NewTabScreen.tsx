@@ -1085,6 +1085,9 @@ export function NewTabScreen(props: Props) {
   // A highlighted row that went away (its tab closed) hands Return back to the top row.
   const kept = selected === undefined ? -1 : rows.findIndex((row) => rowKey(row) === selected);
   const current = selected === undefined || (kept < 0 && selected !== NO_ROW) ? defaultSelection(rows) : kept;
+  // Where the pointer last moved over a suggestion. WebKit sends a mousemove at the same spot when the list scrolls
+  // under a still pointer (an arrow key's keepInView), which must not take the selection back.
+  const pointerAt = useRef("");
   const pick = (index: number) => {
     const row = rows[index];
     setSelected(row ? rowKey(row) : NO_ROW);
@@ -2619,7 +2622,12 @@ export function NewTabScreen(props: Props) {
                 className={index === current ? "nt-row is-selected" : "nt-row"}
                 // The pointer moves the one selection the arrow keys move, as the shared lists do (ui/Listbox.tsx), so
                 // a hovered row and a keyed row never light up at once (Lucas 2026-11-20).
-                onMouseMove={() => index !== current && pick(index)}
+                onMouseMove={(event) => {
+                  const at = `${event.screenX},${event.screenY}`;
+                  if (at === pointerAt.current) return;
+                  pointerAt.current = at;
+                  if (index !== current) pick(index);
+                }}
                 onMouseDown={(event) => {
                   event.preventDefault();
                   activate(row, event.altKey || event.metaKey);
