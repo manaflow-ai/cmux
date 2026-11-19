@@ -469,7 +469,7 @@ fn commands_and_shown_workspaces_start_at_once() {
     assert!(host_of(&harness, &command_id), "a command waited for its first need");
     let with_env = request(
         &harness.socket,
-        serde_json::json!({"cmd":"create-terminal","env":{"LAZY_PROBE":"1"},"create_workspace":true,"workspace_name":"env","key":"lazy-env","origin":"cmux-next","mutation_id":"lazy-env-create"}),
+        serde_json::json!({"cmd":"create-terminal","env":{"LAZY_PROBE":"1"},"create_workspace":true,"workspace_name":"env","key":"6f1d2c3a-0b4e-4f5a-9c7d-8e2f1a3b4c5d","origin":"cmux-next","mutation_id":"lazy-env-create"}),
     );
     let env_id = with_env["terminal_id"].as_str().expect("create-terminal returned no id");
     assert!(host_of(&harness, env_id), "a shell with its own environment waited");
