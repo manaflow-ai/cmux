@@ -3,12 +3,13 @@
 # Fleet only. Results are binary payloads until a complete app is packaged.
 #
 #   cli-size.sh                   cmux-tui's own opt-level 3, s and z on this tree.
-#   cli-size.sh toolchain BASE [HEAD|.] [PATCH]
+#   cli-size.sh toolchain BASE [HEAD|.] [PATCH] [levels=LIST]
 #       Four builds in one job: BASE and HEAD (commits, each built with its own
 #       rust-toolchain.toml; HEAD `.` or omitted is this checkout), and HEAD with
 #       acpmux and cmux-tui-core at opt-level "s" and at "z". Stripped and
 #       unstripped bytes (on macOS also fully stripped bytes and the export trie), then
-#       interleaved CLI and daemon p50 (cli-size-speed.py). CLI_SIZE_LEVELS="" skips s and z.
+#       interleaved CLI and daemon p50 (cli-size-speed.py). A last argument
+#       levels=LIST replaces "s z" (levels= builds only BASE and HEAD).
 #       Commits come from this clone's history, else from origin. A job checkout
 #       with no history or remote passes HEAD `.` and PATCH, the diff from this
 #       tree to BASE.
@@ -42,6 +43,12 @@ strip_copy() {  # strip_copy BUILT DIR: DIR/cmux.unstripped and the stripped DIR
 }
 
 if [[ "${1:-}" == toolchain ]]; then
+  levels="s z"
+  last="${!#}"
+  if [[ "$last" == levels=* ]]; then
+    levels="${last#levels=}"
+    set -- "${@:1:$#-1}"
+  fi
   base_ref="${2:?usage: cli-size.sh toolchain BASE [HEAD|.] [PATCH]}"
   head_ref="${3:-.}"
   patch="${4:-}"
@@ -90,9 +97,8 @@ if [[ "${1:-}" == toolchain ]]; then
   target="${CARGO_TARGET_DIR:-$root/cmux-tui/target/cli-size}"
   build "$base" "$target-base" base
   build "$head" "$target" head
-  # CLI_SIZE_LEVELS="" builds only BASE and HEAD, for a change that is not an opt-level.
   variants=(base head)
-  for level in ${CLI_SIZE_LEVELS-s z}; do
+  for level in $levels; do
     build "$head" "$target" "head-$level" \
       --config "profile.release.package.acpmux.opt-level=\"$level\"" \
       --config "profile.release.package.cmux-tui-core.opt-level=\"$level\""
