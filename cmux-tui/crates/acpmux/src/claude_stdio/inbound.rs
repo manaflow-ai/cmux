@@ -257,11 +257,16 @@ impl Translator {
                         let name = c.get("name").and_then(Value::as_str).unwrap_or("tool");
                         let input = c.get("input").cloned().unwrap_or(Value::Null);
                         // A subagent comes before its Agent tool call, so a client
-                        // that draws subagents can leave the call out.
+                        // that draws subagents can leave the call out. The call carries
+                        // who it started too (`subagent_identity`), so a client that
+                        // draws the call alone draws it as that subagent.
+                        let mut subagent = None;
                         if let ("Task" | "Agent" | "Workflow", Some(id)) =
                             (name, c.get("id").and_then(Value::as_str))
                         {
-                            out.push(upd(self.spawn_subagent(id, name, &input).await));
+                            let spawned = self.spawn_subagent(id, name, &input).await;
+                            subagent = Some(subagent_identity(&spawned));
+                            out.push(upd(spawned));
                         }
                         // A call of the chat's own that blocks its turn (`foreground_work.rs`).
                         if main_line && let Some(id) = c.get("id").and_then(Value::as_str) {
@@ -322,6 +327,12 @@ impl Translator {
                             self.note_loop_call(id, name, &input).await;
                         }
                         let mut call = tool_call_fields(name, &input);
+                        if let Some(identity) = subagent
+                            && let Some(claude) =
+                                call.pointer_mut("/_meta/claude").and_then(Value::as_object_mut)
+                        {
+                            claude.insert("subagent".into(), identity);
+                        }
                         call.set("sessionUpdate", json!("tool_call"));
                         call.set("toolCallId", c.get("id").cloned().unwrap_or(Value::Null));
                         call.set("status", json!("in_progress"));
@@ -1338,6 +1349,28 @@ impl Translator {
         }
         update
     }
+}
+
+/// The subagent a Task, Agent or Workflow call started, as its tool call's
+/// `_meta.claude.subagent`: its session id, name, task, kind
+/// (`subagent_type`), model, effort and whether it runs in the background,
+/// from its `subagent_spawned` update. Its state is the call's own status.
+fn subagent_identity(spawned: &Value) -> Value {
+    let mut identity = json!({});
+    for (from, to) in [
+        ("/subagentSessionId", "sessionId"),
+        ("/name", "name"),
+        ("/task", "task"),
+        ("/_meta/claude/subagentType", "type"),
+        ("/model", "model"),
+        ("/effort", "effort"),
+        ("/background", "background"),
+    ] {
+        if let Some(v) = spawned.pointer(from).filter(|v| !v.is_null()) {
+            identity.set(to, v.clone());
+        }
+    }
+    identity
 }
 
 /// TodoWrite's `todos` as an ACP `plan` update: each item's text and status

@@ -1,5 +1,17 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-19 (lane/claude-nested-sessions): Sidebar-Look: Leo, via the coordinator: "Claude Code (and the Claude
+  desktop app's Code tab) shows subagents and sub-sessions nested under the parent chat. Build: the Claude look turns
+  on nested sessions in the sidebar (children under the parent, foldable, with status)". With `sidebar.sessionTree`
+  on (default off, unchanged), the fold defaults of design/sidebar.md now hold: a top-level parent starts open and a
+  parent at depth 1 or deeper starts folded; the person's opens of those persist per parent
+  (`sidebar.sessionTree.opened`, beside `.collapsed`), pruned to live parents; selecting a hidden session opens and
+  remembers the folds above it. A folded parent's roll-up starts with a count chip of every session it hides, idle
+  ones included (no dot, secondary text), before the per-state chips. Row heights and widths are unchanged (the
+  chips sit in the trailing run). Capture fixture `debug.sidebar_nested_fixture {scenario: "sessionTree"}`.
+  Regression: `SidebarSessionTreeFoldTests`; gallery `AAClaudeSessionTreeGalleryTests.renderGallery` (off, open,
+  opened, folded; Clay Orange light and dark).
+
 - 2026-11-18 (a590, hover card grid base red): Sidebar-Look: the workspace hover card's tab rows line up with its
   header again, icons on one column and text on one edge, as before #44449. d8917c9 (#44449) scaled every density
   from Default by one factor, so the card's padding (7.5 pt), its icon-to-text gap and the tab rows' fill outset

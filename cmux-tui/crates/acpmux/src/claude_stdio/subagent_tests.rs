@@ -48,6 +48,26 @@ async fn an_agent_tool_call_spawns_a_subagent_session() {
 }
 
 #[tokio::test]
+async fn the_agent_tool_call_names_the_subagent_it_started() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let out = updates(&t.inbound(&spawn_line("toolu_1", None)).await);
+    let call = &out[1].1;
+    assert_eq!(call["toolCallId"], "toolu_1");
+    assert_eq!(call["status"], "in_progress");
+    assert_eq!(
+        call["_meta"]["claude"],
+        json!({"tool": "Agent", "subagent": {
+            "sessionId": "acp-1/toolu_1", "name": "Branch A", "task": "Branch A",
+            "type": "Explore", "model": "haiku", "effort": "default"
+        }})
+    );
+    // Any other call carries no subagent.
+    let read = json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_2", "name": "Read", "input": {"file_path": "/a/b.rs"}}]}});
+    let out = updates(&t.inbound(&read).await);
+    assert_eq!(out[0].1["_meta"]["claude"], json!({"tool": "Read"}));
+}
+
+#[tokio::test]
 async fn a_subagents_lines_stream_under_its_own_session() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
     t.inbound(&spawn_line("toolu_1", None)).await;
