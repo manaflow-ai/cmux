@@ -52,6 +52,12 @@ if "--suite=launch-check" in sys.argv:
 # build in split-spring.sh has run by then). launch-check above reports it itself, in `check`'s own --json shape.
 if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in sys.argv:
     require_gui_session("split-spring")
+# `--suite=layout-perf`: the workspace-layout speed set (split, close, column, divider drag, workspace and tab switch,
+# palette over a page; light and STRESS), optionally interleaved over Debug Settings variants:
+# scripts/cmux-next/layout-perf-run.py.
+if "--suite=layout-perf" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "layout-perf-run.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=layout-perf"])
 # `--suite=memory-agents`: the app's idle memory, empty and with idle agent chats open, as perf-cron rows
 # (scripts/cmux-next/memory-agents-cron.py, bench_memory.py on the acpmux test agent).
 if "--suite=memory-agents" in sys.argv:
