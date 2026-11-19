@@ -1,7 +1,7 @@
 //! Public Server dispatch, with a credential host and authoritative owner.
 use cmux_cloud::{
-    ControlPlane, Origin, RelayError, Request, Server, SessionStatus, WireCall, WireReply,
-    WireResult,
+    ControlPlane, Origin, RelayError, Request, Server, SessionStatus, WireCall, WireError,
+    WireReply, WireResult,
 };
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -15,6 +15,7 @@ struct Host {
     answers: HashMap<String, WireResult>,
     lose: bool,
     refuse: bool,
+    local_refusal: Option<&'static str>,
     corrupt: Option<(&'static str, Value)>,
 }
 
@@ -29,6 +30,7 @@ impl Default for Host {
             answers: HashMap::new(),
             lose: false,
             refuse: false,
+            local_refusal: None,
             corrupt: None,
         }
     }
@@ -68,6 +70,14 @@ impl ControlPlane for Host {
             }));
         }
         let key = call.idempotency_key.as_ref().unwrap();
+        if let Some(code) = self.local_refusal {
+            return Ok(WireReply::Error(WireError {
+                code: code.into(),
+                message: "host refused before POST".into(),
+                details: None,
+                retryable: false,
+            }));
+        }
         if let Some(answer) = self.answers.get(key) {
             return Ok(WireReply::Result(WireResult { replayed: true, ..answer.clone() }));
         }
@@ -226,4 +236,36 @@ fn invalid_arguments_leave_the_callers_key_available_for_correction() {
     assert!(server.handle(&invalid).is_err());
     assert!(server.control_plane().calls.is_empty());
     assert!(server.handle(&request("vm.pause", "key")).is_ok());
+}
+
+#[test]
+fn first_attempt_host_refusals_do_not_exhaust_unresolved_capacity() {
+    for code in ["credential.scope_refused", "credential.fence_invalid"] {
+        let mut server = Server::new(Host { local_refusal: Some(code), ..Host::default() });
+        for index in 0..513 {
+            let error = server.handle(&request("vm.pause", &format!("key-{index}"))).unwrap_err();
+            assert_ne!(error.code, "cmux.cloud.relay_busy", "{code} at {index}");
+        }
+        assert_eq!(server.control_plane().calls.len(), 1026);
+        assert!(server.control_plane().answers.is_empty());
+        server.control_plane_mut().local_refusal = None;
+        assert!(server.handle(&request("vm.pause", "repaired")).is_ok());
+    }
+}
+
+#[test]
+fn local_refusal_after_an_uncertain_attempt_preserves_the_original_intent() {
+    for code in ["credential.scope_refused", "credential.fence_invalid"] {
+        let mut server = Server::new(Host { lose: true, ..Host::default() });
+        let request = request("vm.pause", "key");
+        assert!(server.handle(&request).is_err());
+        server.control_plane_mut().local_refusal = Some(code);
+        assert!(server.handle(&request).is_err());
+        server.control_plane_mut().local_refusal = None;
+        assert!(server.handle(&request).is_ok());
+        let calls = &server.control_plane().calls;
+        assert_eq!(calls.len(), 4, "one get and three identical mutation attempts");
+        assert_eq!(calls[1], calls[2]);
+        assert_eq!(calls[1], calls[3]);
+    }
 }
