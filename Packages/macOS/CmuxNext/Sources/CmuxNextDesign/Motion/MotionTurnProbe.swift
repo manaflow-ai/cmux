@@ -31,15 +31,15 @@ public final class MotionTurnProbe {
     /// length, its part before the commit and its commit part, in ms. A reader finds the commits near a late frame
     /// with it, or that there was none. At most ``keptTurns``: ``turns`` above this count says that the keep was full.
     /// The space is reserved at ``start()``, so a turn's end adds one value and allocates nothing.
-    public private(set) var each: [Turn] = []
+    private(set) var each: [Turn] = []
     static let keptTurns = 8192
 
-    /// One turn of ``each``.
-    public struct Turn {
-        public var end: CFTimeInterval
-        public var total: Double
-        public var beforeCommit: Double
-        public var commit: Double
+    /// One turn of ``each`` (this module's `debug.motion` handler reads them; no other module does).
+    struct Turn {
+        var end: Double
+        var total: Double
+        var beforeCommit: Double
+        var commit: Double
     }
 
     private static let labels = ["wake", "passes", "events", "before_commit", "commit", "after_commit"]
