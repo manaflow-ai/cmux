@@ -367,7 +367,8 @@ impl Daemon {
 
     fn log_tail(&self) -> String {
         let text = std::fs::read_to_string(self.root.join("daemon.log")).unwrap_or_default();
-        text[text.len().saturating_sub(3000)..].to_string()
+        let skip = text.chars().count().saturating_sub(3000);
+        text.chars().skip(skip).collect()
     }
 }
 
@@ -454,11 +455,13 @@ struct Terminal {
 fn grow(daemon: &Daemon, n: usize, kind: &str) -> (Vec<Terminal>, Duration) {
     let (argv, env) = shell(kind, &daemon.home());
     let mut conn = Conn::connect(&daemon.socket).unwrap();
+    // The replies name each terminal's `term_` id, which the app's attach sends.
+    let capabilities: Vec<&str> =
+        APP_CAPABILITIES.iter().copied().chain(["terminal-public-ids-v1"]).collect();
     conn.call(
         2,
         json!({"cmd": "set-client-info", "name": "attach bench setup", "kind": "frontend",
-               // The replies name each terminal's `term_` id, which the app's attach sends.
-               "capabilities": [APP_CAPABILITIES, &["terminal-public-ids-v1"]].concat()}),
+               "capabilities": capabilities}),
     );
     let started = Instant::now();
     let mut terminals = Vec::with_capacity(n);
