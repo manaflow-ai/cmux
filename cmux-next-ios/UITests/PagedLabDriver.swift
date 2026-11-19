@@ -1,13 +1,15 @@
 import XCTest
 
 /// Drives the shared infinite-scroll list's lab (`-cmux-mobile-paged-lab`, verify/paged-list.md) for
-/// `PagedListUITests` and `PagedListStressUITests`: launches it, scrolls it at a named speed, reads
+/// `PagedListUITests` and `PagedListStressUITests` (and Home's list, `HomeStressUITests`): launches it, scrolls it at a named speed, reads
 /// its measurement line and keeps what a test measured (a `PAGEDLIST` console line, which the
 /// `ios-pagedlist` bench reads, and an attachment of the same name).
 @MainActor
 struct PagedLabDriver {
     let app: XCUIApplication
     let test: XCTestCase
+    /// The list's accessibility identifier: the lab's, or a screen's (`home.list`, HomeStressUITests).
+    var listID = "lab.list"
 
     /// How fast a test scrolls: `slow` is a held drag (no fling), `medium` a short fling, `fast`
     /// XCUITest's fast swipe.
@@ -22,7 +24,7 @@ struct PagedLabDriver {
         return PagedLabDriver(app: app, test: test)
     }
 
-    var list: XCUIElement { app.collectionViews["lab.list"] }
+    var list: XCUIElement { app.collectionViews[listID] }
 
     func row(_ id: Int) -> XCUIElement { app.descendants(matching: .any)["lab.row.\(id)"] }
 
