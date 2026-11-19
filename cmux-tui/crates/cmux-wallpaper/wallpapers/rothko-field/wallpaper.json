@@ -1,0 +1,38 @@
+{
+  "id": "rothko-field",
+  "name": "Rothko Field",
+  "description": "A window can hold a feeling. Two or three stacked fields of deep color with hand-brushed, noise-feathered edges breathe in light and softness about six times a minute, each on its own phase; the pointer near a field warms it a little.",
+  "shader": "wallpaper.wgsl",
+  "fps": 20,
+  "scale": 0.5,
+  "interactive": true,
+  "idle_after": 20,
+  "params": [
+    { "name": "palette", "title": "Palette", "default": 1, "min": 0, "max": 2 },
+    { "name": "breath", "title": "Breath", "default": 1.0, "min": 0, "max": 2 },
+    { "name": "feather", "title": "Edge softness", "default": 1.0, "min": 0.3, "max": 2.5 },
+    { "name": "brush", "title": "Brushed edge", "default": 1.0, "min": 0, "max": 2 },
+    { "name": "warmth", "title": "Pointer warmth", "default": 0.6, "min": 0, "max": 1 },
+    { "name": "count", "title": "Fields (2 or 3)", "default": 2, "min": 2, "max": 3 },
+    { "name": "chroma", "title": "Chroma", "default": 1.0, "min": 0.3, "max": 1.4 },
+    { "name": "canvas", "title": "Canvas grain", "default": 0.6, "min": 0, "max": 1.5 }
+  ],
+  "still": { "time": 6.0, "pointer": [0.7, 0.3] },
+  "variants": [
+    {
+      "name": "Seagram",
+      "accent": "#8C2A2A",
+      "params": { "palette": 0, "breath": 1.0, "feather": 1.2, "brush": 1.1, "warmth": 0.6, "count": 3, "chroma": 1.0, "canvas": 0.7 }
+    },
+    {
+      "name": "No. 61",
+      "accent": "#3B5BA8",
+      "params": { "palette": 1, "breath": 1.0, "feather": 1.0, "brush": 1.0, "warmth": 0.6, "count": 2, "chroma": 1.0, "canvas": 0.6 }
+    },
+    {
+      "name": "Saffron",
+      "accent": "#E0892B",
+      "params": { "palette": 2, "breath": 0.9, "feather": 1.4, "brush": 0.9, "warmth": 0.5, "count": 2, "chroma": 1.05, "canvas": 0.5 }
+    }
+  ]
+}

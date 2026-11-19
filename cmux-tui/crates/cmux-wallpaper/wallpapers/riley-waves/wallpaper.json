@@ -1,0 +1,38 @@
+{
+  "id": "riley-waves",
+  "name": "Current",
+  "description": "Geometry can vibrate without moving much: dense parallel stripes after Bridget Riley, bent by two slow travelling waves so their spacing tightens and opens, exactly anti-aliased and low in contrast. The stripes bow apart around the pointer.",
+  "shader": "wallpaper.wgsl",
+  "fps": 20,
+  "scale": 0.75,
+  "interactive": true,
+  "idle_after": 20,
+  "params": [
+    { "name": "period", "title": "Stripe period (points)", "default": 7, "min": 3, "max": 16 },
+    { "name": "duty", "title": "Dark stripe share", "default": 0.5, "min": 0.2, "max": 0.8 },
+    { "name": "contrast", "title": "Contrast", "default": 0.09, "min": 0.03, "max": 0.2 },
+    { "name": "amplitude", "title": "Wave amplitude (points)", "default": 38, "min": 0, "max": 90 },
+    { "name": "wavelength", "title": "Wavelength (points)", "default": 360, "min": 120, "max": 900 },
+    { "name": "speed", "title": "Wave speed", "default": 1.0, "min": 0, "max": 3 },
+    { "name": "chroma", "title": "Two-tone chroma", "default": 0, "min": 0, "max": 1 },
+    { "name": "bow", "title": "Pointer bow", "default": 0.45, "min": 0, "max": 0.7 }
+  ],
+  "still": { "time": 30.0, "pointer": [0.6, 0.46] },
+  "variants": [
+    {
+      "name": "Monochrome",
+      "accent": "#8C8C8C",
+      "params": { "period": 7, "duty": 0.5, "contrast": 0.09, "amplitude": 38, "wavelength": 360, "speed": 1.0, "chroma": 0, "bow": 0.45 }
+    },
+    {
+      "name": "Cataract",
+      "accent": "#E07A4F",
+      "params": { "period": 6, "duty": 0.5, "contrast": 0.07, "amplitude": 46, "wavelength": 300, "speed": 0.8, "chroma": 0.8, "bow": 0.4 }
+    },
+    {
+      "name": "Fine",
+      "accent": "#6E8BFF",
+      "params": { "period": 4.2, "duty": 0.45, "contrast": 0.06, "amplitude": 30, "wavelength": 420, "speed": 0.7, "chroma": 0.15, "bow": 0.35 }
+    }
+  ]
+}

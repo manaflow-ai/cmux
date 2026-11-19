@@ -1,0 +1,38 @@
+{
+  "id": "agnes-grid",
+  "name": "Pencil Grid",
+  "description": "Quiet is a texture. Fine hand-ruled pencil lines, wobbling a hair, swelling and fading in pressure, the graphite breaking on the paper's tooth, under a slow band of light; lines near the pointer darken faintly, as if just drawn.",
+  "shader": "wallpaper.wgsl",
+  "fps": 20,
+  "scale": 0.5,
+  "interactive": true,
+  "idle_after": 20,
+  "params": [
+    { "name": "pitch", "title": "Line pitch (points)", "default": 13, "min": 6, "max": 32 },
+    { "name": "vpitch", "title": "Vertical pitch (points, 0 none)", "default": 39, "min": 0, "max": 160 },
+    { "name": "weight", "title": "Line weight", "default": 1.0, "min": 0.3, "max": 1.8 },
+    { "name": "wobble", "title": "Hand wobble", "default": 1.0, "min": 0, "max": 2.5 },
+    { "name": "grain", "title": "Graphite grain", "default": 0.8, "min": 0, "max": 1 },
+    { "name": "light", "title": "Passing light", "default": 1.0, "min": 0, "max": 2 },
+    { "name": "palette", "title": "Palette", "default": 0, "min": 0, "max": 2 },
+    { "name": "bands", "title": "Washed bands", "default": 0, "min": 0, "max": 1 }
+  ],
+  "still": { "time": 67.0, "pointer": [0.6, 0.45] },
+  "variants": [
+    {
+      "name": "Graphite",
+      "accent": "#6E6A62",
+      "params": { "pitch": 13, "vpitch": 39, "weight": 1.0, "wobble": 1.0, "grain": 0.8, "light": 1.0, "palette": 0, "bands": 0 }
+    },
+    {
+      "name": "Night",
+      "accent": "#8FA3C8",
+      "params": { "pitch": 11, "vpitch": 22, "weight": 0.9, "wobble": 0.9, "grain": 0.7, "light": 0.8, "palette": 1, "bands": 0 }
+    },
+    {
+      "name": "Rose",
+      "accent": "#D9A0A6",
+      "params": { "pitch": 17, "vpitch": 0, "weight": 0.85, "wobble": 1.2, "grain": 0.9, "light": 1.0, "palette": 2, "bands": 1 }
+    }
+  ]
+}

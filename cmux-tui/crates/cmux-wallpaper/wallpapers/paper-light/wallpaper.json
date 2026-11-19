@@ -1,0 +1,38 @@
+{
+  "id": "paper-light",
+  "name": "Afternoon",
+  "description": "Afternoon sun on a desk. Fibrous paper with a warm, slanted pool of window light on it, cut by blind slats, glazing bars or leaves, its penumbra softer on the far side; it drifts as the sun moves, thin clouds dim it, and the raking light lifts the grain.",
+  "shader": "wallpaper.wgsl",
+  "fps": 20,
+  "scale": 0.5,
+  "interactive": true,
+  "idle_after": 20,
+  "params": [
+    { "name": "mode", "title": "Window (0 blinds, 1 pane, 2 leaves)", "default": 0, "min": 0, "max": 2 },
+    { "name": "light", "title": "Sunlight", "default": 1.0, "min": 0, "max": 1.6 },
+    { "name": "softness", "title": "Penumbra", "default": 1.0, "min": 0.2, "max": 3 },
+    { "name": "slats", "title": "Slats", "default": 11, "min": 4, "max": 24 },
+    { "name": "angle", "title": "Sun angle", "default": 0.6, "min": -1, "max": 1 },
+    { "name": "grain", "title": "Paper grain", "default": 0.8, "min": 0, "max": 1.6 },
+    { "name": "drift", "title": "Drift", "default": 1.0, "min": 0, "max": 3 },
+    { "name": "warmth", "title": "Warmth", "default": 1.0, "min": 0, "max": 1.6 }
+  ],
+  "still": { "time": 40.0, "pointer": [0.5, 0.5] },
+  "variants": [
+    {
+      "name": "Venetian",
+      "accent": "#E0A458",
+      "params": { "mode": 0, "light": 1.0, "softness": 1.0, "slats": 11, "angle": 0.6, "grain": 0.8, "drift": 1.0, "warmth": 1.0 }
+    },
+    {
+      "name": "Pane",
+      "accent": "#D9B26B",
+      "params": { "mode": 1, "light": 1.0, "softness": 1.3, "slats": 11, "angle": -0.45, "grain": 0.9, "drift": 1.0, "warmth": 0.9 }
+    },
+    {
+      "name": "Leaves",
+      "accent": "#9DB46A",
+      "params": { "mode": 2, "light": 1.1, "softness": 1.0, "slats": 11, "angle": 0.35, "grain": 0.8, "drift": 0.8, "warmth": 1.1 }
+    }
+  ]
+}

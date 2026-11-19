@@ -1,0 +1,87 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Live wallpaper recorder</title>
+<!-- record.mjs drives this page: one wallpaper at a time on one canvas, each frame drawn at a
+     fixed time step with a scripted pointer path, read back as a PNG. -->
+<script type="module">
+  import { WALLPAPERS } from "./wallpapers.js";
+  import { Wallpaper } from "./runner.js";
+
+  // The runner reads performance.now() for the trail's ages and the time since the pointer
+  // moved; the recorder owns the clock instead, so every clip is the same at any GPU speed.
+  let now = 1000;
+  performance.now = () => now * 1000;
+
+  const byId = Object.fromEntries(WALLPAPERS.map((w) => [w.id, w]));
+  const variantOf = (wp) => (wp.manifest.variants?.length ? wp.manifest.variants[0] : { name: "Default" });
+  const options = (wp, theme) => {
+    const v = variantOf(wp);
+    return { theme, accent: v.accent, params: v.params, seed: 0.37 };
+  };
+  // toDataURL keeps GL's bottom-up rows: flip through a 2D canvas.
+  const flip = (src) => {
+    const c = document.createElement("canvas");
+    c.width = src.width;
+    c.height = src.height;
+    const g = c.getContext("2d");
+    g.translate(0, c.height);
+    g.scale(1, -1);
+    g.drawImage(src, 0, 0);
+    return c.toDataURL("image/png");
+  };
+
+  window.__ids = WALLPAPERS.map((w) => w.id);
+  window.__still = (id, theme, W, H) => {
+    const wp = byId[id];
+    const v = variantOf(wp);
+    const st = v.still ?? wp.manifest.still;
+    const w = new Wallpaper(document.createElement("canvas"), wp, { ...options(wp, theme), still: true, pointer: st?.pointer });
+    w.resize(W, H);
+    w.draw(st?.time ?? 10);
+    const url = flip(w.canvas);
+    w.dispose();
+    return url;
+  };
+
+  let cur = null;
+  window.__open = (id, theme, W, H) => {
+    const wp = byId[id];
+    const canvas = document.createElement("canvas");
+    // No listeners: the recorder moves the pointer itself.
+    cur = new Wallpaper(canvas, wp, { ...options(wp, theme), still: true });
+    cur.options = { ...cur.options, still: false };
+    cur.resize(W, H);
+    cur.start0 = (wp.manifest.still?.time ?? 0);
+  };
+  // Frame i of n: the pointer enters a quarter in, draws a slow S-curve across the middle,
+  // and leaves at three quarters, so a clip shows the field at rest, under the pointer and after.
+  window.__frame = (i, fps, n) => {
+    const w = cur;
+    const t = i / fps;
+    now = 1000 + t;
+    const u = (i / n - 0.25) / 0.5;
+    const { width: cw, height: ch } = w.canvas;
+    if (u >= 0 && u <= 1) {
+      const x = cw * (0.15 + 0.7 * u);
+      const y = ch * (0.5 + 0.22 * Math.sin(u * Math.PI * 2));
+      const dt = 1 / fps;
+      if (w.lastMove !== undefined) {
+        const k = 0.35;
+        w.pointer.vx += ((x - w.pointer.x) / dt - w.pointer.vx) * k;
+        w.pointer.vy += ((y - w.pointer.y) / dt - w.pointer.vy) * k;
+      }
+      Object.assign(w.pointer, { x, y, target: 1, moved: now });
+      w.lastMove = now;
+      w.trailMoved(x, y, now);
+    } else if (u > 1) {
+      w.pointer.target = 0;
+    }
+    w.draw(w.start0 + t, 1 / fps);
+    return flip(w.canvas);
+  };
+  window.__close = () => {
+    cur?.dispose();
+    cur = null;
+  };
+  window.__ready = true;
+</script>

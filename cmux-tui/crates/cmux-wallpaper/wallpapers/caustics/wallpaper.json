@@ -1,0 +1,38 @@
+{
+  "id": "caustics",
+  "name": "Pool",
+  "description": "The pool at noon. Light focused by a slow, rippling surface draws two interlacing caustic nets with soft chromatic fringes across a tiled or sandy floor; when the pointer comes to rest a slow ring spreads from it.",
+  "shader": "wallpaper.wgsl",
+  "fps": 20,
+  "scale": 0.5,
+  "interactive": true,
+  "idle_after": 20,
+  "params": [
+    { "name": "palette", "title": "Pool (0 noon, 1 night, 2 shallows)", "default": 0, "min": 0, "max": 2 },
+    { "name": "scale", "title": "Caustic scale", "default": 1.0, "min": 0.5, "max": 2.5 },
+    { "name": "speed", "title": "Speed", "default": 0.6, "min": 0, "max": 1.5 },
+    { "name": "strength", "title": "Light strength", "default": 1.0, "min": 0.2, "max": 1.6 },
+    { "name": "fringe", "title": "Chromatic fringe", "default": 1.0, "min": 0, "max": 2 },
+    { "name": "ripple", "title": "Ring ripple", "default": 1.0, "min": 0, "max": 2 }
+  ],
+  "still": { "time": 12.0, "pointer": [0.62, 0.44] },
+  "variants": [
+    {
+      "name": "Noon",
+      "accent": "#2FA7C9",
+      "params": { "palette": 0, "scale": 1.0, "speed": 0.6, "strength": 1.0, "fringe": 1.0, "ripple": 1.0 }
+    },
+    {
+      "name": "Night Pool",
+      "accent": "#3FD1C2",
+      "params": { "palette": 1, "scale": 0.85, "speed": 0.45, "strength": 1.1, "fringe": 0.8, "ripple": 1.0 },
+      "still": { "time": 27.0, "pointer": [0.62, 0.44] }
+    },
+    {
+      "name": "Shallows",
+      "accent": "#D8A35A",
+      "params": { "palette": 2, "scale": 1.3, "speed": 0.5, "strength": 0.9, "fringe": 1.2, "ripple": 1.0 },
+      "still": { "time": 41.0, "pointer": [0.62, 0.44] }
+    }
+  ]
+}

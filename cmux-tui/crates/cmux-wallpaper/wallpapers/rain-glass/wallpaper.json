@@ -1,0 +1,38 @@
+{
+  "id": "rain-glass",
+  "name": "Rain",
+  "description": "Inside, warm, while it rains. Mist and drops on a window, a few sliding down in slow stick-slip steps and wiping clear trails, each drop a tiny lens showing the out-of-focus city lights behind; a lamp warms the glass.",
+  "shader": "wallpaper.wgsl",
+  "fps": 20,
+  "scale": 0.5,
+  "interactive": false,
+  "idle_after": 20,
+  "params": [
+    { "name": "palette", "title": "Outside (0 city, 1 neon, 2 dawn)", "default": 0, "min": 0, "max": 2 },
+    { "name": "rain", "title": "Rain", "default": 1.0, "min": 0.2, "max": 2 },
+    { "name": "speed", "title": "Speed", "default": 1.0, "min": 0, "max": 1.5 },
+    { "name": "lights", "title": "City lights", "default": 1.0, "min": 0, "max": 2 },
+    { "name": "fog", "title": "Fog on the glass", "default": 1.0, "min": 0, "max": 2 },
+    { "name": "warmth", "title": "Lamp warmth", "default": 1.0, "min": 0, "max": 2 }
+  ],
+  "still": { "time": 40.0, "pointer": [0.5, 0.5] },
+  "variants": [
+    {
+      "name": "City",
+      "accent": "#E8A04A",
+      "params": { "palette": 0, "rain": 1.0, "speed": 1.0, "lights": 1.0, "fog": 1.0, "warmth": 1.0 }
+    },
+    {
+      "name": "Neon",
+      "accent": "#E04FB0",
+      "params": { "palette": 1, "rain": 1.2, "speed": 1.0, "lights": 1.1, "fog": 0.9, "warmth": 0.7 },
+      "still": { "time": 63.0, "pointer": [0.5, 0.5] }
+    },
+    {
+      "name": "Dawn",
+      "accent": "#E9B48A",
+      "params": { "palette": 2, "rain": 0.7, "speed": 0.8, "lights": 0.7, "fog": 1.3, "warmth": 1.2 },
+      "still": { "time": 25.0, "pointer": [0.5, 0.5] }
+    }
+  ]
+}
