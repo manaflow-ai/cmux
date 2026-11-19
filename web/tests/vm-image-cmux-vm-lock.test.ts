@@ -554,6 +554,32 @@ describe("cmux-rd (the cmux.rd/1 Linux host, role desktop; release cmux-rd-v<V> 
     expect(bakedPrograms(readInputsLock()).map((p) => p.name)).toContain("cmux-rd");
   });
 
+  // A joined or Cloud Linux machine runs the cmux-rd these pins name, and the viewer speaks the
+  // crate's version: a pin left behind the crate hands the machine a host many fixes old (0.2.3
+  // against 0.2.7, screen share part 9). Every cmux-rd pin (this lock, and any acpmux source that
+  // names a cmux-rd-v<V> release URL) must be at least cmux-rd-host's crate version.
+  test("no cmux-rd pin falls behind cmux-rd-host's crate version", () => {
+    const repo = path.join(import.meta.dir, "..", "..");
+    const cargo = readFileSync(path.join(repo, "cmux-tui/crates/cmux-rd-host/Cargo.toml"), "utf8");
+    const packageTable = cargo.split(/^\[package\]\s*$/m)[1]?.split(/^\[/m)[0] ?? "";
+    const crate = /^version\s*=\s*"(\d+\.\d+\.\d+[^"]*)"/m.exec(packageTable)?.[1];
+    expect(crate).toBeDefined();
+    const parts = (v: string) => v.split(/[-+]/)[0]!.split(".").map(Number);
+    const behind = (pin: string, want: string) => {
+      const [a, b] = [parts(pin), parts(want)];
+      for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i]! < b[i]!;
+      return false;
+    };
+    const pins = [{ where: "images/cmux-vm/inputs.lock.json", version: readInputsLock().programs.find((p) => p.name === "cmux-rd")!.version }];
+    const acpmux = path.join(repo, "cmux-tui/crates/acpmux/src");
+    for (const file of new Bun.Glob("**/*.rs").scanSync(acpmux)) {
+      for (const m of readFileSync(path.join(acpmux, file), "utf8").matchAll(/releases\/download\/cmux-rd-v(\d+\.\d+\.\d+[^/"]*)\//g)) {
+        pins.push({ where: `cmux-tui/crates/acpmux/src/${file}`, version: m[1]! });
+      }
+    }
+    expect(pins.filter((p) => behind(p.version, crate!)).map((p) => `${p.where}: cmux-rd ${p.version} is behind the crate's ${crate}`)).toEqual([]);
+  });
+
   test("another URL, no checksums.txt, no desktop role or a first-use entry is refused", () => {
     const at = rdIndex(withRd());
     expect(problemsOf(withRd({ url: "https://example.com/cmux-rd.tar.gz" }))).toContain(`programs[${at}].url: must be ${cmuxRdReleaseShape("0.1.0").url}`);
