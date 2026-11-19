@@ -7,12 +7,13 @@ import Testing
 /// recorded, so the launch read gives no snapshot and its windows are never drawn, not even until the live tree
 /// comes. This home's own snapshot is read as before (Leo, 2026-11-17: "my recently opened thing").
 @Suite struct LaunchSnapshotOtherSessionTests {
+    private nonisolated struct RegistryRequest: Encodable { var appSupport = "/nonexistent", session = "cmux-app" }
+    private nonisolated struct RegistryReply: Decodable { var registryId: String? }
+
     /// Whether the app FFI answers `window_launch_current_registry` (the next release after its PR, once re-pinned).
-    static let ffiReadsTheRegistry: Bool = {
-        struct Request: Encodable { var appSupport = "/nonexistent", session = "cmux-app" }
-        struct Reply: Decodable { var registryId: String? }
-        return LaunchSnapshot.rule("window_launch_current_registry", Request(), as: Reply.self) != nil
-    }()
+    /// Nonisolated: `@Test(.enabled(if:))` reads it from a Sendable closure, off the suite's main actor.
+    nonisolated static let ffiReadsTheRegistry =
+        LaunchSnapshot.rule("window_launch_current_registry", RegistryRequest(), as: RegistryReply.self) != nil
 
     private func home() -> (LaunchSnapshotLocation, URL) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("launch-other-session-\(UUID().uuidString)")
