@@ -5,8 +5,11 @@ import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import {
   FlickerLog,
+  FRAME_WATCH_KEY,
+  frameWatchFlag,
   pageHostFlickerSend,
   resetFlickerLogForTests,
+  setFrameWatch,
   startFlickerLog,
   type FlickerEvent,
 } from "./flickerLog";
@@ -150,4 +153,65 @@ test("a record at rest arms no timer: its batch goes out at the end of its task,
   await settle();
   expect(batches.at(-1)).toEqual(["visibility"]);
   expect(timers).toHaveLength(1);
+});
+
+/// A page that counts the display frames asked of it. Hidden, so the first-load watch (firstLoadWatch.ts,
+/// bounded by the load) asks for none and every frame counted is the frame watch's (it asks for frames
+/// hidden or not, and times only visible ones).
+function countingPage(): { win: Window; frames: () => number } {
+  const win = page();
+  Object.defineProperty(win.document, "visibilityState", { value: "hidden", configurable: true });
+  let frames = 0;
+  win.requestAnimationFrame = () => {
+    frames += 1;
+    return frames;
+  };
+  return { win, frames: () => frames };
+}
+
+function mutate(win: Window): void {
+  win.document.body.append(win.document.createElement("span"));
+}
+
+test("CMUX-672: a DOM change asks for no frame unless the frame watch's debug flag is on", async () => {
+  const { win, frames } = countingPage();
+  startFlickerLog(win, () => undefined);
+  mutate(win);
+  await settle();
+  // Before, every change on every page armed a second of frames (the shared renderer at 96 to 157% CPU).
+  expect(frames()).toBe(0);
+
+  setFrameWatch(true, win);
+  expect(win.localStorage.getItem(FRAME_WATCH_KEY)).toBe("on");
+  mutate(win);
+  await settle();
+  expect(frames()).toBeGreaterThan(0);
+
+  // Off again: the observer is gone, so a change asks for nothing more.
+  setFrameWatch(false, win);
+  const before = frames();
+  mutate(win);
+  await settle();
+  expect(frames()).toBe(before);
+  expect(frameWatchFlag(win)).toBe(false);
+});
+
+test("the frame watch follows the flag set in another page, and a page loaded with it on watches", async () => {
+  const { win, frames } = countingPage();
+  startFlickerLog(win, () => undefined);
+  // Another page of the origin turned it on: this page hears the storage event.
+  win.localStorage.setItem(FRAME_WATCH_KEY, "on");
+  win.dispatchEvent(new (win as Window & typeof globalThis).StorageEvent("storage", { key: FRAME_WATCH_KEY }));
+  mutate(win);
+  await settle();
+  expect(frames()).toBeGreaterThan(0);
+  resetFlickerLogForTests();
+
+  const later = countingPage();
+  later.win.localStorage.setItem(FRAME_WATCH_KEY, "on");
+  startFlickerLog(later.win, () => undefined);
+  mutate(later.win);
+  await settle();
+  expect(later.frames()).toBeGreaterThan(0);
+  later.win.localStorage.removeItem(FRAME_WATCH_KEY);
 });
