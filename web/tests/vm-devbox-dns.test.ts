@@ -344,6 +344,23 @@ describe("cmux-edge-resolver (services/vms/images/dns.ts)", () => {
     expect(noDns.some((destination) => destination.port === 53)).toBe(false);
   });
 
+  test("an edge address override still grants port 53 to both addresses the baked script selects", () => {
+    const env = { FREESTYLE_EDGE_ADDRESSES: FREESTYLE_EDGE_IPV4 } as unknown as NodeJS.ProcessEnv;
+    const withDns = egressDestinations({ publicEgress: false, ranges: [], domains: [], dns: true }, env);
+    for (const cidr of [`${FREESTYLE_EDGE_IPV6}/128`, `${FREESTYLE_EDGE_IPV4}/32`]) {
+      expect(withDns).toContainEqual({ cidr, port: 53, protocol: "udp" });
+      expect(withDns).toContainEqual({ cidr, port: 53, protocol: "tcp" });
+    }
+    // The 443 grant follows the override alone, as before.
+    expect(withDns.filter((destination) => destination.port === 443)).toEqual([{ cidr: `${FREESTYLE_EDGE_IPV4}/32`, port: 443, protocol: "tcp" }]);
+    // A different region's edge gets port 53 too, next to the baked addresses.
+    const other = egressDestinations({ publicEgress: false, ranges: [], domains: [], dns: true }, { FREESTYLE_EDGE_ADDRESSES: "10.99.0.1" } as unknown as NodeJS.ProcessEnv);
+    expect(other).toContainEqual({ cidr: "10.99.0.1/32", port: 53, protocol: "udp" });
+    expect(other).toContainEqual({ cidr: `${FREESTYLE_EDGE_IPV6}/128`, port: 53, protocol: "tcp" });
+    const noDns = egressDestinations({ publicEgress: false, ranges: [], domains: [], dns: false }, env);
+    expect(noDns.some((destination) => destination.port === 53)).toBe(false);
+  });
+
   test("the bake installs and checks it before the stamp; the verifier proves it on a booted clone", () => {
     const bake = readFileSync(path.join(import.meta.dirname, "../scripts/build-devbox-freestyle.ts"), "utf8");
     expect(bake).toContain('await step("edge-resolver-ipv6", `${devboxEdgeResolverInstallCommand()} && ${devboxEdgeResolverCheckCommand()}`);');

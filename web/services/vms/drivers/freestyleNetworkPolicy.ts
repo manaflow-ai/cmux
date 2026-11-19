@@ -43,6 +43,16 @@ export function freestyleEdgeAddresses(env: NodeJS.ProcessEnv = process.env): st
   return addressList(env.FREESTYLE_EDGE_ADDRESSES, DEFAULT_EDGE_ADDRESSES);
 }
 
+/**
+ * The edge resolver addresses a guest can query: the configured edge, plus
+ * the two addresses baked into the image's cmux-edge-resolver script. The
+ * script cannot read FREESTYLE_EDGE_ADDRESSES, so an override must not drop
+ * the addresses it selects from the port 53 grant.
+ */
+export function freestyleEdgeResolverAddresses(env: NodeJS.ProcessEnv = process.env): string[] {
+  return [...new Set([...freestyleEdgeAddresses(env), ...[FREESTYLE_EDGE_IPV6, FREESTYLE_EDGE_IPV4].map((address) => canonicalCidr(address))])];
+}
+
 /** An egress destination; the source is always the machine itself. */
 export type EgressDestination = {
   readonly public?: true;
@@ -63,7 +73,7 @@ export function egressDestinations(plan: NetworkRulePlan, env: NodeJS.ProcessEnv
     // The edge's forwarding resolver is the guest's resolver once a TLS rule
     // exists (the agent names it; cmux-edge-resolver adds its IPv6 listener,
     // services/vms/images/dns.ts), so it needs port 53 like the public ones.
-    for (const cidr of [...freestyleGuestDnsResolvers(env), ...freestyleEdgeAddresses(env)]) {
+    for (const cidr of [...freestyleGuestDnsResolvers(env), ...freestyleEdgeResolverAddresses(env)]) {
       destinations.push({ cidr, port: 53, protocol: "udp" }, { cidr, port: 53, protocol: "tcp" });
     }
   }
