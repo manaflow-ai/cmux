@@ -210,7 +210,8 @@ or a screenshot alone may not establish keyboard focus, input delivery, persiste
 across restart, or real display behavior. State exactly what you exercised.
 
 For iPhone changes, a simulator pass does not establish physical input, networking,
-or reconnection behavior. Use `ios/scripts/reload.sh --help` and the project's
+or reconnection behavior. The iPhone app is `cmux-next-ios/` (the classic `ios/` app
+is retired). Use `cmux-next-ios/scripts/review.sh --help` and the project's
 [development workflow](../skills/cmux-dev-workflow/SKILL.md) to build the same-tag
 Mac companion and install on an authorized physical device. Team sign-in/pairing
 uses personal credentials outside the repository; it is not a prerequisite for
