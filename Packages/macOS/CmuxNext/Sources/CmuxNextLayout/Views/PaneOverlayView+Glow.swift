@@ -47,14 +47,31 @@ extension PaneOverlayView {
         attentionLayer.add(hold, forKey: "attention-dismiss-glow")
     }
 
-    /// The outline a border of `width` inside a rounded rect of `size` draws, in
-    /// the layer's coordinates: the glow's shadow path, so Core Animation needs no
-    /// offscreen pass to find it.
-    static func ringOutline(size: CGSize, radius: CGFloat, width: CGFloat) -> CGPath? {
+    /// Every corner of a layer (`maskedCorners`' default).
+    static let allCorners: CACornerMask = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+
+    /// The outline a border of `width` inside a rect of `size` draws, its `corners`
+    /// rounded with `radius` (as the layer's `maskedCorners`), in the layer's
+    /// coordinates: the glow's shadow path, so Core Animation needs no offscreen pass to find it.
+    static func ringOutline(size: CGSize, radius: CGFloat, width: CGFloat, corners: CACornerMask = allCorners) -> CGPath? {
         guard width > 0, size.width > width * 2, size.height > width * 2 else { return nil }
         let inset = CGRect(origin: .zero, size: size).insetBy(dx: width / 2, dy: width / 2)
         let corner = max(0, min(radius - width / 2, min(inset.width, inset.height) / 2))
-        return CGPath(roundedRect: inset, cornerWidth: corner, cornerHeight: corner, transform: nil)
-            .copy(strokingWithWidth: width, lineCap: .butt, lineJoin: .round, miterLimit: 10)
+        let path: CGPath
+        if corners == allCorners || corner == 0 {
+            path = CGPath(roundedRect: inset, cornerWidth: corner, cornerHeight: corner, transform: nil)
+        } else {
+            let shape = CGMutablePath()
+            let round = { (mask: CACornerMask) in corners.contains(mask) ? corner : 0 }
+            let (minX, minY, maxX, maxY) = (inset.minX, inset.minY, inset.maxX, inset.maxY)
+            shape.move(to: CGPoint(x: minX + round(.layerMinXMinYCorner), y: minY))
+            shape.addArc(tangent1End: CGPoint(x: maxX, y: minY), tangent2End: CGPoint(x: maxX, y: maxY), radius: round(.layerMaxXMinYCorner))
+            shape.addArc(tangent1End: CGPoint(x: maxX, y: maxY), tangent2End: CGPoint(x: minX, y: maxY), radius: round(.layerMaxXMaxYCorner))
+            shape.addArc(tangent1End: CGPoint(x: minX, y: maxY), tangent2End: CGPoint(x: minX, y: minY), radius: round(.layerMinXMaxYCorner))
+            shape.addArc(tangent1End: CGPoint(x: minX, y: minY), tangent2End: CGPoint(x: maxX, y: minY), radius: round(.layerMinXMinYCorner))
+            shape.closeSubpath()
+            path = shape
+        }
+        return path.copy(strokingWithWidth: width, lineCap: .butt, lineJoin: .round, miterLimit: 10)
     }
 }

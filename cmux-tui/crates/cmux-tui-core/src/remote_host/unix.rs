@@ -20,6 +20,8 @@ mod capture_platform;
 #[cfg(test)]
 #[path = "capture_tests.rs"]
 mod capture_tests;
+#[path = "computer_use_lifecycle.rs"]
+mod computer_use_lifecycle;
 
 #[cfg(target_os = "macos")]
 #[path = "macos.rs"]
@@ -167,9 +169,20 @@ struct Inner {
     unavailable: Mutex<Option<String>>,
     /// A newer embedded build waits for the running host to become idle.
     upgrade_pending: Mutex<bool>,
+    /// The Computer Use worker's activity the host reported last
+    /// (`workers["computer-use"].activity`), and where a change goes (the
+    /// mux's `computer-use-activity` event, set by `configure_remote_host`).
+    activity: Mutex<Value>,
+    on_activity: Mutex<Option<ActivitySink>>,
+    /// Set while the daemon's `preview/watch` connection to the worker is
+    /// open (computer_use_lifecycle.rs).
+    preview_watching: std::sync::atomic::AtomicBool,
     /// The verified app's own grants (memory only; the app reports them again on connect).
     app_permissions: Mutex<Option<super::AppPermissions>>,
 }
+
+/// Where the Computer Use worker's activity goes (any thread; must not block).
+type ActivitySink = Arc<dyn Fn(Value) + Send + Sync>;
 
 #[derive(Default)]
 enum State {
@@ -213,6 +226,11 @@ impl RemoteHostSupervisor {
                 }
             });
         }
+    }
+
+    /// Where the Computer Use worker's activity goes from now on.
+    fn on_activity(&self, sink: ActivitySink) {
+        *lock(&self.inner.on_activity) = Some(sink);
     }
 
     /// The person's choices changed (the app's settings): saved, sent to the
@@ -524,6 +542,9 @@ impl Inner {
                     ),
                 }
             }
+            // No host runs from the staged copy now: a new build moves into
+            // the one stable path here.
+            platform::promote(&staged)?;
             let config = override_config.cloned().unwrap_or_else(|| lock(&this.config).clone());
             let secret = mint_secret()?;
             let pid = platform::spawn_host(
@@ -646,6 +667,9 @@ impl Inner {
             if message.get("event").and_then(Value::as_str) == Some("status") {
                 let status = message.get("status").cloned().unwrap_or(Value::Null);
                 let idle = !status.get("busy").and_then(Value::as_bool).unwrap_or(false);
+                if let Some(inner) = this.upgrade() {
+                    Self::note_activity(&inner, &status);
+                }
                 *lock(&connection.status) = status.clone();
                 Self::update_screen_device_id(this, connection, &status);
                 if idle
@@ -663,6 +687,25 @@ impl Inner {
         connection.closed.1.notify_all();
         let Some(inner) = this.upgrade() else { return };
         Self::host_gone(&inner, connection);
+    }
+
+    /// Sends the worker's activity on when it changed since the last status
+    /// (a status event comes for any change of the host, most of them not
+    /// Computer Use's).
+    fn note_activity(this: &Arc<Self>, status: &Value) {
+        let activity =
+            status.pointer("/workers/computer-use/activity").cloned().unwrap_or_else(|| json!([]));
+        {
+            let mut last = lock(&this.activity);
+            if *last == activity || (last.is_null() && activity == json!([])) {
+                return;
+            }
+            *last = activity.clone();
+        }
+        let sink = lock(&this.on_activity).clone();
+        if let Some(sink) = sink {
+            sink(json!({"event": "computer-use-activity", "sessions": activity}));
+        }
     }
 
     /// Read only the authenticated host status. The supervisor socket is
@@ -731,6 +774,8 @@ impl Inner {
                 }
             }
         }
+        // No host, no agent acting through it.
+        Self::note_activity(this, &json!({}));
         if let Some(paths) = lock(&this.paths).clone()
             && read_record(&paths.record()).is_some_and(|record| record == connection.record)
             && capture::may_remove_record(this, &connection.record)
@@ -972,11 +1017,28 @@ impl crate::mux::Mux {
     /// Lets this daemon run cmux Remote (macOS): the host for the daemon on
     /// `daemon_socket`, with durable state beside the daemon's own.
     pub fn configure_remote_host(self: &Arc<Self>, daemon_socket: &Path) {
+        // Linux runs Computer Use in the daemon's own worker, not cmux Remote.
+        #[cfg(target_os = "linux")]
+        self.configure_computer_use(daemon_socket);
         let Some(state_root) = crate::platform::workspace_state_dir()
             .and_then(|sessions| sessions.parent().map(Path::to_path_buf))
         else {
             return;
         };
+        let mux = Arc::downgrade(self);
+        self.control_clients.remote_host.on_activity(Arc::new(move |payload| {
+            if let Some(mux) = mux.upgrade() {
+                // An agent acts: its live preview reaches the app from the worker.
+                let acting = payload
+                    .get("sessions")
+                    .and_then(Value::as_array)
+                    .is_some_and(|s| !s.is_empty());
+                mux.emit(crate::MuxEvent::ComputerUseActivity(Arc::new(payload)));
+                if acting {
+                    mux.ensure_computer_use_preview();
+                }
+            }
+        }));
         self.control_clients
             .remote_host
             .configure(paths_for(daemon_socket, &state_root), Arc::downgrade(self));
