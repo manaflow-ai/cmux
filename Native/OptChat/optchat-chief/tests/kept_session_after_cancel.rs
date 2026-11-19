@@ -430,3 +430,48 @@ fn a_turn_claude_code_ran_on_its_own_between_turns_never_joins_the_next_reply() 
         "a turn Claude Code ran on its own is not the next turn's reply"
     );
 }
+
+#[test]
+fn a_message_during_a_long_tool_call_moves_the_call_to_the_background_and_the_turn_goes_on() {
+    let mut h = harness(long_tool_script());
+    {
+        let mut inner = h.agents.inner.lock().unwrap();
+        inner.steering = true;
+        // Claude Code is in a long tool call and reads the steer only when
+        // the step ends; Ctrl-B ends it.
+        inner.steer_at_end = true;
+        inner.backgrounds = true;
+    }
+    h.brain.set_steer_deadline(Some(Duration::from_millis(20)));
+    running(&mut h, "run the long build");
+    h.say("user_local", "while that runs: what is 5 plus 6?");
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while h.agents.inner.lock().unwrap().backgrounded.is_empty() {
+        assert!(std::time::Instant::now() < deadline, "no background move");
+        tick(&mut h);
+    }
+    // The message is read (logged) and nothing cuts the turn.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !h
+        .log()
+        .iter()
+        .any(|(k, t)| k == "user" && t.contains("5 plus 6"))
+    {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the message was never read"
+        );
+        tick(&mut h);
+    }
+    for _ in 0..20 {
+        tick(&mut h);
+    }
+    let inner = h.agents.inner.lock().unwrap();
+    assert!(
+        inner.cancels.is_empty(),
+        "the turn was not cut: {:?}",
+        inner.cancels
+    );
+    assert!(inner.withdrawn.is_empty(), "nothing was taken back");
+    assert_eq!(inner.prompts.len(), 1, "no second turn");
+}

@@ -140,6 +140,13 @@ pub enum Input {
         key: String,
         all: bool,
     },
+    /// The deadline found a person's steer of turn `key` unread and asked
+    /// acpmux to move the turn's running work to the background
+    /// (`steer.rs`): whether something moved.
+    SteerBackgrounded {
+        key: String,
+        moved: bool,
+    },
     TurnEnded {
         key: String,
         /// Boxed: the outcome and its stats are the largest input.
@@ -923,6 +930,9 @@ pub struct Brain {
     /// The turn (its key) whose unread steers are being taken back now:
     /// no new steer goes into it (`steer.rs`).
     withdrawing: Option<String>,
+    /// The turn (its key) whose running work the steer deadline asked to
+    /// move to the background, once a turn (`steer.rs`).
+    backgrounded: Option<String>,
     steer_seq: u64,
     /// A draft could not be published (logged once).
     draft_failed: bool,
@@ -1237,6 +1247,7 @@ impl Brain {
             steering: Vec::new(),
             steer_left: None,
             withdrawing: None,
+            backgrounded: None,
             steer_seq: 0,
             draft_failed: false,
             run_failed: false,
@@ -1685,6 +1696,7 @@ impl Brain {
             Input::Run(update) => self.turn_run(*update),
             Input::Steered { id, result } => self.steered(id, result),
             Input::SteersWithdrawn { key, all } => self.steers_withdrawn(&key, all),
+            Input::SteerBackgrounded { key, moved } => self.steer_backgrounded(&key, moved),
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, *outcome),
             Input::Notice { key, text } => self.notice(key, text),
             Input::CompactorStatus(status) => self.compactor_status(status),

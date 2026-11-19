@@ -305,6 +305,13 @@ pub trait AgentPort: Send + Sync {
     fn remove_queued(&self, _session: &str, _prompt_id: &str) -> Result<bool, String> {
         Err("removing queued prompts is not supported".into())
     }
+    /// Moves the session's running foreground work to the background
+    /// (`_acpmux/process/background`, Claude Code's Ctrl-B): the call runs
+    /// on, its result comes when it ends, and the agent reads a waiting
+    /// message now. True when something moved.
+    fn background_work(&self, _session: &str) -> Result<bool, String> {
+        Ok(false)
+    }
     /// Takes back a steer the harness has not read yet (`_acpmux/queue_edit
     /// op=withdraw`, Claude Code's `cancel_async_message`): true when it was
     /// dropped unread, false when the harness read it or cannot take one back.
@@ -1517,6 +1524,17 @@ impl AgentPort for Acpmux {
             .request("session/cancel", json!({"sessionId": session}))
             .map(|_| ())
             .map_err(|e| format!("cancel: {e}"))
+    }
+
+    fn background_work(&self, session: &str) -> Result<bool, String> {
+        self.client()?
+            .request_within(
+                "_acpmux/process/background",
+                json!({"sessionId": session}),
+                WITHDRAW_WAIT,
+            )
+            .map(|v| v.get("backgrounded").and_then(Value::as_bool) == Some(true))
+            .map_err(|e| format!("background work: {e}"))
     }
 
     fn withdraw_steer(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
