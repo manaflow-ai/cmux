@@ -719,6 +719,8 @@ class GlassLens {
     let count = 0;
     for (let index = 0; index < this.glass.length && count < MAX_RECTS; index++) {
       const element = this.glass[index]!;
+      // The glass engine draws this one (engine/pageGlass.ts): one bend, not two.
+      if (element.hasAttribute("data-glass-engine")) continue;
       let surface = this.surfaces.get(element);
       if (!surface || surface.stale) surface = this.refresh(element, surface);
       else if (this.hot) surface.opacity = effectiveOpacity(element, this.view);

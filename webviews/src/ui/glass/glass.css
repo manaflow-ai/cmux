@@ -117,6 +117,18 @@
   --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
 }
 
+/* The glass engine draws this surface's whole glass under the page (engine/pageGlass.ts, behind
+   experiments.glassEngine): the surface draws only its content. */
+[data-glass-engine] {
+  --glass-tint: transparent;
+  --glass-backdrop: none;
+  --glass-rim-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: transparent;
+  box-shadow: none;
+}
+
 /* The lens draws the bend and its frost behind the glass; the surface keeps only a light frost
    for the page content between the canvas and the glass. */
 :root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) {
