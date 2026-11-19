@@ -39,6 +39,18 @@ extension AgentPaneView {
         return frame.contains(point)
     }
 
+    /// The agent pane in `window` whose Chromium page shows in `page` (its child window).
+    public static func chromiumAgentPane(under page: NSWindow, in window: NSWindow) -> AgentPaneView? {
+        let center = CGPoint(x: page.frame.midX, y: page.frame.midY)
+        var stack: [NSView] = window.contentView.map { [$0] } ?? []
+        while let view = stack.popLast() {
+            if let pane = view as? AgentPaneView, let content = pane.chromiumPage?.contentView, let host = content.window,
+               host.convertToScreen(content.convert(content.bounds, to: nil)).contains(center) { return pane }
+            stack.append(contentsOf: view.subviews)
+        }
+        return nil
+    }
+
     private static func screenFrame(of view: NSView) -> CGRect? {
         guard let window = view.window else { return nil }
         return window.convertToScreen(view.convert(view.bounds, to: nil))
