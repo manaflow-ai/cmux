@@ -101,6 +101,21 @@ public nonisolated struct SurfaceBackgrounds: Hashable, Sendable {
         return tokens.surfaceBackground.withAlpha(alpha)
     }
 
+    /// The split divider's line (`appearance.surfaces.splitDivider`), or nil when it has no override. A line, not a
+    /// backdrop: its color (else `base`, the chrome's own divider color) at its opacity times the color's own alpha
+    /// (no opacity: the color as it is). Resolved as a backdrop (``fill(for:tokens:windowTint:)``), an opacity alone
+    /// painted the window's background color, so any opacity hid the sidebar's edge and every split line (Leo,
+    /// 2026-11-19: "why is there no divider showing between my sidebar and the rest of the stuff? and between pane
+    /// splits?").
+    ///
+    /// - Parameter base: The divider's color with no override (`Palette.chromeDivider`).
+    public func dividerLine(base: ThemeRGB) -> ThemeRGB? {
+        guard let override = overrides[.splitDivider] else { return nil }
+        guard let opacity = override.opacity else { return override.color ?? base }
+        let color = override.color ?? base.withAlpha(1)
+        return color.withAlpha(color.alpha * opacity)
+    }
+
     /// ``fill(for:tokens:windowTint:)`` for an owner that paints it straight over the window's one tint (`sheet` at
     /// `windowTint`, over the picture or the desktop): a color override more opaque than the window is compensated for
     /// the tint under it, so the surface shows that color at exactly its opacity instead of over a second tint (user,
