@@ -41,7 +41,7 @@ report goes to <out>/quit-launch-bound.json; samples and the app's log go to <ou
 
   scripts/cmux-next/quit-launch-bound.py --app "<path>/cmux DEV <tag>.app" --out DIR
       [--quit interactive,scripted,signal,wedged] [--rounds 1] [--workspaces 8] [--no-agent]
-      [--quit-bound 6] [--window-bound 3] [--interactive-bound 8] [--stall-bound 2000]
+      [--quit-bound 6] [--window-bound 3] [--interactive-bound 8] [--stall-bound 2000] [--no-sample]
 
 GUI host or CI macOS runner only (it launches the app without activation). Ends the tag's
 daemons at the end (tag_teardown), also on a failure.
@@ -187,12 +187,17 @@ setInterval(() => { let x = 0; for (let i = 0; i < 2e5; i++) x += i; document.ti
 class Sampler:
     """`sample <pid> SAMPLE_SECONDS` back to back until the process exits or stop() runs."""
 
+    # --no-sample (the perf cron's relaunch part): `sample` suspends the app while it reads its stacks, which the
+    # timed launch and quit would pay; the run then records no stacks.
+    enabled = True
+
     def __init__(self, pid, out, prefix):
         self.pid, self.out, self.prefix = pid, out, prefix
         self.stopped = threading.Event()
         self.files = []
         self.thread = threading.Thread(target=self.run, daemon=True)
-        self.thread.start()
+        if self.enabled:
+            self.thread.start()
 
     def run(self):
         index = 0
@@ -208,7 +213,8 @@ class Sampler:
 
     def stop(self):
         self.stopped.set()
-        self.thread.join(SAMPLE_SECONDS + 10)
+        if self.thread.is_alive():
+            self.thread.join(SAMPLE_SECONDS + 10)
         return self.files
 
 
@@ -449,7 +455,10 @@ def main():
     ap.add_argument("--stall-bound", type=float, default=2000, help="ms: the longest main-thread stall in the launch")
     ap.add_argument("--launch-advisory", action="store_true",
                     help="launch bounds only warn (a CI host over its load threshold); the quit bound still fails")
+    ap.add_argument("--no-sample", action="store_true",
+                    help="no `sample` of the app during quits and launches (it suspends the app it reads: timed runs)")
     opts = ap.parse_args()
+    Sampler.enabled = not opts.no_sample
     os.makedirs(opts.out, exist_ok=True)
     session = Session(opts)
     session.teardown.install()

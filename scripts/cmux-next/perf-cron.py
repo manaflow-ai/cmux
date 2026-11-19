@@ -196,6 +196,17 @@ PARTS = [
     {"name": "throughput", "args": [*MEASURE, "--config=bench", "--suite=terminal-throughput"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "terminal-throughput",
      "run_seconds": 1800},  # a cold bench-configuration build alone took 800 s (2026-11-15)
+    # Quit and reopen with the session restored (relaunch-wake-cron.py): the window, the chats live again (warm and
+    # after an in-place update) and the terminals live, the quit's own time and anything the restore lost. Budgets in
+    # that file, each with its source. Two benches, six chat relaunches and three session relaunches. Its rows
+    # (launch.relaunch.*) and the wake part's (launch.wake_proxy.*) are in the launch family, whose target is each
+    # row's own budget (target_of), and ROW_PARTS sends them to their parts before the plain launch rows.
+    {"name": "relaunch", "args": [*MEASURE, "--suite=relaunch"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "relaunch", "run_seconds": 1500},
+    # The app after a wake, by proxy (wake-proxy-bench.py): every process of it frozen 30 s and resumed, to the main
+    # thread answering and a typed command's output drawn. A measure Mac can't sleep and wake itself in a step.
+    {"name": "wake", "args": [*MEASURE, "--suite=wake"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "wake"},
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
@@ -236,7 +247,8 @@ ROW_PARTS = [
     (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"), (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
     (r"^workspace_scaling\.", "workspace-scaling"),
-    (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"), (r"^launch\.", "launch"),
+    (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"),
+    (r"^launch\.relaunch\.", "relaunch"), (r"^launch\.wake_proxy\.", "wake"), (r"^launch\.", "launch"),
     (r"^terminal\.throughput\.", "throughput"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
@@ -251,9 +263,10 @@ ROW_PARTS = [
 # here reads a higher p95 as worse. The memory-agents breakdown (memory-agents-cron.py) says where the judged totals'
 # memory is, per process kind; its kinds come and go with the app, so a row each is shown, not judged. The chat
 # composer's typing stages (acp.<engine>.typing.to_listener and .to_work, perf-budgets.py STAGE_ROW_RE) say where
-# the judged to_frame time goes: shown, not judged (measurement only, no new gate).
+# the judged to_frame time goes: shown, not judged (measurement only, no new gate). The wake part's awake echo is the
+# same echo with nothing frozen: the floor under the judged wake row, shown only.
 REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\."
-                                r"|acp\.[^.]+\.typing\.(to_listener|to_work)$)")
+                                r"|acp\.[^.]+\.typing\.(to_listener|to_work)$|launch\.wake_proxy\.awake_echo_ms$)")
 # The diff-viewer budgets of scripts/benchmark-diff-viewer.sh (its env defaults), as rows where lower is better.
 DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_ms_per_gib": 1024 * 1000 / 500.0,
                 "diff.stream.p95": 250.0}
@@ -1905,7 +1918,7 @@ def supported_parts_at(sha):
             bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/bench-startup.py"],
                                    capture_output=True, text=True).stdout
             ok = "--suite=launch" in text and '"--activation"' in bench
-        elif need in ("perf-gate", "launch", "memory-agents"):
+        elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
             ok = f"--suite={need}" in text

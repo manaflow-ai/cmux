@@ -670,6 +670,84 @@ class WebUiTests(unittest.TestCase):
                          "no empty sample: no ratio either")
         self.assertTrue(cron.report_is_incomplete(part, {"rows": [], "incomplete": ["no empty-app sample"]}))
 
+    @staticmethod
+    def relaunch_wake():
+        spec2 = importlib.util.spec_from_file_location("relaunch_wake", os.path.join(HERE, "..", "relaunch-wake-cron.py"))
+        mod = importlib.util.module_from_spec(spec2)
+        spec2.loader.exec_module(mod)
+        return mod
+
+    def test_the_relaunch_part_owns_its_rows_and_judges_them_on_their_budgets(self):
+        """Leo 2026-11-19 ("having those measurements in"): quit and reopen with the session restored, as rows."""
+        rw = self.relaunch_wake()
+        self.assertIn("relaunch", FLEET, "a Mac part on the measure host")
+        self.assertEqual(cron.part_for_row("launch.relaunch.warm.chat_live_ms@cmux20-bench"), "relaunch")
+        self.assertEqual(cron.part_for_row("launch.relaunch.session.terminal_live_ms@cmux21"), "relaunch")
+        self.assertEqual(cron.part_for_row("launch.warm.first_window_frame_committed@cmux21"), "launch",
+                         "the launch rows keep their part")
+        reconnect = {"rounds": [
+            {"mode": "warm", "phases": {"first window frame": 450.0, "pane painted": 1400.0, "first live event": 1500.0}},
+            {"mode": "warm", "phases": {"first window frame": 470.0, "pane painted": 1450.0, "first live event": None}},
+            {"mode": "update", "phases": {"first window frame": 900.0, "pane painted": 2600.0, "first live event": 2700.0}}]}
+        session = {"census": {"workspaces": 5, "tabs": {"terminal": 16, "browser": 5}},
+                   "quits": [{"seconds": 1.2, "exited": True}, {"seconds": 9.0, "exited": False}],
+                   "launches": [{"marks": {"first_window_frame_committed": 430.0, "first_terminal_frame": 610.0},
+                                 "longest_stall_ms": 120, "census": {"workspaces": 5, "tabs": {"terminal": 16, "browser": 5}}},
+                                {"marks": {"first_window_frame_committed": 440.0}, "longest_stall_ms": 300,
+                                 "census": {"workspaces": 4, "tabs": {"terminal": 12, "browser": 5}}}]}
+        report = {"rows": rw.reconnect_rows(reconnect) + rw.session_rows(session)}
+        part = cron.PART_BY_NAME["relaunch"]
+        rows = cron.rows_of_part(part, report, budgets_mod, {})
+        self.assertEqual(rows["launch.relaunch.warm.first_window_frame_ms"]["p50"], 460.0)
+        self.assertEqual(rows["launch.relaunch.warm.chat_live_ms"]["p95"], 1500.0, "a round with no live event has no value")
+        self.assertEqual(rows["launch.relaunch.warm.chat_missing_runs"]["p95"], 1, "it is counted instead")
+        self.assertEqual(rows["launch.relaunch.update.chat_missing_runs"]["p95"], 0)
+        self.assertEqual(rows["launch.relaunch.session.quit_ms"]["p95"], 1200.0, "a quit that never exited is no time")
+        self.assertEqual(rows["launch.relaunch.session.terminal_live_ms"]["p95"], 610.0)
+        self.assertEqual(rows["launch.relaunch.session.lost_items"]["p95"], 5, "the worst restore: 1 workspace and 4 tabs")
+        # The targets are each row's own budget (relaunch-wake-cron.py names the sources), not the 10 ms latency one.
+        self.assertEqual(cron.target_of("launch.relaunch.warm.chat_live_ms@cmux20-bench", rows["launch.relaunch.warm.chat_live_ms"], 8.33), 600)
+        self.assertEqual(cron.target_of("launch.relaunch.session.terminal_live_ms@h", rows["launch.relaunch.session.terminal_live_ms"], 8.33), 300)
+        self.assertEqual(cron.target_of("launch.relaunch.session.quit_ms@h", rows["launch.relaunch.session.quit_ms"], 8.33), 6000)
+        self.assertEqual(cron.target_of("launch.relaunch.session.lost_items@h", rows["launch.relaunch.session.lost_items"], 8.33), 0)
+        self.assertTrue(cron.over_target("launch.relaunch.warm.chat_live_ms@h", rows["launch.relaunch.warm.chat_live_ms"], 8.33))
+        self.assertFalse(cron.over_target("launch.relaunch.warm.first_window_frame_ms@h", rows["launch.relaunch.warm.first_window_frame_ms"], 8.33))
+        self.assertEqual(rw.missing_rows(report["rows"], rw.RELAUNCH_EXPECTED), [])
+        self.assertEqual(rw.missing_rows(rw.session_rows(session), rw.RELAUNCH_EXPECTED),
+                         ["no launch.relaunch.warm.chat_live_ms", "no launch.relaunch.update.chat_live_ms"],
+                         "a chat bench that gave nothing marks the report incomplete")
+        self.assertTrue(cron.report_is_incomplete(part, {"rows": [], "incomplete": ["no launch.relaunch.warm.chat_live_ms"]}))
+
+    def test_the_wake_part_owns_its_proxy_rows(self):
+        """A measure Mac can't sleep in a step: the wake rows are a freeze proxy and say so in their name."""
+        rw = self.relaunch_wake()
+        self.assertIn("wake", FLEET)
+        self.assertEqual(cron.part_for_row("launch.wake_proxy.terminal_echo_ms@cmux21"), "wake")
+        bench = {"sleep_s": 30, "rounds": [
+            {"app_answer_ms": 40.0, "terminal_echo_ms": 180.0, "awake_echo_ms": 60.0},
+            {"app_answer_ms": 50.0, "terminal_echo_ms": 1300.0, "awake_echo_ms": 70.0},
+            {"app_answer_ms": 45.0, "terminal_echo_ms": None, "awake_echo_ms": 65.0}]}
+        rows = cron.rows_of_part(cron.PART_BY_NAME["wake"], {"rows": rw.wake_rows(bench)}, budgets_mod, {})
+        self.assertEqual(rows["launch.wake_proxy.app_answer_ms"]["p50"], 45.0)
+        self.assertEqual(rows["launch.wake_proxy.terminal_echo_ms"]["p95"], 1300.0)
+        self.assertEqual(rows["launch.wake_proxy.missed_rounds"]["p95"], 1)
+        self.assertEqual(cron.target_of("launch.wake_proxy.terminal_echo_ms@h", rows["launch.wake_proxy.terminal_echo_ms"], 8.33),
+                         1000, "plans/cmux-next/transport.md: wake to first byte within 1 s")
+        self.assertTrue(cron.over_target("launch.wake_proxy.terminal_echo_ms@h", rows["launch.wake_proxy.terminal_echo_ms"], 8.33))
+        self.assertTrue(cron.REPORT_ONLY_ROW_RE.match("launch.wake_proxy.awake_echo_ms"), "the awake floor is shown only")
+        self.assertFalse(cron.REPORT_ONLY_ROW_RE.match("launch.wake_proxy.terminal_echo_ms"))
+        self.assertEqual(rw.wake_rows({"rounds": []}), [])
+        self.assertEqual(rw.missing_rows([], rw.WAKE_EXPECTED),
+                         ["no launch.wake_proxy.app_answer_ms", "no launch.wake_proxy.terminal_echo_ms"])
+
+    def test_the_wake_bench_freezes_the_whole_process_tree(self):
+        spec2 = importlib.util.spec_from_file_location("wake_proxy", os.path.join(HERE, "..", "wake-proxy-bench.py"))
+        wake = importlib.util.module_from_spec(spec2)
+        with mock.patch.dict("sys.modules", {"bench_memory": mock.MagicMock()}):
+            spec2.loader.exec_module(wake)
+        table = [(10, 1, "app"), (11, 10, "helper"), (20, 1, "daemon"), (21, 20, "host"), (22, 21, "zsh"), (30, 1, "other")]
+        self.assertEqual(wake.descendants({10, 20}, table), {10, 11, 20, 21, 22}, "the shells under the terminal hosts too")
+
     def test_the_memory_agents_part_measures_the_optimized_app(self):
         """CMUX-571 ram-baseline compares the app with other apps' release builds and with the 2026-11-08 Release
         baseline (app process 243-285 MB). The part measured the Debug build (app process 323.3 MB at 8c515cc5), so
