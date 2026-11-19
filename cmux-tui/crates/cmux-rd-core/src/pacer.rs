@@ -73,11 +73,10 @@ impl Pacer {
         self.frame_interval_us = frame_interval_us;
         self.wake(now_us);
         // Ahead of queued probes: a probe never delays a frame.
-        let mut at = self.queue.len() - self.probes_queued;
-        for d in datagrams {
+        let at = self.queue.len() - self.probes_queued;
+        for (i, d) in datagrams.into_iter().enumerate() {
             self.queued_bytes += d.len();
-            self.queue.insert(at, d);
-            at += 1;
+            self.queue.insert(at + i, d);
         }
         self.set_rate(target_bps);
     }
