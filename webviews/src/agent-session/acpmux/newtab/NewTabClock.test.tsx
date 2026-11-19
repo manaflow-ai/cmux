@@ -1,6 +1,6 @@
 // The New Tab clock (`tabs.newTabClock.*`): the handshake's look, the Lock Screen time text, and one
 // timer to the next minute that ends with the page.
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, setSystemTime, test } from "bun:test";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -29,7 +29,9 @@ afterAll(async () => {
 test("no clock unless the host sends one; a look the page does not know reads as the default", () => {
   expect(newTabHost({ newTab: {} })?.clock).toBeUndefined();
   expect(newTabHost({ newTab: { clock: null } })?.clock).toBeUndefined();
-  expect(newTabHost({ newTab: { clock: { font: "serif", weight: "thin", color: "glass", date: false } } })?.clock).toEqual({
+  expect(
+    newTabHost({ newTab: { clock: { font: "serif", weight: "thin", color: "glass", date: false } } })?.clock,
+  ).toEqual({
     font: "serif",
     weight: "thin",
     color: "glass",
@@ -71,5 +73,24 @@ test("the clock draws its date and time, and stops its timer with the page", asy
     root.render(<NewTabClock font="mono" weight="thin" color="muted" date={false} now={at} locale="en-US" />),
   );
   expect(container.querySelector(".nt-clock-date")).toBeNull();
+  await act(async () => root.unmount());
+});
+
+test("shown again after a hide, the clock reads the time of now, not of its last tick", async () => {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  setSystemTime(new Date(2026, 10, 16, 9, 41, 5));
+  await act(async () =>
+    root.render(<NewTabClock font="rounded" weight="bold" color="text" date={false} locale="en-US" />),
+  );
+  expect(container.querySelector(".nt-clock-time")?.textContent).toBe("9:41");
+  // Ten minutes go by while the page is hidden and no timer fires (Activity hidden, a sleep).
+  setSystemTime(new Date(2026, 10, 16, 9, 51, 5));
+  await act(async () => {
+    document.dispatchEvent(new dom.window.Event("visibilitychange"));
+  });
+  expect(container.querySelector(".nt-clock-time")?.textContent).toBe("9:51");
+  setSystemTime();
   await act(async () => root.unmount());
 });
