@@ -103,7 +103,10 @@ public final class SettingsAgentMcpServers: PageProvider {
         let arguments = try Self.arguments(action: action, params: params, listed: servers)
         guard let cli = await cli() else { throw PageError(code: "cmux.page.unavailable", message: "no bundled cmux CLI") }
         let key = Self.key(params)
-        let reply = try? await runCLI(cli, ["agent-config", "mcp"] + arguments + ["--project", project, "--json"], [:])
+        // The folder and --json go before `--`: every word after it is the server's own command.
+        var words = arguments
+        words.insert(contentsOf: ["--project", project, "--json"], at: words.firstIndex(of: "--") ?? words.endIndex)
+        let reply = try? await runCLI(cli, ["agent-config", "mcp"] + words, [:])
         await refresh()
         if let reply, reply.0 == 0 {
             lastError = nil
