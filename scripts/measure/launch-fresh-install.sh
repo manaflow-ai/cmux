@@ -21,6 +21,15 @@
 #   x   as n, but the first thing run on the new copy is the exec of a small separately signed bundle inside it (the
 #       smallest Chromium helper app's executable, spawned suspended and killed): spawn_ms says whether a nested
 #       bundle's first exec pays only its own check or the whole app's, which is what a small stub bundle would pay
+# What the system's check costs per property of the copy, each as s (exec to main, no prompt, no LaunchServices):
+#   u   as s, the copy quarantined as a browser download marks it (every file, as a quarantined DMG's copy has it)
+#   t   as s, the stapled notarization ticket removed (Contents/CodeResources: outside the code signature's seal, so
+#       the signature still verifies and the check must find the ticket another way)
+#   v   as s, quarantined and the ticket removed (a download whose ticket is not stapled)
+#   r   as s, then the same copy exec'd again: the row is the second launch (first_main_start is the first's), which
+#       says whether the check is paid once per copy
+# Each launch also records the copy's size (app_kb), file count (app_files), Mach-O count (app_macho) and whether a
+# stapled ticket was there (ticket), so a run on two builds can put a cost on bundle bytes and files.
 # Every launch gets a new DMG file (q, m) or a new copy (n) and a new quarantine event, so no row reuses a check.
 # Per launch, ms from the open request: the system's "downloaded from the Internet" prompt on screen and gone (its Open
 # pressed by the console's CuaDriver at once, so a person's reading time is not in the row), the process start, `main`
@@ -56,7 +65,7 @@ main() {
     esac
   done
   [[ "$reps" =~ ^([1-9]|1[0-2])$ ]] || { echo "reps= must be 1 to 12" >&2; exit 2; }
-  [[ "$rows" =~ ^[nqmpsx](,[nqmpsx])*$ ]] || { echo "rows= takes n,q,m,p,s,x" >&2; exit 2; }
+  [[ "$rows" =~ ^[nqmpsxtuvr](,[nqmpsxtuvr])*$ ]] || { echo "rows= takes n,q,m,p,s,x,t,u,v,r" >&2; exit 2; }
   echo "LF host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
   can_trace && echo "LF root yes" || echo "LF root no (trace=1 needs sudo for /usr/bin/fs_usage)"
   xcrun swiftc -O -o "$out/launch-premain" scripts/measure/launch-premain.swift >"$out/swiftc.log" 2>&1 \
@@ -121,7 +130,8 @@ for name in dict.fromkeys(r["row"] for r in rows):
     for key in ("prompt", "prompt_gone", "start", "main", "window", "usable", "main_start",
                 "syspolicyd_ms", "xprotect_ms", "amfid_ms", "trustd_ms", "mount_ms", "prepare_checker_ms", "prewarm_ms",
                 "spawn_ms", "resume_to_main", "request_to_start", "stub_main", "resume_to_stub_main", "stub_main_to_main",
-                "syspolicyd_to_stub_main", "syspolicyd_stub_to_main", "syspolicyd_to_main"):
+                "syspolicyd_to_stub_main", "syspolicyd_stub_to_main", "syspolicyd_to_main", "first_main_start",
+                "app_kb", "app_files", "app_macho"):
         table[key] = med([r.get(key) for r in runs])
     # The prompt's dwell (on screen to dismissed) is a person's click, not ours to cut: window, usable and main are
     # reported as measured above and again with the dwell subtracted (*_less_dwell; equal to the measured value when
@@ -232,7 +242,7 @@ first() {
   cp "$OUT/app.dmg" "$dmgfile" || return 1
   local mounted_by=hdiutil mount_ms=null t_mount prewarm_ms=null cpu_prepare
   cpu_prepare="$(checker_cpu)"
-  if [[ "$name" == n || "$name" == p || "$name" == s || "$name" == x ]]; then
+  if [[ "$name" =~ ^[npsxtuvr]$ ]]; then
     hdiutil attach "$dmgfile" -nobrowse -readonly -mountpoint "$mount" >/dev/null || { echo "LF attach failed $tag"; return 1; }
   else
     # A quarantined DMG opened as a double-click opens it (DiskImageMounter, its own check of the image), else hdiutil.
@@ -259,7 +269,7 @@ first() {
   fi
   local found; found="$(find "$mount" -maxdepth 1 -name '*.app' | head -1)"
   case "$name" in
-    n|p|s|x) dir="$OUT/copy-$tag"; mkdir -p "$dir"; ditto "$found" "$dir/$(basename "$found")" && copied_by=ditto
+    n|p|s|x|t|u|v|r) dir="$OUT/copy-$tag"; mkdir -p "$dir"; ditto "$found" "$dir/$(basename "$found")" && copied_by=ditto
        app="$dir/$(basename "$found")" ;;
     q) dir="$APPS/cmux-fresh-install-$RUN_ID-$tag"
        console /bin/mkdir -p "$dir"
@@ -282,12 +292,23 @@ first() {
     console /usr/bin/perl -e 'alarm 60; exec @ARGV' "$exe" --cmux-prewarm-launch >/dev/null 2>&1
     prewarm_ms=$(($(now_ms) - t_warm))
   fi
+  # The copy's properties the check may cost by, then the row's change to them (t, v: no stapled ticket; u, v:
+  # quarantined like a download's copy, every file).
+  local ticket=absent app_kb app_files app_macho
+  [[ -f "$app/Contents/CodeResources" ]] && ticket=present
+  if [[ "$name" == t || "$name" == v ]] && [[ "$ticket" == present ]]; then
+    rm -f "$app/Contents/CodeResources" && ticket=removed
+  fi
+  [[ "$name" == u || "$name" == v ]] && xattr -r -w com.apple.quarantine "0083;$(printf '%x' "$(date +%s)");Safari;$(uuidgen)" "$app"
+  app_kb="$(du -sk "$app" | cut -f1)"
+  app_files="$(find "$app" -type f | wc -l | tr -d ' ')"
+  app_macho="$(find "$app" -type f -perm -u+x -print0 | xargs -0 file -b 2>/dev/null | grep -c 'Mach-O')"
   # What the checkers spent while the DMG was mounted and the copy made (and pre-warmed, row p): before the open.
   local prepare_checker_ms; prepare_checker_ms="$(cpu_delta "$cpu_prepare" "$(checker_cpu)")"
   before="$(qattr "$app")"
   local fw="$app/Contents/Frameworks/CmuxNextApp.framework/CmuxNextApp" fwq
   fwq="$(qattr "$fw")"
-  local cpu_before trace_pid="" t0
+  local cpu_before trace_pid="" t0 first_main=null
   cpu_before="$(checker_cpu)"
   if [[ "$rep" == T ]] && can_trace; then
     # fs_usage itself under sudo (a fleet host's sudoers allows /usr/bin/fs_usage, not a shell); the redirect stays in
@@ -311,9 +332,18 @@ first() {
       [[ -f "$e" && -x "$e" ]] && echo "$(stat -f %z "$e") $e"; done | sort -n | head -1 | cut -d' ' -f2-)"
     [[ -n "$helper" ]] || echo "LF x: no nested Helper app under $app/Contents/Frameworks" >&2
     line="$(console "$OUT/launch-premain" spawn "$helper" "$tag" 2>>"$OUT/probe.log" | grep '^LP-RUN ')" || rc=1
-  elif [[ "$name" == s ]]; then
+  elif [[ "$name" =~ ^[stuvr]$ ]]; then
     # The hold file exists before the spawn: the probe resumes the suspended child as soon as it has its pid.
     touch "$OUT/hold-$tag" && chmod 0666 "$OUT/hold-$tag"
+    if [[ "$name" == r ]]; then
+      # The copy's first launch, not the row's: only its main_start is kept.
+      local first_line
+      first_line="$(console "$OUT/launch-premain" exec "$app" "$OUT/home-$tag" "$tag-1" "$OUT/hold-$tag" 2>>"$OUT/probe.log" | grep '^LP-RUN ')"
+      first_main="$(printf '%s' "${first_line#LP-RUN }" | python3 -I -c 'import json,sys
+try: print(json.dumps(json.load(sys.stdin).get("main_start")))
+except ValueError: print("null")')"
+      sleep 1
+    fi
     line="$(console "$OUT/launch-premain" exec "$app" "$OUT/home-$tag" "$tag" "$OUT/hold-$tag" 2>>"$OUT/probe.log" | grep '^LP-RUN ')" || rc=1
     rm -f "$OUT/hold-$tag"
   else
@@ -335,9 +365,10 @@ for k in b: r[k + "_ms"] = int(a[k]) - int(b[k])
 r.update(row=sys.argv[1], rep=sys.argv[2] if sys.argv[2] == "T" else int(sys.argv[2]), copied_by=sys.argv[3],
          quarantine_before=sys.argv[6], quarantine_after=sys.argv[7], framework_quarantine=sys.argv[8], load=float(sys.argv[9]),
          mounted_by=sys.argv[10], mount_ms=json.loads(sys.argv[11]), prewarm_ms=json.loads(sys.argv[12]),
-         prepare_checker_ms=int(sys.argv[13]))
+         prepare_checker_ms=int(sys.argv[13]), ticket=sys.argv[14], app_kb=int(sys.argv[15]), app_files=int(sys.argv[16]),
+         app_macho=int(sys.argv[17]), first_main_start=json.loads(sys.argv[18]))
 print(json.dumps(r, sort_keys=True))' "$name" "$rep" "$copied_by" "$cpu_before" "$cpu_after" "$before" "$after" "$fwq" "$(load1)" \
-    "$mounted_by" "$mount_ms" "$prewarm_ms" "$prepare_checker_ms")"
+    "$mounted_by" "$mount_ms" "$prewarm_ms" "$prepare_checker_ms" "$ticket" "$app_kb" "$app_files" "$app_macho" "$first_main")"
   echo "LF-RUN $json"
   # Every process this copy left (the app, its helpers, the daemons a quit keeps), from the copy or where it ran
   # translocated.
@@ -354,7 +385,7 @@ print(json.dumps(r, sort_keys=True))' "$name" "$rep" "$copied_by" "$cpu_before" 
   [[ "$rep" == T ]] && trace_row "$tag" "$app" "$json"
   # Only what this launch made: the copy (or the mount) and its DMG file.
   case "$name" in
-    n|p|s|x) rm -rf "$OUT/copy-$tag" ;;
+    n|p|s|x|t|u|v|r) rm -rf "$OUT/copy-$tag" ;;
     q) console /bin/rm -rf "$dir" ;;
     m) hdiutil detach "$mount" >/dev/null 2>&1 || hdiutil detach -force "$mount" >/dev/null 2>&1 ;;
   esac
