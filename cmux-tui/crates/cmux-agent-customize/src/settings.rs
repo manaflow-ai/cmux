@@ -664,17 +664,20 @@ fn render_key(parts: &[String]) -> String {
         .join(".")
 }
 
-/// A value whose key says it may hold a secret: anything under an env or headers table, and
-/// keys naming a token, secret, password, credential or key.
+/// A value whose key says it may hold a secret: anything under an env or headers table (Codex's
+/// `shell_environment_policy.set` is one: its children are variables the shell gets), and keys
+/// naming a token, secret, password, credential or key.
 fn secret(parts: &[String]) -> bool {
     let normalized: Vec<String> =
         parts.iter().map(|p| p.to_ascii_lowercase().replace('-', "_")).collect();
-    if normalized.iter().rev().skip(1).any(|p| {
+    let parents = &normalized[..normalized.len().saturating_sub(1)];
+    if parents.iter().any(|p| {
         matches!(
             p.as_str(),
             "env" | "environment" | "headers" | "http_headers" | "env_http_headers"
         )
-    }) {
+    }) || parents.windows(2).any(|w| w[0] == "shell_environment_policy" && w[1] == "set")
+    {
         return true;
     }
     let last = normalized.last().map(String::as_str).unwrap_or_default();

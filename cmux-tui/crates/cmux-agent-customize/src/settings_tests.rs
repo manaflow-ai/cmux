@@ -86,10 +86,22 @@ fn claude_report_shows_every_key_with_its_scope_and_masks_env() {
 #[test]
 fn secret_names_are_masked_but_their_limits_and_stores_are_not() {
     let key = |path: &str| path.split('.').map(str::to_owned).collect::<Vec<_>>();
-    for masked in ["env.DEBUG", "github_token", "api_key", "mcp_servers.x.bearer_token_env_var"] {
+    for masked in [
+        "env.DEBUG",
+        "github_token",
+        "api_key",
+        "mcp_servers.x.bearer_token_env_var",
+        "shell_environment_policy.set.DATABASE_URL",
+        "profiles.work.shell_environment_policy.set.CMUXPROBE_CODEX_PLAIN_VAR",
+    ] {
         assert!(secret(&key(masked)), "{masked} is masked");
     }
-    for shown in ["model_auto_compact_token_limit", "cli_auth_credentials_store", "model"] {
+    for shown in [
+        "model_auto_compact_token_limit",
+        "cli_auth_credentials_store",
+        "model",
+        "shell_environment_policy.inherit",
+    ] {
         assert!(!secret(&key(shown)), "{shown} is shown");
     }
 }
@@ -210,6 +222,25 @@ fn codex_report_lists_profiles_and_masks_server_env() {
     assert_eq!(curated_row(&report, "model")["writableScopes"], json!(["user", "profile:fast"]));
     assert_eq!(report["keysOnDisk"], report["keysShown"]);
     assert_eq!(report["keysOnDisk"], 7);
+}
+
+#[test]
+fn codex_shell_environment_policy_set_is_masked_like_env() {
+    let f = fixture();
+    fs::write(
+        f.ctx.homes.codex_config(),
+        "[shell_environment_policy]\ninherit = \"core\"\nset = { PLAIN = \"inline-secret-3\" }\n",
+    )
+    .unwrap();
+    fs::write(
+        f.ctx.homes.codex.join("work.config.toml"),
+        "[shell_environment_policy.set]\nDATABASE_URL = \"postgres://u:pw-secret-4@h/db\"\n",
+    )
+    .unwrap();
+    let report = report(&f.ctx, Agent::Codex);
+    let text = report.to_string();
+    assert!(!text.contains("inline-secret-3") && !text.contains("pw-secret-4"), "{text}");
+    assert_eq!(entry(&report, "shell_environment_policy.inherit")["display"], "core");
 }
 
 #[test]
