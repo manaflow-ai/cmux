@@ -88,7 +88,10 @@ elif [[ "$before" == ref:* ]]; then
   # crates rebuild; this head's cmux-tui/ comes back after, and this head's harness runs both arms.
   mkdir "$ab/after" "$ab/before"
   cp "$target/release/acpmux" "$target/release/cmux-tui" "$target/release/cmux-tui-host" "$ab/after/"
-  git rev-parse --verify -q "$ref^{commit}" >/dev/null || git fetch -q --depth 1 origin "$ref"
+  # --depth only in a checkout that is already shallow: a depth fetch in a full clone makes it shallow.
+  depth=()
+  [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
+  git rev-parse --verify -q "$ref^{commit}" >/dev/null || git fetch -q ${depth[@]+"${depth[@]}"} origin "$ref"
   base_sha="$(git rev-parse --verify -q "$ref^{commit}" || git rev-parse FETCH_HEAD)"
   if [ "$(git rev-parse "$base_sha:ghostty-next")" != "$(git rev-parse HEAD:ghostty-next)" ]; then
     echo "infinite-items-linux.sh: $base_sha pins another ghostty-next; before=ref: needs the same pin" >&2
