@@ -31,7 +31,7 @@ FW_NAME="Chromium Embedded Framework.framework"
 FW_BINARY="Chromium Embedded Framework"
 source "$SCRIPT_DIR/cef-locale-allowlist.sh"
 # Bump when the embedded layout changes so existing app bundles are redone.
-LAYOUT="versioned-3-locale-fallback-allowlist-credits-license-stripped-libs-no-intro-sounds-trimmed-paks-kept-images-aliases-no-gpu-shader-cache"
+LAYOUT="versioned-3-locale-fallback-allowlist-credits-license-stripped-libs-no-intro-sounds-trimmed-paks-kept-images-aliases-no-gpu-shader-cache-icu-filtered"
 
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 frameworks="$app/Contents/Frameworks"
@@ -210,6 +210,13 @@ if [[ ! -f "$source_stamp" || ! -L "$frameworks/$FW_NAME/Versions/Current" || "$
   # first use. It is architecture- and driver-specific, so shipping it costs
   # 0.9 MiB without removing any runtime capability.
   rm -f "$fw/Versions/A/Resources/gpu_shader_cache.bin"
+  # ICU data (icudtl.dat) keeps the locale bundles of the languages cmux ships
+  # (the 21 app languages, and no for nb); other languages format with root
+  # data. Draft: web-visible, held for a design call (cef-icu-filter.py).
+  if [[ -f "$fw/Versions/A/Resources/icudtl.dat" ]]; then
+    /usr/bin/python3 -I "$SCRIPT_DIR/cef-icu-filter.py" "$fw/Versions/A/Resources/icudtl.dat" \
+      ar,bs,da,de,en,es,fr,it,ja,km,ko,nb,no,pl,pt,ru,th,tr,uk,vi,zh
+  fi
   # CEF's dylibs ship with local symbols and debug stabs (7 MiB in
   # libvk_swiftshader.dylib). Drop them before signing; exported symbols stay
   # for the Vulkan loader's dlsym.
