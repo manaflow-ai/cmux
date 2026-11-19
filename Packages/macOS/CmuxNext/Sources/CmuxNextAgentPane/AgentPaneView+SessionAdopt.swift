@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextSettings
 
 /// A prewarmed New Tab page opens an existing chat (a sidebar click, Open in Tab, a subagent's
@@ -43,6 +44,24 @@ extension AgentPaneView {
                                          place: Self.adoptedPlace(session: session, tab: tab))
         evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-session-adopt', {detail: \(json)}))")
         return true
+    }
+
+    /// Adopts the chat another device binds to tab `tab` while this page has none (a phone's first
+    /// send starts it there: `bind-conversation-tab-session` from no session), in place, as a
+    /// sidebar open adopts a New Tab page; `adopted` gets it. `bound` reads the tab's session:
+    /// `.some(nil)` while it has none, nil once the tab is gone (the wait ends). A page with a draft
+    /// is not adopted (``adoptSession(_:tab:revealTurn:moved:)``): its own send then says the tab has another chat.
+    public func adoptWhenBound(_ bound: @escaping @MainActor @Sendable () -> String??, tab: String,
+                               adopted: @escaping @MainActor (String) -> Void) {
+        guard model.sessionId == nil, bound() == .some(nil) else { return }
+        // task-owner: one wait per page with no chat; ends once its tab has one or is gone
+        Task { [weak self] in
+            for await value in ObservationStream(bound) where value != .some(nil) {
+                guard let self, let session = value ?? nil, model.sessionId == nil else { return }
+                if adoptSession(session, tab: tab) { adopted(session) }
+                return
+            }
+        }
     }
 
     /// Where the reader left chat `session` in tab `tab`, for its adopt event: `.some(nil)` when the

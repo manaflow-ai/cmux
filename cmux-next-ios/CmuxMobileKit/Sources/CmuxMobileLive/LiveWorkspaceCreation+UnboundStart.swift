@@ -33,17 +33,11 @@ extension LiveWorkspaceCreationBackend {
             throw WorkspaceCreationError(error.message.contains("session_conflict")
                 ? "This tab started a chat on the Mac first. Send again once it loads." : error.message, isForPerson: true)
         }
-        taskSessions[Self.unboundKey(tabID)] = (session, cwd)
-        let task = AgentTask(prompt: text, images: attachments.filter { $0.kind == .image }.map { AgentTaskImage(id: $0.id, data: $0.data) },
-                             files: attachments.filter { $0.kind != .image }.map { AgentTaskFile(id: $0.id, name: $0.name, data: $0.data) })
-        try sendTask(task, in: Self.unboundKey(tabID), failed: failed)
+        try sendFirstPrompt(text, attachments: attachments, session: session, cwd: cwd, failed: failed)
     }
 
     /// `bind-conversation-tab-session`: the phone's lane allows it only from no session (cmux-mobile-host policy).
     nonisolated static let bindCommand = "bind-conversation-tab-session"
-
-    /// The key ``sendTask(_:in:failed:)`` finds the started chat by, apart from New Task's workspace keys.
-    nonisolated static func unboundKey(_ tabID: String) -> String { "unbound-tab:\(tabID)" }
 
     /// The folder the tab's chat starts in: the tab's own, else its workspace's first (as a new
     /// agent tab of that workspace starts); never the home folder or above.

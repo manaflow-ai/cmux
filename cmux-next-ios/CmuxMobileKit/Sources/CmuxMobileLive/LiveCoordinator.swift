@@ -308,7 +308,15 @@ public final class LiveCoordinator {
             let session = owner?.tree?.agentTabs[summary.id]?.session
             self.sourcedSessions[key] = (tabID: summary.id, macID: summary.macID, session: session, provisional: false)
             guard let owner, let session else {
-                return UnboundAgentSource(summary: summary, macName: owner?.name ?? self.link.target?.name)
+                // The first send starts the chat in this tab, on the tab's own Mac.
+                let start: UnboundAgentSource.Start? = owner.map { owner in
+                    { [weak owner] text, attachments, failed in
+                        guard let owner else { throw WorkspaceCreationError("Not connected", isForPerson: true) }
+                        try await owner.creation.startUnboundChat(tabID: summary.id, harness: summary.harness,
+                                                                  text: text, attachments: attachments, failed: failed)
+                    }
+                }
+                return UnboundAgentSource(summary: summary, macName: owner?.name ?? self.link.target?.name, start: start)
             }
             return self.agentSource(owner, session: session, summary: scoped)
         }
@@ -1127,36 +1135,63 @@ final class PendingAgentSource: AgentSessionSource {
 }
 
 /// An agent tab with no acpmux session yet: a new chat on the Mac that has
-/// not had its first message. The Mac starts a chat's session from its own
-/// first send (the daemon starts only `registry:` tabs), so the phone says so;
-/// once the Mac binds the session the coordinator rebuilds the store live.
+/// not had its first message. It shows as a new chat, and its first send starts
+/// the chat from the phone, in this tab (``LiveWorkspaceCreationBackend/startUnboundChat``;
+/// Leo, 2026-11-18: "you should be able to just start the chat right there");
+/// once the tab is bound the coordinator rebuilds the store live on its session.
 @MainActor
 final class UnboundAgentSource: AgentSessionSource {
+    /// Starts the tab's chat with a first message; nil when the phone cannot (no link to the tab's Mac).
+    typealias Start = @MainActor (_ text: String, _ attachments: [AgentAttachment],
+                                  _ failed: @escaping @MainActor (TaskDeliveryFailure) -> Void) async throws -> Void
+
     let summary: AgentSessionSummary
     let macName: String
+    private let start: Start?
+    /// A start is running: a second send waits for it rather than starting another chat.
+    private var starting = false
 
-    init(summary: AgentSessionSummary, macName: String?) {
+    init(summary: AgentSessionSummary, macName: String?, start: Start? = nil) {
         self.summary = summary
         self.macName = macName ?? summary.macName
+        self.start = start
     }
 
-    static func notStarted(agent: String, mac: String) -> String {
-        "\(agent) hasn't started in this tab. Send the first message from cmux on \(mac); the chat continues here."
+    /// Why a send could not start the chat, with no link to the tab's Mac.
+    static func notConnected(mac: String) -> String {
+        "Connect to \(mac) to start this chat."
     }
 
     private var continuations: [AsyncStream<AgentSessionEvent>.Continuation] = []
 
     func events() -> AsyncStream<AgentSessionEvent> {
         let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream()
-        continuation.yield(.clientError(Self.notStarted(agent: summary.agentName, mac: macName)))
         continuations.append(continuation)
         return stream
     }
 
-    /// A prompt can't start the chat from the phone: say why again.
+    /// The first message starts the chat; until the tab is bound, the draft comes back with why on any failure.
     func send(_ intent: AgentClientIntent) {
-        let message = Self.notStarted(agent: summary.agentName, mac: macName)
-        for continuation in continuations { continuation.yield(.clientError(message)) }
+        guard case .prompt(let text, let attachments, _, let promptID, _) = intent else { return }
+        let notSent = { [weak self] (reason: String) in
+            for continuation in self?.continuations ?? [] {
+                continuation.yield(.promptNotSent(text: text, attachments: attachments, promptID: promptID, reason: reason))
+            }
+        }
+        guard let start else { return notSent(Self.notConnected(mac: macName)) }
+        guard !starting else { return notSent("\(summary.agentName) is still starting. Send again in a moment.") }
+        starting = true
+        for continuation in continuations { continuation.yield(.historyLoading(true)) }
+        // task-owner: one start; the tab's bind rebuilds this chat on its session's source
+        Task { [weak self] in
+            do {
+                try await start(text, attachments) { failure in notSent(failure.reason) }
+            } catch {
+                notSent((error as? WorkspaceCreationError)?.message ?? String(describing: error))
+                for continuation in self?.continuations ?? [] { continuation.yield(.historyLoading(false)) }
+            }
+            self?.starting = false
+        }
     }
 
     var artifactSource: any ArtifactSource {

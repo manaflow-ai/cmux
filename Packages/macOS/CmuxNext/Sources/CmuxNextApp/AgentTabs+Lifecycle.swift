@@ -177,8 +177,7 @@ extension AgentTabStore {
                 let created = try await pending.value()
                 content?.expectFocus(on: created.surface, generation: intent)
                 if hidden { pane.pendingDock.created(pending.key, as: created.key) }
-                // A remote store can answer before its tree lists the provisional tab, so the
-                // provisional selection never took: the store's tab is selected now (cx-k21v).
+                // A remote store can answer before its tree lists the provisional tab (no selection took): select the store's now (cx-k21v).
                 if select, !hidden, !daemon.isLocal, pane.stripModel.selectedID?.rawValue != created.key {
                     pane.selectWhenReported(surface: created.surface)
                 }
@@ -428,9 +427,10 @@ extension AgentTabStore {
         }
     }
 
-    /// Follows tab `key` in `store`'s tree, so its view state goes when the tree drops it.
+    /// Follows tab `key` in `store`'s tree, so its view state goes when the tree drops it (its page takes a chat bound elsewhere).
     func track(_ key: String, in store: DaemonStore, machine: String? = nil) {
         let scoped = tabKey(key, machine: machine)
+        if tabStores[scoped] == nil, sessions[scoped] == nil { views[scoped]?.adoptWhenBound({ [weak self] in self?.record(for: scoped).map { $0.record.session } }, tab: key) { [weak self] in self?.sessions[scoped] = $0 } }
         tabStores[scoped] = store
         if store.liveTreeLists(tab: key) == true { seenLive.insert(scoped) }
         let id = ObjectIdentifier(store)
