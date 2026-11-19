@@ -343,23 +343,26 @@ final class PaneCommitMotion {
         let held = Array(holds.values)
         holds = [:]
         for hold in held { endHold(hold.holder, of: hold.host) }
-        if !moved.isEmpty || !grounds.isEmpty || !under.isEmpty || !sheets.isEmpty || lastFrame != nil || raised != nil {
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            for (layer, key) in moved { layer.removeAnimation(forKey: key) }
-            moved = []
-            for ground in grounds.values { Self.strips(of: ground.layer).forEach { $0.removeFromSuperlayer() } }
-            grounds = [:]
-            for (host, z) in under { host.layer?.zPosition = z }
-            under = []
-            hideSheets()
-            dropLastFrame()
-            lower()
-            CATransaction.commit()
-        }
         // Between the begin of a close's pass and its panes' placement, what it took out shows.
-        guard !passBegan, let departs else { return }
-        self.departs = nil
-        departs()
+        let hide = passBegan ? nil : departs
+        guard hide != nil || !moved.isEmpty || !grounds.isEmpty || !under.isEmpty || !sheets.isEmpty || lastFrame != nil || raised != nil else { return }
+        // One transaction, and the hide is first in it: no commit takes the ground from the panes over a pane that a
+        // close took out while that pane still shows under them.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if let hide {
+            departs = nil
+            hide()
+        }
+        for (layer, key) in moved { layer.removeAnimation(forKey: key) }
+        moved = []
+        for ground in grounds.values { Self.strips(of: ground.layer).forEach { $0.removeFromSuperlayer() } }
+        grounds = [:]
+        for (host, z) in under { host.layer?.zPosition = z }
+        under = []
+        hideSheets()
+        dropLastFrame()
+        lower()
+        CATransaction.commit()
     }
 }
