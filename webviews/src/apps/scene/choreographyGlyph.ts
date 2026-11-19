@@ -17,6 +17,8 @@ export type ChoreographyGlyphOptions = {
 type Glyph = {
   player: ChoreographyPlayer;
   dots: HTMLSpanElement[];
+  /** Each span's last written transform: a dot that holds still costs no style write. */
+  written: string[];
   size: number;
   onScreen: boolean;
   /** Player time (ms): page time scaled by `ui.animationSpeed`, so a slower speed plays slower. */
@@ -32,12 +34,14 @@ function place(glyph: Glyph, dots: readonly ChoreoDot[]): void {
   for (let index = 0; index < glyph.dots.length; index += 1) {
     const span = glyph.dots[index]!;
     const dot = dots[index];
-    if (!dot || dot.s <= 0) {
-      span.style.transform = "scale(0)";
-      continue;
-    }
     // Spans are `size` square, centred on the glyph's centre; scale is over `size`.
-    span.style.transform = `translate(${dot.x.toFixed(2)}px, ${dot.y.toFixed(2)}px) scale(${dot.s.toFixed(3)})`;
+    const transform =
+      !dot || dot.s <= 0
+        ? "scale(0)"
+        : `translate(${dot.x.toFixed(2)}px, ${dot.y.toFixed(2)}px) scale(${dot.s.toFixed(3)})`;
+    if (glyph.written[index] === transform) continue;
+    glyph.written[index] = transform;
+    span.style.transform = transform;
   }
 }
 
@@ -120,6 +124,7 @@ export function mountChoreographyGlyph(
   const glyph: Glyph = {
     player: new ChoreographyPlayer(doc, request, now),
     dots: [],
+    written: [],
     size,
     onScreen: false,
     clock: { page: now, player: now },
