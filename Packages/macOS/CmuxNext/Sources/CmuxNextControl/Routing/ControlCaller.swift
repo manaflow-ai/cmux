@@ -22,12 +22,17 @@ struct ControlCaller: Sendable, Equatable {
     /// `caller.workspace`: the key of the workspace the agent session runs in
     /// (`CMUX_WORKSPACE_ID`), where it is placed when no tab shows its chat.
     var workspaceKey: String?
+    /// The request's `origin` is `mcp`: the cmux MCP server sent it, so an agent asks, also from a terminal
+    /// whose hooks reported no agent (ControlCallerPlacement treats it as one).
+    var viaMCP = false
 
-    init(agentSession: String? = nil, terminalID: String? = nil, homeChat: Bool = false, workspaceKey: String? = nil) {
+    init(agentSession: String? = nil, terminalID: String? = nil, homeChat: Bool = false, workspaceKey: String? = nil,
+         viaMCP: Bool = false) {
         self.agentSession = agentSession
         self.terminalID = terminalID
         self.homeChat = homeChat
         self.workspaceKey = workspaceKey
+        self.viaMCP = viaMCP
     }
 
     /// The caller of a method that also takes the caller's terminal as its own param (`terminal_id`):
@@ -36,7 +41,7 @@ struct ControlCaller: Sendable, Equatable {
         if let caller = try ControlCaller(params) {
             self = caller
         } else if let terminalID {
-            self = ControlCaller(terminalID: terminalID)
+            self = ControlCaller(terminalID: terminalID, viaMCP: params["origin"]?.stringValue == "mcp")
         } else {
             return nil
         }
@@ -69,9 +74,11 @@ struct ControlCaller: Sendable, Equatable {
         guard agentSession != nil || terminalID != nil || homeChat else {
             throw ControlError.invalidParams("caller must name agent_session, terminal_id, or home_chat")
         }
+        viaMCP = params["origin"]?.stringValue == "mcp"
     }
 
-    /// The `caller` param that names this caller again (a method that hands its run to `action.run`).
+    /// The `caller` param that names this caller again (a method that hands its run to `action.run`, with the
+    /// request's `origin` beside it).
     var json: JSONValue {
         var members: [String: JSONValue] = [:]
         if let agentSession { members["agent_session"] = .string(agentSession) }
@@ -87,7 +94,7 @@ extension ControlActionRequest {
     var caller: ControlCaller? {
         guard callerAgentSession != nil || callerTerminal != nil || callerHomeChat else { return nil }
         return ControlCaller(agentSession: callerAgentSession, terminalID: callerTerminal, homeChat: callerHomeChat,
-                             workspaceKey: callerWorkspace)
+                             workspaceKey: callerWorkspace, viaMCP: origin == "mcp")
     }
 }
 

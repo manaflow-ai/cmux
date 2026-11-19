@@ -6,8 +6,10 @@ import Foundation
 /// beside the caller; the app's focus is never the place. `action.run`, `file.open`, `browser.open_split`,
 /// `browser.page.right` and the `beside` of `system.identify` and `snapshot.get` all read this one decision.
 ///
-/// - A terminal no agent runs in (a person's shell, a script): its own pane. (Its browser then goes where a
-///   Cmd-click's would, the pane on its right or a new one beside it: TabLifecycle, Lawrence 2026-11-15.)
+/// - A terminal no agent runs in (a person's shell, a script): its own pane, for a new terminal or a file.
+/// - A browser from any terminal, an agent's or a person's, goes where a Cmd-click's would (TabLifecycle,
+///   Lawrence 2026-11-15): the pane on its right, else a new pane beside it; the run is aimed at the terminal's
+///   own tab and the app measures. A terminal no window shows: an agent's by the columns here, a shell's own pane.
 /// - An agent (an agent chat, a Chief turn, a terminal whose hooks report an agent): its helper column, the column
 ///   right of its pane, unless that column is another agent's home (it holds another agent's chat, or a terminal an
 ///   agent runs in). Without a helper column, a new column directly right of its pane.
@@ -27,7 +29,8 @@ struct ControlCallerPlacement: Sendable, Equatable {
         case helperColumn = "existing_column"
         /// No helper column: a new column directly right of the caller's pane.
         case newColumn = "new_column"
-        /// No agent runs in the caller's terminal: a tab in its own pane.
+        /// No agent runs in the caller's terminal: a new terminal or file tab in its own pane (its browser
+        /// still opens right of it, as any terminal's).
         case ownPane = "own_pane"
     }
 
@@ -61,10 +64,12 @@ struct ControlCallerPlacement: Sendable, Equatable {
         column = kind == .helperColumn ? beside : []
     }
 
-    /// Whether the caller is an agent: an agent chat, a Chief turn, or a terminal an agent runs in.
+    /// Whether the caller is an agent: an agent chat, a Chief turn, a terminal an agent runs in, or any caller
+    /// whose request the cmux MCP server sent (`origin: mcp`: only an agent has one, also in a terminal whose
+    /// hooks reported nothing).
     private static func runsAgent(_ location: ControlCallerLocation) -> Bool {
-        location.caller.agentSession != nil || location.caller.homeChat || location.tab.agentSessionID != nil
-            || location.tab.runsAgent
+        location.caller.agentSession != nil || location.caller.homeChat || location.caller.viaMCP
+            || location.tab.agentSessionID != nil || location.tab.runsAgent
     }
 
     /// Whether `tab` is the place of an agent other than the caller's session `own`: another session's chat

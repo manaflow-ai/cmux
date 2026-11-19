@@ -28,15 +28,11 @@ extension BrowserPageService {
             return try await router.runAction(call, fingerprint: .page(method: call.method, params: fingerprintParams, callerApp: call.request.callerApp)) {
                 var params: [String: JSONValue] = ["action": .string(action), "wait": call.request.params["wait"] ?? true]
                 var tab: Tab?
-                if name == "new_tab", let lonely = try Self.callerWithNoBrowserOfItsOwn(call) {
-                    // The first browser of the caller's workspace (ControlCallerPlacement): an agent's opens
-                    // beside it; a terminal no agent runs in gets it in its own pane, behind the terminal.
-                    if ControlCallerPlacement(lonely.location).isBeside {
-                        params["caller"] = call.request.params["caller"]
-                    } else {
-                        params["target"] = .string("tab:" + lonely.location.tab.id)
-                        params["background"] = true
-                    }
+                if name == "new_tab", try Self.callerWithNoBrowserOfItsOwn(call) != nil {
+                    // The first browser of the caller's workspace: `action.run` places it by its caller
+                    // (ControlRouter.placeAtCaller), beside an agent, right of a terminal as `cmux browser open`.
+                    params["caller"] = call.request.params["caller"]
+                    if let origin = call.request.params["origin"] { params["origin"] = origin }
                 } else {
                     let anchor = try Self.tab(call)
                     params["target"] = .string("tab:" + anchor.id)
