@@ -484,23 +484,18 @@ class CheckBundleNoticesTest(unittest.TestCase):
     # nightly-next run 43864670865 (97eacf0d, 2026-11-16) failed the signed-app checks: these three
     # Mach-O files had no bundle-map entry.
     REMOTE = "Contents/Library/cmux Remote (dev).app"
-    REMOTE_SDK = f"{REMOTE}/Contents/Frameworks/libcua_driver_sdk.dylib"
-    # cua-driver-sdk.pin.json: upstream trycua/cua cua-driver-rs-v0.38.0, built with rustc 1.97.1.
-    REMOTE_SDK_RUSTC = "8bab26f4f68e0e26f0bb7960be334d5b520ea452"
+    # The cmux Computer Use engine, built from cmux-tui with the workspace's own toolchain.
+    REMOTE_ENGINE = f"{REMOTE}/Contents/Frameworks/libcmux_computer_use.dylib"
 
     def test_the_map_covers_every_binary_of_the_embedded_cmux_remote(self) -> None:
         bundle_map = json.loads((HERE / "bundle-map.json").read_text())
         for rel in (f"{self.REMOTE}/Contents/MacOS/cmux-remote", f"{self.REMOTE}/Contents/Frameworks/libWebRTC.dylib",
-                    self.REMOTE_SDK):
+                    self.REMOTE_ENGINE):
             entries = [e for e in bundle_map["entries"] if fnmatch.fnmatchcase(rel, e["path"])]
             self.assertTrue(entries, f"{rel}: no bundle-map entry")
-        sdk = [e for e in bundle_map["entries"] if fnmatch.fnmatchcase(self.REMOTE_SDK, e["path"])][0]
+        sdk = [e for e in bundle_map["entries"] if fnmatch.fnmatchcase(self.REMOTE_ENGINE, e["path"])][0]
         self.assertIn("rust-std", sdk["notices"])
         self.assertIn(self.STD_SECTION, sdk["notices"])
-
-    def test_the_rustc_of_the_remote_sdk_is_reviewed(self) -> None:
-        manifest = json.loads((ROOT / "cmux-tui/build-support/notices/toolchains/toolchains.json").read_text())
-        self.assertIn(self.REMOTE_SDK_RUSTC, {r["rustc_commit"] for r in manifest["rust"]})
 
 
 if __name__ == "__main__":
