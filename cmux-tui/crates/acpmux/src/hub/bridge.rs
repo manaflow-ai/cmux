@@ -26,6 +26,10 @@
 //! (`open_delivery.rs`), so without this each restart put the same message in the app again.
 
 use super::{Hub, PromptOptions, Session};
+
+/// A bridged chat the account's rate limit stopped holds what is sent to it until the reset.
+#[path = "bridge_hold.rs"]
+pub(super) mod hold;
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
