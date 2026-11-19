@@ -47,6 +47,10 @@ def fresh_snapshot(now):
     return dict(copy.deepcopy(RECORDED), generated_at=runner_pools.iso(now - dt.timedelta(minutes=1)), label_started={})
 
 
+def render_raw(value):
+    return runner_pools.render(value)
+
+
 def health(labels, checked=NOW):
     # Exactly what the overflow switch writes to CI_CLOUD_LABEL_HEALTH (cloud_overflow_switch.label_health()).
     import cloud_overflow_switch as switch
@@ -649,6 +653,37 @@ class Main(unittest.TestCase):
         self.assertEqual(runner_pools.main(["--check"], {"RUNNER_POOLS": switch.writes[0][1],
                                                          "LINUX_RUNNER": value["linux"]}), 0)
 
+    def test_the_2026_11_19_stall_names_a_live_linux_size_without_marking_one_dead(self) -> None:
+        # 05:30Z on 2026-11-19: the probe saw 4, 16 and 32 vCPU stall while 2 and 8 vCPU started. The janitor's
+        # sweep, which writes the snapshot that lets a stall count (label_evidence()), sat queued on 4 vCPU since
+        # 23:32Z, so no snapshot was fresh, no size was marked dead, and the pools and the sweep stayed on 4 vCPU.
+        # The pass names a size that started (`_live_linux`, evidence only) for the sweep to follow instead.
+        live = json.dumps({"_dead": {}, "_updated": "2026-11-18T22:55:37Z",
+                           "linux": "blacksmith-4vcpu-ubuntu-2404", "linux_16": "blacksmith-16vcpu-ubuntu-2404",
+                           "linux_2": "blacksmith-2vcpu-ubuntu-2404", "linux_32": "blacksmith-32vcpu-ubuntu-2404",
+                           "linux_4": "blacksmith-4vcpu-ubuntu-2404", "linux_8": "blacksmith-8vcpu-ubuntu-2404"})
+        now = dt.datetime(2026, 11, 19, 5, 30, tzinfo=dt.timezone.utc)
+        probe = {"blacksmith-4vcpu-ubuntu-2404": "stalled", "blacksmith-16vcpu-ubuntu-2404": "stalled",
+                 "blacksmith-2vcpu-ubuntu-2404": "started", "blacksmith-8vcpu-ubuntu-2404": "started",
+                 "blacksmith-32vcpu-ubuntu-2404": "stalled"}
+        switch = self.Switch({runner_pools.HEALTH_VARIABLE: json.dumps(health(probe, checked=now))})
+        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": live}, api=self.Api(None), switch=switch, now=now), 0)
+        value = json.loads(dict(switch.writes)["RUNNER_POOLS"])
+        self.assertEqual(value["_dead"], {})
+        self.assertEqual(value["linux"], "blacksmith-4vcpu-ubuntu-2404")
+        # The smallest size that started: the sweep needs a runner, not room.
+        self.assertEqual(value[runner_pools.LIVE_LINUX_KEY], "blacksmith-2vcpu-ubuntu-2404")
+        self.assertEqual(runner_pools.main(["--check"], {"RUNNER_POOLS": render_raw(value),
+                                                         "LINUX_RUNNER": value["linux"]}), 0)
+        # Once the pool's size starts again, or the probe is stale, the key goes and the sweep follows the pool.
+        for labels, checked in ((dict(probe, **{"blacksmith-4vcpu-ubuntu-2404": "started"}), now),
+                                (probe, now - runner_pools.HEALTH_MAX_AGE - dt.timedelta(minutes=1))):
+            with self.subTest(checked=checked):
+                again = self.Switch({runner_pools.HEALTH_VARIABLE: json.dumps(health(labels, checked=checked))})
+                runner_pools.main([], {"RUNNER_POOLS": render_raw(value)}, api=self.Api(None), switch=again, now=now)
+                written = json.loads(dict(again.writes).get("RUNNER_POOLS", render_raw(value)))
+                self.assertNotIn(runner_pools.LIVE_LINUX_KEY, written)
+
     def test_a_stalled_size_flips_linux_once(self) -> None:
         switch = self.Switch({runner_pools.HEALTH_VARIABLE: json.dumps(health({
             "blacksmith-4vcpu-ubuntu-2404": "stalled", "blacksmith-16vcpu-ubuntu-2404": "started"})),
@@ -1078,7 +1113,9 @@ class TruncatedSnapshot(unittest.TestCase):
         probes = health({two: "started", four: "stalled", eight: "stalled", sixteen: "stalled",
                          thirty_two: "stalled"})
         dead, started, _ = runner_pools.label_evidence(probes, snapshot, now=NOW)
-        self.assertEqual(dead, {sixteen, thirty_two})
+        # Its starts count; the probe's stalls do not (#46302): a partial snapshot cannot tell a dead size from
+        # one the vCPU cap keeps full, so they mark nothing dead.
+        self.assertEqual(dead, set())
         self.assertTrue({four, eight} <= started)
         self.assertNotIn("blacksmith-6vcpu-macos-26", dead)
         pools = runner_pools.load_pools()
@@ -1086,7 +1123,7 @@ class TruncatedSnapshot(unittest.TestCase):
         current = {"_dead": {four: runner_pools.iso(NOW - dt.timedelta(minutes=10)),
                              eight: runner_pools.iso(NOW - dt.timedelta(minutes=10))}}
         value, _ = runner_pools.reconcile(current, pools, dead_now=dead, served_now=started, now=NOW, covered=covered)
-        self.assertEqual((value["linux"], value["linux_8"], value["linux_16"]), (four, eight, eight))
+        self.assertEqual((value["linux"], value["linux_8"], value["linux_16"]), (four, eight, sixteen))
         self.assertNotEqual(value["linux_32"], two)
 
 
@@ -1203,9 +1240,10 @@ class RefusedRead(unittest.TestCase):
         fallback = self.Counting(RuntimeError("HTTP Error 403: Forbidden"))
         value, out = self.main_output(fallback)
         self.assertEqual(fallback.calls, 1)
-        self.assertIn(self.SIXTEEN, value["_dead"])
-        # Every x64 size but 2 vCPU stalled with no snapshot: linux_16 (16, 8, 32 vCPU) takes the 2 vCPU valve.
-        self.assertEqual(value["linux_16"], self.TWO)
+        # Every x64 size but 2 vCPU stalled with no snapshot: no size is marked dead (#46302), so no pool moves
+        # to the 2 vCPU valve, which is what squeezed every Linux pool there at 11:18Z.
+        self.assertEqual(value["_dead"], {})
+        self.assertEqual(value["linux_16"], self.SIXTEEN)
         self.assertIn("judging on the probe alone", out)
 
     def test_a_fallback_with_no_snapshot_warns_it_judges_on_the_probe(self) -> None:
@@ -1213,7 +1251,7 @@ class RefusedRead(unittest.TestCase):
         fallback = self.Counting(None)
         value, out = self.main_output(fallback)
         self.assertEqual(fallback.calls, 1)
-        self.assertEqual(value["linux_16"], self.TWO)
+        self.assertEqual(value["linux_16"], self.SIXTEEN)
         self.assertIn("judging on the probe alone", out)
         self.assertNotIn("janitor snapshot read with the fallback token", out)
 

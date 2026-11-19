@@ -143,6 +143,12 @@ DEAD_KEY = "_dead"
 # (queue_janitor.LABEL_STARTED_KEY).
 LABEL_STARTED_KEY = "label_started"
 UPDATED_KEY = "_updated"
+# A Linux size this pass's probe saw start while RUNNER_POOLS.linux's stalled (live_linux()); evidence only, never a
+# dead mark. The queue janitor's sweep follows it: a stall counts only beside the sweep's fresh snapshot
+# (label_evidence()), so a sweep queued on the stalled size wrote none and the pools never moved off it. On
+# 2026-11-19 sweep 44420498704 sat queued on 4 vCPU from 23:32Z, holding the sweep's concurrency group, while the
+# probe saw 2 and 8 vCPU start; no sweep ran for 6 h.
+LIVE_LINUX_KEY = "_live_linux"
 # A label the janitor's `label_started` shows starting a job this recently is serving, whatever a probe saw: it is
 # never marked dead, and a mark on it clears (label_evidence()). Blacksmith caps the org on vCPUs at once, so under
 # load a probe can wait out its PROBE_MINUTES on a size that keeps starting jobs: at 02:00:26Z on 2026-11-18
@@ -368,6 +374,9 @@ def parse_value(raw: str | None, pools: Mapping[str, Mapping[str, Any]]) -> tupl
         dropped.append(f"{VARIABLE}.{DEAD_KEY} is not an object; reset")
     if isinstance(value.get(UPDATED_KEY), str) and parse_time(value[UPDATED_KEY]) is not None:
         clean[UPDATED_KEY] = value[UPDATED_KEY]
+    if isinstance(value.get(LIVE_LINUX_KEY), str) and X64_SIZE.match(value[LIVE_LINUX_KEY]):
+        # Read only to say when it changes; each pass names it again from its own probe (live_linux()).
+        clean[LIVE_LINUX_KEY] = value[LIVE_LINUX_KEY]
     homes = value.get(RAW_HOME_KEY)
     if homes is not None:
         good = {name: {"home": entry["home"], "to": entry["to"]}
@@ -687,6 +696,26 @@ def evidence_covers(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any
     return covered
 
 
+def live_linux(value: Mapping[str, Any], health: Mapping[str, Any] | None, *, now: dt.datetime) -> str | None:
+    """The x64 Blacksmith Linux size, smallest first, this pass's probe saw start while `value`'s linux size stalled;
+    None while that size started, was not probed, or the probe is not fresh (as label_evidence() reads it).
+
+    A size with a dead mark is never named. It decides no pool: it only gives a job that must run, the queue
+    janitor's sweep, a size that starts jobs now (LIVE_LINUX_KEY)."""
+    if not isinstance(health, Mapping):
+        return None
+    checked, labels = parse_time(health.get("checked")), health.get("labels")
+    if checked is None or not isinstance(labels, Mapping) or \
+            not dt.timedelta(minutes=-1) <= now - checked <= HEALTH_MAX_AGE:
+        return None
+    if labels.get(value.get("linux")) != "stalled":
+        return None
+    dead = value.get(DEAD_KEY) or {}
+    sizes = {str(label): int(match.group(1)) for label, state in labels.items()
+             if state == "started" and label not in dead and (match := X64_SIZE.match(str(label)))}
+    return min(sizes, key=lambda label: (sizes[label], label), default=None)
+
+
 def recently_started(snapshot: Mapping[str, Any], *, now: dt.datetime) -> set[str]:
     """The Blacksmith labels the janitor's `label_started` shows starting a job within RECENT_START of `now`.
 
@@ -876,6 +905,14 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if homes:
         value[RAW_HOME_KEY] = homes
     if homes != previous_homes:
+        value[UPDATED_KEY] = iso(now)
+    live_size = live_linux(value, health, now=now)
+    if live_size:
+        value[LIVE_LINUX_KEY] = live_size
+    if live_size != current.get(LIVE_LINUX_KEY):
+        lines.append(f"{LIVE_LINUX_KEY}: {current.get(LIVE_LINUX_KEY) or 'unset'} -> {live_size or 'unset'} "
+                     f"(the probe saw pools.linux's {value.get('linux')} "
+                     f"{'stall while this size started' if live_size else 'start, or has no fresh pass'})")
         value[UPDATED_KEY] = iso(now)
     for line in lines:
         print(line)
