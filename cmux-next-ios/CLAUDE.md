@@ -21,6 +21,29 @@ covers your change:
 | Swift live code, `scripts/live-code/ios-sim.sh patch OUT FILE.swift` ([#45397](https://github.com/manaflow-ai/cmux/pull/45397), draft) | about 1.9 s | DEBUG simulator builds only. A patch that changes a `some View` type (a view or modifier added or removed) is refused; rebuild for those |
 | Always-on simulator, `scripts/ios-live/ios-live` ([#45435](https://github.com/manaflow-ai/cmux/pull/45435), once it lands) | 1.9 s live, about 16 s rebuild | One driver at a time: `ios-live lease take` before anything that touches the app; `shot`, `tree`, `status`, `log` need no lease. Leave it running. See `scripts/ios-live/README.md` |
 
+## Show a screen on demand: the iOS dev CLI
+
+`scripts/cmux-ios` drives a DEBUG or Demo build (simulator or a connected iPhone) to a screen in a
+state and screenshots it, for the person and for agents' proof, instead of hand-rolled taps:
+
+```bash
+cmux-next-ios/scripts/cmux-ios list                                   # targets, by screen
+cmux-next-ios/scripts/cmux-ios show settings-devices --look light --shot /tmp/devices.png
+cmux-next-ios/scripts/cmux-ios show feed-error --device iphone --tag <task-slug>   # on the phone
+cmux-next-ios/scripts/cmux-ios show settings --live                   # in process, the app's own data
+cmux-next-ios/scripts/cmux-ios show-all --out /tmp/all                # every target, light and dark
+```
+
+Targets live in `scripts/cmux_ios_targets.json`: the app's own DEBUG launch arguments, environment
+and demo drivers on mock data (the hooks `UITests/AllUIStates*` use). `show` relaunches the app with
+them and a nonce, waits for the app's DEBUG receipt (`CmuxMobileShell/DevShow.swift`, compiled out of
+Release), checks it names the target's destination, tab and Settings page, then shoots. `--live`
+opens `cmux-next://dev/show?...` in the running app instead: no relaunch, the person's own data. On
+the fleet: `cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg shots
+--arg devshow=all --artifact artifacts/ios-sim/evidence.zip` (every target, both looks, then every link
+target in process). A state that needs a tap (a swipe, a long press, a typed draft) stays in the
+UI-state capture suites; add a launch hook and a catalog row to make one showable.
+
 ## Hand-off command (under verification)
 
 This is the root [CLAUDE.md](../CLAUDE.md#finishing-a-task) "Finishing a task" hand-off for the

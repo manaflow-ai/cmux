@@ -240,6 +240,10 @@ public struct RootView: View {
                let opened = OpenedURL(url: url) {
                 open(opened)
             }
+            // The iOS dev CLI's launch receipt (DevShow) for a root that is not the shell; the shell writes its own.
+            if destination != .shell {
+                DevShow.shared.launchShown(destination: "\(destination)", shell: nil, appearance: settings.appearance, demo: options.demo)
+            }
             if options.setupPairDemo { await runSetupPairDemo() }
             // The hand-off's --no-auth proof (DogfoodReadiness): this launch resolved signed out.
             if !auth.isSignedIn, !auth.isMock { DogfoodReadiness().writeSignedOut(apiBase: auth.apiBaseURL) }
@@ -276,6 +280,17 @@ public struct RootView: View {
         // A Mac's invite for a new machine (`https://cmux.com/pair?i=…`) opens Pair Another Machine.
         // Any other cmux link (`cmux://tab/…`, Safari, Messages, Notes) opens what it names.
         .onOpenURL { url in
+            #if DEBUG
+            // The iOS dev CLI's link (DevShow): the shell navigates in process; never opened as a cmux link.
+            if let request = DevShow.Request(url: url) {
+                if destination == .shell {
+                    DevShow.shared.request = request
+                } else {
+                    DevShow.shared.linkShown(request, destination: "\(destination)", appearance: settings.appearance)
+                }
+                return
+            }
+            #endif
             if let opened = OpenedURL(url: url) { open(opened) }
         }
         // A universal link (`https://cmux.com/link/…`, `/deeplink/agent`, `/pair?i=`, a cloud group's page).
@@ -600,6 +615,7 @@ struct ShellView: View {
         .ignoresSafeArea()
         #if DEBUG
         .modifier(BillingDemoSheet(billing: billing))
+        .modifier(DevShowObserver(shell: shell, demo: options.demo))
         #endif
         .cmuxMobileToast($shell.toast)
         .modifier(LiveCallHost(shell: shell))

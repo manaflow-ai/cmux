@@ -1,0 +1,70 @@
+{
+  "schema": 1,
+  "about": "Targets for the iOS dev CLI (cmux-next-ios/scripts/cmux-ios). Each one is a screen in a state, reached by the DEBUG app's own launch arguments, environment and demo drivers on mock data (see UITests/AllUIStates*CaptureUITests.swift for the same states reached with taps). `link` targets can also be shown in process on a running app with `--live` (no relaunch, the person's own data). `settle` is the seconds a demo driver or an animation needs after the receipt; `receipt: false` marks a root that is not RootView (a gallery or bench root), which writes no receipt.",
+  "targets": [
+    {"id": "home", "screen": "home", "state": "default", "about": "Home tab: Chief and the Home rows", "args": ["-cmux-mobile-tab", "home"], "link": {"tab": "home"}, "expect": {"destination": "shell", "tab": "home"}},
+    {"id": "home-long", "screen": "home", "state": "long", "about": "Home with 16 rows and pins", "args": ["-cmux-mobile-tab", "home"], "env": {"CMUX_MOBILE_LIST_SCREEN": "home", "CMUX_MOBILE_LIST_COUNT": "16", "CMUX_MOBILE_LIST_PASSES": "0"}, "settle": 3, "expect": {"destination": "shell"}},
+    {"id": "home-error", "screen": "home", "state": "error", "about": "Home couldn't load, with Retry", "args": ["-cmux-mobile-recovery-gallery", "home"], "receipt": false, "settle": 3},
+    {"id": "home-offline", "screen": "home", "state": "offline", "about": "Home's Mac not connected, kept rows under the bar", "args": ["-cmux-mobile-demo", "retry-home-offline"], "settle": 3, "expect": {"destination": "shell"}},
+    {"id": "home-failed", "screen": "home", "state": "error", "about": "Home's Mac link failed", "args": ["-cmux-mobile-demo", "retry-home-failed"], "settle": 3, "expect": {"destination": "shell"}},
+    {"id": "home-empty-asleep", "screen": "home", "state": "empty", "about": "Home empty, its Mac asleep", "args": ["-cmux-mobile-demo", "retry-home-asleep-empty"], "settle": 3, "expect": {"destination": "shell"}},
+    {"id": "home-empty-unreachable", "screen": "home", "state": "empty", "about": "Home empty, its Mac unreachable", "args": ["-cmux-mobile-demo", "retry-home-unreachable-empty"], "settle": 3, "expect": {"destination": "shell"}},
+    {"id": "home-cloud-chief", "screen": "home", "state": "cloud", "about": "Home with the Cloud and Mac Chief", "args": ["-cmux-mobile-demo", "call-scope-home"], "settle": 3, "expect": {"destination": "shell"}},
+    {"id": "new-message", "screen": "home", "state": "sheet", "about": "New Message sheet with Chief suggestions", "args": ["-cmux-mobile-demo", "new-message"], "settle": 3, "expect": {"destination": "shell"}},
+
+    {"id": "chief", "screen": "chief", "state": "default", "about": "Chief conversation with history", "args": ["-cmux-mobile-demo", "chief-open"], "settle": 4, "expect": {"destination": "shell"}},
+    {"id": "chief-loading", "screen": "chief", "state": "loading", "about": "Chief history still loading", "args": ["-cmux-mobile-demo", "chief-open", "-cmux-mobile-chief-slow-history"], "settle": 1.5, "expect": {"destination": "shell"}},
+    {"id": "chief-live", "screen": "chief", "state": "streaming", "about": "Chief reply streaming in", "args": ["-cmux-mobile-demo", "chief-open", "-cmux-mobile-chief-live"], "settle": 4, "expect": {"destination": "shell"}},
+    {"id": "chief-error", "screen": "chief", "state": "error", "about": "Chief history stale, Try Again", "args": ["-cmux-mobile-demo", "chief-open", "-cmux-mobile-chief-stale-demo"], "settle": 4, "expect": {"destination": "shell"}},
+    {"id": "chief-settings", "screen": "chief", "state": "settings", "about": "Chief's settings page", "args": ["-cmux-mobile-demo", "chief-settings"], "settle": 6, "expect": {"destination": "shell"}},
+
+    {"id": "workspaces", "screen": "workspaces", "state": "default", "about": "Workspaces list", "args": ["-cmux-mobile-tab", "workspaces"], "link": {"tab": "workspaces"}, "expect": {"destination": "shell", "tab": "workspaces"}},
+    {"id": "workspaces-compact", "screen": "workspaces", "state": "compact", "about": "Workspaces list, compact rows", "args": ["-cmux-mobile-tab", "workspaces", "-cmuxMobile.settings.compactWorkspaceList", "YES"], "expect": {"destination": "shell", "tab": "workspaces"}},
+    {"id": "workspaces-long", "screen": "workspaces", "state": "long", "about": "Workspaces list with 200 rows", "args": ["-cmux-mobile-tab", "workspaces"], "env": {"CMUX_MOBILE_LIST_SCREEN": "workspaces", "CMUX_MOBILE_LIST_COUNT": "200", "CMUX_MOBILE_LIST_PASSES": "0"}, "settle": 3, "expect": {"destination": "shell"}},
+    {"id": "workspaces-loading", "screen": "workspaces", "state": "loading", "about": "First launch, nothing cached, loading", "args": ["-cmux-mobile-demo", "retry-first-launch"], "settle": 2, "expect": {"destination": "shell"}},
+    {"id": "workspaces-offline", "screen": "workspaces", "state": "offline", "about": "First launch, waiting offline", "args": ["-cmux-mobile-demo", "retry-first-launch-offline"], "settle": 2, "expect": {"destination": "shell"}},
+    {"id": "workspaces-error", "screen": "workspaces", "state": "error", "about": "Couldn't load workspaces, Retry", "args": ["-cmux-mobile-demo", "retry-workspaces"], "settle": 2, "expect": {"destination": "shell"}},
+    {"id": "workspaces-error-offline", "screen": "workspaces", "state": "error", "about": "First launch failed offline", "args": ["-cmux-mobile-demo", "retry-first-launch-failed"], "settle": 2, "expect": {"destination": "shell"}},
+    {"id": "workspaces-stale", "screen": "workspaces", "state": "error", "about": "Refresh failed, last known rows kept", "args": ["-cmux-mobile-demo", "retry-refresh-failed"], "settle": 2, "expect": {"destination": "shell"}},
+    {"id": "workspaces-empty", "screen": "workspaces", "state": "empty", "about": "No Mac yet: Connect your Mac", "args": ["-cmux-mobile-demo", "connect-mac"], "settle": 2, "expect": {"destination": "shell"}},
+    {"id": "workspaces-empty-other-account", "screen": "workspaces", "state": "empty", "about": "A Mac signed in to another account", "args": ["-cmux-mobile-demo", "connect-mac-no-account"], "settle": 2.5, "expect": {"destination": "shell"}},
+    {"id": "sidebar", "screen": "workspaces", "state": "sidebar", "about": "Team sidebar open", "args": ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-sidebar-open"], "link": {"tab": "workspaces", "sidebar": "open"}, "settle": 1, "expect": {"destination": "shell", "tab": "workspaces"}},
+    {"id": "banner-reconnecting", "screen": "workspaces", "state": "banner", "about": "Reconnecting banner", "args": ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-banner-demo", "reconnecting"], "settle": 1, "expect": {"destination": "shell", "tab": "workspaces"}},
+    {"id": "banner-offline", "screen": "workspaces", "state": "banner", "about": "Offline banner", "args": ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-banner-demo", "offline"], "settle": 1, "expect": {"destination": "shell", "tab": "workspaces"}},
+
+    {"id": "agent-chat", "screen": "agent-chat", "state": "default", "about": "Agent chat, idle with history", "args": ["-cmux-mobile-demo", "disclosure-chat"], "settle": 5, "expect": {"destination": "shell"}},
+    {"id": "agent-chat-question", "screen": "agent-chat", "state": "question", "about": "Agent chat with a pending question", "args": ["-cmux-mobile-demo", "kbd-chat"], "settle": 5, "expect": {"destination": "shell"}},
+    {"id": "agent-chat-empty", "screen": "agent-chat", "state": "empty", "about": "New agent chat, nothing sent yet", "args": ["-cmux-mobile-demo", "kbd-chat-empty"], "settle": 5, "expect": {"destination": "shell"}},
+    {"id": "agent-chat-offline", "screen": "agent-chat", "state": "offline", "about": "Message queued while offline", "args": ["-cmux-mobile-demo", "offline-send"], "settle": 7, "expect": {"destination": "shell"}},
+    {"id": "agent-chat-creating", "screen": "agent-chat", "state": "loading", "about": "New workspace being created", "args": ["-cmux-mobile-demo", "kbd-new", "-cmux-mobile-mock-create-delay", "60"], "settle": 3, "expect": {"destination": "shell"}},
+
+    {"id": "feed", "screen": "feed", "state": "default", "about": "Feed tab", "args": ["-cmux-mobile-tab", "feed"], "link": {"tab": "feed"}, "expect": {"destination": "shell", "tab": "feed"}},
+    {"id": "feed-long", "screen": "feed", "state": "long", "about": "Feed with 300 events", "args": ["-cmux-mobile-tab", "feed"], "env": {"CMUX_MOBILE_FEED_STRESS": "300"}, "settle": 3, "expect": {"destination": "shell", "tab": "feed"}},
+    {"id": "feed-error", "screen": "feed", "state": "error", "about": "Feed refresh failed, Retry", "args": ["-cmux-mobile-demo", "retry-feed"], "settle": 3, "expect": {"destination": "shell"}},
+
+    {"id": "terminal", "screen": "terminal", "state": "default", "about": "Workspace terminal, keyboard down", "args": ["-cmux-mobile-demo", "ws-terminal-idle"], "settle": 5, "expect": {"destination": "shell"}},
+    {"id": "terminal-loading", "screen": "terminal", "state": "loading", "about": "Terminal connecting", "args": ["-cmux-mobile-demo", "retry-terminal"], "settle": 3, "expect": {"destination": "shell"}},
+    {"id": "terminal-error", "screen": "terminal", "state": "error", "about": "Terminal offline, Retry", "args": ["-cmux-mobile-recovery-gallery", "terminal"], "receipt": false, "settle": 3},
+
+    {"id": "settings", "screen": "settings", "state": "default", "about": "Settings, top", "args": ["-cmux-mobile-tab", "settings"], "link": {"tab": "settings"}, "expect": {"destination": "shell", "tab": "settings"}},
+    {"id": "settings-bottom", "screen": "settings", "state": "long", "about": "Settings scrolled to the bottom", "args": ["-cmux-mobile-demo", "settings-bottom"], "settle": 3, "expect": {"destination": "shell"}},
+    {"id": "settings-large-type", "screen": "settings", "state": "large-type", "about": "Settings at Accessibility XXXL text", "args": ["-cmux-mobile-tab", "settings", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"], "expect": {"destination": "shell", "tab": "settings"}},
+    {"id": "settings-account", "screen": "settings", "state": "page", "about": "Settings > Account", "args": ["-cmux-mobile-settings-page", "account"], "link": {"settings": "account"}, "settle": 1, "expect": {"destination": "shell", "tab": "settings", "settings": "account"}},
+    {"id": "settings-devices", "screen": "settings", "state": "page", "about": "Settings > Devices", "args": ["-cmux-mobile-settings-page", "devices"], "link": {"settings": "devices"}, "settle": 1, "expect": {"destination": "shell", "tab": "settings", "settings": "devices"}},
+    {"id": "settings-terminal", "screen": "settings", "state": "page", "about": "Settings > Terminal", "args": ["-cmux-mobile-settings-page", "terminal"], "link": {"settings": "terminal"}, "settle": 1, "expect": {"destination": "shell", "tab": "settings", "settings": "terminal"}},
+    {"id": "settings-notifications", "screen": "settings", "state": "page", "about": "Settings > Notifications", "args": ["-cmux-mobile-settings-page", "notifications"], "link": {"settings": "notifications"}, "settle": 1, "expect": {"destination": "shell", "tab": "settings", "settings": "notifications"}},
+    {"id": "settings-transport", "screen": "settings", "state": "page", "about": "Settings > Transport", "args": ["-cmux-mobile-settings-page", "transport"], "link": {"settings": "transport"}, "settle": 1, "expect": {"destination": "shell", "tab": "settings", "settings": "transport"}},
+    {"id": "settings-accent", "screen": "settings", "state": "page", "about": "Settings > Accent Color", "args": ["-cmux-mobile-settings-page", "accentColor"], "link": {"settings": "accentColor"}, "settle": 1, "expect": {"destination": "shell", "tab": "settings", "settings": "accentColor"}},
+
+    {"id": "welcome", "screen": "onboarding", "state": "default", "about": "Welcome (signed out), intro settled", "signed_in": false, "settle": 5, "expect": {"destination": "welcome"}},
+    {"id": "sign-in-code", "screen": "onboarding", "state": "code", "about": "Email code entry", "signed_in": false, "args": ["-cmux-mobile-email", "someone@example.com"], "settle": 3, "expect": {"destination": "welcome"}},
+    {"id": "setup-teams-loading", "screen": "onboarding", "state": "loading", "about": "Setup: team list loading", "setup": true, "env": {"CMUX_MOBILE_MOCK_TEAMS_DELAY": "60"}, "settle": 2, "expect": {"destination": "setup"}},
+    {"id": "setup-teams", "screen": "onboarding", "state": "default", "about": "Setup: choose a team", "setup": true, "settle": 2, "expect": {"destination": "setup"}},
+    {"id": "setup-pair", "screen": "onboarding", "state": "waiting", "about": "Setup: Connect your Mac, waiting", "args": ["-cmux-mobile-setup-pair"], "settle": 2, "expect": {"destination": "setup"}},
+    {"id": "setup-pair-other-account", "screen": "onboarding", "state": "error", "about": "Setup: the Mac is on another account", "args": ["-cmux-mobile-setup-pair", "-cmux-mobile-setup-pair-other-account"], "settle": 3, "expect": {"destination": "setup"}},
+    {"id": "signed-out-banner", "screen": "onboarding", "state": "error", "about": "Signed-out banner", "args": ["-cmux-mobile-recovery-gallery", "signedout"], "receipt": false, "settle": 3},
+
+    {"id": "cloud-chats", "screen": "cloud", "state": "default", "about": "Cloud chats gallery", "args": ["-cmux-mobile-recovery-gallery", "cloud"], "receipt": false, "settle": 3},
+    {"id": "screen-sharing", "screen": "screen-sharing", "state": "default", "about": "Screen Sharing viewer, streaming", "signed_in": false, "args": ["-CmuxMobileScreenSharingDemo"], "receipt": false, "settle": 5}
+  ]
+}
