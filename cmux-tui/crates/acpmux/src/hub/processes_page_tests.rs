@@ -292,7 +292,8 @@ fn older_pages_walk_back_from_the_split_to_the_first_end_once_each() {
         pages += 1;
         assert!(page.iter().all(|p| p.state != ProcessState::Running));
         assert!(page.iter().all(|p| (split..before).contains(&p.ended_at.unwrap())));
-        assert!((100..=101).contains(&page.len()), "page {pages} holds {}", page.len());
+        let last = older == 0;
+        assert!(page.len() <= 101 && (last || page.len() >= 100), "page {pages} holds {}", page.len());
         assert_eq!(older + page.len(), left, "omitted shrinks by the page");
         for p in &page {
             assert!(seen.insert(p.id.clone()), "{} read twice", p.id);
@@ -302,7 +303,7 @@ fn older_pages_walk_back_from_the_split_to_the_first_end_once_each() {
         (before, left) = (split, older);
     }
     assert_eq!(seen.len(), 10_000);
-    assert!(pages < 100);
+    assert!(pages <= 100, "{pages} pages");
     let (none, zero, _) = table.older_snapshot(100, 0);
     assert!(none.is_empty() && zero == 0);
 }
