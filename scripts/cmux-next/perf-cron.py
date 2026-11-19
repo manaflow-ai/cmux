@@ -202,7 +202,10 @@ PARTS = [
     # xbench baseline. The bench configuration, as for throughput: power of a Debug build is not the app's.
     {"name": "power", "args": [*MEASURE, "--config=bench", "--suite=power"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "power",
-     "run_seconds": 1800},  # about 11 minutes of scenarios, plus a cold bench build (800 s) when this part runs first
+     # Measured 2026-11-19 (step bb11176fe4ba, a macOS 27 measure Mac with no cached app): 2738 s, of which the cold
+     # bench build took about 2100 s and the scenarios plus the comparison about 640 s. A cached build runs in about
+     # 11 minutes; the cap holds the cold case with about 20 % to spare.
+     "run_seconds": 3300},
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
