@@ -172,6 +172,29 @@ test("a signed-out send is the first setup step, not a failure: the prompt, the 
   expect(html).not.toContain("acpmux-cloud-start__checklist");
 });
 
+test("signed-out setup never falls back to the failed checklist or host CLI hint without a sign-in handler", () => {
+  const html = renderToStaticMarkup(
+    <CloudStartView
+      start={{
+        key: "signed-out",
+        task: "Keep this prompt until sign-in finishes",
+        state: "failed",
+        code: "not_signed_in",
+        message: "Sign in to use Cloud machines: run Sign In from the command palette, or `cmux cloud sign-in`.",
+      }}
+      showSteps
+    />,
+  );
+  expect(html).toContain("Keep this prompt until sign-in finishes");
+  expect(html).toContain('data-state="setup"');
+  expect(html).toContain('data-action="sign-in"');
+  expect(html).not.toContain('data-state="failed"');
+  expect(html).not.toContain('role="alert"');
+  expect(html).not.toContain("acpmux-cloud-start__checklist");
+  expect(html).not.toContain("cmux cloud sign-in");
+  expect(html).not.toContain("command palette");
+});
+
 test("each first-send gate draws the setup strip at its own step, earlier steps checked", () => {
   const task = "Run the sidebar tests and fix what fails.";
   const base = { key: "k", task, state: "failed" as const };
@@ -603,6 +626,7 @@ test("a start connecting GitHub would fix offers Connect GitHub beside Retry, an
     },
     () => () => undefined,
     () => false,
+    () => () => undefined,
   );
   expect(
     renderToStaticMarkup(

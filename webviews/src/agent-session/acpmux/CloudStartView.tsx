@@ -663,10 +663,10 @@ export function CloudStartView({
   // Not signed in (checked before anything starts): the first setup step, not a failure. The card says what Cloud
   // needs and keeps the prompt; Sign in opens the browser and the start goes again by itself, This Mac runs it here,
   // Not now leaves the draft. While the browser is out the same card waits, so the person keeps their place.
-  if (cloudSetupStep(start) === "account" && (onSignIn || waitingForSignIn)) {
+  if (cloudSetupStep(start) === "account") {
     const timedOut = failed && start.message === CLOUD_SIGN_IN_ANSWERS.expired.message;
     return (
-      <section className="acpmux-cloud-start" data-state={start.state} data-setup-step="account">
+      <section className="acpmux-cloud-start" data-state="setup" data-setup-step="account">
         {bubble && (
           <div className="cv-user">
             <div className="ui-glass cv-user__bubble selectable">{start.task}</div>
