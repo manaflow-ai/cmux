@@ -223,7 +223,7 @@ pub(crate) fn write_through(transaction: &Transaction<'_>, through: u64) -> anyh
         return Ok(0);
     }
     let mut skips = Skips::default();
-    let mut written = 0;
+    let mut written = 0_usize;
     {
         let mut due = transaction.prepare_cached(ROWS_DUE)?;
         let mut write = transaction.prepare_cached(WRITE_ROW)?;
@@ -234,7 +234,7 @@ pub(crate) fn write_through(transaction: &Transaction<'_>, through: u64) -> anyh
             #[cfg(test)]
             ROWS_TAKEN_BY_WRITES.with(|rows| rows.set(rows.get() + 1));
             for (kind, id) in subjects_of(sequence, &named, &mut skips) {
-                written += write.execute(params![sequence, kind, id])?;
+                written = written.saturating_add(write.execute(params![sequence, kind, id])?);
             }
         }
     }
@@ -262,7 +262,7 @@ struct Skips {
 
 impl Skips {
     fn note(&mut self, sequence: i64) {
-        self.count += 1;
+        self.count = self.count.saturating_add(1);
         if self.rows.len() < 8 && self.rows.last() != Some(&sequence) {
             self.rows.push(sequence);
         }
