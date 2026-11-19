@@ -84,6 +84,11 @@ public final class ScreenSession {
         didSet { if stream !== oldValue { abandonPendingPaste() } }
     }
     @ObservationIgnored public var onVideoTrack: ((VideoTrackBox) -> Void)?
+    #if DEBUG && canImport(UIKit)
+    /// DEBUG only: the screen-stream eval's probe, handed to the video view the viewer makes
+    /// for this session (`ScreenVideoView(frame:probe:)`). Set before the view appears.
+    @ObservationIgnored public var debugVideoProbe: ScreenPresentProbe?
+    #endif
     /// Stream displays (sizes) and the one streaming.
     @ObservationIgnored public var onStreamDisplays: (([CGSize], Int) -> Void)?
     /// A screen stream's pointers, as fractions of the streamed display:

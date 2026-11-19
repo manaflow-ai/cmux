@@ -11,6 +11,20 @@ public final class ScreenVideoView: UIView, @preconcurrency RTCVideoViewDelegate
     private let metal = RTCMTLVideoView(frame: .zero)
     private let tap = FrameTap()
     private var track: VideoTrackBox?
+    #if DEBUG
+    /// DEBUG only: the screen-stream eval's probe (`ScreenPresentProbe`), fed every decoded frame
+    /// and every drawable this view's Metal renderer presents.
+    private var probe: ScreenPresentProbe?
+    private var presentHook: PresentHook?
+
+    public convenience init(frame: CGRect, probe: ScreenPresentProbe?) {
+        self.init(frame: frame)
+        if let probe {
+            self.probe = probe
+            presentHook = PresentHook(video: metal, probe: probe)
+        }
+    }
+    #endif
 
     public override init(frame: CGRect) {
         super.init(frame: frame)
@@ -28,6 +42,12 @@ public final class ScreenVideoView: UIView, @preconcurrency RTCVideoViewDelegate
     public func attach(_ box: VideoTrackBox) {
         track?.track.remove(metal)
         track?.track.remove(tap)
+        #if DEBUG
+        if let probe {
+            track?.track.remove(probe)
+            box.track.add(probe)
+        }
+        #endif
         track = box
         box.track.add(metal)
         box.track.add(tap)
@@ -40,8 +60,75 @@ public final class ScreenVideoView: UIView, @preconcurrency RTCVideoViewDelegate
     deinit {
         track?.track.remove(metal)
         track?.track.remove(tap)
+        #if DEBUG
+        if let probe { track?.track.remove(probe) }
+        #endif
     }
 }
+
+#if DEBUG
+import MetalKit
+
+/// DEBUG only: stands in as the delegate of `RTCMTLVideoView`'s own `MTKView` and forwards every
+/// call to it unchanged. Before a draw that renders a new frame, it adds a presented handler to the
+/// drawable the renderer is about to present (`MTKView.currentDrawable` is this draw's one
+/// drawable), so the probe learns when that frame reached the display, not when it was decoded.
+/// The frame is `RTCMTLVideoView`'s `videoFrame`, new when its timestamp is not `lastFrameTimeNs`
+/// (the renderer's own skip test), read only when the view answers both.
+@MainActor
+private final class PresentHook: NSObject {
+    private weak var original: (any MTKViewDelegate)?
+    private weak var video: RTCMTLVideoView?
+    private let probe: ScreenPresentProbe
+
+    init(video: RTCMTLVideoView, probe: ScreenPresentProbe) {
+        self.probe = probe
+        self.video = video
+        super.init()
+        guard let view = video.subviews.compactMap({ $0 as? MTKView }).first, let delegate = view.delegate else {
+            probe.hookFailed("RTCMTLVideoView has no MTKView with a delegate")
+            return
+        }
+        guard video.responds(to: NSSelectorFromString("videoFrame")),
+              video.responds(to: NSSelectorFromString("lastFrameTimeNs")) else {
+            probe.hookFailed("RTCMTLVideoView answers no videoFrame/lastFrameTimeNs")
+            return
+        }
+        original = delegate
+        view.delegate = self
+    }
+
+    /// The frame this draw renders, or nil when it renders none (no frame, or the last one again).
+    func frameToDraw() -> Int64? {
+        guard let video, let frame = video.value(forKey: "videoFrame") as? RTCVideoFrame,
+              frame.width > 0, frame.height > 0 else { return nil }
+        let last = (video.value(forKey: "lastFrameTimeNs") as? NSNumber)?.int64Value
+        return frame.timeStampNs == last ? nil : frame.timeStampNs
+    }
+}
+
+extension PresentHook: @preconcurrency MTKViewDelegate {
+    func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
+        original?.mtkView(view, drawableSizeWillChange: size)
+    }
+
+    func draw(in view: MTKView) {
+        if let timeStampNs = frameToDraw(), !view.bounds.isEmpty, let drawable = view.currentDrawable {
+            drawable.addPresentedHandler(Self.presentedHandler(probe: probe, timeStampNs: timeStampNs))
+        }
+        original?.draw(in: view)
+    }
+
+    /// Made outside the main actor: Metal calls it on its own thread.
+    nonisolated private static func presentedHandler(probe: ScreenPresentProbe, timeStampNs: Int64)
+        -> @Sendable (any MTLDrawable) -> Void {
+        { presented in
+            probe.presented(timeStampNs: timeStampNs, presentedTime: presented.presentedTime,
+                            callbackAt: CACurrentMediaTime())
+        }
+    }
+}
+#endif
 
 #elseif canImport(AppKit)
 import AppKit

@@ -14,7 +14,9 @@ and each TARGET is
    "kbps": {"idle"|"typing"|"scroll": number}, "fps": {same},
    "ocr": {"cer", "host_cer_vs_truth", "viewer_cer_vs_truth", ...},
    "split": {"key"|"pointer": {"encode_ms", "transport_ms", "decode_ms", "input_to_capture_ms", "method",
-                                [rd: "input_to_capture_parts": {"render_ms"|"sck_ms"|"pickup_ms"|"gate_ms"|"encode_ms": {"n", "p50", "p95"}}]},
+                                [rd: "input_to_capture_parts": {"render_ms"|"sck_ms"|"pickup_ms"|"gate_ms"|"encode_ms": {"n", "p50", "p95"}}],
+                                [iphone-sim: "present": {"presented_ms"|"decoded_ms"|"decode_to_present_ms": {"n", "p50", "p95"},
+                                                         "decoded_not_presented", "clock"}]},
              "typing": {"encode_ms", "decode_ms"}},
    "extra": {..., "first_frame_ms", "cpu_pct", "repeats": [{"repeat", "kbps", "fps", "ocr_cer", ...}]}}
 The window and OCR scenarios run several times (the harness's repeats=, 3 by default): each of
@@ -107,6 +109,9 @@ def target(name: str, folder: Path, out: Path) -> None:
         result["split"][kind] = {k: split.get(k) for k in ("input_to_capture_ms", "encode_ms", "transport_ms", "decode_ms", "method")}
         if split.get("input_to_capture_parts"):
             result["split"][kind]["input_to_capture_parts"] = split["input_to_capture_parts"]
+        # iphone-sim: the same input timed to the decoded frame and to the presented drawable.
+        if split.get("present"):
+            result["split"][kind]["present"] = split["present"]
         # A window-only target (its `caps` verb; screen-stream-eval.sh) has no latency stage, and
         # Screen Sharing.app's latency is unavailable unless the presented observer measured it.
         unavailable = (split.get("method") or "").startswith("apple-screen-sharing-app:")
@@ -116,6 +121,8 @@ def target(name: str, folder: Path, out: Path) -> None:
     # that measured it, and extra.repeats keeps each repeat's own numbers.
     reps = sorted(int(f.stem.split("-")[1]) for f in folder.glob("window-*.json") if f.stem.split("-")[1].isdigit())
     reps = sorted(set(reps) | {int(f.stem.split("-")[1]) for f in folder.glob("ocr-*.json") if f.stem.split("-")[1].isdigit()})
+    # A latency-only target (its `caps` verb; iphone-sim) runs no window or OCR repeats.
+    latency_only = (folder / "latency-only").exists()
     per_rep, ocrs, extras = [], [], []
     for rep in reps:
         window = load(folder / f"window-{rep}.json") or {}
@@ -145,7 +152,7 @@ def target(name: str, folder: Path, out: Path) -> None:
                         "typing_decode_ms": decode.get("typing"), "ocr_cer": (ocr or {}).get("cer"),
                         "ocr": {k: (ocr or {}).get(k) for k in OCR_FIELDS},
                         **{f"window_{k}": v for k, v in (window.get("extra") or {}).items()}})
-    if not reps:
+    if not reps and not latency_only:
         errors.append("window: no repeat ran")
 
     def median_of(values):
@@ -169,7 +176,7 @@ def target(name: str, folder: Path, out: Path) -> None:
                 result["ocr"][k] = median_of(o.get(k) for o in ocrs)
             else:
                 result["ocr"][k] = middle.get(k)
-    else:
+    elif not latency_only:
         errors.append("ocr: no result")
     # Codec observations are per-repeat evidence, not first-repeat metadata: missing quality or
     # timing in one repeat stays visible in extra.repeats rather than becoming an aggregate taken
@@ -272,6 +279,13 @@ def summary(results_path: Path, out: Path, previous_path: Path | None) -> None:
             if parts:
                 lines.append(f"| {kind.capitalize()} input→capture parts (p50): render / SCK / pickup / gate | "
                              + " / ".join(fmt((parts.get(k) or {}).get("p50"), " ms", 2) for k in ("render_ms", "sck_ms", "pickup_ms", "gate_ms")) + " |")
+        for kind in ("key", "pointer"):
+            present = get(t, "split", kind, "present") or {}
+            if present:
+                stats = [present.get(k) or {} for k in ("decoded_ms", "presented_ms", "decode_to_present_ms")]
+                lines.append(f"| {kind.capitalize()} decoded / presented / decode→present, p50 (p95) | "
+                             + " / ".join(f"{fmt(s.get('p50'), ' ms')} ({fmt(s.get('p95'), ' ms')})" for s in stats)
+                             + f", decoded but never presented {present.get('decoded_not_presented') or 0} |")
         lines.append(f"| Typing split: encode / decode | {cell('split', 'typing', 'encode_ms', digits=2)} / {cell('split', 'typing', 'decode_ms', digits=2)} |")
         reps = (t.get("extra") or {}).get("repeats") or []
         if len(reps) > 1:

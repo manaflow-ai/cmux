@@ -51,6 +51,8 @@ struct CmuxMobileApp: App {
                 RecoveryGalleryRoot()
             } else if ShellScreenSharingDemo.isRequested {
                 ShellScreenSharingDemo()
+            } else if ShellScreenSharingLink.isRequested {
+                ShellScreenSharingLink()
             } else if TerminalFloodBenchRoot.isRequested {
                 TerminalFloodBenchRoot()
             } else if TerminalResizeDemoRoot.isRequested {

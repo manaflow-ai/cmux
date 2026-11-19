@@ -166,6 +166,39 @@ class ReportTests(unittest.TestCase):
             self.assertFalse(any(e.startswith('latency') for e in errors))
             self.assertIn('window: no repeat ran', errors)
 
+    def test_iphone_sim_report_keeps_presented_and_decoded_and_needs_no_window(self):
+        app = {"g2g_ms": {"n": 190, "p50": 61.5, "p95": 80.0},
+               "decoded_g2g_ms": {"n": 190, "p50": 48.0, "p95": 66.0},
+               "decode_to_present_ms": {"n": 190, "p50": 13.5, "p95": 17.0},
+               "lost": 10, "decoded_not_presented": 2, "rtt_ms": 2, "jitter_buffer_ms": 5, "decode_ms_mean": 1.5,
+               "present_clock": {"presents": 900, "presented_time": 900, "handler_time": 0, "hook_problem": None}}
+        with tempfile.TemporaryDirectory() as name:
+            folder, state = Path(name), Path(name) / "state"
+            state.mkdir()
+            (folder / "latency-only").touch()
+            env = {**os.environ, "EVAL_STATE": str(state), "EVAL_ROOT": str(HERE.parents[2]), "EVAL_BIN": str(state)}
+            caps = subprocess.run(["bash", str(HERE / "targets/iphone-sim.sh"), "caps"], env=env, check=True,
+                                  capture_output=True, text=True).stdout.strip()
+            self.assertEqual(caps, "latency-only")
+            for kind in ("key", "pointer"):
+                raw = state / f"latency-{kind}.raw"
+                raw.write_text("app noise\niphonesim: " + json.dumps(app) + "\n")
+                subprocess.run(["bash", str(HERE / "targets/iphone-sim.sh"), "latency-report", kind, str(raw),
+                                str(folder / f"latency-{kind}.json")], env=env, check=True)
+            report.target("iphone-sim", folder, folder / "target.json")
+            target = json.loads((folder / "target.json").read_text())
+            self.assertTrue(target["ok"], target["errors"])
+            self.assertEqual(target["latency"]["key"], {"p50_ms": 61.5, "p95_ms": 80.0, "n": 190, "lost": 10})
+            present = target["split"]["key"]["present"]
+            self.assertEqual(present["decoded_ms"], {"n": 190, "p50": 48.0, "p95": 66.0})
+            self.assertEqual(present["decode_to_present_ms"]["p50"], 13.5)
+            self.assertEqual(present["decoded_not_presented"], 2)
+            self.assertEqual(target["split"]["key"]["transport_ms"], 6.0)
+            results = folder / "results.json"
+            results.write_text(json.dumps({"targets": {"iphone-sim": target}}))
+            report.summary(results, folder / "summary.md", None)
+            self.assertIn("48.0 ms (66.0 ms) / 61.5 ms (80.0 ms) / 13.5 ms (17.0 ms)", (folder / "summary.md").read_text())
+
 
 
 
