@@ -10,7 +10,8 @@
   "acp": ["acp\\..*\\.typing\\.(to_frame|to_paint)"],
   "idle": ["idle\\..*\\.app_cpu_pct"],
   "anim": ["anim\\..*\\.(frame|dropped|main_ms_max|over_8_33|main_ms_p95)"],
-  "terminal_burst": ["terminal_burst\\.(open|close)\\.\\d+\\.key_to_visible", "terminal_burst\\.new_terminal\\.(first|last)\\.key_to_visible", "terminal_burst\\.new_terminal\\.growth", "terminal_burst\\.close_terminal\\.key_to_state"]
+  "terminal_burst": ["terminal_burst\\.(open|close)\\.\\d+\\.key_to_visible", "terminal_burst\\.new_terminal\\.(first|last)\\.key_to_visible", "terminal_burst\\.new_terminal\\.growth", "terminal_burst\\.close_terminal\\.key_to_state"],
+  "page": ["page\\.chromium\\.(scroll|animate)\\.frame", "commit\\.(terminal|page|all)\\.producer"]
  },
  "rows": {
   "anim\\..*\\.frame": {
@@ -162,6 +163,42 @@
    "unit": "%",
    "floor": 0.3,
    "what": "idle app CPU"
+  },
+  "idle\\..*\\.app_wakeups_per_s": {
+   "p95": 1.0,
+   "unit": "/s",
+   "floor": 5.0,
+   "what": "the app process's own wakeups a second at rest (every thread; bench_idle.py proc_pid_rusage), not the daemons' (the frame-pipeline lab's 15.2: under 1 a second)"
+  },
+  "idle\\..*\\.main_wakes_per_s": {
+   "p95": 1.0,
+   "unit": "/s",
+   "floor": 5.0,
+   "what": "the app's main run-loop wakes a second at rest (debug.hangs main_wakes; the watchdog's budget for an idle app is 0)"
+  },
+  "idle\\..*\\.main_stall_ms": {
+   "p95": 50.0,
+   "unit": "ms",
+   "floor": 20.0,
+   "what": "the longest main-thread turn in the idle window (debug.hangs max_gap_ms; the lab's main.stall.max: 50 ms)"
+  },
+  "page\\.chromium\\.(scroll|animate)\\.frame": {
+   "p95": 8.33,
+   "unit": "ms",
+   "floor": 1.0,
+   "what": "a Chromium page's frame interval (requestAnimationFrame) while it scrolls by wheel and while it animates (page-frame-bench.py)"
+  },
+  "commit\\.(terminal|page)\\.producer": {
+   "p95": 2.0,
+   "unit": "ms",
+   "floor": 0.5,
+   "what": "one terminal's or one page's synchronous time in one Core Animation commit (debug.commit_producers; the lab's 5.4: 2 ms each)"
+  },
+  "commit\\.all\\.producer": {
+   "p95": 4.0,
+   "unit": "ms",
+   "floor": 0.5,
+   "what": "all synchronous producers of one commit together (debug.commit_producers; the lab's 5.4: 4 ms for all)"
   }
  }
 }
