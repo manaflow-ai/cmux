@@ -304,6 +304,11 @@ fn attach(
         .map(|dir| dir.join("projections").join(&line.name))
         .ok_or(("projection.unavailable", "no state folder".to_owned()))?;
     let projected = mount(&line.name, manifest, &state, &at, digest)?;
+    if let (Some(dir), Some(home)) = (state.parent(), std::env::var_os("HOME"))
+        && let Err(error) = git_stat::keep(dir, Path::new(&home), &at)
+    {
+        eprintln!("cmux-tui: projection {}: git settings: {error}", line.name);
+    }
     let data = json!({
         "at": at,
         "entries": entries,
@@ -407,6 +412,61 @@ fn mount(
     _digest: u64,
 ) -> Result<Arc<Projected>, Refusal> {
     Err(("projection.unavailable", "projected folders mount on Linux only".into()))
+}
+
+/// Git in a projected folder compares a file's size and whole-second mtime only. The index came
+/// from the Mac, so its inode, device, owner and ctime never match this mount's: with git's
+/// default checks every `git status` would read every tracked file once, fetching all of them
+/// from the Mac (cmuxterm-hq: 1.1 GB and minutes before an agent's first answer, against 3 s).
+/// Only this machine's git settings change, never the folder: `~/.gitconfig` includes
+/// [`MOUNTS`], which holds one `includeIf "gitdir:<mount>/"` per mount, naming [`STAT`].
+mod git_stat {
+    use std::io::Write as _;
+    use std::path::Path;
+
+    pub(super) const STAT: &str = "git-stat.config";
+    pub(super) const MOUNTS: &str = "git-mounts.config";
+    const STAT_TEXT: &str = "[core]\n\tcheckStat = minimal\n\ttrustctime = false\n";
+
+    /// Makes `at` (and every repository below it) use [`STAT`]; `dir` is the projections'
+    /// state folder, `home` the work user's home.
+    pub(super) fn keep(dir: &Path, home: &Path, at: &Path) -> std::io::Result<()> {
+        let stat = dir.join(STAT);
+        if std::fs::read_to_string(&stat).ok().as_deref() != Some(STAT_TEXT) {
+            std::fs::write(&stat, STAT_TEXT)?;
+        }
+        let mounts = dir.join(MOUNTS);
+        let section = section(at, &stat);
+        let known = std::fs::read_to_string(&mounts).unwrap_or_default();
+        if !known.contains(&section) {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&mounts)?
+                .write_all(section.as_bytes())?;
+        }
+        let global = home.join(".gitconfig");
+        let include = include(&mounts);
+        let text = std::fs::read_to_string(&global).unwrap_or_default();
+        if !text.contains(&include) {
+            let lead = if text.is_empty() || text.ends_with('\n') { "" } else { "\n" };
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&global)?
+                .write_all(format!("{lead}{include}").as_bytes())?;
+        }
+        Ok(())
+    }
+
+    /// The `includeIf` for `at`: git adds `**` after a trailing `/`, so it holds below `at` too.
+    pub(super) fn section(at: &Path, stat: &Path) -> String {
+        format!("[includeIf \"gitdir:{}/\"]\n\tpath = {}\n", at.display(), stat.display())
+    }
+
+    pub(super) fn include(mounts: &Path) -> String {
+        format!("[include]\n\tpath = {}\n", mounts.display())
+    }
 }
 
 /// FNV-1a of the manifest's bytes: which manifest a mount serves.
