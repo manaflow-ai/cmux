@@ -34,8 +34,9 @@ extension PaneCommitMotionTests {
     /// style with a card for each pane. With `picture` the window shows a picture, else it is opaque. `own`: the
     /// clip of the pane that stays has this colour of its own before the close, as a pane of a column in the
     /// `docked` mode has the user's colour for the docks (`PaneHostView.applyDockFill`). The row puts the colour on
-    /// the clip itself: it changes no setting of the whole process.
-    static func closeInStyle(cards: Bool, picture: Bool, own: CGColor? = nil) throws -> InStyle {
+    /// the clip itself: it changes no setting of the whole process. `marker`: a layer that the pane has before the
+    /// close, in its clip's layer with `cards`, else in its cell's layer.
+    static func closeInStyle(cards: Bool, picture: Bool, own: CGColor? = nil, marker: CALayer? = nil) throws -> InStyle {
         let harness = Commit.Harness(Commit.screen(tree(2)), focused: "p", holds: false) { model in
             model.followsDesignMetrics = false
             model.baseStyle.panePadding = 6
@@ -53,6 +54,7 @@ extension PaneCommitMotionTests {
         try #require(host.wholeCard == cards, "SETUP: the clip of the pane that stays is its card: \(host.wholeCard), not \(cards)")
         try #require(!host.contentRect.isEmpty && host.contentRect != host.bounds, "SETUP: the clip \(host.contentRect) is the pane's whole cell \(host.bounds)")
         if let own { host.clipView.layer?.backgroundColor = own }
+        if let marker { (cards ? host.clipView.layer : host.layer)?.addSublayer(marker) }
         let pane = try #require(harness.model.focusedPane, "SETUP: no pane has the focus")
         _ = try #require(harness.model.showPaneClose(pane), "SETUP: the model does not show the close of \(pane)")
         harness.root.syncWithModel()
@@ -160,11 +162,23 @@ extension PaneCommitMotionTests {
     /// a copy is at its place only with each move of its pane from the start. The first close comes while the
     /// window's tint is in a change: the window shows no still picture, and no pane gets a copy. The change ends.
     /// The second close moves 2 other panes for the first time: each has 1 copy. The third close moves the pane of
-    /// the first close again: it has no copy, and the 2 others keep theirs.
-    @Test func aPaneThatMovedWithNoCopyGetsNoneAtALaterActOfTheMotion() throws {
+    /// the first close again: it has no copy, and the 2 others keep theirs. With no card for each pane, where a
+    /// copy is on the pane's cell, and with a card, where it is in the pane's clip.
+    @Test(arguments: [false, true])
+    func aPaneThatMovedWithNoCopyGetsNoneAtALaterActOfTheMotion(_ cards: Bool) throws {
         var tree = Self.tree(6)
-        let harness = Commit.Harness(Commit.screen(tree), focused: "p", holds: false)
+        let harness = Commit.Harness(Commit.screen(tree), focused: "p", holds: false) { model in
+            guard cards else { return }
+            model.followsDesignMetrics = false
+            model.baseStyle.panePadding = 6
+            model.baseStyle.paneCornerRadius = 10
+            model.baseStyle.floatingPanes = true
+            model.baseStyle.dividerThickness = 0
+        }
         defer { harness.window.closeAfterTest() }
+        func copies(_ host: PaneHostView) -> Int {
+            cards ? Self.grounds(inCardOf: host).filter { $0.name == Self.pictureCopy }.count : Self.pictures(on: host).count
+        }
         let backdrop = Self.picture(under: harness, gap: "changing")
         Self.movePanes(harness)
         Commit.rest(harness)
@@ -181,22 +195,23 @@ extension PaneCommitMotionTests {
         let upper = try #require(hosts["pb"], "SETUP: the pane `pb` has no host")
         let beside = try #require(hosts["pbab"], "SETUP: the pane `pbab` has no host")
         let others = [upper, beside]
+        try #require(first.wholeCard == cards, "SETUP: the clip of the first close's pane is its card: \(first.wholeCard), not \(cards)")
         try close("p")
         try #require(Self.moves(first) && !others.contains { Self.moves($0) }, "SETUP: the first close does not move the pane beside it alone")
-        #expect(Self.pictures(on: first).isEmpty, "the first close's pane has \(Self.pictures(on: first).count) copies while the window's tint is in a change")
+        #expect(copies(first) == 0, "the first close's pane has \(copies(first)) copies while the window's tint is in a change")
         backdrop.shownTintLayer?.removeAnimation(forKey: "test.blend")
         var still = false
         if case .still = backdrop.stillPicture { still = true }
         try #require(still, "SETUP: the backdrop reads as no still picture after the change of its tint ended")
         try close("pbb")
         try #require(others.allSatisfy { Self.moves($0) }, "SETUP: the second close does not move the 2 panes over the pane that left")
-        let second = others.map { Self.pictures(on: $0).count }
+        let second = others.map { copies($0) }
         #expect(second == [1, 1], "the 2 panes that move first at the second close have \(second) copies of the window's picture")
         try close("pab")
         let acts = Set((first.layer?.animationKeys() ?? []).compactMap { Self.act(of: $0) })
         try #require(acts.count == 2, "SETUP: the first close's pane has the moves of \(acts.count) acts, not of the first and the third close")
-        let third = others.map { Self.pictures(on: $0).count }
-        #expect(Self.pictures(on: first).isEmpty, "the pane that moved with no copy has \(Self.pictures(on: first).count) copies at its second move")
+        let third = others.map { copies($0) }
+        #expect(copies(first) == 0, "the pane that moved with no copy has \(copies(first)) copies at its second move")
         #expect(third == [1, 1], "after the third close the 2 panes of the second close have \(third) copies of the window's picture")
     }
 }

@@ -64,4 +64,39 @@ extension PaneCommitMotionTests {
         let spent = Double(ticks) * Self.dt
         #expect(abs(spent - length) <= 2 * Self.dt, "the motion ended \(spent) s after the frame that began it; its springs end at \(length) s")
     }
+
+    /// The spring of each act of ``normalScenes``.
+    nonisolated static let normalSprings: [String: MotionSpring] = ["split, held": .split, "close": .paneClose, "zoom": .zoom, "unzoom": .unzoom]
+
+    /// With no speed of its own the motion reads the app's setting in 2 places for one act: each animation reads it
+    /// for its own length (`Motion.springAnimation`), and the motion reads it for the act's length on the frame
+    /// clock (`PaneCommitMotion.spring`). The 2 give one length: each move of a pane and of its copy is as long as
+    /// the act is for the frame clock, and the frame clock ends the motion there.
+    @Test(arguments: normalScenes)
+    func withTheAppsSpeedEachMoveIsAsLongAsItsActIsForTheFrameClock(_ scene: String) throws {
+        let over = try Self.overPicture(scene, panes: 6)
+        defer { over.harness.window.closeAfterTest() }
+        let screen = over.screen, motion = screen.zoomDim.motion
+        try #require(motion.speed == nil, "SETUP: the motion has a speed of its own")
+        let token = try #require(Self.normalSprings[scene], "SETUP: no spring for the \(scene)")
+        let want = motion.spring(token).settlingTime(within: PaneCommitMotion.rest)
+        var lengths: Set<Double> = []
+        for host in Self.paneHosts(screen).filter({ Self.moves($0) }) {
+            guard let layer = host.layer else { continue }
+            let copy = Self.pictures(on: host).first
+            for animation in Self.move(of: layer).animations + (copy.map { Self.move(of: $0).animations } ?? []) {
+                lengths.insert((animation.duration * 100000).rounded() / 100000)
+            }
+        }
+        let length = try #require(lengths.first, "SETUP: no move of a pane is an animation")
+        #expect(lengths.count == 1 && abs(length - want) < 0.00002,
+                "the moves of the \(scene) have the lengths \(lengths.sorted()) s; the act's length for the frame clock is \(want) s")
+        var ticks = 0
+        while Self.inFlight(screen), ticks < 120 {
+            _ = over.harness.root.advanceFrame(Self.dt)
+            ticks += 1
+        }
+        let spent = Double(ticks) * Self.dt
+        #expect(abs(spent - want) <= 2 * Self.dt, "the motion ended \(spent) s after the frame that began it; the act's length is \(want) s")
+    }
 }

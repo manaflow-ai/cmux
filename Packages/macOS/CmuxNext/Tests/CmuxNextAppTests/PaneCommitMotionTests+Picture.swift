@@ -67,6 +67,8 @@ extension PaneCommitMotionTests {
     /// - `second close`: a second close key 3 frames into the first one's move.
     /// - `resize`: the first pane closes, and 1 frame into that move a divider's ratio changes (``resized(_:to:)``):
     ///   passes with no act place the panes again while they move.
+    /// - `split`: one pane more, and no content holds a picture. `close, half`: the second half of the panes takes
+    ///   the whole screen (`PaneCommitMotionTests+CardMove`).
     nonisolated static let pictureScenes = ["close", "zoom", "unzoom", "split, held", "second close", "resize"]
     nonisolated static let pictureCounts = [2, 6, 30]
 
@@ -97,14 +99,20 @@ extension PaneCommitMotionTests {
 
     /// `count` panes in halves over a window's picture at rest, then the act of `scene` (``pictureScenes``).
     /// `speed`: the motion's springs have this speed, not the app's setting. `padding`: the model has its own style
-    /// with this padding around each pane's content, and each pane's content has a header.
-    static func overPicture(_ scene: String, panes count: Int, gap: String? = nil, speed: MotionSpeed? = nil, padding: CGFloat = 0) throws -> OverPicture {
+    /// with this padding around each pane's content, and each pane's content has a header. `cards`: that style has
+    /// a card for each pane. `prepare` runs at rest, before the act.
+    static func overPicture(_ scene: String, panes count: Int, gap: String? = nil, speed: MotionSpeed? = nil, padding: CGFloat = 0,
+                            cards: Bool = false, prepare: (Commit.Harness) -> Void = { _ in }) throws -> OverPicture {
         let more = scene == "second close" || scene == "resize"
         let harness = Commit.Harness(Commit.screen(tree(more ? count + 1 : count)), focused: "p", holds: false, headed: padding > 0) { model in
             if scene != "resize" { model.splitSizingOverride = .even }
             guard padding > 0 else { return }
             model.followsDesignMetrics = false
             model.baseStyle.panePadding = padding
+            guard cards else { return }
+            model.baseStyle.paneCornerRadius = 10
+            model.baseStyle.floatingPanes = true
+            model.baseStyle.dividerThickness = 0
         }
         var begun = false
         defer { if !begun { harness.window.closeAfterTest() } }
@@ -124,7 +132,15 @@ extension PaneCommitMotionTests {
             _ = try #require(harness.model.showPaneClose(pane), "SETUP: the model does not show the close of \(pane)")
             show()
         }
+        prepare(harness)
         switch scene {
+        case "split":
+            harness.model.apply(screens: Commit.screen(tree(count + 1)))
+            show()
+        case "close, half":
+            guard case let .split(_, _, _, _, half) = tree(count) else { break }
+            harness.model.apply(screens: Commit.screen(half))
+            show()
         case "zoom", "unzoom":
             harness.model.focus(far.pane, notify: false)
             Commit.rest(harness)
@@ -177,13 +193,13 @@ extension PaneCommitMotionTests {
 
     /// Where `copy` on the layer of `host` shows in the window, when the moves of each act are at `part(act)` of
     /// their way: the copy's rect in its pane's own coordinates, put where the pane's layer shows on its screen. A
-    /// copy in the layer of the pane's clip is that clip's place farther in.
+    /// copy in the layer of the pane's clip is that clip's place farther in, at that part of the clip's own move.
     static func windowRect(of copy: CALayer, on host: PaneHostView, in screen: ScreenContentView, at part: (Int) -> CGFloat) -> CGRect? {
         guard let layer = host.layer else { return nil }
         let cell = rect(of: layer, at: part), own = origin(of: layer, at: part), inner = rect(of: copy, at: part)
         let inClip: Bool = copy.superlayer != nil && copy.superlayer === host.clipView.layer
-        let clip = inClip ? host.clipView.frame.origin : .zero
-        return screen.convert(inner.offsetBy(dx: cell.minX - own.x + clip.x, dy: cell.minY - own.y + clip.y), to: nil)
+        let inner2 = inClip ? cardRect(of: host, at: part).origin : .zero
+        return screen.convert(inner.offsetBy(dx: cell.minX - own.x + inner2.x, dy: cell.minY - own.y + inner2.y), to: nil)
     }
 
     /// Each pane that moves over a window's picture has one copy of the picture under it. At the start, at each
