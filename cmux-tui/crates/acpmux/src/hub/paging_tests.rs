@@ -487,6 +487,61 @@ fn a_restored_chats_log_load_reads_the_copies_not_its_log() {
     }
 }
 
+/// Leo, 2026-11-16: "how about speeding up the scrolling up of chats?" An older page of a long
+/// Codex chat costs the page, not the log between it and the end: in a real 353,235-record chat
+/// one record in a hundred is a transcript record, and the rest are load replays and the
+/// harness's raw `codex.response` lines (1.5 MB each there), so a 2,000-record page read back
+/// 100-600 MB and parsed every raw line on the way (2.7-7.4 s). Here 1 seq in 100 is a reply
+/// chunk and the others carry 14 KB payloads, half raw harness lines and half replays: the page
+/// parses only its own records, and reads at most a few times its own bytes.
+#[test]
+fn an_older_transcript_page_costs_its_records_not_the_log_it_skips() {
+    let root = std::env::temp_dir().join(format!("acpmux-older-page-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    let payload = "x".repeat(14 << 10);
+    let mut log: Vec<EventRecord> = (0..6_000u64)
+        .map(|n| {
+            if n % 100 == 99 {
+                agent(0, "agent_message_chunk", json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": format!("reply {n}")}}))
+            } else if n % 2 == 0 {
+                EventRecord {
+                    seq: 0,
+                    at: 0,
+                    dir: "in".into(),
+                    kind: "codex.response".into(),
+                    msg: json!({"jsonrpc": "2.0", "method": "codex.response", "params": {"text": payload}}),
+                    host_seq: None,
+                }
+            } else {
+                agent(0, "tool_call.replay", json!({"sessionUpdate": "tool_call", "toolCallId": format!("r{n}"), "title": payload}))
+            }
+        })
+        .collect();
+    let log_bytes = write_chat(&sessions, &mut log, 8 << 20);
+    let hub = deferred_hub(&sessions, 8 << 20);
+    let last = log.last().unwrap().seq;
+    let filter = transcript(true);
+    // Half way back, as a scroll up reads it: 20 records before a seq.
+    let before = last / 2;
+    let (r0, b0) = (read_bytes(), PARSED_BYTES.with(std::cell::Cell::get));
+    let page = hub.events_page("c", 0, Some(before), 20, Some(1 << 20), true, &filter).unwrap();
+    let (read, parsed) = (read_bytes() - r0, PARSED_BYTES.with(std::cell::Cell::get) - b0);
+    assert_eq!(page.events.len(), 20);
+    assert!(page.events.iter().all(|r| r.kind == "agent_message_chunk"));
+    let page_bytes: u64 =
+        page.events.iter().map(|r| serde_json::to_vec(r).unwrap().len() as u64).sum();
+    assert!(parsed <= 4 * page_bytes, "the page parsed {parsed} bytes for its {page_bytes}");
+    if cfg!(target_os = "linux") {
+        // A page may read its records, an index of them and a few blocks of probes; never the
+        // 28 MB of the log the 20 records are spread over (of {log_bytes} in all).
+        assert!(
+            read <= 64 * 1024 + 8 * page_bytes,
+            "the page read {read} bytes for its {page_bytes} (log {log_bytes})"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// The web pane's older page of a real chat (`direct.ts` `olderPage`: before a seq, 2,000
 /// records, 1 MiB, the transcript), at each depth, `OLDER_PAGE_REPS` times: its time, the bytes
 /// its read took from the log, and the records and bytes it parsed. Run over a copy of a chat's
@@ -1052,3 +1107,6 @@ fn subagent_page_perf() {
         std::fs::remove_dir_all(&root).ok();
     }
 }
+
+#[path = "paging_index_tests.rs"]
+mod index_tests;
