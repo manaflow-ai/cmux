@@ -300,7 +300,8 @@ public final class RemoteMachinesSidebar {
     /// one session's move (a machine comes or goes): then the caller builds the groups whole.
     private func update(_ sessions: Set<String>) -> Bool {
         let current = lanes.lanes
-        var next = model
+        // In place: a copy of a machine's chats would copy every chat of it. A move that ends in a whole
+        // build (false) leaves `model` part-moved, and that build replaces it.
         var changed = false
         for id in sessions {
             let lane = current[id]
@@ -308,33 +309,33 @@ public final class RemoteMachinesSidebar {
             var target: Int?
             if let peer = lane?.peer {
                 if let index = machineIndex[peer] {
-                    if next[index].online { target = index }
+                    if model[index].online { target = index }
                 } else if peers == nil {
                     return false // a new machine
                 }
             }
             let chat = lane.map(Self.chat)
             if let was = placed[id], let index = machineIndex[was.peer] {
-                let at = Self.place(of: (was.since, was.name), id: id, in: next[index].chats, placed: placed)
+                let at = Self.place(of: (was.since, was.name), id: id, in: model[index].chats, placed: placed)
                 guard let at else { return false }
-                if index == target, let chat, next[index].chats[at] == chat, was.since == chat.since, was.name == lane?.name {
+                if index == target, let chat, model[index].chats[at] == chat, was.since == chat.since, was.name == lane?.name {
                     continue // nothing it draws or its place changed
                 }
-                next[index].count(next[index].chats[at], by: -1)
-                next[index].chats.remove(at: at)
+                model[index].count(model[index].chats[at], by: -1)
+                model[index].chats.remove(at: at)
                 placed[id] = nil
                 changed = true
                 // A machine named only by its lanes goes with its last chat.
-                if peers == nil, next[index].chats.isEmpty, target != index { return false }
+                if peers == nil, model[index].chats.isEmpty, target != index { return false }
             }
             guard let target, let chat, let lane else { continue }
-            let at = Self.insertion(of: (chat.since, lane.name), in: next[target].chats, placed: placed)
-            next[target].chats.insert(chat, at: at)
-            next[target].count(chat, by: 1)
-            placed[id] = (next[target].peer, chat.since, lane.name)
+            let at = Self.insertion(of: (chat.since, lane.name), in: model[target].chats, placed: placed)
+            model[target].chats.insert(chat, at: at)
+            model[target].count(chat, by: 1)
+            placed[id] = (model[target].peer, chat.since, lane.name)
             changed = true
         }
-        if changed { withMutation(keyPath: \.machines) { model = next } }
+        if changed { withMutation(keyPath: \.machines) {} }
         return true
     }
 
