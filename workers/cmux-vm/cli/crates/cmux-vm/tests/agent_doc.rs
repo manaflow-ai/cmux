@@ -77,6 +77,7 @@ fn vm(state: &str) -> serde_json::Value {
         "idleTimeoutSeconds": 300,
         "maxRunSeconds": null,
         "autoDeleteSeconds": null,
+        "ttlSeconds": null,
         "createdAt": "2026-10-30T00:00:00.000Z",
         "updatedAt": "2026-10-30T00:00:00.000Z"
     })

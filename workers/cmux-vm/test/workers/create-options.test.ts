@@ -3,7 +3,10 @@
  * sizes (base image plus grow, not atomic), run and auto-delete limits,
  * labels and the label filter, exec user and stdin, file mode, quota overrides.
  */
+import { Effect, Layer } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
+import { requestFingerprint } from "../../src/handlers/idempotency.ts";
+import { memoryLimitsLayer, TenantLimits } from "../../src/limits/service.ts";
 import { bearer } from "../support/endpoints.ts";
 import { makeHarness } from "../support/harness.ts";
 
@@ -86,6 +89,100 @@ describe("run and auto-delete limits", () => {
     expect((await create(t, key, { maxRunSeconds: 3600, autoDeleteSeconds: 86400 })).status).toBe(201);
 
     expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)[0]?.json).toMatchObject({ maxRunSeconds: 3600, autoDeleteSeconds: 86400 });
+  });
+});
+
+describe("deadline (ttlSeconds)", () => {
+  /** Limits whose idempotency claims record the fingerprint each create or fork sent. */
+  const recordingLimits = async () => {
+    const inner = await Effect.runPromise(Effect.provide(TenantLimits, memoryLimitsLayer()));
+    const fingerprints: string[] = [];
+    const layer = Layer.succeed(TenantLimits, {
+      ...inner,
+      begin: (tenantId, key, fingerprint, clientFingerprint, generated) => {
+        fingerprints.push(fingerprint);
+        return inner.begin(tenantId, key, fingerprint, clientFingerprint, generated);
+      },
+    });
+    return { layer, fingerprints };
+  };
+  const fingerprintOf = (request: unknown) => Effect.runPromise(requestFingerprint(request));
+
+  it("forwards ttlSeconds to the provider and shows it on the VM", async () => {
+    const t = await harness();
+    const key = await t.addKey(TENANT_A, ["vm:read", "vm:write"]);
+
+    const response = await create(t, key, { ttlSeconds: 3600 });
+
+    expect(response.status).toBe(201);
+    const vm = await json(response);
+    expect(vm).toMatchObject({ ttlSeconds: 3600 });
+    expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)[0]?.json).toMatchObject({ ttlSeconds: 3600 });
+    expect(await json(await t.request(`/v1/vms/${String(vm.id)}`, bearer(key)))).toMatchObject({ ttlSeconds: 3600 });
+  });
+
+  it("sends nothing when omitted and keeps the create fingerprint of a request from before the field", async () => {
+    const limits = await recordingLimits();
+    const t = await harness({ limits: limits.layer });
+    const key = await t.addKey(TENANT_A, ["vm:write"]);
+
+    const response = await create(t, key, { displayName: "plain" }, { "idempotency-key": "ttl-omitted" });
+
+    expect(response.status).toBe(201);
+    expect(await json(response)).toMatchObject({ ttlSeconds: null });
+    expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)[0]?.json).not.toHaveProperty("ttlSeconds");
+    expect(limits.fingerprints).toEqual([await fingerprintOf(["createVm", "plain", null, null, null, null, null, null])]);
+  });
+
+  it("puts the deadline in the fingerprint only when given, so a key cannot be replayed with another deadline", async () => {
+    const limits = await recordingLimits();
+    const t = await harness({ limits: limits.layer });
+    const key = await t.addKey(TENANT_A, ["vm:write"]);
+    const headers = { "idempotency-key": "ttl-given" };
+
+    expect((await create(t, key, { displayName: "bounded", ttlSeconds: 600 }, headers)).status).toBe(201);
+    expect(limits.fingerprints[0]).toBe(await fingerprintOf(["createVm", "bounded", null, null, null, null, null, null, "ttl:600"]));
+    expect((await create(t, key, { displayName: "bounded", ttlSeconds: 900 }, headers)).status).toBe(409);
+    expect((await create(t, key, { displayName: "bounded" }, headers)).status).toBe(409);
+    expect((await create(t, key, { displayName: "bounded", ttlSeconds: 600 }, headers)).status).toBe(201);
+    expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(1);
+  });
+
+  it("forwards ttlSeconds on fork and keeps the fork fingerprint when omitted", async () => {
+    const limits = await recordingLimits();
+    const t = await harness({ limits: limits.layer });
+    const key = await t.addKey(TENANT_A, ["vm:write"]);
+    const source = t.addVm(TENANT_A, "running");
+    const fork = (body: unknown, idempotencyKey: string) =>
+      t.request(`/v1/vms/${source.vmId}/fork`, { ...bearer(key), "idempotency-key": idempotencyKey }, { method: "POST", body });
+
+    const bounded = await fork({ ttlSeconds: 7200 }, "fork-ttl");
+    expect(bounded.status).toBe(201);
+    expect(await json(bounded)).toMatchObject({ ttlSeconds: 7200 });
+    const plain = await fork({}, "fork-plain");
+    expect(plain.status).toBe(201);
+    expect(await json(plain)).toMatchObject({ ttlSeconds: null });
+
+    const sent = t.upstream.callsTo("POST", /^\/v5\/vms$/).map((call) => call.json);
+    expect(sent[0]).toMatchObject({ ttlSeconds: 7200 });
+    expect(sent[1]).not.toHaveProperty("ttlSeconds");
+    expect(limits.fingerprints).toEqual([
+      await fingerprintOf(["forkVm", source.vmId, null, null, null, null, null, "ttl:7200"]),
+      await fingerprintOf(["forkVm", source.vmId, null, null, null, null, null]),
+    ]);
+  });
+
+  it("rejects a deadline outside -1 to 365 days, on create and fork", async () => {
+    const t = await harness();
+    const key = await t.addKey(TENANT_A, ["vm:write"]);
+    const source = t.addVm(TENANT_A, "running");
+    for (const ttlSeconds of [-2, 365 * 24 * 60 * 60 + 1, 1.5, "60"]) {
+      expect((await create(t, key, { ttlSeconds })).status).toBe(400);
+      expect((await t.request(`/v1/vms/${source.vmId}/fork`, bearer(key), { method: "POST", body: { ttlSeconds } })).status).toBe(400);
+    }
+    expect(t.upstreamRequests).toHaveLength(0);
+    expect((await create(t, key, { ttlSeconds: -1 })).status).toBe(201);
+    expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)[0]?.json).toMatchObject({ ttlSeconds: -1 });
   });
 });
 
