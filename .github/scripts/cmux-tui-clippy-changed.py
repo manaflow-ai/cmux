@@ -182,7 +182,19 @@ def main(argv: list[str] | None = None) -> int:
     print(f"cmux-tui-clippy-changed: linting {scope}", flush=True)
     print(" ".join(command), flush=True)
     # From cmux-tui/ so rustup uses its rust-toolchain.toml pin and cargo its workspace.
-    rc, red_files, lock = run_clippy(command, repo / ROOT, repo)
+    text: list[str] = []
+    rc, red_files, lock = run_clippy(command, repo / ROOT, repo, text)
+    if rc and not lock and (oops := load_isolate(repo)):
+        # ci-oops fault isolation: on a pull request, an optional member (scripts/ci/oops/optional-units.json)
+        # that alone fails is left out, the rest is linted again, and a CI_OOPS line asks for the follow-up.
+        def again(argv: list[str]) -> tuple[int, str]:
+            print(" ".join(argv), flush=True)
+            out: list[str] = []
+            code, files, _ = run_clippy(argv, repo / ROOT, repo, out)
+            red_files[:] = files
+            return code, "".join(out)
+
+        rc, _ = oops.isolated_run("cargo-member", command, runner=again, first=(rc, "".join(text)))
     if rc and lock:
         print(stale_lock_error("cmux-tui clippy", lock))
     elif rc:
@@ -192,16 +204,30 @@ def main(argv: list[str] | None = None) -> int:
     return 1 if rc else 0
 
 
-def run_clippy(command: list[str], cwd: Path, repo: Path) -> tuple[int, list[str], str | None]:
+def load_isolate(repo: Path):
+    """The checkout's scripts/ci/oops/isolate.py (ci-oops fault isolation), or None (an older tree, a replay)."""
+    path = repo / "scripts/ci/oops/isolate.py"
+    if not path.is_file():
+        return None
+    spec = importlib.util.spec_from_file_location("ci_oops_isolate", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def run_clippy(command: list[str], cwd: Path, repo: Path,
+               text: list[str] | None = None) -> tuple[int, list[str], str | None]:
     """Run clippy with its output passed through as it comes, and return its exit code with the
     files its errors point at (`--> crates/x/src/y.rs:1:2`, relative to cmux-tui), in order, and
-    the lockfile cargo refused to update under --locked, if any."""
+    the lockfile cargo refused to update under --locked, if any. TEXT, when given, collects stderr."""
     files: list[str] = []
     lock = None
     process = subprocess.Popen(command, cwd=cwd, stderr=subprocess.PIPE, text=True, errors="replace")
     assert process.stderr is not None
     for line in process.stderr:
         sys.stderr.write(line)
+        if text is not None:
+            text.append(line)
         if (path := red_file(line)) and path not in files:
             files.append(path)
         lock = lock or stale_lock(line, repo)
@@ -255,7 +281,16 @@ def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, ou
     the base run only excuses counts over the baseline, so it cannot change that verdict. Only
     a red HEAD lints the base too, into `<out>.base`, and the ratchet then charges HEAD only for
     counts the base does not reach. On a green PR that skips one lint of the changed packages
-    (80 s of the job's 6 min on #37445, run 42334950081)."""
+    (80 s of the job's 6 min on #37445, run 42334950081).
+    An optional member the clippy step before it left out (ci-oops, CMUX_OOPS_DROPPED_CARGO_MEMBER) is left out here
+    too: it does not compile, and the ratchet keeps its baseline row."""
+    if (oops := load_isolate(repo)) and (gone := oops.dropped_from_env("cargo-member")):
+        print(f"cmux-tui-clippy-changed: leaving out {', '.join(gone)} (ci-oops: it does not compile on this pull "
+              "request; the clippy step filed its follow-up)", flush=True)
+        packages = oops.without("cargo-member", packages, gone)
+        if packages is None:
+            print("cmux-tui-clippy-changed: no package left for the panic ratchet", flush=True)
+            return 0
     ratchet = repo / RATCHET
     flags = subprocess.run([sys.executable, str(ratchet), "--flags"], check=True,
                            stdout=subprocess.PIPE, text=True).stdout.split()
