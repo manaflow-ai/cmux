@@ -68,7 +68,22 @@ impl<S> Capability<S> {
 }
 
 /// The result of strictly binding a provider observation to a scoped handle.
-pub type ObservedMachine = Observed<Snapshot>;
+///
+/// The raw lifeline observation is kept inside this adapter so callers cannot
+/// bypass the Cloud client's scoped capability wrapper.
+#[derive(Debug)]
+pub enum ObservedMachine {
+    Provisioning(Capability<Provisioning>),
+    Running(Capability<Running>),
+    Pausing(Capability<Pausing>),
+    Paused(Capability<Paused>),
+    Starting(Capability<Starting>),
+    Stopped(Capability<Stopped>),
+    Deleting(Capability<Deleting>),
+    Deleted(Capability<Deleted>),
+    Failed(Capability<Failed>),
+    Unknown(Capability<Unknown>),
+}
 
 /// Why an observed Cloud machine could not become a lifecycle capability.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,7 +129,19 @@ pub fn observe(scope: &Scope, record: CloudMachine) -> Result<ObservedMachine, O
         }
     }
     let machine = scope.machine(&record.id).map_err(ObserveError::Handle)?;
-    Ok(status.bind(Snapshot { machine, revision: record.revision }))
+    let snapshot = Snapshot { machine, revision: record.revision };
+    Ok(match status.bind(snapshot) {
+        Observed::Provisioning(vm) => ObservedMachine::Provisioning(Capability { vm }),
+        Observed::Running(vm) => ObservedMachine::Running(Capability { vm }),
+        Observed::Pausing(vm) => ObservedMachine::Pausing(Capability { vm }),
+        Observed::Paused(vm) => ObservedMachine::Paused(Capability { vm }),
+        Observed::Starting(vm) => ObservedMachine::Starting(Capability { vm }),
+        Observed::Stopped(vm) => ObservedMachine::Stopped(Capability { vm }),
+        Observed::Deleting(vm) => ObservedMachine::Deleting(Capability { vm }),
+        Observed::Deleted(vm) => ObservedMachine::Deleted(Capability { vm }),
+        Observed::Failed(vm) => ObservedMachine::Failed(Capability { vm }),
+        Observed::Unknown(vm) => ObservedMachine::Unknown(Capability { vm }),
+    })
 }
 
 /// The mutation intent retained when a response is refused or lost.
@@ -151,12 +178,6 @@ impl<S> Pending<S> {
     /// The revision that was sent as the optimistic-concurrency precondition.
     pub fn revision(&self) -> &str {
         self.state.payload().revision()
-    }
-
-    /// Recover the capability and key for a retry. The caller chooses the
-    /// operation method matching [`Self::intent`].
-    pub fn into_parts(self) -> (Capability<S>, String) {
-        (self.state, self.key)
     }
 }
 
@@ -196,6 +217,99 @@ impl<S> std::fmt::Display for MutationError<S> {
 
 impl<S: std::fmt::Debug + 'static> std::error::Error for MutationError<S> {}
 
+impl Pending<Running> {
+    /// Retry the same pause intent with the same key after reconciling the
+    /// uncertain answer.
+    pub async fn retry_pause(
+        self,
+        client: &LifecycleClient,
+    ) -> Result<Capability<Pausing>, MutationError<Running>> {
+        if self.intent != Intent::Pause {
+            return Err(MutationError::Api {
+                pending: self,
+                source: ApiError::unreadable("the pending intent is not pause"),
+            });
+        }
+        let Pending { state, key, .. } = self;
+        client.pause_impl(state, key).await
+    }
+}
+
+impl Pending<Ready> {
+    /// Retry the same pause intent with the same key after reconciling the
+    /// uncertain answer.
+    pub async fn retry_pause(
+        self,
+        client: &LifecycleClient,
+    ) -> Result<Capability<Pausing>, MutationError<Ready>> {
+        if self.intent != Intent::Pause {
+            return Err(MutationError::Api {
+                pending: self,
+                source: ApiError::unreadable("the pending intent is not pause"),
+            });
+        }
+        let Pending { state, key, .. } = self;
+        client.pause_impl(state, key).await
+    }
+}
+
+impl Pending<Paused> {
+    /// Retry the same resume intent with the same key after reconciling the
+    /// uncertain answer.
+    pub async fn retry_resume(
+        self,
+        client: &LifecycleClient,
+    ) -> Result<Capability<Starting>, MutationError<Paused>> {
+        if self.intent != Intent::Resume {
+            return Err(MutationError::Api {
+                pending: self,
+                source: ApiError::unreadable("the pending intent is not resume"),
+            });
+        }
+        let Pending { state, key, .. } = self;
+        client.resume_impl(state, key).await
+    }
+}
+
+macro_rules! pending_delete_retry {
+    ($($state:ty),+ $(,)?) => {
+        $(
+        impl Pending<$state> {
+            /// Retry the same delete intent with the same key after
+            /// reconciling the uncertain answer.
+            pub async fn retry_delete(
+                self,
+                client: &LifecycleClient,
+            ) -> Result<Capability<Deleted>, MutationError<$state>> {
+                if self.intent != Intent::Delete {
+                    return Err(MutationError::Api {
+                        pending: self,
+                        source: ApiError::unreadable("the pending intent is not delete"),
+                    });
+                }
+                let Pending { state, key, .. } = self;
+                client.delete_impl(state, key).await
+            }
+        }
+        )+
+    };
+}
+
+pending_delete_retry!(
+    Provisioning,
+    Preclaimed,
+    Claimed,
+    Running,
+    Ready,
+    Attached,
+    Pausing,
+    Paused,
+    Starting,
+    Stopped,
+    Failed,
+    Unknown,
+);
+
 /// A wire-op transport bound to one backend and team scope.
 #[derive(Debug, Clone)]
 pub struct LifecycleClient {
@@ -228,8 +342,14 @@ impl LifecycleClient {
     ) -> Result<Capability<Pausing>, MutationError<S>> {
         let key = key.into();
         let pending = Pending::new(state, Intent::Pause, key.clone());
-        let params =
-            CloudMachinePauseParams { machine: pending.state.payload().machine().id().to_owned() };
+        let machine = match self.scope.id_of(pending.state.payload().machine()) {
+            Ok(machine) => machine.to_owned(),
+            Err(source) => {
+                return Err(MutationError::Api { pending, source: ApiError::unreadable(source) });
+            }
+        };
+        let expected = pending.state.payload().machine().clone();
+        let params = CloudMachinePauseParams { machine };
         let answer = match ops::call_with_options::<CloudMachinePauseOp>(
             &self.http,
             self.scope.origin(),
@@ -247,7 +367,7 @@ impl LifecycleClient {
             Ok(value) => value,
             Err(source) => return Err(MutationError::Api { pending, source }),
         };
-        pause_response(&self.scope, record.machine, revision)
+        pause_response(&self.scope, &expected, record.machine, revision)
             .map_err(|source| MutationError::Api { pending, source })
     }
 
@@ -258,8 +378,14 @@ impl LifecycleClient {
     ) -> Result<Capability<Starting>, MutationError<Paused>> {
         let key = key.into();
         let pending = Pending::new(state, Intent::Resume, key.clone());
-        let params =
-            CloudMachineStartParams { machine: pending.state.payload().machine().id().to_owned() };
+        let machine = match self.scope.id_of(pending.state.payload().machine()) {
+            Ok(machine) => machine.to_owned(),
+            Err(source) => {
+                return Err(MutationError::Api { pending, source: ApiError::unreadable(source) });
+            }
+        };
+        let expected = pending.state.payload().machine().clone();
+        let params = CloudMachineStartParams { machine };
         let answer = match ops::call_with_options::<CloudMachineStartOp>(
             &self.http,
             self.scope.origin(),
@@ -277,7 +403,7 @@ impl LifecycleClient {
             Ok(value) => value,
             Err(source) => return Err(MutationError::Api { pending, source }),
         };
-        resume_response(&self.scope, record.machine, revision)
+        resume_response(&self.scope, &expected, record.machine, revision)
             .map_err(|source| MutationError::Api { pending, source })
     }
 
@@ -288,8 +414,13 @@ impl LifecycleClient {
     ) -> Result<Capability<Deleted>, MutationError<S>> {
         let key = key.into();
         let pending = Pending::new(state, Intent::Delete, key.clone());
-        let params =
-            CloudMachineDeleteParams { machine: pending.state.payload().machine().id().to_owned() };
+        let machine = match self.scope.id_of(pending.state.payload().machine()) {
+            Ok(machine) => machine.to_owned(),
+            Err(source) => {
+                return Err(MutationError::Api { pending, source: ApiError::unreadable(source) });
+            }
+        };
+        let params = CloudMachineDeleteParams { machine };
         let answer = match ops::call_with_options::<CloudMachineDeleteOp>(
             &self.http,
             self.scope.origin(),
@@ -331,14 +462,18 @@ where
 
 fn pause_response(
     scope: &Scope,
+    expected: &Machine,
     record: CloudMachine,
     revision: String,
 ) -> Result<Capability<Pausing>, ApiError> {
     let observed = observe(scope, record).map_err(|error| ApiError::unreadable(error))?;
     match observed {
-        Observed::Pausing(mut vm) => {
-            vm.payload_mut().revision = revision;
-            Ok(Capability { vm })
+        ObservedMachine::Pausing(mut capability) if capability.machine() == expected => {
+            capability.vm.payload_mut().revision = revision;
+            Ok(capability)
+        }
+        ObservedMachine::Pausing(_) => {
+            Err(ApiError::unreadable("a pause answer named another machine"))
         }
         _ => Err(ApiError::unreadable("a pause answer did not enter pausing")),
     }
@@ -346,14 +481,18 @@ fn pause_response(
 
 fn resume_response(
     scope: &Scope,
+    expected: &Machine,
     record: CloudMachine,
     revision: String,
 ) -> Result<Capability<Starting>, ApiError> {
     let observed = observe(scope, record).map_err(|error| ApiError::unreadable(error))?;
     match observed {
-        Observed::Starting(mut vm) => {
-            vm.payload_mut().revision = revision;
-            Ok(Capability { vm })
+        ObservedMachine::Starting(mut capability) if capability.machine() == expected => {
+            capability.vm.payload_mut().revision = revision;
+            Ok(capability)
+        }
+        ObservedMachine::Starting(_) => {
+            Err(ApiError::unreadable("a resume answer named another machine"))
         }
         _ => Err(ApiError::unreadable("a resume answer did not enter starting")),
     }
@@ -393,6 +532,14 @@ deletable!(
 );
 
 impl Capability<Running> {
+    /// Record that the caller completed the agent readiness handshake.
+    ///
+    /// The Cloud provider only reports power state; callers must establish
+    /// readiness through their own handshake before using this transition.
+    pub fn ready(self) -> Capability<Ready> {
+        Capability { vm: self.vm.ready() }
+    }
+
     /// Pause a provider-running machine. The capability is consumed.
     pub async fn pause(
         self,
@@ -526,23 +673,76 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_foreign_capability_is_refused_before_the_request_is_sent() {
+        let owner = scope();
+        let other = Scope::new("https://cloud-api.cmux.dev", Some("team_b")).expect("scope");
+        let client = LifecycleClient::new(other, "token", "test").expect("client");
+        let ObservedMachine::Running(capability) =
+            observe(&owner, record("running", "7")).expect("running")
+        else {
+            panic!("running status")
+        };
+        let error = capability.pause(&client, "ck_foreign").await.expect_err("foreign handle");
+        let (_, source) = error.into_parts();
+        assert_eq!(source.code.as_deref(), Some("cloud.client.unreadable"));
+        assert!(source.status.is_none(), "the foreign handle was rejected locally");
+    }
+
+    #[test]
+    fn a_mutation_answer_must_name_the_mutated_machine() {
+        let expected = scope().machine("vm_test").expect("machine");
+        let mut other = record("pausing", "8");
+        other.id = "vm_other".to_owned();
+        let error = pause_response(&scope(), &expected, other, "8".to_owned())
+            .expect_err("identity mismatch");
+        assert!(error.message.contains("another machine"));
+    }
+
+    #[tokio::test]
     async fn a_lost_mutation_answer_keeps_the_same_key_and_revision() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("listener");
         let origin = format!("http://{}", listener.local_addr().expect("address"));
+        let (seen_tx, seen_rx) = tokio::sync::oneshot::channel();
         tokio::spawn(async move {
-            if let Ok((stream, _)) = listener.accept().await {
+            if let Ok((mut stream, _)) = listener.accept().await {
+                use tokio::io::AsyncReadExt;
+                let mut request = Vec::new();
+                let mut chunk = [0; 4096];
+                loop {
+                    let length = stream.read(&mut chunk).await.unwrap_or(0);
+                    if length == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&chunk[..length]);
+                    let lower = String::from_utf8_lossy(&request).to_ascii_lowercase();
+                    let complete = lower.find("\r\n\r\n").is_some_and(|headers_end| {
+                        let body_length = lower[..headers_end]
+                            .lines()
+                            .find_map(|line| line.strip_prefix("content-length: "))
+                            .and_then(|value| value.trim().parse::<usize>().ok())
+                            .unwrap_or(0);
+                        request.len() >= headers_end + 4 + body_length
+                    });
+                    if complete {
+                        break;
+                    }
+                }
+                let _ = seen_tx.send(String::from_utf8_lossy(&request).into_owned());
                 drop(stream);
             }
         });
         let scope = Scope::new(&origin, Some("team_a")).expect("scope");
         let client = LifecycleClient::new(scope.clone(), "token", "test").expect("client");
         let observed = observe(&scope, record("running", "7")).expect("running");
-        let Observed::Running(vm) = observed else { panic!("running status") };
-        let error = Capability { vm }.pause(&client, "ck_lost").await.expect_err("lost answer");
+        let ObservedMachine::Running(capability) = observed else { panic!("running status") };
+        let error = capability.pause(&client, "ck_lost").await.expect_err("lost answer");
         let (pending, source) = error.into_parts();
         assert_eq!(pending.key(), "ck_lost");
         assert_eq!(pending.revision(), "7");
         assert_eq!(pending.intent(), Intent::Pause);
         assert!(source.retryable, "a missing answer is safe to retry");
+        let request = seen_rx.await.expect("request captured");
+        assert!(request.contains("\"idempotency_key\":\"ck_lost\""));
+        assert!(request.contains("\"expected_revision\":\"7\""));
     }
 }
