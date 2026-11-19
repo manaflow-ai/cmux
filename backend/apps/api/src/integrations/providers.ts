@@ -142,7 +142,7 @@ export const github: ProviderImpl = {
     }
     // Prove the signed-in GitHub user can access this installation; an installation id alone is guessable.
     const userToken = await githubUserToken(env, http, p.code)
-    // Who linked: a repository added to the installation later joins only if this user can reach it (connection-do.ts).
+    // Who linked: a repository added to the installation later joins only if this user can reach it (github-handoffs.ts).
     const linker = await githubUserOf(http, userToken).catch(() => null)
     const res = await http(new Request(`${GH_API}/user/installations?per_page=100`, { headers: ghHeaders(userToken) }))
     if (!res.ok) throw failed("github", res, "installation check")
