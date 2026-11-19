@@ -6,6 +6,7 @@
 
 // A reply's checkable claims against the turn's runs (`claim_checks`).
 mod claim_check;
+mod control_asks;
 
 mod activity;
 // A foreground shell still running after a minute goes to the background (Claude Code).
@@ -21,6 +22,7 @@ pub(crate) mod agent_vm;
 mod away_recap;
 mod memory_inbox;
 mod prompt_coach;
+pub(crate) mod stop_condition;
 pub use prompt_coach::CoachRewriter;
 mod message_events;
 pub use agent_pairs::PairGuard;
@@ -47,7 +49,6 @@ pub(crate) mod settled_view;
 pub(crate) mod subagent_resume;
 pub(crate) mod subagent_retry;
 pub(crate) use crate::turn_errors;
-pub(crate) use btw::SIDE_TAG;
 pub(crate) use lane_reports::TAG as REPORTS_TO_TAG;
 pub(crate) use policy_mode::SetRequest;
 mod audit_entries;
@@ -232,6 +233,7 @@ pub(crate) mod reply_fit;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
 pub(crate) use queue::approved_prompts_error;
 pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_key};
+mod credentials;
 mod live_name;
 mod profile_respawn;
 mod rediscover;
@@ -239,7 +241,7 @@ pub(crate) mod require_asking;
 mod resolve;
 mod route_switch;
 mod stale_host_respawn;
-pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
+pub use pool::{PrewarmRequest, PrewarmShape, RssProbe, tree_rss_bytes};
 pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
 pub(crate) use turn_errors::is_limit_error;
@@ -361,6 +363,7 @@ pub(crate) use peers::{
 mod permission_groups;
 mod permissions;
 pub(crate) use permissions::drop_display_lines;
+pub mod cmux_tools_answer;
 mod hunk_summary;
 pub mod person;
 pub mod presence;
@@ -394,6 +397,8 @@ pub(crate) mod open_delivery;
 pub(crate) mod outbox;
 #[cfg(test)]
 mod outbox_open_tests;
+#[cfg(test)]
+pub(crate) mod outbox_oracle;
 pub(crate) mod release_to_watch;
 mod restore_point;
 pub mod rules;
@@ -1177,6 +1182,8 @@ pub struct Hub {
     /// The HEAD of each attached session's folder, watched for a checkout (`git_watch.rs`).
     pub(super) git_watch: git_watch::GitWatchState,
     pub catalog: Arc<crate::catalog::CatalogService>,
+    /// Sign in with ChatGPT: its attempts and per-account refresh locks (`crate::chatgpt`).
+    pub chatgpt: Arc<crate::chatgpt::Service>,
     /// Agent CLI health (`harness_health`, `hub/health_view.rs`).
     pub health: Arc<crate::harness_health::HealthService>,
     /// The token the web listener checks now (`web_token.rs`).
@@ -1553,6 +1560,7 @@ impl Hub {
             settings_changes: tokio::sync::watch::channel(0).0,
             git_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
+            chatgpt: Arc::new(crate::chatgpt::Service::default()),
             health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
             person: Default::default(),
@@ -2034,7 +2042,10 @@ impl Hub {
             forum_retold: std::sync::Mutex::default(),
             forum_telling: std::sync::Mutex::default(),
             launched_with_tools: std::sync::atomic::AtomicU8::new(0),
+            codex_answer: StdMutex::default(),
+            codex_answer_asked: StdMutex::default(),
             launch_env: StdMutex::new(None),
+            credential: StdMutex::new(None),
             route_switch: AtomicBool::new(false),
             profile_respawn: AtomicBool::new(false),
             ending: StdMutex::new(None),
@@ -2107,6 +2118,7 @@ impl Hub {
             last_active: AtomicU64::new(self.clock_now()),
             hibernated_at: AtomicU64::new(hibernated_at),
             wake_cause: StdMutex::new(None),
+            policy_refusal: Default::default(),
             agent_requests: std::sync::atomic::AtomicUsize::new(0),
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
