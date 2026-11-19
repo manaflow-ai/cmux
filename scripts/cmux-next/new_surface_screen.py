@@ -34,20 +34,32 @@ not `--gaps`, each from a terminal tab that Control-` opened:
   idle  the key alone. The tool first opens the tab to close, a New Tab page, with one New Tab key, and waits
         1.5 s: no frame of the recording has that opening.
   key   the key `--close-gap-ms` after ONE New Tab key.
-  hold  the key `--close-gap-ms` after the last key-down of a hold of the New Tab key: `--hold-keys` key-downs,
-        the second one `--hold-delay-ms` after the first and each next one `--hold-repeat-ms` after the one before.
-The recording is frame_strip's with the key `w` alone. The New Tab keys of `key` and `hold` are not the
-recorder's: the tool sends each as one `debug.key` call at its time by the tool's own clock, beside the
-recording's call (the recorder sends its key 120 ms after its start, so the tool starts the recording that long
-before the Close Tab key's time). So: a New Tab key-down of a hold is a key-down with no repeat flag, and the key
-router's path for a repeated key is in no row; the true time between the last New Tab key and the Close Tab key
-is the app's (`last_new_tab_key_before_ms`, from the `newTab.open` mark), and the asked time is only the tool's
-plan (`new_tab_keys_sent_ms`: each key-down's send time by the tool's clock, from the Close Tab key's planned
-time). A row is INVALID when the app did not list the pane's tabs, when the count of tabs does not say one tab
-for each New Tab key-down and one tab closed, when the recording has no `newTab.open` mark before the Close Tab
-key (the last New Tab key then went in before the recording's start, or opened nothing) or has one after it, and
-when the app refused a New Tab key. After the recording the tool closes what is left of its own tabs, and never
-more tabs than it opened.
+  downs the key `--close-gap-ms` after the last of `--hold-keys` New Tab key-downs at a held key's times (the
+        second one `--hold-delay-ms` after the first, each next one `--hold-repeat-ms` after the one before), each
+        with NO repeat flag. This is not a hold of the key, and the case's name says so.
+  hold  the key `--close-gap-ms` after the last key-down of a hold of the New Tab key, at the same times: the
+        first key-down, then its repeats WITH the repeat flag.
+The recording is frame_strip's with the key `w` alone. The New Tab keys are not the recorder's. In `key` and
+`downs` the tool sends each as one `debug.key` call at its time by the tool's own clock, beside the recording's
+call (the recorder sends its key 120 ms after its start, so the tool starts the recording that long before the
+Close Tab key's time): the app gives such a key to its window directly, with no repeat flag, so the key router's
+path for a repeated key is not in these rows. In `hold` the keys are ONE key sequence of `debug.key`
+(`{"sequence", "key_window": "shell"}`): the app makes the shell window its key window, with no activation of the
+app, builds each step as an event with its planned time and posts it to its own event queue (Command down, T
+down, each repeat of T with the repeat flag, T up and Command up before the Close Tab key's time), and plays the
+steps by its own clock from the call. Limits of `hold`: the Close Tab key itself is the recorder's and not a key
+of the queue; the Command key is up again before it; and after the sequence the app has a key window, which it
+does not have in the mode's launch before, so `hold` is the last case of the default order. A sequence that the
+app refused (the window did not become key) is an INVALID row with no recording.
+
+The true time between the last New Tab key and the Close Tab key is the app's (`last_new_tab_key_before_ms`, from
+the `newTab.open` mark), and the asked time is only the tool's plan (`new_tab_keys_sent_ms`: each key-down's time
+by the tool's clock, from the Close Tab key's planned time; for `hold` the time of the sequence's call and each
+step's planned time after it). `new_tab_keys_by` says the sender. A row is INVALID when the app did not list the
+pane's tabs, when the count of tabs does not say one tab for each New Tab key-down and one tab closed, when the
+recording has no `newTab.open` mark before the Close Tab key (the last New Tab key then went in before the
+recording's start, or opened nothing) or has one after it, and when the app refused a New Tab key. After the
+recording the tool closes what is left of its own tabs, and never more tabs than it opened.
 
 `--page-watch N`: the last N recordings of each case also ask the new page for its own layout watch (`debug.agent_pane
 layout_watch`: the page's composer, its chips and its header, each frame of the page): the parts that moved after
@@ -93,7 +105,12 @@ LEAD_MS = 120  # frame_strip sends the key this long after its recording starts 
 MARK = "NEW-SURFACE-SCREEN"
 OPENINGS_LIMIT = 60  # of ONE recording: the app's list of opening records has 64 places (NewTabSparePool.maximumOpenings)
 PICTURES_A_CASE = 40  # no picture of a later recording of a case is kept after this many kept pictures of the case
-CLOSE_CASES = ("idle", "key", "hold")  # the Close Tab key's cases (the module doc)
+CLOSE_CASES = ("idle", "key", "downs", "hold")  # the Close Tab key's cases, in the default order (the module doc)
+KEY_CODE = {"cmd": 55, "t": 17}  # virtual key codes, for a key sequence's steps
+SEQUENCE_LEAD_MS = 2.0  # in a key sequence: from Command down to the first key-down of T
+KEYS_BY = {"calls": "one `debug.key` call for each key-down, by the tool's clock: no repeat flag, not the app's event queue",
+           "sequence": "one key sequence of `debug.key` in the app's event queue, by the app's clock: the first key-down, then "
+                       "repeats with the repeat flag"}
 NEW_TAB_KEY = {"key": "t", "modifiers": ["command"]}  # one key-down by `debug.key`: no repeat flag
 LAST_FILE = "strip.png"  # the last file that frame_strip writes into its folder (WindowFrame.writeAll), before its reply
 CALL_END_PAUSES = 240  # of 0.5 s: how long the tool waits for a frame_strip call that went on after its `timeout` reply
@@ -118,7 +135,8 @@ def close_cases(text):
 
 def close_plan(kind, opts):
     """The New Tab key-downs of one Close Tab recording: how long before the Close Tab key's time each one goes
-    in, in ms, the first one first. `idle` has none, `key` has one, `hold` has `--hold-keys` at a held key's times."""
+    in, in ms, the first one first. `idle` has none, `key` has one, `downs` and `hold` have `--hold-keys` at a held
+    key's times."""
     if kind == "idle":
         return []
     downs = [0.0] if kind == "key" else [0.0] + [opts.hold_delay_ms + opts.hold_repeat_ms * index for index in range(max(0, opts.hold_keys - 1))]
@@ -129,8 +147,20 @@ def close_case(kind, opts):
     """A Close Tab case's name in the report."""
     if kind == "idle":
         return "cmd-w/idle"
-    after = "a New Tab key" if kind == "key" else f"a hold of the New Tab key ({len(close_plan(kind, opts))} key-downs)"
+    count = len(close_plan(kind, opts))
+    after = {"key": "a New Tab key", "downs": f"{count} New Tab key-downs at a hold's times, no repeat flag"}.get(
+        kind, f"a hold of the New Tab key ({count} key-downs: 1 and {count - 1} repeats with the repeat flag)")
     return f"cmd-w/{opts.close_gap_ms:g} ms after {after}"
+
+
+def hold_steps(plan, gap_ms):
+    """A hold of the New Tab key as the steps of one key sequence (`debug.key {"sequence"}`): Command down, T down,
+    each repeat of T with the repeat flag at its time of `plan` (close_plan), then T up and Command up, both before
+    the Close Tab key's time (`gap_ms` after the last repeat)."""
+    steps = [{"key_code": KEY_CODE["cmd"], "down": True}, {"key_code": KEY_CODE["t"], "down": True, "after_ms": SEQUENCE_LEAD_MS}]
+    steps += [{"key_code": KEY_CODE["t"], "down": True, "after_ms": before - at, "repeat": True} for before, at in zip(plan, plan[1:])]
+    return steps + [{"key_code": KEY_CODE["t"], "down": False, "after_ms": min(40.0, gap_ms * 0.4)},
+                    {"key_code": KEY_CODE["cmd"], "down": False, "after_ms": min(5.0, gap_ms * 0.05)}]
 
 
 def openings(opts):
@@ -148,7 +178,7 @@ def openings(opts):
 def add_arguments(parser):
     """The mode's own arguments; the driver has `--screen` itself and adds these only with it."""
     parser.add_argument("--close-cases", type=close_cases, default=",".join(CLOSE_CASES),
-                        help="--screen with the key w: the Close Tab key's cases, comma separated (idle, key, hold)")
+                        help="--screen with the key w: the Close Tab key's cases, comma separated (idle, key, downs, hold)")
     parser.add_argument("--close-gap-ms", type=float, default=100.0, help="--screen with the key w: ms from the last New Tab key to the Close Tab key")
     parser.add_argument("--hold-keys", type=int, default=6, help="--screen with the key w: the key-downs of the hold of the New Tab key")
     parser.add_argument("--hold-delay-ms", type=float, default=375.0, help="--screen with the key w: ms from a hold's first key-down to its second")
@@ -445,8 +475,9 @@ class Screen:
         shutil.rmtree(folder, ignore_errors=True)
         # The Close Tab key's planned time: the recorder sends it LEAD_MS after the recording's start. Each New Tab
         # key-down goes in at its own time before it, by one call each, beside the recording's call.
-        sent, refused = [], []
-        due = self.clock() + max(plan + [LEAD_MS]) / 1000 + 0.05
+        sent, refused, sequence = [], [], None
+        lead = plan[0] + SEQUENCE_LEAD_MS if kind == "hold" else 0.0  # a sequence's call: this long before the Close Tab key
+        due = self.clock() + max(plan + [LEAD_MS, lead]) / 1000 + 0.05
 
         def sender():
             for index, offset in enumerate(plan):
@@ -457,7 +488,21 @@ class Screen:
                 if not isinstance(reply, dict) or reply.get("error"):
                     refused.append(index + 1)
 
-        ended = self.start(sender) if plan else (lambda: None)
+        ended = lambda: None  # noqa: E731
+        if kind == "hold":
+            # The hold: one sequence, which the app plays by its own clock from this call. The call returns at once.
+            self.until(due - lead / 1000)
+            at = self.clock()
+            reply = self.rpc("debug.key", {"sequence": hold_steps(plan, opts.close_gap_ms), "key_window": "shell"}, 30)
+            if not isinstance(reply, dict) or reply.get("error"):
+                error = reply.get("error") if isinstance(reply, dict) else reply
+                row["invalid"].append(f"input: the app refused the hold's key sequence: {json.dumps(error, default=str)[:300]}")
+                self.close_own(own_tabs, 1)
+                return row
+            sequence = {"scheduled": reply.get("scheduled"), "key_window": reply.get("key_window"), "sent_ms": round((at - due) * 1000, 1)}
+            sent = [round(sequence["sent_ms"] + lead - before, 1) for before in plan]
+        elif plan:
+            ended = self.start(sender)
         self.until(due - LEAD_MS / 1000)
         reply = self.rpc("debug.new_tab", params, opts.duration_ms / 1000 + 180) or {}
         ended()
@@ -474,6 +519,10 @@ class Screen:
         row.update({"label": label, "case": kind})
         fact, faults = frames_of.close_of(row, reply.get("spans"), before, after, len(plan))
         fact.update({"case": kind, "new_tab_keys_plan_ms": [-offset for offset in plan], "new_tab_keys_sent_ms": sent})
+        if plan:
+            fact["new_tab_keys_by"] = KEYS_BY["sequence" if sequence else "calls"]
+        if sequence:
+            fact["sequence"] = sequence
         row["close_tab"] = fact
         for name in ("content_gone", "content_shown", "strip_first"):
             # A frame of the close that the row's own pictures do not have yet (one file is kept one time).
@@ -558,9 +607,8 @@ class Screen:
                           for kind in opts.close_cases.split(",") if kind]
                 report["close"] = {
                     "cases": [kind for kind in opts.close_cases.split(",") if kind], "gap_ms": opts.close_gap_ms,
-                    "hold": {"key_downs": opts.hold_keys, "first_repeat_after_ms": opts.hold_delay_ms, "repeat_each_ms": opts.hold_repeat_ms,
-                             "form": "one key-down for each `debug.key` call, by the tool's clock, with no repeat flag: "
-                                     "the app's path for a repeated key-down is not in a row"}}
+                    "hold": {"key_downs": opts.hold_keys, "first_repeat_after_ms": opts.hold_delay_ms, "repeat_each_ms": opts.hold_repeat_ms},
+                    "new_tab_keys_by": {"key": KEYS_BY["calls"], "downs": KEYS_BY["calls"], "hold": KEYS_BY["sequence"]}}
             else:
                 cases += [(f"cmd-{key}/{'idle' if not gap else f'{gap:g} ms after a key'}",
                            lambda run, key=key, gap=gap: self.one(key, gap, run, session_fault)) for gap in report["gaps_ms"]]

@@ -310,6 +310,10 @@ class CloseScreenTests(unittest.TestCase):
         self.assertEqual([row["close_tab"].get("new_tab_keys_by") for row in report["rows"]],
                          [None] + ["one `debug.key` call for each key-down, by the tool's clock: no repeat flag, not the app's event queue"] * 2
                          + ["one key sequence of `debug.key` in the app's event queue, by the app's clock: the first key-down, then repeats with the repeat flag"])
+        # The idle case's tab is there 1.5 s before its recording starts: its opening is in no frame of the recording.
+        self.assertGreaterEqual(app.strip_times[0] - app.key_times[0], 1.5)
+        self.assertEqual(report["rows"][0]["close_tab"]["new_tab_marks_before_ms"], [])
+        self.assertEqual([row["close_tab"]["last_new_tab_key_before_ms"] for row in report["rows"][1:]], [100.0, 100.0, 100.0])
 
     def test_the_hold_is_one_key_sequence_with_the_repeat_flag_in_the_shell_window(self):
         app = CloseApp(self.folder)
@@ -330,10 +334,6 @@ class CloseScreenTests(unittest.TestCase):
         report, _ = self.run_mode(app, close_cases="hold")
         self.assertEqual(report["rows"][0]["invalid"], ['input: the app refused the hold\'s key sequence: "the shell window did not become key"'])
         self.assertEqual((app.asked, app.closed, app.ids), ([], [1], ["tab-0"]))
-        # The idle case's tab is there 1.5 s before its recording starts: its opening is in no frame of the recording.
-        self.assertGreaterEqual(app.strip_times[0] - app.key_times[0], 1.5)
-        self.assertEqual(report["rows"][0]["close_tab"]["new_tab_marks_before_ms"], [])
-        self.assertEqual([row["close_tab"]["last_new_tab_key_before_ms"] for row in report["rows"][1:]], [100.0, 100.0])
 
     def test_a_new_tab_key_that_the_app_refused_makes_the_row_invalid(self):
         app = CloseApp(self.folder)

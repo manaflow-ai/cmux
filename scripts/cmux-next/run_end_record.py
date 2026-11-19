@@ -62,11 +62,11 @@ def signal_name(number):
         return "a signal with no name"
 
 
-def build_said(record):
-    """The build that a record of the app names (`run.json`, a report of the app's own writer): its version, and
-    its commit when the record has one."""
+def build_said(record, where="report"):
+    """The build that a record of the app names (`run.json`: `where` is `record`; a report of the app's own writer):
+    its version, and its commit when it has one. No commit there: the words say so, and the tool gives none."""
     version, commit = record.get("version"), record.get("commit")
-    return (f"version {version}" if version else "version: not in the report") + "; " + (f"commit {commit}" if commit else "commit: not in the report")
+    return (f"version {version}" if version else f"version: not in the {where}") + "; " + (f"commit {commit}" if commit else f"commit: not in the {where}")
 
 
 def report_parts(text):
@@ -174,7 +174,7 @@ class RunEnd:
             if name in found:
                 self.whole(LAST, name, found[name])
         if self.facts(found)[0] is not None:
-            self.out(f"{LAST} run.json build: {build_said(self.facts(found)[0])}")
+            self.out(f"{LAST} run.json build: {build_said(self.facts(found)[0], 'record')}")
         self.out(f"{LAST} verdict: {self.verdict(found)}")
         logs = os.path.join(self.home, "Library/Logs/cmux-next")
         reports = sorted(glob.glob(os.path.join(glob.escape(logs), f"{glob.escape(safe(self.bundle))}-app-*.json")), key=os.path.getmtime)

@@ -43,14 +43,14 @@ bench. The quick and cold openings are reported, not judged: the exit status is 
 alone, and each key a set time after another key, as the screen showed it frame by frame, in a session of
 `--workspaces` workspaces (new_surface_screen.py has its arguments and its report). The recording is then
 `--duration-ms` 2000 long unless that is given. With `w` in `--keys`, the mode also records the Close Tab key
-(Command-W): alone, a set time after a New Tab key, and the same time after a hold of the New Tab key
-(`--close-cases`).
+(Command-W): alone, a set time after a New Tab key, the same time after key-downs of the New Tab key at a hold's
+times with no repeat flag, and the same time after a hold of the New Tab key (`--close-cases`).
 
 Usage: cmd-n-paint-e2e.py (--socket <path> | --app PATH --tag TAG) [--runs 3] [--keys n,t] [--out DIR] [--cold] [--split N]
        [--arms warm,quick,cold] [--quick-runs 3] [--cold-runs 3] [--json FILE]
        cmd-n-paint-e2e.py (--socket <path> | --app PATH --tag TAG) --screen [--runs 3] [--keys n,t[,w]] [--gaps 0,100]
        [--workspaces N] [--live-shells 8] [--duration-ms 2000] [--page-watch 3] [--json FILE] [--screen-tgz FILE]
-       [--close-cases idle,key,hold] [--close-gap-ms 100] [--hold-keys 6] [--hold-delay-ms 375] [--hold-repeat-ms 90]
+       [--close-cases idle,key,downs,hold] [--close-gap-ms 100] [--hold-keys 6] [--hold-delay-ms 375] [--hold-repeat-ms 90]
 """
 import argparse, atexit, glob, json, os, signal, socket, subprocess, sys, tempfile, time
 
