@@ -6,7 +6,7 @@
 #
 #   tests/acpmux_load.sh [SPEC...]     SPEC is NAME:GEN-FLAGS, e.g. "100k:--events 100000"
 #
-# Default: a 100k-event chat, and a 2 GB chat. Run from the repo root; on a lane VM through
+# Default: a 100k-event chat, a 1 GB chat and a 2 GB chat. Run from the repo root; on a lane VM through
 # `cmux-ci test --setup rust -- bash cmux-tui/crates/coord-sim/tests/acpmux_load.sh`.
 set -euo pipefail
 
@@ -26,6 +26,8 @@ if [ $# -eq 0 ]; then
 fi
 
 ms() { date +%s%3N; }
+# Where cargo puts a workspace's builds (CARGO_TARGET_DIR or build.target-dir move it off ./target on CI).
+target_dir() { (cd "$1" && cargo metadata --format-version 1 --no-deps | grep -o '"target_directory":"[^"]*"' | cut -d'"' -f4); }
 
 t0=$(ms)
 # ACPMUX_BIN / COORD_SIM_BIN: binaries already built (nothing is built then).
@@ -33,11 +35,11 @@ ACPMUX=${ACPMUX_BIN:-}
 SIM=${COORD_SIM_BIN:-}
 if [ -z "$ACPMUX" ]; then
   (cd "$ROOT/cmux-tui" && cargo build --release -q -p acpmux --bin acpmux)
-  ACPMUX="$ROOT/cmux-tui/target/release/acpmux"
+  ACPMUX="$(target_dir "$ROOT/cmux-tui")/release/acpmux"
 fi
 if [ -z "$SIM" ]; then
   (cd "$ROOT/cmux-tui/crates/coord-sim" && cargo build --release -q)
-  SIM="$ROOT/cmux-tui/crates/coord-sim/target/release/coord-sim"
+  SIM="$(target_dir "$ROOT/cmux-tui/crates/coord-sim")/release/coord-sim"
 fi
 echo "{\"step\":\"build\",\"ms\":$(( $(ms) - t0 )),\"acpmux\":\"$("$ACPMUX" --version 2>&1 | head -1)\"}"
 
