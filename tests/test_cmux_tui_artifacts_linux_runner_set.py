@@ -88,8 +88,10 @@ NIGHTLY = "cmux-gcp-nightly-x64"
 # Jobs that keep their own route on the nightly path: the daemon tests (linux-placement, then Blacksmith;
 # their full checkout is not repaired for a reused self-hosted workspace) and the shadow (its override).
 OWN_ROUTE_JOBS = ("cmux-next-daemon-tests", DARWIN_CROSS_JOB)
-# The jobs a NEXT nightly waits for; only these take the 4-runner owned GCP lane first.
-NIGHTLY_TREE_JOBS = ("tree-preflight", "tree-owner-wait", "publish", "publish-tree", "mark-tree-commits")
+# The jobs a NEXT nightly waits for; only these take the nightly-only runner first. Every other Linux job but
+# OWN_ROUTE_JOBS takes the shared owned lane first on the nightly path (cmuxterm-hq#13909).
+NIGHTLY_TREE_JOBS = ("tree-preflight", "tree-owner-wait", "darwin-fallback-plan", "publish", "publish-tree",
+                     "publish-tree-tested", "mark-tree-commits", "request-nightly-next")
 OVERFLOW_RECORD = '{"probe":"blacksmith-4vcpu-ubuntu-2404"}'
 # The short jobs that sat queued on 2026-10-30; each must stay in the set.
 SHORT_JOBS = (
@@ -159,8 +161,12 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
             labels = resolved(runs_on, "manaflow-ai", linux_runner, overflow, trusted)
             # A non-Blacksmith LINUX_RUNNER wins; a job that does not read it (the daemon
             # tests) stays on Blacksmith. The nightly path's attempt 1 takes the owned pool.
-            allowed = (blacksmith_set(name) | ({linux_runner} if linux_runner in (POOL, HOSTED) else set())
-                       | ({OWNED, NIGHTLY} if name in NIGHTLY_TREE_JOBS else set()))
+            # 2026-11-19: GitHub-hosted Linux started nothing while preflights queued there, so a hosted
+            # LINUX_RUNNER (the overflow switch's failover) is skipped except by the jobs with their own route.
+            hosted = linux_runner == HOSTED and name in OWN_ROUTE_JOBS
+            allowed = (blacksmith_set(name) | ({linux_runner} if linux_runner == POOL or hosted else set())
+                       | ({OWNED, NIGHTLY} if name in NIGHTLY_TREE_JOBS else set())
+                       | ({OWNED} if name not in OWN_ROUTE_JOBS else set()))
             with self.subTest(job=name, linux_runner=linux_runner, overflow=bool(overflow), trusted=trusted):
                 self.assertTrue(labels <= allowed, labels - allowed)
 
@@ -205,17 +211,23 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
                           if "vars.LINUX_RUNNER" in str(job.get("runs-on", "")))
         self.assertGreaterEqual(len(routes), len(NIGHTLY_TREE_JOBS) + 3)
         nightly = {"event": "'push'", "ref": "'refs/heads/feat-cmux-next'", "attempt": "1"}
+        # 2026-11-19 (cmuxterm-hq#13909): nightly run 44447636260 failed because the tree publisher and preflight of
+        # a feat-cmux-next push sat on OWNED behind PR CI, so a feat-cmux-next push takes NIGHTLY too; attempt 2
+        # falls back to OWNED (a dead nightly runner) and attempt 3 to Blacksmith.
         cases = (
-            ("feat-cmux-next push", nightly, OWNED),
+            ("feat-cmux-next push", nightly, NIGHTLY),
             ("nightly-next push", {**nightly, "ref": "'refs/heads/nightly-next'"}, NIGHTLY),
             ("dispatch", {**nightly, "event": "'workflow_dispatch'", "ref": "'refs/heads/feat-cmux-next'"}, NIGHTLY),
-            ("re-run", {**nightly, "attempt": "2"}, None),
+            ("re-run", {**nightly, "attempt": "2"}, OWNED),
+            ("second re-run", {**nightly, "attempt": "3"}, None),
             ("lane push", {**nightly, "ref": "'refs/heads/lane/x'"}, None),
         )
         for workflow, name, runs_on in routes:
             for case, values, owned in cases:
-                if workflow == "cmux-tui-tree-request.yml" and case in ("lane push", "feat-cmux-next push"):
+                if workflow == "cmux-tui-tree-request.yml" and case in ("lane push", "feat-cmux-next push", "nightly-next push"):
                     continue  # it runs only as a feat-cmux-next dispatch
+                if workflow == "cmux-tui-tree-request.yml":
+                    values = {**values, "event": "'workflow_dispatch'"}
                 text = runs_on.replace("github.run_attempt", values["attempt"])
                 text = text.replace("github.event_name", values["event"])
                 text = re.sub(r"\bgithub\.ref\b", values["ref"], text)
@@ -245,7 +257,7 @@ OWNED_ROUTE = re.compile(
     r"vars\.(?:LINUX_BUILD_RUNNER|LINUX_RUNNER_DARWIN_CROSS|CMUX_TUI_GATE_RUNNER)\b"
     r"|inputs\.linux(?:_build)?_runner\b"
     r"|needs\.[\w-]+\.outputs\.[\w-]*runner\b"
-    r"|'cmux-gcp-lane-build[\w-]*'"
+    r"|'cmux-gcp-(?:lane-build|nightly)[\w-]*'"
 )
 SUDO = re.compile(r"(?<![\w-])sudo(?![\w-])")
 APT_INSTALL = re.compile(r"\bapt(?:-get)?\s+(?:[^|;&\n]*\s)?install\b")

@@ -24,14 +24,17 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 REPAIR = "Repair a reused self-hosted checkout"
 OWNED = "cmux-gcp-lane-build-x64"
-FILES = ("cmux-tui-artifacts.yml", "cmux-tui-build-package.yml", "cmux-tui-tree-request.yml", "cloud-vm-image-roll.yml")
+# The nightly-only build-lane runner reuses its workspace the same way.
+NIGHTLY = "cmux-gcp-nightly-x64"
+FILES = ("cmux-tui-artifacts.yml", "cmux-tui-build-package.yml", "cmux-tui-tree-request.yml", "cloud-vm-image-roll.yml",
+         "nightly-next-tick.yml")
 
 
 def owned_jobs(workflow: dict) -> dict[str, dict]:
     jobs = {}
     for name, job in workflow["jobs"].items():
         runs_on = str(job.get("runs-on", ""))
-        if OWNED in runs_on or "linux_runner" in runs_on:
+        if OWNED in runs_on or NIGHTLY in runs_on or "linux_runner" in runs_on:
             jobs[name] = job
     return jobs
 
