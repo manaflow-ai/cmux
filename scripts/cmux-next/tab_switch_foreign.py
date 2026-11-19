@@ -24,7 +24,9 @@ for windows that cover nothing: the desktop layer (WindowManager, layer -2147483
 overlay (layer 21, full display, transparent unless a banner shows) and a computer-use helper's overlay (layer 0, full
 display). A full-display overlay could count only with nonzero alpha and a backing store that shows something; the
 window list (no grant) gives store type, sharing state and on-screen, but none of them says whether the overlay drew a
-pixel, so a full-display overlay never excludes a round on its own. A banner is its own window and still counts. Every
+pixel, so a full-display overlay never excludes a round on its own; nor does a HOST_OWNERS window spanning the
+whole app window (macOS 27's Notification Center keeps one at layer 21 on a display it may not fill exactly). A
+banner is its own window and still counts. Every
 foreign window seen in an excluded round stays in its record with its verdict and the fields behind it.
 """
 from __future__ import annotations
@@ -38,7 +40,10 @@ import subprocess
 import threading
 import time
 
-IGNORED_OWNERS = ("Window Server", "Dock", "SystemUIServer", "CuaDriver", "cua-driver")
+IGNORED_OWNERS = ("Window Server", "Dock", "SystemUIServer", "CuaDriver", "cua-driver", "Cua Driver")
+# Owners whose window spanning the whole app window is a transparent host that is on screen in every round (macOS 27's
+# Notification Center keeps one over the display at layer 21); their small windows (a banner) still count.
+HOST_OWNERS = ("Notification Center",)
 MAX_EXCLUDED_SHARE = 0.2  # a run that lost more than this share of its rounds to foreign windows measured nothing
 MIN_ALPHA = 0.05  # an invisible window covers nothing
 MIN_POINTS = 2.0  # a hairline (a shadow, an edge) covers nothing
@@ -72,6 +77,14 @@ def is_overlay(bounds, display):
     return x <= dx + 1 and y <= dy + 1 and x + w >= dx + dw - 1 and y + h >= dy + dh - 1
 
 
+def is_host(win, window, hosts=HOST_OWNERS):
+    """Whether `win` is a system host window spanning the whole app window [x, y, w, h] (see HOST_OWNERS)."""
+    if not window or len(window) != 4 or str(win.get("owner") or "") not in hosts:
+        return False
+    x, y, w, h = win.get("bounds") or (0, 0, 0, 0)
+    return x <= window[0] and y <= window[1] and x + w >= window[0] + window[2] and y + h >= window[1] + window[3]
+
+
 def app_place(windows, own_pids, window):
     """(index, layer) of the app's window in `windows` (front to back): the own window whose bounds match `window`
     [x, y, w, h] to two points, else the largest own window that is not a hairline. None when no own window is listed;
@@ -89,7 +102,7 @@ def app_place(windows, own_pids, window):
     return (best[1], best[2]) if best else None
 
 
-def judge_window(win, index, place, display):
+def judge_window(win, index, place, display, window=None):
     """One foreign window's fields plus its verdicts that need no rect: "above" (in front of the app's window: a higher
     layer, or the same layer earlier in the front-to-back list), "overlay" (covers the whole display) and "visible"
     (alpha at least MIN_ALPHA)."""
@@ -101,7 +114,7 @@ def judge_window(win, index, place, display):
     else:
         app_index, app_layer = place
         out["above"] = layer > app_layer or (layer == app_layer and index < app_index)
-    out["overlay"] = is_overlay(win.get("bounds"), display)
+    out["overlay"] = is_overlay(win.get("bounds"), display) or is_host(win, window)
     out["visible"] = alpha_of(win) >= MIN_ALPHA
     return out
 
@@ -109,7 +122,7 @@ def judge_window(win, index, place, display):
 def judged(windows, own_pids, window, display, ignored=IGNORED_OWNERS):
     """The foreign windows of one sample (`windows` front to back, own windows included), each through judge_window."""
     place = app_place(windows, own_pids, window)
-    return [judge_window(win, index, place, display) for index, win in enumerate(windows)
+    return [judge_window(win, index, place, display, window) for index, win in enumerate(windows)
             if win.get("pid") not in own_pids and str(win.get("owner") or "") not in ignored]
 
 
