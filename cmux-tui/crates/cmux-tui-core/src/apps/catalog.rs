@@ -251,6 +251,8 @@ pub struct Catalog {
     pub defaults: Vec<String>,
     /// Packages that failed validation: (directory, first issue).
     pub rejected: Vec<(PathBuf, String)>,
+    /// The setups' views layers that loaded, top first (`Sources::setups`).
+    pub setup_layers: Vec<String>,
 }
 
 /// Where packages come from.
@@ -277,6 +279,12 @@ pub struct Sources {
     /// by itself with its required scopes (the user wrote it) and reloads
     /// when its files change (`local_reload.rs`).
     pub customize: Option<PathBuf>,
+    /// Installed setups' own views layers (`cmux setup install`): the
+    /// `setups` folder next to the customize folder. Only the folders its
+    /// `layers.json` names load, in its order (top first), each as the app
+    /// `local/setup-OWNER-NAME`; a setup never writes the person's own
+    /// customize folder (cmux-customize `setup::layers`).
+    pub setups: Option<PathBuf>,
     /// `CMUX_APPS_DEFAULT` (comma separated): replaces the first-party
     /// directory as the default set when present.
     pub defaults: Option<Vec<String>>,
@@ -305,6 +313,7 @@ impl Sources {
             extra,
             local: state_dir.map(|d| d.join("apps").join("local")),
             customize: customize_dir(),
+            setups: setups_dir(),
             defaults,
         }
     }
@@ -320,6 +329,70 @@ pub fn customize_dir() -> Option<PathBuf> {
     let config =
         non_empty("XDG_CONFIG_HOME").or_else(|| non_empty("HOME").map(|h| h.join(".config")))?;
     Some(config.join("cmux").join("customize"))
+}
+
+/// The setups' layers folder (`Sources::setups`): `setups` next to the
+/// customize folder, as cmux-customize's `Roots::setups_dir`.
+pub fn setups_dir() -> Option<PathBuf> {
+    customize_dir().map(|dir| dir.with_file_name("setups"))
+}
+
+/// The id prefix of a setup's views layer: such an app loads only from the
+/// setups folder's index.
+pub const SETUP_LAYER_PREFIX: &str = "local/setup-";
+
+/// The setups folder's index of the layers that are on, top first.
+pub const SETUP_LAYERS_INDEX: &str = "layers.json";
+
+/// One row of `layers.json` (cmux-customize `setup::layers::IndexRow`).
+#[derive(Debug, Clone, serde::Deserialize)]
+struct LayerRow {
+    app: String,
+    dir: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct LayerIndex {
+    #[serde(rename = "cmuxSetupLayers")]
+    format: u32,
+    layers: Vec<LayerRow>,
+}
+
+/// What `setup_layers` reads: the layers, top first, as (expected app id,
+/// folder), and the rows it refused, as (file, why).
+type SetupLayers = (Vec<(String, PathBuf)>, Vec<(PathBuf, String)>);
+
+/// The layers `layers.json` in `root` names, top first: (expected app id,
+/// folder). A row whose folder is not a plain `setup-...` name in `root`,
+/// or whose app is not `local/<folder>`, is refused with why.
+fn setup_layers(root: &Path) -> SetupLayers {
+    let file = root.join(SETUP_LAYERS_INDEX);
+    let Ok(text) = std::fs::read_to_string(&file) else { return (Vec::new(), Vec::new()) };
+    let index: LayerIndex = match serde_json::from_str(&text) {
+        Ok(index) => index,
+        Err(error) => return (Vec::new(), vec![(file, format!("not readable: {error}"))]),
+    };
+    if index.format != 1 {
+        return (
+            Vec::new(),
+            vec![(file, format!("format {} is not one this cmux reads", index.format))],
+        );
+    }
+    let mut layers = Vec::new();
+    let mut refused = Vec::new();
+    for row in index.layers {
+        let plain = row.dir.starts_with("setup-")
+            && row.dir.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+        if !plain || row.app != format!("local/{}", row.dir) {
+            refused.push((file.clone(), format!("{}: not a setup layer ({})", row.app, row.dir)));
+            continue;
+        }
+        if layers.iter().any(|(app, _)| app == &row.app) {
+            continue;
+        }
+        layers.push((row.app, root.join(&row.dir)));
+    }
+    (layers, refused)
 }
 
 /// The customization app's id: its manifest must use it.
@@ -378,6 +451,14 @@ pub fn load_reusing(sources: &Sources, reuse: &Reuse<'_>, listed: &Listed<'_>) -
                 Ok(package) if package.id == CUSTOMIZE_APP => catalog
                     .rejected
                     .push((dir, format!("{CUSTOMIZE_APP} loads only from the customize folder"))),
+                // A setup's layer is the person's consented install, in its
+                // stated order: only the setups folder's index provides one.
+                Ok(package) if package.id.starts_with(SETUP_LAYER_PREFIX) => {
+                    catalog.rejected.push((
+                        dir,
+                        format!("{}: a setup layer loads only from the setups folder", package.id),
+                    ));
+                }
                 // First source wins: the first-party directory, then bundled,
                 // then local (a local package never shadows a shipped id).
                 Ok(package) if !catalog.packages.contains_key(&package.id) => {
@@ -419,6 +500,25 @@ pub fn load_reusing(sources: &Sources, reuse: &Reuse<'_>, listed: &Listed<'_>) -
                 format!("{}: the customize folder holds {CUSTOMIZE_APP} only", package.id),
             )),
             Err(issue) => catalog.rejected.push((dir.clone(), issue)),
+        }
+    }
+    if let Some(root) = &sources.setups {
+        let (layers, refused) = setup_layers(root);
+        catalog.rejected.extend(refused);
+        for (app, dir) in layers {
+            if !dir.join("cmux-app.json").is_file() && !dir.join(V2_MANIFEST).is_file() {
+                continue;
+            }
+            match read(&dir, DirKind::Local) {
+                Ok(package) if package.id == app && !catalog.packages.contains_key(&app) => {
+                    catalog.setup_layers.push(app.clone());
+                    catalog.packages.insert(app, package);
+                }
+                Ok(package) => catalog
+                    .rejected
+                    .push((dir, format!("{}: the layer {app} holds {app} only", package.id))),
+                Err(issue) => catalog.rejected.push((dir, issue)),
+            }
         }
     }
     catalog.defaults = sources.defaults.clone().unwrap_or(shipped_first_party);
@@ -616,5 +716,59 @@ mod tests {
         std::fs::remove_dir_all(&root).unwrap();
         assert_eq!(dir, Some(customize));
         assert!(rejected, "the local package claiming {CUSTOMIZE_APP} is rejected");
+    }
+
+    /// Setups stack as layers of their own (`cmux setup install`): the
+    /// setups folder's `layers.json` names which load and in what order, a
+    /// folder it does not name (a layer turned off) stays unloaded, and a
+    /// `local/setup-*` id anywhere else is refused, as is the person's own
+    /// customize app staying theirs beside them.
+    #[test]
+    fn setup_layers_load_from_the_index_in_its_order_only() {
+        let root =
+            std::env::temp_dir().join(format!("cmux-apps-setup-layers-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let write = |dir: &Path, id: &str| {
+            std::fs::create_dir_all(dir).unwrap();
+            std::fs::write(dir.join("main.js"), "var __cmuxAppExports = {render() {}};").unwrap();
+            let manifest = json!({
+                "manifestVersion": 2, "id": id, "name": "Views", "version": "1.0.0",
+                "description": "A view", "engines": {"cmux": "^2.0"},
+                "runtime": {"main": "main.js"}, "files": ["main.js"],
+                "implements": {"cmux.section/1": {"export": "render", "title": "Views"}}
+            });
+            std::fs::write(dir.join("cmux-app.json"), manifest.to_string()).unwrap();
+        };
+        let setups = root.join("setups");
+        write(&root.join("customize"), CUSTOMIZE_APP);
+        write(&setups.join("setup-leo-dusk"), "local/setup-leo-dusk");
+        write(&setups.join("setup-leo-dawn"), "local/setup-leo-dawn");
+        write(&setups.join("setup-leo-off"), "local/setup-leo-off");
+        let impostor = root.join("local").join("impostor");
+        write(&impostor, "local/setup-leo-dusk");
+        let index = json!({"cmuxSetupLayers": 1, "layers": [
+            {"id": "leo/dawn", "app": "local/setup-leo-dawn", "dir": "setup-leo-dawn"},
+            {"id": "leo/dusk", "app": "local/setup-leo-dusk", "dir": "setup-leo-dusk"},
+            {"id": "leo/x", "app": "local/setup-x", "dir": "../customize"}
+        ]});
+        std::fs::write(setups.join(SETUP_LAYERS_INDEX), index.to_string()).unwrap();
+        let catalog = load(&Sources {
+            local: Some(root.join("local")),
+            customize: Some(root.join("customize")),
+            setups: Some(setups.clone()),
+            defaults: Some(Vec::new()),
+            ..Sources::default()
+        });
+        let dusk = catalog.packages.get("local/setup-leo-dusk").map(|p| p.dir.clone());
+        let impostor_refused = catalog.rejected.iter().any(|(dir, _)| dir == &impostor);
+        let escape_refused =
+            catalog.rejected.iter().any(|(_, why)| why.contains("not a setup layer"));
+        std::fs::remove_dir_all(&root).unwrap();
+        assert_eq!(catalog.setup_layers, ["local/setup-leo-dawn", "local/setup-leo-dusk"]);
+        assert_eq!(dusk, Some(setups.join("setup-leo-dusk")));
+        assert!(!catalog.packages.contains_key("local/setup-leo-off"), "off: not in the index");
+        assert!(catalog.packages.contains_key(CUSTOMIZE_APP), "the person's own app stays");
+        assert!(impostor_refused, "a setup layer id outside the setups folder is refused");
+        assert!(escape_refused, "a row naming a folder outside the setups folder is refused");
     }
 }
