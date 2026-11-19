@@ -38,7 +38,7 @@ public nonisolated struct AutomationDraft: Equatable, Sendable {
 
     /// Why the form cannot save, per field.
     public enum Problem: Equatable, Sendable {
-        case nameMissing, taskMissing, intervalTooShort, cronMissing, cloudNeedsPrompt
+        case nameMissing, taskMissing, intervalTooShort, cronMissing
     }
 
     public var name: String
@@ -49,7 +49,7 @@ public nonisolated struct AutomationDraft: Equatable, Sendable {
     public var folder: String
     public var schedule: Schedule
     public var timeoutMinutes: Int
-    /// Runs in the Cloud Chief instead of on this Mac.
+    /// Runs on cmux Cloud instead of on this Mac: a prompt in the Cloud Chief, a command on a Cloud machine.
     public var cloud: Bool
     /// The automation being edited; nil for a new one.
     public let editing: String?
@@ -82,7 +82,6 @@ public nonisolated struct AutomationDraft: Equatable, Sendable {
         if task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { out.append(.taskMissing) }
         if case let .every(minutes) = schedule, minutes < 1 { out.append(.intervalTooShort) }
         if case let .cron(expr) = schedule, expr.trimmingCharacters(in: .whitespaces).isEmpty { out.append(.cronMissing) }
-        if cloud && isCommand { out.append(.cloudNeedsPrompt) }
         return out
     }
 
@@ -95,9 +94,11 @@ public nonisolated struct AutomationDraft: Equatable, Sendable {
             words += ["create", name.trimmingCharacters(in: .whitespacesAndNewlines)]
         }
         words += [isCommand ? "--command" : "--prompt", task]
-        if !folder.trimmingCharacters(in: .whitespaces).isEmpty, !cloud { words += ["--folder", folder] }
+        // A Cloud prompt runs in the Cloud Chief's chat; a Cloud command runs in a folder of its Cloud machine.
+        let runsInAFolder = !cloud || isCommand
+        if !folder.trimmingCharacters(in: .whitespaces).isEmpty, runsInAFolder { words += ["--folder", folder] }
         words += Self.words(schedule)
-        if !cloud { words += ["--timeout", "\(max(1, timeoutMinutes))m"] }
+        if runsInAFolder { words += ["--timeout", "\(max(1, timeoutMinutes))m"] }
         if cloud { words += ["--target", "cloud"] }
         return words
     }
