@@ -26,6 +26,8 @@ web/scripts/check-*
 scripts/cmux-next/*baseline*
 webviews/scripts/*baseline*
 webviews/scripts/lint/*
+# the list fixtures: a list leaves check:list-contract's registry when its fixture goes
+webviews/test/list-contract/*.fixture.tsx
 scripts/lint-*baseline*
 web/oxlint-complexity-baseline.txt
 web/.oxlintrc.json

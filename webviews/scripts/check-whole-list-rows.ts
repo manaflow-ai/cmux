@@ -53,7 +53,7 @@ const STORE_HOOKS = new Set(["useSyncExternalStore", "useContext"]);
 const SCANS = new Set(["find", "filter", "findIndex", "findLast", "some", "every"]);
 
 /** The name a function component is declared under, if `node` is one. */
-function componentName(node: ts.Node): string | undefined {
+export function componentName(node: ts.Node): string | undefined {
   if (ts.isFunctionDeclaration(node)) return node.name?.text;
   if (!ts.isArrowFunction(node) && !ts.isFunctionExpression(node)) return undefined;
   if (ts.isFunctionExpression(node) && node.name) return node.name.text;
@@ -148,7 +148,7 @@ function isCalleeOrScanned(node: ts.PropertyAccessExpression): boolean {
 }
 
 /** The statement a node sits in: its lines are where a marker may go. */
-function statementOf(node: ts.Node): ts.Node {
+export function statementOf(node: ts.Node): ts.Node {
   let at = node;
   while (at.parent && !ts.isBlock(at.parent) && !ts.isSourceFile(at.parent) && !ts.isCaseClause(at.parent))
     at = at.parent;
@@ -218,6 +218,7 @@ export function findWholeListRows(file: string, text: string): string[] {
 
 export function readBaseline(
   text: string = existsSync(baselinePath) ? readFileSync(baselinePath, "utf8") : "",
+  name = "whole-list-rows-baseline.tsv",
 ): Map<string, number> {
   return new Map(
     text
@@ -225,20 +226,20 @@ export function readBaseline(
       .filter((row: string) => row && !row.startsWith("#"))
       .map((row: string) => {
         const [file, count] = row.split("\t");
-        if (!file || !/^\d+$/.test(count ?? "")) throw new Error(`whole-list-rows-baseline.tsv: bad row "${row}"`);
+        if (!file || !/^\d+$/.test(count ?? "")) throw new Error(`${name}: bad row "${row}"`);
         return [file, Number(count)] as const;
       }),
   );
 }
 
-function writeBaseline(counts: Map<string, number>) {
+/** Writes a baseline file: the `# header` line, then one `file<TAB>count` row per file with a count. */
+export function writeBaseline(
+  counts: Map<string, number>,
+  file = baselinePath,
+  header = "Whole-list reads per file in row components from before the rule (scripts/check-whole-list-rows.ts). Only moves down.",
+) {
   const rows = [...counts].filter(([, count]) => count > 0).sort(([a], [b]) => a.localeCompare(b));
-  writeFileSync(
-    baselinePath,
-    "# Whole-list reads per file in row components from before the rule (scripts/check-whole-list-rows.ts). Only moves down.\n" +
-      rows.map(([file, count]) => `${file}\t${count}`).join("\n") +
-      "\n",
-  );
+  writeFileSync(file, `# ${header}\n` + rows.map(([file, count]) => `${file}\t${count}`).join("\n") + "\n");
 }
 
 /** Files above their baseline row (with their reads) and below it; a row whose file is gone is neither. */
@@ -246,6 +247,7 @@ export function compareToBaseline(
   found: Map<string, string[]>,
   baseline: Map<string, number>,
   exists: (file: string) => boolean,
+  noun = "whole-list reads in rows",
 ): { grew: string[]; shrank: string[] } {
   const grew: string[] = [];
   const shrank: string[] = [];
@@ -254,17 +256,15 @@ export function compareToBaseline(
     const before = baseline.get(file) ?? 0;
     if (!found.has(file) && !exists(file)) continue;
     if (now > before)
-      grew.push(
-        `  ${file}: ${now} whole-list reads in rows, baseline ${before}\n    ${found.get(file)!.join("\n    ")}`,
-      );
-    else if (now < before) shrank.push(`  ${file}: ${now} whole-list reads in rows, baseline ${before}`);
+      grew.push(`  ${file}: ${now} ${noun}, baseline ${before}\n    ${found.get(file)!.join("\n    ")}`);
+    else if (now < before) shrank.push(`  ${file}: ${now} ${noun}, baseline ${before}`);
   }
   return { grew, shrank };
 }
 
-/** Every .tsx under src/ that is product code (not a test, gallery fixture or generated file). */
-export function scanSources(directory = path.join(root, "src")): Map<string, string[]> {
-  const found = new Map<string, string[]>();
+/** Every .tsx under src/ that is product code (not a test, gallery fixture, prototype or generated file). */
+export function productSources(directory = path.join(root, "src")): string[] {
+  const files: string[] = [];
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const file = path.join(directory, entry.name);
     if (entry.isDirectory()) {
@@ -273,11 +273,19 @@ export function scanSources(directory = path.join(root, "src")): Map<string, str
           entry.name,
         )
       )
-        for (const [k, v] of scanSources(file)) found.set(k, v);
+        files.push(...productSources(file));
     } else if (entry.name.endsWith(".tsx") && !/[._](?:test|spec|gallery|stories)\.tsx$/.test(entry.name)) {
-      const reads = findWholeListRows(file, readFileSync(file, "utf8"));
-      if (reads.length) found.set(path.relative(root, file), reads);
+      files.push(file);
     }
+  }
+  return files;
+}
+
+export function scanSources(directory = path.join(root, "src")): Map<string, string[]> {
+  const found = new Map<string, string[]>();
+  for (const file of productSources(directory)) {
+    const reads = findWholeListRows(file, readFileSync(file, "utf8"));
+    if (reads.length) found.set(path.relative(root, file), reads);
   }
   return found;
 }
