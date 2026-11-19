@@ -458,7 +458,9 @@ function ChatHeaderToolsView({
         key={tool.id}
         data-quick-action={tool.id}
         type="button"
-        className="acpmux-header-tool"
+        // A single round button and the capsule are `.ui-glass` surfaces, so the lens draws them; the
+        // capsule's own buttons are glyphs on its glass.
+        className={glassLook !== "off" && !inCapsule ? "acpmux-header-tool ui-glass" : "acpmux-header-tool"}
         aria-label={tool.label}
         aria-pressed={tool.pressed}
         // The morph's hover preview stands in for the tooltip, so the two never stack.
@@ -521,6 +523,7 @@ function ChatHeaderToolsView({
       }
       expand={expand}
       onExpanded={onExpanded}
+      triggerClassName={glassLook !== "off" ? "acpmux-header-tool acpmux-header-more ui-glass" : undefined}
     />
   );
   // The glass toolbar: the leading singles (the panel toggle, the summary, Needs You, Changes, Files,
@@ -548,7 +551,7 @@ function ChatHeaderToolsView({
         {inbox}
         {webButtons && singles.map(renderTool)}
         {webButtons && grouped.length > 0 && (
-          <div className="acpmux-header-tool-group acpmux-glass-capsule" role="group">
+          <div className="acpmux-header-tool-group acpmux-glass-capsule ui-glass" role="group">
             {grouped.map(renderTool)}
           </div>
         )}
@@ -556,7 +559,7 @@ function ChatHeaderToolsView({
         {onSearch && (
           <button
             type="button"
-            className="acpmux-header-tool acpmux-glass-search"
+            className="acpmux-header-tool acpmux-glass-search ui-glass"
             aria-label={t("header.searchChats")}
             {...tooltipProps(t("header.searchChats"), searchKey)}
             onClick={onSearch}
