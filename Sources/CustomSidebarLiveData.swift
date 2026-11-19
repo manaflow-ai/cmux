@@ -78,9 +78,6 @@ final class CustomSidebarDataChangeMonitor {
         }
     }
 
-    /// True while at least one sidebar holds the monitor.
-    var isObserving: Bool { retainCount > 0 }
-
     private func signal() {
         changes.send()
     }

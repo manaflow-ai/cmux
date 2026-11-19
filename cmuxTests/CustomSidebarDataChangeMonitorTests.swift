@@ -98,7 +98,6 @@ import Testing
 
         monitor.release()
 
-        #expect(!monitor.isObserving)
         // Emptying the collections alone wouldn't stop the tasks; each one
         // must have been cancelled, and must then finish.
         #expect(tasks.allSatisfy(\.isCancelled))
