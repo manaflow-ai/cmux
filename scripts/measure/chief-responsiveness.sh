@@ -62,6 +62,11 @@ rm -rf "$work"
 mkdir -p "$work/bin" "$work/home/.local/bin"
 echo "CHIEF-RESP-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) cores=$(sysctl -n hw.ncpu) ram_gb=$(( $(sysctl -n hw.memsize) / 1073741824 )) macos=$(sw_vers -productVersion) rev=$(git rev-parse HEAD) harness=$harness model=$model effort=$effort rounds=$rounds env=${host_env[*]+"${host_env[*]}"}"
 curl -fsS -m 10 -o /dev/null "$base_url/_subrouter/ready" || { echo "CHIEF-RESP the route $base_url is not reachable from this worker" >&2; exit 1; }
+# Ready says nothing about Claude (a router answered 200 here while every
+# request got 502): one tiny real request, else stop before any round.
+probe_status=0
+python3 -I Native/OptChat/optchat-chief/measure/first_turn_cost.py probe --url "$base_url" || probe_status=$?
+[[ "$probe_status" == 0 ]] || { echo "CHIEF-RESP the route $base_url does not answer Claude requests ($probe_status)" >&2; exit "$probe_status"; }
 
 # Cargo runs only on a build host; this step is one. cmux-tui crates build
 # libghostty-vt from ghostty-next.
