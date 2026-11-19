@@ -85,8 +85,9 @@ public final class ScreenSession {
     }
     @ObservationIgnored public var onVideoTrack: ((VideoTrackBox) -> Void)?
     #if DEBUG && canImport(UIKit)
-    /// DEBUG only: the screen-stream eval's probe, handed to the video view the viewer makes
-    /// for this session (`ScreenVideoView(frame:probe:)`). Set before the view appears.
+    /// DEBUG only: the screen-stream eval's probe. The viewer has it watch the video view it makes
+    /// (`ScreenPresentProbe.watch`), and each video track gets it after `onVideoTrack` ran, so its
+    /// frame callback follows the view's renderer. Set before the view appears.
     @ObservationIgnored public var debugVideoProbe: ScreenPresentProbe?
     #endif
     /// Stream displays (sizes) and the one streaming.
@@ -411,7 +412,16 @@ public final class ScreenSession {
             guard error.isTURN else { return }
             Task { @MainActor in self?.relayErrors.append(error) }
         }
-        viewer.onVideo = { [weak self] box in Task { @MainActor in self?.onVideoTrack?(box) } }
+        viewer.onVideo = { [weak self] box in
+            Task { @MainActor in
+                self?.onVideoTrack?(box)
+                #if DEBUG && canImport(UIKit)
+                // After the view's own sinks: libwebrtc calls a track's sinks in order, so the
+                // probe sees each frame after the renderer took it.
+                self?.debugVideoProbe?.attach(box)
+                #endif
+            }
+        }
         viewer.onDisplays = { [weak self, weak viewer] message in
             Task { @MainActor in
                 guard let self, self.stream === viewer else { return }

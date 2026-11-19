@@ -105,12 +105,16 @@ Today's targets:
   iPhone app (Demo configuration: optimized, with the DEBUG developer surface) in an iOS simulator
   on the same Mac, launched with `CMUX_MOBILE_SS_LINK` (the host's pairing link, no sign-in or
   device hub; `ScreenSharingLinkRoot`, DEBUG only) and `CMUX_MOBILE_SS_MARKER`. Inside the app's
-  `ScreenSessionView`, `ScreenPresentProbe` reads the marker from each decoded frame and hooks the
-  `MTKView` of `ScreenVideoView`'s `RTCMTLVideoView`: each input (`ScreenSession.tap` of "a" or
-  `click` on the click pad) is timed to the first decoded frame and to the first presented
-  drawable (Metal `presentedTime`) that show the next counter. `g2g_ms` is the presented time;
-  `split.present` keeps decoded, presented and decode-to-present (each n, p50, p95), frames
-  decoded but never presented, and how presents were timed. The simulator runs on the Mac's clock.
+  `ScreenSessionView`, `ScreenPresentProbe` reads the marker from each decoded frame and times
+  presents on whichever renderer `ScreenVideoView` has: each input (`ScreenSession.tap` of "a" or
+  `click` on the click pad) is timed to the first decoded frame and to the first present that
+  shows the next counter. "Presented" is, with an `RTCMTLVideoView`, the drawable's Metal
+  `presentedTime` (measured); with an `AVSampleBufferDisplayLayer` (`DisplayImmediately`), the
+  `targetTimestamp` of the first display link tick after the frame was enqueued (the scheduled
+  scan-out, not measured). So one harness gives a before/after across a renderer change.
+  `g2g_ms` is the presented time; `split.present` keeps decoded, presented and decode-to-present
+  (each n, p50, p95), frames decoded but never presented, and `clock` (the renderer, what
+  presented means for it, and its counts). The simulator runs on the Mac's clock.
   Not in it: the phone's touch or keyboard delivery before the session sends, the display's
   scan-out after `presentedTime`, a real phone's GPU, decoder and radio. Latency only (`caps`
   prints `latency-only`). It builds the app (FFI from the worker's cache, xcodegen, `xcodebuild`)

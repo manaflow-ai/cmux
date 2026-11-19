@@ -14,8 +14,9 @@ public import SwiftUI
 /// the way `RdMarkerClickLatencyTests` does on the Mac, but to the presented frame
 /// (scripts/measure/screen-stream-eval/targets/iphone-sim.sh): `CMUX_MOBILE_SS_INPUT` `key` (an
 /// "a" press) or `click` (on the marker's click pad), `CMUX_MOBILE_SS_SAMPLES` inputs (default
-/// 200), each timed from the session's send to the first decoded frame and the first presented
-/// drawable that show the next counter (1 s = lost), then a 40 to 160 ms gap. It writes one line,
+/// 200), each timed from the session's send to the first decoded frame and the first present that
+/// show the next counter (1 s = lost), then a 40 to 160 ms gap. What "presented" means depends on
+/// the renderer `ScreenVideoView` has; `present_clock` names both. It writes one line,
 /// `iphonesim: {...}`, to stdout and Documents/iphonesim.json.
 public struct ScreenSharingLinkRoot: View {
     @State private var session: ScreenSession?
@@ -44,7 +45,7 @@ public struct ScreenSharingLinkRoot: View {
         let marker = Self.environment["CMUX_MOBILE_SS_MARKER"]?.split(separator: ",").compactMap { Double($0) }
         let probe = marker.flatMap { $0.count == 2 ? ScreenPresentProbe(cellFraction: $0[0], originY: $0[1]) : nil }
         let session = ScreenSession(title: pairing.name, pairing: pairing)
-        // Before the viewer exists: its video view takes the probe when it is made.
+        // Before the viewer exists: the probe watches its video view from when it is made.
         session.debugVideoProbe = probe
         self.session = session
         let connectStart = CACurrentMediaTime()
@@ -131,7 +132,7 @@ private struct LatencyRun {
         let seconds = CACurrentMediaTime() - started
         let after = await session.stream?.videoStats()
         var report: [String: Any] = [
-            "engine": "webrtc (cmux-next-ios ScreenSessionView, ScreenVideoView/RTCMTLVideoView) in the iOS Simulator",
+            "engine": "webrtc (cmux-next-ios ScreenSessionView, ScreenVideoView/\(probe.rendererName ?? "unknown renderer")) in the iOS Simulator",
             "input": input,
             "g2g_ms": Self.percentiles(presented),
             "decoded_g2g_ms": Self.percentiles(decoded),

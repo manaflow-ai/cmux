@@ -191,7 +191,12 @@ class ReportTests(unittest.TestCase):
                "decoded_g2g_ms": {"n": 190, "p50": 48.0, "p95": 66.0},
                "decode_to_present_ms": {"n": 190, "p50": 13.5, "p95": 17.0},
                "lost": 10, "decoded_not_presented": 2, "rtt_ms": 2, "jitter_buffer_ms": 5, "decode_ms_mean": 1.5,
-               "present_clock": {"presents": 900, "presented_time": 900, "handler_time": 0, "hook_problem": None}}
+               "present_clock": None}
+        # Both renderers' clocks reach results.json, so one harness compares them.
+        clocks = {"key": {"renderer": "RTCMTLVideoView", "presented": "Metal presentedTime ...", "hook_problem": None,
+                          "presents": 900, "presented_time": 900, "handler_time": 0},
+                  "pointer": {"renderer": "AVSampleBufferDisplayLayer", "presented": "targetTimestamp ...",
+                              "hook_problem": None, "display_link_ticks": 1800, "tick_ms_min": 16.6, "tick_ms_max": 16.8}}
         with tempfile.TemporaryDirectory() as name:
             folder, state = Path(name), Path(name) / "state"
             state.mkdir()
@@ -202,7 +207,7 @@ class ReportTests(unittest.TestCase):
             self.assertEqual(caps, "latency-only")
             for kind in ("key", "pointer"):
                 raw = state / f"latency-{kind}.raw"
-                raw.write_text("app noise\niphonesim: " + json.dumps(app) + "\n")
+                raw.write_text("app noise\niphonesim: " + json.dumps({**app, "present_clock": clocks[kind]}) + "\n")
                 subprocess.run(["bash", str(HERE / "targets/iphone-sim.sh"), "latency-report", kind, str(raw),
                                 str(folder / f"latency-{kind}.json")], env=env, check=True)
             report.target("iphone-sim", folder, folder / "target.json")
@@ -213,6 +218,8 @@ class ReportTests(unittest.TestCase):
             self.assertEqual(present["decoded_ms"], {"n": 190, "p50": 48.0, "p95": 66.0})
             self.assertEqual(present["decode_to_present_ms"]["p50"], 13.5)
             self.assertEqual(present["decoded_not_presented"], 2)
+            for kind in ("key", "pointer"):
+                self.assertEqual(target["split"][kind]["present"]["clock"], clocks[kind])
             self.assertEqual(target["split"]["key"]["transport_ms"], 6.0)
             results = folder / "results.json"
             results.write_text(json.dumps({"targets": {"iphone-sim": target}}))

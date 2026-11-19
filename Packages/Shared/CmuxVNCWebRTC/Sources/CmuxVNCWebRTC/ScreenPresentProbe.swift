@@ -1,16 +1,33 @@
 // DEBUG builds only: the screen-stream eval's on-phone latency probe. Nothing here ships in Release.
 #if DEBUG && canImport(UIKit)
+import AVFoundation
 import CoreVideo
 import Foundation
+import MetalKit
 import QuartzCore
+import UIKit
 import WebRTC
 
 /// Times the glass-to-glass marker (`cmux-tui/crates/cmux-rd-host/scripts/mac-marker`: 20 cells,
 /// counter LSB first, then guards 1,0,1,0) as the iPhone app shows it: when a decoded frame first
-/// carries a counter value, and when the app's own renderer (`ScreenVideoView`'s
-/// `RTCMTLVideoView`) first presents a drawable holding that value. Both on `CACurrentMediaTime`,
-/// the clock Core Animation and Metal's `presentedTime` use. Set `ScreenSession.debugVideoProbe`
-/// before the viewer makes its video view (scripts/measure/screen-stream-eval/targets/iphone-sim.sh).
+/// carries a counter value, and when the app's own renderer first presents that value. All on
+/// `CACurrentMediaTime`, the clock Core Animation, Metal's `presentedTime` and `CADisplayLink` use.
+///
+/// It works with whichever renderer `ScreenVideoView` has, and needs nothing from the view:
+/// `watch(_:)` finds the renderer in the view it is given, and `attach(_:)` adds the probe to the
+/// video track after the view's own sinks (`ScreenSession` calls it right after `onVideoTrack`).
+/// "Presented" means, per renderer (`presentClock["renderer"]`):
+/// - `RTCMTLVideoView` (an `MTKView`): Metal's `presentedTime` of the first drawable whose draw
+///   rendered a frame carrying the value (the presented handler's own time when the system
+///   reports 0). Measured by the system.
+/// - `AVSampleBufferDisplayLayer` (`DisplayImmediately`): the `targetTimestamp` of the first
+///   `CADisplayLink` tick after the frame was enqueued. The scheduled scan-out, not measured: the
+///   layer reports no per-frame present. The probe's frame callback runs after the renderer's
+///   (libwebrtc calls a track's sinks in order, on one thread), so its time bounds the enqueue.
+///   The link runs on its own thread, so main-thread work never delays a tick.
+///
+/// Set `ScreenSession.debugVideoProbe` before the viewer makes its video view
+/// (scripts/measure/screen-stream-eval/targets/iphone-sim.sh).
 // crash-allow: the geometry is immutable, and every mutable field is read and written only under `lock`.
 public final class ScreenPresentProbe: NSObject, RTCVideoRenderer, @unchecked Sendable {
 
@@ -20,22 +37,47 @@ public final class ScreenPresentProbe: NSObject, RTCVideoRenderer, @unchecked Se
         public var presented: CFTimeInterval?
     }
 
+    /// The renderer `watch(_:)` found, and what "presented" means for it.
+    enum Renderer: String {
+        case metal = "RTCMTLVideoView"
+        case sampleBuffer = "AVSampleBufferDisplayLayer"
+
+        var presented: String {
+            switch self {
+            case .metal:
+                "Metal presentedTime of the first drawable showing the frame (measured; the presented handler's time when the system reports 0)"
+            case .sampleBuffer:
+                "targetTimestamp of the first CADisplayLink tick after the frame was enqueued with DisplayImmediately (the scheduled scan-out, not measured)"
+            }
+        }
+    }
+
     /// One cell's width over the frame width, and the marker's top over the frame height.
     public let cellFraction: Double
     public let originY: Double
     private let lock = NSLock()
     private var current: UInt16?
     private var size = CGSize.zero
+    private weak var track: RTCVideoTrack?
+    private var renderer: Renderer?
     /// Frame timestamp (ns) to the marker value it carried, for the last 128 decoded frames.
     private var valueByTimestamp: [Int64: UInt16] = [:]
     private var timestamps: [Int64] = []
     private var decodedAt: [UInt16: CFTimeInterval] = [:]
     private var presentedAt: [UInt16: CFTimeInterval] = [:]
     private var waiter: (value: UInt16, resume: CheckedContinuation<Shown?, Never>)?
+    /// Metal: presents timed by `presentedTime`, and by the handler's time (the system reported 0).
     private var presentedTimes = 0
     private var handlerTimes = 0
     private var presents = 0
-    /// Why presents are not observed (no Metal view under `RTCMTLVideoView`), or nil.
+    /// Sample buffer layer: frames handed to the layer and not yet credited to a tick, in order.
+    private var handed: [(value: UInt16, at: CFTimeInterval)] = []
+    private var displayLinkStarted = false
+    private var ticks = 0
+    private var tickInterval: (min: CFTimeInterval, max: CFTimeInterval)?
+    /// Every Metal hook installed (an `MTKView` holds its delegate weakly); dead views' are dropped.
+    private var metalHooks: [PresentHook] = []
+    /// Why presents are not observed (no renderer the probe knows), or nil.
     private var hookProblem: String?
 
     public init(cellFraction: Double, originY: Double) {
@@ -45,17 +87,71 @@ public final class ScreenPresentProbe: NSObject, RTCVideoRenderer, @unchecked Se
 
     public var value: UInt16? { lock.withLock { current } }
     public var frameSize: CGSize { lock.withLock { size } }
+    /// The renderer presents are timed on (nil until `watch(_:)` finds one).
+    public var rendererName: String? { lock.withLock { renderer?.rawValue } }
 
-    /// How presents were timed: drawables with a `presentedTime`, ones timed at their presented
-    /// handler (the system reported 0), and the hook's problem when it could not be installed.
+    /// How presents were timed: the renderer, what "presented" means for it, its counts, and the
+    /// hook's problem when presents could not be observed.
     public var presentClock: [String: Any] {
         lock.withLock { () -> [String: Any] in
-            ["presents": presents, "presented_time": presentedTimes, "handler_time": handlerTimes,
-             "hook_problem": hookProblem.map { $0 as Any } ?? NSNull()]
+            var clock: [String: Any] = [
+                "renderer": renderer.map { $0.rawValue as Any } ?? NSNull(),
+                "presented": renderer.map { $0.presented as Any } ?? NSNull(),
+                "hook_problem": hookProblem.map { $0 as Any } ?? NSNull(),
+            ]
+            switch renderer {
+            case .metal:
+                clock["presents"] = presents
+                clock["presented_time"] = presentedTimes
+                clock["handler_time"] = handlerTimes
+            case .sampleBuffer:
+                clock["display_link_ticks"] = ticks
+                clock["tick_ms_min"] = tickInterval.map { $0.min * 1000 as Any } ?? NSNull()
+                clock["tick_ms_max"] = tickInterval.map { $0.max * 1000 as Any } ?? NSNull()
+            case nil:
+                break
+            }
+            return clock
         }
     }
 
-    // MARK: RTCVideoRenderer (libwebrtc's decode thread)
+    // MARK: Wiring
+
+    /// Finds the renderer inside `view` (a `ScreenVideoView`) and hooks its presents. Call right
+    /// after the view is made.
+    @MainActor
+    public func watch(_ view: UIView) {
+        if let metal = Self.first(RTCMTLVideoView.self, in: view) {
+            let hook = PresentHook(video: metal, probe: self)
+            lock.withLock {
+                renderer = .metal
+                metalHooks.removeAll { !$0.isLive }
+                if hook.isLive { metalHooks.append(hook) }
+            }
+        } else if Self.hasSampleBufferLayer(view.layer) {
+            let start = lock.withLock { () -> Bool in
+                renderer = .sampleBuffer
+                defer { displayLinkStarted = true }
+                return !displayLinkStarted
+            }
+            if start { DisplayTick.start(for: self) }
+        } else {
+            hookFailed("\(type(of: view)) has neither an RTCMTLVideoView nor an AVSampleBufferDisplayLayer")
+        }
+    }
+
+    /// Adds the probe to `box`'s track (and leaves the one before). Call after the view attached
+    /// its own sinks, so the probe's frame callback follows the renderer's.
+    public func attach(_ box: VideoTrackBox) {
+        let old = lock.withLock { () -> RTCVideoTrack? in
+            defer { track = box.track }
+            return track
+        }
+        old?.remove(self)
+        box.track.add(self)
+    }
+
+    // MARK: RTCVideoRenderer (libwebrtc's decode thread, after the view's sinks)
 
     public func setSize(_ size: CGSize) {}
 
@@ -72,14 +168,19 @@ public final class ScreenPresentProbe: NSObject, RTCVideoRenderer, @unchecked Se
             }
             valueByTimestamp[frame.timeStampNs] = value
             if decodedAt[value] == nil { decodedAt[value] = now }
+            if renderer == .sampleBuffer {
+                // The layer's sink enqueued this frame before this callback began.
+                handed.append((value, now))
+                if handed.count > 128 { handed.removeFirst() }
+            }
         }
     }
 
-    // MARK: The view's present hook
+    // MARK: Presents
 
-    /// The renderer presented a drawable holding the frame stamped `timeStampNs`.
+    /// Metal: the renderer presented a drawable holding the frame stamped `timeStampNs`.
     /// `presentedTime` is Metal's (0 when the system reports none), `callbackAt` when the handler ran.
-    func presented(timeStampNs: Int64, presentedTime: CFTimeInterval, callbackAt: CFTimeInterval) {
+    fileprivate func presented(timeStampNs: Int64, presentedTime: CFTimeInterval, callbackAt: CFTimeInterval) {
         let resume = lock.withLock { () -> (CheckedContinuation<Shown?, Never>, Shown)? in
             presents += 1
             let at: CFTimeInterval
@@ -91,25 +192,45 @@ public final class ScreenPresentProbe: NSObject, RTCVideoRenderer, @unchecked Se
                 at = callbackAt
             }
             guard let value = valueByTimestamp[timeStampNs] else { return nil }
-            if presentedAt[value] == nil { presentedAt[value] = at }
-            // A frame at or past the awaited value ends the wait: the renderer may skip a frame
-            // the decoder replaced before the next display refresh.
-            guard let waiter, Self.reached(value, waiter.value) else { return nil }
-            self.waiter = nil
-            let shown = Shown(decoded: firstDecoded(atOrPast: waiter.value), presented: at)
-            return (waiter.resume, shown)
+            return credit(value, presentedAt: at)
         }
         if let resume { resume.0.resume(returning: resume.1) }
     }
 
-    func hookFailed(_ problem: String) {
+    /// Sample buffer layer: a display link tick (its own thread). Every frame handed to the layer
+    /// before this callback began is presented at the tick's `targetTimestamp`.
+    fileprivate func ticked(timestamp: CFTimeInterval, target: CFTimeInterval, callbackAt: CFTimeInterval) {
+        let resumes = lock.withLock { () -> [(CheckedContinuation<Shown?, Never>, Shown)] in
+            ticks += 1
+            let interval = target - timestamp
+            if interval > 0 {
+                tickInterval = (min(tickInterval?.min ?? interval, interval), max(tickInterval?.max ?? interval, interval))
+            }
+            let due = handed.prefix { $0.at <= callbackAt }
+            handed.removeFirst(due.count)
+            return due.compactMap { credit($0.value, presentedAt: target) }
+        }
+        for resume in resumes { resume.0.resume(returning: resume.1) }
+    }
+
+    /// Records `value`'s first present; ends the wait it answers. Under `lock`.
+    private func credit(_ value: UInt16, presentedAt at: CFTimeInterval) -> (CheckedContinuation<Shown?, Never>, Shown)? {
+        if presentedAt[value] == nil { presentedAt[value] = at }
+        // A frame at or past the awaited value ends the wait: the renderer may skip a frame the
+        // decoder replaced before the next display refresh.
+        guard let waiter, Self.reached(value, waiter.value) else { return nil }
+        self.waiter = nil
+        return (waiter.resume, Shown(decoded: firstDecoded(atOrPast: waiter.value), presented: at))
+    }
+
+    fileprivate func hookFailed(_ problem: String) {
         lock.withLock { hookProblem = problem }
     }
 
     // MARK: Waiting
 
-    /// When `value` first showed: the first presented drawable at or past it, with the first
-    /// decoded frame at or past it. Nil when `cancelWait` ends the wait first.
+    /// When `value` first showed: the first present at or past it, with the first decoded frame
+    /// at or past it. Nil when `cancelWait` ends the wait first.
     public func firstShown(_ value: UInt16) async -> Shown? {
         await withCheckedContinuation { (continuation: CheckedContinuation<Shown?, Never>) in
             let done = lock.withLock { () -> Shown? in
@@ -152,6 +273,22 @@ public final class ScreenPresentProbe: NSObject, RTCVideoRenderer, @unchecked Se
         value &- target < 0x8000
     }
 
+    // MARK: Finding the renderer
+
+    @MainActor
+    private static func first<View: UIView>(_ type: View.Type, in view: UIView) -> View? {
+        if let view = view as? View { return view }
+        for subview in view.subviews {
+            if let found = first(type, in: subview) { return found }
+        }
+        return nil
+    }
+
+    @MainActor
+    private static func hasSampleBufferLayer(_ layer: CALayer) -> Bool {
+        layer is AVSampleBufferDisplayLayer || (layer.sublayers ?? []).contains { hasSampleBufferLayer($0) }
+    }
+
     // MARK: The marker
 
     private static func marker(in frame: RTCVideoFrame, cellFraction: Double, originY: Double) -> UInt16? {
@@ -179,6 +316,135 @@ public final class ScreenPresentProbe: NSObject, RTCVideoRenderer, @unchecked Se
         }
         let i420 = frame.buffer.toI420()
         return decode { x, y in i420.dataY[y * Int(i420.strideY) + x] }
+    }
+}
+
+// MARK: - Metal (RTCMTLVideoView)
+
+/// Stands in as the delegate of `RTCMTLVideoView`'s own `MTKView` and forwards every call to it
+/// unchanged. Before a draw that renders a new frame, it adds a presented handler to the drawable
+/// the renderer is about to present (`MTKView.currentDrawable` is this draw's one drawable), so the
+/// probe learns when that frame reached the display, not when it was decoded. A draw renders a new
+/// frame when `RTCMTLVideoView`'s `videoFrame` is not `lastFrameTimeNs` (the renderer's own skip
+/// test); the frame drawn is `lastFrameTimeNs` after it. Both are read only when the view answers
+/// them. The probe keeps the hook (an `MTKView`'s delegate is weak); the hook keeps no probe.
+@MainActor
+private final class PresentHook: NSObject {
+    private weak var original: (any MTKViewDelegate)?
+    private weak var video: RTCMTLVideoView?
+    private weak var mtkView: MTKView?
+    private weak var probe: ScreenPresentProbe?
+
+    init(video: RTCMTLVideoView, probe: ScreenPresentProbe) {
+        self.probe = probe
+        self.video = video
+        super.init()
+        guard let view = video.subviews.compactMap({ $0 as? MTKView }).first, let delegate = view.delegate else {
+            probe.hookFailed("RTCMTLVideoView has no MTKView with a delegate")
+            return
+        }
+        // Watched twice: the hook already there (kept by the probe) stays.
+        guard !(delegate is PresentHook) else { return }
+        guard video.responds(to: NSSelectorFromString("videoFrame")),
+              video.responds(to: NSSelectorFromString("lastFrameTimeNs")) else {
+            probe.hookFailed("RTCMTLVideoView answers no videoFrame/lastFrameTimeNs")
+            return
+        }
+        original = delegate
+        mtkView = view
+        view.delegate = self
+    }
+
+    /// Installed and its view still alive.
+    var isLive: Bool { mtkView != nil && original != nil }
+
+    /// Whether this draw renders a new frame (the renderer's own skip test).
+    /// Race: the decode thread can swap `videoFrame` between this read and the renderer's own, so
+    /// the frame is credited from `lastFrameTimeNs` after the draw, the one the renderer drew.
+    func drawsNewFrame() -> Bool {
+        guard let video, let frame = video.value(forKey: "videoFrame") as? RTCVideoFrame,
+              frame.width > 0, frame.height > 0 else { return false }
+        return frame.timeStampNs != lastDrawn()
+    }
+
+    func lastDrawn() -> Int64? {
+        (video?.value(forKey: "lastFrameTimeNs") as? NSNumber)?.int64Value
+    }
+}
+
+/// The timestamp of the frame a draw rendered: written on the main thread after the draw, read by
+/// Metal's presented handler, which runs after the drawable reaches the display.
+// crash-allow: `timeStampNs` is read and written only under `lock`.
+private final class DrawnFrame: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Int64?
+    var timeStampNs: Int64? {
+        get { lock.withLock { value } }
+        set { lock.withLock { value = newValue } }
+    }
+}
+
+extension PresentHook: @preconcurrency MTKViewDelegate {
+    func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
+        original?.mtkView(view, drawableSizeWillChange: size)
+    }
+
+    func draw(in view: MTKView) {
+        guard let probe, drawsNewFrame(), !view.bounds.isEmpty, let drawable = view.currentDrawable else {
+            original?.draw(in: view)
+            return
+        }
+        // The handler goes on before the renderer presents; the frame it drew is known after.
+        let before = lastDrawn()
+        let drawn = DrawnFrame()
+        drawable.addPresentedHandler(Self.presentedHandler(probe: probe, drawn: drawn))
+        original?.draw(in: view)
+        if let after = lastDrawn(), after != before { drawn.timeStampNs = after }
+    }
+
+    /// Made outside the main actor: Metal calls it on its own thread.
+    nonisolated private static func presentedHandler(probe: ScreenPresentProbe, drawn: DrawnFrame)
+        -> @Sendable (any MTLDrawable) -> Void {
+        { presented in
+            guard let timeStampNs = drawn.timeStampNs else { return }
+            probe.presented(timeStampNs: timeStampNs, presentedTime: presented.presentedTime,
+                            callbackAt: CACurrentMediaTime())
+        }
+    }
+}
+
+// MARK: - Sample buffer layer (AVSampleBufferDisplayLayer)
+
+/// The probe's display link, on a thread of its own so main-thread work never delays or drops a
+/// tick. It asks for no frame rate (`preferredFrameRateRange` stays default), so it does not
+/// change the display's rate; `presentClock` reports the tick intervals it saw. It stops when the
+/// probe is gone (the link's run loop then has nothing left and the thread ends).
+private final class DisplayTick: NSObject {
+    private weak var probe: ScreenPresentProbe?
+
+    private init(probe: ScreenPresentProbe?) {
+        self.probe = probe
+    }
+
+    static func start(for probe: ScreenPresentProbe) {
+        let thread = Thread { [weak probe] in
+            let tick = DisplayTick(probe: probe)
+            let link = CADisplayLink(target: tick, selector: #selector(DisplayTick.tick(_:)))
+            link.add(to: .current, forMode: .default)
+            RunLoop.current.run()
+        }
+        thread.name = "ScreenPresentProbe.displayLink"
+        thread.qualityOfService = .userInteractive
+        thread.start()
+    }
+
+    @objc func tick(_ link: CADisplayLink) {
+        let callbackAt = CACurrentMediaTime()
+        guard let probe else {
+            link.invalidate()
+            return
+        }
+        probe.ticked(timestamp: link.timestamp, target: link.targetTimestamp, callbackAt: callbackAt)
     }
 }
 #endif

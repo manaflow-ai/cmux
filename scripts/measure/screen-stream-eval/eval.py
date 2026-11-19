@@ -109,7 +109,7 @@ def target(name: str, folder: Path, out: Path) -> None:
         result["split"][kind] = {k: split.get(k) for k in ("input_to_capture_ms", "encode_ms", "transport_ms", "decode_ms", "method")}
         if split.get("input_to_capture_parts"):
             result["split"][kind]["input_to_capture_parts"] = split["input_to_capture_parts"]
-        # iphone-sim: the same input timed to the decoded frame and to the presented drawable.
+        # iphone-sim: the same input timed to the decoded frame and to the presented frame.
         if split.get("present"):
             result["split"][kind]["present"] = split["present"]
         # A window-only target (its `caps` verb; screen-stream-eval.sh) has no latency stage, and
