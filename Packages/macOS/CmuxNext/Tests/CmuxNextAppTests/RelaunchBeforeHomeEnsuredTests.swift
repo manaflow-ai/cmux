@@ -93,7 +93,6 @@ struct RelaunchBeforeHomeEnsuredTests {
     private static func launch(_ launcher: DaemonLauncher, holdingHome: Bool) async throws -> AppServices {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
-        services.home.ensure.ensuresAtLaunch = true // as AppDelegate: the launch starts Home, maybe after its first frame
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
         services.daemon.start {
