@@ -44,8 +44,7 @@ enum SidebarCardFeed {
     /// `document`): one task, so the bridge cancels both together. `registry` gives the tip card its action's shortcut.
     static func start(model: SidebarModel, updater: UpdaterService, window: WindowState?,
                       document: @escaping @MainActor @Sendable () -> SidebarDocStore?, registry: ActionRegistry? = nil,
-                      settings: SettingsController? = nil, asks: SidebarAsks? = nil, restoring: (@MainActor @Sendable () -> String?)? = nil,
-                      additionalTopItems: @escaping @MainActor @Sendable () -> [SidebarTransientItem] = { [] }) -> Task<Void, Never> {
+                      settings: SettingsController? = nil, asks: SidebarAsks? = nil, restoring: (@MainActor @Sendable () -> String?)? = nil, additionalTopItems: @escaping @MainActor @Sendable () -> [SidebarTransientItem] = { [] }) -> Task<Void, Never> {
         let cards = start(model: model, updater: updater, registry: registry, asks: asks, restoring: restoring)
         guard window != nil else { return cards }
         let whatsNew = model.followTopItems(document: document, additional: additionalTopItems)
