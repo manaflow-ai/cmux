@@ -187,6 +187,7 @@ extension ScreenContentView {
         var changed = force
         let scale = self.scale
         let laysOutNow = window != nil && bounds.width >= 1 && bounds.height >= 1
+        if zoomDim.motion.acts { MotionTrace.begin("layout.place") } // a probe's time of this loop, in the pass that shows an act
         for (pane, frame) in paneFrames {
             guard let host = context.hosts[pane], host.superview === self else { continue }
             let scrolls = geometry.scrolls(pane: pane)
@@ -238,13 +239,15 @@ extension ScreenContentView {
                 host.alphaValue = frame.alpha.value
                 changed = true
             }
-            if host.isDocked == scrolls { host.isDocked = !scrolls }
+            if host.isDocked == (scrolls || geometry.floatingCards[pane] != nil) { host.isDocked.toggle() }
             clips.append((host, scrolls))
         }
+        MotionTrace.end("layout.place")
         // The panes this change brought back from a zoom's cover show now, placed.
         if showSnapReturning() { changed = true }
         // Once every frame is placed: a pane is clipped by the panes in front of it. A host whose
         // clip inputs did not change keeps its clip without recomputing it.
+        if presentFloatingCards() { changed = true }
         let above = panesAbove()
         for (host, scrolls) in clips {
             if clipToStrip(host, scrolls: scrolls, clip: clip, above: above, force: force) { changed = true }
@@ -269,6 +272,7 @@ extension ScreenContentView {
             if let area = shownArea { pointerClip = pointerClip.map { $0.intersection(area) } ?? area }
             view.cursorClip = pointerClip
         }
+        zoomDim.panesPlaced(on: self) // panes and dividers are placed: a split's, a close's and a zoom's panes move; a zoom's dim comes, an unzoom's goes
         // A pan with the finger down is layout motion too (hasMotion leaves user gestures out): motion-time content
         // (divider catcher panels, page windows) waits for the landing. The landing frame's advanceFrame clears it.
         let gesturing = isUserScrolling || rowScrolls.values.contains(where: \.state.isGestureActive)
@@ -316,5 +320,24 @@ extension ScreenContentView {
     func areaWindow(of kind: DividerHandleView.Kind) -> CGRect? {
         guard case let .split(id) = kind, let area = baseGeometry.scrollAreaOfSplit[id] else { return nil }
         return displayedAreaWindow(area)
+    }
+
+    /// The panes and strip dividers an animated width or ratio change carried (a preset, an equalize) start where they
+    /// showed before it, now that the camera is where the new layout puts it. A structural change carries none: each
+    /// of its panes is at its place in the frame that shows it.
+    func settleCarried() {
+        guard !carriedShown.isEmpty || !carriedDividers.isEmpty else { return }
+        let shift = stripShift
+        for (pane, shown) in carriedShown {
+            guard var frame = paneFrames[pane] else { continue }
+            frame.x.value = shown - (geometry.scrolls(pane: pane) ? shift : 0)
+            paneFrames[pane] = frame
+        }
+        for (kind, shown) in carriedDividers {
+            guard var frame = dividerFrames[kind] else { continue }
+            frame.x.value = shown - shift
+            dividerFrames[kind] = frame
+        }
+        (carriedShown, carriedDividers) = ([:], [:])
     }
 }
