@@ -139,10 +139,15 @@ export function FolderPopover({
       ?.focus();
   }, [addingExtra]);
   const extraFolders = extra?.folders;
+  // The filesystem root is no project, so it is never listed: a chat someone started there (a shell
+  // at `/`) put a row among the folders that named no folder. Typing `/` still offers it as a path.
   // While adding, the project and the folders already added are not offered again.
   const offered = useMemo(
     () =>
-      addingExtra ? folders.filter((folder) => folder.id !== current && !extraFolders?.includes(folder.id)) : folders,
+      folders.filter(
+        (folder) =>
+          !/^\/+$/.test(folder.id) && !(addingExtra && (folder.id === current || extraFolders?.includes(folder.id))),
+      ),
     [addingExtra, folders, current, extraFolders],
   );
   const groups = useMemo(() => groupByRepo(offered, current), [offered, current]);
@@ -353,7 +358,7 @@ export function FolderPopover({
       );
     if (value === GITHUB_MORE)
       return (
-        <span className="acpmux-location-action acpmux-location-row" data-github="" data-section={section}>
+        <span className="acpmux-location-action acpmux-location-row" data-github="">
           <span className="acpmux-location-action-icon" aria-hidden="true">
             <ActionIcon action={ACTION + "browse"} />
           </span>

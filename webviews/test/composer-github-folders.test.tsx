@@ -232,6 +232,37 @@ test("a new Cloud chat with no folder draws no line under the folder menu's acti
   }
 });
 
+test("the filesystem root is never listed as a folder, and no folder is ever named No folder", async () => {
+  // A chat started in `/` (a shell at the root) put a folder row that read No folder among the folders.
+  const { projectLabel } = await import("../src/agent-session/acpmux/sessionList");
+  expect(projectLabel("/")).toBe("/");
+  expect(projectLabel("")).toBe("No folder");
+  expect(projectLabel(undefined)).toBe("No folder");
+  const gh = host({ "github.status": { state: "not_connected", repos_scope: null } });
+  const { root } = await renderTray(
+    {
+      projectChoices: [
+        { cwd: FOLDER, label: "app" },
+        { cwd: "/", label: projectLabel("/") },
+        { cwd: "/Users/me/notes", label: "notes" },
+      ],
+      onNoProject: () => {},
+    },
+    gh.store,
+  );
+  try {
+    await openFolderMenu();
+    const listed = [...doc().querySelectorAll(".ui-combobox-scroll [role=option]")].map((item) => item.textContent);
+    expect(listed).toEqual(["app", "notes"]);
+    // No folder is the action under the list, and only that.
+    const named = [...doc().querySelectorAll("[role=option]")].filter((item) => item.textContent === "No folder");
+    expect(named.length).toBe(1);
+    expect(named[0]!.closest(".ui-combobox-pinned")).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("the folder menu lists its fullest rows' words for its width, and never as a second visible name", async () => {
   const gh = host({ "github.status": { state: "not_connected", repos_scope: null } });
   const { root } = await renderTray({}, gh.store);
