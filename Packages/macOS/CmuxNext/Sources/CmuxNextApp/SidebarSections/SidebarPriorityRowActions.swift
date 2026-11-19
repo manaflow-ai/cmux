@@ -11,6 +11,7 @@ extension AgentPriorityChats {
     // A function, not the property's initial value: the archive closure is nonisolated, the stores main-actor.
     private static func makeApp() -> AgentPriorityChats {
         AgentPriorityChats(marks: .shared, stores: [.shared, .chief],
+                           restore: { try await AcpmuxChatArchive(socketPath: $0).unarchive(sessionId: $1) },
                            archive: { try await AcpmuxChatArchive(socketPath: $0).archive(sessionId: $1) })
     }
 }
@@ -26,6 +27,9 @@ struct SidebarPriorityRowActions {
     static let snooze: ActionID = "sidebar.priority.snooze"
     /// A row's archive is Archive Chat on the row's chat, not an action of its own.
     static let archive: ActionID = "agentPane.archiveChat"
+    /// Restore on an archived chat (the Archived fold's rows): it lists again. Its menu row shows only for an archived chat,
+    /// whose menu leaves out Pin, Snooze and Archive.
+    static let restore: ActionID = "sidebar.priority.restore"
 
     let chats: AgentPriorityChats
     /// Why the row actions cannot run now (the view is off); nil while they can.
@@ -50,13 +54,20 @@ struct SidebarPriorityRowActions {
         case .togglePin(let id): (Self.togglePin, id)
         case .snooze(let id): (Self.snooze, id)
         case .archive(let id): (Self.archive, id)
-        case .open, .setCollapsed, .toggleShown, .place, .answer: nil
+        case .restore(let id): (Self.restore, id)
+        case .open, .setCollapsed, .toggleShown, .place, .answer, .openArchived, .setArchivedFolded, .showMoreArchived: nil
         }
     }
 
     /// Runs a row button's action through the registry, as its menu row does.
     static func perform(_ action: SidebarPriorityAction, in registry: ActionRegistry) {
         guard let (id, chat) = route(action) else { return }
+        // Restore is new to the Rust action catalog; until the app's pinned FFI catalog lists it
+        // (docs/ci/app-ffi-release.md), the Archived fold's button restores straight through the chats.
+        if id == Self.restore, registry.action(for: id) == nil {
+            _ = AgentPriorityChats.app.restore(chat)
+            return
+        }
         registry.perform(id, invocation: ActionInvocation(target: target(chat), origin: .user))
     }
 
@@ -80,6 +91,15 @@ struct SidebarPriorityRowActions {
         ActionTargetTitles.set(Self.togglePin, in: registry) { invocation in
             Self.chat(invocation).flatMap { chats.entry($0) }?.pinTitle
         }
+        // Restore runs on any surface for an archived chat; the Priority view being off does not stop it (the chat
+        // lists again wherever it listed). An archived chat's menu is Restore, not the ranked rows' actions.
+        registry.bind(Self.restore, run: { try Self.run(chats.restore, $0) })
+        ActionTargetVisibility.hide(Self.restore, in: registry) { invocation in
+            Self.chat(invocation).map { !chats.isArchived($0) } ?? true
+        }
+        for id in [Self.togglePin, Self.snooze] {
+            ActionTargetVisibility.hide(id, in: registry) { invocation in Self.chat(invocation).map(chats.isArchived) ?? false }
+        }
     }
 
     /// Binds Archive Chat: a row's chat archives here (hidden at once, then archived in its acpmux)
@@ -93,6 +113,10 @@ struct SidebarPriorityRowActions {
         })
         ActionTargetReasons.set(Self.archive, in: registry) { invocation in
             invocation.target?.kind == .agentChat ? unavailable() : nil
+        }
+        // An archived chat's row (the Archived fold) offers Restore instead.
+        ActionTargetVisibility.hide(Self.archive, in: registry) { invocation in
+            invocation.target?.kind == .agentChat && Self.chat(invocation).map(chats.isArchived) == true
         }
     }
 

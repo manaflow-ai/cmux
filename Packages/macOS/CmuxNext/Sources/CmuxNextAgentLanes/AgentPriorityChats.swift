@@ -2,6 +2,7 @@ public import AppKit
 import CmuxAgentBrands
 public import CmuxNextActions
 public import CmuxNextAgentActivity
+public import CmuxNextBridge
 public import CmuxNextSidebar
 public import Foundation
 import os
@@ -46,13 +47,24 @@ public final class AgentPriorityChats {
     /// Whether a chat's pull request checks fail (Red CI), by default the session tree feed's answer.
     private let checksFailing: @MainActor (AgentActivityLane) -> Bool
 
+    /// `_acpmux/archive {archived: false}` for a session on the acpmux socket at the first argument.
+    private let restoreRequest: @Sendable (_ socketPath: String, _ sessionId: String) async throws -> Void
+    /// The chats acpmux reports archived (the Archived fold's rows), by default the app's turn store's.
+    public let archivedChats: AgentTurnStateStore.ArchivedChats
+    /// Called after a row's Archive hid a chat (the App shows its Undo toast, which runs ``restore(_:)``).
+    public var onArchived: (@MainActor (_ id: String, _ title: String) -> Void)?
+
     public init(marks: AgentPriorityMarks = .shared, stores: [AgentLaneStore] = [.shared, .chief], machines: Machines = .none,
                 checksFailing: (@MainActor (AgentActivityLane) -> Bool)? = nil,
+                archivedChats: AgentTurnStateStore.ArchivedChats? = nil,
+                restore: (@Sendable (_ socketPath: String, _ sessionId: String) async throws -> Void)? = nil,
                 archive: @escaping @Sendable (_ socketPath: String, _ sessionId: String) async throws -> Void) {
         self.marks = marks
         self.stores = stores
         self.machines = machines
         self.checksFailing = checksFailing ?? { SidebarSessionTreeFeed.shared.checksFailing($0) }
+        self.archivedChats = archivedChats ?? AgentTurnStateStore.shared.archivedChats
+        self.restoreRequest = restore ?? { _, _ in }
         self.archiveRequest = archive
     }
 
@@ -126,7 +138,11 @@ public final class AgentPriorityChats {
 
     /// The rows of `snapshot`.
     public func entries(_ snapshot: Snapshot, now: Date = Date()) -> [SidebarPriorityEntry] {
-        ranking.entries(snapshot.lanes, marks: marks.state, now: now, failingChecks: snapshot.failingChecks) { snapshot.tags[$0.id] }
+        // A chat acpmux reports archived (from the chat menu, another window or the CLI) lists in the
+        // Archived fold, not among the ranked rows.
+        let archived = archivedChats
+        let lanes = archived.count == 0 ? snapshot.lanes : snapshot.lanes.filter { !archived.contains($0.id) }
+        return ranking.entries(lanes, marks: marks.state, now: now, failingChecks: snapshot.failingChecks) { snapshot.tags[$0.id] }
     }
 
     /// The chats waiting for the person, in the order Go to Next Agent Needing Input visits them
@@ -238,17 +254,68 @@ public final class AgentPriorityChats {
     /// Hides the chat here at once, then archives it in the acpmux that reports it (this Mac's or
     /// the Chief home's; another machine's chat has no socket here and is not archived). A refusal (a peer's chat this acpmux does not own, a dropped socket)
     /// shows the chat again.
+    /// The Archived fold lists it at once too (acpmux's next push confirms it), and `onArchived` runs.
     @discardableResult
     public func archive(_ id: String) -> Bool {
-        guard let socketPath = stores.first(where: { $0.lanes[id] != nil })?.socketPath else { return false }
+        guard let store = stores.first(where: { $0.lanes[id] != nil }), let socketPath = store.socketPath,
+              let lane = store.lanes[id] else { return false }
         marks.archive(id)
-        let archive = archiveRequest, marks = marks
+        let listed = archivedChats.byID[id]
+        if listed == nil {
+            archivedChats.set(id, AgentTurnStateStore.ArchivedChat(id: id, title: lane.title, cwd: lane.cwd,
+                                                                   archivedAtMs: UInt64(max(0, Date().timeIntervalSince1970 * 1000))))
+        }
+        let archive = archiveRequest, marks = marks, archived = archivedChats
         // task-owner: one archive request; ends when acpmux answers or its deadline passes
         Task {
             do { try await archive(socketPath, id) } catch {
                 Self.logger.error("priority archive failed: \(String(describing: error), privacy: .public)")
                 marks.unarchive(id)
+                if listed == nil { archived.set(id, nil) }
             }
+        }
+        onArchived?(id, lane.title)
+        return true
+    }
+
+    /// Whether the chat is archived: acpmux reports it so, or a row's Archive just hid it.
+    public func isArchived(_ id: String) -> Bool {
+        archivedChats.contains(id) || marks.state.archived.contains(id)
+    }
+
+    /// The Archived fold's rows: the `limit` newest archives, each with its folder's name.
+    public func archivedEntries(limit: Int) -> [SidebarArchivedChat] {
+        archivedChats.newest(limit: limit).map { chat in
+            let folder = chat.cwd.map { URL(fileURLWithPath: $0).lastPathComponent }.flatMap { $0.isEmpty || $0 == "/" ? nil : $0 }
+            return SidebarArchivedChat(id: chat.id, title: chat.title, project: folder,
+                                       archivedAt: chat.archivedAtMs.map { Date(timeIntervalSince1970: Double($0) / 1000) })
+        }
+    }
+
+    /// Restore: the chat leaves the Archived fold at once and lists again (its Priority mark goes too),
+    /// then acpmux drops its `archived` tag: in the acpmux whose lanes list it, else in each watched one
+    /// in turn until one knows the session. A refusal from all of them lists it under Archived again.
+    /// False when the chat is not archived.
+    @discardableResult
+    public func restore(_ id: String) -> Bool {
+        guard isArchived(id) else { return false }
+        let listed = archivedChats.byID[id]
+        let wasMarked = marks.state.archived.contains(id)
+        marks.unarchive(id)
+        archivedChats.set(id, nil)
+        let owner = stores.first(where: { $0.lanes[id] != nil })?.socketPath
+        let sockets = owner.map { [$0] } ?? stores.compactMap(\.socketPath)
+        guard !sockets.isEmpty else { return true }
+        let restore = restoreRequest, marks = marks, archived = archivedChats
+        // task-owner: one restore request per watched acpmux at most; ends when one answers or each deadline passes
+        Task {
+            var lastError: (any Error)?
+            for socket in sockets {
+                do { try await restore(socket, id); return } catch { lastError = error }
+            }
+            Self.logger.error("priority restore failed: \(String(describing: lastError), privacy: .public)")
+            if wasMarked { marks.archive(id) }
+            if let listed, archived.byID[id] == nil { archived.set(id, listed) }
         }
         return true
     }

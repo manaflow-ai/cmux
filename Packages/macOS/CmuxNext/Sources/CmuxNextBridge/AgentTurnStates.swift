@@ -79,6 +79,9 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
     /// The chat carries acpmux's `archived` tag (one not past its `expires_at`): a hidden page of it
     /// gives back its memory at once (HiddenChatPages).
     public var archived = false
+    /// When the chat was archived (Unix ms), from the `archived` tag's value (`_acpmux/archive` writes
+    /// the time); nil when it is not archived or the tag holds no time (`"1"`, `"true"`).
+    public var archivedAtMs: UInt64?
 
     public init(model: String? = nil, turnStartedAtMs: UInt64? = nil, prompt: String? = nil,
                 laneState: String? = nil, laneSinceMs: UInt64? = nil, cwd: String? = nil,
@@ -114,6 +117,19 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
         }
     }
 
+    /// The time a summary's `archived` tag holds (Unix ms) while the tag is in force and its value is a
+    /// time (`_acpmux/archive` writes `now_ms`); nil otherwise.
+    public static func archivedAtMs(_ summary: [String: Any], nowMs: Double = Date().timeIntervalSince1970 * 1000) -> UInt64? {
+        guard archived(summary, nowMs: nowMs) else { return nil }
+        let raw = (summary["tags"] as? [String: Any])?["archived"]
+        let value = (raw as? [String: Any])?["value"] ?? raw
+        if let text = value as? String, let ms = UInt64(text), ms > 1 { return ms }
+        if let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue > 1 {
+            return number.uint64Value
+        }
+        return nil
+    }
+
     /// A summary's detail; nil when it names none of them.
     public static func of(summary: [String: Any]) -> AgentChatDetail? {
         let turn = summary["turn"] as? [String: Any]
@@ -131,7 +147,7 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
         }
         let tokens = { (value: Any?) -> Int? in amount(value).flatMap { $0 < Double(Int.max) ? Int($0) : nil } }
         let count = { (value: Any?) -> Int in max(0, (value as? NSNumber)?.intValue ?? 0) }
-        let detail = AgentChatDetail(model: text(summary["model"]), turnStartedAtMs: (turn?["startedAt"] as? NSNumber)?.uint64Value,
+        var detail = AgentChatDetail(model: text(summary["model"]), turnStartedAtMs: (turn?["startedAt"] as? NSNumber)?.uint64Value,
                                      prompt: text(turn?["prompt"]), laneState: text(lane?["state"]),
                                      laneSinceMs: (lane?["since"] as? NSNumber)?.uint64Value, cwd: text(summary["cwd"]),
                                      contextTokens: tokens(usage?["contextTokens"]),
@@ -142,6 +158,7 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
                                      subagentNames: (summary["subagentNames"] as? [Any] ?? []).compactMap(text),
                                      commandsRunning: count(summary["commandsRunning"]),
                                      archived: archived(summary))
+        if detail.archived { detail.archivedAtMs = archivedAtMs(summary) }
         return detail == AgentChatDetail() ? nil : detail
     }
 
@@ -408,6 +425,56 @@ public final class AgentTurnStateStore {
     /// The source of the app's own acpmux watch.
     public nonisolated static let localSource = "local"
 
+    /// One chat that carries acpmux's `archived` tag: what the sidebar's Archived fold lists.
+    public nonisolated struct ArchivedChat: Hashable, Sendable {
+        public var id: String
+        public var title: String
+        public var cwd: String?
+        /// When it was archived (Unix ms); nil when the tag holds no time.
+        public var archivedAtMs: UInt64?
+        /// The watch that reported it (``AgentTurnStateStore/localSource`` or a mirrored acpmux's host).
+        public var source: String
+
+        public init(id: String, title: String, cwd: String? = nil, archivedAtMs: UInt64? = nil, source: String = AgentTurnStateStore.localSource) {
+            self.id = id
+            self.title = title
+            self.cwd = cwd
+            self.archivedAtMs = archivedAtMs
+            self.source = source
+        }
+    }
+
+    /// The archived chats by session id, kept as each session's facts arrive (one write per archive,
+    /// unarchive or rename of an archived chat, never a walk over every session). Its own observable, so a
+    /// reader of the archived chats redraws only when they change.
+    @Observable @MainActor
+    public final class ArchivedChats {
+        public private(set) var byID: [String: ArchivedChat] = [:]
+
+        public init() {}
+
+        public var count: Int { byID.count }
+
+        public func contains(_ id: String) -> Bool { byID[id] != nil }
+
+        /// Sets or removes one chat; writes only a change.
+        public func set(_ id: String, _ chat: ArchivedChat?) {
+            guard byID[id] != chat else { return }
+            byID[id] = chat
+        }
+
+        /// The archived chats, newest archive first (an unknown time last, then by title): `limit` of them.
+        public func newest(limit: Int) -> [ArchivedChat] {
+            Array(byID.values.sorted { a, b in
+                if a.archivedAtMs != b.archivedAtMs { return (a.archivedAtMs ?? 0) > (b.archivedAtMs ?? 0) }
+                return a.title.localizedStandardCompare(b.title) == .orderedAscending
+            }.prefix(max(0, limit)))
+        }
+    }
+
+    /// The chats acpmux reports archived, this Mac's and the mirrored acpmux's.
+    public let archivedChats = ArchivedChats()
+
     /// The records by session id; not observed itself (a reader observes the record it reads).
     @ObservationIgnored var sessions: [String: Session] = [:]
     /// Bumped by every turn state change of any session: for a reader that
@@ -488,6 +555,15 @@ public final class AgentTurnStateStore {
         if record.sessionName != sessionName { record.sessionName = sessionName }
         if record.detail != detail { record.detail = detail }
         if let peer, record.peers[peer.name] != peer { record.peers[peer.name] = peer }
+        // A peer's row is another daemon's session; a closing watch (no timeline) knows nothing new, so its
+        // archived chats stay listed while it reconnects.
+        if peer == nil, detail != nil || recordsTimeline {
+            archivedChats.set(session, detail.flatMap { detail in
+                guard detail.archived else { return nil }
+                return ArchivedChat(id: session, title: generatedTitle ?? title ?? sessionName ?? session, cwd: detail.cwd,
+                                    archivedAtMs: detail.archivedAtMs, source: source)
+            })
+        }
     }
 
     /// Replaces every session of `source`'s watch with its page's; writes only what changed.
