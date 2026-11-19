@@ -425,6 +425,13 @@ impl Viewer {
                     self.saw_marker(read, frame.frame, frame.body.t_capture_us, now, t1);
                 }
             }
+            // An ultra capacity probe: only its arrival goes back, in the media feedback.
+            DatagramKind::Probe => {
+                self.arrivals.push(Arrival {
+                    transport_seq: h.transport_seq,
+                    arrival_us: (now / 1000) as u32,
+                });
+            }
             DatagramKind::Feedback if h.stream == UP_STREAM => {
                 let resends = match self.upstream.as_mut() {
                     Some(up) => up.on_datagram(d, now / 1000).unwrap_or_default(),
