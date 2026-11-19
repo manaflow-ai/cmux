@@ -933,6 +933,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_merge_receipt.py
 
+      - name: Validate signed same-tree receipts
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_same_tree_receipt.py
+
       - name: Validate the pull request status comment
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_status.py
