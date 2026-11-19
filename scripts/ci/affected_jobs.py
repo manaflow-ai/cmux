@@ -33,6 +33,7 @@ tests/test_ci_affected_jobs.py.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import posixpath
@@ -53,8 +54,11 @@ WORKSPACE = cargo_test_verdict.WORKSPACE
 SELF = (
     MAP, "scripts/ci/affected_jobs.py", "scripts/ci/cargo_test_verdict.py", "scripts/ci/git_tree.py",
     "scripts/ci/affected_jobs_replay.py", "tests/test_ci_affected_jobs.py",
+    "scripts/ci/tree_result.py", ".github/actions/tree-result/action.yml", "tests/test_ci_tree_result.py",
 )
 FULL_LABEL = "full-ci"
+# result_key's version: a change to what the key hashes bumps it, so no old green answers a new key.
+KEY_VERSION = "tree-result-v1"
 # Under cmux-tui/ but in no package and no job's input: a Markdown file is read by nothing unless a crate names it
 # (then it is an input). Anything else there is unknown and runs every job.
 DOC_SUFFIXES = (".md",)
@@ -216,6 +220,36 @@ def route(tree: git_tree.GitTree | None, changed: list[str] | None, *, event: st
     return result
 
 
+def result_key(graph: Graph, job: Job) -> str:
+    """The job's input tree as one hash: the object id of each of its inputs at the graph's commit (a directory's tree
+    id covers every file under it), its workflow file, the router's own files and KEY_VERSION. Two commits with the
+    same key give the job the same files, so a green result for one is the result for the other (tree_result.py)."""
+    entries = graph.tree.entries()
+    digest = hashlib.sha256(f"{KEY_VERSION}\0{job.workflow}\0{job.id}\0".encode())
+    for entry in sorted(set(graph.inputs(job)) | set(SELF) | {job.workflow}):
+        path = entry.rstrip("/")
+        found = entries.get(path)
+        if found is not None and found[0] == git_tree.SYMLINK:
+            found = graph.tree.resolve(path)  # the target's content, not the link's text
+            found = found[1:] if found is not None else None
+        digest.update(f"{path}\0{found[0] + ' ' + found[1] if found else 'absent'}\n".encode())
+    return digest.hexdigest()
+
+
+def result_keys(tree: git_tree.GitTree, workflow: str | None = None, map_text: str | None = None
+                ) -> dict[tuple[str, str], str]:
+    """result_key of each job (of WORKFLOW, when given) at TREE; {} when the graph cannot be read: no key, no reuse."""
+    if map_text is None:
+        map_text = (ROOT / MAP).read_text(encoding="utf-8")
+    workspace_inputs, jobs = load_map(map_text)
+    graph = Graph(tree, workspace_inputs, jobs)
+    try:
+        return {(job.workflow, job.id): result_key(graph, job) for job in jobs
+                if workflow is None or job.workflow == workflow}
+    except (git_tree.Unreadable, ValueError, KeyError):
+        return {}
+
+
 def changed_paths(root: Path, base: str, head: str) -> list[str] | None:
     """BASE..HEAD's paths, both sides of a rename; None when git cannot tell."""
     if not SHA.fullmatch(base or "") or set(base) == {"0"}:
@@ -289,6 +323,41 @@ def paths_for(graph: Graph, jobs: list[Job]) -> list[str]:
     return sorted(globs)
 
 
+TREE_RESULT_ACTION = "./.github/actions/tree-result"
+TREE_RESULT_GATE = "steps.tree.outputs.hit != 'true'"
+
+
+def tree_result_problems(job: Job, block: str) -> list[str]:
+    """A job that reuses a green result for its input tree (.github/actions/tree-result) looks it up with its own key,
+    skips every step after the lookup only on a hit, and records its green last: a step that ran on a hit would test
+    nothing yet could fail or pass on its own, and one not gated would leave the verdict half reused."""
+    if TREE_RESULT_ACTION not in block:
+        return []
+    where = f"{job.workflow}: job {job.id}"
+    steps = re.split(r"(?m)^      - ", block)[1:]
+    restore = next((i for i, s in enumerate(steps) if TREE_RESULT_ACTION in s and "mode: restore" in s), None)
+    save = [i for i, s in enumerate(steps) if TREE_RESULT_ACTION in s and "mode: save" in s]
+    if restore is None or not save:
+        return [f"{where} uses {TREE_RESULT_ACTION} without both its restore and its save step"]
+    problems = []
+    key = f"outputs.{output_key(job.id)}_tree }}}}"
+    for i in (restore, *save):
+        if f"job: {job.id}\n" not in steps[i] + "\n" or key not in steps[i]:
+            problems.append(f"{where}: its {TREE_RESULT_ACTION} steps must name job {job.id} and the router's "
+                            f"`{output_key(job.id)}_tree` output")
+    if "id: tree\n" not in steps[restore] + "\n":
+        problems.append(f"{where}: its {TREE_RESULT_ACTION} restore step must have `id: tree`")
+    if save != [len(steps) - 1]:
+        problems.append(f"{where}: its {TREE_RESULT_ACTION} save step must be its last step")
+    for step in steps[restore + 1:]:
+        cond = next((line for line in step.splitlines() if line.startswith("        if:")), "")
+        if TREE_RESULT_GATE not in cond:
+            name = step.splitlines()[0].strip()
+            problems.append(f"{where}: step `{name}` after the tree-result lookup runs on a hit: its `if:` must "
+                            f"include `{TREE_RESULT_GATE}`")
+    return problems
+
+
 def check(root: Path, tree: git_tree.GitTree) -> list[str]:
     """What keeps the routing whole, for every job the map lists:
 
@@ -320,6 +389,7 @@ def check(root: Path, tree: git_tree.GitTree) -> list[str]:
         if ROUTED_IF.format(key=output_key(job.id)) not in if_line:
             problems.append(f"{job.workflow}: job {job.id}'s `if:` does not read the router's "
                             f"`outputs.{output_key(job.id)} != 'false'`")
+        problems += tree_result_problems(job, block)
         for named in sorted(set(JOB_REFERENCE.findall(block))):
             if tree.resolve(named) is None:
                 continue  # a path the job writes or a test binary's name, not a file of the tree
@@ -381,17 +451,22 @@ def main(argv: list[str] | None = None) -> int:
     base_tree = git_tree.GitTree(root, args.base) if changed is not None else None
     try:
         result = route(tree, changed, event=args.event, labels=labels, workflow=args.workflow, base_tree=base_tree)
+        keys = result_keys(tree, args.workflow) if tree is not None else {}
     finally:
         for opened in (tree, base_tree):
             if opened is not None:
                 opened.close()
     for line in result.lines():
         print(line)
+    for (workflow, job_id), key in sorted(keys.items()):
+        print(f"{workflow} {job_id} input tree {key}")
     if "GITHUB_OUTPUT" in os.environ:
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
             out.write(f"router_changed={'true' if result.router_changed else 'false'}\n")
             for (_workflow, job_id), run in sorted(result.run.items()):
                 out.write(f"{output_key(job_id)}={'true' if run else 'false'}\n")
+            for (_workflow, job_id), key in sorted(keys.items()):
+                out.write(f"{output_key(job_id)}_tree={key}\n")
     if "GITHUB_STEP_SUMMARY" in os.environ:
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
             out.write("### Jobs this change can affect (scripts/ci/affected_jobs.py)\n\n")

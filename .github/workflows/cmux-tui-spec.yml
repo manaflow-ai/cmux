@@ -29,6 +29,9 @@ on:
       - "scripts/ci/affected-jobs.json"
       - "scripts/ci/affected_jobs.py"
       - "scripts/ci/affected_jobs_replay.py"
+      - "scripts/ci/tree_result.py"
+      - ".github/actions/tree-result/action.yml"
+      - "tests/test_ci_tree_result.py"
       - "tests/test_ci_affected_jobs.py"
       # Files outside cmux-tui that acpmux or its path dependencies include_str!
       # (tests/test_cargo_test_verdict.py keeps this list whole).
@@ -125,9 +128,13 @@ jobs:
     outputs:
       run: ${{ steps.route.outputs.run }}
       acpmux_protocol_ir: ${{ steps.graph.outputs.acpmux_protocol_ir }}
+      acpmux_protocol_ir_tree: ${{ steps.graph.outputs.acpmux_protocol_ir_tree }}
       acpmux_tests: ${{ steps.graph.outputs.acpmux_tests }}
+      acpmux_tests_tree: ${{ steps.graph.outputs.acpmux_tests_tree }}
       acpmux_sim: ${{ steps.graph.outputs.acpmux_sim }}
+      acpmux_sim_tree: ${{ steps.graph.outputs.acpmux_sim_tree }}
       carrier_sim: ${{ steps.graph.outputs.carrier_sim }}
+      carrier_sim_tree: ${{ steps.graph.outputs.carrier_sim_tree }}
       router_changed: ${{ steps.graph.outputs.router_changed }}
     steps:
       # The merge commit and its parents: HEAD^1 is the base the pull request merges into.
@@ -283,11 +290,23 @@ jobs:
         with:
           persist-credentials: false
 
+      # A green result of this job for the same input tree (affected_jobs.py result_key) is this
+      # run's result: the tested steps are skipped and the job reports green with that run named.
+      - name: Reuse a green result for the same input tree
+        id: tree
+        uses: ./.github/actions/tree-result
+        with:
+          mode: restore
+          job: acpmux-protocol-ir
+          key: ${{ needs.changes.outputs.acpmux_protocol_ir_tree }}
+
       - name: Set up pinned Rust
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
 
       # Only a feat-cmux-next push saves the build cache; a pull request reads the base branch's.
       - name: Cache cargo build
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
@@ -298,6 +317,7 @@ jobs:
       # `protocol::` selects exactly the protocol module's tests (src/protocol/tests.rs);
       # a filter that matches none (a moved module) fails rather than passing empty.
       - name: "cargo test -p acpmux --lib -- protocol::"
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         working-directory: cmux-tui
         run: |
           set -o pipefail
@@ -312,6 +332,14 @@ jobs:
             echo "::error title=acpmux protocol tests::the protocol:: filter matched no test; fix this step's filter"
             exit 1
           fi
+
+      - name: Record this green result for its input tree
+        if: ${{ success() && steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/tree-result
+        with:
+          mode: save
+          job: acpmux-protocol-ir
+          key: ${{ needs.changes.outputs.acpmux_protocol_ir_tree }}
 
   # acpmux's lib tests (the inbox, turn cap and carried turn units among them) and its
   # hub_integration suite (agent_inbox, carried_turns, inbox_digest, ...) ran only in Fast
@@ -351,13 +379,24 @@ jobs:
         with:
           persist-credentials: false
 
+      # A green result of this job for the same input tree (affected_jobs.py result_key) is this
+      # run's result: the tested steps are skipped and the job reports green with that run named.
+      - name: Reuse a green result for the same input tree
+        id: tree
+        uses: ./.github/actions/tree-result
+        with:
+          mode: restore
+          job: acpmux-tests
+          key: ${{ needs.changes.outputs.acpmux_tests_tree }}
+
       - name: Test the per-test verdict
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         run: python3 tests/test_cargo_test_verdict.py
 
       # A red head run replays its failing tests on the merge parent (the test step): fetch it.
       - name: Fetch the merge parent
         id: scope
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ steps.tree.outputs.hit != 'true' && (github.event_name == 'pull_request') }}
         run: |
           base=$(git cat-file -p HEAD | awk '/^parent /{print $2; exit}')
           if [[ "$base" =~ ^[0-9a-f]{40}$ ]] && git fetch --no-tags --depth=1 origin "$base"; then
@@ -366,16 +405,19 @@ jobs:
 
       # As cmux-tui.yml's Linux test job: acpmux's sandbox tests need bubblewrap.
       - name: Install bubblewrap
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         run: |
           sudo apt-get update
           sudo apt-get install -y bubblewrap
           echo "ACPMUX_REQUIRE_BWRAP=1" >> "$GITHUB_ENV"
 
       - name: Set up pinned Rust
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
 
       # Only a feat-cmux-next push saves the build cache; a pull request reads the base branch's.
       - name: Cache cargo build
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
@@ -384,6 +426,7 @@ jobs:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: v2 bench home emits all gate rows
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         working-directory: cmux-tui
         run: |
           output="$RUNNER_TEMP/acpmux-v2-bench.json"
@@ -401,6 +444,8 @@ jobs:
           PY
 
       - name: cargo test -p acpmux --lib --test hub_integration
+        id: test
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         working-directory: cmux-tui
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -417,6 +462,7 @@ jobs:
           started=$SECONDS
           if cargo test "${suites[@]}" 2>&1 | tee "$head_log"; then
             echo "acpmux tests: green in $((SECONDS - started)) s" >> "$GITHUB_STEP_SUMMARY"
+            echo "clean=true" >> "$GITHUB_OUTPUT"  # green on its own: the only green the tree result keeps
             exit 0
           fi
           if [[ "$EVENT_NAME" != pull_request ]]; then
@@ -462,6 +508,16 @@ jobs:
           echo "acpmux tests: red head run judged after $((SECONDS - started)) s" >> "$GITHUB_STEP_SUMMARY"
           python3 "$verdict" judge --head "$head_log" --retry "$retry_log" --base "$base_log" --job "$JOB"
 
+      # A red the judge excused (a flake that passed alone, a test red on the merge parent too) is green
+      # for this base only: it is not kept for the tree.
+      - name: Record this green result for its input tree
+        if: ${{ success() && steps.tree.outputs.hit != 'true' && steps.test.outputs.clean == 'true' }}
+        uses: ./.github/actions/tree-result
+        with:
+          mode: save
+          job: acpmux-tests
+          key: ${{ needs.changes.outputs.acpmux_tests_tree }}
+
   # The deterministic simulation of the daemon (tests/sim.rs, HQ#6740): the real hub under a
   # simulated runtime, network, disk and clock, with crashes and partitions at any step. Each
   # seed checks that no prompt or steer is lost or applied twice, that seq has no gaps and that
@@ -480,10 +536,22 @@ jobs:
         with:
           persist-credentials: false
 
+      # A green result of this job for the same input tree (affected_jobs.py result_key) is this
+      # run's result: the tested steps are skipped and the job reports green with that run named.
+      - name: Reuse a green result for the same input tree
+        id: tree
+        uses: ./.github/actions/tree-result
+        with:
+          mode: restore
+          job: acpmux-sim
+          key: ${{ needs.changes.outputs.acpmux_sim_tree }}
+
       - name: Set up pinned Rust
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Cache cargo build
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
@@ -492,6 +560,7 @@ jobs:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: cargo test -p acpmux --features sim --test sim
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         working-directory: cmux-tui
         env:
           # The same seeds on every change, so a red names the change and not the window; the
@@ -506,8 +575,17 @@ jobs:
       # The clippy job builds without `--features sim`, so the simulation's code and the
       # daemon's sim-only seams were never linted.
       - name: cargo clippy -p acpmux --features sim --test sim
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         working-directory: cmux-tui
         run: cargo clippy --locked -p acpmux --features sim --test sim -- -D warnings
+
+      - name: Record this green result for its input tree
+        if: ${{ success() && steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/tree-result
+        with:
+          mode: save
+          job: acpmux-sim
+          key: ${{ needs.changes.outputs.acpmux_sim_tree }}
 
   # The carrier's deterministic simulation (cmux-remote tests/carrier_sim.rs): the real daemon and
   # client over a simulated carrier with seeded cuts, drops, slow links, relay swaps and daemon
@@ -529,7 +607,18 @@ jobs:
         with:
           persist-credentials: false
 
+      # A green result of this job for the same input tree (affected_jobs.py result_key) is this
+      # run's result: the tested steps are skipped and the job reports green with that run named.
+      - name: Reuse a green result for the same input tree
+        id: tree
+        uses: ./.github/actions/tree-result
+        with:
+          mode: restore
+          job: carrier-sim
+          key: ${{ needs.changes.outputs.carrier_sim_tree }}
+
       - name: Install Linux build dependencies
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         run: |
           sudo apt-get update
           sudo apt-get install -y clang libclang-dev pkg-config
@@ -537,15 +626,19 @@ jobs:
       # cmux-remote depends on ghostty-vt: ghostty-vt-sys builds libghostty-vt from the
       # ghostty-next gitlink with zig, as the clippy job does.
       - name: Init the ghostty-next submodule (libghostty-vt for ghostty-vt-sys)
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         run: bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Install zig
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         run: ./scripts/install-zig-ci.sh
 
       - name: Set up pinned Rust
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Cache cargo build
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
@@ -554,6 +647,7 @@ jobs:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: cargo test -p cmux-remote --test carrier_sim
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         working-directory: cmux-tui
         env:
           # The same seeds on every change, so a red names the change and not the window.
@@ -563,6 +657,14 @@ jobs:
           set -o pipefail
           cargo test --locked -p cmux-remote --test carrier_sim -- --nocapture 2>&1 | tee "$RUNNER_TEMP/sim.log"
           grep -E '^sim: ' "$RUNNER_TEMP/sim.log" >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Record this green result for its input tree
+        if: ${{ success() && steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/tree-result
+        with:
+          mode: save
+          job: carrier-sim
+          key: ${{ needs.changes.outputs.carrier_sim_tree }}
 
   # PR CI never runs cmux-tui.yml (dispatch only), so #18706 landed unformatted
   # Rust and broke base `cargo fmt --check`. rustfmt alone on the packages the

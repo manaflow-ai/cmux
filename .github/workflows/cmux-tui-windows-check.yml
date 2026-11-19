@@ -24,6 +24,9 @@ on:
       - "scripts/ci/cargo_test_verdict.py"
       - "scripts/ci/git_tree.py"
       - "scripts/ci/affected_jobs_replay.py"
+      - "scripts/ci/tree_result.py"
+      - ".github/actions/tree-result/action.yml"
+      - "tests/test_ci_tree_result.py"
       - "tests/test_ci_affected_jobs.py"
       # Inputs of the jobs scripts/ci/affected_jobs.py routes by the crate graph, outside the globs above
       # (`affected_jobs.py check` keeps this whole; `affected_jobs.py paths --workflow` lists them all).
@@ -124,6 +127,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       windows_gnu_check: ${{ steps.graph.outputs.windows_gnu_check }}
+      windows_gnu_check_tree: ${{ steps.graph.outputs.windows_gnu_check_tree }}
     steps:
       # The merge commit and its parents: HEAD^1 is the base the pull request merges into.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -163,15 +167,28 @@ jobs:
         with:
           persist-credentials: false
 
+      # A green result of this job for the same input tree (affected_jobs.py result_key) is this
+      # run's result: the tested steps are skipped and the job reports green with that run named.
+      - name: Reuse a green result for the same input tree
+        id: tree
+        uses: ./.github/actions/tree-result
+        with:
+          mode: restore
+          job: windows-gnu-check
+          key: ${{ needs.route.outputs.windows_gnu_check_tree }}
+
       - name: Init ghostty submodule
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         run: git submodule update --init --depth 1 ghostty-next
 
       - name: Install Linux and MinGW build dependencies
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         run: |
           sudo apt-get update
           sudo apt-get install -y clang libclang-dev pkg-config gcc-mingw-w64-x86-64
 
       - name: Cache Zig package downloads
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/zig
@@ -180,20 +197,25 @@ jobs:
             cmux-tui-zig-
 
       - name: Install zig
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         run: ./scripts/install-zig-ci.sh
 
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/ghostty-zig-packages
 
       - name: Set up pinned Rust
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Install the Windows GNU Rust target
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         run: rustup target add x86_64-pc-windows-gnu
 
       # One key for every pull request; each restores the newest cache its
       # scope can read and builds incrementally.
       - name: Cache cargo build
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
@@ -201,6 +223,7 @@ jobs:
           shared-key: cmux-tui-windows-gnu-check
 
       - name: cargo check cmux-tui-core, cmux-tui and acpmux for Windows
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         working-directory: cmux-tui
         run: |
           set -o pipefail
@@ -223,3 +246,11 @@ jobs:
               exit 1
             fi
           done
+
+      - name: Record this green result for its input tree
+        if: ${{ success() && steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/tree-result
+        with:
+          mode: save
+          job: windows-gnu-check
+          key: ${{ needs.route.outputs.windows_gnu_check_tree }}

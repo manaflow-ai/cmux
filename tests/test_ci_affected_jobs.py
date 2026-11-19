@@ -215,6 +215,92 @@ class Routes(unittest.TestCase):
         self.assertEqual(jobs.output_key("acpmux-protocol-ir"), "acpmux_protocol_ir")
 
 
+def content_tree(files: dict[str, str]) -> "git_tree.GitTree":
+    """fake_tree, with each directory's object id a hash of what is under it, as git's tree ids are."""
+    import hashlib
+    entries = fake_tree(files).entries()
+    blobs = {}
+    for path, text in files.items():  # a blob's id is its content, so equal files are equal anywhere
+        oid = hashlib.sha1(text.encode()).hexdigest()
+        blobs[oid] = text.encode()
+        entries[path] = ("100644", oid)
+    for path in sorted((p for p, (mode, _) in entries.items() if mode == git_tree.DIRECTORY),
+                       key=lambda p: p.count("/"), reverse=True):  # the deepest first: a parent hashes its children
+        under = sorted(f"{p}={o}" for p, (_, o) in entries.items() if p.startswith(path + "/") and p.count("/") ==
+                       path.count("/") + 1)
+        entries[path] = (git_tree.DIRECTORY, hashlib.sha1("\n".join(under).encode()).hexdigest())
+    return git_tree.GitTree(ROOT, "fake", entries=entries, read_blob=lambda _path, oid: blobs[oid])
+
+
+def keys(files: dict[str, str]) -> dict[str, str]:
+    files = {**files}
+    for p in jobs.SELF:
+        files.setdefault(p, "")
+    with content_tree(files) as tree:
+        return {job: key for (_, job), key in jobs.result_keys(tree, map_text=MAP).items()}
+
+
+class ResultKeys(unittest.TestCase):
+    """The input-tree key a green result is reused by (tree_result.py): equal inputs give an equal key, and a change to
+    any input, the workflow or the router gives a new one."""
+
+    def setUp(self):
+        self.files = {**FILES, ".github/workflows/w.yml": "jobs: {}\n"}
+        self.before = keys(self.files)
+
+    def changed(self, path, text="changed\n"):
+        return keys({**self.files, path: text})
+
+    def test_a_change_outside_a_jobs_inputs_keeps_its_key(self):
+        after = self.changed("cmux-tui/crates/lonely/src/lib.rs")
+        self.assertEqual(after, self.before)
+        after = self.changed("README.md")
+        self.assertEqual(after, self.before)
+
+    def test_a_change_to_an_input_gives_the_jobs_that_read_it_a_new_key(self):
+        after = self.changed("cmux-tui/crates/sim/src/lib.rs")  # only app-sim turns sim on
+        self.assertNotEqual(after["app-sim"], self.before["app-sim"])
+        self.assertEqual(after["app-tests"], self.before["app-tests"])
+        self.assertEqual(after["core-check"], self.before["core-check"])
+        after = self.changed("schemas/core.json")  # an include_str! of core: every job builds core
+        self.assertTrue(all(after[j] != self.before[j] for j in self.before))
+        after = self.changed("scripts/run-app.sh")  # a job's own input
+        self.assertEqual([j for j in after if after[j] != self.before[j]], ["app-tests"])
+
+    def test_the_workflow_the_router_and_the_lockfile_are_in_every_key(self):
+        for path in (".github/workflows/w.yml", jobs.SELF[0], "cmux-tui/Cargo.lock"):
+            after = self.changed(path, "other\n")
+            self.assertTrue(all(after[j] != self.before[j] for j in self.before), path)
+
+    def test_jobs_with_the_same_inputs_still_have_their_own_keys(self):
+        self.assertEqual(len(set(self.before.values())), 3)
+
+    def test_a_reusing_job_gates_every_step_after_the_lookup(self):
+        job = jobs.Job(".github/workflows/w.yml", "app-tests", "app tests", [], [], [])
+        good = ("    steps:\n"
+                "      - uses: actions/checkout@x\n"
+                "      - name: Reuse\n        id: tree\n        uses: ./.github/actions/tree-result\n"
+                "        with:\n          mode: restore\n          job: app-tests\n"
+                "          key: ${{ needs.changes.outputs.app_tests_tree }}\n"
+                "      - name: Test\n        if: ${{ steps.tree.outputs.hit != 'true' && (always()) }}\n"
+                "        run: make test\n"
+                "      - name: Record\n        if: ${{ success() && steps.tree.outputs.hit != 'true' }}\n"
+                "        uses: ./.github/actions/tree-result\n        with:\n          mode: save\n"
+                "          job: app-tests\n          key: ${{ needs.changes.outputs.app_tests_tree }}\n")
+        self.assertEqual(jobs.tree_result_problems(job, good), [])
+        ungated = good.replace("        if: ${{ steps.tree.outputs.hit != 'true' && (always()) }}\n", "")
+        self.assertIn("step `name: Test`", " ".join(jobs.tree_result_problems(job, ungated)))
+        other_key = good.replace("outputs.app_tests_tree", "outputs.app_sim_tree")
+        self.assertTrue(jobs.tree_result_problems(job, other_key))
+        no_save = good.split("      - name: Record")[0]
+        self.assertTrue(jobs.tree_result_problems(job, no_save))
+        self.assertEqual(jobs.tree_result_problems(job, "    steps:\n      - run: make\n"), [])
+
+    def test_an_unreadable_graph_gives_no_key(self):
+        files = {**FILES, "cmux-tui/crates/app/Cargo.toml": "not toml ["}
+        self.assertEqual(keys(files), {})
+
+
 def built_crates(tree, root: str) -> set[str]:
     """The crate directories `cargo test -p ROOT` (default features) builds: normal and build dependencies of every
     crate, dev-dependencies of ROOT only, an optional one only when the depending crate's defaults turn it on.
