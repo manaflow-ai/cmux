@@ -17,6 +17,15 @@
       the id the phone pairs with; no file lookup that could name another build's state
   review_mac.py phones SOCK                   {"paired_connected": N, "phones": [...]} (names and ids only)
   review_mac.py quit SOCK                     quit as the person does, keeping sessions (quitKeepSessions)
+  review_mac.py backend-check VALUE           the canonical origin --backend names, or exit 2 with the reason:
+      `dev`/`development`, `preview-N`, the shared dev Workers API origin, or a tailnet origin
+      (https://<host>.<tailnet>.ts.net[:port]); the app's own allowlists (Rust cmux-cloud-environment,
+      iOS CloudBackendOverride) hold the same list
+  review_mac.py backend-write FOLDER ORIGIN   the dev build's backend.json in its bundle folder
+      (~/Library/Application Support/cmux-next/<bundle id>); an empty ORIGIN removes it. Prints
+      `changed` or `same` (a running app reads it only at launch)
+  review_mac.py backend SOCK [--timeout S]    the Cloud backend the running app uses (`auth.status`):
+      {"backend", "backend_label", "cloud_environment", "cloud_unavailable"} as JSON
 
 Nothing here turns a setting on, presses Allow or writes the app's pairing state: the code is the
 Mac's own single-use invite, the same route as scanning it (cmux-next-ios/SECURITY.md, pair-e2e).
@@ -29,9 +38,75 @@ import plistlib
 import socket
 import sys
 import time
+import re
+import tempfile
 import urllib.parse
 
 PAGE = "cmux.mobile-pairing"
+DEVELOPMENT_API = "https://cmux-api-development.debussy.workers.dev"
+TAILNET_LABEL = re.compile(r"^[a-z0-9-]+$")
+
+
+def backend_origin(value):
+    """The canonical origin `value` names, or raise ValueError with the reason (the app's allowlist)."""
+    raw = (value or "").strip()
+    lowered = raw.lower()
+    if lowered in ("dev", "development"):
+        return DEVELOPMENT_API
+    preview = re.fullmatch(r"preview-(\d+)", lowered)
+    if preview:
+        if int(preview.group(1)) == 0:
+            raise ValueError("preview number must be greater than zero")
+        return f"https://cmux-api-preview-{int(preview.group(1))}.debussy.workers.dev"
+    url = urllib.parse.urlsplit(raw)
+    if url.scheme != "https" or not url.hostname or url.username or url.password or url.path not in ("", "/") \
+            or url.query or url.fragment or "@" in url.netloc:
+        raise ValueError(f"not a bare https origin: {raw!r}")
+    host = url.hostname.lower()
+    try:
+        port = url.port
+    except ValueError:
+        raise ValueError(f"invalid port: {raw!r}")
+    suffix = f":{port}" if port else ""
+    if host == "cmux-api-development.debussy.workers.dev" and not port:
+        return DEVELOPMENT_API
+    preview = re.fullmatch(r"cmux-api-preview-(\d+)\.debussy\.workers\.dev", host)
+    if preview and not port and int(preview.group(1)) > 0:
+        return f"https://cmux-api-preview-{int(preview.group(1))}.debussy.workers.dev"
+    if host.endswith(".ts.net"):
+        labels = host[: -len(".ts.net")].split(".")
+        if len(labels) >= 2 and all(label and TAILNET_LABEL.match(label) for label in labels):
+            return f"https://{host}{suffix}"
+    raise ValueError(f"{raw!r} is not the shared dev deployment or a tailnet (*.ts.net) origin")
+
+
+def write_backend(folder, origin):
+    """backend.json in the bundle folder, atomically and private; an empty origin removes it."""
+    path = os.path.join(folder, "backend.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            before = json.load(f).get("backend", "")
+    except (OSError, ValueError, AttributeError):
+        before = None
+    if not origin:
+        if os.path.exists(path):
+            os.remove(path)
+            return "changed"
+        return "same"
+    if before == origin:
+        return "same"
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=folder, prefix=".backend.json.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump({"backend": origin, "written_by": "cmux-next-ios/scripts/review.sh --backend"}, f)
+            f.write("\n")
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+    return "changed"
 
 
 def rpc(sock, method, params=None, timeout=30):
@@ -81,11 +156,41 @@ def wait(fn, timeout, every=1.0):
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("op", choices=["socket", "bundle", "wait-socket", "account", "pair-url", "mark-used", "mac-id",
-                                  "phones", "quit"])
+                                  "phones", "quit", "backend-check", "backend-write", "backend"])
     p.add_argument("target")
+    p.add_argument("value", nargs="?", default="")
     p.add_argument("--timeout", type=float, default=60)
     p.add_argument("--used", default="")
     a = p.parse_args(argv)
+    if a.op == "backend-check":
+        try:
+            print(backend_origin(a.target))
+        except ValueError as error:
+            print(f"--backend refused: {error}", file=sys.stderr)
+            return 2
+        return 0
+    if a.op == "backend-write":
+        if a.value:
+            try:
+                origin = backend_origin(a.value)
+            except ValueError as error:
+                print(f"--backend refused: {error}", file=sys.stderr)
+                return 2
+        else:
+            origin = ""
+        print(write_backend(a.target, origin))
+        return 0
+    if a.op == "backend":
+        def read():
+            r = rpc(a.target, "auth.status", timeout=10)
+            return r if isinstance(r.get("backend"), str) and r.get("backend") else None
+        r = wait(read, a.timeout, every=2)
+        if not r:
+            print("the tagged Mac app does not say which Cloud backend it uses", file=sys.stderr)
+            return 1
+        print(json.dumps({key: r.get(key) for key in ("backend", "backend_label", "cloud_environment",
+                                                       "cloud_unavailable")}))
+        return 0
     if a.op == "socket":
         env = info(a.target).get("LSEnvironment") or {}
         print(env.get("CMUX_SOCKET_PATH") or "")
