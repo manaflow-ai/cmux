@@ -303,10 +303,14 @@ impl Hub {
             let text = list.text(self, row, with_tools);
             super::list_guard::fit_row(&text, row, budget).into_owned()
         };
-        if cursor.is_none()
-            && let Some(whole) = self.newest_whole(own_only, budget, &fit)
-        {
-            return Some(super::list_guard::page_text(None, &whole));
+        // The rows the newest-first try built, by row: a first page of a list too big to send
+        // whole is mostly the same rows, and building a row is most of a page's cost.
+        let mut built = HashMap::new();
+        if cursor.is_none() {
+            match self.newest_whole(own_only, budget, &fit) {
+                Ok(whole) => return Some(super::list_guard::page_text(None, &whole)),
+                Err(rows) => built = rows,
+            }
         }
         let mut most = BYTE_WINDOW;
         loop {
@@ -314,7 +318,7 @@ impl Hub {
             let (mut page, mut used, mut last) = (Vec::new(), 0_usize, None);
             let mut ended = true;
             for (hash, row) in &rows {
-                let text = fit(row);
+                let text = built.remove(&row_pair(row)).unwrap_or_else(|| fit(row));
                 let total = used.saturating_add(text.len()).saturating_add(1);
                 if last.is_some_and(|last| last != *hash) && total > budget {
                     ended = false;
@@ -334,16 +338,17 @@ impl Hub {
         }
     }
 
-    /// Every row newest first, as a list that fits sends it, when it fits in `budget`; None
-    /// once the rows passed it. Reads in growing windows of the kept orders, so a big list
-    /// stops at its first budget's worth of rows.
+    /// Every row newest first, as a list that fits sends it, when it fits in `budget`; else
+    /// the rows it built before they passed it, by row ([`row_pair`]). Reads in growing windows
+    /// of the kept orders, so a big list stops at its first budget's worth of rows.
     fn newest_whole(
         &self,
         own_only: bool,
         budget: usize,
         fit: &dyn Fn(&Unbuilt) -> String,
-    ) -> Option<Vec<String>> {
+    ) -> Result<Vec<String>, HashMap<RowPair, String>> {
         let mut most = BYTE_WINDOW;
+        let mut built: HashMap<RowPair, String> = HashMap::new();
         loop {
             let (rows, all) = if own_only {
                 let (own, all) = self.own_rows_from(None, most);
@@ -354,16 +359,21 @@ impl Hub {
             };
             let (mut page, mut used) = (Vec::new(), 0_usize);
             for row in &rows {
-                let text = fit(row);
+                let pair = row_pair(row);
+                let text = built.remove(&pair).unwrap_or_else(|| fit(row));
                 used = used.saturating_add(text.len()).saturating_add(1);
                 if used > budget {
-                    return None;
+                    built.insert(pair, text);
+                    built.extend(page.into_iter().zip(&rows).map(|(t, r)| (row_pair(r), t)));
+                    return Err(built);
                 }
                 page.push(text);
             }
             if all {
-                return Some(page);
+                return Ok(page);
             }
+            // A longer window starts again from its newest row: keep what this one built.
+            built.extend(page.into_iter().zip(&rows).map(|(t, r)| (row_pair(r), t)));
             most = most.saturating_mul(4);
         }
     }
@@ -404,7 +414,7 @@ impl Hub {
                 self.mesh_book_rows(past).into_iter().map(|r| (key(&r), Unbuilt::mirrored(r))),
             );
         }
-        let pair = |row: &Unbuilt| (row.session_id().to_owned(), row.peer().map(str::to_owned));
+        let pair = row_pair;
         // Stable, so of a row listed twice the first (this daemon's, then a peer's) is kept.
         rows.sort_by(|(a, ra), (b, rb)| a.cmp(b).then_with(|| pair(ra).cmp(&pair(rb))));
         rows.dedup_by(|(_, a), (_, b)| pair(a) == pair(b));
@@ -529,6 +539,13 @@ fn only_fields(mut row: Value, fields: &HashSet<String>) -> Value {
         members.retain(|key, _| fields.contains(key));
     }
     row
+}
+
+/// A listed row's session id and peer (None: this daemon's): one row of the list.
+type RowPair = (String, Option<String>);
+
+fn row_pair(row: &Unbuilt) -> RowPair {
+    (row.session_id().to_owned(), row.peer().map(str::to_owned))
 }
 
 /// The rows a whole read's window holds first ([`Hub::indexed_list_text`]); it grows fourfold
