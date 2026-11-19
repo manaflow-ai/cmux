@@ -38,8 +38,9 @@ that lists no window end the run at once (`stopped`, the exit code `STOPPED_EXIT
 recorded. Each row says both facts from one read directly before its recording (`app_active`,
 `shell_window_is_key`), and the tool does not ask a second time: in a `hold` row a fact that is not true is an
 INVALID reason (a hold's keys go to the key window of an active app), in each other row it is the fact only. The
-report's `head` says `the app was active: yes` only when each row says so, and the workspace of the keys. Rows of
-a run in an active app and rows of a run in an app that was not active are 2 states: no table has both.
+report's `head` says `the app was active: yes` only when each row says so, the workspace of the keys, and the
+reads and the seconds from the ask to the app's answer. Rows of a run in an active app and rows of a run in an
+app that was not active are 2 states: no table has both.
 
 `--key-tabs 6,84`: the count of tabs in the key's workspace before a case, as counts that rise, in one launch.
 First the tool shows the first workspace that the session's maker made (`action.run goToWorkspace`, then
@@ -163,6 +164,18 @@ def key_tabs(text):
     if not counts or counts[0] < 1 or any(later <= earlier for earlier, later in zip(counts, counts[1:])):
         raise argparse.ArgumentTypeError(f"{text}: --key-tabs takes counts of tabs that rise, from 1 (6,84)")
     return counts
+
+
+def shells(workspace):
+    """What the app's list (`snapshot.get`) says of a workspace's terminals: how many, and how many have no shell
+    (`dead`: a terminal that the session's maker parked reads so; `parked` itself is the daemon's word and not in
+    this list). None when the list has no terminal of it or no such fact."""
+    tabs = [tab for screen in workspace.get("screens") or [] if isinstance(screen, dict)
+            for pane in screen.get("panes") or [] if isinstance(pane, dict) for tab in pane.get("tabs") or [] if isinstance(tab, dict)]
+    terminals = [tab for tab in tabs if tab.get("kind") in ("pty", "terminal")]
+    if not terminals or any(not isinstance(tab.get("dead"), bool) for tab in terminals):
+        return None
+    return {"terminals": len(terminals), "with_no_shell": sum(1 for tab in terminals if tab["dead"])}
 
 
 def goes_on(reply):
@@ -540,8 +553,9 @@ class Screen:
         deadline = self.clock() + SHOWN_S
         while (shown := self.shown()) != made["id"] and self.clock() < deadline:
             self.sleep(0.5)  # tool pacing: the app shows the workspace
+        # `terminals_before_shown`: by the app's list directly after the maker, before this ask to show the workspace.
         self.key_workspace = {"is": "a workspace of the made session", "id": made["id"], "name": name, "shown_by_the_app": shown == made["id"],
-                              "by": "action.run goToWorkspace, then snapshot.get's focus"}
+                              "by": "action.run goToWorkspace, then snapshot.get's focus", "terminals_before_shown": shells(made)}
         if shown != made["id"]:
             return (f"the key's workspace: the app does not show the made workspace `{name}` {SHOWN_S:g} s after action.run goToWorkspace "
                     f"(it shows {shown}; the action's reply: {json.dumps(reply, default=str)[:200]}): no tab made, no case recorded")
@@ -558,13 +572,15 @@ class Screen:
             said = f"the app's debug.focus said {json.dumps(fact['error'], default=str)[:200]}" if fact["error"] else "the app lists no window (debug.focus)"
             return f"active: {said}: no tab made, no case recorded"
         asked = {"window": fact["window"], "activate": True}
-        reply = self.rpc("debug.window.focus", asked, 30)
+        reply, began = self.rpc("debug.window.focus", asked, 30), self.clock()
         for reads in range(1, ACTIVE_READS + 1):
             fact = self.listing()
             if (fact["app_active"] is True and fact["is_key"] is True) or reads == ACTIVE_READS:
                 break
             self.sleep(0.2)  # tool pacing: an activation is a request, the app's answer can come later
-        self.activation.update({"asked": asked, "reply": reply, "app_active": fact["app_active"], "shell_window_is_key": fact["is_key"], "reads": reads})
+        # `seconds`: from the ask's reply to the last read (the answer that both are true, or the last one that they are not).
+        self.activation.update({"asked": asked, "reply": reply, "app_active": fact["app_active"], "shell_window_is_key": fact["is_key"],
+                                "reads": reads, "seconds": round(self.clock() - began, 1)})
         if fact["app_active"] is True and fact["is_key"] is True:
             return None
         return (f"active: after debug.window.focus {json.dumps(asked)} the app says app_active={json.dumps(fact['app_active'])} and its "
@@ -787,8 +803,9 @@ class Screen:
                 yield f"{name}, {said}", take
 
     def head(self):
-        """The report's first 2 sentences: whether the app was active (by each row's own read; with no row, by the
-        answer after the run's ask), and the workspace of the keys."""
+        """The report's first sentences: whether the app was active (by each row's own read; with no row, by the
+        answer after the run's ask), the workspace of the keys, how many reads and seconds the app took to say that
+        it is active, and for a made workspace what the app's list said of its terminals before the app showed it."""
         read, place = [row for row in self.rows if "app_active" in row], self.key_workspace or {}
         yes = sum(1 for row in read if row["app_active"] is True)
         if not read:
@@ -800,7 +817,17 @@ class Screen:
             where = f"NOT the made workspace `{place['name']}` (the app does not show it)"
         elif place.get("name"):
             where += f" ({place['name']})"
-        return [f"the app was active: {active}", f"the key's workspace: {where}"]
+        ask = self.activation or {}
+        said = [f"the app was active: {active}", f"the key's workspace: {where}",
+                "the ask for the active app: " + ("not made" if not ask.get("asked") else
+                                                  f"{ask['reads']} reads of the app's answer, {ask['seconds']:g} s from the ask to the answer")]
+        if "terminals_before_shown" in place:
+            had = place["terminals_before_shown"]
+            said.append("the key's workspace's terminals before the app showed it: " + (
+                "NOT KNOWN (the app's list has no such fact)" if not had else
+                f"{had['with_no_shell']} of {had['terminals']} with no shell by the app's list (`dead`; a parked terminal reads so, and its "
+                "shell starts when the app shows its workspace)"))
+        return said
 
     def run(self):
         opts = self.opts
