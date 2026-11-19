@@ -488,9 +488,10 @@ impl CongestionController {
         }
         self.ultra.capacity_bps = Some(capacity_bps);
         if let Some(held) = self.ultra.held_wire_bps(self.ultra_path_ceiling()) {
-            // A new estimate cannot clear a queue that has not drained.
+            // A new estimate cannot clear a queue that has not drained, or a loss that
+            // has not stopped.
             self.ultra.wire_bps =
-                if self.ultra.standing_queue { self.ultra.wire_bps.min(held) } else { held };
+                if self.ultra.cutting() { self.ultra.wire_bps.min(held) } else { held };
         }
         self.clamp();
         true
@@ -721,9 +722,12 @@ impl CongestionController {
             }
         }
         if self.profile == EncodeProfile::Ultra {
-            // Ultra holds its probe-measured rate: only a standing queue cuts it,
-            // never loss alone, and there is no growth on media feedback.
-            if has_samples {
+            // Ultra holds its probe-measured rate: only a standing queue, or loss over
+            // what FEC covers lasting over a second, cuts it (loss at or under 5% never
+            // does), and there is no growth on media feedback. `loss` is after the
+            // outage screen: a radio outage's loss is not a cut signal.
+            self.ultra.observe_loss(loss, now_us);
+            if has_samples || self.ultra.sustained_loss {
                 self.update_ultra(now_us);
             }
             self.clamp();
@@ -789,11 +793,11 @@ impl CongestionController {
     }
 
     fn update_ultra(&mut self, now_us: u64) {
-        if self.ultra.standing_queue {
+        if self.ultra.cutting() {
             self.usage = Usage::Overuse;
             if self.last_decrease_us.is_none() || now_us >= self.next_decrease_us {
                 let before = self.ultra.wire_bps;
-                // Queue evidence, never loss alone, permits this cut. A low-rate
+                // A standing queue or sustained loss over 5% permits this cut. A low-rate
                 // encoder does not turn its throughput into a capacity estimate.
                 let mut next = (before as f64 * BETA) as u64;
                 if let Some(acked) = self.acked_bps()
