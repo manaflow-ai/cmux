@@ -13,11 +13,13 @@
 //! keeps the hour-long part of its cache writes (`cacheWrite1hTokens`), which the table prices at
 //! their own tier.
 //!
-//! Persisted append-only to `<home>/ledger/turns.jsonl` by a writer thread, so the append lock
-//! never waits on a disk: one `u` line per turn (or, after a compaction, per bucket) and one `s`
-//! line whenever a session's descriptive fields change (lines merge; later fields win). Folded
-//! once when the hub is built; rewritten as one line per bucket and session when it grows past
-//! [`COMPACT_BYTES`]. With no file yet, the first start seeds each loaded session's
+//! Persisted append-only to `<home>/ledger/turns.jsonl` at the event: one `u` line per turn (or,
+//! after a compaction, per bucket) and one `s` line whenever a session's descriptive fields
+//! change (lines merge; later fields win), each written by the caller under the state lock as it
+//! is emitted (one write, no sync), so a kill of the daemon right after loses none and its stop
+//! has none left to write. Folded once when the hub is built; rewritten as one line per bucket
+//! and session by a writer thread when it grows past [`COMPACT_BYTES`] (`store.rs` orders the
+//! rewrite against the appends). With no file yet, the first start seeds each loaded session's
 //! `SessionMeta::totals` on its `updated_at` day (`seed`).
 //!
 //! A read folds only the days in its range (`BTreeMap` range): its cost is the session-days in
@@ -236,8 +238,8 @@ pub(crate) struct State {
     repo_asked: HashSet<Arc<str>>,
     /// Interned model and version strings.
     strings: BTreeSet<Arc<str>>,
-    /// Lines handed to the writer so far.
-    pub seq: u64,
+    /// The file the lines go to; `None` in memory (a memory store, or no writer thread).
+    pub(crate) disk: Option<store::Disk>,
     /// The file existed when the hub was built (no seed then).
     pub existed: bool,
     pub seeded: bool,
@@ -313,6 +315,12 @@ impl State {
         let key = self.session_key(session);
         self.sessions.get_mut(&key).is_some_and(|row| row.merge(info))
     }
+
+    /// Writes `line` to the file now ([`store::Disk::append`]). True when the writer thread has
+    /// a step to take and none is queued: the caller queues [`Work::Step`].
+    pub(crate) fn emit(&mut self, line: &Line) -> bool {
+        self.disk.as_mut().is_some_and(|disk| disk.append(line))
+    }
 }
 
 /// One line of `turns.jsonl`.
@@ -343,23 +351,27 @@ pub(crate) enum Line {
         info: SessionInfo,
     },
     /// The session was purged: the fold drops everything before it about `sid`. The writer
-    /// compacts right after writing one, so the purged lines leave the file with it.
+    /// compacts right after one is written, so the purged lines leave the file with it.
     #[serde(rename = "p")]
     Purge { sid: String },
 }
 
-/// What the writer thread is handed.
+/// What the writer thread is handed. Never a line: callers write their own
+/// ([`State::emit`]).
 pub(crate) enum Work {
-    Line(u64, Box<Line>),
+    /// A compaction may be due, or a seed's failed rewrite wants another try.
+    Step,
     /// Read the folder's origin remote for a session with no repository yet.
-    Repo {
-        sid: String,
-        cwd: PathBuf,
-    },
+    Repo { sid: String, cwd: PathBuf },
     /// Write the first start's seed, already in the state, as one rewrite of the file.
     Seed,
+    /// A step, then a reply.
     #[cfg(test)]
     Flush(std::sync::mpsc::SyncSender<()>),
+    /// The next rewrite says when its snapshot is written, and waits for `resume` before it
+    /// renames: a test appends in between.
+    #[cfg(test)]
+    Pause { reached: std::sync::mpsc::SyncSender<()>, resume: std::sync::mpsc::Receiver<()> },
 }
 
 pub struct Ledger {
@@ -368,6 +380,8 @@ pub struct Ledger {
     writer: Mutex<Option<std::sync::mpsc::Sender<Work>>>,
     /// The writer thread, and the channel its end closes (`close` waits on it).
     thread: Mutex<Option<store::WriterThread>>,
+    /// Set by [`Ledger::close`]: no line reaches the file after it.
+    closed: Arc<AtomicBool>,
     /// The person every session on this machine runs for.
     person: String,
 }
@@ -411,10 +425,11 @@ impl Ledger {
         hold_for_seed: bool,
     ) -> Self {
         let state = Arc::new(Mutex::new(State::default()));
+        let closed = Arc::new(AtomicBool::new(false));
         let mut repos = Vec::new();
         let spawned = dir.and_then(|dir| {
             let path = dir.join(store::FILE);
-            let (size, awaiting_seed) = {
+            {
                 let mut s = state.lock().unwrap_or_else(PoisonError::into_inner);
                 let size = store::fold(&path, &mut s);
                 // Folded sessions with no repository yet: their folder's origin, once.
@@ -427,31 +442,52 @@ impl Ledger {
                         repos.push(Work::Repo { sid: id.to_string(), cwd: PathBuf::from(cwd) });
                     }
                 }
-                (size, hold_for_seed && !s.existed)
-            };
-            store::spawn_writer(dir, path, size, compact_bytes, awaiting_seed, Arc::clone(&state))
+                let awaiting_seed = hold_for_seed && !s.existed;
+                s.disk = Some(store::Disk::new(
+                    dir.clone(),
+                    path.clone(),
+                    size,
+                    compact_bytes,
+                    awaiting_seed,
+                    Arc::clone(&closed),
+                ));
+            }
+            let spawned = store::spawn_writer(dir, path, Arc::clone(&state), Arc::clone(&closed));
+            if spawned.is_none() {
+                // No thread to compact or seed the file: kept in memory only.
+                state.lock().unwrap_or_else(PoisonError::into_inner).disk = None;
+            }
+            spawned
         });
         let (writer, thread) = match spawned {
             Some((tx, thread)) => (Some(tx), Some(thread)),
             None => (None, None),
         };
-        let ledger = Self { state, writer: Mutex::new(writer), thread: Mutex::new(thread), person };
+        let ledger =
+            Self { state, writer: Mutex::new(writer), thread: Mutex::new(thread), closed, person };
         for work in repos {
             ledger.send(work);
         }
         ledger
     }
 
-    /// Shutdown (`Hub::flush`): closes the writer's queue and waits up to `within` for it to
-    /// write what it holds and end. True when it ended; later lines are kept in memory only.
-    /// A writer still running is kept for [`Ledger::wait_closed`].
+    /// Shutdown (`Hub::flush`): every line emitted so far is in the file already, so this only
+    /// stops appends (later lines are kept in memory only), closes the writer's queue and waits
+    /// up to `within` for the thread to end. The thread skips what is queued (a compaction, a
+    /// repository lookup) and ends after a rewrite under way, or a first start's seed queued
+    /// before the close. True when it ended; a writer still running is kept for
+    /// [`Ledger::wait_closed`].
     pub fn close(&self, within: std::time::Duration) -> bool {
-        drop(self.writer.lock().unwrap_or_else(PoisonError::into_inner).take());
+        self.stop_appends();
         let Some(thread) = self.thread.lock().unwrap_or_else(PoisonError::into_inner).take() else {
+            self.appends_done();
             return true;
         };
         match thread.join_within(within) {
-            Ok(()) => true,
+            Ok(()) => {
+                self.appends_done();
+                true
+            }
             Err(thread) => {
                 *self.thread.lock().unwrap_or_else(PoisonError::into_inner) = Some(thread);
                 false
@@ -459,24 +495,41 @@ impl Ledger {
         }
     }
 
-    /// Closes the writer's queue and waits for the writer to end, however long that takes:
-    /// what holds the daemon's home lock until then (`Hub::persist_for_handoff`).
+    /// [`Ledger::close`], waiting for the thread however long it takes: what holds the daemon's
+    /// home lock until then (`Hub::persist_for_handoff`).
     pub fn wait_closed(&self) {
-        drop(self.writer.lock().unwrap_or_else(PoisonError::into_inner).take());
+        self.stop_appends();
         let thread = self.thread.lock().unwrap_or_else(PoisonError::into_inner).take();
         if let Some(thread) = thread {
             thread.join();
         }
+        self.appends_done();
+    }
+
+    /// No append reaches the file from here, and the writer's queue closes.
+    fn stop_appends(&self) {
+        self.closed.store(true, Ordering::SeqCst);
+        drop(self.writer.lock().unwrap_or_else(PoisonError::into_inner).take());
+    }
+
+    /// Waits out an append that read the flag before [`Ledger::stop_appends`] set it: appends
+    /// run under the state lock, so once it is taken here none is under way. Taken only after
+    /// the thread ended, never while a caller of `close` may hold it.
+    fn appends_done(&self) {
+        drop(self.lock());
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Hands `line` to the writer, under the state lock so lines keep their order.
+    /// Writes `line` to the file now, under the state lock so lines keep their order and a
+    /// rewrite sees each one either in its snapshot or in its tail (`store.rs`), and wakes the
+    /// writer when a compaction or a seed's retry is due.
     fn emit(&self, state: &mut State, line: Line) {
-        state.seq += 1;
-        self.send(Work::Line(state.seq, Box::new(line)));
+        if state.emit(&line) {
+            self.send(Work::Step);
+        }
     }
 
     fn send(&self, work: Work) {
@@ -714,7 +767,8 @@ impl Ledger {
         query::fold(&self.lock(), q, &self.person).0
     }
 
-    /// Waits until the writer has written everything handed to it.
+    /// Waits until the writer has taken everything handed to it, and a step after: a compaction
+    /// or a seed's retry due by now has landed.
     #[cfg(test)]
     pub(crate) fn flush(&self) {
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
@@ -781,5 +835,7 @@ impl Seed {
     }
 }
 
+#[cfg(test)]
+mod emit_bench;
 #[cfg(test)]
 mod tests;

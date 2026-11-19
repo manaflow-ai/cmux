@@ -194,7 +194,7 @@ impl Hub {
                     }
                 }
                 // Saving a changed title/repository also updates its ledger entry. Close
-                // that writer after these updates, while the store seals independently.
+                // the ledger after these updates, while the store seals independently.
                 let _ = metadata_done.send(());
                 hub.store.seal();
                 if let Err(error) = hub.store.flush() {
@@ -240,7 +240,8 @@ impl Hub {
         if let Err(e) = self.store.flush() {
             tracing::warn!("store flush failed: {e}");
         }
-        // The cost ledger's last lines too: its writer drains its queue and ends (`hub/ledger`).
+        // The cost ledger's lines are in its file as they happen: this stops its appends and
+        // joins its writer thread, which ends after a rewrite under way (`hub/ledger`).
         self.ledger.close(LEDGER_DRAIN);
     }
 
@@ -493,7 +494,8 @@ impl Hub {
 /// How long the shutdown waits for the audit writer (`audit_log.rs`) to finish.
 const AUDIT_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// How long the shutdown waits for the cost ledger's writer to drain.
+/// How long the shutdown waits for the cost ledger's writer thread to end (a rewrite under way;
+/// it has no lines left to write).
 const LEDGER_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 
 pub use crate::recovery::SHUTTING_DOWN;

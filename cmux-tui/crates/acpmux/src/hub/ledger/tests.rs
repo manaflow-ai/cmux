@@ -718,7 +718,7 @@ fn close_drains_the_writer_before_it_ends() {
         for i in 0..50 {
             turn(&l, "a", D0 + i, 1, cost.clone(), "claude", "claude");
         }
-        // No flush: the shutdown's close is what writes the queue out.
+        // No flush: the lines are in the file already, and the close ends the writer.
         assert!(l.close(std::time::Duration::from_secs(10)));
         // A line after the close stays in memory and does not fail.
         turn(&l, "a", D0 + 99, 0, cost.clone(), "claude", "claude");
@@ -1035,4 +1035,99 @@ fn a_writer_past_the_close_bound_is_waited_for_until_its_lines_are_written() {
     waiter.join().unwrap();
     let text = std::fs::read_to_string(dir.path().join(super::store::FILE)).unwrap();
     assert!(text.contains("slow-disk"), "the writer's lines are not on disk: {text}");
+}
+
+/// A kill of the daemon right after a turn result keeps its line: the caller wrote it to the file
+/// before `record` returned, with no step of the writer thread, flush or close in between.
+#[test]
+fn a_kill_right_after_a_turn_keeps_its_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().to_path_buf();
+    let l = Ledger::open_with(Some(path.clone()), COMPACT_BYTES, "leo@test".into());
+    turn(&l, "a", D0, 1, json!({"model": "claude-opus-5-5", "costUsd": 1.0}), "claude", "claude");
+    // The kill: the ledger is never flushed, closed or dropped.
+    std::mem::forget(l);
+    let after = Ledger::open_with(Some(path), COMPACT_BYTES, "leo@test".into());
+    let t = after.query(&all(D0, D0)).totals;
+    assert_eq!((t.turns, t.tool_calls), (1, 1));
+    assert!((t.cost_usd - 1.0).abs() < 1e-9, "{}", t.cost_usd);
+    let title = after.lock().sessions.get("a").and_then(|i| i.title.clone());
+    assert_eq!(title.as_deref(), Some("claude chat"));
+}
+
+/// A turn emitted while a compaction rewrites the file is in the file the next open reads at
+/// every point: before the rename (a kill then finds the old file, which has it) and after (the
+/// new file carries it after the snapshot), and a turn after the compaction appends to the new
+/// file.
+#[test]
+fn a_turn_during_a_compaction_is_in_the_file_before_and_after_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().to_path_buf();
+    let file = path.join(store::FILE);
+    let open = || Ledger::open_with(Some(path.clone()), COMPACT_BYTES, "leo@test".into());
+    let cost = json!({"model": "claude-opus-5-5", "costUsd": 1.0});
+    let l = open();
+    for i in 0..10 {
+        turn(&l, "a", D0 + i, 0, cost.clone(), "claude", "claude");
+    }
+    turn(&l, "x", D0, 0, cost.clone(), "claude", "claude");
+    l.flush();
+    // The purge's compaction stops after writing its snapshot, before its rename.
+    let (reached_tx, reached) = std::sync::mpsc::sync_channel(1);
+    let (resume_tx, resume) = std::sync::mpsc::channel();
+    l.send(Work::Pause { reached: reached_tx, resume });
+    l.purge("x");
+    reached
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("the purge's compaction did not start");
+    turn(&l, "b", D0 + 100, 0, cost.clone(), "claude", "claude");
+    // A kill here: the old file is still the ledger, and holds the turn.
+    assert_eq!(open().query(&all(D0, D0)).totals.turns, 11);
+    resume_tx.send(()).unwrap();
+    l.flush();
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(!text.contains(r#""sid":"x""#), "the compaction did not replace the file:\n{text}");
+    assert!(text.contains(r#""sid":"b""#), "the turn during it is not in the new file:\n{text}");
+    assert_eq!(open().query(&all(D0, D0)).totals.turns, 11);
+    turn(&l, "c", D0 + 200, 0, cost.clone(), "claude", "claude");
+    std::mem::forget(l);
+    let after = open();
+    assert_eq!(after.query(&all(D0, D0)).totals.turns, 12);
+    assert!(!after.lock().sessions.contains_key("x"));
+}
+
+/// A first start's turns before its seed's rewrite lands, the one emitted while it runs
+/// included, are in the file once it lands, with no close; a kill before it lands leaves no
+/// ledger file, so the next start seeds again.
+#[test]
+fn turns_before_and_during_the_first_seed_survive_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().to_path_buf();
+    let cost = json!({"model": "claude-opus-5-5", "costUsd": 0.5});
+    let l = Ledger::open_as(Some(path.clone()), COMPACT_BYTES, "leo@test".into(), true);
+    turn(&l, "early", D0 + 100, 0, cost.clone(), "claude", "claude");
+    let (reached_tx, reached) = std::sync::mpsc::sync_channel(1);
+    let (resume_tx, resume) = std::sync::mpsc::channel();
+    l.send(Work::Pause { reached: reached_tx, resume });
+    l.seed(vec![Seed {
+        id: "old".into(),
+        at: D0 + 5,
+        turns: 2,
+        totals: TurnUsage { cost_usd: Some(1.0), ..Default::default() },
+        ctx: TurnContext { model: Some("claude-opus-5-5".into()), ..ctx("claude", "claude") },
+    }]);
+    reached
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("the seed's rewrite did not start");
+    turn(&l, "during", D0 + 200, 0, cost.clone(), "claude", "claude");
+    // A kill here: no ledger file yet, and the next start seeds again.
+    assert!(!path.join(store::FILE).exists());
+    resume_tx.send(()).unwrap();
+    l.flush();
+    std::mem::forget(l);
+    let after = Ledger::open_with(Some(path), COMPACT_BYTES, "leo@test".into());
+    assert!(!after.wants_seed());
+    let t = after.query(&all(D0, D0)).totals;
+    assert_eq!(t.turns, 4);
+    assert!((t.cost_usd - 2.0).abs() < 1e-9, "{}", t.cost_usd);
 }

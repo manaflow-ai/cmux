@@ -2809,7 +2809,8 @@ impl Hub {
                 m.harness_sandbox.observe(&record.kind, &record.msg, record.at);
             }
         }
-        // The cost ledger's index: O(1), no IO (its writer thread writes the file).
+        // The cost ledger's index: O(1). A turn result (or a changed session) writes its one line
+        // to the ledger file here, no sync, so a kill right after keeps it (`hub/ledger`).
         self.ledger.observe(session, &record);
         // Its row's sequence numbers and date moved, sent or not: its cached closed row is stale.
         session.summary_gen.fetch_add(1, Ordering::SeqCst);
