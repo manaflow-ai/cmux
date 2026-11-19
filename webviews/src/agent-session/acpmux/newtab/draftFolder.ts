@@ -36,6 +36,15 @@ export function withCloudStartPick(
   } as AcpmuxSnapshot;
 }
 
+/// The pick a Cloud start shows on the composer: only while that start runs. A failed start's card stays for its
+/// Retry, and a model picked after it must show and go with the next send, not the failed start's (#46874 review).
+export function shownCloudStartPick(
+  shown: boolean,
+  start: { state: "starting" | "failed"; pick?: { harness: string; model?: string } } | undefined,
+): { harness: string; model?: string } | undefined {
+  return shown && start?.state === "starting" ? start.pick : undefined;
+}
+
 /// The harness and model a pick on this sessionless page holds (a switch that has not failed), for
 /// the `chat.new` that starts the chat in the picked folder: `switchTo` then carries the pick's
 /// model and options there. Empty when nothing is held.
