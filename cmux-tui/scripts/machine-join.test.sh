@@ -66,6 +66,18 @@ real_rm="$(command -v rm)"
   printf 'exec "%s" "$@"\n' "$real_rm"
 } >"$shims/rm"
 chmod 755 "$shims/rm"
+# install and mv of cmux-rd's temp file fail when ~/rd-install-fail or ~/rd-mv-fail
+# exists: a ~/.local/bin that cannot be written (read-only, or a full disk).
+for tool in install mv; do
+  real="$(command -v "$tool")"
+  {
+    printf '#!/bin/sh\n'
+    printf '. "%s/record.sh"\n' "$fakes"
+    printf 'case "$*" in *.cmux-rd.new*) [ ! -f "$HOME/rd-%s-fail" ] || { echo "%s: Read-only file system" >&2; exit 1; } ;; esac\n' "$tool" "$tool"
+    printf 'exec "%s" "$@"\n' "$real"
+  } >"$shims/$tool"
+  chmod 755 "$shims/$tool"
+done
 # A printf on PATH would only run if the script exec'd one: it must not.
 cp "$shims/cat" "$shims/printf"
 real_env="$(command -v env)"
@@ -748,6 +760,23 @@ suite() {
     check "rd symlink to $to: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
     check "rd symlink to $to: replaced by the channel's" rd_is_channels
     check "rd symlink to $to: nothing put inside its target" test ! -e "$d/own/cmux-rd"
+  done
+
+  # ~/.local/bin cannot be written: one line and the state file, the join goes on, the
+  # old cmux-rd kept and no temp file left.
+  for step in install mv; do
+    new_case "linux-cmux-rd-$step-fails"
+    old_rd
+    : >"$d/home/rd-$step-fail"
+    run_join env
+    check "rd $step fails: the join still exits 0 (got $rc): $(cat "$d/out")" rc_is 0
+    check "rd $step fails: joined" token_on_stdin_once
+    check "rd $step fails: one line" eval '[ "$(rd_lines)" = 1 ]'
+    check "rd $step fails: says so" out_has "cmux-rd did not install (cannot write it to $d/home/.local/bin)"
+    check "rd $step fails: the state file holds the reason" grep -qx "cannot write it to $d/home/.local/bin" "$(rd_state)"
+    check "rd $step fails: the old cmux-rd untouched" old_rd_kept
+    check "rd $step fails: no temp file left in bin" test ! -e "$d/home/.local/bin/.cmux-rd.new"
+    check "rd $step fails: the join's last step ran" grep -q "^acpmux daemon restart" "$d/log/argv"
   done
 
   # A directory where cmux-rd goes: one clear line, left as it is, nothing fetched.
