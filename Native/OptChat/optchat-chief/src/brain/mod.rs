@@ -35,6 +35,7 @@ mod image_fit;
 pub mod images;
 mod inbox;
 pub mod media;
+mod memory;
 mod mux_ack;
 mod outbox;
 mod outcome_ledger;
@@ -1085,6 +1086,11 @@ pub struct Brain {
     approval_told: HashSet<String>,
     /// Fetches link previews for replies' URL lines (None: replies stay text).
     previewer: Option<Arc<dyn crate::link_preview::Fetcher>>,
+    /// The memory files whose index and standing rules every turn reads
+    /// after the chat (memory_files.rs); None: no files on this host.
+    memory_files: Option<Arc<crate::memory_files::MemoryFiles>>,
+    /// The self-paced check-ins (check_in.rs).
+    check_ins: crate::check_in::Mode,
     /// Turns cut in a row by a lost acpmux link (`Brain::turn_cut`): past
     /// `turns::MAX_CUTS` the next one fails as before, never a loop.
     cuts: u32,
@@ -1254,6 +1260,8 @@ impl Brain {
             unanswered: Vec::new(),
             approval_told: HashSet::new(),
             previewer: None,
+            memory_files: None,
+            check_ins: crate::check_in::Mode::Off,
             cuts: 0,
             cut_ran: false,
             resume_at: None,
@@ -1551,6 +1559,7 @@ impl Brain {
                 self.next_unanswered_due(),
                 self.next_reply_due(),
                 self.next_outcome_due(),
+                self.next_check_in(),
             ]
             .into_iter()
             .flatten()
@@ -1563,6 +1572,7 @@ impl Brain {
                         self.fire_wakes_at(now_ms());
                         self.fire_reply_checks_at(now_ms());
                         self.fire_outcome_checks_at(now_ms());
+                        self.fire_check_in();
                         let now = (self.clock)();
                         self.deny_overdue_permissions_at(now);
                         continue;

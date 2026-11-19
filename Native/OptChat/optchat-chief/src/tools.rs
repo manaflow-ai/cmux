@@ -19,9 +19,55 @@ use optchat_host::OptChat;
 use serde_json::{Value, json};
 
 /// What the tools read.
+/// A memory file tool call.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MemoryFileCall {
+    Read {
+        path: String,
+    },
+    Write {
+        path: String,
+        description: String,
+        body: String,
+    },
+    Forget {
+        path: String,
+    },
+}
+
+impl MemoryFileCall {
+    /// Answers the call from `files`, as the Chief's own turn (`run`).
+    pub fn answer(
+        self,
+        files: &crate::memory_files::MemoryFiles,
+        run: &str,
+    ) -> Result<String, String> {
+        match self {
+            MemoryFileCall::Read { path } => Ok(files.read(&path)),
+            MemoryFileCall::Write {
+                path,
+                description,
+                body,
+            } => files.write(
+                &path,
+                &description,
+                &body,
+                crate::memory_files::Trust::Person,
+                run,
+            ),
+            MemoryFileCall::Forget { path } => files.forget(&path, run),
+        }
+    }
+}
+
 pub trait Memory: Send + Sync {
     fn zoom(&self, id: u64, n: u64) -> String;
     fn date(&self, id: u64) -> String;
+    /// `recall(query)`: the logged messages that best match the query.
+    fn recall(&self, query: &str, limit: usize, all: bool) -> String {
+        let _ = (query, limit, all);
+        "recall is not available here".to_owned()
+    }
     /// The whole memory as one HTML page (`optchat-chief browse`).
     fn browse(&self) -> String {
         "browsing is not available".to_owned()
@@ -38,6 +84,10 @@ impl Memory for OptChat {
         OptChat::date(self, id).unwrap_or_else(|| format!("No message {id}."))
     }
 
+    fn recall(&self, query: &str, limit: usize, all: bool) -> String {
+        OptChat::recall(self, query, limit, all).unwrap_or_else(|e| format!("recall failed: {e}"))
+    }
+
     fn browse(&self) -> String {
         crate::browse::html(self)
     }
@@ -45,7 +95,7 @@ impl Memory for OptChat {
 
 /// The Chief tools a turn another person started may call only with
 /// some arguments (`approval::CHIEF_TOOLS`, by their socket names).
-const TURN_GATED: [&str; 13] = [
+const TURN_GATED: [&str; 15] = [
     "send",
     "reply",
     "react",
@@ -57,6 +107,8 @@ const TURN_GATED: [&str; 13] = [
     "control",
     "profile",
     "remember",
+    "memory_write",
+    "memory_forget",
     "cloud_workspace",
     "mcp",
 ];
@@ -202,6 +254,11 @@ pub trait Orchestrator: Send + Sync {
     fn remember(&self, text: &str) -> Result<String, String> {
         let _ = text;
         Err("this Chief host has no person profile to remember in".into())
+    }
+    /// `memory_read`, `memory_write`, `memory_forget` (memory_files.rs).
+    fn memory_file(&self, call: MemoryFileCall) -> Result<String, String> {
+        let _ = call;
+        Err("this Chief host keeps no memory files".into())
     }
     /// `cloud_workspace` (cloud_workspace.rs): a cmux Cloud machine and a
     /// workspace on it for a task, in the person's sidebar.
@@ -577,6 +634,17 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
                 _ => return Ok(Command::Usage(usage(tool))),
             }
         }
+        ("memory_read", [path]) => Call::parse("memory_read", &serde_json::json!({"path": path})),
+        ("memory_forget", [path]) => {
+            Call::parse("memory_forget", &serde_json::json!({"path": path}))
+        }
+        ("memory_write", [args]) => match serde_json::from_str::<Value>(args) {
+            Ok(v @ Value::Object(_)) => Call::parse("memory_write", &v),
+            _ => return Ok(Command::Usage(usage(tool))),
+        },
+        ("recall", words) if !words.is_empty() => {
+            Call::parse("recall", &serde_json::json!({"query": words.join(" ")}))
+        }
         ("remember", text) if !text.is_empty() => {
             Call::parse("remember", &serde_json::json!({"text": text.join(" ")}))
         }
@@ -652,6 +720,10 @@ pub fn usage(tool: &str) -> String {
             "watch" =>
                 "['{\"command\": \"...\", \"until\": \"REGEX\", \"timeout_seconds\": 1800, \"note\": \"...\"}'] | --cancel ID|all",
             "remember" => "\"the preference, one short line\"",
+            "recall" => "WORDS...",
+            "memory_read" | "memory_forget" => "notes/TOPIC.md|loops/TASK.md|index.md",
+            "memory_write" =>
+                "'{\"path\": \"notes/TOPIC.md\", \"description\": \"...\", \"body\": \"...\"}'",
             "escalate-auth" | "escalate_auth" =>
                 "password|passkey|2fa|oauth SITE URL \"why you need it\"",
             "peers" => "",
@@ -768,6 +840,14 @@ pub enum Call {
     Date {
         id: u64,
     },
+    /// `memory_read`, `memory_write`, `memory_forget` (memory_files.rs).
+    MemoryFile(MemoryFileCall),
+    /// `recall(query)`: full-text search over every logged message.
+    Recall {
+        query: String,
+        limit: usize,
+        all: bool,
+    },
     Spawn {
         tasks: Vec<String>,
         /// The subagents' working directory on the Chief's host (`~` is
@@ -880,6 +960,42 @@ impl Call {
                 n: num("n")?,
             }),
             "date" => Ok(Call::Date { id: num("id")? }),
+            "memory_read" | "memory_write" | "memory_forget" => {
+                let text = |key: &str| -> Result<String, String> {
+                    args.get(key)
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                        .ok_or_else(|| format!("{tool}: `{key}` must be a string"))
+                };
+                Ok(Call::MemoryFile(match tool {
+                    "memory_read" => MemoryFileCall::Read {
+                        path: text("path")?,
+                    },
+                    "memory_forget" => MemoryFileCall::Forget {
+                        path: text("path")?,
+                    },
+                    _ => MemoryFileCall::Write {
+                        path: text("path")?,
+                        description: text("description").unwrap_or_default(),
+                        body: text("body")?,
+                    },
+                }))
+            }
+            "recall" => {
+                let query = args
+                    .get("query")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|q| !q.is_empty())
+                    .ok_or("recall: `query` must be a non-empty string")?
+                    .to_owned();
+                let limit = match args.get("limit") {
+                    None | Some(Value::Null) => 8,
+                    Some(_) => num("limit")?.clamp(1, chief_kernel::tools::RECALL_MAX),
+                } as usize;
+                let all = args.get("all").and_then(Value::as_bool).unwrap_or(false);
+                Ok(Call::Recall { query, limit, all })
+            }
             "spawn" => {
                 let tasks: Vec<String> = match args.get("tasks") {
                     Some(Value::Array(items)) => items
@@ -1127,6 +1243,8 @@ impl Call {
         match self {
             Call::Zoom { id, n } => memory.zoom(id, n),
             Call::Date { id } => memory.date(id),
+            Call::Recall { query, limit, all } => memory.recall(&query, limit, all),
+            Call::MemoryFile(_) => "memory files are served by the Chief host".to_owned(),
             Call::Spawn { .. }
             | Call::Tell { .. }
             | Call::React { .. }
@@ -1156,6 +1274,22 @@ impl Call {
             Call::Zoom { id, n } => json!({"tool": "zoom", "id": id, "n": n}),
             Call::ZoomAgent { id, at } => json!({"tool": "zoom", "id": id, "at": at}),
             Call::Date { id } => json!({"tool": "date", "id": id}),
+            Call::Recall { query, limit, all } => {
+                json!({"tool": "recall", "query": query, "limit": limit, "all": all})
+            }
+            Call::MemoryFile(MemoryFileCall::Read { path }) => {
+                json!({"tool": "memory_read", "path": path})
+            }
+            Call::MemoryFile(MemoryFileCall::Write {
+                path,
+                description,
+                body,
+            }) => {
+                json!({"tool": "memory_write", "path": path, "description": description, "body": body})
+            }
+            Call::MemoryFile(MemoryFileCall::Forget { path }) => {
+                json!({"tool": "memory_forget", "path": path})
+            }
             Call::Peers => json!({"tool": "peers"}),
             Call::Spawn {
                 tasks,
@@ -1695,6 +1829,7 @@ fn connection(conn: UnixStream, served: &Served) {
                         | Call::Sleep(_)
                         | Call::Watch(_)
                         | Call::Remember { .. }
+                        | Call::MemoryFile(_)
                         | Call::Control(_)
                         | Call::CloudWorkspace(_)
                         | Call::Profile { .. }
@@ -1826,6 +1961,10 @@ fn connection(conn: UnixStream, served: &Served) {
                     Ok(Call::Remember { text }) => match &served.orchestrator {
                         Some(o) => o.remember(&text),
                         None => Err("this Chief host has no person profile to remember in".to_owned()),
+                    },
+                    Ok(Call::MemoryFile(call)) => match &served.orchestrator {
+                        Some(o) => o.memory_file(call),
+                        None => Err("this Chief host keeps no memory files".to_owned()),
                     },
                     Ok(Call::Control(request)) => match &served.orchestrator {
                         Some(o) => o.control(request),

@@ -247,6 +247,10 @@ impl Brain {
             }
             // Another person's words never become the owner's preference.
             "mcp__optchat__remember" => return false,
+            // Nor a note about the owner: another person's turn keeps loops only.
+            "mcp__optchat__memory_write" | "mcp__optchat__memory_forget" => {
+                return field("path").is_some_and(|p| p.trim().starts_with("loops/"));
+            }
             // Nor spend the owner's money on a Cloud machine.
             "mcp__optchat__cloud_workspace" => return false,
             // Nor run a command on the owner's machine: only list and cancel.

@@ -565,9 +565,18 @@ impl Brain {
         // never before a cache mark: the subagents at work now (the reference
         // client's line). Never logged.
         let at_work = self.at_work_line();
+        // The person's clock (weekday, time, zone): day words and sleep
+        // seconds count from it. After the delta, so it never breaks a cache
+        // mark.
+        let now = Some(crate::prompt::now_line_here());
+        // The memory files' index and standing rules (memory_files.rs): read
+        // every turn, so a file saved in the last turn holds in this one.
+        let memory = self.memory_files.as_ref().and_then(|f| f.block());
         // The person's Home workspace as it is now: after the view, never logged.
-        let tail: Vec<String> = at_work
+        let tail: Vec<String> = now
             .iter()
+            .chain(memory.iter())
+            .chain(at_work.iter())
             .chain(home.iter())
             .chain(resumes.iter())
             .cloned()
@@ -726,6 +735,12 @@ impl Brain {
             layout["resumes"] = serde_json::json!(resumes);
         }
         layout["images"] = serde_json::json!(image_count);
+        if let Some(line) = &now {
+            layout["now"] = serde_json::json!(line);
+        }
+        if let Some(block) = &memory {
+            layout["memory_block"] = serde_json::json!(block);
+        }
         if let Some(line) = &at_work {
             layout["at_work"] = serde_json::json!(line);
         }
