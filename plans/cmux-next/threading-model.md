@@ -241,7 +241,9 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `BackgroundWork` system lane (`debug.wakeups`, `debug.new_tab`, `debug.cef`; the crash context's footprint
   is read on `com.cmuxterm.app.next.run-marker` when the run marker is written). v229 (2026-10-30): the busy watchdog's
   window end on main stalled it 1,261 ms in `proc_pidinfo`.
-- Launch and misc: `cmux-next resource bundle warm-up`, `cmux-next launch warm-up`, `cmux.updates.network`,
+- Launch and misc: `cmux-next resource bundle warm-up`, `cmux-next launch warm-up`, `cmux-next metal warm-up`,
+  `cmux-next coretext warm-up` (LaunchSystemWarmup.startGraphics: one Metal device and queue, two CoreText
+  fonts, then each ends), `cmux.updates.network`,
   `cmux.home.fixture.video`
 - Unnamed today (base debt; name and list them when you touch them): the URLSession delegate
   `OperationQueue`s in AcpmuxPaneSocket.swift, AgentChatPullRequestReader.swift,

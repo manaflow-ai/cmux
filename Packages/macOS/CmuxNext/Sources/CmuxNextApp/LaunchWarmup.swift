@@ -35,7 +35,7 @@ enum LaunchWarmup {
         }
         thread.name = "cmux-next launch warm-up"
         thread.qualityOfService = .userInitiated
-        thread.start()
+        thread.start(); LaunchSystemWarmup().startGraphics() // Metal and CoreText on their own threads, not behind the work above
         // Its own thread: the connecting screen's strings can be read before the work above ends.
         Bundle.warmResourceBundlesInBackground()
     }

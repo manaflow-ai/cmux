@@ -1,5 +1,7 @@
 import AppKit
+import CoreText
 import Darwin
+import Metal
 import UniformTypeIdentifiers
 
 /// System work that runs on the main thread the first time the app needs it, done first on the launch's
@@ -29,5 +31,35 @@ public nonisolated struct LaunchSystemWarmup: Sendable {
         guard sysctlbyname("hw.model", &model, &size, nil, 0) == 0 else { return }
         let code = String(decoding: model.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
         _ = UTType(tag: code, tagClass: UTTagClass(rawValue: "com.apple.device-model-code"), conformingTo: nil)
+    }
+
+    /// Starts ``metal()`` and ``coreText()``, each on its own named thread (threading-model.md, "Launch and misc"):
+    /// one call each, a few ms, then the thread ends.
+    public nonisolated func startGraphics() {
+        let steps: [(String, @Sendable () -> Void)] = [
+            ("cmux-next metal warm-up", { self.metal() }), ("cmux-next coretext warm-up", { self.coreText() }),
+        ]
+        for (label, work) in steps {
+            let thread = Thread(block: work)
+            thread.name = label
+            thread.qualityOfService = .userInitiated
+            thread.start()
+        }
+    }
+
+    /// The first Metal device and command queue of a process pay the framework's and the driver's one-time setup,
+    /// on the main thread where the launch makes the living wallpapers' renderer (`BackdropImageStore.shared`,
+    /// `BackdropShaderRenderer`) before the first window. Made and dropped here first (Ghostty PR 13722 did the same
+    /// for its renderer: first frame 126 -> 92 ms together with the CoreText step below).
+    public nonisolated func metal() {
+        _ = MTLCreateSystemDefaultDevice()?.makeCommandQueue()
+    }
+
+    /// The first CoreText lookup of a process loads the system font registry; later lookups take microseconds. The
+    /// first window's text (the system UI font) and the terminal's emoji fallback (Apple Color Emoji) would
+    /// otherwise pay it on the main thread.
+    public nonisolated func coreText() {
+        _ = CTFontCreateUIFontForLanguage(.system, 0, nil)
+        _ = CTFontCreateWithName("AppleColorEmoji" as CFString, 0, nil)
     }
 }
