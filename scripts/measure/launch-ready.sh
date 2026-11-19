@@ -49,6 +49,10 @@
 #                window's frame and the sidebar's edge until neither changed for 1 s or 3 s passed. Each LR-RUN row gets
 #                `layout`; LR-FRAMES per side: the median and highest move (points) and change count after the first frame.
 
+#   type=1       every launch types one key the moment its first window frame is in (the app's LaunchTypeProbe: a space,
+#                then Delete, so the line stays as it was) and marks terminal.probe_key_typed, terminal_input_accepted (the
+#                key left the app for the restored terminal's PTY) and terminal_echo (its echo came back): with front=tab,
+#                launch to the first key echoed in the restored terminal (startup-tti). Needs a build with the probe.
 #   preflight=1  just before the first launch, ~10 s of top: a system indexer (launch-ready-preflight.sh's INDEXERS)
 #                above preflight_cpu=N % CPU (default 30), or cmux-ci's CMUX_CI_HOST_NOISY=1, fails the step with
 #                LR-HOT-HOST and exit 5. preflight=0 skips it.
@@ -94,7 +98,7 @@ main() {
 
   local preflight=1 preflight_cpu=30
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
-  LR_STATE=kept LR_CASE="" LR_DAEMON=warm LR_SNAPSHOT=own LR_FRONT="" LR_LAYOUT=0
+  LR_STATE=kept LR_CASE="" LR_DAEMON=warm LR_SNAPSHOT=own LR_FRONT="" LR_LAYOUT=0 LR_TYPE=0
   # Each side's control socket (SIDE.sock). A socket path must fit sun_path (104 bytes with its NUL), and on a fleet
   # worker "$out/home-SIDE/app.sock" is 112: the app bound no socket there and stress3's seed never got an answer.
   LR_SOCKETS="$(mktemp -d /tmp/lr.XXXXXX)" && chmod 0777 "$LR_SOCKETS" || exit 3
@@ -123,6 +127,7 @@ main() {
       preflight=0|preflight=1) preflight="${arg#preflight=}" ;;
       preflight_cpu=*) preflight_cpu="${arg#preflight_cpu=}" ;;
       layout=0|layout=1) LR_LAYOUT="${arg#layout=}" ;;
+      type=0|type=1) LR_TYPE="${arg#type=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
@@ -332,7 +337,7 @@ probe() {
   fi
   checkers="$(checker_cpu)" exe="$(exe_stat "$app")"
   line="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$out/launch-ready" "$app" "$out/home-$side" "$label" "$settle" "$LR_SOCKETS/$side.sock" \
-    $([[ "$LR_STATE" == bare ]] && echo shell) $([[ "$LR_LAYOUT" == 1 ]] && echo layout) 2>>"$out/probe.log" | grep '^LR-RUN ')"
+    $([[ "$LR_STATE" == bare ]] && echo shell) $([[ "$LR_LAYOUT" == 1 ]] && echo layout) $([[ "$LR_TYPE" == 1 ]] && echo type) 2>>"$out/probe.log" | grep '^LR-RUN ')"
   checkers="$(checker_delta "$checkers" "$(checker_cpu)") exe=$exe->$(exe_stat "$app")"
   # Every launch snapshot path the launch left must be in its own home: one in the other side's means it read that.
   # Unsaved defaults fail the same way, and the stale copy goes: the side's next launch starts empty, not from it.

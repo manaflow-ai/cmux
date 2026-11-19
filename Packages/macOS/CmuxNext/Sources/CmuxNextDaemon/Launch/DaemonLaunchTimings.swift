@@ -16,6 +16,8 @@ public final class DaemonLaunchTimings: Sendable {
 
     private let state = Mutex(State())
     private let signposter = OSSignposter(subsystem: "com.cmuxterm.app.next", category: "stalls")
+    /// The first-interaction marks' progress (``inputSent()``, ``outputDecoded()``).
+    let inputStage = Atomic<UInt8>(0)
 
     /// Installs the receiver of marks (once, at launch) and hands it the
     /// marks made before.
