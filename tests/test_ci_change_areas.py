@@ -601,8 +601,8 @@ def test_bundled_root_markdown_still_runs_macos() -> None:
 
 
 def test_bundled_and_executable_skill_files_run_macos() -> None:
-    # The app bundles skills/cmux-cua as a folder resource.
-    assert_areas(["skills/cmux-cua/SKILL.md"], macos=True, web=False)
+    # The app bundles skills/cmux-computer-use as a folder resource.
+    assert_areas(["skills/cmux-computer-use/SKILL.md"], macos=True, web=False)
     assert_areas(["skills/cmux-settings/scripts/cmux-settings"], macos=True, web=False)
     assert_areas(["skills/cmux-browser/agents/openai.yaml"], macos=True, web=False)
 
@@ -2706,7 +2706,11 @@ def test_a_script_only_unrouted_workflows_or_linux_guards_run_reaches_no_macos_l
     # The same walk as the scripts/ci helpers: these run only in dispatched
     # or scheduled workflows, which a pull request's CI never runs.
     for path in (
-        "scripts/strip-release-bundle.sh",
+        # The cmux-tui legs restore and record their warm target with these
+        # (scripts/ci/machine-channel-warm-target.sh, cmux-tui-build-package.yml) on Linux
+        # runners only: the aarch64-apple-darwin leg is cross-built there.
+        "scripts/blacksmith-testbox-target-prune.sh",
+        "scripts/blacksmith-testbox-source-mtimes.py",
     ):
         assert module.classify_files([path]) == areas(), path
 
@@ -2717,12 +2721,10 @@ def test_a_script_a_mac_job_the_app_or_a_native_test_runs_keeps_its_macos_route(
         "scripts/install-cmux-tui-client.sh",
         # A native shell test runs it.
         "scripts/sign-cmux-bundle.sh",
-        # The shipped aarch64-apple-darwin cmux-tui build restores and records its warm target with these
-        # (scripts/ci/machine-channel-warm-target.sh, cmux-tui-build-package.yml).
-        "scripts/blacksmith-testbox-target-prune.sh",
-        "scripts/blacksmith-testbox-source-mtimes.py",
         # ci.yml's Mac jobs run it.
         "scripts/reload.sh",
+        # scripts/cmux-next/swap-binary.sh and its Mac test run it (#46110).
+        "scripts/strip-release-bundle.sh",
     ):
         actual = module.classify_files([path])
         assert actual.macos and actual.release_build, path
