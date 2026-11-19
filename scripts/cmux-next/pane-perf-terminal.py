@@ -42,6 +42,8 @@ for --record-seconds each, with the pane trace through it (`debug.motion` trace:
 tick) as trace.json beside the frames, and a row that fails when the frames, their index or the trace are not there.
 With --record each pane's feed also ends with one line of text in a colour that no pixel of the window's backdrop
 can have (`marker_color`, from the app's own answer): a reader of the stills tells text from the backdrop by it.
+With --record-docked the pass goes on with a pane of a docked column: the focused pane's column is docked at the left
+edge, and a split down, a zoom in, an unzoom and a close are recorded there (`record_docked`).
 The window action also samples its size once per display frame (`debug.motion trace_*`), reports the active
 resize's p95/max interval, missed intervals and largest geometry step, and rejects a snap, a no-op or a failed restore even without
 --gate. Run this script from the candidate checkout against both the base and candidate app for an A/B.
@@ -87,7 +89,7 @@ the fork geometry posts per moving frame (posts_per_frame). A layout whose page 
 Usage: pane-perf-terminal.py --tag <tag> --app PATH [--layouts 1x2,4x2,6x5] [--browser]
        [--browser-engine chromium|webkit]
        [--actions split,close,column,zoom,window,drag,keys,scroll,idle,page] [--rounds 3] [--scrollback 5000] [--stream]
-       [--record [--record-seconds S] [--record-layouts NAMES]] [--json PATH] [--out DIR] [--gate] [--missed-budget N] [--pane-motion on,off]
+       [--record [--record-seconds S] [--record-layouts NAMES] [--record-docked]] [--json PATH] [--out DIR] [--gate] [--missed-budget N] [--pane-motion on,off]
        [--window-look opaque|KEY=VALUE[,KEY=VALUE...]]
 """
 import argparse, glob, json, math, os, pathlib, signal, subprocess, sys, tempfile, time
@@ -107,6 +109,9 @@ parser.add_argument("--record", action="store_true", help="record each action on
 parser.add_argument("--record-seconds", type=float, default=2.0,
                     help="--record: the length of each recording (0.2 s of it is before the action; 12 at most)")
 parser.add_argument("--record-layouts", default="", help="--record: only these layouts (a list with commas; default: each)")
+parser.add_argument("--record-docked", action="store_true",
+                    help="--record: after a layout's recordings, the focused pane's column is docked at the left edge and a "
+                         "split down, a zoom in, an unzoom and a close are recorded on a pane of it (not in the layout stress)")
 parser.add_argument("--browser", action="store_true", help="the top-left pane shows a Chromium page (pump and tracker counters)")
 parser.add_argument("--browser-engine", default="chromium", choices=["chromium", "webkit"],
                     help="with --browser: the engine of the probe page and the --pages pages")
@@ -1157,6 +1162,65 @@ def record(name, label, rounds=()):
     return kept
 
 
+def docked_state(reply):
+    """What `debug.dock` says of the window's docked columns (`reply`), for --record-docked: `columns` (each column
+    of each window's active screen as `EDGE MODE, shown or not shown, N panes`), `panes` (the panes of the ONE shown
+    column in the docked mode) and `problem`: None when there is exactly one such column with a pane, else why not.
+    A column in the overlay mode and the strip have another ground under a pane, so they are not the fixture."""
+    if not isinstance(reply, dict):
+        return {"problem": f"no reply of debug.dock: {reply!r}"[:200], "columns": [], "panes": []}
+    windows = reply.get("windows") if isinstance(reply.get("windows"), list) else []
+    found = [column for window in windows if isinstance(window, dict)
+             for column in ((window.get("screen") or {}).get("dock") or []) if isinstance(column, dict)]
+    columns = [f"{c.get('edge')} {c.get('mode')}, {'shown' if c.get('shown') else 'not shown'}, {len(c.get('panes') or [])} panes"
+               for c in found]
+    fixture = [c for c in found if c.get("mode") == "docked" and c.get("shown") and c.get("panes")]
+    if reply.get("error"):
+        problem = str(reply["error"])[:200]
+    elif reply.get("supported") is False:
+        problem = "the daemon does not serve dock columns"
+    elif not isinstance(reply.get("windows"), list):
+        problem = f"debug.dock names no window: {reply!r}"[:200]
+    elif not found:
+        problem = "no docked column"
+    elif not fixture:
+        problem = "no shown column in the docked mode with a pane"
+    elif len(fixture) > 1:
+        problem = f"{len(fixture)} columns in the docked mode: 1 is the fixture"
+    else:
+        problem = None
+    return {"problem": problem, "columns": columns, "panes": list(fixture[0]["panes"]) if not problem else []}
+
+
+DOCKED = ("split-down", "zoom", "unzoom", "close-down")  # --record-docked: the acts on a pane of the docked column
+
+
+def record_docked(name):
+    """--record-docked, after the layout's own recordings: the focused pane's column goes to the window's left edge
+    (`column.dockLeft`: the app docks the column, or moves the pane's tab into a new docked column), and when
+    `debug.dock` then shows one column in the docked mode (`docked_state`; a failed row if not), one recording of each
+    act of DOCKED with the focus in it: a split down, a zoom in, an unzoom, a close. Each recording keeps
+    `docked_panes`, the column's panes after its act. Then `column.undock`. Returns the recordings by label."""
+    label = f"{name}-docked"
+    reply = action("column.dockLeft", settle=1.5)
+    refused = str(reply.get("error")) if isinstance(reply, dict) and reply.get("error") else None
+    state = docked_state(rpc("debug.dock"))
+    problem = refused or state["problem"]
+    row(f"{label}: the focused pane is in a column in the docked mode", "1 shown column in the docked mode, with a pane",
+        f"{problem or 'it is'} (columns: {state['columns']})", not problem)
+    acts = {}
+    if problem:
+        return acts
+    for step in DOCKED:
+        kept = record(step, f"{label}-{step}")
+        kept["docked_panes"] = docked_state(rpc("debug.dock"))["panes"]
+        acts[f"{label}-{step}"] = kept
+    back = action("column.undock", settle=0.8)
+    if isinstance(back, dict) and back.get("error"):
+        print(f"  {label}: the column did not go back to the strip: {back['error']}", flush=True)
+    return acts
+
+
 def profile(name, label):
     """Samples the app (`/usr/bin/sample`, 1 ms) while it repeats `name` (and its undo); prints the main
     thread's heaviest frames (the report's "Sort by top of stack" list) and keeps the whole report."""
@@ -1443,6 +1507,11 @@ def main():
                 if not not_applicable(step, columns if name != "stress" else None):
                     rounds = [run.get("missed_refreshes") for run in report["runs"] if run.get("layout") == moved and run.get("action") == step]
                     conditions["stills"].setdefault("acts", {})[f"{name}-{step}"] = record(step, f"{name}-{step}", rounds)
+            if opts.record_docked and name != "stress":
+                try:
+                    conditions["stills"].setdefault("acts", {}).update(record_docked(name))
+                except Exception as error:  # this part comes last: its fault is a failed row, and the report and the stills before it stay
+                    row(f"{name}-docked: the recordings of a docked column ran", "no exception", repr(error)[:200], False)
     print("\n== summary (median over rounds)")
     browser_keys = BROWSER_KEYS if opts.browser else []
     wide = max([13] + [len(step) for step in sequence])  # sidepanel-close

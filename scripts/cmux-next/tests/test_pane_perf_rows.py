@@ -35,7 +35,7 @@ BENCH = definitions(ROOT / "pane-perf-terminal.py", {"moving_frames", "not_appli
                                                     "layout_spans", "window_look", "look_tag", "look_config",
                                                     "look_terminal_lines", "look_problem", "look_resolved",
                                                     "windows_behind", "marker_color", "marker_command", "stills_facts",
-                                                    "stills_clock", "stills_cost"})
+                                                    "stills_clock", "stills_cost", "docked_state"})
 ZOOM = definitions(ROOT / "pane-zoom-terminal.py", {"sample_frames"})
 
 
@@ -566,6 +566,47 @@ class RecordedStills(unittest.TestCase):
         self.assertEqual(clock({"times": [0, 0], "t0_s": 50.1}, trace)["clock_problem"], "no second frame after the first (times [0, 0])")
         self.assertEqual(clock({"times": [0, 0.0083], "t0_s": 50.1}, {"samples": [{"t": 0}]})["clock_problem"], "the trace has no t0_s")
         self.assertEqual(clock({"times": [0, 0.0083], "t0_s": 50.1}, {"t0_s": 50.0, "samples": []})["clock_problem"], "the trace has no sample")
+
+
+def dock(mode="docked", shown=True, panes=("p7",), edge="left"):
+    return {"column": "c1", "edge": edge, "mode": mode, "shown": shown, "panes": list(panes)}
+
+
+def docks(*columns, supported=True, **more):
+    return {"supported": supported, "windows": [{"window": "w1", "screen": {"dock": list(columns)}}], **more}
+
+
+class DockedColumn(unittest.TestCase):
+    """--record-docked: the acts are recorded on a pane of a column in the docked mode, and `debug.dock` says if the
+    window has one (an overlay column and the strip have another ground under a pane)."""
+
+    def setUp(self):
+        self.state = loaded()["docked_state"]
+
+    def test_one_shown_column_in_the_docked_mode_with_a_pane_is_the_fixture(self):
+        self.assertEqual(self.state(docks(dock(panes=("p7", "p9")))),
+                         {"problem": None, "columns": ["left docked, shown, 2 panes"], "panes": ["p7", "p9"]})
+        # Each window's active screen counts.
+        two = {"supported": True, "windows": [{"window": "w1"}, {"window": "w2", "screen": {"dock": [dock(edge="right")]}}]}
+        self.assertEqual(self.state(two), {"problem": None, "columns": ["right docked, shown, 1 panes"], "panes": ["p7"]})
+
+    def test_what_is_not_the_fixture_says_why(self):
+        state = self.state
+        self.assertEqual(state(docks())["problem"], "no docked column")
+        self.assertEqual(state(docks(supported=False))["problem"], "the daemon does not serve dock columns")
+        self.assertEqual(state(docks(dock(mode="overlay"))),
+                         {"problem": "no shown column in the docked mode with a pane", "columns": ["left overlay, shown, 1 panes"], "panes": []})
+        self.assertEqual(state(docks(dock(shown=False)))["columns"], ["left docked, not shown, 1 panes"])
+        self.assertEqual(state(docks(dock(shown=False)))["problem"], "no shown column in the docked mode with a pane")
+        self.assertEqual(state(docks(dock(panes=())))["problem"], "no shown column in the docked mode with a pane")
+        # 2 docked columns: the focused pane's column is not known from this reply.
+        self.assertEqual(state(docks(dock(), dock(edge="right", panes=("p2",))))["problem"], "2 columns in the docked mode: 1 is the fixture")
+        self.assertEqual(state(docks(dock(), error="no column holds pane p1"))["problem"], "no column holds pane p1")
+        for unread in (None, [], "text", {"error": "unknown method"}, {"supported": True, "windows": "none"}):
+            self.assertTrue(state(unread)["problem"], unread)
+            self.assertEqual(state(unread)["panes"], [])
+        self.assertEqual(state({"error": "unknown method"})["problem"], "unknown method")
+        self.assertEqual(state(None)["problem"], "no reply of debug.dock: None")
 
 
 class Activate(unittest.TestCase):
