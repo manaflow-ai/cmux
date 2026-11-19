@@ -156,7 +156,7 @@ const SHELLS: &[&str] = &[
 /// Whether `program` (an argv[0] or an executable path) names a shell; a login shell's leading `-`
 /// is ignored.
 pub(crate) fn is_shell_program(program: &str) -> bool {
-    let base = std::path::Path::new(program)
+    let base = Path::new(program)
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();

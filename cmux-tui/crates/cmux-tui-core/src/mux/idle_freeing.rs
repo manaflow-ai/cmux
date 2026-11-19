@@ -244,14 +244,13 @@ impl Mux {
         };
         if !due.is_empty() {
             candidates.retain(|candidate| due.contains(&candidate.host));
-            super::pty_reclaim::read_children(&mut candidates);
+            pty_reclaim::read_children(&mut candidates);
             let rules = ParkRules { agents, running_commands: false, unused_before_prompt: false };
             let surfaces: Vec<SurfaceId> = candidates
                 .iter()
                 .flat_map(|candidate| candidate.surfaces.iter().copied())
                 .collect();
-            let (parkable, refused) =
-                super::pty_reclaim::split_parkable(&candidates, &surfaces, rules);
+            let (parkable, refused) = pty_reclaim::split_parkable(&candidates, &surfaces, rules);
             if !parkable.is_empty() {
                 match self.park_terminal_tabs(&parkable) {
                     Ok(parked) => eprintln!(
@@ -302,7 +301,7 @@ mod tests {
 
     #[test]
     fn a_quiet_unattached_terminal_comes_due_after_the_idle_time() {
-        let start = 1_000_000;
+        let start = 100 * IDLE_MS;
         let mut tracker = FreeingTracker::default();
         let quiet = [view("quiet", false, 0, Some(start - 10 * IDLE_MS))];
         assert!(
@@ -316,7 +315,7 @@ mod tests {
 
     #[test]
     fn output_moves_the_deadline_without_a_wakeup() {
-        let start = 1_000_000;
+        let start = 100 * IDLE_MS;
         let mut tracker = FreeingTracker::default();
         assert!(tracker.due(start, IDLE_MS, &[view("t", false, 0, None)]).is_empty());
         let printed = start + 10 * MIN_MS;
@@ -333,7 +332,7 @@ mod tests {
 
     #[test]
     fn an_attached_terminal_is_never_due_and_its_detach_restarts_the_clock() {
-        let start = 1_000_000;
+        let start = 100 * IDLE_MS;
         let mut tracker = FreeingTracker::default();
         assert!(tracker.due(start, IDLE_MS, &[view("t", true, 1, None)]).is_empty());
         assert_eq!(tracker.next_deadline_ms(IDLE_MS), None, "an attached terminal adds no wakeup");
@@ -347,7 +346,7 @@ mod tests {
 
     #[test]
     fn an_attach_between_two_passes_counts_as_use() {
-        let start = 1_000_000;
+        let start = 100 * IDLE_MS;
         let mut tracker = FreeingTracker::default();
         assert!(tracker.due(start, IDLE_MS, &[view("t", false, 1, None)]).is_empty());
         let later = start + IDLE_MS;
@@ -360,7 +359,7 @@ mod tests {
 
     #[test]
     fn a_refused_terminal_waits_a_full_period_and_a_gone_one_is_forgotten() {
-        let start = 1_000_000;
+        let start = 100 * IDLE_MS;
         let mut tracker = FreeingTracker::default();
         assert!(tracker.due(start, IDLE_MS, &[view("busy", false, 0, None)]).is_empty());
         let due_at = start + IDLE_MS;

@@ -564,7 +564,7 @@ fn park_tabs_keeps_a_terminal_whose_shell_cannot_be_read() {
     let (parked, refused) = mux.park_idle_terminal_tabs(&[tab], mux.park_tabs_rules()).unwrap();
 
     assert!(parked.is_empty(), "nothing parks on an unknown fact");
-    assert_eq!(refused, [(tab, crate::mux::park_eligibility::ParkRefusal::ChildrenUnknown)]);
+    assert_eq!(refused, [(tab, park_eligibility::ParkRefusal::ChildrenUnknown)]);
     assert_eq!(lifecycle(&mux, &terminal), TerminalLifecycle::Running);
 
     assert_eq!(
