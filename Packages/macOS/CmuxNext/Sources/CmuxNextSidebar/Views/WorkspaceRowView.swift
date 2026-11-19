@@ -24,6 +24,21 @@ final class WorkspaceRowView: SidebarRowView {
     private(set) var agentMarkFallbackColor: GroupColor?
     /// The last configuration, so a Debug Settings switch of `sidebar.agentMark` redraws the row.
     internal(set) var lastConfiguration: (SidebarWorkspace, SidebarRow, SidebarRowBadgeStyle?)?
+    /// What the row's accessibility label says, as of the last configure; the words are built when asked.
+    struct SpokenLabelInputs {
+        var ws: SidebarWorkspace
+        var shown: WorkspaceRowContent
+        var title: String
+    }
+    private(set) var spokenLabelInputs: SpokenLabelInputs?
+    /// Configures the label builds on its own (no assistive app asked) since launch; tests count them.
+    private(set) var spokenLabelBuilds = 0
+
+    override func accessibilityLabel() -> String? {
+        guard let inputs = spokenLabelInputs else { return super.accessibilityLabel() }
+        spokenLabelBuilds &+= 1
+        return accessibilityText(inputs.ws, content: inputs.shown, title: inputs.title)
+    }
     var activityState = StatusIndicatorState.idle
     let badge = UnreadBadgeView(), rowBadge = RowBadgeView() // the count, and its replacement (WorkspaceRowView+Badges)
     var rowBadgeStyle = SidebarRowBadgeStyle.corner
@@ -365,9 +380,13 @@ final class WorkspaceRowView: SidebarRowView {
         setAccessibilityRole(.row)
         setAccessibilityIdentifier("cmux.sidebar.workspace.\(ws.id.rawValue)")
         applyControlIdentifiers()
-        setAccessibilityLabel(accessibilityText(ws, content: shown,
-                                                title: shown.subagentOf.map(Strings.subagentOf)
-                                                    ?? ws.spokenRowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)))
+        // The label is read when accessibility asks (`accessibilityLabel()`), not built here: a progress or status
+        // tick configures the row 4 times a second, and the label's words (a localized number per part, the
+        // joined line) were a share of every tick on the main thread while no assistive app listened
+        // (sidebar.400.ticking.main_ms_per_s, CFNumberFormatterCreate under row configure).
+        spokenLabelInputs = SpokenLabelInputs(ws: ws, shown: shown,
+                                              title: shown.subagentOf.map(Strings.subagentOf)
+                                                  ?? ws.spokenRowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat))
         needsLayout = true
         needsDisplay = true
     }
