@@ -21,9 +21,13 @@ service first, so an app of the console user whose panel service hangs still blo
 about 40 s (open; plans/cmux-next/picker.md).
 
 The session rule (the same as the hq worker gate, build-fleet console_session.go readConsoleUser, and the app's
-open-panel warm-up, CmuxNextDesign OpenPanelWarmGate; change all three together): the console user is the `Name` of SCDynamicStore `State:/Users/ConsoleUser` (`scutil`); `loginwindow`,
-no such key, or no answer at all means nobody, and the check fails closed. This account has a GUI session only
-when it is that user. A locked screen is reported (`screen_locked`, from IOConsoleUsers) but does not fail the
+open-panel warm-up, CmuxNextDesign OpenPanelWarmGate; change all three together): the console user is the account
+of the IOConsoleUsers session (`ioreg -n Root -d1`) whose `kCGSSessionOnConsoleKey` is set and whose login is done;
+none, or no answer at all, means nobody, and the check fails closed. This account has a GUI session only when it is
+that user. Not the `Name` of SCDynamicStore `State:/Users/ConsoleUser` (`scutil`): that is the last account to log
+in, and a Screen Sharing login to another account's own session sets it while this account's session stays on the
+console (hq#13193's hidden `cmuxci-gui-NN` accounts did that on every mini on 2026-11-18, and every GUI bench
+failed no-gui-session; the hq worker gate moved to IOConsoleUsers in hq#13240). A locked screen is reported (`screen_locked`, from IOConsoleUsers) but does not fail the
 check.
 `launch()` checks the session first and raises LaunchError("no-gui-session") at once; every other failure gets its
 reason after the wait. Nothing in the environment turns the check off. The one launch without a session is a
@@ -431,27 +435,24 @@ def unique_paths(paths):
     return out
 
 
-def console_user():
-    """The user logged in on the console (SCDynamicStore State:/Users/ConsoleUser), or None at the login window.
+def console_user(read_root=None):
+    """The account whose session is on the console (IOConsoleUsers, `kCGSSessionOnConsoleKey`), or None when nobody's
+    is or ioreg does not answer.
 
-    Not /dev/console's owner (it reads root on a mini whose cmux session is up) and not `who` (it keeps console
-    lines of sessions that ended or went to the background)."""
-    try:
-        out = subprocess.run(["/usr/sbin/scutil"], input="show State:/Users/ConsoleUser\n", capture_output=True,
-                             text=True, timeout=10).stdout
-    except (OSError, subprocess.TimeoutExpired):
-        out = ""
-    match = re.search(r"^\s*Name : (\S+)", out, re.M)
-    if match:
-        return None if match.group(1) == "loginwindow" else match.group(1)
-    # No such key, a dictionary with no name, or no answer at all: nobody, fail closed like the hq worker gate (not
-    # /dev/console's owner, which disagrees with scutil).
+    Not scutil's State:/Users/ConsoleUser `Name` (the last account to log in, also by Screen Sharing into its own
+    background session), not /dev/console's owner (the same last login, or root) and not `who` (it keeps console
+    lines of sessions that ended or went to the background). `read_root` returns ioreg's Root entry (tests)."""
+    root = (read_root or ioreg_root)()
+    for entry in (root or {}).get("IOConsoleUsers") or []:
+        if entry.get("kCGSSessionOnConsoleKey") and entry.get("kCGSessionLoginDoneKey", True):
+            name = entry.get("kCGSSessionUserNameKey")
+            return name if name and name != "loginwindow" else None
+    # No session on the console, or no answer at all: nobody, fail closed like the hq worker gate.
     return None
 
 
-def screen_locked(user):
-    """Whether `user`'s console session has its screen locked (IOConsoleUsers CGSSessionScreenIsLocked), None
-    when ioreg does not say. Reported only: the session rule does not use it."""
+def ioreg_root():
+    """ioreg's Root entry as a dict (`ioreg -n Root -d1 -a`), None when ioreg is missing, times out or is not a plist."""
     try:
         import plistlib
         out = subprocess.run(["/usr/sbin/ioreg", "-n", "Root", "-d1", "-a"], capture_output=True, timeout=10).stdout
@@ -460,7 +461,14 @@ def screen_locked(user):
         return None
     if isinstance(root, list):
         root = root[0] if root else {}
-    for entry in root.get("IOConsoleUsers") or []:
+    return root if isinstance(root, dict) else None
+
+
+def screen_locked(user, read_root=None):
+    """Whether `user`'s console session has its screen locked (IOConsoleUsers CGSSessionScreenIsLocked), None
+    when ioreg does not say. Reported only: the session rule does not use it."""
+    root = (read_root or ioreg_root)()
+    for entry in (root or {}).get("IOConsoleUsers") or []:
         if entry.get("kCGSSessionUserNameKey") == user and entry.get("kCGSSessionOnConsoleKey"):
             return bool(entry.get("CGSSessionScreenIsLocked", False))
     return None
