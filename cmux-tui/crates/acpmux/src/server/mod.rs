@@ -2446,6 +2446,9 @@ pub(crate) use peer_forward::strip_asks as strip_peer_asks;
 pub(crate) use redact::url_without_secrets;
 pub(crate) mod remote_guard;
 mod requests;
+/// An `_acpmux/events` page's ask, read from its params as the handler reads them (`older_page_perf`).
+#[cfg(test)]
+pub(crate) use requests::events_page_ask;
 pub use requests::{DURABLE_DISPATCH_FEATURE, SESSION_RESUME_FEATURE};
 mod accounts;
 mod connections;

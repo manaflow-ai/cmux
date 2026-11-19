@@ -487,47 +487,523 @@ fn a_restored_chats_log_load_reads_the_copies_not_its_log() {
     }
 }
 
-/// The web pane's older page of a real chat (`direct.ts` `olderPage`: before a seq, 2,000
-/// records, 1 MiB, the transcript), at each depth, `OLDER_PAGE_REPS` times: its time, the bytes
-/// its read took from the log, and the records and bytes it parsed. Run over a copy of a chat's
-/// folder: `OLDER_PAGE_SESSIONS=<dir holding the chat's folder> OLDER_PAGE_ID=<chat id>
-/// [OLDER_PAGE_DEPTHS=0.02,0.5] cargo test -p acpmux --release -- --ignored --nocapture
-/// older_page_perf`. Evict the copy from the page cache first for a cold read.
+/// The web pane's older page (`direct.ts` `olderPage`: before a seq, `OLDER_PAGE_RECORDS` 2,000
+/// records, `OLDER_PAGE_BYTES` 1 MiB, the transcript and a local pane's preset approval cards),
+/// at each depth (`OLDER_PAGE_DEPTHS`, default 0.02,0.5,0.98), `OLDER_PAGE_REPS` times (3), cold
+/// (every file of the chat dropped from the page cache first) then warm: its time, records, the
+/// bytes its read took (`rchar`) and the lines and bytes it parsed. One line per measurement.
+///
+/// The log is generated (`gen_codex_log`), `OLDER_PAGE_GEN_BYTES` of it (default 1 GiB), into a
+/// temp dir this test owns: `cargo test -p acpmux --release -- --ignored --nocapture --exact
+/// hub::paging::paging_tests::older_page_perf`. A copy of a real chat's folder instead:
+/// `OLDER_PAGE_SESSIONS=<dir holding it> OLDER_PAGE_ID=<chat id>` (the store opens it as any).
 #[test]
 #[ignore = "a measurement, not a check"]
 fn older_page_perf() {
-    let Ok(sessions) = std::env::var("OLDER_PAGE_SESSIONS") else { return };
-    let id = std::env::var("OLDER_PAGE_ID").expect("OLDER_PAGE_ID");
-    let reps: usize =
-        std::env::var("OLDER_PAGE_REPS").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
-    let depths: Vec<f64> = std::env::var("OLDER_PAGE_DEPTHS")
-        .unwrap_or_else(|_| "0.02,0.5".into())
+    let env = |name: &str| std::env::var(name).ok();
+    let reps: usize = env("OLDER_PAGE_REPS").and_then(|v| v.parse().ok()).unwrap_or(3);
+    let depths: Vec<f64> = env("OLDER_PAGE_DEPTHS")
+        .unwrap_or_else(|| "0.02,0.5,0.98".into())
         .split(',')
         .filter_map(|d| d.trim().parse().ok())
         .collect();
-    let hub = deferred_hub(std::path::Path::new(&sessions), 8 << 20);
-    let last = hub.store.load(&id).unwrap().expect("the chat's meta").last_seq;
-    let filter = transcript(true);
+    let root =
+        std::env::temp_dir().join(format!("acpmux-older-page-perf-{}", uuid::Uuid::now_v7()));
+    let (sessions, id, source) = match env("OLDER_PAGE_SESSIONS") {
+        Some(sessions) => (
+            std::path::PathBuf::from(sessions),
+            env("OLDER_PAGE_ID").expect("OLDER_PAGE_ID"),
+            "copy",
+        ),
+        None => {
+            let bytes = env("OLDER_PAGE_GEN_BYTES").and_then(|v| v.parse().ok()).unwrap_or(1 << 30);
+            let sessions = root.join("sessions");
+            let t0 = std::time::Instant::now();
+            let made = gen_codex_log(&sessions, "c", bytes);
+            let gen_ms = t0.elapsed().as_secs_f64() * 1000.0;
+            let shares = kind_shares(&sessions.join("c").join("events"));
+            println!(
+                "older_page_gen asked_bytes={bytes} bytes={} records={} segments={} prompts={} approvals={} gen_ms={gen_ms:.0} {shares}",
+                made.bytes, made.records, made.segments, made.prompts, made.approvals,
+            );
+            (sessions, "c".to_owned(), "generated")
+        }
+    };
+    let hub = deferred_hub(&sessions, 8 << 20);
+    // The chat's log load, as a daemon's first read of it does (`hub/log_load.rs`): it makes the
+    // log's copies of the kinds it reads (`store/kind_index.rs`).
+    let chat = hub.resolve(&id).unwrap();
+    let t0 = std::time::Instant::now();
+    hub.load_session_log(&chat);
+    println!("older_page_load source={source} ms={:.0}", t0.elapsed().as_secs_f64() * 1000.0);
+    let last = chat.meta().last_seq;
+    let chat_dir = sessions.join(&id);
     for depth in depths {
         let before = ((last as f64) * (1.0 - depth)).max(2.0) as u64;
+        // The web pane's ask (`direct.ts` `olderPage`, `attachParams.ts` `PRESET_APPROVAL_KINDS`),
+        // read as `_acpmux/events` reads it.
+        let params = json!({
+            "sessionId": id,
+            "beforeSeq": before,
+            "limit": 2000,
+            "maxBytes": 1 << 20,
+            "kinds": ["transcript", "preset_approval_request", "preset_approval_decision"],
+        });
+        let ask = crate::server::events_page_ask(&params).unwrap();
         for rep in 0..reps {
-            let (r0, l0, b0, t0) = (
-                read_bytes(),
-                PARSED_LINES.with(std::cell::Cell::get),
-                PARSED_BYTES.with(std::cell::Cell::get),
-                std::time::Instant::now(),
-            );
-            let page =
-                hub.events_page(&id, 0, Some(before), 2000, Some(1 << 20), true, &filter).unwrap();
-            let ms = t0.elapsed().as_secs_f64() * 1000.0;
-            println!(
-                "older page: before {before} (depth {depth}) rep {rep}: {ms:.1} ms, {} records, read {:.1} MB, parsed {} lines {:.1} MB",
-                page.events.len(),
-                (read_bytes() - r0) as f64 / 1e6,
-                PARSED_LINES.with(std::cell::Cell::get) - l0,
-                (PARSED_BYTES.with(std::cell::Cell::get) - b0) as f64 / 1e6,
+            for cache in ["cold", "warm"] {
+                if cache == "cold" {
+                    drop_from_page_cache(&chat_dir);
+                }
+                let (r0, l0, b0, t0) = (
+                    read_bytes(),
+                    PARSED_LINES.with(std::cell::Cell::get),
+                    PARSED_BYTES.with(std::cell::Cell::get),
+                    std::time::Instant::now(),
+                );
+                let page = hub
+                    .events_page(
+                        &id,
+                        ask.after,
+                        ask.before,
+                        ask.limit,
+                        ask.max_bytes,
+                        ask.before.is_some(),
+                        &ask.filter,
+                    )
+                    .unwrap();
+                let ms = t0.elapsed().as_secs_f64() * 1000.0;
+                println!(
+                    "older_page source={source} depth={depth} before={before} rep={rep} cache={cache} ms={ms:.1} records={} has_more={} read_mb={:.1} parsed_lines={} parsed_mb={:.1}",
+                    page.events.len(),
+                    page.has_more,
+                    (read_bytes() - r0) as f64 / 1e6,
+                    PARSED_LINES.with(std::cell::Cell::get) - l0,
+                    (PARSED_BYTES.with(std::cell::Cell::get) - b0) as f64 / 1e6,
+                );
+            }
+        }
+    }
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// Every file under `dir` (a chat's segments and copies) dropped from the page cache, so the next
+/// read of it is cold. Linux only; elsewhere the reads stay warm.
+fn drop_from_page_cache(dir: &std::path::Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            drop_from_page_cache(&path);
+            continue;
+        }
+        let Ok(file) = std::fs::File::open(&path) else { continue };
+        // Dirty pages stay cached: write them first.
+        file.sync_data().ok();
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::fd::AsRawFd;
+            // SAFETY: the descriptor is open for the call; the advice changes no file content.
+            unsafe {
+                libc::posix_fadvise(file.as_raw_fd(), 0, 0, libc::POSIX_FADV_DONTNEED);
+            }
+        }
+    }
+}
+
+/// Each kind group's share of the log's bytes, as the real Codex chat's were measured: load
+/// replays, `codex.response`, other raw harness lines, `tool_call_update` records, and the rest.
+fn kind_shares(events: &std::path::Path) -> String {
+    let mut by = [0u64; 5];
+    for entry in std::fs::read_dir(events).unwrap() {
+        let bytes = std::fs::read(entry.unwrap().path()).unwrap();
+        for line in bytes.split_inclusive(|b| *b == b'\n') {
+            let head = &line[..line.len().min(200)];
+            let kind = memchr::memmem::find(head, b"\"kind\":\"")
+                .map(|at| {
+                    let rest = &head[at + 8..];
+                    &rest[..memchr::memchr(b'"', rest).unwrap_or(rest.len())]
+                })
+                .unwrap_or_default();
+            let group = if kind.ends_with(b".replay") {
+                0
+            } else if kind == b"codex.response" {
+                1
+            } else if kind.starts_with(b"codex.") {
+                2
+            } else if kind == b"tool_call_update" {
+                3
+            } else {
+                4
+            };
+            by[group] += line.len() as u64;
+        }
+    }
+    let total = by.iter().sum::<u64>().max(1) as f64;
+    let pct = |n: u64| n as f64 * 100.0 / total;
+    format!(
+        "replay_pct={:.1} codex_response_pct={:.1} other_raw_pct={:.1} tool_call_update_pct={:.1} rest_pct={:.1}",
+        pct(by[0]),
+        pct(by[1]),
+        pct(by[2]),
+        pct(by[3]),
+        pct(by[4])
+    )
+}
+
+/// What [`gen_codex_log`] wrote.
+struct GenLog {
+    bytes: u64,
+    records: u64,
+    segments: usize,
+    prompts: usize,
+    approvals: usize,
+}
+
+/// A fixed-seed splitmix64: every run writes the same log.
+struct SplitMix(u64);
+
+impl SplitMix {
+    fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+
+    /// A number in `lo..=hi`.
+    fn range(&mut self, lo: usize, hi: usize) -> usize {
+        lo + (self.next() % (hi - lo + 1) as u64) as usize
+    }
+
+    fn chance(&mut self, percent: u64) -> bool {
+        self.next() % 100 < percent
+    }
+}
+
+/// The real Codex chat's bytes by group (353,235 records, 4.73 GiB): load replays 49.8%, raw
+/// harness lines 47.9% (`codex.response`, about 1.5 MB each, and small `codex.<method>` lines),
+/// `tool_call_update` snapshots 1.5%, the rest under 1%. The groups between transcript records
+/// (replays, responses, other raw lines, other wire records) are written to these shares of the whole log.
+const GEN_SHARES: [f64; 4] = [0.498, 0.455, 0.024, 0.005];
+const GEN_REPLAY: usize = 0;
+const GEN_RESPONSE: usize = 1;
+const GEN_RAW: usize = 2;
+const GEN_TRANSCRIPT: usize = 4;
+/// Seqs per transcript record, as in the real chat (about 1 in 100).
+const GEN_SEQS_PER_TRANSCRIPT: u64 = 100;
+
+/// Writes Codex-shaped chat `id` of about `target` bytes under `sessions`, through the store's
+/// append path in 8 MiB segments, as the daemon writes one: per turn a prompt, its start, a
+/// thought, commands whose `tool_call_update`s each re-send their output so far, a plan now and
+/// then, an answer and its result, every seventh turn a preset approval card and its answer; one
+/// transcript record per 100 seqs, and between them load replays, raw `codex.response` lines and
+/// small `codex.<method>` lines and other wire records to the real chat's shares
+/// ([`GEN_SHARES`]). Deterministic: a fixed seed. Ends at the end of the turn that reaches
+/// `target`.
+fn gen_codex_log(sessions: &std::path::Path, id: &str, target: u64) -> GenLog {
+    let store = LocalStore::new(sessions.to_path_buf(), 8 << 20).unwrap();
+    let mut m = meta(id);
+    m.status = crate::store::SessionStatus::Idle;
+    store.save(&m).unwrap();
+    let mut log = Gen {
+        store: &store,
+        id,
+        rng: SplitMix(0x5EED_0F_C0DE_C0DE),
+        words: gen_words(),
+        seq: 0,
+        bytes: 0,
+        by: [0; 5],
+        replays: 0,
+    };
+    let (mut prompts, mut approvals) = (0, 0);
+    while log.bytes < target {
+        let turn = log.turn_records(prompts);
+        approvals += turn.iter().filter(|r| r.kind.starts_with("preset_approval")).count();
+        prompts += 1;
+        for rec in turn {
+            while (log.seq + 1) % GEN_SEQS_PER_TRANSCRIPT != 0 {
+                log.filler();
+            }
+            log.put(GEN_TRANSCRIPT, rec);
+        }
+    }
+    m.last_seq = log.seq;
+    m.event_count = log.seq;
+    store.save(&m).unwrap();
+    store.flush().unwrap();
+    let events = sessions.join(id).join("events");
+    let files: Vec<u64> =
+        std::fs::read_dir(&events).unwrap().map(|e| e.unwrap().metadata().unwrap().len()).collect();
+    GenLog {
+        bytes: files.iter().sum(),
+        records: log.seq,
+        segments: files.len(),
+        prompts,
+        approvals,
+    }
+}
+
+/// 1 MiB of command-output-like text (words, lines of about 80 characters) records take slices of.
+fn gen_words() -> String {
+    const WORDS: &str = "test result: ok. running Compiling acpmux v0.1.0 warning: unused \
+        src/hub/paging.rs: Finished release target(s) in 12.3s passed; 0 failed; ignored; measured; \
+        filtered out; fn let = { } () -> Result<()> error[E0425]: cannot find value this scope --> \
+        | ^ note: help: consider importing use crate::store::EventRecord;";
+    let words: Vec<&str> = WORDS.split_whitespace().collect();
+    let mut rng = SplitMix(7);
+    let mut text = String::with_capacity((1 << 20) + 64);
+    let mut line = 0;
+    while text.len() < 1 << 20 {
+        let word = words[rng.range(0, words.len() - 1)];
+        text.push_str(word);
+        line += word.len() + 1;
+        if line > 80 {
+            text.push('\n');
+            line = 0;
+        } else {
+            text.push(' ');
+        }
+    }
+    text
+}
+
+struct Gen<'a> {
+    store: &'a LocalStore,
+    id: &'a str,
+    rng: SplitMix,
+    words: String,
+    seq: u64,
+    /// About the bytes written, all and by group (`GEN_REPLAY` .. `GEN_TRANSCRIPT`).
+    bytes: u64,
+    by: [u64; 5],
+    replays: u64,
+}
+
+impl Gen<'_> {
+    /// `len` bytes of the text, from a random place.
+    fn text(&mut self, len: usize) -> String {
+        let len = len.min(self.words.len());
+        let at = self.rng.range(0, self.words.len() - len);
+        self.words[at..at + len].to_owned()
+    }
+
+    /// Appends `rec` as the next seq, through the store's append path.
+    fn put(&mut self, group: usize, mut rec: EventRecord) {
+        self.seq += 1;
+        (rec.seq, rec.at) = (self.seq, 1_763_000_000_000 + self.seq * 40);
+        // About its line: its strings and an envelope (the shares are measured after).
+        let bytes = gen_string_bytes(&rec.msg) + rec.kind.len() as u64 + 120;
+        self.store.append(self.id, &rec).unwrap();
+        self.bytes += bytes;
+        self.by[group] += bytes;
+    }
+
+    /// One record between transcript records: of the group furthest under its share.
+    fn filler(&mut self) {
+        let total = self.bytes as f64;
+        let owed = |g: usize| GEN_SHARES[g] * total - self.by[g] as f64;
+        let group = (0..GEN_SHARES.len()).max_by(|a, b| owed(*a).total_cmp(&owed(*b))).unwrap();
+        let rec = match group {
+            GEN_REPLAY => self.replay(),
+            GEN_RESPONSE => self.response(),
+            GEN_RAW => {
+                const METHODS: &[&str] = &[
+                    "thread/tokenUsage/updated",
+                    "account/rateLimits/updated",
+                    "turn/diff/updated",
+                    "turn/started",
+                    "turn/completed",
+                    "hook/started",
+                    "hook/completed",
+                ];
+                let method = METHODS[self.rng.range(0, METHODS.len() - 1)];
+                let len = self.rng.range(300, 2000);
+                let msg = json!({"jsonrpc": "2.0", "method": method, "params": {"threadId": "thr_1", "data": self.text(len)}});
+                EventRecord {
+                    seq: 0,
+                    at: 0,
+                    dir: "in".into(),
+                    kind: format!("codex.{method}"),
+                    msg,
+                    host_seq: None,
+                }
+            }
+            _ => {
+                if self.rng.chance(50) {
+                    agent(
+                        0,
+                        "usage_update",
+                        json!({"sessionUpdate": "usage_update", "used": self.seq, "size": 272_000}),
+                    )
+                } else {
+                    let msg = json!({"jsonrpc": "2.0", "id": self.seq, "result": {"stopReason": "end_turn"}});
+                    EventRecord {
+                        seq: 0,
+                        at: 0,
+                        dir: "in".into(),
+                        kind: "response".into(),
+                        msg,
+                        host_seq: None,
+                    }
+                }
+            }
+        };
+        self.put(group, rec);
+    }
+
+    /// A load replay: a reply or thought chunk, or a call or its update with its output.
+    fn replay(&mut self) -> EventRecord {
+        self.replays += 1;
+        let call = format!("call_r{}", self.replays / 8);
+        if self.rng.chance(60) {
+            let kind =
+                if self.rng.chance(70) { "agent_message_chunk" } else { "agent_thought_chunk" };
+            let len = self.rng.range(300, 2000);
+            let text = self.text(len);
+            return agent(
+                0,
+                &format!("{kind}.replay"),
+                json!({"sessionUpdate": kind, "content": {"type": "text", "text": text}}),
             );
         }
+        let len = self.rng.range(4 << 10, 44 << 10);
+        let output = self.text(len);
+        let content = json!([{"type": "content", "content": {"type": "text", "text": output}}]);
+        if self.rng.chance(25) {
+            agent(
+                0,
+                "tool_call.replay",
+                json!({"sessionUpdate": "tool_call", "toolCallId": call, "title": "cargo test", "kind": "execute", "status": "completed", "rawInput": {"command": ["bash", "-lc", "cargo test"]}, "content": content}),
+            )
+        } else {
+            agent(
+                0,
+                "tool_call_update.replay",
+                json!({"sessionUpdate": "tool_call_update", "toolCallId": call, "status": "completed", "content": content}),
+            )
+        }
+    }
+
+    /// A raw `codex.response`: a thread's items, 1.2 to 1.8 MB.
+    fn response(&mut self) -> EventRecord {
+        let want = self.rng.range(1_200_000, 1_800_000);
+        let (mut items, mut size) = (Vec::new(), 0);
+        while size < want {
+            let len = self.rng.range(1000, 8000);
+            let text = self.text(len);
+            let n = items.len();
+            items.push(if self.rng.chance(50) {
+                json!({"type": "agentMessage", "id": format!("item_{n}"), "text": text})
+            } else {
+                json!({"type": "commandExecution", "id": format!("item_{n}"), "command": "cargo test", "aggregatedOutput": text, "exitCode": 0, "status": "completed"})
+            });
+            size += len + 100;
+        }
+        let msg = json!({"jsonrpc": "2.0", "id": self.seq, "result": {"thread": {"id": "thr_1", "turns": [{"id": "turn_1", "status": "completed", "items": items}]}}});
+        EventRecord {
+            seq: 0,
+            at: 0,
+            dir: "in".into(),
+            kind: "codex.response".into(),
+            msg,
+            host_seq: None,
+        }
+    }
+
+    /// Prompt `turn`'s transcript records, in order.
+    fn turn_records(&mut self, turn: usize) -> Vec<EventRecord> {
+        let mux = |kind: &str, msg: Value| EventRecord {
+            seq: 0,
+            at: 0,
+            dir: "mux".into(),
+            kind: kind.into(),
+            msg,
+            host_seq: None,
+        };
+        let chunk = |kind: &str, text: String| {
+            agent(
+                0,
+                kind,
+                json!({"sessionUpdate": kind, "content": {"type": "text", "text": text}}),
+            )
+        };
+        let prompt = format!("p{turn}");
+        let mut out = Vec::new();
+        let len = self.rng.range(80, 1500);
+        out.push(mux(
+            "user_message",
+            json!({"text": format!("prompt {turn}: {}", self.text(len)), "promptId": prompt}),
+        ));
+        out.push(mux("turn_started", json!({"turnId": format!("t{turn}"), "promptId": prompt})));
+        let len = self.rng.range(200, 1200);
+        out.push(chunk("agent_thought_chunk", self.text(len)));
+        let approval = turn % 7 == 3;
+        let card = json!({"preset": "unattended", "digest": format!("d{turn}"), "harness": "codex", "model": "gpt-5", "effort": "high", "policy": "approve-all", "host": "", "description": "a preset"});
+        if approval {
+            out.push(mux("preset_approval_request", card));
+        }
+        for call in 0..self.rng.range(2, 6) {
+            let id = format!("call_{turn}_{call}");
+            out.push(agent(
+                0,
+                "tool_call",
+                json!({"sessionUpdate": "tool_call", "toolCallId": id, "title": "cargo test -p acpmux", "kind": "execute", "status": "in_progress", "rawInput": {"command": ["bash", "-lc", "cargo test -p acpmux"]}}),
+            ));
+            let mut output = String::new();
+            for _ in 0..self.rng.range(2, 8) {
+                let len = self.rng.range(4 << 10, 16 << 10);
+                let piece = self.text(len);
+                output.push_str(&piece);
+                out.push(agent(
+                    0,
+                    "tool_call_update",
+                    json!({"sessionUpdate": "tool_call_update", "toolCallId": id, "status": "in_progress", "content": [{"type": "content", "content": {"type": "text", "text": output}}], "_meta": {"terminal_output_delta": {"data": piece}}}),
+                ));
+            }
+            out.push(agent(
+                0,
+                "tool_call_update",
+                json!({"sessionUpdate": "tool_call_update", "toolCallId": id, "status": "completed", "rawOutput": {"exit_code": 0}, "content": [{"type": "content", "content": {"type": "text", "text": output}}]}),
+            ));
+            if self.rng.chance(50) {
+                let len = self.rng.range(100, 800);
+                out.push(chunk("agent_message_chunk", self.text(len)));
+            }
+            if call == 0 && self.rng.chance(50) {
+                out.push(agent(
+                    0,
+                    "plan",
+                    json!({"sessionUpdate": "plan", "entries": [{"content": "run the tests", "priority": "high", "status": "completed"}, {"content": "fix what fails", "priority": "medium", "status": "in_progress"}]}),
+                ));
+            }
+        }
+        if approval {
+            out.push(mux(
+                "preset_approval_decision",
+                json!({"preset": "unattended", "digest": format!("d{turn}"), "outcome": "approved"}),
+            ));
+        }
+        for _ in 0..self.rng.range(1, 3) {
+            let len = self.rng.range(200, 1500);
+            out.push(chunk("agent_message_chunk", self.text(len)));
+        }
+        out.push(mux("turn_result", json!({"status": "completed", "turnId": format!("t{turn}")})));
+        out
+    }
+}
+
+/// About the bytes `value`'s strings take in its JSON (the generator's own count; the log's
+/// shares are measured from its files).
+fn gen_string_bytes(value: &Value) -> u64 {
+    match value {
+        Value::String(s) => s.len() as u64 + 2,
+        Value::Array(items) => items.iter().map(gen_string_bytes).sum::<u64>() + 2,
+        Value::Object(map) => {
+            map.iter().map(|(k, v)| k.len() as u64 + 4 + gen_string_bytes(v)).sum::<u64>() + 2
+        }
+        _ => 8,
     }
 }
 

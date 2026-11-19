@@ -15,30 +15,7 @@ pub(super) fn handle(
             str_param(params, "id").ok_or_else(|| RpcError::invalid_params("id is required"))?;
         return hub.prompt_image(&s.id, id);
     }
-    let pattern = str_param(params, "match");
-    crate::hub::validate_match(pattern)?;
-    let after = params.get("afterSeq").and_then(Value::as_u64).unwrap_or(0);
-    let before = params.get("beforeSeq").and_then(Value::as_u64);
-    let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(5000) as usize;
-    let max_bytes = Some(crate::hub::page_bytes(params));
-    // A client that bounds its page wants the transcript in it, not superseded tool output.
-    let filter = crate::hub::EventFilter::parse(params.get("kinds"))?
-        .omitting_superseded(params.get("maxBytes").is_some_and(|b| !b.is_null()))
-        // One subagent's own records, for its pane (`EventFilter::of_subagent`).
-        .of_subagent(str_param(params, "subagent"))
-        // Records past it go as stubs: a reader that pages on its own (a durable watch) always
-        // moves past a record too large for its read (`EventFilter::stubbing_over`).
-        .stubbing_over(
-            params
-                .get("recordMaxBytes")
-                .and_then(Value::as_u64)
-                .map(|b| usize::try_from(b).unwrap_or(usize::MAX)),
-        )
-        // A watch's `match`: a stubbed reply chunk says whether its whole text held it.
-        .matching(pattern)
-        // The phone's pages: a tool call past it goes with its output cut, marked with the
-        // record's size and seq, and is read whole on the person's tap (`hub/tool_output_cut.rs`).
-        .cutting_tool_output(tool_output_max(params));
+    let PageAsk { after, before, limit, max_bytes, filter } = page_ask(params)?;
     // After a hard stop the log runs ahead of the saved session until the chat's log loads: a
     // client reading the records it missed (its own cursor, a lag's resync) asks past the saved
     // `lastSeq`, and was refused as `cursor_future`, so its hole stayed.
@@ -84,6 +61,46 @@ pub(super) fn handle(
         // The session the page is of: a copy never joins another journal of the same id.
         "createdAt": created,
     }))
+}
+
+/// What an `_acpmux/events` page asks for, read from its params as [`handle`] reads them: older
+/// pages (`beforeSeq`) are read newest first.
+pub(crate) struct PageAsk {
+    pub after: u64,
+    pub before: Option<u64>,
+    pub limit: usize,
+    pub max_bytes: Option<usize>,
+    pub filter: crate::hub::EventFilter,
+}
+
+/// An `_acpmux/events` page's [`PageAsk`] (a perf test asks for the web pane's older page with
+/// it, `hub/paging_tests.rs` `older_page_perf`).
+pub(crate) fn page_ask(params: &Value) -> Result<PageAsk, RpcError> {
+    let pattern = str_param(params, "match");
+    crate::hub::validate_match(pattern)?;
+    let after = params.get("afterSeq").and_then(Value::as_u64).unwrap_or(0);
+    let before = params.get("beforeSeq").and_then(Value::as_u64);
+    let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(5000) as usize;
+    let max_bytes = Some(crate::hub::page_bytes(params));
+    // A client that bounds its page wants the transcript in it, not superseded tool output.
+    let filter = crate::hub::EventFilter::parse(params.get("kinds"))?
+        .omitting_superseded(params.get("maxBytes").is_some_and(|b| !b.is_null()))
+        // One subagent's own records, for its pane (`EventFilter::of_subagent`).
+        .of_subagent(str_param(params, "subagent"))
+        // Records past it go as stubs: a reader that pages on its own (a durable watch) always
+        // moves past a record too large for its read (`EventFilter::stubbing_over`).
+        .stubbing_over(
+            params
+                .get("recordMaxBytes")
+                .and_then(Value::as_u64)
+                .map(|b| usize::try_from(b).unwrap_or(usize::MAX)),
+        )
+        // A watch's `match`: a stubbed reply chunk says whether its whole text held it.
+        .matching(pattern)
+        // The phone's pages: a tool call past it goes with its output cut, marked with the
+        // record's size and seq, and is read whole on the person's tap (`hub/tool_output_cut.rs`).
+        .cutting_tool_output(tool_output_max(params));
+    Ok(PageAsk { after, before, limit, max_bytes, filter })
 }
 
 /// `toolOutputMaxBytes`: the most bytes a tool call record goes whole with (none: every one).

@@ -9,6 +9,8 @@ pub(super) mod cancel_refused;
 mod composer;
 mod context;
 mod events;
+#[cfg(test)]
+pub(crate) use events::page_ask as events_page_ask;
 mod info;
 #[path = "requests/mailbox.rs"]
 mod mailbox;
