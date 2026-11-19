@@ -5,6 +5,7 @@ import io
 import json
 from pathlib import Path
 import plistlib
+import platform
 import subprocess
 import sys
 import tempfile
@@ -39,10 +40,10 @@ class ObserverTests(unittest.TestCase):
                 counter_calls.append(True)
                 return None if unreadable and len(counter_calls) > 1 else (100, 100, 1, 100)
             bp.counters = counters
-            def measure(*_):
+            def measure(*args):
                 if measure_fails:
                     raise RuntimeError('sampler failed')
-                return {'total': {'mw': 1, 'cpu_pct': 2, 'wakeups_per_s': 3, 'footprint_mb': 4}}
+                return {'label': args[2], 'total': {'mw': 1, 'cpu_pct': 2, 'wakeups_per_s': 3, 'footprint_mb': 4}}
             bp.measure = measure
             child = types.SimpleNamespace(returncode=None, terminated=False, killed=False)
             def wait(timeout):
@@ -59,6 +60,7 @@ class ObserverTests(unittest.TestCase):
             with patch.dict(sys.modules, bench_memory=bm, bench_power=bp), \
                  patch.object(sys, 'argv', ['observer', str(bundle), '42', 'test', '1', root]), \
                  patch.object(sys, 'path', sys.path.copy()), \
+                 patch.object(platform, 'platform', return_value='test-os'), \
                  patch.object(subprocess, 'Popen', return_value=child), \
                  patch.object(subprocess, 'run', side_effect=subprocess.TimeoutExpired('capture', 20) if capture_hangs else None,
                               return_value=capture), contextlib.redirect_stdout(io.StringIO()):
