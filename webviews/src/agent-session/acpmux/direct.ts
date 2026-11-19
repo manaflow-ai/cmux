@@ -5219,10 +5219,7 @@ export class AcpmuxDirectClient {
     if (through === 0) return;
     // The queue is not drawn, but a teammate's queued prompt keeps the author its row had when the
     // tail was kept, for when acpmux's list or attach draws the queue (as `drawKeptTail` seeds it).
-    for (const entry of held.queue) {
-      const author = queuedAuthor(entry?.author);
-      if (author && !this.queueAuthors.has(entry.id)) this.queueAuthors.set(entry.id, author);
-    }
+    this.keepQueueAuthors(held.queue);
     this.earlyTail = { sessionId, generation, through };
     this.drewKeptTail = true;
     // Drawn now, the socket still connecting or open: the open's hold ends with these rows, as its
@@ -5319,10 +5316,7 @@ export class AcpmuxDirectClient {
     this.pendingSecret = undefined;
     // A teammate's prompt whose authored record fell out of the kept tail keeps the author its row
     // had when the tail was kept (this page's or another tab's): acpmux's list names none.
-    for (const entry of kept.queue) {
-      const author = queuedAuthor(entry?.author);
-      if (author && !this.queueAuthors.has(entry.id)) this.queueAuthors.set(entry.id, author);
-    }
+    this.keepQueueAuthors(kept.queue);
     // The replayed `queued` records carry each prompt's whole text; acpmux's list gives the order.
     this.queue = mergeQueue(this.queue, listed?.queue ?? kept.queue, this.queueAuthors, this.queueEdited);
     // From the frame the rows are drawn, not from the attach: a live record of the chat that comes
@@ -5332,11 +5326,23 @@ export class AcpmuxDirectClient {
     // that prompt now makes it jump up when the attach brings its reply and work back.
     if (!this.hasTranscriptTail()) {
       this.resetSessionState("incomplete kept tail");
+      // The rows go, but not who wrote each queued prompt: the attach's page may hold none of
+      // their authored records either.
+      this.keepQueueAuthors(kept.queue);
       return 0;
     }
     // A copy's rows continue from how far it covers, which may be past its newest record
     // (`drawPeerCopy`): an attach page that starts right after that is no gap.
     return kept.peerCopy ? Math.max(this.lastSeq, kept.peerCopy.lastSeq) : this.lastSeq;
+  }
+
+  /// A teammate's queued prompt keeps the author its row had when the tail was kept, for when
+  /// acpmux's list or attach draws the queue: acpmux's list names none.
+  private keepQueueAuthors(queue: KeptTail["queue"]): void {
+    for (const entry of queue) {
+      const author = queuedAuthor(entry?.author);
+      if (author && !this.queueAuthors.has(entry.id)) this.queueAuthors.set(entry.id, author);
+    }
   }
 
   private hasTranscriptTail(): boolean {

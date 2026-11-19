@@ -391,6 +391,9 @@ impl Customize {
             parent: index.current,
             changed: changed.len() as u32,
             parts,
+            // A library that cannot be read records no on-state, and a
+            // restore to this generation leaves the library as it is.
+            library_on: self.library_mark().map(|mark| mark.on),
         };
         self.store.put_tree(n, tree)?;
         index.version = 1;
@@ -482,6 +485,12 @@ impl Customize {
         self.store.put_index(index)?;
         self.store.put_draft(None)?;
         self.store.prune(index)?;
+        // The library says on for what is live again: an entry whose change
+        // this took away is off, one it brought back is on. A library that
+        // cannot be written never fails the restore it follows.
+        if let Some(on) = &target.library_on {
+            let _ = self.library_follow_locked(on, None, now_ms);
+        }
         Ok(Restored { generation: target, kept_as, changes: changes(&live, &target_tree, None) })
     }
 }

@@ -173,6 +173,22 @@ films.json has `build`: the form of the app's build, as the entry script read it
 (build-flags.py; --build FILE): the reload's `bench configuration` line, the optimization settings of the build's
 command line, and the count of the Swift compiler's command lines with each optimization level. With no file it
 says `not_read`.
+
+--window-look: the look of the films' window (scripts/cmux-next/window_look.py has the keys). With no option, and
+with `opaque`, the launch is the launcher's own (an opaque window) and films.json is as before. With KEY=VALUE parts
+(for a window with a picture background: `background=NAME,opacity=N,blur=KIND`) the launch's config holds the named
+keys and no other key, and after the window's placement the script asks the app itself what the window shows (its
+settings answer and its backdrop): a `PREFLIGHT window look:` line, the launch's `window_look` in films.json (the
+look as the app resolved it), `window_look` at the top (the option's keys) and in each film's row (the look's name).
+A window that does not show the look gets `PREFLIGHT window look FAILED:` and no film: no other launch form is
+tried. `behind=checker|stripes` is refused here (exit 3: this script makes no panel behind the window). The recorder
+films the app's own windows only: what is behind a window with no picture is not in a film.
+A FILM OF A LOOK HAS THE LOOK'S KIND IN ITS NAME: its id in films.json and its files are `<id>-<kind>` (`T-D-picture`,
+`T-D-picture.mov`), so the films of 2 looks do not have the same name. The kind is one word from the app's own answer
+(window_look.py `look_kind`): `picture`, `glass` or `seethrough`; it has no value of the option and no picture's
+name. `--films` takes the ids without it. A window that the app shows as opaque keeps the ids of an opaque run, and
+so do the rows of a run in which no launch showed the look. films.json has the kind as `window_look.kind` and, in
+each film's row, as `window_look_kind`.
 """
 import argparse, importlib.util, json, os, platform, re, shutil, signal, subprocess, sys, threading, time, traceback
 
@@ -180,6 +196,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 NEXT = os.path.join(HERE, "..", "cmux-next")
 sys.path.insert(0, NEXT)
 import bench_launch  # noqa: E402
+import window_look as looks  # noqa: E402
 SPEC = importlib.util.spec_from_file_location("perf_stress_session", os.path.join(NEXT, "perf-stress-session.py"))
 STRESS = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(STRESS)
@@ -660,6 +677,10 @@ def seed(app, count, live, url, deadline, out):
 
 class PreflightFailed(RuntimeError):
     pass
+
+
+class LookNotShown(PreflightFailed):
+    """The window does not show the look of `--window-look`: no other launch form (its config is the same), no film."""
 
 
 class SecondInstance(PreflightFailed):
@@ -1530,7 +1551,16 @@ def main():
     parser.add_argument("--display", default="real", help="what the entry script says of the display, for the preflight's first line")
     parser.add_argument("--budget", type=float, default=0, help="seconds for the whole run; a film with no time left is not_run (0: no bound)")
     parser.add_argument("--build", help="the JSON of build-flags.py: the form of the app's build, for films.json")
+    parser.add_argument("--window-look", help="opaque (the default: the launcher's own config), or KEY=VALUE[,KEY=VALUE...]: "
+                                              "the keys of the window's look that the launch's config gets (window_look.py)")
     opts = parser.parse_args()
+    try:
+        opts.look = looks.window_look(opts.window_look)
+        if opts.look and opts.look.get("behind", "desktop") != "desktop":
+            raise ValueError(f"--window-look behind={opts.look['behind']}: this tool makes no panel behind the window")
+    except ValueError as error:  # before the app starts: no film of another window than the one asked for
+        print(f"pane-motion-films: NOT RUN: {error}", flush=True)
+        return 3
     known = [spec["id"] for spec in FILMS]
     if opts.films == "list":
         print("\n".join(f"{spec['id']}\t{spec['title']}\t{', '.join(filter(None, (label(a) for a in spec['acts'])))}" for spec in FILMS))
@@ -1550,6 +1580,8 @@ def main():
     plan = [(False, [i for i in wanted if i not in needs_mock]), (True, needs_mock)] if opts.chat_mock == "auto" else [(opts.chat_mock == "1", wanted)]
     report = {"films": [], "failures": [], "launches": [], "limits": LIMITS, "key_repeat_ms": [opts.repeat_delay_ms, opts.repeat_ms], "mbps": opts.mbps,
               "alt_screen": "not read: no debug call says if a terminal is on its alternate screen", "build": build_facts(opts.build)}
+    if opts.look:  # the look as the command line names it; each launch has what the app itself says it shows
+        report["window_look"] = {"look": looks.look_tag(opts.look), **opts.look, "terminal_config": looks.look_terminal_lines(opts.look)}
     forms = list(LAUNCH_FORMS[opts.launch_form])
     try:
         report["host"] = f"macOS {platform.mac_ver()[0] or 'not read'}, {platform.machine()}, python {platform.python_version()}"
@@ -1570,7 +1602,7 @@ def main():
                     launch_films(opts, mock, idents, report, began, forms[0])
                     break
                 except (PreflightFailed, bench_launch.LaunchError) as error:
-                    if len(forms) == 1 or isinstance(error, SecondInstance):
+                    if len(forms) == 1 or isinstance(error, (SecondInstance, LookNotShown)):
                         raise
                     # This launch again, and each launch after it, in the next form.
                     print(f"PREFLIGHT next form: {forms[1]} (the {forms[0]} form failed: {getattr(error, 'reason', error)})", flush=True)
@@ -1585,9 +1617,12 @@ def main():
         if reason:
             report["failures"].append(f"page mock {'on' if mock else 'off'}: {reason}")
         done = {row["id"] for row in report["films"]}
-        report["films"] += [{"id": i, "status": "not_run", "agent_page_mock": mock, "reason": reason[:800]} for i in idents if i not in done]
+        report["films"] += [{"id": named(report, i), "status": "not_run", "agent_page_mock": mock, "reason": reason[:800]}
+                            for i in idents if named(report, i) not in done]
     report["launch_form"] = forms[0]
     for row in report["films"]:
+        if opts.look:
+            row.update(window_look=looks.look_tag(opts.look), **({"window_look_kind": report["window_look"]["kind"]} if "kind" in report["window_look"] else {}))
         # Why this film is not a film of that form, in the app's or the check's words; not on a film that is of that form.
         other = {form: why for form, why in report.get("forms_not_run", {}).items() if row.get("launch_form") != form}
         if other:
@@ -1608,12 +1643,44 @@ def main():
     return 0 if made == len(wanted) else 2 if made else 1
 
 
+def named(report, ident):
+    """A film's id in this run: the id of FILMS, and for a window with a look the look's kind after it (`T-D-picture`).
+    The kind is the app's own answer (window_look.py `look_kind`): no value of the option, no picture's name. An
+    opaque window, and a look that no launch has shown yet, keep the id of FILMS."""
+    kind = (report.get("window_look") or {}).get("kind")
+    return ident + (f"-{kind}" if kind and kind != "opaque" else "")
+
+
+def shown_look(app, look):
+    """What the launched app says that its window shows, for the launch's facts. No film of a look from another
+    window: the launch's own config files hold each named key, and the app's settings answer and its backdrop are
+    the look, or LookNotShown ends the run with a `PREFLIGHT window look FAILED:` line."""
+    tag, problem, seen = looks.look_tag(look), looks.look_problem(look, app.launched_env), None
+    if not problem:
+        seen, problem = looks.shown_look(app.rpc, look, monotonic=time.monotonic, sleep=time.sleep)
+        # A film of a look has the look's kind in its name: no film under a name with no kind.
+        problem = problem or (None if seen["kind"] else "the app's backdrop was not read: the look has no kind")
+    if problem:
+        print(f"PREFLIGHT window look FAILED: {tag}: {problem}", flush=True)
+        raise LookNotShown(f"the window does not show the look {tag}: {problem}")
+    said = seen["resolved"]
+    print(f"PREFLIGHT window look: {tag}: the app shows {said['background']} {said['picture']!r}, opacity {said['opacity']}, "
+          f"blur {said['blur']!r}", flush=True)
+    return seen
+
+
 def launch_films(opts, mock, idents, report, began, form):
     """One launch of the app in the key form `form`, with the agent pages' mock on or off: the preflight, the
     session, then the films of `idents`."""
     env = {"CMUX_NEXT_INPUT_JOURNAL": "1", **({} if mock else {"CMUX_NEXT_AGENT_PANE_MOCK": None}),
            **({"CMUX_NEXT_NO_ACTIVATE": None} if form == "activate" else {})}
-    app = bench_launch.BenchApp(os.path.abspath(opts.app), out=opts.out, env=env, log_name=f"app-mock-{int(mock)}.log")
+    # A look: the launch's config holds the keys that the option names and no other (not the launcher's own config).
+    app = bench_launch.BenchApp(os.path.abspath(opts.app), out=opts.out, env=env, log_name=f"app-mock-{int(mock)}.log",
+                                config=looks.look_config({}, opts.look) if opts.look else None)
+    if looks.look_terminal_lines(opts.look):
+        # The launch opens the terminal config file to append: the look's named lines stay in it.
+        with open(os.path.join(app.scratch, "ghostty"), "w") as terminal_config:
+            terminal_config.write("\n".join(looks.look_terminal_lines(opts.look)) + "\n")
     app.launch()
     facts = {"executable": os.path.basename(app.binary), "agent_page_mock": "CMUX_NEXT_AGENT_PANE_MOCK" in app.launched_env,
              "agent_launch": app.launched_env.get("ACPMUX_AGENT_LAUNCH"), "films": idents, "start_s": 0,
@@ -1626,6 +1693,9 @@ def launch_films(opts, mock, idents, report, began, form):
             facts["activate"] = activate(app, form)
             if form == "activate":
                 facts["window"] = place(app)
+            if opts.look:
+                facts["window_look"] = shown_look(app, opts.look)
+                report["window_look"]["kind"] = facts["window_look"]["kind"]  # from here each film's id has it (`named`)
             link, maker.zoom = preflight(app, maker.st, opts.out, opts.mbps, form, opts.display)
             facts["zoom"] = maker.zoom
         except PreflightFailed as error:
@@ -1648,12 +1718,12 @@ def launch_films(opts, mock, idents, report, began, form):
             print("PANE-FILMS-SESSION " + json.dumps(facts["session"]), flush=True)
         facts["start_s"] = round(time.monotonic() - began, 1)
         for at, ident in enumerate(idents):
-            report["films"].append(maker.take(next(s for s in FILMS if s["id"] == ident)))
+            report["films"].append(maker.take({**next(s for s in FILMS if s["id"] == ident), "id": named(report, ident)}))
             if maker.stop:
                 # A dialog or an overlay stays over the window: no other film of this launch.
-                reason = f"the launch stopped after the film {ident}: {maker.stop}"
+                reason = f"the launch stopped after the film {named(report, ident)}: {maker.stop}"
                 report["failures"].append(f"page mock {'on' if mock else 'off'}: {reason}")
-                report["films"] += [{"id": i, "status": "not_run", "agent_page_mock": mock, "launch_form": form, "reason": reason[:800]} for i in idents[at + 1:]]
+                report["films"] += [{"id": named(report, i), "status": "not_run", "agent_page_mock": mock, "launch_form": form, "reason": reason[:800]} for i in idents[at + 1:]]
                 break
     finally:
         facts["start_s"] = facts["start_s"] or round(time.monotonic() - began, 1)
