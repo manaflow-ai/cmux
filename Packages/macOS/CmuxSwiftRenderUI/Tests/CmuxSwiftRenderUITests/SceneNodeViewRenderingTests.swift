@@ -204,6 +204,10 @@ struct SceneNodeViewRenderingTests {
             runtime.updateData(key: "tip", value: .string(""))
             let cleared = try tooltips()
             #expect(cleared.isEmpty)
+            // An empty string stays on the node as a prop (only null removes
+            // it), which is what lets the renderer keep the node's identity.
+            let rootId = try #require(runtime.store.rootId)
+            #expect(runtime.store.node(rootId)?.string("help") == "")
         }
     }
 }

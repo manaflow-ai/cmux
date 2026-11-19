@@ -190,7 +190,8 @@ Rules of the runtime:
   `.marquee(delaySeconds?)` (text only: after the hover holds `delay` seconds,
   default 0.5, an overflowing title scrolls out and back; layout never
   changes) `.cursor("pointer")` (show a pointing-hand cursor while the view is
-  hovered) `.help(text)` (tooltip shown while the pointer rests on the view)
+  hovered) `.help(text)` (tooltip shown while the pointer rests on the view; a live
+  binding shows none by returning `""`)
   `.onTap(fn)`. Any of them (except
   handlers) accepts a function for a live binding. Colors are the same tokens
   as Swift sidebars (`accent`, `secondary`, `red`, `#RRGGBB[AA]`).
