@@ -97,9 +97,6 @@ run_helper diff-sidecar env \
   CMUX_DIFF_SIDECAR_MIN_MACOS="$sidecar_min_macos" \
   "$ROOT/scripts/build-diff-sidecar.sh" &
 sidecar_pid=$!
-# cmux-cua remains in the authoritative Xcode phase. Its source checkout
-# mutates a shared Git cache; cancelling an optional prebuild during checkout
-# could leave a Git index lock that poisons the subsequent required build.
 
 status=0
 wait "$sidecar_pid" || status=1

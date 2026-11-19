@@ -59,9 +59,8 @@ import PackageDescription
 //   CmuxNextFocusUI -> Actions, Design (AppKit overlays of keys: the shortcut hint overlay and capture
 //     waiter, the which-key controller, overlay, rows and strings; the focus state machine, key rules
 //     and key delivery stay in the App)
-//   CmuxNextComputerUse -> AgentActivity, Compat, Settings, Wakeups (the macOS Computer Use helper:
-//     launch, v2 helper and its disclaimed spawner, signed Unix peer checks, the cua helper manifest
-//     reader; setup stays in the App)
+//   CmuxNextComputerUse -> Compat, Wakeups (the embedded cmux Remote, the live sessions model and the
+//     Screen Sharing helper's signed launch; Computer Use itself runs in cmux Remote's worker; setup stays in the App)
 //   CmuxNextHistory -> Design, Icons (history model and addresses; the History page is React; no daemon)
 //   CmuxNextHistoryDaemon -> Daemon, History, Wakeups (the daemon history module's client, `history-v1`)
 //   CmuxNextStash -> Compat, Daemon, DaemonService (Stash on this Mac's daemon: Save and Close, the
@@ -360,6 +359,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCodeRouter",
                 "CmuxNextCompat",
                 "CmuxNextComputerUse",
+                "CmuxNextComputerUsePreview",
                 "CmuxNextControl",
                 "CmuxNextCookieImport",
                 "CmuxNextCrashReporting",
@@ -825,6 +825,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextOnboarding",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextAgentIntegrations",
                 "CmuxNextBrowserImport",
                 "CmuxNextCompat",
                 "CmuxNextDesign",
@@ -1045,17 +1046,25 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
-        // The macOS Computer Use helper (moved out of CmuxNextApp/ComputerUse): helper
-        // launch, the v2 helper and its disclaimed spawner, the cua helper manifest
-        // reader. Setup (ComputerUseSetup) stays in the App.
+        // Computer Use's app-side models: the embedded cmux Remote (whose worker hosts the cmux
+        // Computer Use engine) and the live sessions the File menu acts on, and the signed helper
+        // launch the Screen Sharing helper uses (SignedHelperLaunch). Setup (ComputerUseSetup) stays in the App.
         .target(
             name: "CmuxNextComputerUse",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
-                "CmuxNextActions",
-                "CmuxNextAgentActivity",
                 "CmuxNextCompat",
-                "CmuxNextSettings",
                 "CmuxNextWakeups",
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Computer Use's live preview in the surface its agent runs in (ComputerUsePreviewRouter):
+        // the daemon's `computer-use-preview` events to the agent chat's or the terminal pane's card.
+        .target(
+            name: "CmuxNextComputerUsePreview",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextAgentPane",
+                "CmuxNextDaemon",
+                "CmuxNextTerminal",
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -1786,11 +1795,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextMacScreenTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextCompat",
+                "CmuxNextComputerUse",
                 "CmuxNextControl",
+                "CmuxNextDaemon",
                 "CmuxNextDevices",
                 "CmuxNextMacScreen",
                 "CmuxNextRemoteView",
                 "CmuxNextSettings",
+                "CmuxNextWakeupsTestSupport",
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -2650,6 +2662,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextActions",
                 "CmuxNextAgentCursor",
                 "CmuxNextAgentCursorVisibility",
+                "CmuxNextAgentIntegrations",
                 "CmuxNextAgentLanes",
                 "CmuxNextAgentPane",
                 "CmuxNextAgentPermissions",
@@ -2671,6 +2684,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCloudUI",
                 "CmuxNextCompat",
                 "CmuxNextComputerUse",
+                "CmuxNextComputerUsePreview",
                 "CmuxNextCookieImport",
                 "CmuxNextCopyMode",
                 "CmuxNextCrashReporting",
