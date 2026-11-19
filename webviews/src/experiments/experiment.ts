@@ -9,7 +9,7 @@
 // The chosen arm comes from one place, in this order:
 //   1. an override the host installs before the page loads (`globalThis.cmuxExperiments`: the
 //      gallery's stage frame sets it from its `arm` query key);
-//   2. a Settings switch that is on (Settings > Experimental > Experiments, `experiments.*`;
+//   2. a Settings switch that is on (Settings > Advanced > Experiments, `experiments.*`;
 //      hostSettings.ts maps each to its experiment's arm; useExperimentArm follows a change live);
 //   3. the debug key `cmux.experiments` in localStorage, a JSON object `{ "<id>": "<arm>" }`
 //      (for dogfood in the app: set it in the web inspector and reload the pane);

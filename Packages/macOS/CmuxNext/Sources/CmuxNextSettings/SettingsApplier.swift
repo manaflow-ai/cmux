@@ -107,11 +107,9 @@ public final class SettingsApplier {
         Self.applyPlacement(snapshot, to: design)
         if design.borders != snapshot.borders { design.borders = snapshot.borders }
         if design.fontSmoothing != snapshot.fontSmoothing { design.fontSmoothing = snapshot.fontSmoothing }
-        // `experiments.*`: every switch that is on, by name (schemas/settings/source/experiments.json).
-        var experiments: [String: Bool] = [:]
-        if case .object(let members)? = snapshot.root["experiments"] {
-            for (name, value) in members where value.boolValue == true { experiments[name] = true }
-        }
+        // `experiments.*`: every switch that is on, by name (CmuxConfigSnapshot+Experiments.swift), for
+        // every page's theme and the native menus.
+        let experiments = snapshot.experimentSwitches.filter(\.value)
         if design.experiments != experiments { design.experiments = experiments }
         if design.focusIndicator != snapshot.focusIndicator { design.focusIndicator = snapshot.focusIndicator }
         if design.inactiveTabStyle != snapshot.inactiveTabStyle { design.inactiveTabStyle = snapshot.inactiveTabStyle }
