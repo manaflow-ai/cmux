@@ -143,7 +143,7 @@ class Values(unittest.TestCase):
 
 class NoGitHubHosted(unittest.TestCase):
     # 2026-11-19: CI_LINUX_HOSTED_RUNNER=ubuntu-24.04 left LINUX_RUNNER, LINUX_BUILD_RUNNER and RUNNER_POOLS on
-    # ubuntu-24.04 with 12,011 jobs queued there (Leo: "Fuck GitHub.").
+    # ubuntu-24.04 with 12,011 jobs queued there (Leo: "F*** GitHub.").
     def test_a_hosted_label_in_any_runner_variable_fails(self) -> None:
         for name, value in (("LINUX_RUNNER", "ubuntu-24.04"), ("LINUX_BUILD_RUNNER", "ubuntu-24.04"),
                             ("CI_TRUSTED_RUNNER", "ubuntu-24.04"), ("MACOS_RUNNER_PR", "macos-15"),

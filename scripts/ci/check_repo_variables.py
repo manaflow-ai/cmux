@@ -45,8 +45,8 @@ DAEMON_POOL_VARIABLE = "CI_NEXT_DAEMON_POOL"
 SIDE_LANE_VARIABLE = "CI_SIDE_LANE_RUNNER"
 PIN_POOL_VARIABLE = "CI_PIN_DAEMON_POOL"
 LIGHT_LANE_VARIABLE = "CI_LIGHT_LANE_RUNNER"
-# No runner variable may name a GitHub-hosted label (Leo, 2026-11-19: "why the fuck do you keep having the fucking
-# GitHub hosted runners? Fuck GitHub."). On 2026-11-19 CI_LINUX_HOSTED_RUNNER=ubuntu-24.04 left RUNNER_POOLS,
+# No runner variable may name a GitHub-hosted label (Leo, 2026-11-19: "why the f*** do you keep having the f***ing
+# GitHub hosted runners? F*** GitHub."). On 2026-11-19 CI_LINUX_HOSTED_RUNNER=ubuntu-24.04 left RUNNER_POOLS,
 # LINUX_RUNNER and LINUX_BUILD_RUNNER on ubuntu-24.04 with 12,011 jobs queued there and 31 running. The provenance
 # jobs that need GitHub's OIDC name their pool in .github/runners.json ("hosted": true), never through a variable.
 HOSTED_LABEL = re.compile(r"^(?:ubuntu|macos|windows)-[\w.-]+$")
