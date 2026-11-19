@@ -3092,7 +3092,19 @@ use tree_json::{ShortIds, pane_json, tree_delta_json};
 #[cfg(test)]
 pub(crate) use tree_json::{panes_built_for_test, set_entity_check_hook_for_test};
 
+/// The live runtime of tab `id`. A parked terminal tab (`relaunch.on_show`:
+/// lazy start, `park-tabs`) starts here on its first need, and the request
+/// goes on with its new shell (`mux/terminal_respawn/lazy.rs`).
 fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
+    // A live tab costs only the lock-free route read it always did.
+    if mux.surface(id).is_none_or(|surface| surface.is_dead()) {
+        mux.wake_lazy_tab(id);
+    }
+    get_surface_without_start(mux, id)
+}
+
+/// [`get_surface`] that never starts a parked tab (closing one).
+fn get_surface_without_start(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
     mux.surface(id)
         .filter(|surface| !surface.is_dead())
         .ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))

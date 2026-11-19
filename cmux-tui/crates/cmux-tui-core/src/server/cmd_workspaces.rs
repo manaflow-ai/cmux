@@ -528,6 +528,9 @@ pub(super) fn select_workspace(
     delta: Option<isize>,
 ) -> anyhow::Result<Value> {
     mux.select_workspace_as(&actor, index, delta);
+    // Showing a workspace starts its parked tabs, as the app does
+    // (`wakeParkedTabs`; mux/terminal_respawn/lazy.rs).
+    mux.wake_parked_tabs_of_active_workspace();
     Ok(json!({}))
 }
 
