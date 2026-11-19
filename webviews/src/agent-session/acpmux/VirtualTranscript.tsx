@@ -5249,8 +5249,11 @@ function TranscriptView({
           writeAnchorScrollTop(node, nextTop);
           // Keep React's rendered offset in the same frame as the anchor correction. Otherwise a
           // rounded DOM offset arrives through scroll later and can briefly show Jump to latest.
+          // The move is the anchor's, not the reader's, so the reader's last move stays the lead: zeroed,
+          // a fling's next render dropped its lead and the warm rows caught up to the view, a deferred
+          // render of six views of rows each time an older page landed under it.
           scrollPacer.current?.cancel();
-          setScrollAt(node.scrollTop, 0);
+          setScrollAt(node.scrollTop, scrollRef.current.delta);
         }
       }
     }
