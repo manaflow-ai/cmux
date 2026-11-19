@@ -146,9 +146,10 @@ test("not connected: one click on Connect to GitHub opens GitHub in place, waits
     expect(row).toBeDefined();
     expect(row!.querySelector("[data-github-unavailable]")).toBeNull();
     expect(detail(row)).toBeUndefined();
-    // It is the last row of the list, under the folders.
-    const rows = [...doc().querySelectorAll("[role=option]")].map((item) => item.textContent);
-    expect(rows.indexOf(row!.textContent)).toBeGreaterThan(rows.findIndex((text) => text?.includes("notes")));
+    // It is pinned under the folders, outside their scrolling list, so a long list never hides it.
+    expect(row!.closest(".ui-combobox-pinned")).not.toBeNull();
+    expect(row!.closest(".ui-combobox-scroll")).toBeNull();
+    expect(option("notes")!.closest(".ui-combobox-scroll")).not.toBeNull();
     await press(row!);
     // One click connects: no second step in the menu.
     expect(gh.calls.at(-1)).toEqual(["github.connect", {}]);
@@ -238,6 +239,30 @@ test("the app finishing the install GitHub handed back (cmux-github-changed) lis
     await act(async () => void dom.window.dispatchEvent(new dom.window.Event("cmux-github-changed")));
     await settle();
     expect(option("acme/docs")).toBeDefined();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("Connect to GitHub is pinned with Add folder… under the scrolling folders, and leaves once connected", async () => {
+  const gh = host({
+    "github.status": { state: "not_connected", repos_scope: null },
+    "github.connect": { opened: true },
+  });
+  const { root } = await renderTray({ onBrowseProject: () => undefined }, gh.store);
+  try {
+    await openFolderMenu();
+    const pinned = [...doc().querySelectorAll(".ui-combobox-pinned [role=option]")].map((item) => item.textContent);
+    expect(pinned).toEqual([CONNECT, "Add folder…"]);
+    gh.answers["github.status"] = { state: "ready", repos_scope: "all" };
+    gh.answers["github.repos.list"] = { repos: REPOS, truncated: false };
+    await gh.back();
+    await act(async () => void dom.window.dispatchEvent(new dom.window.Event("cmux-github-changed")));
+    await settle();
+    expect([...doc().querySelectorAll(".ui-combobox-pinned [role=option]")].map((item) => item.textContent)).toEqual([
+      "Add folder…",
+    ]);
+    expect(option("acme/api")!.closest(".ui-combobox-scroll")).not.toBeNull();
   } finally {
     await act(async () => root.unmount());
   }
