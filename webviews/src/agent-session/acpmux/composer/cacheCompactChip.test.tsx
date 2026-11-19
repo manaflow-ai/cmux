@@ -131,6 +131,11 @@ test("hidden while warm, mid-turn, with nothing typed, or without acpmux's flag;
 test("the chip appears when the cache lapses, with no new usage report", async () => {
   let clock = 1_000;
   const now = () => clock;
+  // The hook's once-a-second tick, run by the test instead of the wall clock.
+  const ticks: (() => void)[] = [];
+  root = createRoot(installDom());
+  dom!.window.setInterval = ((tick: () => void) => ticks.push(tick)) as unknown as typeof setInterval;
+  dom!.window.clearInterval = (() => {}) as typeof clearInterval;
   await render({
     usage: { used: 312_400, compactOnReturn: true, cacheExpiresAt: 1_500 },
     idle: true,
@@ -138,12 +143,9 @@ test("the chip appears when the cache lapses, with no new usage report", async (
     now,
   });
   expect(chip()).toBeNull();
+  expect(ticks.length).toBeGreaterThan(0);
   clock = 2_000;
-  const deadline = Date.now() + 2_500;
-  while (!chip() && Date.now() < deadline)
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    });
+  await act(async () => ticks.forEach((tick) => tick()));
   expect(chip()).not.toBeNull();
 });
 
