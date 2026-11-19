@@ -101,6 +101,8 @@ pub const MEMORY_SERVER_NAME: &str = "cmux-agent-memory";
 /// scope the person picked on the connect card, `cmux_mcp_connect::shared::visible`). Off with
 /// `agents.mcpServers.enabled` false in cmux.json.
 pub const SAVED_SERVERS_NAME: &str = "cmux-mcp";
+/// The cmux.json switch for the saved servers (Settings > MCP Servers), on when absent.
+pub const SAVED_SERVERS_SETTING: &str = "agents.mcpServers.enabled";
 
 /// A session env key passed to `cmux-cua mcp`: exact bundle ids the
 /// session's computer use may target although the guard refuses them.
@@ -1329,7 +1331,7 @@ fn mcp_disabled(text: &str) -> bool {
 /// a missing key, another value or an unreadable file leaves it off.
 fn saved_servers_off(text: &str) -> bool {
     crate::user_settings::document(text)
-        .and_then(|doc| crate::user_settings::value(&doc, "agents.mcpServers.enabled"))
+        .and_then(|doc| crate::user_settings::value(&doc, SAVED_SERVERS_SETTING))
         == Some(Value::Bool(false))
 }
 

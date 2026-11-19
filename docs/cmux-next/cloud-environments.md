@@ -51,3 +51,37 @@ corresponding local services on these ports before selecting `local`; the
 switch does not start or deploy a backend. Development and staging use the
 development mobile and device hub services until those services have separate
 staging deployments.
+
+## A dev build's own backend (a tag's stack)
+
+A DEV bundle (`com.cmuxterm.app.debug`, `com.cmuxterm.app.debug.<tag>`) can also use a tailnet
+origin, `https://<host>.<tailnet>.ts.net[:port]`: one tag's `wrangler dev` stack on the dev VM
+(#45790). Its API is that origin; its other services are the development deployment's until its
+`/v1/client-config` names others, which may be the same tailnet host on another port and never
+another tailnet host. HTTPS only, no path, user or query.
+
+The tag's hand-off writes the choice next to the selection state, in
+`~/Library/Application Support/cmux-next/<bundle-id>/backend.json`
+(`{"backend": "<origin or name>"}`), so every launch of that tag uses it, from the Tag Opener
+too, with no rebuild. The order is:
+
+1. the launch's `--cloud-backend`, then `CMUX_NEXT_CLOUD_BACKEND`, then `CMUX_NEXT_CLOUD_ENV`;
+2. the DEV bundle's `backend.json`;
+3. the picker's persisted choice (`cloud env set`);
+4. the bundle's default (`dev`).
+
+`backend.json` and tailnet origins are read only by DEV bundles: NIGHTLY, RC and Release never
+look for the file, and refuse a tailnet origin from any source. A malformed file, or one naming
+anything outside the allowlist, fails closed: the launch reports the Cloud unavailable and why. A
+`backend.json` choice never rewrites the picker's state (`cloud env get --persisted` ignores it),
+and like any launch override it has its own sign-in storage.
+
+The app says which backend it uses: Settings > Accounts, under the cmux account, reads
+"Cloud backend: <origin> (this tag's backend.json)" in a DEV or NIGHTLY build, and the control
+socket's `auth.status` has `backend` and `backend_label` (the same line); the CLI's
+`cloud env get --json` names `backend_override` (`launch` or `tag_file`) when one applies.
+
+The cmux-next iPhone app takes the same choice as `CMUX_NEXT_CLOUD_BACKEND` at launch (DEBUG
+builds only) and keeps it for later launches; an empty value clears it. Settings > Developer shows
+it as "Cloud backend". `cmux-next-ios/scripts/review.sh --backend <origin|tag-stack|dev>` sets both
+for a tag and prints a `Backend:` line with what the Mac app reports.

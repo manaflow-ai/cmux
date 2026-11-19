@@ -291,6 +291,9 @@ export class HarnessSwitch {
   private listeners = new Set<() => void>();
   /// The session the pane left for the current intent, when it was empty: switching back reuses it.
   private left?: { sessionId: string; harness?: string };
+  /// The permission mode last picked or run on each harness in this pane: a switch away and back
+  /// (Codex, Claude Code, Codex) starts the new chat on it again, as its model comes back.
+  private modes = new Map<string, string>();
   private hintTarget?: string;
   private cancelHint?: () => void;
   private lastHint?: { harness: string; at: number };
@@ -410,6 +413,13 @@ export class HarnessSwitch {
     }
     const done = deferred<string | undefined>();
     const model = options.model ?? (previous?.harness === harness ? previous.config.model : undefined);
+    // The harness being left keeps its mode for a switch back: a pending start's pick, else the mode
+    // the shown chat of that harness runs on.
+    const leftHarness = previous ? previous.harness : shownSession?.harness;
+    const leftMode =
+      previous?.config.mode ?? (shownSession?.harness === leftHarness ? shownSession?.modeId : undefined);
+    if (leftHarness && leftMode) this.modes.set(leftHarness, leftMode);
+    const back = previous?.harness === harness ? undefined : this.modes.get(harness);
     const intent: Intent = {
       id: ++this.generation,
       harness,
@@ -418,15 +428,19 @@ export class HarnessSwitch {
       phase: "starting",
       queued: previous?.queued ?? [],
       // A model or mode picked for one harness does not carry to another; to another folder it does.
+      // Back on a harness, its own last mode comes back with it.
       config: {
         ...(previous?.harness === harness ? previous.config : { options: {} }),
         // A model row of this harness picked it, or the caller passed the one last picked on it
         // (`lastOfferedModel`): the new chat starts on that model.
         ...(model ? { model } : {}),
+        ...(back ? { mode: back } : {}),
       },
       tickets: previous?.harness === harness ? previous.tickets : new Map(),
       done,
     };
+    // The mode it comes back to takes its gesture ticket now, in the pick's own handler.
+    if (back) intent.tickets.set("mode", this.takeTicket({ method: "session/set_mode", params: { modeId: back } }));
     if (previous) this.retire(previous, false);
     this.modelPick = undefined;
     this.configPick = undefined;
