@@ -123,7 +123,7 @@ stream_pid="" via=none
 probe_event() { grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}[ T]' "$1" 2>/dev/null | grep -F -- "$expect" >/dev/null 2>&1; }
 if [[ -n "$expect" ]]; then
   esc="${expect//\\/\\\\}"; esc="${esc//\"/\\\"}"
-  predicate="process == \"cmux\" AND eventMessage CONTAINS \"$esc\""
+  predicate="eventMessage CONTAINS \"$esc\"" # no process filter: the nightly app is "cmux NIGHTLY", and the probe text is unique
   log stream --style compact --level default --predicate "$predicate" >"$out/log-head-stream.txt" 2>"$out/log-head-stream.err" &
   stream_pid=$!
   /bin/sleep 2 # log stream attaches before the app starts
