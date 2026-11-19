@@ -380,6 +380,19 @@ fn the_cmux_router_profile_starts_on_the_model_router_setting() {
 }
 
 #[test]
+fn the_cmux_router_profile_offers_gemini_4_neon_from_our_vertex() {
+    let mut found = BTreeMap::new();
+    super::discover::add_cmux_router_with(
+        &mut found,
+        &|_| Some("/usr/bin/claude".into()),
+        Some("google/gemini-4-neon"),
+    );
+    assert_eq!(found["cmux"].model.as_deref(), Some("google/gemini-4-neon"));
+    let neon = |m: &super::DeclaredModel| matches!(m, super::DeclaredModel::Full { id, .. } if id == "google/gemini-4-neon");
+    assert!(found["cmux"].models.iter().any(neon));
+}
+
+#[test]
 fn a_model_router_setting_the_router_does_not_serve_keeps_the_default() {
     let mut found = BTreeMap::new();
     super::discover::add_cmux_router_with(
