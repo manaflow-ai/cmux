@@ -97,6 +97,15 @@ TIP_EVERY_HOURS = 6
 # as not run ('no_tree'). 2026-11-17 07:13Z: none of the 10 commits since the last tip had a tree, so no tip started,
 # and the web-ui rows of new Linux benches (cmux#44534) waited on a prerequisite only the Mac parts have.
 TREE_WAIT_HOURS = 2
+# The Linux part runs on the shared Blacksmith Linux pool, and a run ends only when its last job does, so a Linux part
+# that waits for a runner holds the whole tick: its report, the controller's result run behind it in the concurrency
+# group, and every Mac part after it. When the last Linux part waited longer than LINUX_WAIT_MINUTES for its runner
+# (the report records it: linux_wait) and that was under LINUX_BACKLOG_HOURS ago, a tick that has a Mac part to run
+# runs it alone; the Linux parts run in the ticks with no Mac part (the Mac parts wait for a host or the tree, or are
+# done), and that tick measures the queue again. 2026-11-18/19: run 44346891004's plan waited 7 h for a Blacksmith
+# runner and its report 1 h more, and no Mac row was stored from 2026-11-17 19:06Z on.
+LINUX_WAIT_MINUTES = 30
+LINUX_BACKLOG_HOURS = 6
 # The plan's checkout is shallow (fetch-depth 300): a culprit range older than that is deepened this many commits at
 # a time, at most DEEPEN_ROUNDS times, before its commits are listed.
 DEEPEN_STEP = 500
@@ -1295,6 +1304,26 @@ def wait_for_tree(cur, t, tree_ready):
     return ""
 
 
+def linux_backlog(state, t):
+    """Why a Linux part may not ride along with a Mac part now, or "" (pure): the last Linux part waited over
+    LINUX_WAIT_MINUTES for its runner, under LINUX_BACKLOG_HOURS ago (state['linux_wait'], from report)."""
+    wait = state.get("linux_wait") if isinstance(state.get("linux_wait"), dict) else {}
+    minutes, seen = wait.get("minutes"), parse_iso(wait.get("at")) if isinstance(wait.get("at"), str) else None
+    if not isinstance(minutes, (int, float)) or minutes <= LINUX_WAIT_MINUTES or not seen \
+            or hours_between(seen, t) >= LINUX_BACKLOG_HOURS:
+        return ""
+    return f"the last Linux part waited {round(minutes)} min for a runner (at {iso(seen)})"
+
+
+def linux_wait_of(asked_at, result):
+    """{'at', 'minutes'}: how long the Linux part waited for its runner, from the plan's ask to its start, or None."""
+    asked = parse_iso(asked_at) if isinstance(asked_at, str) else None
+    started = parse_iso(result.get("started_at")) if isinstance(result, dict) and isinstance(result.get("started_at"), str) else None
+    if not asked or not started or started < asked:
+        return None
+    return {"at": iso(started), "minutes": round((started - asked).total_seconds() / 60, 1)}
+
+
 def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable=lambda sha: True, mac_disabled=None,
            controller_route=False, tree_ready=lambda sha: True):
     """The tick's work: {'action': 'part'|'none'|'finish', 'part': a fleet part or '', 'linux_part': '' or one}.
@@ -1355,6 +1384,9 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
         fleet = ""
         start_yield(cur, t)  # the wait does not count against ABANDON_HOURS
         cur.setdefault("host_asked_since", iso(t))  # ...but it counts for give_up_host (the bench host) and no_host_for_tip
+    backlog = linux_backlog(state, t) if fleet and linux else ""
+    if backlog:
+        linux = ""  # the Mac part runs alone: a Linux part queued behind Blacksmith would hold its tick (LINUX_WAIT_MINUTES)
     if not fleet and not linux:
         return {"action": "none", "sha": cur["sha"], "reason": github_busy, "yielded": True}
     if fleet:
@@ -1368,6 +1400,8 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
         waits = f"; only on {BENCH_WORKER}, which runs no CI job: {github_busy}"
     elif github_busy and linux:
         waits = f"; the Mac parts wait: {github_busy}"
+    if backlog:
+        waits += f"; the Linux parts wait for a tick with no Mac part: {backlog}"
     return {"action": "part", "sha": cur["sha"], "kind": cur["kind"], "part": fleet, "linux_part": linux,
             "worker": (BENCH_WORKER if bench_only else cur.get("host") or "") if fleet else "",
             "reason": f"{cur['kind']} measurement of {cur['sha'][:12]}: part {what} ({done})" + waits}
@@ -2956,6 +2990,8 @@ def plan(o):
         state["current"].setdefault("measure_version", tip_version)
     if measurement_id(state.get("current")) != loaded_id:
         clear_parts(o.dir)  # a dropped or replaced measurement's part files must never be read as the new one's
+    if d.get("linux_part"):
+        state["linux_asked_at"] = iso(t)  # report: how long its Linux job waits for a runner (linux_wait)
     for requested in (d.get("part"), d.get("linux_part")):
         if requested and state.get("current"):
             # What this file asks the part to measure with: its rows carry it (a later tick may run a newer file).
@@ -3275,6 +3311,7 @@ def cmd_run_linux_part(o):
     web-ui (Playwright's browsers too): webviews/bench/web-ui-suite.ts; a bench of it that failed makes the report
     incomplete (its rows still count), and a run with no row at all fails the part. perf-cron judges the numbers."""
     os.makedirs(o.out, exist_ok=True)
+    started_at = iso(now_utc())  # report: the wait for this job's runner (linux_wait)
     env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX_DIFF_BENCH_MAX") and not k.startswith("CMUX_DIFF_BENCH_MIN")}
     started = time.monotonic()
     part = getattr(o, "part", "diff-viewer")
@@ -3317,7 +3354,7 @@ def cmd_run_linux_part(o):
         report["load"] = load
     json.dump(report, open(os.path.join(o.out, "report.json"), "w"), indent=1)
     result = {"state": "done" if ok else "failed", "seconds": round(time.monotonic() - started), "tail": tail[-40:],
-              "worker": o.runner_class}
+              "worker": o.runner_class, "started_at": started_at}
     json.dump(result, open(os.path.join(o.out, "result.json"), "w"), indent=1)
     print(f"perf-cron linux part: {json.dumps({k: v for k, v in result.items() if k != 'tail'})} {json.dumps(report)[:600]}")
 
@@ -3621,6 +3658,11 @@ def report(o):
             note_bench_host(state, reason, t)
             note_host_offline(state, worker, reason, t)
             continue
+        if is_linux_part(part):
+            wait = linux_wait_of(state.pop("linux_asked_at", None), result)
+            if wait:
+                state["linux_wait"] = wait  # linux_backlog reads it
+                changed = True
         if not isinstance(result, dict) or result.get("state") not in ("done", "failed", "yielded"):
             continue
         # A budget bench writes a report and exits zero even when its manifest has missing rows. Keep that
