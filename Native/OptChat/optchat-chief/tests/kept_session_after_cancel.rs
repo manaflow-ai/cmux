@@ -333,3 +333,41 @@ fn a_message_left_unread_in_the_session_ends_it() {
     );
     assert!(inner.ended.contains(&"s1".to_owned()));
 }
+
+#[test]
+fn an_unread_message_taken_back_from_the_session_goes_on_in_it() {
+    let mut h = harness(long_tool_script());
+    {
+        let mut inner = h.agents.inner.lock().unwrap();
+        inner.steering = true;
+        // Claude Code is in a long tool call: the steer waits unread in it,
+        // and Claude Code drops it when asked (cancel_async_message).
+        inner.steer_at_end = true;
+        inner.withdraws = true;
+    }
+    h.brain.set_steer_deadline(Some(Duration::from_millis(20)));
+    running(&mut h, "fix the sidebar");
+    h.say("user_local", "stop, do the composer first");
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while h.agents.inner.lock().unwrap().cancels.is_empty() {
+        assert!(std::time::Instant::now() < deadline, "no cancel");
+        tick(&mut h);
+    }
+    h.agents.hold(false);
+    until_prompts(&mut h, 2);
+    h.settle_posts();
+    let inner = h.agents.inner.lock().unwrap();
+    assert_eq!(inner.withdrawn.len(), 1, "the unread steer was asked back");
+    assert!(inner.withdrawn[0].1.starts_with("optchat-steer:"), "{:?}", inner.withdrawn);
+    assert_eq!(
+        inner.prompt_sessions,
+        vec!["s1", "s1"],
+        "the message goes into the session that holds the work so far"
+    );
+    let tb = texts(&inner.prompts[1]);
+    assert!(
+        tb.iter().any(|t| t.contains("stop, do the composer first")),
+        "{tb:?}"
+    );
+    assert!(tb.iter().all(|t| !t.contains("<chat>")), "{tb:?}");
+}

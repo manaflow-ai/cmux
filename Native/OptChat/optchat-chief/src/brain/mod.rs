@@ -133,6 +133,10 @@ pub enum Input {
         id: u64,
         result: Result<(), String>,
     },
+    /// The steers of turn `key` that the deadline found unread were asked
+    /// back (`steer.rs` `on_steer_deadline`): whether every one was dropped
+    /// unread, so the turn's session holds none of them.
+    SteersWithdrawn { key: String, all: bool },
     TurnEnded {
         key: String,
         /// Boxed: the outcome and its stats are the largest input.
@@ -1630,6 +1634,7 @@ impl Brain {
             Input::Draft(draft) => self.turn_draft(&draft),
             Input::Run(update) => self.turn_run(*update),
             Input::Steered { id, result } => self.steered(id, result),
+            Input::SteersWithdrawn { key, all } => self.steers_withdrawn(&key, all),
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, *outcome),
             Input::Notice { key, text } => self.notice(key, text),
             Input::CompactorStatus(status) => self.compactor_status(status),
