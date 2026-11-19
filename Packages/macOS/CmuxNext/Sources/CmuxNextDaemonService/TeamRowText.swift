@@ -22,6 +22,7 @@ import CmuxNextCompat
     /// their names ("next_pro" is "NEXT Pro").
     static func planName(_ id: String) -> String {
         switch id {
+        case "next_plus": "NEXT Plus"
         case "next_pro": "NEXT Pro"
         case "next_max": "NEXT Max"
         default: id.prefix(1).uppercased() + id.dropFirst()
