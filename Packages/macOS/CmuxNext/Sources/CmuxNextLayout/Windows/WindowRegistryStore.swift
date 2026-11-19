@@ -168,9 +168,9 @@ public final class WindowRegistryStore {
     public func owner(ofWorkspace workspaceID: String) -> String? { ownerByWorkspace[workspaceID] }
 
     /// Writes the window kind and owner of each workspace whose answer changed, and of no other: one new workspace
-    /// writes its own two entries, in a session of 826 workspaces as in one of 60 (`membershipWork.answerWrites`).
+    /// writes its own two entries, in a large session as in one of 60 (`membershipWork.answerWrites`).
     /// A write of an equal value notified nobody before too, but it read its slot through the observation registrar
-    /// (a key path made for each read): 2 x 827 of them were 2.5 ms of main thread per new workspace at 826
+    /// (a key path made for each read): two per workspace, 2.5 ms of main thread per new workspace in a large session
     /// (NEW WORKSPACE 800). The walk that is left compares plain values: one dictionary read per listed workspace.
     private func refreshWorkspaceAnswers() {
         var next: [String: (incognito: Bool, owner: String?)] = [:]

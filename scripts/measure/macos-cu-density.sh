@@ -243,7 +243,7 @@ if [[ "$vz" == 1 ]]; then
   done
   printf '{"step": "disk", "disk_img_apparent_mb": %s, "disk_img_allocated_mb": %s, "free_after_clones": "%s"}\n' \
     "$(( $(stat -f %z "${dirs[0]}/disk.img") >> 20 ))" "$(du -m "${dirs[0]}/disk.img" | awk '{print $1}')" "$(df -h "$lume_home" | tail -1 | awk '{print $4}')" >>"$out/vz.jsonl"
-  perl -e 'alarm 2400; exec @ARGV' "$b/cudvz" cycle "$vz_mem" 4 "$lume_home/tmp/$tag-state" "${dirs[@]}" >>"$out/vz.jsonl" 2>"$out/vz.err" &
+  perl -e 'alarm 2400; exec @ARGV' "$b/cudvz" cycle "$vz_mem" 4 "$lume_home/tmp/$tag-state" ${dirs[@]+"${dirs[@]}"} >>"$out/vz.jsonl" 2>"$out/vz.err" &
   vz_pid=$!
   while kill -0 "$vz_pid" 2>/dev/null; do sleep 30; note "vz: $(tail -1 "$out/vz.jsonl" | cut -c1-200)"; done
   wait "$vz_pid"
