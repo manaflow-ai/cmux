@@ -14,6 +14,10 @@
 //   window_on_screen    the app's first on-screen window (CGWindowList: layer 0, alpha > 0, at least 200 pt wide)
 //   active              NSRunningApplication.isActive turned true
 //   request_to_start    the open request to the process start (LaunchServices' own part, before exec)
+//   premain             the process's rusage read when its main_start mark arrives (a ms or two after main):
+//                       user_ms and system_ms (CPU the process spent, the kernel's exec included), pageins and
+//                       disk_read_kb. With main_start it splits the time before main: CPU, page-ins, or neither
+//                       (the process existed but waited on something outside it).
 // and `marks`: the app's launch marks (CMUX_NEXT_LAUNCH_MARKS_PATH, a FIFO read here), the ones every build has.
 // After the window shows it waits SETTLE_S (default 6) and ends the app with SIGTERM ("Quit, keep sessions"), so
 // the next launch with the same HOME_ROOT is a person's relaunch. An app that quits itself first (launch-ready.sh
@@ -209,6 +213,20 @@ func tabPage(_ tab: String, in node: Any) -> String? {
     return nil
 }
 
+/// The process's CPU and pageins so far (proc_pid_rusage), CPU in ms; nil once it is gone.
+func usage(_ pid: pid_t) -> [String: Any]? {
+    var info = rusage_info_v4()
+    let ok = withUnsafeMutablePointer(to: &info) { pointer in
+        pointer.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(pid, RUSAGE_INFO_V4, $0) }
+    }
+    guard ok == 0 else { return nil }
+    var timebase = mach_timebase_info_data_t(); mach_timebase_info(&timebase)
+    func ms(_ ticks: UInt64) -> Double { (Double(ticks) * Double(timebase.numer) / Double(timebase.denom) / 1e6).rounded(toPlaces: 1) }
+    return ["user_ms": ms(info.ri_user_time), "system_ms": ms(info.ri_system_time), "pageins": Int(info.ri_pageins),
+            "disk_read_kb": Int(info.ri_diskio_bytesread / 1024)]
+}
+var premain: [String: Any]?
+
 let timer = Timer(timeInterval: 0.001, repeats: true) { _ in
     let t = now()
     if app == nil {
@@ -217,6 +235,7 @@ let timer = Timer(timeInterval: 0.001, repeats: true) { _ in
     guard let app else { if t - requested > 30_000 { failure = "no process in 30 s"; done = true }; return }
     let pid = app.processIdentifier
     if start == nil { start = processStart(pid) }
+    if premain == nil, marks["main_start"] != nil { premain = usage(pid) }
     if finished == nil, app.isFinishedLaunching { finished = t }
     if active == nil, app.isActive { active = t }
     if window == nil, ownWindowOnScreen(pid) { window = t; windowSeenAt = t }
@@ -244,6 +263,7 @@ var row: [String: Any] = [
     "label": label, "pid": app?.processIdentifier ?? 0, "start_epoch_ms": start ?? NSNull(),
     "request_to_start": start.map { ($0 - requested).rounded(toPlaces: 1) } ?? NSNull(),
     "finished_launching": rel(finished), "window_on_screen": rel(window), "active": rel(active),
+    "premain": premain ?? NSNull(),
     // The prime launch (a fresh home: no Home cache, no Chief yet) keeps every mark, so the steps of its
     // wait for Home (home.chief_owner_ready, home.chief_create_replied, ...) can be named; every launch keeps
     // the launch steps (dfl.*), Home's (home.*) and every region the first window reveals (reveal.*): a launch that

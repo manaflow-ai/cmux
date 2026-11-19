@@ -363,6 +363,7 @@ pub(crate) use peers::{
 mod permission_groups;
 mod permissions;
 pub(crate) use permissions::drop_display_lines;
+pub mod cmux_tools_answer;
 mod hunk_summary;
 pub mod person;
 pub mod presence;
@@ -2041,6 +2042,8 @@ impl Hub {
             forum_retold: std::sync::Mutex::default(),
             forum_telling: std::sync::Mutex::default(),
             launched_with_tools: std::sync::atomic::AtomicU8::new(0),
+            codex_answer: StdMutex::default(),
+            codex_answer_asked: StdMutex::default(),
             launch_env: StdMutex::new(None),
             credential: StdMutex::new(None),
             route_switch: AtomicBool::new(false),
