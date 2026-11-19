@@ -323,6 +323,9 @@ impl Hub {
         // The bound route last: it owns the provider variables (routes.rs).
         let account_home = self.apply_route(meta, forking, profile, &mut p.env).await?;
         p.argv = self.resolved_launcher_argv(p.argv);
+        // Only `apply` marks an agent as launched on the owner's credential: a marker a profile,
+        // preset or request env set would have its own login read back after a restart as one.
+        p.env.remove(crate::agent_credentials::MARKER);
         // The owner's Cloud credential: straight to the provider, no coderouter route
         // (`agent_credentials.rs`). Its names only are logged, never a value.
         let direct = credential.is_some_and(|c| {
