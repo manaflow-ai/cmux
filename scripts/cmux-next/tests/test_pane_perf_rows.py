@@ -34,7 +34,8 @@ BENCH = definitions(ROOT / "pane-perf-terminal.py", {"moving_frames", "not_appli
                                                     "late_frames", "motion_arms", "commit_notes", "commit_placements",
                                                     "layout_spans", "windows_behind", "marker_color", "marker_command", "stills_facts",
                                                     "stills_clock", "stills_cost", "docked_state", "cli_settings", "theme_facts",
-                                                    "move_facts", "animated_row"})
+                                                    "move_facts", "animated_row", "proof_round_row", "proof_mark",
+                                                    "measure"})
 ZOOM = definitions(ROOT / "pane-zoom-terminal.py", {"sample_frames"})
 
 
@@ -418,7 +419,7 @@ def pane(name, end, now=None):
 
 
 class AMoveByThePaneTrace(unittest.TestCase):
-    """The row `animated` of a timed act and the row of a recorded act read the pane trace: a pane that is not where
+    """The row `animated` of a proof round's act and the row of a recorded act read the pane trace: a pane that is not where
     it ends in 2 samples or more is a move. The app's `layout.commit` sample is only in a build with the probe: a
     build with no such sample and with a move in the trace is animated, and a build with no source says NO SOURCE."""
 
@@ -451,7 +452,7 @@ class AMoveByThePaneTrace(unittest.TestCase):
     def test_a_move_in_the_trace_is_animated_in_a_build_with_no_commit_sample(self):
         name, expected, seen, ok = self.row("on", 0, 0, self.facts(self.close), [])
         self.assertTrue(ok)
-        self.assertEqual(name, "animated (a pane is in a move in the pane trace, or a layout spring, the strip camera or a commit motion moved)")
+        self.assertEqual(name, "animated (a pane's rect moves in the pane trace, or a layout spring, the strip camera or a commit motion moved)")
         self.assertEqual(expected, "2 samples in a move or more, or above 0 frames")
         self.assertEqual(seen, "5 of 7 samples of the pane trace in a move; 0 spring frames, 0 commit frames")
         self.assertTrue(self.row(None, 0, 0, self.facts(self.close), [])[3])  # no arm: the app's own setting
@@ -477,6 +478,88 @@ class AMoveByThePaneTrace(unittest.TestCase):
         self.assertFalse(self.row("off", 0, 0, self.facts(self.close), [])[3])
         self.assertFalse(self.row("off", 3, 0, self.facts(self.one_frame), [])[3])
         self.assertFalse(self.row("off", 0, 2, self.facts(self.one_frame), [])[3])
+
+
+class Calls:
+    """The app's debug socket as a list of the calls that the script made."""
+
+    def __init__(self, trace):
+        self.made, self.trace = [], trace
+
+    def __call__(self, method, params=None, timeout=30):
+        self.made.append((method, (params or {}).get("action"), tuple((params or {}).get("targets") or ())))
+        return self.trace if (params or {}).get("action") == "trace_stop" else {}
+
+
+class AProofRound(unittest.TestCase):
+    """A timed round runs with no pane trace: its numbers have no cost of the tool's sampler and stay comparable with
+    each older round. Each arm has one round more, first, with the trace: the proof round. It is not timed and not in
+    the numbers, and its row says if the arm's acts moved."""
+
+    def setUp(self):
+        kept = [100, 6, 200, 190]
+        self.move = {"samples": [{"t": 8.3 * at, "panes": [pane("a", kept, [100, 6, width, 190])]} for at, width in enumerate((100, 130, 160, 190))]
+                     + [{"t": 50, "panes": [pane("a", kept)]}]}
+        self.one_frame = {"samples": [{"t": 0, "panes": [pane("a", kept)]}, {"t": 8.3, "panes": [pane("a", kept), pane("n", kept, [100, 6, 0, 0])]}]}
+        self.printed = []
+
+    def bench(self, trace):
+        calls = Calls(trace)
+        clock = SimpleNamespace(sleep=lambda seconds: None, monotonic=lambda: 0.0)
+        background = SimpleNamespace(sample=lambda: None, delta=lambda before: {"total_s": 0, "over_limit": False})
+        made = loaded(rpc=calls, perform=lambda name: None, time=clock, bench_background=background,
+                      opts=SimpleNamespace(browser=False), WINDOW_ACTIONS=("window-zoom", "window-unzoom"),
+                      STILL=("drag", "scroll", "idle", "window-zoom", "window-unzoom"),
+                      print=lambda *said, **more: self.printed.append(" ".join(str(part) for part in said)))
+        return made, calls
+
+    def test_a_timed_round_runs_with_no_pane_trace(self):
+        made, calls = self.bench(self.move)
+        run = made["measure"]("30p zoom #0 on", "zoom")
+        self.assertEqual([call for call in calls.made if call[1] in ("trace_start", "trace_stop")], [])
+        self.assertEqual((run["move"], run["samples_in_a_move"], run["proof"]), (None, None, False))
+        self.assertIn("30p zoom #0 on", self.printed[-1])
+
+    def test_a_proof_round_runs_with_the_pane_trace_and_says_that_it_is_not_timed(self):
+        made, calls = self.bench(self.move)
+        run = made["measure"]("30p zoom proof on", "zoom", proof=True)
+        self.assertEqual([call for call in calls.made if call[1] in ("trace_start", "trace_stop")],
+                         [("debug.motion", "trace_start", ("panes",)), ("debug.motion", "trace_stop", ())])
+        self.assertEqual((run["samples_in_a_move"], run["proof"]), (4, True))
+        self.assertIn("proof round (not timed, not in the numbers): 4 of 5 samples of the pane trace in a move", self.printed[-1])
+        self.assertNotIn("p95", self.printed[-1])
+
+    def test_an_act_that_moves_no_pane_has_no_trace_in_a_proof_round(self):
+        made, calls = self.bench(self.move)
+        made["measure"]("30p scroll proof", "scroll", proof=True)
+        self.assertEqual([call for call in calls.made if call[1] == "trace_start"], [])
+
+    def test_a_timed_number_of_an_arm_with_no_proof_says_so(self):
+        made, _ = self.bench(self.move)
+        made["measure"]("30p split #1 on", "split", mark="NO MOVE PROVED")
+        self.assertTrue(self.printed[-1].endswith("  NO MOVE PROVED"), self.printed[-1])
+        made["measure"]("30p split #1 on", "split")
+        self.assertNotIn("PROVED", self.printed[-1])
+
+    def test_the_proof_rounds_row_is_the_arms_row_with_its_limit(self):
+        made, _ = self.bench(self.move)
+        facts, row, mark = made["move_facts"], made["proof_round_row"], made["proof_mark"]
+        limit = "the move is proved for this arm's settings in one round, not in each timed round"
+        run = {"moving_frames": 0, "commit_frames": 0, "move": facts(self.move), "commit_notes": []}
+        name, expected, seen, ok = row("on", run)
+        self.assertEqual((name, ok), ("proof round: animated (a pane's rect moves in the pane trace, or a layout spring, the strip camera "
+                                      "or a commit motion moved)", True))
+        self.assertEqual(expected, f"2 samples in a move or more, or above 0 frames ({limit})")
+        self.assertEqual(seen, "4 of 5 samples of the pane trace in a move; 0 spring frames, 0 commit frames")
+        once = {"moving_frames": 0, "commit_frames": 0, "move": facts(self.one_frame), "commit_notes": ["a note"]}
+        self.assertFalse(row("on", once)[3])
+        self.assertEqual(row("off", once)[:2], ("proof round: still (the pane motion is off)", f"1 sample in a move at the most, 0 frames ({limit})"))
+        self.assertTrue(row("off", once)[3])
+        self.assertFalse(row("off", run)[3])
+        # What a number of a timed round of that arm gets beside it.
+        self.assertEqual([mark("on", True), mark("off", True), mark(None, True)], ["", "", ""])
+        self.assertEqual([mark("on", False), mark(None, False), mark("off", False)], ["NO MOVE PROVED", "NO MOVE PROVED", "MOTION OFF NOT PROVED"])
+        self.assertEqual(mark("on", None), "NO MOVE PROVED")  # the arm's proof round did not run this act
 
 
 def dock(mode="docked", shown=True, panes=("p7",), edge="left"):

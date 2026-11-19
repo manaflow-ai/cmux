@@ -37,7 +37,7 @@ pages it holds the resize wait of fork API 27), frames the springs moved (`movin
 spring, or the strip camera: New Column moves only the camera), frames a commit motion had a pane in flight
 (`commit_frames`: the `layout.commit` samples; 0 on a build without them: only a build with the probe has them),
 the samples of the pane trace in which a pane is not where it ends (`samples_in_a_move`: `debug.motion` trace through
-each act that moves a pane, in each arm; the row `animated` reads it, and says NO SOURCE and fails when the build
+each act of an arm's proof round, see below; the row `animated` reads it, and says NO SOURCE and fails when the build
 gives no such trace and no frame of the 2 counts above), grids sent to the PTY owner
 (`debug.window_transition`) and hangs (`debug.hangs`). With --record, a second pass records each action with
 `debug.window_record` (frames/ in --out; the recording itself costs frames, so it never runs in the timed pass),
@@ -63,6 +63,18 @@ With --pane-motion on,off each round runs its actions one time for each arm, in 
 and its row `still` passes when no spring and no commit motion moved and the pane trace has 1 sample in a move at
 the most. Without the option the app's own setting
 runs one time and each row keeps its name.
+
+The proof round. Before its timed rounds each arm runs its acts one time more, with the pane trace: the rows
+`<layout> <act> proof round: animated (...)` (the off arm: `still`). That round is not timed and is in no number
+(the report keeps it as `proof_rounds`). The timed rounds run with no pane trace: the trace's sampler works on the
+main thread at each display tick, and a number of a round must stay comparable with each older round. An act with a
+failed proof round has NO MOVE PROVED beside each of its numbers (the off arm: MOTION OFF NOT PROVED), in each round's
+line, in the summary and as `move_proved` in the report, and its row fails the run.
+Limits: the move is proved for an arm's settings in one round, not in each timed round. The row says that a pane's
+rect moves: the 4 acts of the commit motion (split, close, zoom, unzoom) each move a pane's rect; New Column moves
+no pane, only the strip camera (the same row holds it by the spring frames); at an unzoom the rings of the panes
+that come back change their opacity with no rect move, and no row holds that (a reader of the --record stills
+does); a pane that only fades at the place where it ends has 0 samples in a move and fails the row.
 
 With --window-look KEY=VALUE[,KEY=VALUE...] the window has another look than the launch's opaque one, for example a
 window with a picture background (`background=NAME,opacity=0.5,blur=none`, NAME a built-in picture). The option
@@ -404,9 +416,26 @@ def animated_row(arm, moving, committed, move, notes):
         return ("still (the pane motion is off)", "1 sample in a move at the most, 0 frames", seen,
                 traced and move["samples_in_a_move"] <= 1 and not moving and not committed)
     animated = (moving or 0) > 0 or (committed or 0) > 0 or (traced and move["samples_in_a_move"] >= 2)
-    return ("animated (a pane is in a move in the pane trace, or a layout spring, the strip camera or a commit motion moved)",
+    return ("animated (a pane's rect moves in the pane trace, or a layout spring, the strip camera or a commit motion moved)",
             "2 samples in a move or more, or above 0 frames", seen + ("" if animated or not traced else f"; the app's notes: {list(notes)[:4]}"),
             animated)
+
+
+def proof_round_row(arm, run):
+    """The row of one act of an arm's proof round: (its name, what it expects, what it saw, passed). `run`: that
+    act's `measure` with `proof`. The rule is `animated_row`'s. The limit is in the row's own text: the timed
+    rounds of the arm run with no trace, so the move is proved for the arm's settings, not for each timed round."""
+    said, expected, seen, passed = animated_row(arm, run["moving_frames"], run["commit_frames"], run["move"], run["commit_notes"])
+    return (f"proof round: {said}",
+            f"{expected} (the move is proved for this arm's settings in one round, not in each timed round)", seen, passed)
+
+
+def proof_mark(arm, passed):
+    """What each number of a timed round gets beside it: nothing when the same act of the arm's proof round passed,
+    else NO MOVE PROVED (the off arm: MOTION OFF NOT PROVED). `passed` None: the proof round did not run the act."""
+    if passed:
+        return ""
+    return "MOTION OFF NOT PROVED" if arm == "off" else "NO MOVE PROVED"
 
 
 def stills_clock(index, trace):
@@ -871,13 +900,17 @@ def first_window(report):
     return windows[0] if windows else {}
 
 
-def measure(label, name):
+def measure(label, name, proof=False, mark=""):
+    """One act, measured. `proof`: the act of a proof round: it runs with the pane trace (an act that moves a pane),
+    its line says that it is not timed, and its numbers go into no summary. A timed round runs with no pane trace:
+    the trace's sampler costs main-thread time at each display tick. `mark`: `proof_mark` of the act's arm."""
     global WINDOW_RESTORE
     window_geometry = first_window(rpc("debug.layers")) if name in WINDOW_ACTIONS else {}
     window_before = window_geometry.get("frame")
     if name == "window-zoom":
         WINDOW_RESTORE = window_before
-    traced = name in WINDOW_ACTIONS or name not in STILL  # a window act: the window's size; an act that moves a pane: the panes
+    proof = proof and name not in STILL
+    traced = name in WINDOW_ACTIONS or proof  # a window act: the window's size; a proof round's act that moves a pane: the panes
     if traced:
         rpc("debug.motion", {"action": "trace_start", "targets": ["window"] if name in WINDOW_ACTIONS else ["panes"]})
         time.sleep(0.05)  # test harness: record the resting geometry before the input
@@ -898,7 +931,7 @@ def measure(label, name):
     background_cpu = bench_background.delta(background)
     stopped_trace = rpc("debug.motion", {"action": "trace_stop"}) if traced else None
     window_trace = stopped_trace if name in WINDOW_ACTIONS else None
-    move = move_facts(stopped_trace) if name not in STILL else None  # the row `animated` reads it (animated_row)
+    move = move_facts(stopped_trace) if proof else None  # the proof round's row reads it (proof_round_row)
     hangs = rpc("debug.hangs") or {}
     work = (motion.get("work") or {}).get("clock", {}) if isinstance(motion, dict) else {}
     # Each Core Animation commit while recording (MotionCommitProbe): with Chromium pages, how long a page's
@@ -912,7 +945,7 @@ def measure(label, name):
         "label": label, "action": name, "error": error,
         "missed": frames.get("missed"), "frames_max_ms": frames.get("max_ms"), "frames_p99_ms": frames.get("p99_ms"),
         "frames_p50_ms": frames.get("p50_ms"), "frames_p95_ms": frames.get("p95_ms"), "frames": frames.get("frames"),
-        "refresh_ms": frames.get("refresh_ms"), "moving_frames": moving, "commit_frames": committed, "move": move,
+        "refresh_ms": frames.get("refresh_ms"), "moving_frames": moving, "commit_frames": committed, "move": move, "proof": proof,
         "samples_in_a_move": move["samples_in_a_move"] if move and not move["no_source"] else None, **late,
         "commit_notes": commit_notes(motion.get("notes")) if isinstance(motion, dict) else [],
         "commit_placements": commit_placements(motion.get("samples"), motion.get("notes")) if isinstance(motion, dict) else [],
@@ -975,6 +1008,10 @@ def measure(label, name):
             error = error or (f"window zoom had {travel['intermediate']} intermediate display frames; "
                               f"expected at least {WINDOW_MIN_INTERMEDIATE}")
         result["error"] = error
+    if proof:
+        said = f"NO SOURCE: {move['no_source']}" if move["no_source"] else f"{move['samples_in_a_move']} of {move['samples']} samples of the pane trace in a move"
+        print(f"  {label:<22} proof round (not timed, not in the numbers): {said}; moved {moving} commit {committed}  err {error}", flush=True)
+        return result
     extra = ""
     if name in WINDOW_ACTIONS:
         extra = (f"  window active p95 {result['window_frame_p95_ms']} max {result['window_frame_max_ms']} ms "
@@ -1009,7 +1046,8 @@ def measure(label, name):
           f"main max {late['main_max_ms']} ms  tick p95 {result['layout_p95_ms']} max {result['layout_max_ms']} ms  "
           f"commit p95 {result['commit_p95_ms']} max {result['commit_max_ms']} ms  "
           f"grids {result['grid_reports']}/{result['resizes_sent']}  hangs {result['hangs']}  "
-          f"background {background_cpu['total_s']} s{' OVER LIMIT' if background_cpu['over_limit'] else ''}  err {error}{extra}", flush=True)
+          f"background {background_cpu['total_s']} s{' OVER LIMIT' if background_cpu['over_limit'] else ''}  err {error}{extra}"
+          + (f"  {mark}" if mark else ""), flush=True)
     return result
 
 
@@ -1420,6 +1458,31 @@ def main():
         print(f"  {name}: window key {state['window_key']}, frontmost {state['frontmost']} (rows named {', '.join(tags.values())})", flush=True)
         labels += tags.values()
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}-before.png")})
+        # The proof round: each arm runs its acts one time FIRST, with the pane trace. It is not timed and not in
+        # the numbers; its row says if the arm's acts moved (or stayed still, the off arm). The timed rounds after
+        # it run with no trace.
+        proved = {}
+        for arm in tags:
+            label = tags[arm]
+            problem = set_pane_motion(arm == "on") if arm else None
+            if problem:
+                row(f"{label} proof round: the pane motion is {arm}", "the app took the setting", problem, False)
+                continue
+            for step in sequence:
+                if step in STILL or not_applicable(step, columns if name != "stress" else None):
+                    continue
+                if opts.browser and step not in ("close", "close-down", "column-close", "unzoom", "window-unzoom", "page-close"):
+                    focus_page()  # each pair starts on the Chromium pane
+                run = measure(f"{panes:>2}p {step} proof" + (f" {arm}" if arm else ""), step, proof=True)
+                report.setdefault("proof_rounds", []).append({
+                    "layout": label, "action": step, "pane_motion": arm, "error": run["error"], "move": run["move"],
+                    "samples_in_a_move": run["samples_in_a_move"], "moving_frames": run["moving_frames"],
+                    "commit_frames": run["commit_frames"], "commit_notes": run["commit_notes"]})
+                row(f"{label} {step} proof round: ran", "no error", str(run["error"]), run["error"] is None)
+                said, expected, seen, passed = proof_round_row(arm, run)
+                row(f"{label} {step} {said}", expected, seen, passed)
+                proved[(arm, step)] = passed and run["error"] is None
+                time.sleep(0.4)  # test harness: idle between runs
         for index, arm in [(index, arm) for index in range(opts.rounds) for arm in tags]:
             label = tags[arm]
             problem = set_pane_motion(arm == "on") if arm else None
@@ -1435,15 +1498,14 @@ def main():
                     continue
                 if opts.browser and step not in ("close", "close-down", "column-close", "unzoom", "window-unzoom", "page-close"):
                     focus_page()  # each pair starts on the Chromium pane
-                run = measure(f"{panes:>2}p {step} #{index}" + (f" {arm}" if arm else ""), step)
-                run.update(layout=label, panes=panes, round=index, pane_motion=arm)
+                mark = "" if step in STILL else proof_mark(arm, proved.get((arm, step)))
+                run = measure(f"{panes:>2}p {step} #{index}" + (f" {arm}" if arm else ""), step, mark=mark)
+                run.update(layout=label, panes=panes, round=index, pane_motion=arm,
+                           move_proved=None if step in STILL else not mark)
                 report["runs"].append(run)
                 if step in WINDOW_ACTIONS and run["error"]:
                     UNMEASURED.append(f"{label} {step} #{index}: {run['error']}")
                 row(f"{label} {step} #{index}: ran", "no error", str(run["error"]), run["error"] is None)
-                if step not in STILL:
-                    said, expected, seen, passed = animated_row(arm, run["moving_frames"], run["commit_frames"], run["move"], run["commit_notes"])
-                    row(f"{label} {step} #{index}: {said}", expected, seen, passed)
                 missed = run["missed"]
                 row(f"{label} {step} #{index}: missed frames" + ("" if opts.gate else " (info)"),
                     f"<= {opts.missed_budget}", f"{missed} ({run['missed_refreshes']} refreshes)",
@@ -1484,12 +1546,16 @@ def main():
                 values = sorted(v for v in (r.get(key) for r in runs) if v is not None)
                 return values[len(values) // 2] if values else None
             summary = {key: med(key) for key in ["frames_p50_ms", "frames_p95_ms", "frames_p99_ms", "frames_max_ms", "missed",
-                                                 "missed_refreshes", "main_max_ms", "commit_frames", "moving_frames", "samples_in_a_move",
+                                                 "missed_refreshes", "main_max_ms", "commit_frames", "moving_frames",
                                                  "layout_p95_ms", "layout_max_ms", "grid_reports",
                                                  "resizes_sent", "commit_p95_ms", "commit_max_ms", "refresh_ms",
                                                  "window_intermediate", "window_max_step", "window_frame_p95_ms", "window_frame_max_ms",
                                                  "window_frame_missed", "window_refresh_ms"] + browser_keys}
-            report.setdefault("summary", []).append({"layout": name, "action": step, **summary})
+            unproved = next((proof_mark(r.get("pane_motion"), False) for r in runs if r.get("move_proved") is False), "")
+            proof = next((p for p in report.get("proof_rounds", []) if p["layout"] == name and p["action"] == step), {})
+            summary["samples_in_a_move"] = proof.get("samples_in_a_move")  # of the arm's proof round: no timed round has a trace
+            report.setdefault("summary", []).append({"layout": name, "action": step, **summary,
+                                                     "move_proved": None if step in STILL else not unproved})
 
             def f(v):
                 return "-" if v is None else (f"{v:.1f}" if isinstance(v, float) else str(v))
@@ -1498,8 +1564,8 @@ def main():
                   f"{f(summary['frames_p99_ms']):>6} {f(summary['frames_max_ms']):>6} {f(summary['missed']):>6} "
                   f"{f(summary['missed_refreshes']):>5} {f(summary['moving_frames']):>5} {f(summary['commit_frames']):>6} "
                   f"{f(summary['layout_p95_ms']):>6} {f(summary['layout_max_ms']):>6} "
-                  + (f"{grids:>7}" + "".join(f" {f(summary[k]):>6}" for k in browser_keys) if browser_keys else grids),
-                  flush=True)
+                  + (f"{grids:>7}" + "".join(f" {f(summary[k]):>6}" for k in browser_keys) if browser_keys else grids)
+                  + (f"  {unproved}" if unproved else ""), flush=True)
     if opts.json:
         json.dump(report, open(opts.json, "w"), indent=1)
     MEASURED = bool(report["runs"])  # at least one action was measured
