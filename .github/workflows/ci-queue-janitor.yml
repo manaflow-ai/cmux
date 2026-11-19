@@ -127,7 +127,7 @@ jobs:
     # ephemeral-only rule). On
     # 2026-11-01 LINUX_RUNNER stayed on blacksmith-32vcpu-ubuntu-2404 while that size stalled, so
     # no sweep ran from 05:43Z to past 06:30Z and a lost job (124762739841) waited 50 minutes.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS || '{}').linux || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS || '{}').linux || !startsWith(vars.LINUX_RUNNER, 'cmux-fleet-linux-') && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # A sweep that lists the whole queue took up to 13 minutes on 2026-10-30; a timed-out
     # job skips the upload below, so this leaves room for the longest one seen.
     timeout-minutes: 15

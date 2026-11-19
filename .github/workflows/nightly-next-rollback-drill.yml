@@ -62,7 +62,7 @@ jobs:
     if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'schedule'
     permissions:
       actions: write # dispatch nightly-next-rollback-drill.yml
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'cmux-fleet-linux-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     env:
       GH_TOKEN: ${{ github.token }}
@@ -158,7 +158,7 @@ jobs:
     if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && inputs.step == 'pull'
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'cmux-fleet-linux-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
       bad: ${{ steps.check.outputs.bad }}

@@ -77,7 +77,7 @@ class Declared(unittest.TestCase):
         # Smallest first: Blacksmith caps vCPUs at once, so the live member is the small size (2026-11-01).
         # Owned GCP runners first since Leo, 2026-11-18 ("remove that belt and suspenders, please").
         self.assertEqual(runner_pools.load_pools(env={})["linux"]["members"],
-                         ["cmux-fleet-linux-x64", "cmux-gcp-lane-x64",
+                         ["cmux-gcp-lane-build-x64",
                           "blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"])
 
     def test_every_blacksmith_linux_size_has_its_own_pool(self) -> None:
@@ -91,13 +91,15 @@ class Declared(unittest.TestCase):
                 self.assertGreater(len(listed), 1, f"{name} needs a member to fail over to")
 
     def test_every_x64_linux_pool_leads_with_the_owned_gcp_runners(self) -> None:
-        # Leo, 2026-11-18: "remove that belt and suspenders, please." The ephemeral GCP fleet, then the GCP lanes, then Blacksmith.
+        # Leo, 2026-11-18: "remove that belt and suspenders, please." The GCP lane build runners, which start cmux
+        # jobs (job 135012915150), then Blacksmith. cmux-fleet-linux-x64 boots no runners, so no pool names it.
         pools = runner_pools.load_pools(env={})
         for name in ("linux", "linux_2", "linux_4", "linux_8", "linux_16", "linux_32", "promotion"):
             with self.subTest(pool=name):
                 listed = runner_pools.members(pools[name])
-                self.assertEqual(listed[:2], ["cmux-fleet-linux-x64", "cmux-gcp-lane-x64"])
-                self.assertTrue(all(runner_pools.EPHEMERAL.match(m) for m in listed[2:]))
+                self.assertEqual(listed[:1], ["cmux-gcp-lane-build-x64"])
+                self.assertNotIn("cmux-fleet-linux-x64", listed)
+                self.assertTrue(all(runner_pools.EPHEMERAL.match(m) for m in listed[1:]))
         self.assertEqual(runner_pools.members(pools["linux_arm64"]), ["blacksmith-4vcpu-ubuntu-2404-arm"])
 
     def test_pool_members_are_blacksmith_owned_linux_or_hosted(self) -> None:
@@ -560,38 +562,40 @@ class OwnedLeads(unittest.TestCase):
     """Leo, 2026-11-18: "remove that belt and suspenders, please." The owned GCP labels lead the x64 Linux pools and
     are judged on probe evidence like any member: a start keeps one serving, a stall moves the pool to the next."""
 
-    FLEET, LANE = "cmux-fleet-linux-x64", "cmux-gcp-lane-x64"
+    # LANE leads; FLEET is the label no runner boots for, which a hand-set LINUX_RUNNER may still hold.
+    FLEET, LANE = "cmux-fleet-linux-x64", "cmux-gcp-lane-build-x64"
     X64 = ("linux", "linux_2", "linux_4", "linux_8", "linux_16", "linux_32", "promotion")
 
-    def test_no_evidence_keeps_every_x64_pool_on_the_fleet(self) -> None:
+    def test_no_evidence_keeps_every_x64_pool_on_the_lane(self) -> None:
         value, _ = runner_pools.reconcile({}, runner_pools.load_pools(env={}), dead_now=(), served_now=(), now=NOW)
-        self.assertEqual({k: value[k] for k in self.X64}, dict.fromkeys(self.X64, self.FLEET))
+        self.assertEqual({k: value[k] for k in self.X64}, dict.fromkeys(self.X64, self.LANE))
         self.assertEqual(value["linux_arm64"], "blacksmith-4vcpu-ubuntu-2404-arm")
 
-    def test_a_stalled_fleet_moves_to_the_lane_then_blacksmith(self) -> None:
+    def test_a_stalled_lane_moves_to_blacksmith_and_back(self) -> None:
         pools = runner_pools.load_pools(env={})
-        value, _ = runner_pools.reconcile({}, pools, dead_now=(self.FLEET,), served_now=(), now=NOW)
-        self.assertEqual({k: value[k] for k in self.X64}, dict.fromkeys(self.X64, self.LANE))
-        value, _ = runner_pools.reconcile(value, pools, dead_now=(self.LANE,), served_now=(), now=NOW)
+        value, _ = runner_pools.reconcile({}, pools, dead_now=(self.LANE,), served_now=(), now=NOW)
         self.assertEqual(value["linux"], "blacksmith-4vcpu-ubuntu-2404")
         self.assertEqual(value["linux_16"], "blacksmith-16vcpu-ubuntu-2404")
-        value, _ = runner_pools.reconcile(value, pools, dead_now=(), served_now=(self.FLEET,), now=NOW)
-        self.assertEqual(value["linux"], self.FLEET)
+        value, _ = runner_pools.reconcile(value, pools, dead_now=(), served_now=(self.LANE,), now=NOW)
+        self.assertEqual(value["linux"], self.LANE)
 
     def test_probe_health_marks_an_owned_label(self) -> None:
         dead, started, _ = runner_pools.label_evidence(
-            health({self.FLEET: "stalled", self.LANE: "started"}), None, now=NOW)
-        self.assertEqual((dead, started), ({self.FLEET}, {self.LANE}))
+            health({self.LANE: "started"}), None, now=NOW)
+        self.assertEqual((dead, started), (set(), {self.LANE}))
+        dead, started, _ = runner_pools.label_evidence(health({self.LANE: "stalled"}), None, now=NOW)
+        self.assertEqual((dead, started), ({self.LANE}, set()))
 
     def test_the_hosted_override_stays_behind_the_owned_labels(self) -> None:
         pools = runner_pools.load_pools(env={"CI_LINUX_HOSTED_RUNNER": "ubuntu-24.04"})
         self.assertEqual(runner_pools.spec_problems(pools), [])
-        self.assertEqual(pools["linux"]["members"][:3], [self.FLEET, self.LANE, "ubuntu-24.04"])
+        self.assertEqual(pools["linux"]["members"][:2], [self.LANE, "ubuntu-24.04"])
 
-    def test_the_mirror_moves_linux_runner_off_another_owned_label(self) -> None:
-        # 2026-11-18 22:35Z LINUX_RUNNER was set by hand to cmux-gcp-lane-build-x64; the pool's member wins.
-        self.assertEqual(runner_pools.mirror_writes({"linux": self.FLEET}, {"LINUX_RUNNER": "cmux-gcp-lane-build-x64"},
-                                                    record=None), [("LINUX_RUNNER", self.FLEET)])
+    def test_the_mirror_moves_linux_runner_off_the_fleet_label(self) -> None:
+        # 2026-11-18 23:47Z LINUX_RUNNER was set by hand to cmux-fleet-linux-x64, which boots no runners; the
+        # pool's member wins, so the next writer pass moves it to the lane label.
+        self.assertEqual(runner_pools.mirror_writes({"linux": self.LANE}, {"LINUX_RUNNER": self.FLEET},
+                                                    record=None), [("LINUX_RUNNER", self.LANE)])
 
 
 class Schema(unittest.TestCase):

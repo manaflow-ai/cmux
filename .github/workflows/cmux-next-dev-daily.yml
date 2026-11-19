@@ -372,7 +372,7 @@ jobs:
     needs: sign
     # A candidate (pr_head_sha) publishes nothing, so it supersedes nothing.
     if: needs.sign.outputs.signed == 'true' && inputs.pr_head_sha == ''
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'cmux-fleet-linux-') && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     continue-on-error: true
     permissions:
@@ -414,7 +414,7 @@ jobs:
     needs: sign
     if: needs.sign.outputs.signed == 'true'
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'cmux-fleet-linux-') && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 7
     # Reads the queue janitor's pool snapshot (e2e_runner_pool.py's budget)
     # and the owned runners through the routing App's own budget.
@@ -1171,7 +1171,7 @@ jobs:
     # after checking its sha256 against this job's output.
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     name: Build the signer
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-8vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'cmux-fleet-linux-') && vars.LINUX_RUNNER || 'blacksmith-8vcpu-ubuntu-2404' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -1418,7 +1418,7 @@ jobs:
     # so an older build can never overwrite a newer one.
     environment: release
     # Linux: only R2 writes are left here.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'cmux-fleet-linux-') && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -1782,7 +1782,7 @@ jobs:
     name: Delete the signed app handoff once its readers are done
     needs: [sign, supersede, runner, verify, publish, tip-dmg-build, rcodesign, tip-dmg, tip, tip-deltas]
     if: ${{ always() && needs.sign.outputs.signed == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'cmux-fleet-linux-') && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     continue-on-error: true
     permissions:

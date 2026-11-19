@@ -1016,10 +1016,11 @@ fat-LTO cmux-tui build to 4 and 2 vCPU, where rustc was killed out of memory,
 and no NEXT nightly could publish.
 
 Every x64 Linux pool (`linux`, `linux_2` ... `linux_32`, `promotion`) leads
-with owned GCP runners (`runner_pools.OWNED_LINUX`): `cmux-fleet-linux-x64`,
-the ephemeral GCP fleet (one VM per queued job), then `cmux-gcp-lane-x64`
-(persistent org runners on the gcp-agent-lane VMs, shared with hq). Its
-Blacksmith sizes follow as overflow. A reused machine may take a job that holds a secret: Leo,
+with the owned GCP lane build runners (`runner_pools.OWNED_LINUX`): `cmux-gcp-lane-build-x64`,
+the persistent runners that already start cmux jobs. Its Blacksmith sizes
+follow as overflow. `cmux-fleet-linux-x64` boots no runners, so no pool names
+it, and every `vars.LINUX_RUNNER` reader skips it for its fallback
+(`!startsWith(vars.LINUX_RUNNER, 'cmux-fleet-linux-') && vars.LINUX_RUNNER`). A reused machine may take a job that holds a secret: Leo,
 2026-11-18, "it's just my pull request. There's essentially no risk. So you
 guys are just... remove that belt and suspenders, please." The old rule (every
 member ephemeral, and a bounded selector in each key-holding job) kept four idle

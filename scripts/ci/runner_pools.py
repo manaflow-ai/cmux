@@ -67,9 +67,9 @@ that starts no job at all, so on 2026-11-18 runs queued on dead 4, 8 and 16 vCPU
 The watch's next step, `cloud_overflow_switch.py --rescue-dead`, force-cancels and re-runs those
 runs once (dead_labels() there), and they then read the pool's new member.
 
-An x64 Linux pool leads with owned GCP runners (OWNED_LINUX): `cmux-fleet-linux-x64`, the ephemeral GCP fleet (one
-VM per queued job), then `cmux-gcp-lane-x64` (persistent org runners on the gcp-agent-lane VMs, shared with hq), and
-its Blacksmith sizes follow as overflow. A pool member may be a reused machine, and a
+An x64 Linux pool leads with an owned GCP runner label (OWNED_LINUX): `cmux-gcp-lane-build-x64`, the persistent GCP lane
+build runners that start cmux jobs, and its Blacksmith sizes follow as overflow. `cmux-fleet-linux-x64` boots no
+runners, so no pool names it; OWNED_LINUX still matches it so the LINUX_RUNNER mirror moves off it. A pool member may be a reused machine, and a
 job holding a secret may run there. Leo, 2026-11-18: "The jobs thing, the secrets thing, you guys need to look. Didn't
 we set up those profiles? So we should basically just be able to run whatever. I mean, it's not like I'm going to all
 of a sudden write some sort of what, like exfiltrate my own secrets for what? Like it's just my pull request. There's
@@ -166,8 +166,8 @@ HEALTH_MAX_AGE = dt.timedelta(minutes=25)
 SNAPSHOT_MAX_AGE = dt.timedelta(minutes=pr_runner_pool.MAX_SNAPSHOT_MINUTES)
 UTC = dt.timezone.utc
 EPHEMERAL = re.compile(r"^blacksmith-\d+vcpu-[a-z0-9.-]+$")
-# The owned Linux runner labels a pool may lead with (Leo 2026-11-18): cmux-fleet-linux-x64, the ephemeral GCP fleet
-# (one VM per queued job), and cmux-gcp-lane-x64, the persistent GCP lane org runners hq also uses.
+# The owned Linux runner labels (Leo 2026-11-18). Pools lead with cmux-gcp-lane-build-x64; the pattern also matches
+# cmux-fleet-linux-x64 (no runners boot for it) so mirror_writes() moves a LINUX_RUNNER left on it back to a pool member.
 OWNED_LINUX = re.compile(r"^cmux-(?:gcp-lane|fleet-linux)-[a-z0-9-]+$")
 
 

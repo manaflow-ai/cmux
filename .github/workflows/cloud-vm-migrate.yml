@@ -52,7 +52,7 @@ jobs:
   preflight:
     outputs:
       source_sha: ${{ steps.source.outputs.sha }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'cmux-fleet-linux-') && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     defaults:
       run:
         working-directory: web
@@ -80,7 +80,7 @@ jobs:
   migrate-staging:
     # A push has no inputs and migrates staging, then production.
     if: ${{ github.event_name == 'push' || inputs.target == 'staging' || inputs.target == 'production' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'cmux-fleet-linux-') && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     needs: preflight
     environment: cloud-vm-staging
     defaults:
@@ -125,7 +125,7 @@ jobs:
 
   migrate-production:
     if: ${{ github.event_name == 'push' || inputs.target == 'production' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'cmux-fleet-linux-') && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     needs: [preflight, migrate-staging]
     environment: cloud-vm-production
     defaults:

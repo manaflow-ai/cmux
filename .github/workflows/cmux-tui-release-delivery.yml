@@ -26,7 +26,7 @@ jobs:
   delivery:
     name: verify registry delivery
     # The cmux-bot mint below holds an App key; the job follows LINUX_RUNNER, owned runners included (Leo 2026-11-18 removed the ephemeral-only rule).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'cmux-fleet-linux-') && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       # Always use the trusted default branch, never workflow_run's source.
