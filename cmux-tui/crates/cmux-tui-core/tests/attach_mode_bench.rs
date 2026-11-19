@@ -1025,6 +1025,7 @@ fn attach_modes_bytes_against_render() {
         .or_else(|| std::env::var_os("FAST_CHECKS_OUT"))
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR")));
+    std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("attach-mode-bench.json");
     std::fs::write(&path, serde_json::to_vec_pretty(&doc).unwrap()).unwrap();
     std::fs::write(path.with_extension("md"), &text).unwrap();
