@@ -66,3 +66,16 @@ fn vm_lifecycle_operation_failure_is_not_vm_failure() {
     let deleted = paused.delete().deleted();
     assert_eq!(*deleted.payload(), "vm-a");
 }
+
+#[test]
+fn vm_lifecycle_uncertain_mutation_retains_identity_for_reconciliation() {
+    let vm = Vm::observed_running(String::from("vm-a"));
+    // An unanswered pause may have succeeded remotely. It cannot return a
+    // running capability or claim failure; reconcile the retained subject.
+    let unknown = vm.uncertain();
+    let Observed::Paused(paused) = unknown.observed(Status::Paused) else {
+        panic!("authoritative pause observation was lost")
+    };
+    let running = paused.resume().running();
+    assert_eq!(running.payload(), "vm-a");
+}

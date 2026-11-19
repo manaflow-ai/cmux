@@ -27,6 +27,11 @@
 //! use cmux_lifeline::vm::{Vm, Unallocated};
 //! Vm::<Unallocated, _>::new("vm").provision().delete().deleted().pause();
 //! ```
+//! An uncertain response cannot grant a second live operation:
+//! ```compile_fail
+//! use cmux_lifeline::vm::Vm;
+//! Vm::observed_running("vm").uncertain().pause();
+//! ```
 //! A transition consumes the old capability:
 //! ```compile_fail
 //! use cmux_lifeline::vm::{Vm, Unallocated};
@@ -261,6 +266,35 @@ macro_rules! fallible {
 }
 
 fallible!(Provisioning, Preclaimed, Claimed, Running, Ready, Attached, Pausing, Starting, Deleting);
+
+macro_rules! uncertain {
+    ($($state:ident),+ $(,)?) => {$(
+        edge!($state, uncertain, Unknown, "The outcome is unknown; reconcile before another live operation.");
+    )+};
+}
+
+uncertain!(
+    Provisioning,
+    Preclaimed,
+    Claimed,
+    Running,
+    Ready,
+    Attached,
+    Pausing,
+    Paused,
+    Starting,
+    Stopped,
+    Deleting,
+    Failed
+);
+
+impl<T> Vm<Unknown, T> {
+    /// Reconcile the same subject using an authoritative observation. This does
+    /// not infer the result of an unanswered request or manufacture readiness.
+    pub fn observed(self, status: Status) -> Observed<T> {
+        status.bind(self.payload)
+    }
+}
 
 /// A parsed observation. Match once at the boundary to obtain a typed handle;
 /// subsequent steps accept only the capability they can operate on.
