@@ -311,6 +311,12 @@ extension PaneRingConfigParser {
     nonisolated static let focusRingShowWhenSinglePaneDefault = false
 }
 
+extension AgentSignatureSetting {
+    /// `appearance.agentSignature`: Off by default: it changes the default look. On, sidebar agent rows and the chat's running line draw a dot glyph acpmux makes from the session id (session/signature); off, no glyph and no request.
+    public nonisolated static let configPath = ["appearance", "agentSignature"]
+    public nonisolated static let fallback = false
+}
+
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum AppearanceSettingsSchema {
     static var iconTheme: [SettingDescriptor] {

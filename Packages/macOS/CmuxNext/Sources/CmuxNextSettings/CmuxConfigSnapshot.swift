@@ -201,6 +201,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var reducedBackgrounds: Bool = ReducedBackgroundsSetting.fallback
     /// `appearance.experimentalControls`; off unless explicitly enabled.
     public var experimentalAppearance = false
+    /// `appearance.agentSignature`: each agent's dot glyph; off unless set to true.
+    public var agentSignature = AgentSignatureSetting.fallback
     /// `appearance.glassTransparency`, `appearance.hue` and
     /// `appearance.saturation`; identity values when unset or invalid.
     public var appearanceTuning = AppearanceTuningSetting.fallback
@@ -423,6 +425,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(ReducedBackgroundsSetting.parse(root), \.reducedBackgrounds)
         snapshot.take(FontSmoothingSetting.parse(root), \.fontSmoothing)
         snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.agentSignature = AgentSignatureSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         DiffViewerSetting.parse(root, diagnostics: &snapshot.diagnostics)

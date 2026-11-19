@@ -19,6 +19,7 @@ pub mod permission;
 pub mod presence;
 pub mod process;
 pub mod session;
+pub mod signature;
 #[cfg(test)]
 mod tests;
 
@@ -179,6 +180,10 @@ pub fn registry() -> Vec<MethodDecl> {
         acp(method::SESSION_UPDATE, Notification),
         acp(method::SESSION_REQUEST_PERMISSION, ServerRequest),
         acp(method::CANCEL_REQUEST, ClientNotification),
+        // acpmux's own, in the session/ space: each session's dot glyph.
+        request::<signature::SignatureParams, signature::SignatureResult>(
+            method::SESSION_SIGNATURE,
+        ),
         // ACP extensions acpmux names in the acp.* space.
         request::<ForkParams, Value>(method::ACP_SESSION_FORK),
         keyed::<params::TrustGetParams>(method::ACP_TRUST_GET, Request),

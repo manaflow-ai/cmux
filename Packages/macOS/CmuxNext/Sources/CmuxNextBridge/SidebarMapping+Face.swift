@@ -236,6 +236,8 @@ extension SidebarMapping {
             folder: facts.bucket
         )
         row.focusedTab = focused.map { TabID($0.id) }
+        // The row's agent chat's acpmux session, whose dot glyph `appearance.agentSignature` draws.
+        row.agentSessionID = agentTab?.agentSession?.session.flatMap { $0.isEmpty ? nil : $0 }
         row.activityFromProgram = indicator.primary?.source == .program
         row.presence = presence(tabs)
         row.startsInCloud = page?.startsInCloud ?? false

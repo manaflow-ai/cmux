@@ -40,6 +40,8 @@ import type { AcpmuxCompaction, AcpmuxTurnRetry } from "../model";
 import { retryParts, SILENT_MS, WRITING_MS, liveLead } from "./thinkingModel";
 import { CACHE_EXPIRY_REASON } from "./cacheCompaction";
 import type { LiveLinePulse } from "./liveLinePulse";
+import { useAgentSignature } from "./agentSignatureModel";
+import { AgentSignature } from "./AgentSignature";
 /// False while `key` changed in the last `ms`, true once it held still that long (or there is none).
 /// `since`, when known, is when the key's text was written: a key that was already that old when the
 /// line mounted (a chat opened long after its reply paused) is quiet from the first frame, instead
@@ -576,6 +578,8 @@ export function Thinking({
       : (own ?? turnTime);
   // Background-work counts remain available when the running tray is off.
   const counts = useContext(WorkingCountsContext);
+  // The chat's dot signature (appearance.agentSignature): undefined, and never asked for, while off.
+  const signature = useAgentSignature();
   // The label already names the subagents it waits on: no second count of them.
   const parts = (counts && !waiting ? workingParts(t, counts) : []).filter(
     (part) => !(liveState === "subagents" && part.key === "agents"),
@@ -684,6 +688,7 @@ export function Thinking({
               data-tail={`\u2002${roll.out.tail}`}
             />
           )}
+          {signature && <AgentSignature glyph={signature} />}
           <output
             className={`cv-thinking${calm ? "" : " is-shimmer"}`}
             data-roll={roll.turns === 0 ? undefined : roll.turns % 2 ? "odd" : "even"}

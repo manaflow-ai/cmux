@@ -14,6 +14,8 @@
 //!   cap and the GPU budget.
 //! - [`first_party`]: the wallpapers under `wallpapers/`, embedded in the
 //!   binary with their build-time Metal.
+//! - [`signature`]: an agent's dot glyph, made from its session id and the
+//!   `particles` wallpaper's variants.
 //!
 //! Pure: no I/O, no globals, no threads. The caller passes every byte in.
 
@@ -39,6 +41,7 @@ pub mod manifest;
 #[cfg(feature = "compile")]
 pub mod program;
 pub mod schedule;
+pub mod signature;
 
 pub use first_party::{FirstParty, first_party, first_party_at, first_party_by_id, smoke};
 pub use frame::{FRAME_BYTES, FRAME_FLOATS, FrameInput, PointerState, pack_frame, srgb_to_linear};
@@ -46,6 +49,7 @@ pub use manifest::{Manifest, ManifestError, ManifestErrorKind, Param, Still, Var
 #[cfg(feature = "compile")]
 pub use program::{Compiled, ProgramError, ProgramErrorKind, compile, compile_bytes};
 pub use schedule::{Decision, HoldReason, ScheduleInput, gpu_strikes, schedule};
+pub use signature::{Dot, Glyph, Signer, glyph};
 
 /// The largest program accepted (`program::MAX_SOURCE_BYTES`, also without `compile`).
 pub const MAX_SOURCE_BYTES: usize = 64 * 1024;

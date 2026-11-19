@@ -19,6 +19,7 @@ use prompt_sender::{app_pane_unproven, owner_terminal};
 mod presets;
 mod queued;
 mod session_open;
+mod signature;
 pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
 #[cfg(test)]
 #[path = "requests/hold_attach_tests.rs"]
@@ -1314,6 +1315,7 @@ async fn dispatch_request_with_identity(
                 method::CHAT_FIX_FROM_LINK,
                 method::CHAT_FIX_FROM_LINK_PREPARE,
                 method::MUX_PROJECT_NEW,
+                method::SESSION_SIGNATURE,
             ];
             #[allow(unused_mut)]
             let mut reply = json!({
@@ -2872,6 +2874,8 @@ async fn dispatch_request_with_identity(
         }
         // Read-only and the same for every origin, like `_acpmux/schema`.
         method::MUX_PROTOCOL => Ok(crate::protocol::served().clone()),
+        // A pure function of the ids asked, the same for every origin (`requests/signature.rs`).
+        method::SESSION_SIGNATURE => signature::handle(params),
         method::MUX_HISTORY => {
             let s = hub.resolve(session_key(&params)?)?;
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;

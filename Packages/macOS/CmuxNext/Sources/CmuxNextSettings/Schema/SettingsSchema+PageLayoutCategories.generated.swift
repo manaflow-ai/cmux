@@ -64,6 +64,7 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.colorTransition"),
             GroupSpec(group: "settings.group.windowBackground"),
             GroupSpec(group: "settings.group.statusIndicator"),
+            GroupSpec(group: "settings.group.agentSignature"),
             GroupSpec(group: "settings.group.surfaces"),
             GroupSpec(keys: ["appearance.surfaces.sidebar.color", "appearance.surfaces.sidebar.opacity", "appearance.surfaces.tabBar.color", "appearance.surfaces.tabBar.opacity", "appearance.surfaces.browserChrome.color", "appearance.surfaces.browserChrome.opacity", "appearance.surfaces.splitDivider.color", "appearance.surfaces.splitDivider.opacity", "appearance.surfaces.docks.color", "appearance.surfaces.docks.opacity"], title: SettingsText.keyed("settings.pageGroup.windowSurfaces", "Surfaces: Window")),
             GroupSpec(keys: ["appearance.surfaces.diff.color", "appearance.surfaces.diff.opacity", "appearance.surfaces.markdown.color", "appearance.surfaces.markdown.opacity", "appearance.surfaces.editor.color", "appearance.surfaces.editor.opacity"], title: SettingsText.keyed("settings.pageGroup.viewerSurfaces", "Surfaces: Viewers")),

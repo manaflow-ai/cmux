@@ -18,10 +18,14 @@ workspace = true
 # build.rs, so shipped binaries carry their Metal source, not the compiler.
 default = []
 compile = ["dep:naga"]
+# The agent dot signature's JSON Schema (src/signature.rs), for acpmux's protocol registry.
+schema = ["dep:schemars"]
 
 [dependencies]
 # The gallery's naga-cli is 30.0.2 (design/live-wallpapers-gallery/build.mjs): keep them on one version.
 naga = { version = "30.0.2", default-features = false, features = ["wgsl-in", "msl-out", "glsl-out"], optional = true }
+schemars = { version = "1", optional = true }
+serde.workspace = true
 serde_json.workspace = true
 
 [build-dependencies]

@@ -393,6 +393,9 @@ pub mod method {
     pub const SESSION_DELETE: &str = "session/delete";
     pub const SESSION_PROMPT: &str = "session/prompt";
     pub const SESSION_CANCEL: &str = "session/cancel";
+    /// Each named session's dot glyph, a pure function of its id (`server/requests/signature.rs`):
+    /// `{sessionIds}` (at most 512) to `{signatures: {<id>: Glyph}}`.
+    pub const SESSION_SIGNATURE: &str = "session/signature";
     /// Dedicated, scoped Cloud trigger chat operations. These never fall
     /// through to the ordinary session/new, session/prompt or info paths.
     pub const TRIGGER_CHAT_ENSURE: &str = "trigger/chat.ensure";

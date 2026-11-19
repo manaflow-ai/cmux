@@ -65,6 +65,7 @@ dependencies = [
  "cmux-unix-socket",
  "cmux-usage-patterns",
  "cmux-vault-egress",
+ "cmux-wallpaper",
  "cmux-wg",
  "cmux-worktree-care",
  "crossterm",
@@ -2903,6 +2904,8 @@ name = "cmux-wallpaper"
 version = "0.1.0"
 dependencies = [
  "naga",
+ "schemars 1.2.2",
+ "serde",
  "serde_json",
 ]
 

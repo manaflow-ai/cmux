@@ -36,6 +36,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::AUTHENTICATE,
     method::SESSION_NEW,
     method::SESSION_LIST,
+    // A glyph is a pure function of the id: answered here for a peer's session too.
+    method::SESSION_SIGNATURE,
     method::MUX_STATUS,
     method::MUX_SESSIONS,
     method::MUX_WEB_MODES,

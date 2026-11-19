@@ -146,6 +146,13 @@ public final class DesignSettings {
             BackdropImageStore.shared.desktop.tintEnabled = wallpaperTint
         }
     }
+    /// `appearance.agentSignature`: sidebar agent rows and the agent pane's running line draw
+    /// each agent's dot glyph (acpmux `session/signature`). Off until the setting reaches it
+    /// (``SettingsApplier``); off, no glyph draws and no request goes out. A change repaints, so open
+    /// agent pages get it with the theme (`AgentPaneTheme`) and the sidebar rows redraw (`SidebarTunablesWatch`).
+    public var agentSignature = false {
+        didSet { if agentSignature != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
     /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default
     /// (`AnimationKindsSetting.defaultEnabled`), new workspaces off.
     public var enabledAnimations: Set<MotionKind> = [.newTab]

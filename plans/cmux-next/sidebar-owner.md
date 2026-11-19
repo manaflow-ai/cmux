@@ -1,5 +1,6 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-19 (lane/agent-dot-signature): Sidebar-Look: Leo, 2026-11-19: "all of them" and "some of them maybe just as customizations lol if it affects default looks". With `appearance.agentSignature` on (off by default), an agent's workspace row draws a static dot glyph made from its session id (acpmux `session/signature`) at the indicator size before the title, after the agent mark when that sits beside the title; one cached bitmap per id, size and scale, no animation. Off, the row has no glyph view and its layout is unchanged. `SidebarAgentSignatureTests`.
 - 2026-11-18 (a590, hover card grid base red): Sidebar-Look: the workspace hover card's tab rows line up with its
   header again, icons on one column and text on one edge, as before #44449. d8917c9 (#44449) scaled every density
   from Default by one factor, so the card's padding (7.5 pt), its icon-to-text gap and the tab rows' fill outset

@@ -273,6 +273,7 @@
         "appearance.paneBackgrounds",
         "ui.reducedBackgrounds",
         "appearance.experimentalControls",
+        "appearance.agentSignature",
         "app.uiScale",
         "appearance.glassTransparency",
         "appearance.hue",

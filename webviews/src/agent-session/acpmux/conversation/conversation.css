@@ -8119,3 +8119,33 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 .cv-tool__file:hover {
   text-decoration-color: currentColor;
 }
+/* The agent dot signature (AgentSignature.tsx, appearance.agentSignature, off by default): the chat's
+   dots on the glyph step before the running line's words. Each dot drifts on a small circle of
+   radius `--cv-signature-drift` (0.04 * drift of the box), its phase a negative delay; transform
+   only, so the compositor runs it. Reduce Motion, cmux motion off or reduced, agent motion off and
+   the static status look keep the dots still. */
+.cv-signature {
+  flex: none;
+  align-self: center;
+  width: var(--grid-glyph, 1em);
+  height: var(--grid-glyph, 1em);
+  margin-inline-end: var(--ds-space-2);
+  overflow: visible;
+}
+.cv-signature__dot {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-signature__dot {
+    animation: cv-signature-drift 4s linear infinite; /* motion-allow: an ambient loop, not a transition */
+  }
+}
+@keyframes cv-signature-drift {
+  from {
+    transform: rotate(0deg) translateX(var(--cv-signature-drift, 0px)) rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg) translateX(var(--cv-signature-drift, 0px)) rotate(-360deg);
+  }
+}

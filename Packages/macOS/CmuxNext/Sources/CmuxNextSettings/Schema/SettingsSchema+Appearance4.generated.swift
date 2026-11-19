@@ -73,3 +73,21 @@ extension AppearanceSettingsSchema {
         ]
     }
 }
+
+extension AppearanceSettingsSchema {
+    static var agentSignature: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.agentSignature", "Agent Signatures")
+        return [
+            SettingDescriptor(
+                AgentSignatureSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.agentSignature", "Agent Dot Signatures"),
+                help: SettingsText.keyed("settings.appearance.agentSignature.help", "Give each agent a small dot glyph made from its session, on sidebar rows and the running line."),
+                kind: .toggle,
+                default: .bool(AgentSignatureSetting.fallback),
+                keywords: ["agent", "signature", "glyph", "dots", "particles", "session", "sidebar", "identity"]
+            ),
+        ]
+    }
+}

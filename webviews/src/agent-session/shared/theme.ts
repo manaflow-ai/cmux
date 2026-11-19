@@ -28,6 +28,7 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   palette: null,
   borders: null,
   focusRingEnabled: null,
+  agentSignature: null,
   toolRunLook: null,
   turnActionsPlacement: null,
   motion: null,
