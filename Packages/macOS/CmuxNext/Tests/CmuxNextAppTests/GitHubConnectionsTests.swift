@@ -425,6 +425,21 @@ import Testing
         #expect(model.pageState["canConnect"] == true)
     }
 
+    /// A reconnect after `needs_reauth` makes a new connection: once it is active, the old row for the same account is
+    /// not listed, so the card never asks to connect again (a needs_reauth for another account still shows).
+    @Test func aReconnectedAccountsOldNeedsReauthRowIsNotListed() async {
+        let model = GitHubConnections(scope: { self.scope }, call: { _, _, _, _ in
+            ["connections": [
+                ["id": "old", "provider": "github", "created_by": "user", "status": "needs_reauth", "account": ["key": "github:installation:42", "name": "acme"]],
+                ["id": "new", "provider": "github", "created_by": "user", "status": "active", "account": ["key": "github:installation:42", "name": "acme"]],
+                ["id": "other", "provider": "github", "created_by": "user", "status": "needs_reauth", "account": ["key": "github:installation:7", "name": "you"]],
+            ], "providers": [["provider": "github", "configured": true]]]
+        }, open: { _ in })
+        await model.perform("githubRefresh")
+        #expect(model.currentConnections.map { $0["id"] } == ["new", "other"])
+        #expect(model.connected)
+    }
+
     @Test func sharedConnectDoesNotCreateAnotherActiveConnection() async {
         var connects = 0
         let model = GitHubConnections(scope: { self.scope }, call: { _, op, _, _ in

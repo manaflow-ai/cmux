@@ -166,8 +166,15 @@ public final class GitHubConnections {
                 throw GitHubFailure.invalidReply
             }
             // A pending row past its lifetime (a cancelled install) is not shown: the API expires it.
-            connections = rows.filter {
+            let listed = rows.filter {
                 $0["provider"]?.stringValue == "github" && !["revoked", "expired"].contains($0["status"]?.stringValue ?? "") && !isStalePending($0)
+            }
+            // A reconnect makes a new connection: the old one that needed it (`needs_reauth`, `error`) stays in the API's
+            // list beside the new active one for the same account. It is not shown, so it never asks to reconnect again.
+            let activeAccounts = Set(listed.compactMap { $0["status"]?.stringValue == "active" ? $0["account"]?["key"]?.stringValue : nil })
+            connections = listed.filter { row in
+                guard ["needs_reauth", "error"].contains(row["status"]?.stringValue ?? ""), let key = row["account"]?["key"]?.stringValue else { return true }
+                return !activeAccounts.contains(key)
             }
             configured = providers.contains { $0["provider"]?.stringValue == "github" && $0["configured"]?.boolValue == true }
             loadedScope = bound
