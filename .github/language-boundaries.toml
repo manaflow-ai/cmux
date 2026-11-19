@@ -34,6 +34,11 @@
 #   when it adds a Swift file to the area (a new file, or one renamed or copied in from outside it). Changing or
 #   deleting existing Swift there passes.
 #
+# Outside every area: a pull request fails when it adds a Swift file that no area covers (a new file, a copy, or a
+#   file renamed to Swift from another language). As little Swift as possible; new logic goes to Rust or React. Put
+#   it in an existing Swift area, or move the logic to Rust/React; a new Swift area needs its own [[area]] here.
+#   Swift that already exists outside the areas is grandfathered: editing, deleting or moving it as Swift passes.
+#
 # A pull request that changes this file, scripts/ci/language_boundaries.py or .github/workflows/language-boundaries.yml
 # fails the same way: the boundaries are Leo's call.
 #
