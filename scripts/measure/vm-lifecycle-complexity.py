@@ -19,7 +19,7 @@ import tree_sitter_rust
 
 FILES = {
     "cmux-tui/crates/cmux-tui/src/cli/cloud_start_chat/internal/link_wait.rs":
-        ("observe", "ask", "connect", "identify", "attach"),
+        ("observe", "ask", "connect", "identify", "attach", "follow"),
     "workers/cmux-vm/cli/crates/cmux-vm/src/run.rs":
         ("run", "create", "wait_running", "work", "finish"),
     "cmux-tui/crates/cmux-tui/src/cli/cloud_start_chat.rs":

@@ -36,7 +36,19 @@ pub(crate) fn observe(
     let deadline = Instant::now() + wait;
     let connection = connect(socket, deadline)?;
     let ready = identify(connection)?;
-    let (mut attached, page) = attach(ready, surface, after)?;
+    let (attached, page) = attach(ready, surface, after)?;
+    follow(attached, page, surface, after, deadline)
+}
+
+/// Event requests require a completed attachment, including replay pages and
+/// the view hint. The phase orchestrator cannot start them on a merely ready VM.
+fn follow(
+    mut attached: Vm<Attached, Link>,
+    page: Value,
+    surface: u64,
+    after: u64,
+    deadline: Instant,
+) -> Result<Value, Failure> {
     let mut got = Got { records: Vec::new(), last_seq: after, ended: None };
     got.page(&page);
     // A permission asked before the attach is in the attach's session summary (`session.pending`, as `acpmux
