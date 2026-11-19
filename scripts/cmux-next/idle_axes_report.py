@@ -119,7 +119,8 @@ def summarize(reports: list[dict]) -> dict:
             phases[phase] = {"samples": rows, "marginal_per_item": marginal}
         axes.append({"axis": axis, "made": report.get("axis_made"), "phases": phases,
                      "pane_failures": report.get("pane_failures", [])[:5],
-                     **({"show_latency": report["show_latency"]} if "show_latency" in report else {})})
+                     **({"show_latency": report["show_latency"]} if "show_latency" in report else {}),
+                     **({"page_debug": report["page_debug"]} if "page_debug" in report else {})})
     return {"axes": axes}
 
 
@@ -192,6 +193,8 @@ def markdown(summary: dict, machine: str = "") -> str:
         if axis.get("show_latency"):
             got = [s.get("first_frame_ms") for s in axis["show_latency"]]
             lines += ["", "Show latency, request to first frame (ms): " + ", ".join(fmt(v, 0) for v in got)]
+        if axis.get("page_debug"):
+            lines += ["", "Page server: " + json.dumps(axis["page_debug"])[:3000]]
         if axis.get("pane_failures"):
             lines += ["", "Refused: " + "; ".join(axis["pane_failures"])]
     return "\n".join(lines) + "\n"

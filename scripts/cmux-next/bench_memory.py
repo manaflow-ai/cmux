@@ -813,6 +813,7 @@ def add_axis_item(app: App, chats: "FakeChats | None", axis: str, index: int, op
             made = app.run("newSurface")
         elif axis == "page-visible":
             made = app.run("openBrowser.chromium", url=PAGES.url(index))
+            PAGES.note_open(index, made)
         else:
             session = chats.new_session(index)
             if session is None:
@@ -1166,6 +1167,8 @@ def open_workspace(app: App, recipe: str, url: str, index: int, chats: FakeChats
             response = app.run("newSurface")
         elif kind == "browser":
             response = app.run("openBrowser.chromium", url=url)
+            if PAGES:
+                PAGES.note_open(index, response)
         elif kind == "chat":
             # A prompt opens an agent chat tab. It waits in the composer for a
             # Send (fleet minis carry no agent credentials either): --fake-agent
@@ -1512,6 +1515,8 @@ class PageFrames:
         from urllib.parse import parse_qs, urlparse
 
         self.beats: dict[int, dict] = {}
+        self.loads: dict[str, int] = {}
+        self.opens: list = []
         self.lock = threading.Lock()
         owner = self
 
@@ -1533,6 +1538,8 @@ class PageFrames:
                     self.send_response(204)
                 else:
                     host = (self.headers.get("Host") or "site0").split(".")[0]
+                    with owner.lock:
+                        owner.loads[host] = owner.loads.get(host, 0) + 1
                     body = (_FRAMES_PAGE % {"n": int(re.sub(r"\D", "", host) or 0)}).encode()
                     self.send_response(200)
                     self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1550,6 +1557,15 @@ class PageFrames:
 
     def url(self, index: int) -> str:
         return f"http://site{index}.localhost:{self.port}/"
+
+    def note_open(self, index: int, reply: dict) -> None:
+        """The app's reply to a page open (the first few, for the report's `page_debug`)."""
+        if len(self.opens) < 3:
+            self.opens.append({"index": index, "reply": json.dumps(reply)[:400]})
+
+    def debug(self) -> dict:
+        with self.lock:
+            return {"port": self.port, "loads": dict(self.loads), "beating": sorted(self.beats), "opens": self.opens}
 
     def snapshot(self) -> dict[int, dict]:
         with self.lock:
@@ -1828,6 +1844,8 @@ def main():
         attribution = Attribution(app, app_pid, bundle, kinds, args.attribute_trace) if args.attribute and args.measure > 0 else None
         if attribution:
             attribution.start()
+        if PAGES:
+            report["page_debug"] = PAGES.debug()
         frames_before = PAGES.snapshot() if PAGES else None
         try:
             result = sample(app_pid, bundle, label, len(opened) + 1, measure, child_ns)
@@ -1890,6 +1908,12 @@ def main():
             report["axis"] = args.axis
             report["axis_made"] = run_axis(app, chats, args.axis, sorted(int(n) for n in args.items.split(",") if n),
                                            launch_workspaces, opened, settle_and_sample, args.settled_wait)
+            if PAGES:
+                try:  # which pages the app holds, for a run whose pages never report
+                    pages = (app.call("debug.page", {"action": "list"}, timeout=30) or {}).get("pages")
+                except Exception as e:  # noqa: BLE001 - a build without the debug op
+                    pages = {"error": str(e)[:300]}
+                report["page_debug"] = {**PAGES.debug(), "app_pages": json.dumps(pages)[:1200]}
             if args.axis == "page-hidden" and launch_workspaces:
                 # What the hidden tier costs on the way back: a hidden (by now frozen) page shown again, timed to
                 # its first frame. A few pages, each hidden again after its show.
