@@ -21,53 +21,9 @@ struct HighFrameRateStreamTests {
 
     @Test(.enabled(if: enabled), .timeLimit(.minutes(3)), arguments: [ScreenQuality.auto, .smooth])
     func aProMotionScreenStreamsAt120Fps(quality: ScreenQuality) async throws {
-        let (hostSide, viewerSide) = LoopbackSignaling.pair()
-        let lines = LogLines()
-        let source = ScrollingScreen(width: 3456, height: 2234, fps: 120)
-        let host = ScreenStreamHost(name: "MacBook Pro", backend: { source }, log: { line in
-            lines.append(line)
-            print("host: \(line)")
-        })
-        let hostTask = Task { try? await host.serve(hostSide) }
-        defer { hostTask.cancel() }
-
-        let counter = ScreenStreamTests.FrameCounter()
-        let viewer = ScreenStreamViewer(signaling: viewerSide)
-        viewer.onVideo = { $0.track.add(counter) }
-        let agreed = AgreedRate()
-        viewer.onDisplays = { message in if let fps = message.fps { agreed.set(fps) } }
-        try await viewer.connect()
-        defer {
-            viewer.close()
-            host.disconnectViewer()
-        }
-        viewer.setDisplayFrameRate(120)
-        viewer.setQuality(quality)
-        for _ in 0 ..< 100 where counter.snapshot.0 == 0 { try await Task.sleep(for: .milliseconds(100)) }
-        #expect(counter.snapshot.0 > 0, "no picture arrived")
-
-        // Let congestion control ramp up (it starts near 300 kbit/s), then measure a 6 s window.
-        try await Task.sleep(for: .seconds(20)) // warm-up
-        let before = await viewer.videoStats()
-        let start = ContinuousClock.now
-        try await Task.sleep(for: .seconds(6)) // measurement window
-        let after = await viewer.videoStats()
-        let elapsed = start.duration(to: .now)
-        let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
-        let decodedFps = (after.framesDecoded - before.framesDecoded) / seconds
-        let receivedFps = (after.framesReceived - before.framesReceived) / seconds
-        let mbps = (after.bytesReceived - before.bytesReceived) * 8 / seconds / 1_000_000
-        let size = counter.snapshot.1
-        print("""
-        MAC-SCREEN-120FPS quality=\(quality.rawValue) agreed=\(agreed.value.map(String.init) ?? "-") \
-        source=\(String(format: "%.1f", source.deliveredFps)) received=\(String(format: "%.1f", receivedFps)) \
-        decoded=\(String(format: "%.1f", decodedFps)) dropped=\(Int(after.framesDropped - before.framesDropped)) \
-        size=\(Int(size.width))x\(Int(size.height)) mbps=\(String(format: "%.1f", mbps)) \
-        decoder=\(after.decoder ?? "?") codec=\(after.codec ?? "?")
-        """)
-        for line in lines.matching("video:").suffix(2) { print("MAC-SCREEN-120FPS encoder \(line)") }
-
-        #expect(agreed.value == 120, "the host agreed on 120 fps with a 120 Hz viewer")
+        let run = try await Self.stream(quality: quality, source: ScrollingScreen(width: 3456, height: 2234, fps: 120), viewerHz: 120)
+        let size = run.size
+        #expect(run.agreed == 120, "the host agreed on 120 fps with a 120 Hz viewer")
         // Never more than the hardware encoder sustains at 120 fps (ScreenQuality.maximumEncodedPixelRate).
         // Auto keeps that size; Smooth Motion lets WebRTC lower it further to hold the frame rate, as at 60.
         let pixelRate = size.width * size.height * 120
@@ -76,8 +32,88 @@ struct HighFrameRateStreamTests {
         if quality == .auto {
             #expect(pixelRate >= Double(ScreenQuality.maximumEncodedPixelRate) * 0.97, "Auto scales no more than the encoder needs")
         }
-        #expect(source.deliveredFps >= 115, "the synthetic source itself kept 120 fps (the Mac was too busy to measure)")
-        #expect(decodedFps >= 110, "a 120 fps stream decodes at \(Int(decodedFps)) fps")
+        #expect(run.sourceFps >= 115, "the synthetic source itself kept 120 fps (the Mac was too busy to measure)")
+        #expect(run.decodedFps >= 110, "a 120 fps stream decodes at \(Int(run.decodedFps)) fps")
+        #expect(run.latency.count > 0, "no stamped frame was read back")
+    }
+
+    /// A 60 Hz iPhone (iPhone 16 Plus) viewing a 120 Hz Mac: the stream agrees on 60 fps.
+    @Test(.enabled(if: enabled), .timeLimit(.minutes(3)))
+    func aSixtyHertzViewerStreamsAt60Fps() async throws {
+        let run = try await Self.stream(quality: .auto, source: ScrollingScreen(width: 3024, height: 1964, fps: 120), viewerHz: 60)
+        #expect(run.agreed == 60, "the host agreed on 60 fps with a 60 Hz viewer")
+        #expect(run.decodedFps >= 55, "a 60 fps stream decodes at \(Int(run.decodedFps)) fps")
+        #expect(run.latency.count > 0, "no stamped frame was read back")
+    }
+
+    struct Run {
+        var agreed: Int?
+        var sourceFps: Double
+        var decodedFps: Double
+        var size: CGSize
+        var latency: StreamLatencySummary
+    }
+
+    /// Streams `source` to a viewer with a `viewerHz` display at `quality`, waits 20 s for
+    /// congestion control to ramp up, and measures a 6 s window: received and decoded fps,
+    /// and each distinct frame's latency from the source to the viewer's decoded picture
+    /// (``StreamLatencyReader``). Prints one MAC-SCREEN-120FPS line and its latency line.
+    static func stream(quality: ScreenQuality, source: ScrollingScreen, viewerHz: Int) async throws -> Run {
+        let (hostSide, viewerSide) = LoopbackSignaling.pair()
+        let lines = LogLines()
+        let host = ScreenStreamHost(name: "MacBook Pro", backend: { source }, log: { line in
+            lines.append(line)
+            print("host: \(line)")
+        })
+        let hostTask = Task { try? await host.serve(hostSide) }
+        defer { hostTask.cancel() }
+
+        let counter = ScreenStreamTests.FrameCounter()
+        let reader = StreamLatencyReader(sourceWidth: source.width) { source.deliveredAt(stamp: $0) }
+        let viewer = ScreenStreamViewer(signaling: viewerSide)
+        viewer.onVideo = {
+            $0.track.add(counter)
+            $0.track.add(reader)
+        }
+        let agreed = AgreedRate()
+        viewer.onDisplays = { message in if let fps = message.fps { agreed.set(fps) } }
+        try await viewer.connect()
+        defer {
+            viewer.close()
+            host.disconnectViewer()
+        }
+        viewer.setDisplayFrameRate(viewerHz)
+        viewer.setQuality(quality)
+        for _ in 0 ..< 100 where counter.snapshot.0 == 0 { try await Task.sleep(for: .milliseconds(100)) }
+        #expect(counter.snapshot.0 > 0, "no picture arrived")
+
+        // Let congestion control ramp up (it starts near 300 kbit/s), then measure a 6 s window.
+        try await Task.sleep(for: .seconds(20)) // warm-up
+        let before = await viewer.videoStats()
+        let start = ContinuousClock.now
+        let since = DispatchTime.now().uptimeNanoseconds
+        try await Task.sleep(for: .seconds(6)) // measurement window
+        let after = await viewer.videoStats()
+        let latency = reader.window(since: since)
+        let elapsed = start.duration(to: .now)
+        let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
+        let decodedFps = (after.framesDecoded - before.framesDecoded) / seconds
+        let receivedFps = (after.framesReceived - before.framesReceived) / seconds
+        let mbps = (after.bytesReceived - before.bytesReceived) * 8 / seconds / 1_000_000
+        let decodeMs = (after.framesDecoded - before.framesDecoded) > 0
+            ? (after.totalDecodeTime - before.totalDecodeTime) / (after.framesDecoded - before.framesDecoded) * 1000 : .nan
+        let size = counter.snapshot.1
+        let label = "quality=\(quality.rawValue) viewer_hz=\(viewerHz)"
+        print("""
+        MAC-SCREEN-120FPS \(label) agreed=\(agreed.value.map(String.init) ?? "-") \
+        source=\(String(format: "%.1f", source.deliveredFps)) received=\(String(format: "%.1f", receivedFps)) \
+        decoded=\(String(format: "%.1f", decodedFps)) dropped=\(Int(after.framesDropped - before.framesDropped)) \
+        size=\(Int(size.width))x\(Int(size.height)) mbps=\(String(format: "%.1f", mbps)) \
+        decoder=\(after.decoder ?? "?") codec=\(after.codec ?? "?")
+        """)
+        print("MAC-SCREEN-120FPS latency \(label) source_to_decoded \(latency) decode_ms=\(String(format: "%.2f", decodeMs)) jitter_buffer_ms=\(after.jitterBufferMs.map { String(format: "%.1f", $0) } ?? "-")")
+        for line in lines.matching("video:").suffix(2) { print("MAC-SCREEN-120FPS encoder \(line)") }
+        return Run(agreed: agreed.value, sourceFps: source.deliveredFps, decodedFps: decodedFps, size: size, latency: latency)
     }
 }
 
@@ -153,6 +189,8 @@ final class ScrollingScreen: ScreenBackend, @unchecked Sendable {
     private var index = 0
     private let lock = NSLock()
     private var delivered: [UInt64] = []
+    /// When each stamped frame was handed to the host, by its 16-bit stamp (``FrameStamp``).
+    private var stampedAt = [UInt64](repeating: 0, count: 1 << 16)
 
     init(width: Int, height: Int, fps: Int) {
         self.width = width
@@ -182,6 +220,11 @@ final class ScrollingScreen: ScreenBackend, @unchecked Sendable {
 
     var maximumFrameRate: Int? { fps }
 
+    /// When the frame stamped `stamp` was handed to the host (uptime ns), or nil.
+    func deliveredAt(stamp: UInt16) -> UInt64? {
+        lock.withLock { stampedAt[Int(stamp)] == 0 ? nil : stampedAt[Int(stamp)] }
+    }
+
     /// Frames delivered per second over the last 2 s.
     var deliveredFps: Double {
         lock.withLock {
@@ -205,9 +248,11 @@ final class ScrollingScreen: ScreenBackend, @unchecked Sendable {
         let timer = DispatchSource.makeTimerSource(flags: .strict, queue: queue)
         timer.schedule(deadline: .now(), repeating: .nanoseconds(1_000_000_000 / fps), leeway: .nanoseconds(0))
         timer.setEventHandler { [weak self] in
-            guard let self, let buffer = next() else { return }
+            guard let self, let (buffer, stamp) = next() else { return }
             lock.withLock {
-                delivered.append(DispatchTime.now().uptimeNanoseconds)
+                let now = DispatchTime.now().uptimeNanoseconds
+                delivered.append(now)
+                stampedAt[Int(stamp)] = now
                 if delivered.count > 1000 { delivered.removeFirst(delivered.count - 1000) }
             }
             frame(buffer, CGRect(x: 0, y: 0, width: width, height: height))
@@ -216,14 +261,15 @@ final class ScrollingScreen: ScreenBackend, @unchecked Sendable {
         timer.resume()
     }
 
-    /// The next picture: the texture scrolled 8 more rows.
-    private func next() -> CVPixelBuffer? {
+    /// The next picture: the texture scrolled 8 more rows, stamped with its index.
+    private func next() -> (CVPixelBuffer, UInt16)? {
         guard let pool else { return nil }
         var made: CVPixelBuffer?
         guard CVPixelBufferPoolCreatePixelBuffer(nil, pool, &made) == kCVReturnSuccess, let buffer = made else { return nil }
         CVPixelBufferLockBaseAddress(buffer, [])
         defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
         let offset = (index * 8) % textureRows
+        let stamp = UInt16(truncatingIfNeeded: index)
         index += 1
         if let luma = CVPixelBufferGetBaseAddressOfPlane(buffer, 0) {
             let stride = CVPixelBufferGetBytesPerRowOfPlane(buffer, 0)
@@ -233,11 +279,12 @@ final class ScrollingScreen: ScreenBackend, @unchecked Sendable {
                     memcpy(luma + y * stride, base + ((y + offset) % textureRows) * width, width)
                 }
             }
+            FrameStamp.draw(stamp, into: luma.assumingMemoryBound(to: UInt8.self), stride: stride)
         }
         if let chroma = CVPixelBufferGetBaseAddressOfPlane(buffer, 1) {
             memset(chroma, 128, CVPixelBufferGetBytesPerRowOfPlane(buffer, 1) * CVPixelBufferGetHeightOfPlane(buffer, 1))
         }
-        return buffer
+        return (buffer, stamp)
     }
 
     func select(display index: Int) {}
