@@ -286,6 +286,11 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_classify_failures.py
 
+      # scripts/ci/oops is cmuxterm-hq tools/ci-oops, vendored byte for byte (ci-oops.yml runs it on a red).
+      - name: Validate the vendored ci-oops classifier
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 scripts/ci/oops/test_ci_oops_vendored.py
+
       - name: Validate the workflow_run handlers' API budget
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_run_api_budget.py
