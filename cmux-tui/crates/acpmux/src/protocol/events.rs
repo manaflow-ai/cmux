@@ -128,8 +128,9 @@ pub struct EventsParams {
     /// Default 5000.
     pub limit: Option<u64>,
     pub max_bytes: Option<u64>,
-    /// Every prompt before `beforeSeq`, oldest first, each cut to its id and the start of its text,
-    /// in one reply (`Hub::prompt_index`): `kinds`, `limit` and `maxBytes` are not read.
+    /// The newest prompts before `beforeSeq`, oldest first, each cut to its id and text prefix.
+    /// Honors `limit` and `maxBytes`; `kinds` is ignored. While `hasMore`, continue with
+    /// `beforeSeq = events[0].seq`. `turnCount` is the total prompt count, not the page size.
     pub prompt_index: Option<bool>,
     /// Only this subagent's own records: the updates acpmux tagged with it and those that start
     /// or change it (`EventFilter::of_subagent`). A subagent pane reads its subagent with it.
