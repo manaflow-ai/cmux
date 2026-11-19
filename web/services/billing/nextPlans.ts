@@ -129,10 +129,13 @@ export function nextPlanIdForSubscription(
   source: EnvSource = process.env,
 ): NextPlanId | null {
   const prices = (subscription.items?.data ?? []).map((item) => item.price).filter((price) => price != null);
-  for (const plan of NEXT_PLAN_IDS) {
+  // A Price id only one plan's variable holds names that plan. One that two variables hold (a miscopied id) names
+  // none, so it can never relabel another plan's subscribers; the lookup key and the metadata below still decide.
+  const byPriceId = NEXT_PLAN_IDS.filter((plan) => {
     const priceId = nextPlanPriceId(plan, source);
-    if (priceId && prices.some((price) => price.id === priceId)) return plan;
-  }
+    return priceId !== null && prices.some((price) => price.id === priceId);
+  });
+  if (byPriceId.length === 1) return byPriceId[0]!;
   const lookupKey = prices.find((price) => typeof price.lookup_key === "string" && price.lookup_key.trim())?.lookup_key;
   if (lookupKey) {
     if (lookupKey.startsWith("cmux-next-max-")) return NEXT_MAX_PLAN_ID;
