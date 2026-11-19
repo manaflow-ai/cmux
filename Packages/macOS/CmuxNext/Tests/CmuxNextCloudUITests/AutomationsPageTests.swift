@@ -169,7 +169,7 @@ import Testing
     """.utf8)
 
     /// Records the CLI words; refuses the ones `refuse` matches.
-    final class FakeCLI: @unchecked Sendable {
+    nonisolated final class FakeCLI: @unchecked Sendable {
         var calls: [[String]] = []
         var refuse: ([String]) -> Bool = { _ in false }
         func run(_ words: [String]) throws -> Data {
