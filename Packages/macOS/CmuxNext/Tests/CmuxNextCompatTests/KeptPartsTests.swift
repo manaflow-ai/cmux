@@ -45,8 +45,8 @@ import Testing
         func add() { calls.add(1, ordering: .acquiringAndReleasing) }
     }
 
-    /// The rounds of a test of one change's callbacks: the order in which the system calls the callbacks of one
-    /// change is not fixed, and it differs from round to round.
+    /// The rounds of a test of one change's callbacks. The order in which the system calls the callbacks of one
+    /// change is not fixed: runs of these tests gave each order, and one run gave both in the rounds of one test.
     static let rounds = 40
 
     /// `workspace`'s parts from `kept`, with each call of `make` written to `made`.
@@ -236,6 +236,26 @@ import Testing
         }
         #expect(made.titles.count == 2 + Self.rounds - 1, "setup: the caller's calls did not make the changed tab's part each round")
         #expect(calls.count == Self.rounds, "the caller's callback ran \(calls.count) times for \(Self.rounds) changes of one tab, one change in each round")
+    }
+
+    /// The same rule with no order of the system in it: the caller's own callback moves, at its first call only, a
+    /// second value that its registration read. The system removes a registration after its callback returns, so
+    /// the registration is still on the second value and its callback is called again inside the first call. The
+    /// caller hears one change.
+    @Test func aCallerThatMovesASecondValueOfItsOwnRegistrationHearsOneChange() {
+        let (tab, cell) = (Tab("a"), Tab("cell"))
+        let calls = Calls()
+        let caller = SingleArmedTracking()
+        for round in 0 ..< Self.rounds {
+            let before = calls.count
+            _ = caller.track(shape: [], { tab.title + cell.title }, onChange: {
+                calls.add()
+                if calls.count == before + 1 { MainActor.assumeIsolated { cell.title = "moved in round \(round)" } }
+            })
+            tab.title = "round \(round)"
+        }
+        #expect(caller.armings == Self.rounds, "setup: the caller armed \(caller.armings) registrations in \(Self.rounds) rounds")
+        #expect(calls.count == Self.rounds, "the caller's callback ran \(calls.count) times for \(Self.rounds) changes, one change in each round")
     }
 
     /// The feed's form: a stream whose value is joined from the kept parts evaluates one time for one change, while
