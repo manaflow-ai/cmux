@@ -772,8 +772,26 @@ function ComposerFrame({
     snapshot.summary?.usageStats,
     snapshot.summary?.contextBreakdown,
   );
-  /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
+  /// Set while a send the composer already let go of has not been taken yet (the web update waits
+  /// for it, as a refusal puts its prompt back here).
   const sending = useRef(false);
+  /// The newest such send, settled either way: a send made meanwhile goes after it, so prompts go in
+  /// the order they were sent.
+  const inFlight = useRef<Promise<void> | undefined>(undefined);
+  /// Notes `taken` as the newest send in flight; `refused` runs if it is refused or fails.
+  const track = (taken: Promise<unknown>, refused: () => void) => {
+    const settled = taken.then(
+      () => undefined,
+      () => refused(),
+    );
+    inFlight.current = settled;
+    sending.current = true;
+    void settled.then(() => {
+      if (inFlight.current !== settled) return;
+      inFlight.current = undefined;
+      sending.current = false;
+    });
+  };
   const resumeInFlight = useRef<{ sessionId?: string } | undefined>(undefined);
   const [resumePending, setResumePending] = useState<{ sessionId?: string } | undefined>(undefined);
   const readOnly = useTranscriptReadOnly();
@@ -952,6 +970,44 @@ function ComposerFrame({
     flushPendingDraftWrites();
     return next.text;
   };
+  /// Puts a prompt back (ComposerHandle `restore`): a refused send's, one taken back or edited from
+  /// the queue.
+  const restoreDraft = (restoredText: string, restoredAttachments: ComposerAttachment[], behind = false) => {
+    // A prompt coming back (refused, taken back, edited from the queue) went with a Codex skill
+    // as `/$name`: it is typed `/name` here, and send writes the `$` again. Its skills are the
+    // draft's picks; with nothing typed it is the whole draft, and they replace the old ones.
+    const picks = pickedSkillsOf(restoredText, commandsNow.current);
+    if (!(field.current?.value() ?? "").trim()) pickedSkills.current = picks;
+    else for (const name of picks) pickedSkills.current.add(name);
+    // A paste that went as a placed paste chip (markPastes) under the chip's size comes back as
+    // the text it was in the draft, remembered as a paste again; only a huge one stays a chip.
+    const restored = unmarkPastes(
+      bindMarks(withoutSkillDollars(restoredText, commandsNow.current), restoredAttachments),
+    );
+    restoredText = restored.text;
+    restoredAttachments = restored.attachments;
+    box.current?.rememberPastes(restored.pastes);
+    // The editor parses tokens synchronously; make their payload IDs known before replacing its document.
+    attachmentsRef.current = appendAttachments(attachmentsRef.current, restoredAttachments);
+    // Put back, not typed: the Enter that sent it says nothing about this change.
+    notTyped();
+    // What comes back goes first; what was typed or attached since stays after it. `behind`: it
+    // goes after what is there (prompts a folder's trust held, sent after one already given
+    // back: trustHeld.ts).
+    const typed = field.current?.value() ?? "";
+    const next = !typed.trim() ? restoredText : behind ? `${typed}\n\n${restoredText}` : `${restoredText}\n\n${typed}`;
+    // A field whose editor is still starting (the chat composer that mounts as a New Tab page
+    // leaves) takes it as its value, which becomes the editor's first content.
+    if (!field.current?.type(next)) {
+      setText(next);
+      setCaret(next.length);
+    }
+    if (restoredAttachments.length)
+      setAttachments((current) => {
+        const others = current.filter((attachment) => !restoredAttachments.some((back) => back.id === attachment.id));
+        return behind ? [...others, ...restoredAttachments] : [...restoredAttachments, ...others];
+      });
+  };
   useImperativeHandle(
     handle,
     () => ({
@@ -986,48 +1042,7 @@ function ComposerFrame({
       clearAttachmentCarrySuppression() {
         suppressedAttachmentCarry.current = undefined;
       },
-      restore(restoredText, restoredAttachments, behind = false) {
-        // A prompt coming back (refused, taken back, edited from the queue) went with a Codex skill
-        // as `/$name`: it is typed `/name` here, and send writes the `$` again. Its skills are the
-        // draft's picks; with nothing typed it is the whole draft, and they replace the old ones.
-        const picks = pickedSkillsOf(restoredText, commandsNow.current);
-        if (!(field.current?.value() ?? "").trim()) pickedSkills.current = picks;
-        else for (const name of picks) pickedSkills.current.add(name);
-        // A paste that went as a placed paste chip (markPastes) under the chip's size comes back as
-        // the text it was in the draft, remembered as a paste again; only a huge one stays a chip.
-        const restored = unmarkPastes(
-          bindMarks(withoutSkillDollars(restoredText, commandsNow.current), restoredAttachments),
-        );
-        restoredText = restored.text;
-        restoredAttachments = restored.attachments;
-        box.current?.rememberPastes(restored.pastes);
-        // The editor parses tokens synchronously; make their payload IDs known before replacing its document.
-        attachmentsRef.current = appendAttachments(attachmentsRef.current, restoredAttachments);
-        // Put back, not typed: the Enter that sent it says nothing about this change.
-        notTyped();
-        // What comes back goes first; what was typed or attached since stays after it. `behind`: it
-        // goes after what is there (prompts a folder's trust held, sent after one already given
-        // back: trustHeld.ts).
-        const typed = field.current?.value() ?? "";
-        const next = !typed.trim()
-          ? restoredText
-          : behind
-            ? `${typed}\n\n${restoredText}`
-            : `${restoredText}\n\n${typed}`;
-        // A field whose editor is still starting (the chat composer that mounts as a New Tab page
-        // leaves) takes it as its value, which becomes the editor's first content.
-        if (!field.current?.type(next)) {
-          setText(next);
-          setCaret(next.length);
-        }
-        if (restoredAttachments.length)
-          setAttachments((current) => {
-            const others = current.filter(
-              (attachment) => !restoredAttachments.some((back) => back.id === attachment.id),
-            );
-            return behind ? [...others, ...restoredAttachments] : [...restoredAttachments, ...others];
-          });
-      },
+      restore: restoreDraft,
       attach(attachment) {
         // A Cloud start is out: no chip comes in from any caller (a highlight, a selection, a
         // recording, a link pick, the focused tab), and the note says why (`refusal`).
@@ -1551,12 +1566,6 @@ function ComposerFrame({
     if (cloudStarting) return false;
     // The folder's trust question is open: the prompt stays where it is.
     if (authBlock || authBlocked || blockSend || (blocked?.reason && !force)) return false;
-    // The host has not taken the last prompt yet: it is still here, so Enter sends no copy, and
-    // the composer says so instead of doing nothing.
-    if (sending.current) {
-      setAttachError(t("composer.stillSending"));
-      return false;
-    }
     // A dictation session still running ends first, keeping its words, and this send goes once
     // they are in the prompt (dictation.ts finish), so nothing is sent half-heard.
     if (dictation && isActive(dictation.state) && !shell && !dictationEnded.current) {
@@ -1676,27 +1685,29 @@ function ComposerFrame({
           // must not leak into the next prompt while the command waits.
           for (const item of pending) cancel(item.id);
           const went = new Set(attachments.map((attachment) => attachment.id));
-          const consume = () => {
-            box.current?.sent(went);
-            setAttachments((current) => current.filter((attachment) => !went.has(attachment.id)));
-          };
-          // `/side`'s files go with its prompt: a side chat that did not open leaves them here.
-          if (!sideFiles) consume();
+          // `/side`'s files go with its prompt: a side chat that did not open gives them back.
+          const sideChips = sideFiles ? attachments.filter((attachment) => went.has(attachment.id)) : [];
+          // The command leaves the composer at once, as a prompt does.
+          box.current?.sent(went);
+          setAttachments((current) => current.filter((attachment) => !went.has(attachment.id)));
           setAttachError(undefined);
           plusDraft.current = undefined;
-          sending.current = true;
-          accepted.then(
-            () => {
-              sending.current = false;
-              if (sideFiles) consume();
-              if (asTaken(field.current?.value() ?? "") === written) edit("", 0);
-              sentAt.current = Date.now();
-            },
-            (reason: unknown) => {
-              sending.current = false;
+          edit("", 0);
+          sentAt.current = Date.now();
+          track(
+            accepted.catch((reason: unknown) => {
               // A command may refuse with its own sentence (`/cd` to a path that is no folder).
               setAttachError(reason instanceof CmuxCommandRefused ? reason.message : t("composer.cmuxUnavailable"));
-            },
+              // It comes back to send again, unless something new was written meanwhile.
+              if (!field.current || (field.current.value() ?? "").trim() || attachmentsRef.current.length) return;
+              notTyped();
+              if (sideChips.length) {
+                attachmentsRef.current = appendAttachments(attachmentsRef.current, sideChips);
+                setAttachments((current) => [...sideChips, ...current]);
+              }
+              edit(written, written.length);
+            }),
+            () => undefined,
           );
           return true;
         }
@@ -1772,43 +1783,51 @@ function ComposerFrame({
     // Its copy is the prompt as sent: a send taken later clears a composer that may hold the next draft.
     const tuck = tucks ? tuckContent(composerBox.current, marked.text) : undefined;
     // `/customize …` goes as the ask it stands for (customizeCommand.ts).
-    const taken = onSend(customizeMessage(marked.text) ?? marked.text, sent, steer, kept);
-    if (taken === false || taken instanceof Promise) keepSendOrigins();
-    if (taken === false) return false;
-    const written = field.current?.value() ?? "";
-    const clear = (rest = "") => {
+    const deliver = () => {
+      const taken = onSend(customizeMessage(marked.text) ?? marked.text, sent, steer, kept);
+      if (taken === false || taken instanceof Promise) keepSendOrigins();
+      return taken;
+    };
+    const clear = () => {
       if (tuck) tuckSent(composerBox.current, tuck);
       const went = new Set(sent.map((attachment) => attachment.id));
       box.current?.sent(went);
       setAttachments((current) => current.filter((attachment) => !went.has(attachment.id)));
       setAttachError(undefined);
       plusDraft.current = undefined;
-      if (field.current && rest) field.current.type(rest);
-      else edit(rest, rest.length);
+      edit("", 0);
       // The sent text is no draft any more: a read still on its way never brings it back.
       noteDraftSent(persistedSession.current);
       sentAt.current = Date.now();
       refocusSend.current = fromSend;
     };
-    if (!(taken instanceof Promise)) {
+    // A refused or failed send comes back: as it was into an empty composer, else after what was
+    // written since, so neither is lost.
+    const giveBack = () => {
+      if (!field.current) return;
+      const written = (field.current.value() ?? "").trim() || attachmentsRef.current.length > 0;
+      restoreDraft(marked.text, sent, Boolean(written));
+    };
+    // A send still going: this one leaves the composer now and goes once that one settled.
+    const ahead = inFlight.current;
+    if (ahead) {
+      keepSendOrigins();
       clear();
+      track(
+        ahead.then(() => {
+          const taken = deliver();
+          if (taken === false) throw new Error("composer.notTaken");
+          return taken;
+        }),
+        giveBack,
+      );
       return true;
     }
-    // The prompt stays in the composer until the host takes it; a refusal keeps it there.
-    sending.current = true;
-    taken.then(
-      () => {
-        sending.current = false;
-        // What was typed while the host took the prompt stays.
-        const now = field.current?.value() ?? written;
-        clear(now === written ? "" : now.startsWith(written) ? now.slice(written.length).trimStart() : now);
-      },
-      () => {
-        sending.current = false;
-        const note = t("composer.stillSending");
-        setAttachError((current) => (current === note ? undefined : current));
-      },
-    );
+    const taken = deliver();
+    if (taken === false) return false;
+    clear();
+    // A send the host takes later: the composer is free now, and a refusal gives the prompt back.
+    if (taken instanceof Promise) track(taken, giveBack);
     return true;
   };
   submitNow.current = send;

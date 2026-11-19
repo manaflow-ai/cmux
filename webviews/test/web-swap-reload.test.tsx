@@ -343,6 +343,11 @@ test("a prompt the host has not taken yet keeps the update waiting", async () =>
   act(() => {
     page.current!.send();
   });
+  // The composer clears at once (its emptied draft saves first), and the update still waits for
+  // the send: a refusal puts the prompt back here.
+  expect(prompt()).toBe("");
+  expect(hold()).not.toBeNull();
+  await settle();
   expect(hold()).toBe("composer.sending");
   await act(async () => take());
   await settle();
