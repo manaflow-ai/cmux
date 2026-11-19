@@ -114,7 +114,7 @@ final class NewTabInputCoordinator {
         // One opening at a time per window: an earlier one ends here, and its keys wait for this page.
         let replaced = entry(for: window), earlier = replaced?.keyboard.persons == true ? replaced?.buffer.takeKeys() ?? [] : [] // a script's hold: its keys were typed where the keyboard is, and go on there now
         release(in: window)
-        let keyboard = NewTabHoldKeyboard(in: window, persons: ActionRunScope.isPersonsAction(), replacing: replaced?.keyboard, standIn: TerminalHostView.keyboardOwner)
+        let keyboard = NewTabHoldKeyboard(in: window, persons: ActionRunScope.isPersonsAction(), replacing: replaced?.keyboard, standIn: TerminalHostView.keyboardOwner, drawn: { AgentPaneView.chromiumAgentPane(under: $0, in: window) })
         // The pane focus had at the opening, when the opening may move focus (a person's, not a script's).
         var focusedAtOpening = ActionRunScope.viewChangeAllowed() ? pane.services.windowController(showing: pane)?.focus.state.pane : nil
         let buffer = NewTabInputBuffer(began: now(), held: earlier, focusField: { [weak pane, weak window] in
@@ -285,13 +285,13 @@ final class NewTabInputCoordinator {
     func didShow(in window: NSWindow?) { if let window { held(in: window)?.shown = true } }
 
     /// The open showed its tab with a page view that was there before the key. When that view had the keyboard at the key, the hold has no owner, so an end with no field ready gives its keys to that view (`NewTabHoldKeyboard.newTabTook`).
-    /// Not when the tab that the pane showed at the key has that view still: the selection did not move then.
+    /// Not when the tab that the pane showed at the key has that view still: the selection did not move then. The hold knows the view of a page window from the key (`begin`): after this show 2 page views are at one place.
     func tookPage(in pane: PaneController) {
         guard let window = pane.view.window, let entry = held(in: window) else { return }
         let tabs = pane.services.agentTabs
         guard let view = pane.stripModel.selectedID.flatMap({ tabs.existingView($0.rawValue) }) else { return }
         guard entry.opened.flatMap({ tabs.existingView($0) }) !== view else { return }
-        entry.keyboard.newTabTook(view) { AgentPaneView.chromiumAgentPane(under: $0, in: window) }
+        entry.keyboard.newTabTook(view)
     }
 
     /// The New Tab page `tab` this hold opened closed before the daemon made it: its held keys go with it.
