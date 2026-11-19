@@ -27,6 +27,10 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
 
     let mut cases: Vec<(Vec<&'static str>, &'static str)> = vec![
         (vec!["settings", "list", "--section", "appearance"], "settings.list"),
+        (vec!["settings", "history"], "settings.history"),
+        (vec!["settings", "undo"], "settings.undo"),
+        (vec!["settings", "restore", "12"], "settings.restore"),
+        (vec!["settings", "reset", "--group", "appearance.sidebar"], "settings.reset_group"),
         (vec!["machine", "list"], "machine.list"),
         (vec!["machine", MACHINE, "show"], "machine.get"),
         (vec!["machine", MACHINE, "session", "list"], "session.list"),

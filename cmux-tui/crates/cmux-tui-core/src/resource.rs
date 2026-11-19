@@ -462,6 +462,14 @@ pub enum ResourceOperation {
     SettingsResetAll,
     #[serde(rename = "settings.edit")]
     SettingsEdit,
+    #[serde(rename = "settings.history")]
+    SettingsHistory,
+    #[serde(rename = "settings.undo")]
+    SettingsUndo,
+    #[serde(rename = "settings.restore")]
+    SettingsRestore,
+    #[serde(rename = "settings.reset_group")]
+    SettingsResetGroup,
     #[serde(rename = "keybindings.get")]
     KeybindingsGet,
     #[serde(rename = "keybindings.set")]

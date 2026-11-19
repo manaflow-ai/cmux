@@ -108,6 +108,7 @@ impl ResourceOperation {
                 | Self::SettingsList
                 | Self::SettingsGet
                 | Self::SettingsSnapshot
+                | Self::SettingsHistory
                 | Self::KeybindingsGet
                 | Self::BrowserDevicesList
                 | Self::BrowserProfileList
