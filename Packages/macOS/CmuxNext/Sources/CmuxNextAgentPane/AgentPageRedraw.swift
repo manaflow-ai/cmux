@@ -70,6 +70,7 @@ public final class AgentPageRedraw {
 
     /// From the pane's `layout()`: notes the size the page draws at, and answers ``when(_:_:)``.
     func laidOut(_ pane: NSView) {
+        askPictureAtNewSize(of: pane)
         // A hidden page follows the pane's size but draws nothing: its drawn size stays.
         guard pane.window != nil, !pane.bounds.isEmpty, !pane.isHiddenOrHasHiddenAncestor else { return }
         let size = pane.bounds.size
@@ -112,6 +113,7 @@ public final class AgentPageRedraw {
     }
 
     /// A capture for the app's New Tab frame is on the way (one per page at a time).
+    var pictureAskedAt = CGSize.zero // the size the page's pane was last asked for its picture at (``askPictureAtNewSize(of:)``)
     public var givesNewTabFrame = false {
         didSet {
             if givesNewTabFrame != oldValue { newTabFrameCaptureChanged?(givesNewTabFrame) }
