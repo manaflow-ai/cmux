@@ -31,6 +31,15 @@ async function loadChats() {
   }
 }
 
+// What a failed usage read says, in words: a cmux whose views cannot reach the Usage app yet answers
+// operation.unsupported (or provider.unavailable while it starts); never the raw reason.
+function usageProblem(e) {
+  const code = e && e.code
+  if (code === "operation.unsupported" || code === "provider.unavailable") return "This cmux does not share the Usage app with views yet."
+  if (code === "scope.missing") return "Turn on Usage for Claude in Settings > Apps."
+  return "The Usage app did not answer. It tries again in a few minutes."
+}
+
 async function loadUsage(refresh = false) {
   try {
     const status = await cmux.call("usage_app.status", { accounts: true, refresh })
@@ -52,7 +61,7 @@ async function loadUsage(refresh = false) {
     })
     setUsageError(null)
   } catch (e) {
-    setUsageError(message(e))
+    setUsageError(usageProblem(e))
   }
 }
 
@@ -111,7 +120,7 @@ function renderHome() {
     Spacer(),
     HStack({ spacing: 10 }, [
       Spacer(),
-      Icon("sparkle").size(28).color(cmux.theme.accent),
+      Icon("task.ai").size(28).color(cmux.theme.accent),
       Text(() => greeting()).font("largeTitle").weight("regular"),
       Spacer()
     ]),
@@ -125,7 +134,7 @@ function renderHome() {
         ]),
         Spacer(),
         Text(() => (usage() ? `${pct(usage().session)} of this session left` : "")).font("caption").color(cmux.theme.text.secondary),
-        Button(HStack({ spacing: 4 }, [Icon("arrow.up"), Text("Start")]), start)
+        Button(HStack({ spacing: 4 }, [Icon("composer.send"), Text("Start")]), start)
       ])
     ]),
     Panel({ title: "Recents", style: "card" }, [
@@ -133,11 +142,11 @@ function renderHome() {
         Row({
           title: () => c().title,
           subtitle: () => `${c().project || "No project"} · ${ago(c().updated_ms || c().created_ms)}`,
-          symbol: () => (c().state === "working" ? "ellipsis.bubble" : c().state === "input" ? "questionmark.bubble" : "bubble.left"),
+          symbol: () => (c().state === "working" ? "status.inprogress" : c().state === "input" ? "status.needsinput" : "agent.chat"),
           tint: () => (c().state === "input" ? cmux.theme.warning : c().unread ? cmux.theme.accent : cmux.theme.text.secondary)
         }).onTap(() => show(c()))
       ),
-      () => (recents().length ? null : EmptyState({ title: "No Claude chats yet", message: "Ask something above to start one.", symbol: "sparkle" }))
+      () => (recents().length ? null : EmptyState({ title: "No Claude chats yet", message: "Ask something above to start one.", symbol: "task.ai" }))
     ]),
     Spacer()
   ])
@@ -156,7 +165,7 @@ function renderUsage() {
   follow()
   return VStack({ spacing: 8 }, [
     () => {
-      if (usageError() && !usage()) return EmptyState({ title: "No Claude usage yet", message: usageError(), symbol: "gauge.with.dots.needle.33percent" })
+      if (usageError() && !usage()) return EmptyState({ title: "No Claude usage here yet", message: usageError(), symbol: "context.usage" })
       if (!usage()) return ProgressView()
       return VStack({ spacing: 8 }, [
         meter("Session left", () => usage().session),
@@ -191,7 +200,7 @@ function renderStatusLine(context) {
       .filter(Boolean)
       .join("  ·  ")
   return VStack({ spacing: 4 }, [
-    HStack({ spacing: 6 }, [Icon("chevron.right").size(10).color(cmux.theme.accent), Text(line).monospaced().lineLimit(1).truncation("middle")]),
+    HStack({ spacing: 6 }, [Icon("disclosure.collapsed").size(10).color(cmux.theme.accent), Text(line).monospaced().lineLimit(1).truncation("middle")]),
     () =>
       chat() && (chat().step || chat().error)
         ? Text(() => chat().error || chat().step).font("caption").color(() => (chat().error ? cmux.theme.danger : cmux.theme.text.secondary)).lineLimit(2)

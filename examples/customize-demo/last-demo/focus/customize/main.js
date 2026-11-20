@@ -122,10 +122,10 @@ function renderFocus() {
       HStack({ spacing: 8 }, [
         () =>
           running()
-            ? Button(HStack({ spacing: 4 }, [Icon("stop.fill"), Text("Stop")]), () => stop(false))
-            : Button(HStack({ spacing: 4 }, [Icon("play.fill").color(cmux.theme.accent), Text("Start session").weight("semibold")]), start),
+            ? Button(HStack({ spacing: 4 }, [Icon("action.stop"), Text("Stop")]), () => stop(false))
+            : Button(HStack({ spacing: 4 }, [Icon("media.play").color(cmux.theme.accent), Text("Start session").weight("semibold")]), start),
         Spacer(),
-        Button(HStack({ spacing: 4 }, [Icon("bubble.left"), Text("Chat about it")]), () => run("palette.newAgentChat")),
+        Button(HStack({ spacing: 4 }, [Icon("agent.chat"), Text("Chat about it")]), () => run("palette.newAgentChat")),
         Button(HStack({ spacing: 4 }, [Icon("terminal"), Text("Terminal")]), () => run("newSurface"))
       ])
     ]).frame({ maxWidth: 520 }),

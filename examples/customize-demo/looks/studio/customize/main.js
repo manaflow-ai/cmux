@@ -46,6 +46,14 @@ async function loadChats() {
 }
 
 const NAMES = { claude: "Claude Code", codex: "Codex" }
+// What a failed usage read says, in words: a cmux whose views cannot reach the Usage app yet answers
+// operation.unsupported (or provider.unavailable while it starts); never the raw reason.
+function usageProblem(e) {
+  const code = e && e.code
+  if (code === "operation.unsupported" || code === "provider.unavailable") return "This cmux does not share the Usage app with views yet."
+  if (code === "scope.missing") return "Turn on Usage for Studio in Settings > Apps."
+  return "The Usage app did not answer. Right-click to read it again."
+}
 async function loadUsage(refresh = false) {
   try {
     const status = await cmux.call("usage_app.status", { accounts: true, refresh })
@@ -70,7 +78,7 @@ async function loadUsage(refresh = false) {
     )
     setUsageError(null)
   } catch (e) {
-    setUsageError(message(e))
+    setUsageError(usageProblem(e))
   }
 }
 
@@ -102,15 +110,21 @@ function age(ms) {
 
 // The status chip: what the thread is doing, in its tone. Null: a quiet, read thread.
 function chipOf(c) {
-  if (c.state === "working") return { label: `Working ${age(c.since_ms)}`, symbol: "circle.dashed", tone: cmux.theme.accent }
-  if (c.state === "input") return { label: "Input", symbol: "questionmark.circle", tone: cmux.theme.warning }
-  if (c.state === "failed" || c.state === "lost") return { label: "Failed", symbol: "exclamationmark.triangle", tone: cmux.theme.danger }
-  if (c.unread) return { label: "Done", symbol: "checkmark.circle", tone: cmux.theme.success }
+  if (c.state === "working") return { label: `Working ${age(c.since_ms)}`, symbol: "status.inprogress", tone: cmux.theme.accent }
+  if (c.state === "input") return { label: "Input", symbol: "status.needsinput", tone: cmux.theme.warning }
+  if (c.state === "failed" || c.state === "lost") return { label: "Failed", symbol: "status.error", tone: cmux.theme.danger }
+  if (c.unread) return { label: "Done", symbol: "status.success", tone: cmux.theme.success }
   return null
 }
 
 const live = computed(() => chats().filter((c) => !isSettled(c)))
 const settledThreads = computed(() => chats().filter(isSettled).sort((a, b) => lastActivity(b) - lastActivity(a)))
+// The list draws a bounded number of rows whatever the number of chats: the newest projects, the
+// newest threads in each (the open one always), and a count of the rest. A row per chat made the
+// app's VM run past its 250 ms step with about a thousand chats, and the host stopped it.
+const MAX_PROJECTS = 10
+const MAX_THREADS = 8
+const MAX_SETTLED = 20
 const projects = computed(() => {
   const groups = new Map()
   for (const c of [...live()].sort((a, b) => lastActivity(b) - lastActivity(a))) {
@@ -118,8 +132,14 @@ const projects = computed(() => {
     if (!groups.has(name)) groups.set(name, { name, threads: [] })
     groups.get(name).threads.push(c)
   }
-  return [...groups.values()]
+  return [...groups.values()].slice(0, MAX_PROJECTS).map((g) => {
+    const shown = g.threads.slice(0, MAX_THREADS)
+    const open = g.threads.slice(MAX_THREADS).find(isOpen)
+    if (open) shown.push(open)
+    return { ...g, shown }
+  })
 })
+const hiddenThreads = computed(() => live().length - projects().reduce((n, p) => n + p.shown.length, 0))
 
 function show(chat) {
   if (chat.workspace) cmux.workspace.focus({ workspace: chat.workspace }).then(loadChats, refused("Change workspaces"))
@@ -205,16 +225,20 @@ function renderThreads() {
           () => !closed()[p().name],
           () => setClosed((s) => ({ ...s, [p().name]: !s[p().name] }))
         ),
-        ForEach({ items: () => (closed()[p().name] ? p().threads.filter(isOpen) : p().threads), key: (c) => c.id }, thread)
+        ForEach({ items: () => (closed()[p().name] ? p().shown.filter(isOpen) : p().shown), key: (c) => c.id }, thread)
       ])
     ),
+    () =>
+      hiddenThreads() > 0
+        ? Text(() => `${hiddenThreads()} more · Command-K searches every thread`).font("caption").color(cmux.theme.text.tertiary).paddingHorizontal(8)
+        : null,
     () => (chats().length ? null : EmptyState({ title: "No threads yet", message: "Shift-Command-O starts one.", symbol: "list.bullet.rectangle" })),
     () =>
       settledThreads().length
         ? VStack({ spacing: 0 }, [
             Divider(),
             header("Settled", () => settledThreads().length, settledOpen, () => setSettledOpen(!settledOpen())),
-            ForEach({ items: () => (settledOpen() ? settledThreads() : []), key: (c) => c.id }, thread)
+            ForEach({ items: () => (settledOpen() ? settledThreads().slice(0, MAX_SETTLED) : []), key: (c) => c.id }, thread)
           ])
         : null
   ])
@@ -223,10 +247,8 @@ function renderThreads() {
 // ---- New Tab: the studio's start page ---------------------------------------------------------
 
 const AGENTS = [
-  { harness: "claude", label: "Claude Code", symbol: "sparkle" },
-  { harness: "codex", label: "Codex", symbol: "chevron.left.forwardslash.chevron.right" },
-  { harness: "gemini", label: "Gemini", symbol: "diamond" },
-  { harness: "opencode", label: "OpenCode", symbol: "curlybraces" }
+  { harness: "claude", label: "Claude Code", symbol: "task.ai" },
+  { harness: "codex", label: "Codex", symbol: "code" }
 ]
 
 function start(harness) {
@@ -281,19 +303,18 @@ function renderStart() {
         ForEach({ items: () => [...live()].sort((a, b) => lastActivity(b) - lastActivity(a)).slice(0, 7), key: (c) => c.id }, (c) =>
           Row({
             title: () => c().title,
-            subtitle: () => `${c().project || "No project"} · ${c().harness || "agent"}`,
-            symbol: () => (chipOf(c()) ? chipOf(c()).symbol : "bubble.left"),
-            tint: () => (chipOf(c()) ? chipOf(c()).tone : cmux.theme.text.secondary),
-            accessory: () => age(lastActivity(c()))
+            subtitle: () => `${c().project || "No project"} · ${c().harness || "agent"} · ${age(lastActivity(c()))}`,
+            symbol: () => (chipOf(c()) ? chipOf(c()).symbol : "agent.chat"),
+            tint: () => (chipOf(c()) ? chipOf(c()).tone : cmux.theme.text.secondary)
           }).onTap(() => show(c()))
         ),
-        () => (live().length ? null : EmptyState({ title: "No threads yet", symbol: "list.bullet.rectangle" }))
+        () => (live().length ? null : EmptyState({ title: "No threads yet", symbol: "view.list" }))
       ]),
       Panel({ title: "Usage", style: "card" }, [
         () => {
-          if (usageError() && !usage()) return EmptyState({ title: "No usage yet", message: usageError(), symbol: "gauge.with.dots.needle.33percent" })
+          if (usageError() && !usage()) return EmptyState({ title: "No usage here yet", message: usageError(), symbol: "context.usage" })
           if (!usage()) return ProgressView()
-          if (!usage().length) return EmptyState({ title: "No accounts", message: "Add a Claude or Codex account in the Usage pane.", symbol: "person.crop.circle.badge.plus" })
+          if (!usage().length) return EmptyState({ title: "No accounts", message: "Add a Claude or Codex account in the Usage pane.", symbol: "account" })
           return VStack({ spacing: 8 }, [ForEach({ items: usage, key: (u) => u.id }, usageRow)])
         }
       ]).contextMenu([Button("Read usage now", () => loadUsage(true))])

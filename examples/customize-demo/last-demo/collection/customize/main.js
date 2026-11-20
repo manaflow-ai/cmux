@@ -52,15 +52,19 @@ const [weather, setWeather] = signal(null) // { temperature, code, high, low }
 const [weatherError, setWeatherError] = signal(null)
 const [draft, setDraft] = signal("")
 
+// Icons: the sidebar draws SF Symbols, but the New Tab page is a web page that draws only cmux's
+// icon pack (an SF name it does not know is the missing-icon box), so every icon the page shows is
+// a pack name (`appearance.light`, `history`), which the sidebar draws too. Only the weather keeps
+// its SF symbol in the sidebar, where it draws in its own colors; `pack` is its page icon.
 function sky(code) {
-  if (code === 0) return { text: "Clear", symbol: "sun.max" }
-  if (code <= 3) return { text: "Partly cloudy", symbol: "cloud.sun" }
-  if (code <= 48) return { text: "Fog", symbol: "cloud.fog" }
-  if (code <= 67) return { text: "Rain", symbol: "cloud.rain" }
-  if (code <= 77) return { text: "Snow", symbol: "cloud.snow" }
-  if (code <= 82) return { text: "Showers", symbol: "cloud.heavyrain" }
-  if (code <= 86) return { text: "Snow showers", symbol: "cloud.snow" }
-  return { text: "Thunderstorm", symbol: "cloud.bolt" }
+  if (code === 0) return { text: "Clear", symbol: "sun.max", pack: "appearance.light" }
+  if (code <= 3) return { text: "Partly cloudy", symbol: "cloud.sun", pack: "cloud" }
+  if (code <= 48) return { text: "Fog", symbol: "cloud.fog", pack: "cloud" }
+  if (code <= 67) return { text: "Rain", symbol: "cloud.rain", pack: "cloud" }
+  if (code <= 77) return { text: "Snow", symbol: "cloud.snow", pack: "cloud" }
+  if (code <= 82) return { text: "Showers", symbol: "cloud.heavyrain", pack: "cloud" }
+  if (code <= 86) return { text: "Snow showers", symbol: "cloud.snow", pack: "cloud" }
+  return { text: "Thunderstorm", symbol: "cloud.bolt", pack: "cloud" }
 }
 
 const clock = computed(() => {
@@ -92,7 +96,7 @@ async function loadWeather() {
     })
     setWeatherError(null)
   } catch (e) {
-    if (place() === p) setWeatherError(message(e))
+    if (place() === p) setWeatherError(weatherProblem(e))
   }
 }
 
@@ -110,8 +114,15 @@ async function chooseCity(text) {
     cmux.storage.set("place", next).catch(() => undefined)
     await loadWeather()
   } catch (e) {
-    setWeatherError(message(e))
+    setWeatherError(weatherProblem(e))
   }
+}
+
+// A customize app installs sandboxed (no network) until you turn that off, so a refused read says how.
+function weatherProblem(e) {
+  if (e && e.code === "scope.missing") return "The weather needs the network: turn off Run sandboxed for this app in Settings > Apps, and allow its two weather hosts."
+  if (e && String(e.message || "").startsWith("No place called")) return e.message
+  return "The weather did not answer. Right-click the card to try again."
 }
 
 function changeCity() {
@@ -127,15 +138,15 @@ function cardHeader(symbol, title, tone, note) {
       Circle().fill(tone).opacity(0.2).frame({ width: 26, height: 26 }),
       Icon(symbol).font("callout").color(tone).symbolRendering("hierarchical")
     ]).frame({ width: 26, height: 26 }),
-    Text(title).font("headline"),
+    Text(title).font("headline").fixedSize("horizontal"),
     Spacer(),
-    note ? Text(note).font("caption").color(cmux.theme.text.tertiary) : null
+    note ? Text(note).font("caption").color(cmux.theme.text.tertiary).lineLimit(1) : null
   ])
 }
 
-function today() {
+function today(page = false) {
   return Panel({ style: "glass", spacing: 10 }, [
-    cardHeader("clock.fill", "Today", cmux.theme.accent, () => (place() ? place().name : "")),
+    cardHeader("history", "Today", cmux.theme.accent, () => (place() ? place().name : "")),
     HStack({ spacing: 10, alignment: "bottom" }, [
       Text(clock).font("largeTitle").weight("bold").monospaced().contentTransition("numericText"),
       Spacer(),
@@ -143,7 +154,7 @@ function today() {
         const w = weather()
         if (!w) return null
         return HStack({ spacing: 6 }, [
-          Icon(sky(w.code).symbol).font("title").symbolRendering("multicolor"),
+          page ? Icon(sky(w.code).pack).font("title").color(cmux.theme.warning) : Icon(sky(w.code).symbol).font("title").symbolRendering("multicolor"),
           Text(`${w.temperature}°`).font("title").weight("light").contentTransition("numericText")
         ]).transition("opacity")
       }
@@ -154,9 +165,9 @@ function today() {
       if (!w) return null
       return HStack({ spacing: 6 }, [
         Badge(sky(w.code).text, cmux.theme.accent),
-        Icon("arrow.down").font("caption").color(cmux.theme.text.tertiary),
+        Icon("disclosure.expanded").font("caption").color(cmux.theme.text.tertiary),
         Text(`${w.low}°`).font("caption").monospaced().color(cmux.theme.text.secondary),
-        Icon("arrow.up").font("caption").color(cmux.theme.text.tertiary),
+        Icon("disclosure.folded").font("caption").color(cmux.theme.text.tertiary),
         Text(`${w.high}°`).font("caption").monospaced().color(cmux.theme.text.secondary),
         Spacer()
       ])
@@ -215,8 +226,17 @@ async function loadUsage(refresh = false) {
       tween(`usage:${row.id}`, (v) => setShown((s) => ({ ...s, [row.id]: v })), before[row.id] ?? 0, row.weeklyLeft)
     }
   } catch (e) {
-    setUsageError(message(e))
+    setUsageError(usageProblem(e))
   }
+}
+
+// What a failed usage read says, in words: a cmux whose views cannot reach the Usage app yet answers
+// operation.unsupported (or provider.unavailable while it starts); never the raw reason.
+function usageProblem(e) {
+  const code = e && e.code
+  if (code === "operation.unsupported" || code === "provider.unavailable") return "This cmux does not share the Usage app with views yet."
+  if (code === "scope.missing") return "Turn on Usage for this app in Settings > Apps."
+  return "The Usage app did not answer. Right-click to read it again."
 }
 
 function meter(row) {
@@ -225,7 +245,7 @@ function meter(row) {
     const v = row().weeklyLeft
     return v === null ? cmux.theme.text.secondary : v < 15 ? cmux.theme.danger : v < 40 ? cmux.theme.warning : cmux.theme.success
   }
-  const symbol = () => (row().id === "codex" ? "chevron.left.forwardslash.chevron.right" : "sparkle")
+  const symbol = () => (row().id === "codex" ? "code" : "task.ai")
   return VStack({ spacing: 5 }, [
     HStack({ spacing: 8, alignment: "bottom" }, [
       Icon(symbol).color(cmux.theme.accent).symbolRendering("hierarchical"),
@@ -245,7 +265,7 @@ function meter(row) {
     ]),
     ProgressView(() => (left() === null ? null : left() / 100)),
     HStack({ spacing: 6 }, [
-      Text("left this week").font("caption").color(cmux.theme.text.secondary),
+      Text("left this week").font("caption").color(cmux.theme.text.secondary).fixedSize("horizontal"),
       Spacer(),
       () => (row().sessionLeft !== null ? Badge(`session ${Math.round(row().sessionLeft)}%`, cmux.theme.text.secondary) : null),
       () => (row().verdict && PACE[row().verdict] ? Badge(PACE[row().verdict], row().verdict === "over" ? cmux.theme.warning : cmux.theme.success) : null),
@@ -256,12 +276,12 @@ function meter(row) {
 
 function usageCard() {
   return Panel({ style: "glass", spacing: 10 }, [
-    cardHeader("gauge.with.dots.needle.67percent", "Usage", cmux.theme.success, "this week"),
+    cardHeader("context.usage", "Usage", cmux.theme.success, "this week"),
     () => {
-      if (usageError() && !usage()) return EmptyState({ title: "No usage yet", message: usageError(), symbol: "gauge.with.dots.needle.33percent" })
+      if (usageError() && !usage()) return EmptyState({ title: "No usage here yet", message: usageError(), symbol: "context.usage" })
       const rows = usage()
       if (!rows) return ProgressView()
-      if (!rows.length) return EmptyState({ title: "No accounts", message: "Add a Claude or Codex account in the Usage pane.", symbol: "person.crop.circle.badge.plus" })
+      if (!rows.length) return EmptyState({ title: "No accounts", message: "Add a Claude or Codex account in the Usage pane.", symbol: "account" })
       return VStack({ spacing: 12 }, [ForEach({ items: usage, key: (r) => r.id }, meter)])
     }
   ])
@@ -278,16 +298,16 @@ const RARITY = {
   legendary: { label: "Legendary", tone: cmux.theme.warning, weight: 2 }
 }
 const CHIEFS = [
-  { id: "intern", name: "Intern Chief", symbol: "graduationcap", rarity: "common" },
-  { id: "lint", name: "Lint Chief", symbol: "checkmark.seal", rarity: "common" },
-  { id: "coffee", name: "Coffee Chief", symbol: "cup.and.saucer", rarity: "common" },
-  { id: "rebase", name: "Rebase Chief", symbol: "arrow.triangle.branch", rarity: "common" },
-  { id: "merge", name: "Merge Chief", symbol: "arrow.triangle.merge", rarity: "rare" },
-  { id: "cache", name: "Cache Chief", symbol: "bolt.horizontal", rarity: "rare" },
-  { id: "review", name: "Review Chief", symbol: "eye", rarity: "rare" },
-  { id: "fleet", name: "Fleet Chief", symbol: "server.rack", rarity: "epic" },
-  { id: "nightly", name: "Nightly Chief", symbol: "moon.stars", rarity: "epic" },
-  { id: "cloud", name: "Cloud Chief", symbol: "crown", rarity: "legendary" }
+  { id: "intern", name: "Intern Chief", symbol: "account", rarity: "common" },
+  { id: "lint", name: "Lint Chief", symbol: "trust.verified", rarity: "common" },
+  { id: "coffee", name: "Coffee Chief", symbol: "history", rarity: "common" },
+  { id: "rebase", name: "Rebase Chief", symbol: "git.branch", rarity: "common" },
+  { id: "merge", name: "Merge Chief", symbol: "git.pullrequest.merged", rarity: "rare" },
+  { id: "cache", name: "Cache Chief", symbol: "automation", rarity: "rare" },
+  { id: "review", name: "Review Chief", symbol: "action.show", rarity: "rare" },
+  { id: "fleet", name: "Fleet Chief", symbol: "machine.remote", rarity: "epic" },
+  { id: "nightly", name: "Nightly Chief", symbol: "state.idle", rarity: "epic" },
+  { id: "cloud", name: "Cloud Chief", symbol: "cloud.workspace", rarity: "legendary" }
 ]
 // A legendary is certain by this many pulls without one.
 const PITY = 30
@@ -358,20 +378,20 @@ function gacha() {
   const tone = () => (chief() ? RARITY[chief().rarity].tone : cmux.theme.text.tertiary)
   const left = () => PITY - sincePity()
   return Panel({ style: "glass", spacing: 10 }, [
-    cardHeader("dice.fill", "Chief gacha", cmux.theme.warning, () => `${collected()} of ${CHIEFS.length}`),
+    cardHeader("agent.chief", "Chief gacha", cmux.theme.warning, () => `${collected()} of ${CHIEFS.length}`),
     HStack({ spacing: 14 }, [
       // The reel: a soft halo, a ring in the rarity's tone, the chief spinning inside.
       ZStack([
         Circle().fill(() => radialGradient([tone(), "clear"])).opacity(() => 0.25 + reel().glow * 0.75).frame({ width: 72, height: 72 }),
         Circle().stroke(tone).strokeWidth(2).opacity(() => 0.35 + reel().glow * 0.65).frame({ width: 56, height: 56 }),
-        Icon(() => chief()?.symbol ?? "questionmark")
+        Icon(() => chief()?.symbol ?? "agent.session")
           .font(() => (reel().glow > 0.5 ? "largeTitle" : "title"))
           .color(tone)
           .symbolRendering("hierarchical")
           .rotation(() => reel().angle)
       ]).frame({ width: 72, height: 72 }),
       VStack({ spacing: 3, alignment: "leading" }, [
-        Text(() => (reel().spinning ? "Rolling…" : chief()?.name ?? "Pull a chief")).font("title3").weight("semibold"),
+        Text(() => (reel().spinning ? "Rolling…" : chief()?.name ?? "Pull a chief")).font("title3").weight("semibold").lineLimit(1),
         () => (chief() && !reel().spinning ? Badge(RARITY[chief().rarity].label, tone()) : Text("Ten chiefs, four rarities").font("caption").color(cmux.theme.text.secondary)),
         Text(() => (left() === 1 ? "The next pull is a legendary" : `Legendary in ${left()} pulls or sooner`))
           .font("caption2")
@@ -381,7 +401,7 @@ function gacha() {
     ]),
     ProgressView(() => collected() / CHIEFS.length),
     HStack({ spacing: 8 }, [
-      Button(HStack({ spacing: 4 }, [Icon("sparkles"), Text("Pull")]), pull).disabled(() => !hydrated() || reel().spinning),
+      Button(HStack({ spacing: 4 }, [Icon("agent.session"), Text("Pull")]), pull).disabled(() => !hydrated() || reel().spinning),
       Spacer(),
       Text(() => `${collected()} collected`).font("caption").color(cmux.theme.text.secondary)
     ])
@@ -462,7 +482,7 @@ function renderPage() {
     HStack({ spacing: 12, alignment: "bottom" }, [
       VStack({ spacing: 4, alignment: "leading" }, [
         HStack({ spacing: 8 }, [
-          Icon("sparkles").font("title").color(cmux.theme.accent).symbolRendering("hierarchical"),
+          Icon("agent.session").font("title").color(cmux.theme.accent),
           Text("The collection").font("largeTitle").weight("heavy")
         ]),
         Text("Three small things a view can do: the time and the sky, what your agents have left, and a chief to pull.")
@@ -471,9 +491,9 @@ function renderPage() {
       ]),
       Spacer()
     ]),
-    HStack({ spacing: 14, alignment: "top" }, [today(), usageCard(), gacha()]),
+    HStack({ spacing: 14, alignment: "top" }, [today(true), usageCard(), gacha()].map((card) => card.frame({ minWidth: 250, maxWidth: "infinity" }))),
     HStack({ spacing: 6 }, [
-      Icon("hand.tap").font("caption").color(cmux.theme.text.tertiary),
+      Icon("computeruse.click").font("caption").color(cmux.theme.text.tertiary),
       Text("Right-click a card for more: change the city, read usage now, show your chiefs.").font("caption").color(cmux.theme.text.tertiary),
       Spacer()
     ]),

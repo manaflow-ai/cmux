@@ -23,7 +23,7 @@ cmux customize discard    # put your setup back
 
 | Place | Cards |
 | --- | --- |
-| Sidebar (bottom, cards look) | **Today**: a big clock, the weather icon and temperature, the city's high and low. **Agents**: Byte the cat, whose color and line follow your agents (a click opens the chat that waits), Working / Waiting / Done today counters and the latest chats. **Usage**: Claude and Codex, the weekly percent left counting up, a bar, the session left, pace and extra spend. **Pull requests**: your open PRs with a checks icon, +/− lines, passed/total checks and a review badge. |
+| Sidebar (bottom, cards look) | **Today**: a big clock, the weather icon and temperature, the city's high and low. **Agents**: Byte the cat, whose color and line follow your agents (a click opens the chat that waits), Working / Waiting / Done (finished today) counters and the latest chats. **Usage**: Claude and Codex, the weekly percent left counting up, a bar, the session left, pace and extra spend. **Pull requests**: your open PRs with a checks icon, +/− lines, passed/total checks and a review badge. |
 | Session Info (every chat) | **Agent**: this chat's state, harness, folder and age. **Usage** for this chat's provider only. **Branch**: the chat branch's PR with a checks bar (passed / running / failed). |
 | New Tab (`tabs.newTabApp`) | The same cards in three columns, plus a **World clock** (LA, New York, London, Tokyo, day or night) and six chats in Agents. |
 
@@ -34,12 +34,22 @@ uses only the kit in `skills/cmux-customization/references/local-app-views.md`: 
 font names, no hex colors or point sizes. So the cards follow every theme, including the glass
 and studio looks.
 
+On a cmux whose views cannot reach the Usage app yet (`usage_app.status` answers
+`operation.unsupported`, as in the 2026-11-19 NIGHTLY), the Usage cards are left out, not drawn as
+an error. The Pull requests card needs the network: until you turn off Run sandboxed for Widgets it
+says so in words ("Pull requests need the network"), as it does when you are not signed in.
+
+The New Tab page and Session Info are web pages that draw only cmux's icon pack, so every icon
+the cards use is a pack name (`notification`, `history`, `status.complete`); the sidebar draws
+those too, and keeps SF Symbols only for the weather and Byte the cat.
+
 ## Scopes
 
 Reads are granted at install: `agent:read`, `agent_chat:read`, `usage_app:read`,
-`integration:github:read`, `storage:local`. Turn the rest on in Settings > Apps > Widgets:
-`net:geocoding-api.open-meteo.com` and `net:api.open-meteo.com` for the weather, and `actions:run`
-so a click opens a chat or a PR. With GitHub not connected, the PR card says so.
+`integration:github:read`, `storage:local`. The app installs sandboxed (no network), so the
+weather and the pull requests need Run sandboxed turned off in Settings > Apps > Widgets. Turn the
+rest on there: `net:geocoding-api.open-meteo.com` and `net:api.open-meteo.com` for the weather, and
+`actions:run` so a click opens a chat or a PR. With GitHub not connected, the PR card says so.
 
 ## Change it
 

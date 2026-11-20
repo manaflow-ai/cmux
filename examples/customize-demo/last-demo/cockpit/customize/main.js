@@ -34,7 +34,9 @@ const failed = (c) => c.state === "failed" || c.state === "lost"
 const waiting = (c) => c.state === "input" || failed(c) || c.unread
 const why = (c) => (c.state === "input" ? "asks you" : failed(c) ? "stopped with an error" : "done, unread")
 const toneOf = (c) => (c.state === "input" ? cmux.theme.warning : failed(c) ? cmux.theme.danger : cmux.theme.success)
-const symbolOf = (c) => (c.state === "input" ? "questionmark.bubble.fill" : failed(c) ? "exclamationmark.octagon.fill" : "checkmark.circle.fill")
+// Pack icon names: the New Tab page is a web page that draws only cmux's icon pack (an SF name it
+// does not know is the missing-icon box); the sidebar draws pack names too.
+const symbolOf = (c) => (c.state === "input" ? "status.needsinput" : failed(c) ? "status.critical" : "status.complete")
 const needsYou = computed(() => chats().filter(waiting))
 const working = computed(() => chats().filter((c) => c.state === "working"))
 
@@ -164,28 +166,28 @@ function renderCockpit() {
   return VStack({ spacing: 18 }, [
     header(),
     HStack({ spacing: 12 }, [
-      stat("bell.badge.fill", "need you", () => String(needsYou().length), () => (needsYou().length ? cmux.theme.warning : cmux.theme.text.secondary)),
-      stat("sparkles", "at work", () => String(working().length), cmux.theme.accent),
-      stat("eye.fill", "reviews for you", () => String(reviews()), () => (reviews() ? cmux.theme.warning : cmux.theme.text.secondary)),
-      stat("rectangle.stack.fill", "workspaces", () => String((workspaces.value() ?? []).length), cmux.theme.success)
+      stat("notification", "need you", () => String(needsYou().length), () => (needsYou().length ? cmux.theme.warning : cmux.theme.text.secondary)),
+      stat("agent.session", "at work", () => String(working().length), cmux.theme.accent),
+      stat("action.watching", "reviews for you", () => String(reviews()), () => (reviews() ? cmux.theme.warning : cmux.theme.text.secondary)),
+      stat("workspace", "workspaces", () => String((workspaces.value() ?? []).length), cmux.theme.success)
     ]),
     HStack({ spacing: 10 }, [
-      tile("bubble.left.and.text.bubble.right.fill", "New chat", "Ask an agent", () => run("palette.newAgentChat")),
+      tile("agent.chat", "New chat", "Ask an agent", () => run("palette.newAgentChat")),
       tile("terminal.fill", "Terminal", "In this folder", () => run("newSurface")),
-      tile("globe", "Browser", "A new page", () => run("openBrowser")),
-      tile("arrow.turn.down.right", "Next waiting", "Jump to it", nextWaiting)
+      tile("browser", "Browser", "A new page", () => run("openBrowser")),
+      tile("agent.handoff", "Next waiting", "Jump to it", nextWaiting)
     ]),
     HStack({ spacing: 12, alignment: "top" }, [
-      card("bell.badge.fill", "Needs you", () => (needsYou().length ? cmux.theme.warning : cmux.theme.success), () => String(needsYou().length), [
+      card("notification", "Needs you", () => (needsYou().length ? cmux.theme.warning : cmux.theme.success), () => String(needsYou().length), [
         ForEach({ items: needsYou, key: (c) => c.id }, chatRow),
-        () => (needsYou().length ? null : EmptyState({ title: "Nothing waits on you", message: "Chats that ask you something or finish show up here.", symbol: "checkmark.seal.fill" }))
+        () => (needsYou().length ? null : EmptyState({ title: "Nothing waits on you", message: "Chats that ask you something or finish show up here.", symbol: "trust.verified" }))
       ]),
       card("arrow.triangle.pull", "Your pull requests", cmux.theme.accent, () => String(prList().length), [
         ForEach({ items: prList, key: (p) => p.id }, (p) =>
           Row({
             title: () => p().title,
             subtitle: () => `${p().repo} · #${p().number}${p().roles.includes("review-requested") ? " · waiting on your review" : ""}`,
-            symbol: () => (p().roles.includes("review-requested") ? "eye.circle.fill" : "arrow.triangle.pull"),
+            symbol: () => (p().roles.includes("review-requested") ? "action.review" : "git.pullrequest"),
             tint: () => (p().roles.includes("review-requested") ? cmux.theme.warning : cmux.theme.success)
           })
             .help(() => p().url)
@@ -193,19 +195,20 @@ function renderCockpit() {
         ),
         () =>
           prs.status() === "error"
-            ? EmptyState({ title: "GitHub is not connected", message: "Connect it in Settings > Integrations to see your pull requests here.", symbol: "link.badge.plus" })
+            ? EmptyState({ title: "GitHub is not connected", message: "Connect it in Settings > Integrations to see your pull requests here.", symbol: "link" })
             : prs.value() && !prList().length
               ? EmptyState({ title: "No open pull requests", symbol: "checkmark.circle" })
               : null
       ])
     ]),
-    card("rectangle.stack.fill", "Workspaces", cmux.theme.text.secondary, () => String((workspaces.value() ?? []).length), [
+    card("workspace", "Workspaces", cmux.theme.text.secondary, () => String((workspaces.value() ?? []).length), [
       ForEach({ items: () => workspaces.value() ?? [], key: (w) => w.id }, (w) =>
         Row({
           title: () => w().name,
-          symbol: () => (w().focused ? "rectangle.inset.filled.on.rectangle" : "rectangle.on.rectangle"),
+          symbol: () => (w().focused ? "omnibar.switchtab" : "workspace"),
           selected: () => w().focused,
-          accessory: () => (w().focused ? "here" : null)
+          // A Row's accessory is an icon name; "here" is its badge.
+          badge: () => (w().focused ? "here" : null)
         }).onTap(() => cmux.workspace.focus({ workspace: w().id }).catch(refused("Change workspaces")))
       )
     ]),
@@ -220,7 +223,7 @@ function renderNeedsYou() {
     () =>
       needsYou().length
         ? null
-        : HStack({ spacing: 6 }, [Icon("checkmark.seal.fill").color(cmux.theme.success), Text("All clear").font("callout").color(cmux.theme.text.secondary), Spacer()]).paddingHorizontal(10).paddingVertical(4)
+        : HStack({ spacing: 6 }, [Icon("trust.verified").color(cmux.theme.success), Text("All clear").font("callout").color(cmux.theme.text.secondary), Spacer()]).paddingHorizontal(10).paddingVertical(4)
   ])
 }
 

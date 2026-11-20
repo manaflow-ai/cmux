@@ -2,13 +2,13 @@
 VStack
   Panel: Today
     HStack
-      Text: 18:10
+      Text: 02:02
       Spacer
       Group
         HStack
           Icon: cloud.sun.fill
           Text: 14°
-    Text: Thursday, Nov 19 · San Francisco, Partly cloudy, 9° to 17°
+    Text: Friday, Nov 20 · San Francisco, Partly cloudy, 9° to 17°
     Group
     Group
   Panel: Agents
@@ -17,57 +17,56 @@ VStack
       VStack
         HStack
           Text: Byte
-          Icon: bell.fill
+          Icon: notification
         Text: Review usage card is waiting for you
       Spacer
     HStack
       VStack
         HStack
-          Icon: bolt.horizontal.fill
+          Icon: automation
           Text: Working
         Text: 1
-      Spacer
       VStack
         HStack
-          Icon: bell.fill
+          Icon: notification
           Text: Waiting
         Text: 1
-      Spacer
       VStack
         HStack
-          Icon: checkmark.circle.fill
-          Text: Done today
+          Icon: status.complete
+          Text: Done
         Text: 1
     ForEach
-      Row: Fix sidebar glass | Working · cmux · 2 min ago | bolt.horizontal.fill
-      Row: Review usage card | Waiting for you · cmux · 10 min ago | questionmark.bubble.fill
+      Row: Fix sidebar glass | Working · cmux · 2 min ago | automation
+      Row: Review usage card | Waiting for you · cmux · 10 min ago | status.needsinput
     Group
-  Panel: Usage
-    Group
-      VStack
-        ForEach
-          VStack
-            HStack
-              Text: Claude
-              Badge: 2/2
-              Spacer
-              Text: 65%
-            ProgressView: 0.65
-            Text: left this week · session 64% · under pace
-          VStack
-            HStack
-              Text: Codex
-              Badge: 1/1
-              Spacer
-              Text: 31%
-            ProgressView: 0.31
-            Text: left this week · session 22% · over pace · $4.50 extra
+  Group
+    Panel: Usage
+      Group
+        VStack
+          ForEach
+            VStack
+              HStack
+                Text: Claude
+                Badge: 2/2
+                Spacer
+                Text: 65%
+              ProgressView: 0.65
+              Text: left this week · session 64% · under pace
+            VStack
+              HStack
+                Text: Codex
+                Badge: 1/1
+                Spacer
+                Text: 31%
+              ProgressView: 0.31
+              Text: left this week · session 22% · over pace · $4.50 extra
   Panel: Pull requests
     Group
       Text: 1 pull request with failing checks
     VStack
       ForEach
-        Row: Widgets: clock, agents, usage and PR cards | cmux #46900 · +420 −12 · 17/20 checks | clock.fill | Review
+        Row: Widgets: clock, agents, usage and PR cards | cmux #46900 · +420 −12 · 17/20 checks | history | Review
         Row: Glass sidebar cards | cmux #46880 · +88 −40 · 22/23 checks | xmark.circle.fill | Changes
         Row: Studio theme pack | cmux #46861 · +210 −3 · 24/24 checks | checkmark.circle.fill | Approved
       Group
@@ -77,34 +76,35 @@ VStack
 VStack
   Panel: Agent
     HStack
-      Icon: bolt.horizontal.fill
+      Icon: automation
       VStack
         Text: Working
         Text: claude · cmux · 2 min ago
       Spacer
-  Panel: Claude usage
-    Group
-      VStack
-        ForEach
-          VStack
-            HStack
-              Text: Claude
-              Badge: 2/2
-              Spacer
-              Text: 65%
-            ProgressView: 0.65
-            Text: left this week · session 64% · under pace
+  Group
+    Panel: Claude usage
+      Group
+        VStack
+          ForEach
+            VStack
+              HStack
+                Text: Claude
+                Badge: 2/2
+                Spacer
+                Text: 65%
+              ProgressView: 0.65
+              Text: left this week · session 64% · under pace
   Panel: Branch
-    Row: lane/widgets | arrow.triangle.branch
+    Row: lane/widgets | git.branch
     Group
       VStack
-        Row: Widgets: clock, agents, usage and PR cards | cmux #46900 · +420 −12 · 17/20 checks | clock.fill | Review
+        Row: Widgets: clock, agents, usage and PR cards | cmux #46900 · +420 −12 · 17/20 checks | history | Review
         ProgressView: 0.85
         Text: 17 passed · 3 running · 0 failed
 ==== p
 VStack
   HStack
-    Icon: square.grid.2x2.fill
+    Icon: view.grid
     VStack
       Text: Widgets
       Text: Each card is one function in ~/.config/cmux/customize/main.js. Save it and this page draws it again.
@@ -113,81 +113,80 @@ VStack
     VStack
       Panel: Today
         HStack
-          Text: 18:10
+          Text: 02:02
           Spacer
           Group
             HStack
-              Icon: cloud.sun.fill
+              Icon: cloud
               Text: 14°
-        Text: Thursday, Nov 19 · San Francisco, Partly cloudy, 9° to 17°
+        Text: Friday, Nov 20 · San Francisco, Partly cloudy, 9° to 17°
         Group
         Group
       Panel: World clock
         ForEach
-          Row: Los Angeles | −8 h · PST | sun.max.fill | 10:10
-          Row: New York | −5 h · EST | sun.max.fill | 13:10
-          Row: London | Same time as you | sun.max.fill | 18:10
-          Row: Tokyo | +9 h · GMT+9 | moon.stars.fill | 03:10
+          Row: Los Angeles | −8 h · PST | appearance.light | 18:02
+          Row: New York | −5 h · EST | state.idle | 21:02
+          Row: London | Same time as you | state.idle | 02:02
+          Row: Tokyo | +9 h · GMT+9 | appearance.light | 11:02
     VStack
       Panel: Agents
         HStack
-          Icon: cat.fill
+          Icon: agent.bot
           VStack
             HStack
               Text: Byte
-              Icon: bell.fill
+              Icon: notification
             Text: Review usage card is waiting for you
           Spacer
         HStack
           VStack
             HStack
-              Icon: bolt.horizontal.fill
+              Icon: automation
               Text: Working
             Text: 1
-          Spacer
           VStack
             HStack
-              Icon: bell.fill
+              Icon: notification
               Text: Waiting
             Text: 1
-          Spacer
           VStack
             HStack
-              Icon: checkmark.circle.fill
-              Text: Done today
+              Icon: status.complete
+              Text: Done
             Text: 1
         ForEach
-          Row: Fix sidebar glass | Working · cmux · 2 min ago | bolt.horizontal.fill
-          Row: Review usage card | Waiting for you · cmux · 10 min ago | questionmark.bubble.fill
-          Row: Land widgets demo | Finished · hq · 1 h ago | checkmark.circle.fill
+          Row: Fix sidebar glass | Working · cmux · 2 min ago | automation
+          Row: Review usage card | Waiting for you · cmux · 10 min ago | status.needsinput
+          Row: Land widgets demo | Finished · hq · 1 h ago | status.complete
         Group
     VStack
-      Panel: Usage
-        Group
-          VStack
-            ForEach
-              VStack
-                HStack
-                  Text: Claude
-                  Badge: 2/2
-                  Spacer
-                  Text: 65%
-                ProgressView: 0.65
-                Text: left this week · session 64% · under pace
-              VStack
-                HStack
-                  Text: Codex
-                  Badge: 1/1
-                  Spacer
-                  Text: 31%
-                ProgressView: 0.31
-                Text: left this week · session 22% · over pace · $4.50 extra
+      Group
+        Panel: Usage
+          Group
+            VStack
+              ForEach
+                VStack
+                  HStack
+                    Text: Claude
+                    Badge: 2/2
+                    Spacer
+                    Text: 65%
+                  ProgressView: 0.65
+                  Text: left this week · session 64% · under pace
+                VStack
+                  HStack
+                    Text: Codex
+                    Badge: 1/1
+                    Spacer
+                    Text: 31%
+                  ProgressView: 0.31
+                  Text: left this week · session 22% · over pace · $4.50 extra
       Panel: Pull requests
         Group
           Text: 1 pull request with failing checks
         VStack
           ForEach
-            Row: Widgets: clock, agents, usage and PR cards | cmux #46900 · +420 −12 · 17/20 checks | clock.fill | Review
+            Row: Widgets: clock, agents, usage and PR cards | cmux #46900 · +420 −12 · 17/20 checks | history | Review
             Row: Glass sidebar cards | cmux #46880 · +88 −40 · 22/23 checks | xmark.circle.fill | Changes
             Row: Studio theme pack | cmux #46861 · +210 −3 · 24/24 checks | checkmark.circle.fill | Approved
           Group

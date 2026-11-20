@@ -72,3 +72,18 @@ for (const look of ["claude", "codex", "studio"]) {
     }
   })
 }
+
+// Leo's NIGHTLY has about a thousand chats: a row per chat ran the studio's VM past its 250 ms step
+// and the host stopped it (Threads "couldn't load", New Tab fell back to cmux's own page). The list
+// draws a bounded number of rows whatever the number of chats.
+test("studio's thread list stays bounded with 2000 chats", async () => {
+  const { h } = host("studio")
+  const many = Array.from({ length: 2000 }, (_, i) => ({ ...CHATS[i % 3], id: `c${i}`, title: `Chat ${i}`, project: `p${i % 40}` }))
+  h.handlers["agent_chat.list"] = () => ({ ok: true, body: { value: { chats: many } } })
+  expect(h.mount("m", "renderThreads", {})).toBe("")
+  await h.settle(10)
+  expect(h.logs.filter(([level]) => level === "error")).toEqual([])
+  const nodes = h.tree("m").nodes.size
+  expect(nodes).toBeLessThan(1500)
+  expect(texts(h, "m").some((t) => t.includes("more · Command-K"))).toBe(true)
+})

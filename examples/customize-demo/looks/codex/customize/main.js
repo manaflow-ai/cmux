@@ -58,8 +58,17 @@ async function loadLimits(refresh = false) {
     })
     setLimitsError(null)
   } catch (e) {
-    setLimitsError(message(e))
+    setLimitsError(limitsProblem(e))
   }
+}
+
+// What a failed limits read says, in words: a cmux whose views cannot reach the Usage app yet answers
+// operation.unsupported (or provider.unavailable while it starts); never the raw reason.
+function limitsProblem(e) {
+  const code = e && e.code
+  if (code === "operation.unsupported" || code === "provider.unavailable") return "Rate limits show here once this cmux shares the Usage app with views."
+  if (code === "scope.missing") return "Turn on Usage for Codex in Settings > Apps to see your rate limits."
+  return "The Usage app did not answer. Right-click to read the limits again."
 }
 
 let following = false
@@ -132,22 +141,22 @@ function renderHome() {
           Divider(),
           Button("No project", () => setProject({ name: "No project", cwd: null }))
         ]),
-        Button(HStack({ spacing: 4 }, [Icon("plus.forwardslash.minus"), Text("Review")]), () => run("openDiffViewer")),
+        Button(HStack({ spacing: 4 }, [Icon("diff.file"), Text("Review")]), () => run("openDiffViewer")),
         Spacer(),
         Text(() => (limits() ? `${pct(limits().session)} left` : "")).font("caption").color(cmux.theme.text.secondary),
-        Button(HStack({ spacing: 4 }, [Icon("arrow.up"), Text("Send")]), start)
+        Button(HStack({ spacing: 4 }, [Icon("composer.send"), Text("Send")]), start)
       ])
     ]),
     Panel({ title: "Recent threads", style: "card" }, [
       ForEach({ items: () => chats().slice().sort((a, b) => lastActivity(b) - lastActivity(a)).slice(0, 6), key: (c) => c.id }, (c) =>
         Row({
           title: () => c().title,
-          subtitle: () => c().project || "No project",
-          symbol: () => (c().state === "working" ? "circle.dashed" : "bubble.left"),
-          accessory: () => age(lastActivity(c()))
+          symbol: () => (c().state === "working" ? "status.inprogress" : "agent.chat"),
+          // A Row's accessory is an icon name; the age goes in the subtitle.
+          subtitle: () => `${c().project || "No project"} · ${age(lastActivity(c()))}`
         }).onTap(() => show(c()))
       ),
-      () => (chats().length ? null : EmptyState({ title: "No threads yet", message: "Send something above to start one.", symbol: "bubble.left" }))
+      () => (chats().length ? null : EmptyState({ title: "No threads yet", message: "Send something above to start one.", symbol: "agent.chat" }))
     ]),
     Spacer()
   ])

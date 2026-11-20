@@ -20,6 +20,11 @@ const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
 const MINUTE = 60_000
 const HOUR = 60 * MINUTE
 
+// Icons: the sidebar draws SF Symbols, but the New Tab page and Session Info are web pages that
+// draw only cmux's icon pack (an SF name they do not know is the missing-icon box). So every icon
+// here is a pack name (`notification`, `history`), which the sidebar draws too; only the weather
+// and Byte keep their SF symbols in the sidebar (`page` false), where they draw best.
+
 // ---- Shared clock and polls (collection: one set of timers for every open view) -----------------
 
 const [now, setNow] = signal(Date.now())
@@ -68,14 +73,14 @@ const [weatherError, setWeatherError] = signal(null)
 const [draft, setDraft] = signal("")
 
 function sky(code) {
-  if (code === 0) return { text: "Clear", symbol: "sun.max.fill" }
-  if (code <= 3) return { text: "Partly cloudy", symbol: "cloud.sun.fill" }
-  if (code <= 48) return { text: "Fog", symbol: "cloud.fog.fill" }
-  if (code <= 67) return { text: "Rain", symbol: "cloud.rain.fill" }
-  if (code <= 77) return { text: "Snow", symbol: "cloud.snow.fill" }
-  if (code <= 82) return { text: "Showers", symbol: "cloud.heavyrain.fill" }
-  if (code <= 86) return { text: "Snow showers", symbol: "cloud.snow.fill" }
-  return { text: "Thunderstorm", symbol: "cloud.bolt.rain.fill" }
+  if (code === 0) return { text: "Clear", symbol: "sun.max.fill", pack: "appearance.light" }
+  if (code <= 3) return { text: "Partly cloudy", symbol: "cloud.sun.fill", pack: "cloud" }
+  if (code <= 48) return { text: "Fog", symbol: "cloud.fog.fill", pack: "cloud" }
+  if (code <= 67) return { text: "Rain", symbol: "cloud.rain.fill", pack: "cloud" }
+  if (code <= 77) return { text: "Snow", symbol: "cloud.snow.fill", pack: "cloud" }
+  if (code <= 82) return { text: "Showers", symbol: "cloud.heavyrain.fill", pack: "cloud" }
+  if (code <= 86) return { text: "Snow showers", symbol: "cloud.snow.fill", pack: "cloud" }
+  return { text: "Thunderstorm", symbol: "cloud.bolt.rain.fill", pack: "cloud" }
 }
 
 const clock = computed(() => {
@@ -107,7 +112,7 @@ async function loadWeather() {
     })
     setWeatherError(null)
   } catch (e) {
-    if (place() === p) setWeatherError(message(e))
+    if (place() === p) setWeatherError(weatherProblem(e))
   }
 }
 
@@ -125,8 +130,15 @@ async function chooseCity(text) {
     cmux.storage.set("place", next).catch(() => undefined)
     await loadWeather()
   } catch (e) {
-    setWeatherError(message(e))
+    setWeatherError(weatherProblem(e))
   }
+}
+
+// A customize app installs sandboxed (no network) until you turn that off, so a refused read says how.
+function weatherProblem(e) {
+  if (e && e.code === "scope.missing") return "The weather needs the network: turn off Run sandboxed for Widgets in Settings > Apps, and allow its two weather hosts."
+  if (e && String(e.message || "").startsWith("No place called")) return e.message
+  return "The weather did not answer. Right-click the card to try again."
 }
 
 function changeCity() {
@@ -135,7 +147,7 @@ function changeCity() {
   cmux.storage.delete("place").catch(() => undefined)
 }
 
-function todayCard() {
+function todayCard(page = false) {
   return Panel({ title: "Today" }, [
     HStack({ spacing: 8 }, [
       Text(clock).font("largeTitle").weight("semibold").monospaced().contentTransition("numericText"),
@@ -144,7 +156,7 @@ function todayCard() {
         const w = weather()
         if (!w) return null
         return HStack({ spacing: 4 }, [
-          Icon(sky(w.code).symbol).font("title2").symbolRendering("multicolor"),
+          page ? Icon(sky(w.code).pack).font("title2").color(cmux.theme.warning) : Icon(sky(w.code).symbol).font("title2").symbolRendering("multicolor"),
           Text(`${w.temperature}°`).font("title2").contentTransition("numericText")
         ])
       }
@@ -187,9 +199,10 @@ function worldClockCard() {
       Row({
         title: () => r().city,
         subtitle: () => r().away,
-        symbol: () => (r().night ? "moon.stars.fill" : "sun.max.fill"),
+        symbol: () => (r().night ? "state.idle" : "appearance.light"),
         tint: () => (r().night ? cmux.theme.accent : cmux.theme.warning),
-        accessory: () => r().time || null
+        // A Row's accessory is an icon name; the time is its badge.
+        badge: () => r().time || null
       })
     )
   ])
@@ -209,12 +222,12 @@ function feel(agentList, chats) {
   if (waiting.length) {
     const first = waiting[0]
     const line = waiting.length === 1 ? `${first.title || "A chat"} is waiting for you` : `${plural(waiting.length, "chat")} are waiting for you`
-    return { line, symbol: "bell.fill", tone: cmux.theme.warning, chat: first }
+    return { line, symbol: "notification", tone: cmux.theme.warning, chat: first }
   }
-  if (failed.length) return { line: `${failed[0].title || "A chat"} stopped`, symbol: "exclamationmark.triangle.fill", tone: cmux.theme.danger, chat: failed[0] }
-  if (working) return { line: `Watching ${plural(working, "agent")} work`, symbol: "pawprint.fill", tone: cmux.theme.success, chat: null }
-  if (agentList.length + chats.length) return { line: "Napping: every agent is idle", symbol: "moon.zzz.fill", tone: cmux.theme.text.secondary, chat: null }
-  return { line: "No agents yet. Start one and I'll keep an eye on it.", symbol: "sparkles", tone: cmux.theme.text.secondary, chat: null }
+  if (failed.length) return { line: `${failed[0].title || "A chat"} stopped`, symbol: "status.error", tone: cmux.theme.danger, chat: failed[0] }
+  if (working) return { line: `Watching ${plural(working, "agent")} work`, symbol: "action.watching", tone: cmux.theme.success, chat: null }
+  if (agentList.length + chats.length) return { line: "Napping: every agent is idle", symbol: "action.snooze", tone: cmux.theme.text.secondary, chat: null }
+  return { line: "No agents yet. Start one and I'll keep an eye on it.", symbol: "agent.session", tone: cmux.theme.text.secondary, chat: null }
 }
 
 const changedAt = (c) => Number(c.updated_ms) || 0
@@ -226,13 +239,13 @@ function ago(ms, at) {
 }
 
 const STATE = {
-  idle: { label: "Finished", symbol: "checkmark.circle.fill", tone: cmux.theme.text.secondary },
-  working: { label: "Working", symbol: "bolt.horizontal.fill", tone: cmux.theme.success },
-  input: { label: "Waiting for you", symbol: "questionmark.bubble.fill", tone: cmux.theme.warning },
-  failed: { label: "Failed", symbol: "exclamationmark.triangle.fill", tone: cmux.theme.danger },
-  lost: { label: "Lost", symbol: "exclamationmark.triangle.fill", tone: cmux.theme.danger }
+  idle: { label: "Finished", symbol: "status.complete", tone: cmux.theme.text.secondary },
+  working: { label: "Working", symbol: "automation", tone: cmux.theme.success },
+  input: { label: "Waiting for you", symbol: "status.needsinput", tone: cmux.theme.warning },
+  failed: { label: "Failed", symbol: "status.error", tone: cmux.theme.danger },
+  lost: { label: "Lost", symbol: "status.error", tone: cmux.theme.danger }
 }
-const stateOf = (c) => STATE[c.state] ?? { label: String(c.state || "Unknown"), symbol: "circle", tone: cmux.theme.text.secondary }
+const stateOf = (c) => STATE[c.state] ?? { label: String(c.state || "Unknown"), symbol: "state.off", tone: cmux.theme.text.secondary }
 
 function openChat(chat) {
   cmux.actions
@@ -240,12 +253,13 @@ function openChat(chat) {
     .catch((e) => cmux.toast({ title: "Turn on Run actions for Widgets to open chats", message: message(e), tone: "warning" }))
 }
 
-// A big number over its label, one third of a card's width.
-function tile(value, label, symbol, tone) {
-  return VStack({ spacing: 2 }, [
-    HStack({ spacing: 4 }, [Icon(symbol).font("caption").color(tone), Text(label).font("caption").color(cmux.theme.text.secondary)]),
-    Text(value).font("title").weight("semibold").monospaced().contentTransition("numericText").color(tone)
-  ])
+// A big number over its label, one third of a card's width. The label keeps its width (a short
+// word), so a narrow card never breaks it into a letter a line.
+function tile(value, label, symbol, tone, help) {
+  return VStack({ spacing: 2, alignment: "leading" }, [
+    HStack({ spacing: 4 }, [Icon(symbol).font("caption").color(tone), Text(label).font("caption").color(cmux.theme.text.secondary).fixedSize("horizontal")]),
+    Text(value).font("title").weight("semibold").monospaced().contentTransition("numericText").color(tone).fixedSize("horizontal")
+  ]).help(help)
 }
 
 function agentsCard(options = {}) {
@@ -259,21 +273,19 @@ function agentsCard(options = {}) {
   const recent = computed(() => [...today()].sort((a, b) => changedAt(b) - changedAt(a)).slice(0, options.rows ?? 3))
   return Panel({ title: "Agents" }, [
     HStack({ spacing: 8 }, [
-      Icon("cat.fill").font("largeTitle").color(() => feeling().tone).animation("smooth"),
+      Icon(options.page ? "agent.bot" : "cat.fill").font("largeTitle").color(() => feeling().tone).animation("smooth"),
       VStack({ spacing: 2, alignment: "leading" }, [
-        HStack({ spacing: 4 }, [Text("Byte").font("headline"), Icon(() => feeling().symbol).font("caption").color(() => feeling().tone)]),
+        HStack({ spacing: 4 }, [Text("Byte").font("headline").fixedSize("horizontal"), Icon(() => feeling().symbol).font("caption").color(() => feeling().tone)]),
         Text(() => feeling().line).font("caption").color(cmux.theme.text.secondary).lineLimit(2)
       ]),
       Spacer()
     ])
       .help(() => (feeling().chat ? "Click to open the chat" : "Byte keeps an eye on your agents"))
       .onTap(() => feeling().chat && openChat(feeling().chat)),
-    HStack({ spacing: 12 }, [
-      tile(count("working"), "Working", "bolt.horizontal.fill", cmux.theme.success),
-      Spacer(),
-      tile(count("input"), "Waiting", "bell.fill", cmux.theme.warning),
-      Spacer(),
-      tile(done, "Done today", "checkmark.circle.fill", cmux.theme.accent)
+    HStack({ spacing: 8, alignment: "top" }, [
+      tile(count("working"), "Working", "automation", cmux.theme.success, "Chats working now"),
+      tile(count("input"), "Waiting", "notification", cmux.theme.warning, "Chats waiting for you"),
+      tile(done, "Done", "status.complete", cmux.theme.accent, "Chats that finished today")
     ]),
     ForEach({ items: recent, key: (c) => c.id }, (c) =>
       Row({
@@ -283,7 +295,12 @@ function agentsCard(options = {}) {
         tint: () => stateOf(c()).tone
       }).onTap(() => openChat(c()))
     ),
-    () => (chats.error && chats.error() ? Text(message(chats.error())).font("caption").color(cmux.theme.warning) : null)
+    () =>
+      chats.error && chats.error()
+        ? Text(chats.error().code === "scope.missing" ? "Turn on Agent chats for Widgets in Settings > Apps." : "Your chats did not load; they try again on the next change.")
+            .font("caption")
+            .color(cmux.theme.warning)
+        : null
   ])
 }
 
@@ -291,6 +308,9 @@ function agentsCard(options = {}) {
 
 const [usage, setUsage] = signal(null)
 const [usageError, setUsageError] = signal(null)
+// False on a cmux whose views cannot reach the Usage app (usage_app.status answers
+// operation.unsupported there): the Usage cards are left out instead of drawing an error.
+const [usageReachable, setUsageReachable] = signal(true)
 const [shown, setShown] = signal({}) // provider id -> the weekly percent drawn now, for the count-up
 const NAMES = { claude: "Claude", codex: "Codex" }
 const PACE = { under: "under pace", onPace: "on pace", over: "over pace" }
@@ -344,7 +364,8 @@ async function loadUsage(refresh = false) {
       tween(`usage:${row.id}`, (v) => setShown((s) => ({ ...s, [row.id]: v })), before[row.id] ?? 0, row.weeklyLeft)
     }
   } catch (e) {
-    setUsageError(message(e))
+    if (e && e.code === "operation.unsupported") return setUsageReachable(false)
+    setUsageError(e && e.code === "scope.missing" ? "Turn on Usage for Widgets in Settings > Apps." : "The Usage app did not answer. Right-click to read it again.")
   }
 }
 
@@ -374,23 +395,26 @@ function meter(row) {
 // `only`: one provider id (a chat's harness), else every provider.
 function usageCard(only) {
   const rows = computed(() => (usage() || []).filter((r) => !only || r.id === only))
-  return Panel({ title: only ? `${NAMES[only] ?? only} usage` : "Usage" }, [
-    () => {
-      if (usageError() && !usage()) return EmptyState({ title: "No usage yet", message: usageError(), symbol: "gauge.with.dots.needle.33percent" })
-      if (!usage()) return ProgressView()
-      if (!rows().length) return EmptyState({ title: "No accounts", message: "Add a Claude or Codex account in the Usage pane.", symbol: "person.crop.circle.badge.plus" })
-      return VStack({ spacing: 8 }, [ForEach({ items: rows, key: (r) => r.id }, meter)])
-    }
-  ]).contextMenu([Button("Read usage now", () => loadUsage(true))])
+  return () =>
+    usageReachable()
+      ? Panel({ title: only ? `${NAMES[only] ?? only} usage` : "Usage" }, [
+          () => {
+            if (usageError() && !usage()) return EmptyState({ title: "No usage here yet", message: usageError(), symbol: "context.usage" })
+            if (!usage()) return ProgressView()
+            if (!rows().length) return EmptyState({ title: "No accounts", message: "Add a Claude or Codex account in the Usage pane.", symbol: "account" })
+            return VStack({ spacing: 8 }, [ForEach({ items: rows, key: (r) => r.id }, meter)])
+          }
+        ]).contextMenu([Button("Read usage now", () => loadUsage(true))])
+      : null
 }
 
 // ---- Pull requests with their checks (github.changes) -------------------------------------------
 
 const CHECKS = {
   failing: { symbol: "xmark.circle.fill", tone: cmux.theme.danger, label: "Checks failing" },
-  pending: { symbol: "clock.fill", tone: cmux.theme.warning, label: "Checks running" },
+  pending: { symbol: "history", tone: cmux.theme.warning, label: "Checks running" },
   passing: { symbol: "checkmark.circle.fill", tone: cmux.theme.success, label: "Checks passed" },
-  none: { symbol: "circle.dashed", tone: cmux.theme.text.secondary, label: "No checks" }
+  none: { symbol: "icon.clear", tone: cmux.theme.text.secondary, label: "No checks" }
 }
 const REVIEW = {
   approved: { text: "Approved", tone: cmux.theme.success },
@@ -421,12 +445,22 @@ function prRow(p) {
     .onTap(() => openPR(p()))
 }
 
+// Why the pull requests did not load, in words. A customize app installs sandboxed (no network)
+// until you turn that off; the shared read then says it is sandboxed.
+function prProblem(e) {
+  const sandboxed = (e && e.details && e.details.sandboxed) || /sandboxed/i.test(String((e && e.message) || ""))
+  if (sandboxed) return { title: "Pull requests need the network", message: "Widgets runs sandboxed. Turn off Run sandboxed for Widgets in Settings > Apps." }
+  if (e && e.code === "scope.missing") return { title: "Pull requests are off", message: "Turn on pull requests for Widgets in Settings > Apps." }
+  if (e && e.code === "integration.unavailable") return { title: "Not signed in", message: "Sign in with gh auth login to see your pull requests." }
+  return { title: "Pull requests did not load", message: "They try again on their own." }
+}
+
 function prList(watch, empty) {
   return VStack({ spacing: 2 }, [
     ForEach({ items: () => watch.value() || [], key: (p) => p.id }, prRow),
-    () => (watch.error() && !watch.value() ? EmptyState({ title: "Cannot read pull requests", message: message(watch.error()), symbol: "exclamationmark.triangle" }) : null),
+    () => (watch.error() && !watch.value() ? EmptyState({ ...prProblem(watch.error()), symbol: "git.pullrequest" }) : null),
     () => (!watch.value() && !watch.error() ? ProgressView() : null),
-    () => (watch.value() && watch.value().length === 0 ? EmptyState({ title: empty, symbol: "checkmark.circle" }) : null)
+    () => (watch.value() && watch.value().length === 0 ? EmptyState({ title: empty, symbol: "status.success" }) : null)
   ])
 }
 
@@ -444,7 +478,7 @@ function branchCard(branch) {
   const found = cmux.watch("github.changes", { show: "search", query: `head:${branch}`, limit: 2 })
   const top = computed(() => (found.value() || [])[0] ?? null)
   return Panel({ title: "Branch" }, [
-    Row({ title: branch, symbol: "arrow.triangle.branch", tint: cmux.theme.accent }),
+    Row({ title: branch, symbol: "git.branch", tint: cmux.theme.accent }),
     () => {
       const p = top()
       if (!p) return prList(found, `No pull request for ${branch}`)
@@ -472,12 +506,12 @@ function chatCard(context) {
   const mine = computed(() => (chats() || []).find((c) => c.id === context.session_id) ?? null)
   return Panel({ title: "Agent" }, [
     HStack({ spacing: 8 }, [
-      Icon(() => (mine() ? stateOf(mine()).symbol : "sparkles"))
+      Icon(() => (mine() ? stateOf(mine()).symbol : "agent.session"))
         .font("largeTitle")
         .color(() => (mine() ? stateOf(mine()).tone : cmux.theme.text.secondary))
         .animation("smooth"),
       VStack({ spacing: 2, alignment: "leading" }, [
-        Text(() => (mine() ? stateOf(mine()).label : "This chat")).font("headline"),
+        Text(() => (mine() ? stateOf(mine()).label : "This chat")).font("headline").lineLimit(1),
         Text(() => {
           const parts = [context.harness || mine()?.harness || "agent"]
           const folder = String(context.cwd || mine()?.cwd || "").split("/").filter(Boolean).at(-1)
@@ -514,18 +548,19 @@ function renderPage() {
   start()
   return VStack({ spacing: 12 }, [
     HStack({ spacing: 8 }, [
-      Icon("square.grid.2x2.fill").font("largeTitle").color(cmux.theme.accent),
+      Icon("view.grid").font("largeTitle").color(cmux.theme.accent),
       VStack({ spacing: 2, alignment: "leading" }, [
         Text("Widgets").font("largeTitle").weight("bold"),
         Text("Each card is one function in ~/.config/cmux/customize/main.js. Save it and this page draws it again.").color(cmux.theme.text.secondary)
       ]),
       Spacer()
     ]),
+    // Each column keeps a width its cards fit in, so none is squeezed to a letter a line.
     HStack({ spacing: 12, alignment: "top" }, [
-      VStack({ spacing: 12 }, [todayCard(), worldClockCard()]),
-      VStack({ spacing: 12 }, [agentsCard({ rows: 6 })]),
+      VStack({ spacing: 12 }, [todayCard(true), worldClockCard()]),
+      VStack({ spacing: 12 }, [agentsCard({ rows: 6, page: true })]),
       VStack({ spacing: 12 }, [usageCard(), prCard(6)])
-    ]),
+    ].map((column) => column.frame({ minWidth: 260, maxWidth: "infinity" }))),
     Spacer()
   ]).padding()
 }
