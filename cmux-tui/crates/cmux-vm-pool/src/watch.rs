@@ -107,11 +107,7 @@ impl Tracker {
     /// Milliseconds after `since` at which the k-th runner came online, for each k in `marks` reached.
     pub fn nth(&self, marks: &[usize]) -> BTreeMap<usize, u64> {
         let online = self.online();
-        marks
-            .iter()
-            .filter(|&&k| k >= 1 && k <= online.len())
-            .map(|&k| (k, online[k - 1].1))
-            .collect()
+        marks.iter().filter_map(|&k| online.get(k.checked_sub(1)?).map(|o| (k, o.1))).collect()
     }
 
     pub fn to_json(&self, marks: &[usize]) -> Value {

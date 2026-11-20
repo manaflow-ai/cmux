@@ -173,7 +173,7 @@ pub fn parse_rfc3339(text: &str) -> Option<i64> {
         let at = rest.rfind(['+', '-'])?;
         let (clock, zone) = rest.split_at(at);
         let sign = if zone.starts_with('-') { -1 } else { 1 };
-        let (zh, zm) = zone[1..].split_once(':')?;
+        let (zh, zm) = zone.get(1..)?.split_once(':')?;
         (clock, sign * (num(zh)? * 3600 + num(zm)? * 60))
     };
     let clock = clock.split_once('.').map_or(clock, |(whole, _)| whole);

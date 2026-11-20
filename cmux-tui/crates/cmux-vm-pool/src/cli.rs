@@ -500,7 +500,7 @@ async fn ls(
                         .collect()
                 })
                 .unwrap_or_default();
-            row["runners"] = json!(runners);
+            put(&mut row, "runners", json!(runners));
             row
         })
         .collect();
@@ -518,7 +518,11 @@ async fn ls(
     // Slots busy against jobs queued: the pool's size against its demand (`--feed` and `--repo` add queued).
     let mut totals = plan::totals(&machines, &roster);
     if let Some(feed) = &args.feed {
-        totals["queued"] = json!(read_queued(&pool.client, feed, &args.repos, &args.label).await?);
+        put(
+            &mut totals,
+            "queued",
+            json!(read_queued(&pool.client, feed, &args.repos, &args.label).await?),
+        );
     }
     text.push_str(&format!("totals: {totals}\n"));
     emit(out, args.json, &json!({"machines": rows, "totals": totals}), &text);
@@ -617,9 +621,9 @@ async fn up(
             tokio::time::sleep(Duration::from_millis(args.interval_ms)).await;
         }
         let marks = [1, 10, 25, 50, target];
-        result["watch"] = tracker.to_json(&marks);
-        result["online"] = json!(tracker.online_count());
-        result["target"] = json!(target);
+        put(&mut result, "watch", tracker.to_json(&marks));
+        put(&mut result, "online", json!(tracker.online_count()));
+        put(&mut result, "target", json!(target));
         let nth = tracker.nth(&[target]);
         text.push_str(&match nth.get(&target) {
             Some(ms) => format!(
@@ -640,7 +644,7 @@ async fn up(
     if failed > 0 {
         missed.push(format!("{failed} resume call(s) failed"));
     }
-    result["ok"] = json!(missed.is_empty());
+    put(&mut result, "ok", json!(missed.is_empty()));
     emit(out, args.json, &result, &text);
     if missed.is_empty() { Ok(()) } else { Err(missed.join("; ")) }
 }
@@ -738,8 +742,8 @@ async fn watch(
         tokio::time::sleep(Duration::from_millis(args.interval_ms)).await;
     }
     let mut value = tracker.to_json(&[1, 10, 25, 50, target]);
-    value["reads"] = json!(reads);
-    value["target"] = json!(target);
+    put(&mut value, "reads", json!(reads));
+    put(&mut value, "target", json!(target));
     let text = match tracker.nth(&[target]).get(&target) {
         Some(ms) => {
             format!("{target} runner(s) online {:.1} s after {since}\n", *ms as f64 / 1000.0)
@@ -887,4 +891,11 @@ async fn load(
     let text = format!("{running} running, {summary}\n");
     emit(out, args.json, &json!({"running": running, "summary": summary, "machines": rows}), &text);
     Ok(())
+}
+
+/// Sets `key` on a JSON object; a non-object value is left as it is (indexing a `Value` panics there).
+fn put(value: &mut Value, key: &str, field: Value) {
+    if let Some(map) = value.as_object_mut() {
+        map.insert(key.to_owned(), field);
+    }
 }
