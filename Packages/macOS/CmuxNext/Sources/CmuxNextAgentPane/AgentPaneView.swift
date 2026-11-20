@@ -73,9 +73,9 @@ public final class AgentPaneView: NSView {
     public typealias PageFocusLoss = @MainActor (_ window: NSWindow?, _ detail: String) -> Void
     /// The app's focus log for this page's `focus-lost` events (``AgentPaneShared/focusLoss``); nil records none.
     public var onPageFocusLost: PageFocusLoss?
-    /// Draws this chat's last page (its saved or held frame, or the New Tab frame) under it in its pane, when a hold
-    /// gave up on it before it painted (``standInUntilPainted()``), true when a picture shows; set by its pane.
-    public var drawsLastPage: (() -> Bool)?
+    /// Draws this chat's last page (its saved or held frame, or the New Tab frame) under it in its pane, when a hold gave up on
+    /// it before it painted (``standInUntilPainted()``) or a New Tab page has a new size unpainted; true when one shows; set by its pane.
+    public var drawsLastPage: (() -> Bool)? { didSet { redraw.paneWired(self) } }
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
     var otherInstallNotice: AgentPaneNotice?
     /// `agent.chat.drive` runs whose hover this page may still hold: told when the tab closes and when
@@ -620,7 +620,7 @@ public final class AgentPaneView: NSView {
 
     public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
-        themeFollower.rebind()
+        themeFollower.rebind(); redraw.paneWired(self)
         onNativeToolOwnerChange?()
     }
 
