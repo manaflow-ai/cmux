@@ -128,6 +128,10 @@ struct ForkApi {
   int (*browser_drag_target_enter_source)(int, int, int, int, int) = nullptr;
   // API version 25: cmux's own Safe Storage keychain item (cmux_shim_set_keychain_item).
   int (*set_keychain_item)(const char*, const char*) = nullptr;
+  // API version 36: in-tree pages (shim_in_tree.mm).
+  void* (*browser_set_in_tree_hosting)(int, void*) = nullptr;
+  void* (*browser_in_tree_content_view)(int) = nullptr;
+  int (*browser_in_tree_widget_drawing)(int) = nullptr;
 };
 
 struct Host {

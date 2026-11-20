@@ -469,6 +469,8 @@ final class CEFRuntime {
             let started = clock.now
             try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, prep: prep, environment: environment) }
             state = .ready
+            // In-tree pages need fork API 36; an older engine keeps child-window pages, and says so in debug.cef.
+            InTreePages.shared.engineResolved(CEFInTreeCalls.support(shim: library.shim, apiVersion: library.shim.forkAPIVersion()))
             CEFStartSteps.shared.timed("ready_hooks") {
                 startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install()
                 observeDisplays()

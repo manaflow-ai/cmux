@@ -31,6 +31,7 @@ sys.path.insert(0, here)
 sys.path.insert(0, os.path.join(here, "..", "ci", "frame-pacing"))
 from bench_launch import BenchApp  # noqa: E402
 import golden  # noqa: E402
+import in_tree_mode  # noqa: E402
 import split_resize  # noqa: E402
 
 parser = argparse.ArgumentParser()
@@ -42,7 +43,10 @@ parser.add_argument("--tag")
 parser.add_argument("--pane", default="browser")
 # The gestures that resize the page's pane, in each launch.
 parser.add_argument("--gesture", default="divider")
+# In-tree pages on or off for every launch (in_tree_mode.py): the same build, no rebuild.
+in_tree_mode.add_argument(parser)
 opts, _ = parser.parse_known_args()
+in_tree_mode.apply(opts.in_tree)
 
 
 def pick(value: str, known: tuple[str, ...], flag: str) -> list[str]:
@@ -77,6 +81,11 @@ def measure(pane: str, folder: Path) -> dict:
     report: dict = {"pane": pane, "requested_gestures": gestures}
     try:
         app.launch()
+        status = in_tree_mode.read(app.rpc)
+        report.update(in_tree_mode.record(opts.in_tree, status))
+        problem = in_tree_mode.mismatch(opts.in_tree, status)
+        if problem:
+            raise SystemExit(problem)
         driver = golden.Driver(app.socket, folder)
         driver.call("debug.motion", {"action": "speed", "value": "fast"})
         driver.call("debug.motion", {"action": "reduce", "value": False})

@@ -50,6 +50,8 @@ final class CEFHostView: NSView {
     let fileDrag = CEFFileDragRelay()
     /// Layer hosting (fork API 26) of the page window over this view (`CEFLayerHosting`).
     let layerHosting = CEFLayerHosting()
+    /// In-tree hosting (fork API 36) of the page over this view: its own view in this view, no page window.
+    let inTree = CEFInTreeHosting()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -57,6 +59,7 @@ final class CEFHostView: NSView {
         updateBackground()
         fileDrag.view = self
         layerHosting.view = self
+        inTree.view = self
         #if DEBUG || CMUX_BENCH_HOOKS
         Self.registerMotionSampler()
         #endif
@@ -115,7 +118,10 @@ final class CEFHostView: NSView {
         super.setFrameSize(newSize)
         // After super: the fork's tracker resized the page window in the frame notice, so its compositor has the new
         // size the window's resize fence asks for (fork API 32, ``CEFLayerHosting/pageViewResized()``).
-        if !wasEmpty, newSize.width > 0, newSize.height > 0 { layerHosting.pageViewResized() }
+        if !wasEmpty, newSize.width > 0, newSize.height > 0 {
+            layerHosting.pageViewResized()
+            inTree.pageViewResized()
+        }
     }
 
     /// Once the page's own background is known (`pageBackdrop`) the page area takes it, so the gap beside a page that is

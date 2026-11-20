@@ -50,6 +50,9 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
     public var resizeFencePresented = 0
     public var resizeFenceMissed = 0
     public var resizeFencesExpired = 0
+    /// In-tree pages (fork API 36, ``CEFInTreeHosting``): pages the fork put into the tree, and requests it refused.
+    public var inTreeAttaches = 0
+    public var inTreeRefused = 0
 
     public init() {}
 
@@ -76,7 +79,8 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
          "detaches": Double(detaches), "attaches": Double(attaches),
          "fences": Double(resizeFences), "fence_joined": Double(resizeFenceJoined),
          "fence_presented": Double(resizeFencePresented), "fence_missed": Double(resizeFenceMissed),
-         "fences_expired": Double(resizeFencesExpired)]
+         "fences_expired": Double(resizeFencesExpired),
+         "in_tree_attaches": Double(inTreeAttaches), "in_tree_refused": Double(inTreeRefused)]
     }
 
     /// Monotonic seconds for timing a read.

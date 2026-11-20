@@ -57,6 +57,8 @@ final class CEFPaneHost {
         self.lifecycleTrace = lifecycleTrace
         self.contextMenus = contextMenus
         hostView.liveResizeWillStart = { [weak self] in self?.visibleTab?.samplePageBackdrop() }
+        hostView.inTree.paneKey = { [weak self] in self?.key.pane.rawValue }
+        hostView.inTree.onAttached = { [weak self] in self?.visibleTab?.grantPendingFocusIfShown() }
         hostView.fileDrag.target = { [weak self] in self?.visibleTab }
         // The page holds the keyboard: its window is key, or its focus ask waits (a resize motion keeps it attached).
         hostView.layerHosting.holdsFocus = { [weak self] in
@@ -332,7 +334,7 @@ final class CEFPaneHost {
         window = .live(window: windowID)
         lastActivated = browser
         runtime.register(tab, browser: browser)
-        hostView.layerHosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(shim: runtime.shim, apiVersion: runtime.forkAPIVersion))
+        hostView.pageWindowCreated(browser: browser, shim: runtime.shim, apiVersion: runtime.forkAPIVersion)
         // Tabs shown or created while the window was being built. The window's first tab is its
         // active one until a shown tab joins it as active (`tab_add` with activate).
         var active = tab
@@ -422,6 +424,7 @@ final class CEFPaneHost {
         if placeholder === tab { placeholder = nil }
         // The resize deadline addresses the page window through a live browser of it.
         hostView.layerHosting.windowBrowsersChanged(tabs.filter { !$0.awaitsWindowMove }.compactMap(\.browserID))
+        hostView.inTree.windowBrowsersChanged(tabs.filter { !$0.awaitsWindowMove }.compactMap(\.browserID))
         // A taken spare whose tab closed before it joined: the spare again.
         if !holdsOwnTab, tabs.count == 1, placeholder != nil { runtime.spareWindowServing(key)?.giveBack(self, runtime: runtime) }
         if tabs.isEmpty {
@@ -429,6 +432,7 @@ final class CEFPaneHost {
             runtime.spareWindow.closePage(in: self)
             window = .none
             hostView.layerHosting.stop()
+            hostView.inTree.stop()
             hostView.removeFromSuperview()
             if holdsOwnTab, runtime.hosts[key] === self { runtime.hosts[key] = nil }
         }

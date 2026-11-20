@@ -59,6 +59,10 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
                                              UnsafeMutableRawPointer?) -> Int32)?
     /// Fork API 30: `cmux_shim_browser_set_detached_hosting` (1 when the fork took it); nil in an older shim.
     let browserSetDetachedHosting: (@convention(c) (Int32, Int32) -> Int32)?
+    /// Fork API 36, in-tree pages (``CEFInTreeCalls``): nil in an older shim.
+    let browserSetInTreeHosting: (@convention(c) (Int32, UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?)?
+    let browserInTreeContentView: (@convention(c) (Int32) -> UnsafeMutableRawPointer?)?
+    let browserInTreeWidgetDrawing: (@convention(c) (Int32) -> Int32)?
     let initialize: @convention(c) (
         UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
         UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
@@ -369,6 +373,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
         browserResizeFence = r.optional("cmux_shim_browser_resize_fence")
         browserSetDetachedHosting = r.optional("cmux_shim_browser_set_detached_hosting")
+        browserSetInTreeHosting = r.optional(CEFInTreeCalls.Symbol.setInTreeHosting)
+        browserInTreeContentView = r.optional(CEFInTreeCalls.Symbol.contentView)
+        browserInTreeWidgetDrawing = r.optional(CEFInTreeCalls.Symbol.widgetDrawing)
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         createWindow = try r("cmux_shim_create_window")

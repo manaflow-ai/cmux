@@ -71,6 +71,8 @@ fail() { # <message>
   exit 1
 }
 
+# DOGFOOD ONLY (in-tree pages): the staging CEF has no remote browser host built against it; drop with the pin commit.
+CMUX_NEXT_SKIP_RB_HOST="${CMUX_NEXT_SKIP_RB_HOST:-1}"
 if [[ "${CMUX_NEXT_SKIP_RB_HOST:-0}" == "1" ]]; then
   echo "warning: CMUX_NEXT_SKIP_RB_HOST=1: this DEV build has NO remote browser host; \"Open Remote Browser Tab\" will not work (recorded in Contents/Resources/$OPT_OUT_FILE and About)"
   mkdir -p "$app/Contents/Resources"

@@ -21,6 +21,9 @@ public final class OverlayHostPanel: NSPanel {
         case .modal: modalContainer
         }
     }
+    /// The root of the planes and containers: the panel's content view, or with in-tree pages
+    /// (``InTreePages``) a plain view on top of the main window's content view (`WindowOverlayHost`).
+    let root = OverlayRootView()
     var acceptsKey = false
     var onCancel: (() -> Void)?
     /// Tab (true) or Shift-Tab (false) inside a modal overlay: the host moves focus within it.
@@ -42,7 +45,6 @@ public final class OverlayHostPanel: NSPanel {
         animationBehavior = .none
         isExcludedFromWindowsMenu = true
         collectionBehavior = [.fullScreenAuxiliary, .transient, .ignoresCycle]
-        let root = NSView()
         root.wantsLayer = true
         root.autoresizingMask = [.width, .height]
         for layer in [planeContainer, paneContainer, windowContainer, modalContainer] as [NSView] {
@@ -50,6 +52,7 @@ public final class OverlayHostPanel: NSPanel {
             layer.autoresizingMask = [.width, .height]
             root.addSubview(layer)
         }
+        planeContainer.identifier = OverlayRootView.planeContainerID
         contentView = root
         setAccessibilityElement(false)
     }

@@ -16,4 +16,7 @@ public nonisolated enum BrowserPresentation: Hashable, Sendable {
     /// (CEF Chrome style). Overlays must be separate panels above it, and the
     /// tab must be occluded during animations.
     case childWindow
+    /// The content is Chromium's own view inside `BrowserTab.contentView`, in the window's view tree, with no page
+    /// window (in-tree pages, fork API 36). Overlays are plain views above it; the window stays key.
+    case inTree
 }
