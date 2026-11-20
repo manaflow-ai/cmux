@@ -376,5 +376,62 @@ class QueryTests(unittest.TestCase):
         self.assertEqual(str(raised.exception), "telemetry query refused: HTTP 403")
 
 
+class IdNeedleTests(unittest.TestCase):
+    """An id-scoped read asks the telemetry query for the id's own events (its `needle`). Production logs more events in
+    an hour than the reader's PAGES pages hold: the service filter alone returned 20000 events, none of them the id's
+    (hq#13055 and hq#13057: events_scanned 20000, truncated, 0 in window), for a team whose creates logged in it."""
+
+    def test_an_id_scoped_read_sends_the_id_as_the_query_needle(self):
+        for ident in (VM, TEAM):
+            with self.subTest(ident=ident):
+                code, _, query, _ = run_main(["--from", "2026-11-11T13:20:00Z", "--service", PROD, "--id", ident,
+                                              "--needles", LISTED])
+                self.assertEqual(code, 0)
+                self.assertEqual(query.call_args.kwargs.get("needle"), ident)
+
+    def test_every_page_of_an_id_read_carries_the_needle(self):
+        full = [{"$metadata": {"id": f"e{i}"}} for i in range(1000)]
+        replies = [{"result": {"events": {"events": full}}}, {"result": {"events": {"events": []}}}]
+        output = io.StringIO()
+        with patch.dict(logs.os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch"}), \
+                patch.object(logs.sys, "argv", ["logs", "--from", "2026-11-11T13:20:00Z", "--service", PROD,
+                                                "--id", TEAM, "--needles", LISTED]), \
+                patch.object(logs.sys, "stdin", io.StringIO("fixture-token\n")), patch.object(logs.sys, "stdout", output), \
+                patch.object(logs, "query", side_effect=replies) as query, \
+                patch.object(logs.base, "private_destination", return_value="fixture-hq-token"), \
+                patch.object(logs.base, "private_upload", return_value="https://example/issues/9"):
+            self.assertEqual(logs.main(), 0)
+        self.assertEqual(query.call_count, 2)
+        self.assertEqual([c.kwargs.get("needle") for c in query.call_args_list], [TEAM, TEAM])
+        self.assertEqual(query.call_args_list[1].args[4], "e999")
+
+    def test_a_window_read_sends_no_needle(self):
+        code, _, query, _ = run_main(["--from", "2026-11-11T13:20:00Z", "--service", VM_PROD, "--id", "window",
+                                      "--needles", "cmux-vm"])
+        self.assertEqual(code, 0)
+        self.assertIsNone(query.call_args.kwargs.get("needle"))
+
+    def test_the_query_body_carries_the_needle_exactly(self):
+        sent = []
+
+        class Reply(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def urlopen(request, timeout):
+            sent.append(request)
+            return Reply(b'{"result": {"events": {"events": []}}}')
+
+        with patch.object(logs.urllib.request, "urlopen", side_effect=urlopen):
+            logs.query("fixture-token", PROD, 1, 2, needle=VM)
+            logs.query("fixture-token", PROD, 1, 2)
+        with_id, without = (json.loads(r.data) for r in sent)
+        self.assertEqual(with_id["parameters"]["needle"], {"value": VM, "isRegex": False, "matchCase": True})
+        self.assertNotIn("needle", without["parameters"])
+
+
 if __name__ == "__main__":
     unittest.main()
