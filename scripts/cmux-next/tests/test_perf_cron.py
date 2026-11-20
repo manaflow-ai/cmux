@@ -324,9 +324,13 @@ class FinishTests(OneRunRule):
         state = cron.empty_state(T0)
         self.measured(state, "a" * 40, {"t.e2e": row(5.0)}, 0)
         self.measured(state, "e" * 40, {"t.e2e": row(9.0)}, 1)
-        self.assertEqual(self.bisected(state, "c" * 40, {"t.e2e": row(5.2)}, 2), "narrowed")
+        # A commit is decided by BISECT_RUNS agreeing runs (test_perf_bisect.py tests the rule): the first two run again.
+        for i in range(cron.BISECT_RUNS - 1):
+            self.assertEqual(self.bisected(state, "c" * 40, {"t.e2e": row(5.2)}, 2 + i * 0.1), "skipped")
+        self.assertEqual(self.bisected(state, "c" * 40, {"t.e2e": row(5.2)}, 2.5), "narrowed")
         self.assertEqual(self.rng(state, "t.e2e"), ("c" * 40, "e" * 40))
-        self.bisected(state, "d" * 40, {"t.e2e": row(9.2)}, 3)
+        for i in range(cron.BISECT_RUNS):
+            self.bisected(state, "d" * 40, {"t.e2e": row(9.2)}, 3 + i * 0.1)
         self.assertEqual(self.rng(state, "t.e2e"), ("c" * 40, "d" * 40))
         self.assertEqual(state["last"]["sha"], "e" * 40, "a bisect step is not the last tip measurement")
 
