@@ -55,8 +55,11 @@ public nonisolated enum WindowBackgroundSetting {
     }
 
     /// A missing key keeps Ghostty's value with no diagnostic; a bad value
-    /// keeps it too, plus a diagnostic at the key.
+    /// keeps it too, plus a diagnostic at the key. It also reports a bad
+    /// `appearance.videoWallpaperIdlePause`, whose value the snapshot reads on demand
+    /// (``CmuxConfigSnapshot/videoWallpaperIdlePause``).
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> WindowBackgroundOverride {
+        _ = parseVideoWallpaperIdlePause(root, diagnostics: &diagnostics)
         var opacity: Double?
         if let value = root.value(at: opacityPath) {
             if let number = value.doubleValue, opacityRange.contains(number) {
@@ -88,5 +91,18 @@ public nonisolated enum WindowBackgroundSetting {
             return inactiveDimDefault
         }
         return number
+    }
+
+    /// `appearance.videoWallpaperIdlePause`: seconds with no keyboard or mouse input before a video
+    /// background pauses (0 never pauses). A missing key is the default (300), a value that is not a
+    /// whole number of seconds in range the default plus a diagnostic.
+    static func parseVideoWallpaperIdlePause(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Double {
+        guard let value = root.value(at: videoWallpaperIdlePausePath) else { return videoWallpaperIdlePauseDefault }
+        guard let seconds = value.doubleValue, videoWallpaperIdlePauseRange.contains(seconds), seconds.rounded() == seconds else {
+            diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.videoWallpaperIdlePause",
+                                                  message: "expected whole seconds from 0 to 86400, such as 300 (0 never pauses)"))
+            return videoWallpaperIdlePauseDefault
+        }
+        return seconds
     }
 }

@@ -76,6 +76,7 @@ extension SettingsWindowService {
             "context_menus": contextMenusRoute.hostJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
             "backdrops": backdropRowsCache.rows(for: backdropCatalog.catalog),
+            "youtube_wallpapers": .bool(BackdropYouTube.isOffered),
             "derived": .object(pageDerivedNumbers()),
         ]
     }

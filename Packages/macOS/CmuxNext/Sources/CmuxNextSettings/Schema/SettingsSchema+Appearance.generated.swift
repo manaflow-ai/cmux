@@ -89,6 +89,23 @@ extension BackdropSelectionSetting {
     public nonisolated static let displayBackgroundRotationsPath = ["appearance", "displayBackgroundRotations"]
 }
 
+extension WindowBackgroundSetting {
+    /// `appearance.videoWallpaperIdlePause`.
+    public nonisolated static let videoWallpaperIdlePausePath = ["appearance", "videoWallpaperIdlePause"]
+    public nonisolated static let videoWallpaperIdlePauseDefault: Double = 300
+    public nonisolated static let videoWallpaperIdlePauseRange: ClosedRange<Double> = 0...86_400
+    /// `appearance.backgroundOpacity`.
+    public nonisolated static let opacityPath = ["appearance", "backgroundOpacity"]
+    public nonisolated static let opacityRange: ClosedRange<Double> = 0...1
+    public nonisolated static let opacityPlaceholder: Double = 1
+    /// `appearance.backgroundBlur`.
+    public nonisolated static let materialPath = ["appearance", "backgroundBlur"]
+    /// `appearance.inactiveWindowDim`.
+    public nonisolated static let inactiveDimPath = ["appearance", "inactiveWindowDim"]
+    public nonisolated static let inactiveDimDefault: Double = 0
+    public nonisolated static let inactiveDimRange: ClosedRange<Double> = 0...1
+}
+
 extension PaneBackgroundsSetting {
     /// `appearance.paneBackgrounds`.
     public nonisolated static let configPath = ["appearance", "paneBackgrounds"]
@@ -107,23 +124,17 @@ extension ExperimentalAppearanceSetting {
     public nonisolated static let fallback = false
 }
 
-extension WindowBackgroundSetting {
-    /// `appearance.backgroundOpacity`.
-    public nonisolated static let opacityPath = ["appearance", "backgroundOpacity"]
-    public nonisolated static let opacityRange: ClosedRange<Double> = 0...1
-    public nonisolated static let opacityPlaceholder: Double = 1
-    /// `appearance.backgroundBlur`.
-    public nonisolated static let materialPath = ["appearance", "backgroundBlur"]
-    /// `appearance.inactiveWindowDim`.
-    public nonisolated static let inactiveDimPath = ["appearance", "inactiveWindowDim"]
-    public nonisolated static let inactiveDimDefault: Double = 0
-    public nonisolated static let inactiveDimRange: ClosedRange<Double> = 0...1
-}
-
 extension WallpaperTintSetting {
     /// `appearance.wallpaperTint`.
     public nonisolated static let configPath = ["appearance", "wallpaperTint"]
     public nonisolated static let fallback = true
+}
+
+extension LiveWallpaperFrameRateSetting {
+    /// `appearance.liveWallpaperFrameRate`.
+    public nonisolated static let configPath = ["appearance", "liveWallpaperFrameRate"]
+    public nonisolated static let fallback = "30"
+    public nonisolated static let values = ["15", "30", "60"]
 }
 
 extension AppearanceTuningSetting {

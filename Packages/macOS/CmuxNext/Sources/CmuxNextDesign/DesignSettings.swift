@@ -140,6 +140,9 @@ public final class DesignSettings {
             NotificationCenter.default.post(name: WindowMaterialView.inactiveDimDidChange, object: nil)
         }
     }
+    /// `appearance.videoWallpaperIdlePause`: seconds with no input before a video background pauses
+    /// (0 never). Observed by the idle wake (``BackdropIdle``).
+    public var videoWallpaperIdlePause = 300.0
     /// `appearance.wallpaperTint`: where the desktop shows through the window, its tint takes the
     /// desktop picture's hue (``WallpaperTint``), as macOS tints its own windows. Off until the
     /// setting reaches it (``SettingsApplier``).
@@ -149,6 +152,9 @@ public final class DesignSettings {
             BackdropImageStore.shared.desktop.tintEnabled = wallpaperTint
         }
     }
+    /// `appearance.liveWallpaperFrameRate`: the most frames per second a live wallpaper draws (15, 30 or
+    /// 60; ``BackdropLiveView``). A running wallpaper reads it on its next frame; a held one when it runs again.
+    public var liveWallpaperFrameRate = 30
     /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default
     /// (`AnimationKindsSetting.defaultEnabled`), new workspaces off.
     public var enabledAnimations: Set<MotionKind> = [.newTab]

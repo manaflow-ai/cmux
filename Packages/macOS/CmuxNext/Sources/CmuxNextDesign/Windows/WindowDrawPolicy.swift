@@ -87,9 +87,10 @@ public struct WindowDrawPolicy {
     /// Whether occluded windows draw in this launch (tests set it).
     public internal(set) static var drawsWhenOccluded = isAutomationLaunch(ProcessInfo.processInfo.environment)
 
-    /// AppKit's answer: `occlusionState` contains `.visible`. Tests replace
+    /// AppKit's answer, `occlusionState` contains `.visible`, for a window on some display
+    /// (``AppKit/NSWindow/isShownOnScreen(screens:)``). Tests replace
     /// it to drive occlude and un-occlude transitions without a screen.
-    static var onScreen: (NSWindow) -> Bool = { $0.occlusionState.contains(.visible) }
+    static var onScreen: (NSWindow) -> Bool = { $0.isShownOnScreen() }
 
     /// Whether `window` is at least partly on screen now.
     public static func isOnScreen(_ window: NSWindow) -> Bool { onScreen(window) }

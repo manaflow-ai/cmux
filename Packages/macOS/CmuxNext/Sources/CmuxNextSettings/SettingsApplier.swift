@@ -72,7 +72,12 @@ public final class SettingsApplier {
         if design.pageDeveloperTools != pageDeveloperTools { design.pageDeveloperTools = pageDeveloperTools }
         if design.colorTransition != snapshot.colorTransition.transition { design.colorTransition = snapshot.colorTransition.transition }
         if design.inactiveWindowDim != snapshot.inactiveWindowDim { design.inactiveWindowDim = snapshot.inactiveWindowDim }
+        let videoWallpaperIdlePause = snapshot.videoWallpaperIdlePause
+        if design.videoWallpaperIdlePause != videoWallpaperIdlePause { design.videoWallpaperIdlePause = videoWallpaperIdlePause }
         if design.wallpaperTint != snapshot.wallpaperTint { design.wallpaperTint = snapshot.wallpaperTint }
+        if design.liveWallpaperFrameRate != snapshot.liveWallpaperFrameRate {
+            design.liveWallpaperFrameRate = snapshot.liveWallpaperFrameRate
+        }
         let hoverCardDelay = Duration.milliseconds(Int(snapshot.hoverCards.delayMilliseconds.rounded()))
         if design.hoverCardDelay != hoverCardDelay { design.hoverCardDelay = hoverCardDelay }
         let workspaceHoverCard = snapshot.hoverCards.workspaceCardOptions

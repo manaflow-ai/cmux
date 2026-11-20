@@ -40,11 +40,23 @@ public nonisolated struct BackdropCoverage: Sendable, Equatable {
     package static let grid = 12
     package static let chrome: Set<String> = ["Dock", "Notification Center", "Screenshot", "Control Center", "SystemUIServer", "Window Server"]
 
+    /// A YouTube wallpaper starts only while more than half of its window shows, and rests once
+    /// half of it is hidden: an embedded player may start on its own only while more than half of
+    /// it is visible.
+    public static let halfVisible = (rest: 0.5, resume: 0.45)
+
     /// Whether the video rests now.
     public private(set) var resting = false
     private var streak = 0
+    /// The covered fraction at which it rests, and at or below which it resumes.
+    public let restAt: Double
+    public let resumeAt: Double
 
-    public init() {}
+    /// Rests at `restAt` covered (``restThreshold`` by default) and resumes at `resumeAt` or less.
+    public init(restAt: Double = BackdropCoverage.restThreshold, resumeAt: Double = BackdropCoverage.resumeThreshold) {
+        self.restAt = restAt
+        self.resumeAt = resumeAt
+    }
 
     /// The fraction of `frame` that `above` hides, 0...1, leaving out the windows numbered `own`.
     public static func covered(_ frame: CGRect, by above: [Window], ignoring own: Set<Int> = []) -> Double {
@@ -66,7 +78,7 @@ public nonisolated struct BackdropCoverage: Sendable, Equatable {
     /// Takes one sample; returns whether the video rests after it.
     @discardableResult
     public mutating func sample(_ fraction: Double) -> Bool {
-        let flips = resting ? fraction <= Self.resumeThreshold : fraction >= Self.restThreshold
+        let flips = resting ? fraction <= resumeAt : fraction >= restAt
         streak = flips ? streak + 1 : 0
         if streak >= Self.stableSamples {
             resting.toggle()

@@ -4,8 +4,8 @@ public import Foundation
 public nonisolated struct BackdropCatalog: Sendable, Equatable {
     /// The bundled art by collection (Dark Art, Museum Icons, Calm, Doré), then the person's own
     /// images, then the desktop picture, then every macOS wallpaper (``AppleWallpapers``), then the
-    /// moving wallpapers (Apple's and downloaded aerials, then the person's own videos), then the
-    /// living wallpapers drawn by code (``BackdropShader``).
+    /// moving wallpapers (Apple's and downloaded aerials, the person's own videos, YouTube videos), then the
+    /// living wallpapers drawn by code (``BackdropShader``), then the live wallpapers (the first-party set, ``LiveWallpaper``).
     public let choices: [BackdropSelection]
     /// The macOS wallpapers among ``choices``, by path.
     public let appleWallpapers: [String: AppleWallpaper]
@@ -13,6 +13,8 @@ public nonisolated struct BackdropCatalog: Sendable, Equatable {
     public let aerialNames: [String: String]
     /// The listed aerials not downloaded when this catalog was built off main.
     public let pendingVideoPaths: Set<String>
+    /// YouTube's titles of the listed YouTube wallpapers (``BackdropYouTubeLibrary``), by video id.
+    public let youtubeTitles: [String: String]
 
     /// The bundled art in picker order: by collection, darkest works first within each.
     public static let bundled: [BackdropSelection] = BackdropArtCollection.allCases.flatMap { collection in
@@ -28,6 +30,7 @@ public nonisolated struct BackdropCatalog: Sendable, Equatable {
         appleWallpapers = [:]
         aerialNames = [:]
         pendingVideoPaths = []
+        youtubeTitles = [:]
     }
 
     /// Builds a catalog from an injected directory listing.
@@ -38,12 +41,19 @@ public nonisolated struct BackdropCatalog: Sendable, Equatable {
     ///   - assets: The macOS wallpapers downloaded in full.
     ///   - userImages: The person's own images and videos (``BackdropUserImages``), if any.
     ///   - aerials: Where idleassetsd keeps downloaded aerials (``AppleWallpapers``).
+    ///   - offersYouTube: Whether the used YouTube videos are listed (``BackdropYouTube/isOffered``).
     public init(systemDirectory: URL, fileManager: FileManager, assets: AppleWallpaperAssets = AppleWallpaperAssets(),
-                userImages: BackdropUserImages? = nil, aerials: URL = AppleWallpapers.system.aerials) {
+                userImages: BackdropUserImages? = nil, aerials: URL = AppleWallpapers.system.aerials,
+                youtube offersYouTube: Bool = BackdropYouTube.isOffered) {
         let wallpapers = AppleWallpapers(desktopPictures: systemDirectory, aerials: aerials)
         let apple = wallpapers.pictures(assets: assets, fileManager: fileManager)
         appleWallpapers = Dictionary(apple.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
         let yours = userImages?.list(fileManager: fileManager) ?? []
+        // The YouTube videos the person has used, listed in the backgrounds folder (YouTube.json).
+        // None while YouTube wallpapers are off (BackdropYouTube.isOffered).
+        let youtube = offersYouTube ? userImages.map { BackdropYouTubeLibrary(folder: $0.folder).items() } ?? [] : []
+        youtubeTitles = Dictionary(youtube.compactMap { item in item.title.map { (item.video.videoID, $0) } },
+                                   uniquingKeysWith: { first, _ in first })
         aerialNames = wallpapers.aerialNames()
         let moving = wallpapers.videos(fileManager: fileManager, names: aerialNames)
         pendingVideoPaths = Set(moving.compactMap { choice in
@@ -51,6 +61,7 @@ public nonisolated struct BackdropCatalog: Sendable, Equatable {
             return path
         })
         choices = Self.bundled + yours.filter { !$0.isVideo } + [.desktop] + apple.map { BackdropSelection.system(path: $0.path) }
-            + moving + yours.filter(\.isVideo) + Self.shaders
+            + moving + yours.filter(\.isVideo) + youtube.map { BackdropSelection.youtube($0.video) } + Self.shaders
+            + LiveWallpaper.choices
     }
 }

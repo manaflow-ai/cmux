@@ -71,11 +71,20 @@ public final class WindowMaterialView: NSView {
     public let videoView: BackdropVideoView
     /// A living wallpaper over the art (its still), drawn every frame while seen (``BackdropShaderView``).
     public let shaderView: BackdropShaderView
+    /// A YouTube video over the art (its poster), playing in one window at a time (``BackdropYouTubeView``).
+    /// None while YouTube wallpapers are off (``BackdropImageStore/offersYouTube``): no web view is made.
+    public let youtubeView: BackdropYouTubeView?
     private(set) var artImage: NSImage?
     /// A video wallpaper plays over the art (pages get no still of it, `glassSource`).
     private(set) var showsVideo = false
+    /// A live wallpaper (`live:<id>`) runs in place of the art (``BackdropLiveView``).
+    public let liveView: BackdropLiveView
+    /// A live wallpaper shows (pages get no still of it, `glassSource`).
+    private(set) var showsLive = false
     /// A living wallpaper draws over the art (pages get no still of it, `glassSource`).
     private(set) var showsShader = false
+    /// A YouTube video plays over the art (pages get no still of it, `glassSource`).
+    private(set) var showsYouTube = false
     /// The web views lensing this backdrop, told when what they draw changes (`glassSource`).
     let glassFeeds = NSHashTable<GlassBackdropFeed>.weakObjects()
     private let images: BackdropImageStore
@@ -107,14 +116,18 @@ public final class WindowMaterialView: NSView {
     /// - Parameter frameRect: The initial frame.
     /// - Parameter images: Where decoded backdrop images are shared.
     /// - Parameter videos: Where video wallpapers' players are shared.
+    /// - Parameter idle: Wakes video wallpapers when idle time can change their answer; nil: `images`'.
     /// - Parameter activeLook: The app's ``ActiveLookScope`` (made once by `AppServices`) for a
     ///   window backdrop; nil for one whose glass follows the key state.
     public init(frame frameRect: NSRect, images: BackdropImageStore, videos: BackdropVideoPlayers = .shared,
+                idle: BackdropIdle? = nil,
                 activeLook: ActiveLookScope? = nil) {
         self.images = images
         self.activeLook = activeLook
-        videoView = BackdropVideoView(frame: frameRect, players: videos)
+        videoView = BackdropVideoView(frame: frameRect, players: videos, idle: idle ?? images.idle)
+        liveView = BackdropLiveView(frame: frameRect, programs: images.livePrograms)
         shaderView = BackdropShaderView(frame: frameRect, renderer: images.shaders)
+        youtubeView = images.offersYouTube ? BackdropYouTubeView(frame: frameRect, players: images.youtube, idle: idle ?? images.idle) : nil
         super.init(frame: frameRect)
         artView.wantsLayer = true
         artView.frame = bounds
@@ -126,12 +139,24 @@ public final class WindowMaterialView: NSView {
         videoView.frame = bounds
         videoView.autoresizingMask = [.width, .height]
         addSubview(videoView)
+        liveView.frame = bounds
+        liveView.autoresizingMask = [.width, .height]
+        addSubview(liveView)
         shaderView.frame = bounds
         shaderView.autoresizingMask = [.width, .height]
         addSubview(shaderView)
+        if let youtubeView {
+            youtubeView.frame = bounds
+            youtubeView.autoresizingMask = [.width, .height]
+            addSubview(youtubeView)
+        }
         // The living wallpaper moves on the video wallpaper's terms, through its observers.
         shaderView.sight = { [weak videoView] in (videoView?.screensAsleep ?? false, videoView?.sessionInactive ?? false) }
-        videoView.onSightChange = { [weak shaderView] closing in shaderView?.sightChanged(closing: closing) }
+        youtubeView?.sight = shaderView.sight
+        videoView.onSightChange = { [weak shaderView, weak youtubeView] closing in
+            shaderView?.sightChanged(closing: closing)
+            youtubeView?.sightChanged(closing: closing)
+        }
         glassTint.overlay.frame = bounds
         glassTint.overlay.autoresizingMask = [.width, .height]
         addSubview(glassTint.overlay)
@@ -268,7 +293,11 @@ public final class WindowMaterialView: NSView {
         let chosen = backdrop.selection ?? backdrop.art.map(BackdropSelection.art)
         let flipped = chosen?.followsAppearance == true && loadedDark != dark
         // Light and Dark draws its side for this view's appearance.
-        let shown = chosen?.resolved(dark: dark)
+        // A YouTube video while they are off (BackdropYouTube.isOffered) draws no picture.
+        let shown = chosen?.resolved(dark: dark).flatMap { $0.youtube != nil && !images.offersYouTube ? nil : $0 }
+        // A live wallpaper draws itself: no picture loads under it.
+        let live = shown?.liveID
+        let pictured = live == nil ? shown : nil
         // The desktop moved on (a new picture, a Space with its own): the Desktop Wallpaper reloads.
         let desktopMoved = shown == .desktop && loadedDesktopGeneration != wallpaper.generation
         if loadedSelection != backdrop.selection || loadedArt != backdrop.art || loadedTexture != backdrop.texture || flipped || desktopMoved {
@@ -285,15 +314,15 @@ public final class WindowMaterialView: NSView {
             // none shown, decoded art shows at once, else an earlier launch's snapshot shows in this
             // first frame and the full image replaces it; without one the theme's colors until the
             // art, decoded off the main actor, fades in.
-            let ready = shown.flatMap { images.cached($0, texture: texture, dark: dark) }
-            let keeps = shown != nil && artImage != nil && !hidesArt
+            let ready = pictured.flatMap { images.cached($0, texture: texture, dark: dark) }
+            let keeps = pictured != nil && artImage != nil && !hidesArt
             if keeps { if let ready { crossfadeArt(to: ready) } } else {
-                showArt(ready ?? (hidesArt ? nil : shown.flatMap { images.preview($0, texture: texture, dark: dark) }))
+                showArt(ready ?? (hidesArt ? nil : pictured.flatMap { images.preview($0, texture: texture, dark: dark) }))
             }
-            if let shown, ready == nil {
+            if let pictured, ready == nil {
                 let fades = artImage == nil
                 artLoad = Task { [weak self, images] in
-                    let image = await images.image(shown, texture: texture, dark: dark)
+                    let image = await images.image(pictured, texture: texture, dark: dark)
                     guard !Task.isCancelled, let self else { return }
                     guard let image else { if keeps { self.showArt(nil) }; return }
                     self.crossfadeArt(to: image)
@@ -304,15 +333,29 @@ public final class WindowMaterialView: NSView {
         artView.isHidden = hidesArt || artImage == nil
         showsVideo = !hidesArt && shown?.isVideo == true
         videoView.show(showsVideo ? shown?.resolvedImageURL(dark: dark) : nil)
+        showsLive = !hidesArt && live != nil
+        liveView.show(showsLive ? live.flatMap(LiveWallpaper.named) : nil)
+        // Every theme apply: new colors are activity, and a held wallpaper redraws once in them.
+        if showsLive { liveView.themeDidChange() }
+        // TODO(gcp-codex-lane-11/wallpaper-lighting): hand Wallpaper Lighting one 256-px-wide still per
+        // wallpaper or theme change (LiveWallpaperRenderer.still, read with WallpaperLightField.read),
+        // then artDidChange(), once WindowMaterialView.setArtLight lands from that lane.
         let shader = hidesArt ? nil : shown?.shader
         showsShader = shader != nil
         shaderView.show(shader, dark: dark)
+        let youtube = hidesArt ? nil : shown?.youtube
+        showsYouTube = youtube != nil
+        youtubeView?.show(youtube)
+        // The living and YouTube wallpapers move on the video view's terms: its display check runs for them.
+        videoView.drivesOtherSight = showsShader || showsYouTube
         // Window Glass: the desktop shows through the art. The model value only, so a fade-in in
         // flight runs on to it.
         artOpacity = Float(backdrop.artOpacity)
         if artView.layer?.opacity != artOpacity { artView.layer?.opacity = artOpacity }
         if videoView.layer?.opacity != artOpacity { videoView.layer?.opacity = artOpacity }
+        if liveView.layer?.opacity != artOpacity { liveView.layer?.opacity = artOpacity }
         if shaderView.layer?.opacity != artOpacity { shaderView.layer?.opacity = artOpacity }
+        if let layer = youtubeView?.layer, layer.opacity != artOpacity { layer.opacity = artOpacity }
         if backdrop.material != material {
             material = backdrop.material
             materialView?.removeFromSuperview()
@@ -368,12 +411,12 @@ public final class WindowMaterialView: NSView {
         noteGlassSourceChange()
     }
 
-    /// Blurs the art and the video over it by `radius` points (``WindowBackdrop/artBlurRadius``);
+    /// Blurs the art and the video or live wallpaper over it by `radius` points (``WindowBackdrop/artBlurRadius``);
     /// 0 clears the blur. Filters are made for each view: they are mutable objects.
     private func applyArtBlur(_ radius: Int) {
         guard radius != artBlurRadius else { return }
         artBlurRadius = radius
-        for view in [artView, videoView as NSView, shaderView as NSView] {
+        for view in [artView, videoView, liveView, shaderView, youtubeView].compactMap({ $0 as NSView? }) {
             if radius > 0 { view.layerUsesCoreImageFilters = true }
             // Clamped first: the blur then reads the edge pixels past the edge, not transparency,
             // so the picture keeps no translucent rim.

@@ -91,7 +91,7 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
     /// visible (occluded, minimized, another Space): the glyph is already in its end state, so a
     /// skipped settle leaves nothing to catch up.
     public func settle() {
-        guard let window, window.occlusionState.contains(.visible), !isHiddenOrHasHiddenAncestor else { return }
+        guard let window, window.isShownOnScreen(), !isHiddenOrHasHiddenAncestor else { return }
         indicator.playSettle()
     }
 

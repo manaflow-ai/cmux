@@ -612,6 +612,40 @@
           ]
         },
         {
+          "key": "appearance.videoWallpaperIdlePause",
+          "title": {
+            "key": "settings.appearance.videoWallpaperIdlePause",
+            "text": "Pause Video Wallpaper When Idle"
+          },
+          "help": {
+            "key": "settings.appearance.videoWallpaperIdlePause.help",
+            "text": "Seconds without keyboard or mouse input before a video background pauses; the next input resumes it. 0 never pauses."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "WindowBackgroundSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 86400,
+            "step": 1,
+            "unit": "seconds"
+          },
+          "default": 300,
+          "keywords": [
+            "video",
+            "movie",
+            "youtube",
+            "wallpaper",
+            "background",
+            "idle",
+            "pause",
+            "battery",
+            "seconds"
+          ]
+        },
+        {
           "key": "appearance.backgroundLight",
           "name": "light",
           "note": "The picture of Background's Light and Dark (appearance) in the light appearance: any fixed background id (art, desktop, system:, file:). Unset: the dark side's picture.",
@@ -1114,6 +1148,53 @@
             "colour",
             "space",
             "background"
+          ]
+        },
+        {
+          "key": "appearance.liveWallpaperFrameRate",
+          "title": {
+            "key": "settings.appearance.liveWallpaperFrameRate",
+            "text": "Live Wallpaper Frame Rate"
+          },
+          "help": {
+            "key": "settings.appearance.liveWallpaperFrameRate.help",
+            "text": "The most frames per second a live wallpaper draws. A wallpaper may ask for fewer; it stops drawing when the window is hidden, idle or on Low Power Mode."
+          },
+          "kind": "choice",
+          "swift_owner": "LiveWallpaperFrameRateSetting",
+          "choices": [
+            {
+              "value": "15",
+              "title": {
+                "key": "settings.choice.liveWallpaperFrameRate.15",
+                "text": "15 fps"
+              }
+            },
+            {
+              "value": "30",
+              "title": {
+                "key": "settings.choice.liveWallpaperFrameRate.30",
+                "text": "30 fps"
+              }
+            },
+            {
+              "value": "60",
+              "title": {
+                "key": "settings.choice.liveWallpaperFrameRate.60",
+                "text": "60 fps"
+              }
+            }
+          ],
+          "default": "30",
+          "keywords": [
+            "live wallpaper",
+            "wallpaper",
+            "frame rate",
+            "fps",
+            "animation",
+            "motion",
+            "background",
+            "battery"
           ]
         }
       ]

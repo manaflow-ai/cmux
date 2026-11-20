@@ -174,6 +174,16 @@ extension AppearanceSettingsSchema {
                 keywords: ["shuffle", "rotate", "rotating", "wallpaper", "interval", "change picture", "background", "minutes"]
             ),
             SettingDescriptor(
+                WindowBackgroundSetting.videoWallpaperIdlePausePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.videoWallpaperIdlePause", "Pause Video Wallpaper When Idle"),
+                help: SettingsText.keyed("settings.appearance.videoWallpaperIdlePause.help", "Seconds without keyboard or mouse input before a video background pauses; the next input resumes it. 0 never pauses."),
+                kind: .number(SettingNumber(WindowBackgroundSetting.videoWallpaperIdlePauseRange, step: 1, unit: .seconds)),
+                default: .number(WindowBackgroundSetting.videoWallpaperIdlePauseDefault),
+                keywords: ["video", "movie", "youtube", "wallpaper", "background", "idle", "pause", "battery", "seconds"]
+            ),
+            SettingDescriptor(
                 BackdropSelectionSetting.lightPath,
                 section: .appearance,
                 group: group,
@@ -334,43 +344,19 @@ extension AppearanceSettingsSchema {
                 default: .bool(WallpaperTintSetting.fallback),
                 keywords: ["wallpaper", "desktop", "tint", "tinting", "glass", "color", "colour", "space", "background"]
             ),
-        ]
-    }
-}
-
-extension AppearanceSettingsSchema {
-    static var tuning: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.appearanceTuning", "Appearance Tuning")
-        return [
             SettingDescriptor(
-                AppearanceTuningSetting.glassTransparencyPath,
+                LiveWallpaperFrameRateSetting.configPath,
                 section: .appearance,
                 group: group,
-                title: SettingsText.keyed("settings.appearance.glassTransparency", "Glass Transparency"),
-                help: SettingsText.keyed("settings.appearance.glassTransparency.help", "How much of the desktop or wallpaper shows through the glass."),
-                kind: .number(SettingNumber(AppearanceTuningSetting.glassTransparencyRange, step: 0.05, unit: .fraction)),
-                default: .number(AppearanceTuningSetting.glassTransparencyDefault),
-                keywords: ["glass", "transparency", "alpha", "clear"]
-            ).hiddenFromSettingsPage("duplicates appearance.backgroundOpacity; the key still loads"),
-            SettingDescriptor(
-                AppearanceTuningSetting.huePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.hue", "Hue"),
-                help: SettingsText.keyed("settings.appearance.hue.help", "Shift the tint color around the hue wheel."),
-                kind: .number(SettingNumber(AppearanceTuningSetting.hueRange, step: 0.05, unit: .fraction, placeholder: AppearanceTuningSetting.huePlaceholder)),
-                default: .number(AppearanceTuningSetting.hueDefault),
-                keywords: ["tint", "color", "colour"]
-            ),
-            SettingDescriptor(
-                AppearanceTuningSetting.saturationPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.saturation", "Saturation"),
-                help: SettingsText.keyed("settings.appearance.saturation.help", "Increase or reduce the tint color intensity."),
-                kind: .number(SettingNumber(AppearanceTuningSetting.saturationRange, step: 0.05, unit: .fraction, placeholder: AppearanceTuningSetting.saturationPlaceholder)),
-                default: .number(AppearanceTuningSetting.saturationDefault),
-                keywords: ["tint", "color", "colour", "intensity"]
+                title: SettingsText.keyed("settings.appearance.liveWallpaperFrameRate", "Live Wallpaper Frame Rate"),
+                help: SettingsText.keyed("settings.appearance.liveWallpaperFrameRate.help", "The most frames per second a live wallpaper draws. A wallpaper may ask for fewer; it stops drawing when the window is hidden, idle or on Low Power Mode."),
+                kind: .choice([
+                    SettingChoice("15", SettingsText.keyed("settings.choice.liveWallpaperFrameRate.15", "15 fps")),
+                    SettingChoice("30", SettingsText.keyed("settings.choice.liveWallpaperFrameRate.30", "30 fps")),
+                    SettingChoice("60", SettingsText.keyed("settings.choice.liveWallpaperFrameRate.60", "60 fps")),
+                ]),
+                default: .string(LiveWallpaperFrameRateSetting.fallback),
+                keywords: ["live wallpaper", "wallpaper", "frame rate", "fps", "animation", "motion", "background", "battery"]
             ),
         ]
     }

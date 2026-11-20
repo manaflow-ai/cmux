@@ -65,6 +65,7 @@ export const ROW_LEVELS: {
     "appearance.colorTransition.colorSpace": "hidden",
     "appearance.colorTransition.reduceMotion": "hidden",
     "appearance.backgroundRotation": "more",
+    "appearance.videoWallpaperIdlePause": "more",
     "appearance.paneBackgrounds": "more",
     "appearance.backgroundOpacity": "more",
     "appearance.inactiveWindowDim": "more",

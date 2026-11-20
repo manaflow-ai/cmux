@@ -309,7 +309,7 @@ enum ThemeRepaint {
     }
 
     private static func isOnScreen(_ window: NSWindow) -> Bool {
-        window.isVisible && window.occlusionState.contains(.visible)
+        window.isVisible && window.isShownOnScreen()
     }
 
     private static func same(_ a: CGColor?, _ b: CGColor?) -> Bool {
