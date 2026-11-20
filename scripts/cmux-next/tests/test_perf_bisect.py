@@ -226,6 +226,46 @@ class ReplayTests(unittest.TestCase):
     def test_an_unmeasurable_good_end_says_so(self):
         self.assertEqual(pb.replay(commits(5), lambda sha: None, floor=1.0)["verdict"], "unmeasured")
 
+    def test_one_timed_out_run_is_tried_again_not_noise(self):
+        # 2026-11-19: commit 8743439 read 0.81, then its bench timed out at 150 s, and the walk called it noise.
+        cs = commits(9)
+        values = {c: (0.01 if i < 4 else 0.9) for i, c in enumerate(cs)}
+        base, timed_out = noisy(values, 0.001), set()
+
+        def measure(sha):
+            if sha == cs[4] and sha not in timed_out:
+                timed_out.add(sha)
+                return None
+            return base(sha)
+        out = pb.replay(cs, measure, floor=0.1)
+        self.assertEqual(out["culprit"], cs[4])
+
+    def test_two_failed_runs_in_a_row_end_a_commit(self):
+        calls = []
+
+        def measure(sha):
+            calls.append(sha)
+            return None
+        self.assertEqual(pb.sample("x", measure, 1.0, 0.1, 3, 5), (cron.NOISE, []))
+        self.assertEqual(len(calls), pb.FAILS_IN_A_ROW, "a commit that does not build costs two attempts, not five")
+
+    def test_a_replay_started_again_resumes_from_its_cache(self):
+        import tempfile
+        cs = commits(33)
+        values = {c: (1.0 if i < 20 else 5.0) for i, c in enumerate(cs)}
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "cache.json")
+            first = pb.replay(cs, pb.cached(noisy(values, 0.05), path), floor=1.0)
+            runs = []
+
+            def counted(sha):
+                runs.append(sha)
+                return values[sha]
+            again = pb.replay(cs, pb.cached(counted, path), floor=1.0)
+        self.assertEqual(first["culprit"], cs[20])
+        self.assertEqual(again["culprit"], cs[20])
+        self.assertEqual(runs, [], "every run of the second walk came from the cache")
+
 
 if __name__ == "__main__":
     unittest.main()

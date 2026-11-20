@@ -17,7 +17,7 @@ Every run of one replay comes from this machine, so two runner speeds never mix 
 kinds, 1.2x to 1.4x apart on web benches; a bisect across both blames commits that touch nothing).
 
     perf_bisect.py replay --repo DIR --good SHA --bad SHA --row NAME --measure 'CMD {sha} {row}' [--floor F]
-                          [--regression 0.10] [--runs 3] [--max-runs 5] [--json]
+                          [--regression 0.10] [--runs 3] [--max-runs 5] [--cache FILE] [--json]
 
 CMD prints `VALUE <number>` for one run at {sha} (higher is worse), anything else when it could not measure. A
 culprit's JSON carries `nominee`, what culprit_revert.py takes (perf-cron.py culprit_nominee).
@@ -33,17 +33,29 @@ _spec.loader.exec_module(cron)
 REGRESSION = 0.10  # perf-budgets.json's regression rule
 
 
+# A run that does not measure (the bench timed out on a loaded host, the commit does not build) is tried again: it
+# counts toward max_runs, and FAILS_IN_A_ROW of them end the commit. 2026-11-19: one 150 s bench timeout after a
+# 0.81 run ended commit 8743439 as noise on its first step.
+FAILS_IN_A_ROW = 2
+
+
 def sample(sha, measure, ref, thr, runs, max_runs):
-    """Run measure at sha until commit_verdict decides, or a run does not measure (NOISE). Returns (verdict, values)."""
-    values = []
+    """Run measure at sha until commit_verdict decides (NOISE after max_runs attempts, or FAILS_IN_A_ROW failed runs in
+    a row). Returns (verdict, values)."""
+    values, attempts, fails = [], 0, 0
     while True:
         if values:
             v = cron.commit_verdict([x - ref > thr for x in values], runs, max_runs)
             if v != cron.AGAIN:
                 return v, values
-        x = measure(sha)
-        if x is None:
+        if attempts >= max_runs or fails >= FAILS_IN_A_ROW:
             return cron.NOISE, values
+        x = measure(sha)
+        attempts += 1
+        if x is None:
+            fails += 1
+            continue
+        fails = 0
         values.append(x)
 
 
@@ -52,12 +64,16 @@ def replay(commits, measure, floor, regression=REGRESSION, runs=cron.BISECT_RUNS
     """commits: first-parent, oldest first; commits[0] the good end, commits[-1] the bad end. measure(sha) -> float or
     None. Returns {'verdict': 'culprit' | 'within noise' | 'unresolved' | 'unmeasured', ...}."""
     good, bad = commits[0], commits[-1]
-    good_values = []
-    for _ in range(runs):
+    good_values, attempts, fails = [], 0, 0
+    while len(good_values) < runs:
+        if attempts >= max_runs or fails >= FAILS_IN_A_ROW:
+            return {"verdict": "unmeasured", "why": f"the good end {good[:12]} measured {len(good_values)} of {runs} "
+                                                    f"runs in {attempts} attempts"}
         x = measure(good)
-        if x is None:
-            return {"verdict": "unmeasured", "why": f"the good end {good[:12]} did not measure"}
-        good_values.append(x)
+        attempts += 1
+        fails = 0 if x is not None else fails + 1
+        if x is not None:
+            good_values.append(x)
     ref = statistics.median(good_values)
     thr = cron.bisect_threshold(ref, floor, regression)
     log(f"good {good[:12]}: {good_values} -> reference {ref:g}, noise threshold {thr:g}")
@@ -112,6 +128,32 @@ def shell_measure(template, row):
     return measure
 
 
+def cached(measure, path):
+    """measure, with every run's result kept in the JSON file path ({sha: [value or null, ...]}, in run order). A
+    replay started again (the host restarted, the job hit its cap) takes each commit's kept results first, in order,
+    and runs the bench only past them: the walk is the same, and no run is paid twice."""
+    try:
+        with open(path) as f:
+            kept = json.load(f)
+    except (OSError, ValueError):
+        kept = {}
+    used = {}
+
+    def run(sha):
+        i = used.get(sha, 0)
+        used[sha] = i + 1
+        if i < len(kept.get(sha, [])):
+            return kept[sha][i]
+        x = measure(sha)
+        kept.setdefault(sha, []).append(x)
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(kept, f, indent=1, sort_keys=True)
+        os.replace(tmp, path)
+        return x
+    return run
+
+
 def cmd_replay(o):
     def git(*a):
         return subprocess.run(["git", "-C", o.repo, *a], check=True, text=True, capture_output=True).stdout.strip()
@@ -119,7 +161,10 @@ def cmd_replay(o):
     commits = [good, *git("rev-list", "--first-parent", "--reverse", f"{good}..{o.bad}").split()]
     log = lambda s: print(f"perf-bisect: {s}", file=sys.stderr, flush=True)
     log(f"{o.row}: {len(commits) - 2} first-parent commits between {good[:12]} and {commits[-1][:12]}")
-    out = replay(commits, shell_measure(o.measure, o.row), o.floor, o.regression, o.runs, o.max_runs, log)
+    measure = shell_measure(o.measure, o.row)
+    if o.cache:
+        measure = cached(measure, o.cache)
+    out = replay(commits, measure, o.floor, o.regression, o.runs, o.max_runs, log)
     out["row"] = o.row
     if out.get("culprit"):
         rows = [{"name": o.row, "ref": out["reference"], "value": out["value"], "threshold": out["threshold"]}]
@@ -148,6 +193,7 @@ def main(argv=None):
     r.add_argument("--regression", type=float, default=REGRESSION)
     r.add_argument("--runs", type=int, default=cron.BISECT_RUNS)
     r.add_argument("--max-runs", type=int, default=cron.BISECT_MAX_RUNS)
+    r.add_argument("--cache", help="JSON file of every run's result; a replay started again resumes from it")
     r.add_argument("--json", action="store_true")
     return cmd_replay(p.parse_args(argv))
 
