@@ -438,10 +438,18 @@ async fn a_new_socket_carries_every_live_link() {
         channel.send(b"both".to_vec()).await.unwrap();
         assert_eq!(channel.recv().await, ChannelMessage::Data { bytes: b"both".to_vec() });
     }
-    // Nothing is left on the dead socket: a network change has no session to move.
+    // A network change opens a new socket at once (#47353) and both live links move onto it
+    // together; each still answers afterwards.
     let marks =
         pool.network_changed(server.base_url.clone(), "user:alice".into(), "team".into(), device).await;
-    assert!(!names(&marks).contains(&"signaling:rehomed"), "{marks:?}");
+    let names = names(&marks);
+    assert!(names.contains(&"signaling:signaling_open"), "{marks:?}");
+    assert!(names.contains(&"signaling:rehomed"), "{marks:?}");
+    for handle in [&first, &second] {
+        let channel = handle.open_channel("echo".into(), String::new()).await.unwrap();
+        channel.send(b"moved".to_vec()).await.unwrap();
+        assert_eq!(channel.recv().await, ChannelMessage::Data { bytes: b"moved".to_vec() });
+    }
     first.close();
     second.close();
     pool.reset().await;
