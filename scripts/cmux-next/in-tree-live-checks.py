@@ -1,0 +1,349 @@
+#!/usr/bin/env python3
+"""Live checks of in-tree Chromium pages in a launched tagged cmux-next app (plans/cmux-next/in-tree-pages.md).
+
+Launches the app (no activation, automation socket, scratch config) with `CMUX_IN_TREE_PAGES` set by --in-tree, opens a
+terminal beside a Chromium page and checks:
+
+  mode       debug.cef in_tree is what --in-tree asked for (on: "on"; off: "off" or absent)
+  census     (C2) debug.layers per window: no visible page child window (role content), no child-window violation, no
+             overlay panel; with in-tree on every shown page is listed in page_views with widget_drawing 0; the reorder
+             and divider catcher counters stay flat over --idle seconds
+  focus      (C7) the page calls window.focus() and input.focus() every 20 ms and on blur; with the terminal focused, a
+             40-character marker typed key by key (debug.key, the key router and the responder chain) arrives whole in
+             the terminal (surface.read_text) and the page sees none of its keys
+  shortcuts  (C9) with the page focused (a click in its input): the key router claims Cmd-T, Cmd-W, Cmd-D, Cmd-Shift-P
+             (dry run), and real Cmd-T opens a tab, Cmd-W closes it, Cmd-Shift-P opens the palette
+  prompts    (C16) alert, confirm, prompt, an <input type=file> click and a download each show something (a dialog, a
+             panel, a window, a popup or a download record) instead of being cancelled in silence
+
+Every row prints `PASS|FAIL|INFO | name | detail`; --json writes the rows and the raw readouts. Exits 0 when no row
+fails. The app is quit at the end. Fleet GUI host only (debug.key needs no event-posting grant).
+"""
+import argparse, http.server, json, os, plistlib, signal, socket, subprocess, sys, tempfile, threading, time
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--tag", required=True)
+parser.add_argument("--app", required=True)
+parser.add_argument("--out", default=tempfile.mkdtemp(prefix="in-tree-live-"))
+parser.add_argument("--json")
+parser.add_argument("--in-tree", dest="in_tree", choices=["on", "off"], default="on")
+parser.add_argument("--idle", type=float, default=8.0)
+parser.add_argument("--checks", default="mode,census,focus,shortcuts,prompts")
+opts = parser.parse_args()
+os.makedirs(opts.out, exist_ok=True)
+CHECKS = set(opts.checks.split(","))
+with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
+    BINARY = os.path.join(opts.app, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
+SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
+ROWS, RAW = [], {}
+MARKER = "intreefocus0123456789abcdefghijklmnopqr"  # 40 characters, keys debug.key types by name
+assert len(MARKER) == 40
+
+PAGE = """<!doctype html><html><head><title>in-tree probe</title></head>
+<body style="background:#246;color:#fff;font:16px sans-serif">
+<input id="field" style="font-size:20px;width:300px" placeholder="probe field">
+<input id="file" type="file"> <a id="dl" href="/download" download="in-tree-probe.txt">download</a>
+<pre id="log"></pre>
+<script>
+window.__keys = []; window.__steal = 0; window.__results = {};
+const field = document.getElementById('field');
+field.addEventListener('keydown', e => window.__keys.push(e.key));
+document.addEventListener('keydown', e => { if (e.target !== field) window.__keys.push('doc:' + e.key); });
+window.startSteal = () => {
+  const steal = () => { window.__steal++; window.focus(); field.focus(); };
+  window.__stealTimer = setInterval(steal, 20);
+  window.addEventListener('blur', steal);
+  return true;
+};
+window.stopSteal = () => { clearInterval(window.__stealTimer); return window.__steal; };
+window.later = (name, f) => { setTimeout(() => { try { window.__results[name] = String(f()); } catch (e) { window.__results[name] = 'error ' + e; } }, 50); return true; };
+</script></body></html>"""
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path.startswith("/download"):
+            body, kind = b"in-tree download probe\n", "application/octet-stream"
+        else:
+            body, kind = PAGE.encode(), "text/html"
+        self.send_response(200)
+        self.send_header("Content-Type", kind)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+threading.Thread(target=server.serve_forever, daemon=True).start()
+URL = f"http://127.0.0.1:{server.server_address[1]}/"
+
+
+def rpc(method, params=None, timeout=60):
+    try:
+        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        conn.settimeout(timeout)
+        conn.connect(SOCKET)
+        conn.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
+        buf = b""
+        while not buf.endswith(b"\n"):
+            chunk = conn.recv(1 << 22)
+            if not chunk:
+                break
+            buf += chunk
+        conn.close()
+        reply = json.loads(buf)
+        return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
+    except (OSError, ValueError) as error:
+        return {"error": str(error)}
+
+
+def wait(predicate, seconds, step=0.25):
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        value = predicate()
+        if value:
+            return value
+        time.sleep(step)  # test harness polling a live app
+    return None
+
+
+def row(verdict, name, detail):
+    if verdict is True:
+        verdict = "PASS"
+    elif verdict is False:
+        verdict = "FAIL"
+    ROWS.append({"verdict": verdict, "name": name, "detail": detail})
+    print(f"{verdict} | {name} | {json.dumps(detail, default=str)[:600]}", flush=True)
+
+
+def action(name, args=None, target=None):
+    params = {"action": name, "focus": True, "origin": "script"}
+    if args:
+        params["args"] = args
+    if target:
+        params["target"] = target
+    return rpc("action.run", params)
+
+
+def page_eval(script, tab=None):
+    params = {"script": script}
+    if tab:
+        params["tab"] = tab
+    reply = rpc("browser.page.eval", params, timeout=20)
+    return reply if isinstance(reply, dict) else {"error": reply}
+
+
+def windows():
+    layers = rpc("debug.layers")
+    return (layers.get("windows") if isinstance(layers, dict) else None) or []
+
+
+def census(label):
+    ws = windows()
+    out = {"windows": len(ws), "per_window": []}
+    for w in ws:
+        out["per_window"].append({
+            "placement": w.get("placement"), "overlay_panel": w.get("overlay_panel"),
+            "page_views": len(w.get("page_views") or []),
+            "content_child_windows": sum(1 for c in w.get("child_windows") or [] if c.get("role") == "content" and c.get("visible")),
+            "child_windows": [{k: c.get(k) for k in ("role", "visible")} for c in w.get("child_windows") or []],
+            "violations": w.get("child_window_violations") or [],
+            "reorders": w.get("reorders"), "divider_catcher_updates": w.get("divider_catcher_updates"),
+            "browsers": [{k: b.get(k) for k in ("pane", "engine", "presentation", "rwhv_in_window", "widget_drawing",
+                                                 "headless_window_visible")} for b in w.get("browsers") or []],
+        })
+    cef = rpc("debug.cef")
+    out["cef_in_tree"] = cef.get("in_tree") if isinstance(cef, dict) else None
+    out["cef_widget_drawing"] = cef.get("widget_drawing") if isinstance(cef, dict) else None
+    RAW[f"census_{label}"] = {"layers": ws, "cef": cef}
+    return out
+
+
+def daemon_socket():
+    temp = os.environ.get("TMPDIR") or subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip()
+    return os.path.join(temp, f"cmux-tui-{os.getuid()}", f"cmux-app-{opts.tag}.sock")
+
+
+def tab_count():
+    try:
+        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        conn.settimeout(30)
+        conn.connect(daemon_socket())
+        conn.sendall((json.dumps({"id": 1, "cmd": "list-workspaces"}) + "\n").encode())
+        buf = b""
+        while not buf.endswith(b"\n"):
+            chunk = conn.recv(1 << 22)
+            if not chunk:
+                break
+            buf += chunk
+        conn.close()
+        data = json.loads(buf).get("data") or {}
+        return sum(len(p.get("tabs") or []) for e in data.get("workspaces") or [] for s in e.get("screens") or []
+                   for p in s.get("panes") or [])
+    except (OSError, ValueError):
+        surfaces = rpc("debug.surfaces")
+        items = surfaces.get("surfaces") if isinstance(surfaces, dict) else None
+        return len(items) if isinstance(items, list) else None
+
+
+def terminal_text():
+    reply = rpc("surface.read_text")
+    return reply.get("text", "") if isinstance(reply, dict) else ""
+
+
+if os.path.exists(SOCKET):
+    os.unlink(SOCKET)
+config = os.path.join(opts.out, "cmux.json")
+with open(config, "w") as f:
+    f.write("{}\n")
+env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
+       "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
+       "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": config, "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1300,860",
+       "CMUX_IN_TREE_PAGES": "1" if opts.in_tree == "on" else "0"}
+log = open(os.path.join(opts.out, "app.log"), "a")
+app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+RAW["pid"] = app.pid
+try:
+    if not wait(lambda: os.path.exists(SOCKET) and "error" not in (rpc("debug.windows") or {"error": 1}), 120, 0.5):
+        row(False, "launch", "the debug socket never answered")
+        raise SystemExit
+    time.sleep(2)  # test harness: the first terminal attaches
+    terminal_tab = (rpc("debug.focus") or {})
+    RAW["focus_at_launch"] = terminal_tab
+    opened = action("openBrowser.chromium", {"url": URL})
+    RAW["open"] = opened
+    ready = wait(lambda: (lambda r: r if r.get("value") is True else None)(page_eval("document.readyState === 'complete' && !!window.startSteal")), 60, 0.5)
+    page_tab = ready.get("tab") if ready else None
+    RAW["page_tab"] = page_tab
+    if not page_tab:
+        row(False, "page", {"open": opened, "cef": rpc("debug.cef")})
+        raise SystemExit
+    # Terminal on the left, page on the right: split the page's pane and put a terminal in the new pane.
+    RAW["split"] = action("splitRight")
+    time.sleep(1.5)  # test harness: the new pane's terminal attaches
+    focus_after_split = rpc("debug.focus")
+    RAW["focus_after_split"] = focus_after_split
+
+    status = (rpc("debug.cef") or {}).get("in_tree")
+    if "mode" in CHECKS:
+        row(status == "on" if opts.in_tree == "on" else status in ("off", None), "mode", {"asked": opts.in_tree, "in_tree": status})
+
+    if "census" in CHECKS:
+        first = census("loaded")
+        time.sleep(opts.idle)
+        second = census("idle")
+        pw1, pw2 = first["per_window"], second["per_window"]
+        no_page_windows = all(w["content_child_windows"] == 0 for w in pw2)
+        no_violations = all(not w["violations"] for w in pw2)
+        flat = [(a["reorders"], b["reorders"], a["divider_catcher_updates"], b["divider_catcher_updates"]) for a, b in zip(pw1, pw2)]
+        flat_ok = all(r1 == r2 and d1 == d2 for r1, r2, d1, d2 in flat)
+        if opts.in_tree == "on":
+            browsers = [b for w in pw2 for b in w["browsers"] if b.get("engine") is not None]
+            in_tree_pages = bool(browsers) and all(b.get("presentation") == "in_tree" and b.get("widget_drawing") == 0 for b in browsers)
+            listed = sum(w["page_views"] for w in pw2) >= len(browsers) > 0
+            no_panel = all(w["overlay_panel"] is None for w in pw2)
+            row(no_page_windows and no_violations and in_tree_pages and listed and no_panel and flat_ok, "census",
+                {"idle": second, "flat(reorders,catcher)": flat})
+        else:
+            row("INFO", "census", {"idle": second, "flat(reorders,catcher)": flat})
+            row(no_violations and flat_ok, "census.flat", {"violations": [w["violations"] for w in pw2], "flat": flat})
+
+    if "focus" in CHECKS:
+        # The new pane (the terminal) has the keyboard after the split; the page starts stealing.
+        RAW["steal_start"] = page_eval("window.startSteal()", page_tab)
+        time.sleep(0.5)  # test harness: the page's timer runs a few times before the first key
+        before = terminal_text()
+        focus_before = rpc("debug.focus")
+        replies = []
+        for ch in MARKER:
+            replies.append(rpc("debug.key", {"key": ch}))
+            time.sleep(0.02)  # test harness: the page's 20 ms timer interleaves with the keys
+        arrived = wait(lambda: MARKER in terminal_text(), 5, 0.2)
+        steals = page_eval("window.stopSteal()", page_tab).get("value")
+        page_keys = page_eval("JSON.stringify(window.__keys)", page_tab).get("value")
+        after = terminal_text()
+        focus_after = rpc("debug.focus")
+        RAW["focus_check"] = {"focus_before": focus_before, "focus_after": focus_after, "key_replies": replies[:3]}
+        tail = after[-400:]
+        row(bool(arrived) and page_keys in ("[]", None), "focus.marker",
+            {"marker_whole_in_terminal": bool(arrived), "page_steal_calls": steals, "page_keys": page_keys,
+             "terminal_tail": tail.replace(before[-200:], "")[-160:]})
+        rpc("debug.key", {"key": "u", "modifiers": ["control"]})
+
+    if "shortcuts" in CHECKS:
+        # Focus the page: its tab, then a click in its field (debug.mouse into the page's pane is not needed: tab.focus
+        # with focus makes the page the first responder, and field.focus() puts the caret in the field).
+        RAW["page_focus"] = action("tab.focus", target=f"tab:{page_tab}")
+        page_eval("document.getElementById('field').focus(); true", page_tab)
+        time.sleep(0.4)  # test harness: focus lands
+        focus = rpc("debug.focus")
+        has_focus = page_eval("document.hasFocus()", page_tab).get("value")
+        RAW["shortcut_focus"] = focus
+        row("INFO", "shortcuts.page_focus", {"document_hasFocus": has_focus, "debug.focus": json.dumps(focus)[:300]})
+        dry = {}
+        for name, args in (("cmd-t", {"key": "t", "modifiers": ["command"]}), ("cmd-w", {"key": "w", "modifiers": ["command"]}),
+                           ("cmd-d", {"key": "d", "modifiers": ["command"]}), ("cmd-shift-p", {"key": "P", "modifiers": ["command"]})):
+            dry[name] = rpc("debug.key", dict(args, dry_run=True))
+        RAW["shortcut_dry"] = dry
+        claimed = {k: (v or {}).get("action") or (v or {}).get("decision") or v for k, v in dry.items()}
+        row(all(isinstance(v, dict) and (v.get("action") or v.get("handled") or v.get("decision") not in (None, "pass", "passThrough"))
+                for v in dry.values()), "shortcuts.dry_run", claimed)
+        tabs0 = tab_count()
+        rpc("debug.key", {"key": "t", "modifiers": ["command"]})
+        tabs1 = wait(lambda: (lambda n: n if n is not None and tabs0 is not None and n > tabs0 else None)(tab_count()), 8)
+        row(bool(tabs1), "shortcuts.cmd_t", {"tabs_before": tabs0, "tabs_after": tabs1 or tab_count()})
+        if tabs1:
+            rpc("debug.key", {"key": "w", "modifiers": ["command"]})
+            tabs2 = wait(lambda: (lambda n: n if n is not None and n < tabs1 else None)(tab_count()), 8)
+            row(bool(tabs2), "shortcuts.cmd_w", {"tabs_before": tabs1, "tabs_after": tabs2 or tab_count()})
+        # The palette from the page.
+        action("tab.focus", target=f"tab:{page_tab}")
+        page_eval("document.getElementById('field').focus(); true", page_tab)
+        time.sleep(0.3)  # test harness: focus lands
+        opens0 = len((rpc("debug.timings") or {}).get("palette_opens") or [])
+        rpc("debug.key", {"key": "P", "modifiers": ["command"]})
+        opened_palette = wait(lambda: len((rpc("debug.timings") or {}).get("palette_opens") or []) > opens0, 5)
+        row(bool(opened_palette), "shortcuts.palette", {"palette_opens_before": opens0})
+        rpc("debug.key", {"key": "escape", "target": "palette"})
+        time.sleep(0.3)  # test harness: the palette closes
+
+    if "prompts" in CHECKS:
+        def snapshot():
+            return {"dialog": rpc("debug.dialog"), "popups": rpc("debug.popups"),
+                    "window_list": [(w.get("name") or w.get("title"), w.get("layer")) for w in
+                                    ((rpc("debug.window_list") or {}).get("windows") or [])]}
+        for name, script in (("alert", "window.later('alert', () => alert('in-tree alert'))"),
+                             ("confirm", "window.later('confirm', () => confirm('in-tree confirm'))"),
+                             ("prompt", "window.later('prompt', () => prompt('in-tree prompt', 'x'))"),
+                             ("file", "document.getElementById('file').click(); true"),
+                             ("download", "document.getElementById('dl').click(); true")):
+            action("tab.focus", target=f"tab:{page_tab}")
+            base = snapshot()
+            fired = page_eval(script, page_tab)
+            time.sleep(1.5)  # test harness: the prompt shows
+            shown = snapshot()
+            changed = json.dumps(shown, sort_keys=True, default=str) != json.dumps(base, sort_keys=True, default=str)
+            RAW[f"prompt_{name}"] = {"before": base, "after": shown, "fired": fired}
+            row(changed, f"prompts.{name}", {"fired": fired, "after": json.dumps(shown, default=str)[:400]})
+            rpc("debug.key", {"key": "escape"})
+            time.sleep(0.5)  # test harness: the prompt closes
+        RAW["prompt_results"] = page_eval("JSON.stringify(window.__results)", page_tab)
+    RAW["snapshot"] = rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, "window.png")})
+except SystemExit:
+    pass
+finally:
+    try:
+        rpc("debug.quit", timeout=10)
+        app.wait(timeout=15)
+    except Exception:
+        app.send_signal(signal.SIGKILL)
+    server.shutdown()
+failed = [r for r in ROWS if r["verdict"] == "FAIL"]
+report = {"in_tree_requested": opts.in_tree, "rows": ROWS, "failed": len(failed), "raw": RAW}
+with open(opts.json or os.path.join(opts.out, "in-tree-live.json"), "w") as f:
+    json.dump(report, f, indent=1, default=str)
+print(f"in-tree-live-checks: {len(ROWS) - len(failed)} of {len(ROWS)} rows pass (in-tree {opts.in_tree})", flush=True)
+sys.exit(1 if failed else 0)
