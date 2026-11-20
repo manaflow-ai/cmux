@@ -382,14 +382,30 @@ mod tests {
 
     /// Peer `peer`'s session `id`, listed as peers list them: under `peer/id`, named `peer/name`.
     pub(super) fn list(hub: &Hub, peer: &str, id: &str, name: &str, status: &str) {
+        list_with_agent_id(hub, peer, id, name, status, None);
+    }
+
+    fn list_with_agent_id(
+        hub: &Hub,
+        peer: &str,
+        id: &str,
+        name: &str,
+        status: &str,
+        agent_id: Option<&str>,
+    ) {
         let row = RemoteSession {
             peer: peer.into(),
-            summary: json!({"sessionId": id, "name": format!("{peer}/{name}"), "status": status})
-                .into(),
+            summary: json!({
+                "sessionId": id,
+                "name": format!("{peer}/{name}"),
+                "status": status,
+                "agentSessionId": agent_id,
+            })
+            .into(),
             receipt: SessionReceipt {
                 host_id: peer.into(),
                 mux_session_id: id.into(),
-                agent_session_id: None,
+                agent_session_id: agent_id.map(str::to_owned),
                 generation: 1,
             },
         };
@@ -456,6 +472,57 @@ mod tests {
         named(&hub, "0199aaaa").await;
         let e = hub.key_route("0199aaaa").unwrap_err();
         assert_eq!(e.data.unwrap()["choices"].as_array().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn agent_session_id_routes_here_and_on_a_peer() {
+        let hub = test_hub();
+        let local_id = "6e0bad7d-1100-4000-8000-000000000001";
+        let peer_id = "a1b2c3d4-2200-4000-8000-000000000002";
+        let here = named(&hub, "local-review").await;
+        here.meta.lock().unwrap().set_agent_session_id(Some(local_id.to_owned()), "claude");
+        list_with_agent_id(&hub, "hb", "peer-review", "interim-coord", "idle", Some(peer_id));
+
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let peer = crate::peer::Peer::new("hb", "ws://127.0.0.1:9", None, None, tx);
+        hub.peers.lock().unwrap().insert("hb".to_owned(), peer);
+
+        for key in [local_id, "6e0bad", "6E0BAD", "local/6e0bad7d"] {
+            assert_eq!(hub.key_route(key).unwrap().as_deref(), Some(here.id.as_str()), "{key}");
+        }
+        for key in [peer_id, "a1b2c3d4", "hb/a1b2c3d4", "hb/a1b2c3d4-2200-4000-8000-000000000002"] {
+            assert_eq!(hub.key_route(key).unwrap().as_deref(), Some("hb/peer-review"), "{key}");
+        }
+        assert_eq!(hub.key_route("6e0ba").unwrap(), None);
+        assert_eq!(hub.key_route("hb/6e0bad").unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn agent_session_id_prefix_refuses_a_tie_and_keeps_exact_routes() {
+        let hub = test_hub();
+        let here = named(&hub, "local-review").await;
+        here.meta.lock().unwrap().set_agent_session_id(
+            Some("6e0bad7d-1100-4000-8000-000000000001".to_owned()),
+            "claude",
+        );
+        list_with_agent_id(
+            &hub,
+            "hb",
+            "peer-review",
+            "interim-coord",
+            "idle",
+            Some("6e0bad7e-2200-4000-8000-000000000002"),
+        );
+
+        let e = hub.key_route("6e0bad").unwrap_err();
+        assert_eq!(e.data.as_ref().unwrap()["reason"], AMBIGUOUS);
+        assert_eq!(e.data.unwrap()["choices"].as_array().unwrap().len(), 2);
+        assert!(e.message.contains("hb/interim-coord"), "{}", e.message);
+        assert!(e.message.contains("/local-review"), "{}", e.message);
+        assert_eq!(hub.key_route("hb/6e0bad").unwrap().as_deref(), Some("hb/peer-review"));
+
+        let named = named(&hub, "6e0bad").await;
+        assert_eq!(hub.key_route("6e0bad").unwrap().as_deref(), Some(named.id.as_str()));
     }
 
     /// A sub-session's short name is the last tier, on every host: one is routed, two tie with
