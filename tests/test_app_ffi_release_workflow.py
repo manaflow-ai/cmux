@@ -1663,7 +1663,7 @@ class BuildRescueToBlacksmith(unittest.TestCase):
         self.assertEqual(verdict, m.RESCUE)
         self.assertEqual(posts, [
             ("POST", "repos/manaflow-ai/cmux/actions/workflows/app-ffi-release.yml/dispatches",
-             {"ref": "feat-cmux-next", "inputs": {"rescue": "blacksmith", "rescue_pool": "", "rescue_tried": ""}}),
+             {"ref": "feat-cmux-next", "inputs": {"rescue": "blacksmith", "rescue_pool": "", "rescue_tried": "blacksmith"}}),
             ("POST", "repos/manaflow-ai/cmux/actions/runs/7/cancel", None)])
 
     def test_a_build_that_got_a_runner_or_a_switch_off_with_no_other_owned_pool_rescues_nothing(self):
@@ -1749,18 +1749,18 @@ class BuildRescueNeverToAnOffOrDeadBlacksmith(unittest.TestCase):
                 verdict, posts = self.watch(switch, self.FFI_POOL)
                 self.assertEqual(verdict, m.RESCUE)
                 self.assertEqual(posts[0][2], {"ref": "feat-cmux-next", "inputs": {
-                    "rescue": "owned", "rescue_pool": "promote", "rescue_tried": self.FFI_POOL}})
+                    "rescue": "owned", "rescue_pool": "promote", "rescue_tried": "ffi-pool,promote"}})
                 self.assertEqual(posts[1], ("POST", "repos/manaflow-ai/cmux/actions/runs/7/cancel", None))
         # The pool the build sat on is never the rescue's pool.
         self.assertEqual(self.watch("", self.PROMOTE)[1][0][2]["inputs"],
-                         {"rescue": "owned", "rescue_pool": "ffi-pool", "rescue_tried": self.PROMOTE})
+                         {"rescue": "owned", "rescue_pool": "ffi-pool", "rescue_tried": "ffi-pool,promote"})
 
     def test_switch_on_names_the_owned_pool_its_rescued_run_falls_back_to(self):
         m = self.rescue_module
         verdict, posts = self.watch("pr-rescue", self.FFI_POOL)
         self.assertEqual(verdict, m.RESCUE)
         self.assertEqual(posts[0][2]["inputs"], {"rescue": "blacksmith", "rescue_pool": "promote",
-                                                 "rescue_tried": self.FFI_POOL})
+                                                 "rescue_tried": "ffi-pool,promote"})
 
     def rescue_runs(self, switch: str, rescue: str = "") -> bool:
         job = self.workflow["jobs"]["rescue"]
@@ -1785,7 +1785,8 @@ class BuildRescueAgainToAnUntriedPool(unittest.TestCase):
     its rescue picked; it sat there 110 min with no runner and was cancelled at 14:04Z, while a push run's build got
     another owned Mac in 15 s. A rescued run never rescued again, so nothing moved it, and the app FFI pin passed its
     120 min bound (goal fix-running-ffi-pin). A rescued run now rescues again, to an owned pool no build of its chain
-    has sat on (`rescue_tried`), and leaves the build queued once every owned pool is tried."""
+    has named (`rescue_tried`, pool keys), never Blacksmith again, and leaves the build queued once every owned
+    pool is tried: at most three dispatches in a chain."""
 
     SIDE = "glaeda-side-std-xcode-26.6"
     FFI_POOL = "glaeda-promote-trusted-light-xcode-26.6"
@@ -1801,7 +1802,7 @@ class BuildRescueAgainToAnUntriedPool(unittest.TestCase):
 
         def api(method, path, token, body=None):
             calls.append((method, path, body))
-            return {"jobs": [{"name": m.BUILD_JOB, "status": "queued", "labels": [stuck_on]}]} \
+            return {"jobs": [{"name": m.BUILD_JOB, "status": "queued", "labels": [stuck_on] if stuck_on else []}]} \
                 if method == "GET" else None
 
         def sleep(seconds):
@@ -1816,27 +1817,47 @@ class BuildRescueAgainToAnUntriedPool(unittest.TestCase):
 
     def test_a_rescued_build_stuck_on_its_rescue_pool_moves_to_an_untried_pool(self):
         m = self.rescue_module
-        # The 2026-11-20 chain: the first build sat on the FFI pool, its rescue's build on the side label.
-        for switch, route in (("", "owned"), ("pr-rescue", "blacksmith")):
+        # The 2026-11-20 chain: the first build sat on the FFI pool, its rescue sent the build to the side pool.
+        for switch in ("", "pr-rescue"):
             with self.subTest(switch=switch):
-                verdict, posts = self.watch(switch, self.SIDE, self.FFI_POOL)
+                verdict, posts = self.watch(switch, self.SIDE, "ffi-pool,side")
                 self.assertEqual(verdict, m.RESCUE)
+                # A rescued run's rescue is always an owned one: Blacksmith first would win over rescue_pool again.
                 self.assertEqual(posts[0][2], {"ref": "feat-cmux-next", "inputs": {
-                    "rescue": route, "rescue_pool": "promote", "rescue_tried": f"{self.FFI_POOL},{self.SIDE}"}})
+                    "rescue": "owned", "rescue_pool": "promote", "rescue_tried": "ffi-pool,promote,side"}})
                 self.assertEqual(posts[1], ("POST", "repos/manaflow-ai/cmux/actions/runs/7/cancel", None))
 
     def test_every_owned_pool_tried_leaves_the_build_queued(self):
         m = self.rescue_module
+        # The side pool's build can ask for labels other than CI_SIDE_LANE_RUNNER (CI_SIDE_LANE_LABELS): the chain
+        # records the pool it sent the build to, not the labels, so that pool still counts as tried.
         for switch in ("", "on", "pr-rescue"):
-            with self.subTest(switch=switch):
-                self.assertEqual(self.watch(switch, self.PROMOTE, f"{self.FFI_POOL},{self.SIDE}"), (m.WAIT, []))
+            for stuck in (self.PROMOTE, "glaeda-side-xcode-26.6", "blacksmith-6vcpu-macos-26"):
+                with self.subTest(switch=switch, stuck=stuck):
+                    self.assertEqual(self.watch(switch, stuck, "ffi-pool,promote,side"), (m.WAIT, []))
+
+    def test_a_blacksmith_rescue_that_waits_again_moves_to_an_owned_pool_and_the_chain_ends(self):
+        m = self.rescue_module
+        # Rescue 1 (switch on): rescue=blacksmith, falling back to promote; the chain records both pools it named.
+        verdict, posts = self.watch("pr-rescue", self.FFI_POOL, "")
+        self.assertEqual(posts[0][2]["inputs"], {"rescue": "blacksmith", "rescue_pool": "promote",
+                                                 "rescue_tried": "ffi-pool,promote"})
+        # Rescue 2: its build waited on a Blacksmith label; never Blacksmith again, the last owned pool.
+        verdict, posts = self.watch("pr-rescue", "blacksmith-6vcpu-macos-26", "ffi-pool,promote")
+        self.assertEqual(posts[0][2]["inputs"], {"rescue": "owned", "rescue_pool": "side",
+                                                 "rescue_tried": "ffi-pool,promote,side"})
+        # Rescue 3: nothing left; at most three dispatches in a chain.
+        self.assertEqual(self.watch("pr-rescue", self.SIDE, "ffi-pool,promote,side"), (m.WAIT, []))
 
     def test_a_first_rescue_starts_the_tried_list(self):
         m = self.rescue_module
         verdict, posts = self.watch("", self.FFI_POOL, "")
         self.assertEqual(verdict, m.RESCUE)
         self.assertEqual(posts[0][2]["inputs"], {"rescue": "owned", "rescue_pool": "promote",
-                                                 "rescue_tried": self.FFI_POOL})
+                                                 "rescue_tried": "ffi-pool,promote"})
+        # A first build whose job lists no labels still starts a chain the rescued run can continue.
+        verdict, posts = self.watch("", "", "")
+        self.assertEqual(posts[0][2]["inputs"]["rescue_tried"], "ffi-pool")
 
     def rescue_runs(self, rescue: str, tried: str) -> bool:
         job = self.workflow["jobs"]["rescue"]
@@ -1847,7 +1868,7 @@ class BuildRescueAgainToAnUntriedPool(unittest.TestCase):
     def test_the_watch_runs_in_a_rescued_run_that_carries_its_tried_labels(self):
         self.assertTrue(self.rescue_runs("", ""))
         for rescue in ("blacksmith", "owned"):
-            self.assertTrue(self.rescue_runs(rescue, self.FFI_POOL), rescue)
+            self.assertTrue(self.rescue_runs(rescue, "ffi-pool"), rescue)
             # A rescued run from before rescue_tried existed still never rescues.
             self.assertFalse(self.rescue_runs(rescue, ""), rescue)
         inputs = self.workflow[True]["workflow_dispatch"]["inputs"]
