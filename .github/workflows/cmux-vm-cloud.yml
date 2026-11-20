@@ -11,8 +11,11 @@ permissions:
   contents: read
 concurrency:
   group: vm-api-cloud-${{ github.event.pull_request.number || github.ref }}
-  # A newer push to a pull request supersedes its check; branch pushes still finish.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # A newer push supersedes the check of an older one, on a pull request or a
+  # pushed branch: a superseded branch run queued with no runner held this group
+  # and left the branch head's run pending (2026-11-20). main and feat-cmux-next
+  # pushes still finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next') }}
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh

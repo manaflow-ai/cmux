@@ -44,7 +44,9 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # These jobs only check, so a newer push cancels an older one's run on a pull
+  # request or a codex/vm-api-* branch; main and feat-cmux-next pushes finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next') }}
 
 permissions:
   contents: read

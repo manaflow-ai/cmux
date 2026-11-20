@@ -15,7 +15,9 @@ permissions:
 
 concurrency:
   group: cmux-codecs-windows-bench-${{ github.ref }}
-  cancel-in-progress: false
+  # Only the newest push's bench rows are read, so a newer push cancels an
+  # older one's run on its lane branch. A dispatch finishes.
+  cancel-in-progress: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' }}
 
 jobs:
   bench:
