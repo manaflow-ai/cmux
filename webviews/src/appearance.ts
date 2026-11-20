@@ -1,3 +1,4 @@
+import { DESKTOP_LEVELS, parseComputedColor, type RGBA } from "./backdrop";
 import { applyDiffTints } from "./diffWeight";
 import { contrastBetween, mixColors, withMinimumContrast } from "./syntax-colors";
 import { pageSyntaxVariable, syntaxRoleColors, type SyntaxRoleName } from "./syntax-theme";
@@ -62,7 +63,11 @@ const defaultDarkTheme: DiffViewerTheme = {
   type: "dark",
 };
 
-type HostThemeWindow = Window & { cmuxTheme?: { current?: { terminal?: HostTerminalTheme } | null } };
+type HostThemeWindow = Window & {
+  cmuxTheme?: {
+    current?: { terminal?: HostTerminalTheme; variables?: Record<string, string>; colorScheme?: string } | null;
+  };
+};
 type HostTerminalTheme = {
   type?: string;
   background?: string;
@@ -259,11 +264,41 @@ export function syntaxContrastBackground(theme: DiffViewerTheme, type: "light" |
   return type === "light" ? "#ffffff" : "#000000";
 }
 
-/** Each code role's color for a terminal theme (syntax-theme.ts), on its own background. */
+/**
+ * What code is drawn on in a scheme: the opaque theme background, or, while the host's window is
+ * see-through in that scheme (`--cmux-surface-background` not opaque, WebTheme.swift), the window's
+ * tint (`--cmux-window-tint`) over every desktop from black to white. A see-through page paints no
+ * ground, so code sits on the tint over a picture or the desktop, which the page cannot see; code
+ * colors measured on the opaque theme color alone read 1.2:1 there (fleet capture of b9491fe7, the
+ * default dark theme over a picture: keywords, comments and function names).
+ */
+export function syntaxBackdrops(theme: DiffViewerTheme, type: "light" | "dark"): string[] {
+  const opaque = syntaxContrastBackground(theme, type);
+  const tint = seeThroughTint(type);
+  if (!tint) return [opaque];
+  return DESKTOP_LEVELS.map((level) => {
+    const channel = (value: number) => Math.round(value * tint.a + level * 255 * (1 - tint.a));
+    return `#${[tint.r, tint.g, tint.b].map((value) => channel(value).toString(16).padStart(2, "0")).join("")}`;
+  });
+}
+
+/** The tint of the host's window while it is see-through in `type`'s scheme, else null. */
+function seeThroughTint(type: "light" | "dark"): RGBA | null {
+  if (typeof window === "undefined") return null;
+  const current = (window as HostThemeWindow).cmuxTheme?.current;
+  const variables = current?.variables;
+  if (!variables || current?.colorScheme !== type) return null;
+  const page = parseComputedColor(variables["--cmux-surface-background"] ?? "");
+  if (!page || page.a >= 1) return null;
+  const tint = parseComputedColor(variables["--cmux-window-tint"] ?? "");
+  return tint ?? { r: 0, g: 0, b: 0, a: 0 };
+}
+
+/** Each code role's color for a terminal theme (syntax-theme.ts), on what it is drawn on (`syntaxBackdrops`). */
 export function syntaxColorsFor(theme: DiffViewerTheme, type: "light" | "dark") {
   const background = syntaxContrastBackground(theme, type);
   const foreground = readableColor(theme.foreground, background, type === "light" ? "#000000" : "#ffffff");
-  return syntaxRoleColors(theme.palette ?? {}, type, background, foreground);
+  return syntaxRoleColors(theme.palette ?? {}, type, syntaxBackdrops(theme, type), foreground);
 }
 
 export function appearanceBackgroundColor(_color: unknown, _appearance?: DiffViewerAppearance) {
