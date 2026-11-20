@@ -43,7 +43,7 @@ same head has a real compile pass (a green Mac Release compile or a cmux-next/co
 lines are compared with commit shas masked, so a real red that names each run's own commit still matches.
 
 No failure is exit 0: asked about no red run or check (or about a green ws-check), it prints why and exits 0. A
-red run or check it was named that shows no failed job is still refused (2026-11-05: merge_hold asks it about
+red run or check it was named that shows no failed job is still refused (2026-11-05: land-judge asks it about
 every merge, and a green head read as exit 1).
 
 Every run is bounded: past DEADLINE_SECONDS of wall clock (BASE_RED_EXCUSE_DEADLINE_SECONDS) it stops and refuses as
@@ -141,7 +141,7 @@ def json_shape(route: str, found, *, paginate: bool = False, none: bool = False)
     NONE lets a None through (a test fake's empty answer). Anything else is Refused as unread, naming the first
     SHAPE_CHARS characters of what came back, so no reader below calls `.get` on it. While the REST quota was spent
     a read of a workflow's runs came back as a str, and list_base_runs' `listed.get("workflow_runs")` raised
-    AttributeError, a traceback merge_hold showed as the refusal (cmux#39676 at 9be3f014, 2026-11-10)."""
+    AttributeError, a traceback land-judge showed as the refusal (cmux#39676 at 9be3f014, 2026-11-10)."""
     for page in found if paginate and isinstance(found, list) else [found]:
         if not (isinstance(page, (dict, list)) or (none and page is None)):
             raise Refused(f"GitHub's answer to {route} could not be read: {str(page)[:SHAPE_CHARS]}")
@@ -338,7 +338,7 @@ def escape_flag_unknown(stderr: str) -> bool:
 
 
 # Settled reads (2026-11-17): GitHub answers that can no longer change are read once per host and kept, so a merge
-# check run again after a quota refusal reads none of them again. merge_hold refused cmux#45097 at 6aa5d9938d5f five
+# check run again after a quota refusal reads none of them again. land-judge refused cmux#45097 at 6aa5d9938d5f five
 # times with "[quota: not judged, retry]" while it read "ok: may merge": each run re-read the same finished head and
 # base runs over the shared login's REST, which other callers spent within minutes of each reset. Kept (in
 # jobs_cache(), so BASE_RED_EXCUSE_JOBS_CACHE=off turns it off): a completed job (a re-run is a new job id), a commit, a
@@ -482,11 +482,11 @@ def settle(route: str, found) -> None:
             settled_put(route, found, state)
 
 # Conditional CI reads. Every judgement is a new process, and every landing check of a head judges its reds again: on
-# 2026-11-17 (2 h to 12:58Z on cosmic-gray) this script spent 673 REST under merge_hold, 402 of them a run's jobs and
+# 2026-11-17 (2 h to 12:58Z on cosmic-gray) this script spent 673 REST under land-judge, 402 of them a run's jobs and
 # 133 of those the exact page read again, mostly base runs that finished long before. When the caller names a folder in
-# BASE_RED_EXCUSE_ETAGS (merge_hold names its own, teamleaderleo/leo-workspace tools/merge_hold.py ci_etags_root), a
+# BASE_RED_EXCUSE_ETAGS (land-judge names its own, teamleaderleo/leo-workspace tools/land_judge/engine.py ci_etags_root), a
 # run's jobs, a run, a workflow's runs and a commit's check runs and statuses are read with the ETag of the answer kept
-# there for the same route and --jq (gh_conditional's file format and names, so merge_hold's reads and these share one
+# there for the same route and --jq (gh_conditional's file format and names, so land-judge's reads and these share one
 # store), and GitHub answers an unchanged one 304, which costs no quota. A 304 is GitHub's word that the answer is the
 # same, so every judgement reads exactly what a plain read gives. Anything but a 200 or a 304 (a wrapper refusing the
 # conditional form, an error, a timeout) is the plain read, as before; with no folder named, every read is plain.
@@ -1342,7 +1342,7 @@ def _needs(jobs: dict, job_id: str, where: str) -> list[str]:
 
 
 # PyYAML 6.0.3's pure-Python lib/yaml, unmodified (sdist sha256 d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f,
-# MIT, its LICENSE beside it): the YAML reader where the interpreter has no PyYAML. merge_hold runs this script as
+# MIT, its LICENSE beside it): the YAML reader where the interpreter has no PyYAML. land-judge runs this script as
 # `python3 -I` under Homebrew's Python on the Mac that lands PRs, which has none, and every cmuxterm-hq rollup red
 # was refused there with "no YAML parser" (2026-11-07, hq#7398).
 VENDORED_YAML = Path(__file__).resolve().with_name("_vendor")
@@ -3482,9 +3482,13 @@ def validate_guard_routes(repo: str, sha: str, guard: dict, children: list[dict]
         raise Refused(f"'{name}': no routed failure report to compare with its children")
 
 
-def validate_run_rollup(name: str, children: list[dict], repo: str = HOME_REPO) -> None:
+def validate_run_rollup(name: str, children: list[dict], repo: str = HOME_REPO, rollup: dict | None = None) -> None:
     """Run rollup NAME (ci-status), red, needs a failed job under it (its needs, ROLLUPS_FILE): a red run whose only
     failed jobs are outside them did not turn it red, so its own verdict did, and nothing here can compare that."""
+    if rollup is not None and refused_at_setup(rollup):
+        # A runner that refused the rollup itself (a pool job hook, run 44690650796) is not "no failed job under its
+        # needs": that sent readers hunting for a missing child (claude-sr2-coord, 2026-11-20).
+        raise Refused(f"'{name}' was refused at setup: re-run")
     under = rollups(repo)["run"][name]["under"]
     if not any(child.get("conclusion") == "failure" and any(matches(m, child.get("name", "")) for m in under.values())
                for child in children):
@@ -3497,7 +3501,7 @@ def validate_run_rollup(name: str, children: list[dict], repo: str = HOME_REPO) 
 # head", even when the base failed the same tests. The status is judged by the job that gave it: the job of the
 # same name without the " (same-tree)" suffix, in the run its target_url links (else the newest run that tested
 # the head and has that job). It is then compared per test like any job; a run that cannot be found is refused.
-# Once excused, its audit line names the status context too (cmux#37038 at 1f4963c0): merge_hold covers each red
+# Once excused, its audit line names the status context too (cmux#37038 at 1f4963c0): land-judge covers each red
 # at the head only by a line naming it, and named only the job, it refused 'cmux-next daemon tests (same-tree)'.
 SAME_TREE_SUFFIX = " (same-tree)"
 # cmux-next-fast-gates.yml's status: the PR head merged with the base named in its description (`base <sha>`). A
@@ -3998,7 +4002,7 @@ def last_real_jobs(repo: str, run: int, github) -> list[dict]:
 # runs or jobs in ten minutes, and this script read one job list per run it looked in. A status with no run link
 # ('next-autoland / verdict') read the job list of every run that tested the head, 32 of them, looking for a job of its
 # name; a base red read a job list per base run until one had a verdict for it, up to BASE_JOB_READS per workflow, most
-# of them runs that skipped or cancelled the job. merge_hold asks about every red of a head in one call, so a head with
+# of them runs that skipped or cancelled the job. land-judge asks about every red of a head in one call, so a head with
 # a few reds was refused partway through its reads. Now which runs hold a job of a name is asked of their check suites
 # over GraphQL, SUITES_PER_QUERY suites a request: every Actions job is a check run of its run's suite under the same
 # name, one per attempt. A run is read only when its suite can answer: for a base verdict, a check run of the name
@@ -4195,7 +4199,7 @@ def base_run_jobs(repo: str, run: dict, github) -> list[dict]:
 # reads a head ("superseded: ... cancelled (not counted)"). cmux#36965 at 004465b3: run 42179149655's 'risk evidence'
 # was cancelled by concurrency while run 42179187468 of the same workflow passed it, and the cancelled one refused the
 # merge as a red with no verdict. Only a cancelled (or stale) job is passed over, and only for a newer run of the same
-# workflow on the same head: a failure is a verdict and stays red whatever a later run says (merge_hold's
+# workflow on the same head: a failure is a verdict and stays red whatever a later run says (land-judge's
 # _superseded_cancels, router-review F1 at 241b0da0).
 SUPERSEDABLE = ("cancelled", "stale")
 VERDICT_REDS = ("failure", "timed_out")  # a verdict whatever a later run says (superseding_run)
@@ -4601,7 +4605,7 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                 raise Refused(f"run {run}: its aggregate check failed with no failed job to compare with the base")
             validate_guard_routes(repo, sha, guard, children, github)
         for rollup in run_rollups:
-            validate_run_rollup(rollup["name"], children, repo)
+            validate_run_rollup(rollup["name"], children, repo, rollup)
     if checks:
         latest = latest_checks(repo, sha, github)
         aggregate_jobs = []
@@ -4632,7 +4636,7 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                 if job.get("conclusion") != "failure":
                     raise Refused(f"'{name}': exact aggregate job is {job.get('conclusion')}, not failure")
                 if name in rollups(repo)["run"]:
-                    aggregate_runs.append((name, job["run_id"]))
+                    aggregate_runs.append((name, job))
                     continue
                 aggregate_jobs.append(job)
             else:
@@ -4655,11 +4659,14 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                         continue
                     job = job_for(repo, newer, sha, github)
                 jobs[job["id"]] = job
-        for name, run in aggregate_runs:
+        for name, rollup in aggregate_runs:
+            if refused_at_setup(rollup):
+                raise Refused(f"'{name}' was refused at setup: re-run")
+            run = rollup["run_id"]
             found = head_jobs(repo, sha, [run], [], github, ignored=ignored, seen=seen)
             if not found:
                 raise Refused(f"run {run}: its aggregate check failed with no failed job to compare with the base")
-            validate_run_rollup(name, found, repo)
+            validate_run_rollup(name, found, repo, rollup)
             jobs.update((job["id"], job) for job in found)
         for guard in aggregate_jobs:
             found = head_jobs(repo, sha, [guard["run_id"]], [], github, ignored=ignored, seen=seen)
@@ -4758,7 +4765,7 @@ CUT_RETRY_S = 600
 CALL_JOB_READS = 24
 CALL_READS = "call-job-reads"
 SWEEP_GUARD_REFUSED = re.compile(r"glaeda-gh: refused: this caller read the jobs of \d+ different runs or jobs")
-INCOMPLETE = "incomplete: read"  # cut_refusal's words; merge_hold reads them as a timed retry, never a red
+INCOMPLETE = "incomplete: read"  # cut_refusal's words; land-judge reads them as a timed retry, never a red
 JOB_BUDGET = ("job-list-budget",)  # the judgement memo's key for job_budget
 
 
@@ -5068,6 +5075,8 @@ GUARD_WORKFLOWS = {
         "portable-placement": _PLACE,
         "hot-route": _PLACE,
         "ci-guard-group": "judged step by step against the base by its own rule (GUARD_GROUP_JOB)",
+        "release-notary": "skipped on a pull request (its `if:`): it judges a push to the branch on its own "
+                          "(guards_new_reds.py --tip), so no pull request's red is its",
         "rust-notices-tree": _PRODUCT,
         "pr-red-checks": _PUBLISH,
     },
@@ -5177,6 +5186,12 @@ PACKAGE_JOBS = {
                   "cmux-tui/crates/cmux-transport/", "cmux-tui/crates/cmux-wg/",
                   # cmux-mobile-link-ffi depends on cmux-window-rules (#43111)
                   "cmux-tui/crates/cmux-window-rules/", "schemas/remote-tab/",
+                  # cmux-mobile-link and cmux-mobile-host send the dev build's space (cmux-build-space, #43648),
+                  # which reads the bundle rule from cmux-agent-pane-policy; its `testing` feature adds cmux-scope
+                  "cmux-tui/crates/cmux-build-space/", "cmux-tui/crates/cmux-agent-pane-policy/",
+                  "cmux-tui/crates/cmux-scope/", "cmux-tui/crates/cmux-unix-socket/",
+                  # cmux-agent-pane-policy's bundle rule tests read the shared build-identity vectors
+                  "schemas/build-identity/",
                   # cmux-wg's smoltcp is the vendored copy ([patch.crates-io] in cmux-next-ios/rust)
                   "cmux-tui/vendor/smoltcp/",
                   # cmux-mobile-host's tests read the Mac's lane policy to keep the two in step
@@ -5598,7 +5613,7 @@ def fixed_on_base(repo: str, base: str, sha: str, name: str, head: "FailedView |
 # merge base, not an older run. Only the failing step is judged. Any other red step in the head job keeps it not
 # excused." A red is keyed by (workflow, job, step), never its check name alone: a job name red in two workflows at
 # the head is unknown. Only judge(purpose=PER_STEP_PURPOSE) reads it: update_branch's base merge, which only reruns
-# CI; a land (merge_hold, no purpose or "land") never does (#41117's review F1). When the job-level reads above do
+# CI; a land (land-judge, no purpose or "land") never does (#41117's review F1). When the job-level reads above do
 # not excuse a red, it is excused as fixed on base only when:
 #   (a) every failing step of the head job is a step it names exactly once, on the head and on the base: a step whose
 #       jobs-API conclusion is not success or skipped, or a continue-on-error check (the jobs API calls it a success)
@@ -5624,7 +5639,7 @@ def fixed_on_base(repo: str, base: str, sha: str, name: str, head: "FailedView |
 # them read from its log's own rollup list (rollup_log_reds) instead: a job a re-run attempt carries over without
 # running it again gets a new check run with none of its annotations (cmux#40552's job 130212680188, run attempt 2:
 # its annotations stayed on attempt 1's check run 130107053043), and its log, that same run's, still prints them. The line keeps fixed_on_base's prefix, "excused 'JOB': fixed on
-# base (", which merge_hold's actions_verdict and the lane broker's update_branch guard read, once per red job, and
+# base (", which land-judge's actions_verdict and the lane broker's update_branch guard read, once per red job, and
 # names inside it the red's identity (`run RUN / JOB`: its head Actions run and job), its job id and workflow file,
 # each step and both base runs.
 ROLLUP_STEPS = frozenset({FFI_PIN_ROLLUP_STEP})  # a job's last step that fails for its continue-on-error checks
@@ -5640,7 +5655,7 @@ EXIT_ANNOTATION = re.compile(r"^Process completed with exit code \d+\.?$")
 # one 12,000-character line of `x.x` (PrLogPatternsScale).
 COMPILE_ERROR = re.compile(r"(?<![^\s:'\"])([^\s:'\"]*[\w.+-]\.[A-Za-z]\w*):(\d+)(?::\d+)?: (?:fatal )?error: (.+)$")
 # The per-step reading is for one caller only: update_branch's choice to merge the base in, which only makes CI run
-# again. A land (merge_hold's classifier_refusal, actions_verdict) never gets it (#41117's review F1).
+# again. A land (land-judge's classifier_refusal, actions_verdict) never gets it (#41117's review F1).
 PER_STEP_PURPOSE = "update-branch"
 PURPOSES = ("land", PER_STEP_PURPOSE)
 STEP_PRIOR_RUNS = 30  # base runs listed at or before the merge-base's commit time
@@ -5989,7 +6004,7 @@ def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, 
 # shows it. The reviewer's rule: "when the same check name is green at the base tip, and the PR's failing run is older
 # than that green run, count it as fixed on base for the base merge." It reads no job list, so a job no declaration
 # has caught up with still gets its base merge. Only judge(purpose=PER_STEP_PURPOSE) reads it: a base merge reruns
-# CI, so a red of the PR's own comes back on the merged head. A land (merge_hold, no purpose or "land") never gets it:
+# CI, so a red of the PR's own comes back on the merged head. A land (land-judge, no purpose or "land") never gets it:
 # a green base says nothing about whether this head's red is its own. The base verdict is the newest one for the job
 # in the head run's workflow (base_verdicts), a success (not skipped or neutral), at or after the merge-base, from a
 # run created after the head's red run.
@@ -6404,7 +6419,7 @@ RERUN_ASK = re.compile(r"\bre-run this check(?:[.;]|$)", re.I)
 # cmux#44387 at cf31af39 (2026-11-16, job 133700254405), whose push-only `re-run the runs that deferred to the
 # published tree` could not list the tree's deferred markers ("gh: API rate limit exceeded for installation ID ...",
 # HTTP 403) on either token. Its base runs were green, so it was refused "not red on feat-cmux-next ...; fix it on this
-# head", and merge_hold named an update-branch that reruns every check for a quota red. Such a red is Infra too, with
+# head", and land-judge named an update-branch that reruns every check for a quota red. Such a red is Infra too, with
 # or without a base verdict: refused (never excused: the job did not run), named as the re-run it needs. Any other
 # error line beside it, or a failing test, keeps the comparison.
 GITHUB_QUOTA = re.compile(r"\bAPI rate limit exceeded\b|\bsecondary rate limit\b", re.I)
@@ -6844,14 +6859,14 @@ def unittest_failures(section: list[str]) -> list[tuple[str, list[str]]]:
     return found
 
 
-# 2026-11-18: merge_hold refused teamleaderleo/leo-workspace#5992 at aa178907 twice as red_not_excused, "'ws-check' has
+# 2026-11-18: land-judge refused teamleaderleo/leo-workspace#5992 at aa178907 twice as red_not_excused, "'ws-check' has
 # no result: job 'checks' in run 44407040407 is completed/cancelled: no result to read". Since hq#12237 the lane-gh
 # broker moves a ws-check run no Actions runner starts to the build fleet: it cancels the run (its one `checks` job
 # ends cancelled with no steps) and runs the snapshot as a controller job, whose log prints the same WS_CHECK_RESULT
 # and a FAST_CHECKS_RECEIPT naming the cancelled run (hq tools/lane-gh-broker/parts/43-calls-ci-fleet.py). The broker
 # judges and posts the ws-check status from that log, linking the cancelled run, and keeps it beside the run's record
 # in its state folder (ci/JID.json, ci/JID.fleet-log). Read only as GitHub's job, every fleet-route ws-check was "no
-# result", never excusable. A broker land's merge_hold runs on the broker host, so this reads the kept log there:
+# result", never excusable. A broker land's land-judge runs on the broker host, so this reads the kept log there:
 # the record must name this run as the one it moved (fleet.from_run) and this head (cmux#46667, leo-workspace#5376 at
 # b2b09e79: a record of another head's run is never read), be settled done with the status's verdict, and the log's
 # receipt must name the run again (ws_check_verdict). The standby broker's state is read too, after the primary's. Elsewhere, or once the record is pruned (the broker
@@ -7047,14 +7062,14 @@ class FixedOnBase(Refused):
     is)."""
 
 
-# 2026-11-11: merge_hold refused teamleaderleo/leo-workspace#4199 at e31e643a with "not excused: 'ws-check' is green on
+# 2026-11-11: land-judge refused teamleaderleo/leo-workspace#4199 at e31e643a with "not excused: 'ws-check' is green on
 # main e5a6bed1b950, red on e31e643a6b26; not excused 'ws-check' test ...". Its one red, test_knowledge_tiers.py's
 # leo-asks room test, failed the same way at its merge-base e8873054 and was fixed on main by LW#4196; the PR touched
 # only tools/lane-gh. Main's newest verdict was a pass, and nothing past it was read, so a base red main had since fixed
 # read as the PR's own. Now a pass at or after the merge-base reads the merge-base's own verdict: when it failed every
 # test and line the head fails, the verdict is "fixed_on_base", named by the first green base commit after the
 # merge-base (best effort: the oldest green among the WS_CHECK_COMMITS read, back to the merge-base). ws_check_red is
-# the one verdict: merge_hold's message comes from it (judge, through ws_check), and the lane-gh broker's
+# the one verdict: land-judge's message comes from it (judge, through ws_check), and the lane-gh broker's
 # update_branch guard reads it (--ws-check-verdict) to let a SHIP'd PR's base merge through only for "fixed_on_base".
 # Its kinds: "pass" (the head is green), "base_red" (every failure is red on the base too: excused), "fixed_on_base",
 # "head_only" (a failure the base does not show: the head's own red, or a flake the classifier cannot tell from one),
@@ -7310,7 +7325,7 @@ def base_dispatch(repo: str, base: str, run: dict, runs: list[dict], github, now
 # A gallery health shard of a pull request replays its red states on the base it merged with (gallery-health.yml's
 # GALLERY_REPLAY_STEP). When the base itself does not load, the replay dies before it compares and the shard is red
 # with no per-state verdict: 2026-11-07, base d7e68dec's webviews imported 'pillAsks' from JumpPill.tsx after it
-# moved ("SyntaxError: Export named 'pillAsks' not found", job 128448409188), and merge_hold refused cmux#37916, the
+# moved ("SyntaxError: Export named 'pillAsks' not found", job 128448409188), and land-judge refused cmux#37916, the
 # fix itself, as "'health (1)': no failing test or error line to match". Such a shard is judged as its replay would
 # have judged it (test_reds.gallery_classify), against the newest first-parent base commit, at or before the replay's
 # base and within GALLERY_FALLBACK_COMMITS / GALLERY_FALLBACK_HOURS, whose gallery health run gave every shard a whole
@@ -8686,7 +8701,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                     window.append(red(run, found))
                 except BaseUnplaced:
                     pass  # an older verdict not placed adds nothing to compare; the window reads on
-    # A status judged by its job (status_job) is named too, the way merge_hold reads the head's reds: by the
+    # A status judged by its job (status_job) is named too, the way land-judge reads the head's reds: by the
     # status's own context. Every job above was excused or ignored, or judge() raised.
     for job in jobs:
         for context in job.get("status_contexts", ()):
@@ -8715,7 +8730,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--check", action="append", default=[], help="a red required check on the head")
     parser.add_argument("--purpose", choices=PURPOSES,
                         help=f"the caller's: {PER_STEP_PURPOSE} (the lane broker's update_branch guard, whose base merge "
-                             "only reruns CI) may get the per-step reading; land (merge_hold, the default) never does")
+                             "only reruns CI) may get the per-step reading; land (land-judge, the default) never does")
     parser.add_argument("--flake-state", help="tap-tests/v1 JSON; TAP_TESTS_STATE=off disables base-flake quarantine")
     parser.add_argument("--ws-check-verdict", action="store_true",
                         help="print ws_check_red's verdict on the head's ws-check as JSON (the lane-gh broker's "
