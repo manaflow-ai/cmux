@@ -464,12 +464,26 @@ jobs:
           runtimes = json.load(sys.stdin).get("runtimes", [])
           print(", ".join("%s (%s)" % (r.get("name"), r.get("buildversion")) for r in runtimes if r.get("platform") == "iOS" and r.get("isAvailable")) or "none")
           ')"
-              echo "::error::no available iOS 26 simulator runtime on this runner (iOS runtimes: $have)"
+              echo "::error::no usable iOS 26 simulator runtime on this runner (see above; iOS runtimes: $have)"
               exit 1
             fi
             read -r runtime device_type <<< "$choice"
+            # A step killed past its EXIT trap leaves its simulator: delete those first.
+            for stale in $(xcrun simctl list devices -j | python3 -I -c '
+          import json, sys
+          for items in json.load(sys.stdin)["devices"].values():
+              for device in items:
+                  if device["name"].startswith("billing-storekit-"):
+                      print(device["udid"])
+          '); do
+              xcrun simctl shutdown "$stale" >/dev/null 2>&1 || true
+              xcrun simctl delete "$stale" || true
+            done
             udid="$(xcrun simctl create "billing-storekit-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" "$device_type" "$runtime")"
             trap 'xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true; xcrun simctl delete "$udid" || true' EXIT
+            # A cancelled step gets SIGTERM: exit, so the EXIT trap cleans up.
+            trap 'exit 143' TERM
+            trap 'exit 130' INT
             echo "Made simulator $udid ($device_type, $runtime) for this step."
           else
             echo "Using simulator $udid."
