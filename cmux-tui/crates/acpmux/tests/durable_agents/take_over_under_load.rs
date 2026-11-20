@@ -203,17 +203,12 @@ async fn nightly_take_overs_mid_tool_call_keep_agents_and_run_each_queued_prompt
             let echo = format!("echo: {}", queued_text(i, install));
             assert_eq!(count(&|e: &Value| chunk(e, &echo)), 1, "chat {i}: {echo}: {events:#?}");
         }
-        // At the agent: the conversation the first agent ran read the first prompt and each
-        // queued one exactly once, whichever agent process ran it.
-        let conversation = read
-            .iter()
-            .find(|l| l["pid"] == json!(pid) && l["method"] == "session/prompt")
-            .map(|l| l["session"].clone())
-            .unwrap_or_else(|| panic!("chat {i}: its agent never read the first prompt"));
-        let prompts = read
-            .iter()
-            .filter(|l| l["session"] == conversation && l["method"] == "session/prompt")
-            .count();
-        assert_eq!(prompts, 1 + INSTALLS, "chat {i}: its agents read {prompts} prompts");
+        let first = read.iter().any(|l| l["pid"] == json!(pid) && l["method"] == "session/prompt");
+        assert!(first, "chat {i}: its first agent never read the running prompt");
     }
+    // At the agents: the wire log's session ids do not tell the chats apart, so it counts across
+    // them all: the running prompt and every queued one, each read by an agent exactly once,
+    // whichever agent process ran it.
+    let prompts = read.iter().filter(|l| l["method"] == "session/prompt").count();
+    assert_eq!(prompts, CHATS * (1 + INSTALLS), "the agents read {prompts} prompts");
 }
