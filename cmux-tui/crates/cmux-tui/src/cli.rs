@@ -182,6 +182,7 @@ pub(crate) use machine_join::{
     rows_for_devices as joined_machine_rows,
 };
 mod machine_server;
+mod server_remote;
 #[cfg(test)]
 use machine_server::ServerRoute;
 pub(crate) use machine_server::is_lifecycle_scope;
