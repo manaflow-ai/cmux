@@ -92,7 +92,7 @@ extension TabDragSession {
     /// Ends a workspace drag: commits `outcome` (window membership, plus
     /// the daemon order commands of a sidebar slot) and lands the ghost.
     func finishWorkspaces(_ drag: Drag, commit: Bool) {
-        guard case let .workspaces(ids, _) = drag.source.item else { return }
+        guard case let .workspaces(ids, group) = drag.source.item else { return }
         for provider in drag.touched.values { provider.dropEnded(committed: nil) }
         let outcome = commit ? drag.workspaceOutcome : .cancel
         drag.lifecycle.cancel()
@@ -113,7 +113,14 @@ extension TabDragSession {
         case let .window(id, target):
             guard let controller = services.windows.controller(for: id) else { break }
             switch target {
-            case let .position(position): controller.sidebar.accept(workspaceIDs, at: position)
+            case let .position(position):
+                if let group {
+                    guard services.windows.moveWorkspaces(ids, toWindow: id) else { break }
+                    controller.sidebar.sameTurn.syncNow(rows: true)
+                    controller.sidebar.handle(.reorderGroup(GroupID(group), index: position.index))
+                } else {
+                    controller.sidebar.accept(workspaceIDs, at: position)
+                }
             case let .intoGroup(group): controller.sidebar.accept(workspaceIDs, intoGroup: group)
             case .window: controller.sidebar.accept(workspaceIDs, at: nil)
             case let .merge(kind): ids.first.map { WorkspaceMerge.run($0, at: kind, into: controller, drag: drag, session: self) }
