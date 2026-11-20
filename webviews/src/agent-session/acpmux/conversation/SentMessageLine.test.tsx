@@ -9,6 +9,7 @@ import type { AcpmuxActivity } from "../model";
 import { acpmuxSendCall } from "./acpmuxSends";
 import { sendEntries, toolGroups } from "./toolGroups";
 import { AcpmuxSendLine } from "./SentMessageLine";
+import { ToolRows } from "./TurnRows";
 import { configureSentLook } from "./sentMessageLineModel";
 import { configureMessageLineLook } from "./messageLineLook";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
@@ -118,6 +119,26 @@ test("a sent message uses its call date for inline timestamp hover", async () =>
       startedAt: Date.UTC(2026, 10, 19, 10, 30),
       output: "queued",
     }),
+  );
+  await act(async () => toggleOf(rowOf(container)).click());
+  expect(container.querySelector(".cv-received__text time.cv-time-hover")?.getAttribute("datetime")).toBe(
+    "2026-11-19T10:20:00.000Z",
+  );
+});
+
+test("a historical sent message falls back to its stored row date", async () => {
+  const tool = bash("acpmux send --no-wait coord-deputy 'Finished at 10:20 UTC.'", { output: "queued" });
+  const container = await render(
+    <ToolRows
+      row={{
+        id: "historical-send",
+        kind: "activity",
+        version: 1,
+        at: Date.UTC(2026, 10, 19, 10, 30),
+        settled: true,
+        items: [{ kind: "tool", text: tool.title, tool }],
+      }}
+    />,
   );
   await act(async () => toggleOf(rowOf(container)).click());
   expect(container.querySelector(".cv-received__text time.cv-time-hover")?.getAttribute("datetime")).toBe(
