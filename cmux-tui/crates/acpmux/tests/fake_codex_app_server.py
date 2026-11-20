@@ -48,6 +48,10 @@ if os.environ.get("FAKE_CODEX_ARGS"):
 args = sys.argv[1:]
 while len(args) >= 2 and args[0] in ("-c", "--config"):
     args = args[2:]
+if args == ["debug", "models"] and os.environ.get("FAKE_CODEX_PROVIDER"):
+    with open(os.environ["FAKE_CODEX_PROVIDER"]) as catalog:
+        print(catalog.read())
+    sys.exit(0)
 if not args or args[0] != "app-server":
     sys.stderr.write("usage: codex app-server\n")
     sys.exit(2)

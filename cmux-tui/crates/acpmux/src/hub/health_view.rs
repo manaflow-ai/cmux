@@ -139,10 +139,25 @@ impl Hub {
     }
 
     /// Runs auto-update for the harnesses that want it, and checks again after any ran.
-    pub async fn auto_update_harnesses(&self) -> Vec<String> {
+    pub async fn auto_update_harnesses(self: &Arc<Self>) -> Vec<String> {
         let ran = self.health.run_auto_updates().await;
         if !ran.is_empty() {
-            self.health.check(self.health_subjects().await, false).await;
+            let rows = self.health.check(self.health_subjects().await, false).await;
+            let changed: std::collections::BTreeSet<_> = rows
+                .iter()
+                .filter(|row| {
+                    ran.contains(&row.id)
+                        && row.last_auto_update.as_ref().is_some_and(|update| {
+                            update.ok && row.version.is_some() && update.version != row.version
+                        })
+                })
+                .map(|row| row.id.clone())
+                .collect();
+            if !changed.is_empty() {
+                self.drain_pool();
+                self.probe_live_models(false, Some(changed.clone())).await;
+                self.restart_harnesses(Some(&changed), None).await;
+            }
         }
         ran
     }

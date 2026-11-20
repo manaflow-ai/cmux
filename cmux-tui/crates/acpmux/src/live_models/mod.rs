@@ -31,7 +31,7 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 
 /// One probe's deadline, start to list. The CLIs answer in well under a second
@@ -82,16 +82,38 @@ pub async fn probe(
     cwd: &Path,
     timeout: Duration,
 ) -> Result<Vec<LiveModel>> {
-    let mut child = Probe::spawn(cli, argv, env, cwd).await?;
-    let listed = tokio::time::timeout(timeout, async {
-        match cli {
+    tokio::time::timeout(timeout, async {
+        // Ask the CLI to refresh its account's catalog before starting app-server. Older
+        // CLIs without the debug command still supply the paginated model/list below.
+        let refreshed = if cli == Cli::Codex {
+            tokio::time::timeout(timeout / 2, codex::provider_models(argv, env, cwd))
+                .await
+                .ok()
+                .and_then(Result::ok)
+        } else {
+            None
+        };
+        let mut child = Probe::spawn(cli, argv, env, cwd).await?;
+        let listed = match cli {
             Cli::Claude => claude::list(&mut child).await,
             Cli::Codex => codex::list(&mut child).await,
+        };
+        child.kill().await;
+        let mut models = listed?;
+        if let Some(provider) = refreshed {
+            for mut model in provider {
+                if let Some(previous) = models.iter_mut().find(|m| m.id == model.id) {
+                    model.is_default = previous.is_default;
+                    *previous = model;
+                } else {
+                    models.push(model);
+                }
+            }
         }
+        Ok(models)
     })
-    .await;
-    child.kill().await;
-    listed.map_err(|_| anyhow!("the model list did not arrive within {} s", timeout.as_secs()))?
+    .await
+    .map_err(|_| anyhow!("the model list did not arrive within {} s", timeout.as_secs()))?
 }
 
 /// Codex's plan usage limits at rest (`account/rateLimits/read`) from one
@@ -117,12 +139,13 @@ pub(crate) struct Probe {
 }
 
 impl Probe {
-    async fn spawn(
+    async fn command(
         cli: Cli,
         argv: &[String],
         env: &BTreeMap<String, String>,
         cwd: &Path,
-    ) -> Result<Self> {
+        args: &[String],
+    ) -> Result<Command> {
         let (program, rest) = argv.split_first().ok_or_else(|| anyhow!("no program to run"))?;
         let family = match cli {
             Cli::Claude => "claude",
@@ -147,10 +170,7 @@ impl Probe {
                 cmd.env(crate::claude_stdio::native_messaging::SWITCH_ENV, "0");
             }
             cmd.args(rest)
-                .args(match cli {
-                    Cli::Claude => claude::args(),
-                    Cli::Codex => codex::args(),
-                })
+                .args(args)
                 .envs(env)
                 .current_dir(cwd)
                 .stdin(std::process::Stdio::piped())
@@ -166,13 +186,27 @@ impl Probe {
             remote: false,
             explicit: None,
         };
-        let mut cmd = crate::login_env::build_ready(
+        crate::login_env::build_ready(
             &mut plan,
             || Ok(build()),
             |cmd| crate::agent::explicit_env(cmd.as_std()),
             |e| anyhow!(e),
         )
-        .await?;
+        .await
+    }
+
+    async fn spawn(
+        cli: Cli,
+        argv: &[String],
+        env: &BTreeMap<String, String>,
+        cwd: &Path,
+    ) -> Result<Self> {
+        let args = match cli {
+            Cli::Claude => claude::args(),
+            Cli::Codex => codex::args(),
+        };
+        let mut cmd = Self::command(cli, argv, env, cwd, &args).await?;
+        let program = &argv[0];
         let mut child = cmd.spawn().with_context(|| format!("cannot start {program}"))?;
         let stdin = child.stdin.take().ok_or_else(|| anyhow!("{program} has no stdin"))?;
         let stdout = child.stdout.take().ok_or_else(|| anyhow!("{program} has no stdout"))?;

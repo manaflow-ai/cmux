@@ -8,7 +8,7 @@
 //! parseModelSettings). Portions adapted from MonoCode, Copyright (c) 2026
 //! Nick, MIT License (see THIRD_PARTY_LICENSES.md).
 
-use super::{LiveModel, Probe, text};
+use super::{AsyncReadExt, BTreeMap, Cli, LiveModel, Path, Probe, text};
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 
@@ -76,6 +76,33 @@ pub(super) async fn list(child: &mut Probe) -> Result<Vec<LiveModel>> {
     Ok(models)
 }
 
+/// `debug models` refreshes the configured provider catalog (without `--bundled`).
+/// Run with the same executable, profile arguments, and account environment as app-server.
+pub(super) async fn provider_models(
+    argv: &[String],
+    env: &BTreeMap<String, String>,
+    cwd: &Path,
+) -> Result<Vec<LiveModel>> {
+    let args = ["debug".to_owned(), "models".to_owned()];
+    let mut cmd = Probe::command(Cli::Codex, argv, env, cwd, &args).await?;
+    let mut child = cmd.stdin(std::process::Stdio::null()).spawn()?;
+    let mut bytes = Vec::new();
+    const LIMIT: u64 = 16 * 1024 * 1024;
+    child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow!("codex has no stdout"))?
+        .take(LIMIT + 1)
+        .read_to_end(&mut bytes)
+        .await?;
+    if bytes.len() as u64 > LIMIT || !child.wait().await?.success() {
+        return Err(anyhow!("codex catalog refresh unavailable"));
+    }
+    let response: Value = serde_json::from_slice(&bytes)?;
+    let rows = response["models"].as_array().ok_or_else(|| anyhow!("missing provider catalog"))?;
+    Ok(parse(rows))
+}
+
 /// The visible models in `model/list` rows, each id once, the default first.
 pub fn parse(rows: &[Value]) -> Vec<LiveModel> {
     let mut out: Vec<LiveModel> = Vec::new();
@@ -93,19 +120,26 @@ pub fn parse(rows: &[Value]) -> Vec<LiveModel> {
 }
 
 fn row_model(row: &Value) -> Option<LiveModel> {
-    if row.get("hidden").and_then(Value::as_bool) == Some(true) {
+    if row.get("hidden").and_then(Value::as_bool) == Some(true)
+        || text(row, "visibility").is_some_and(|v| v != "list")
+    {
         return None;
     }
     let id = text(row, "model").or_else(|| text(row, "slug")).or_else(|| text(row, "id"))?;
-    let name = text(row, "displayName").or_else(|| text(row, "name")).unwrap_or(id);
+    let name = text(row, "displayName")
+        .or_else(|| text(row, "display_name"))
+        .or_else(|| text(row, "name"))
+        .unwrap_or(id);
     let efforts: Vec<String> = row
         .get("supportedReasoningEfforts")
+        .or_else(|| row.get("supported_reasoning_levels"))
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .filter_map(|e| {
             e.as_str()
                 .or_else(|| text(e, "reasoningEffort"))
+                .or_else(|| text(e, "effort"))
                 .or_else(|| text(e, "id"))
                 .map(str::to_owned)
         })
@@ -114,14 +148,11 @@ fn row_model(row: &Value) -> Option<LiveModel> {
         id: id.to_owned(),
         name: display_name(name),
         efforts,
-        default_effort: text(row, "defaultReasoningEffort").map(str::to_owned),
+        default_effort: text(row, "defaultReasoningEffort")
+            .or_else(|| text(row, "default_reasoning_level"))
+            .map(str::to_owned),
         fast: fast(row),
-        service_tiers: row
-            .get("serviceTiers")
-            .or_else(|| row.get("additionalSpeedTiers"))
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default(),
+        service_tiers: tiers(row).cloned().unwrap_or_default(),
         is_default: row.get("isDefault").and_then(Value::as_bool) == Some(true),
         upgrade: upgrade(row, id),
     })
@@ -131,6 +162,7 @@ fn row_model(row: &Value) -> Option<LiveModel> {
 /// gpt-5.6-terra and gpt-5.5 name gpt-6-sol there, so they are legacy; gpt-6.1-sol names none.
 fn upgrade(row: &Value, id: &str) -> Option<String> {
     text(row, "upgrade")
+        .or_else(|| row.get("upgrade").and_then(|info| text(info, "model")))
         .or_else(|| row.get("upgradeInfo").and_then(|info| text(info, "model")))
         .filter(|to| *to != id)
         .map(str::to_owned)
@@ -139,11 +171,15 @@ fn upgrade(row: &Value, id: &str) -> Option<String> {
 /// Whether a tier faster than the default exists (`serviceTiers`, else
 /// `additionalSpeedTiers`); unset when the row names no tiers.
 fn fast(row: &Value) -> Option<bool> {
-    let tiers = ["serviceTiers", "additionalSpeedTiers"]
-        .iter()
-        .find_map(|key| row.get(*key).and_then(Value::as_array).filter(|t| !t.is_empty()))?;
+    let tiers = tiers(row)?;
     let id = |t: &Value| t.as_str().map(str::to_owned).or_else(|| text(t, "id").map(str::to_owned));
     Some(tiers.iter().filter_map(id).any(|t| t != "default"))
+}
+
+fn tiers(row: &Value) -> Option<&Vec<Value>> {
+    ["serviceTiers", "service_tiers", "additionalSpeedTiers", "additional_speed_tiers"]
+        .iter()
+        .find_map(|key| row.get(*key).and_then(Value::as_array).filter(|t| !t.is_empty()))
 }
 
 /// `gpt-6-astra` -> `GPT-6-Astra`, as Codex's own picker shows it. Other

@@ -37,7 +37,7 @@ import { effortWords, fitsQuery, matchingModels, modelEffort, parseQuery, type P
 import { listsFeedModels } from "./feedHarnesses";
 import { INSTALL_COMMANDS } from "./harnesses/harnessRows";
 import { groupVariants } from "./modelVariants";
-import { registerPicker } from "./pickerOpeners";
+import { registerModelCommand, registerPicker } from "./pickerOpeners";
 import { OnNewTab } from "./newTabComposer";
 import { relevantModelSections } from "./relevantModels";
 import { type QuickFamily, type QuickModel } from "./quickModelMenuModel";
@@ -842,8 +842,7 @@ export function ModelPicker(props: ModelPickerProps) {
   /// The compact menu's search field: the full picker's search over the harnesses the menu offers.
   /// A row names its harness when the menu has a rail, and the effort and fast mode the query named
   /// ("gpt high fast"), which its pick lands with.
-  const quickSearch = (text: string): QuickModel[] => {
-    const typed = parseQuery(text, vocabulary);
+  const quickSearch = (text: string, typed = parseQuery(text, vocabulary)): QuickModel[] => {
     // The chat's own harness once it has started, else every one the rail offers.
     const searchable = (harnessFixed ? ownHarness : harnesses).filter(
       (entry) =>
@@ -1020,6 +1019,20 @@ export function ModelPicker(props: ModelPickerProps) {
     if (forkHarnesses) fork?.hold(harnessId);
     else if (owner.acpmuxHarness) onHarness?.(owner.acpmuxHarness);
   };
+  useEffect(() =>
+    registerModelCommand((text) => {
+      const typed = parseQuery(text, effortWords(harnesses.flatMap((entry) => entry.models)));
+      if (!typed.effort && !typed.fast) return undefined;
+      const candidates = quickSearch(text, typed).filter((row) => !row.disabled && !row.setupNote);
+      const currentRoute = candidates.filter((row) => row.family === current?.id);
+      const matches = currentRoute.length ? currentRoute : candidates;
+      if (matches.length !== 1 || !typed.words.length) {
+        return matches.length ? matches.map((row) => row.id).join(", ") : t("picker.noMatchesFor", { query: text });
+      }
+      pickQuick(matches[0]!);
+      return true;
+    }),
+  );
   /// A compact-menu pick from the rail or the search: the prompt takes the keyboard once it closes.
   const pickQuickToPrompt = (model: QuickModel) => {
     quickPicked.current = true;

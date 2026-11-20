@@ -124,6 +124,34 @@ describe("harnesses this machine does not have", () => {
     ]);
   });
 
+  test("a composer combo lands on the mounted picker without first opening its menu", async () => {
+    const { createRoot } = await import("react-dom/client");
+    const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
+    const { runModelCommand } = await import("../src/agent-session/acpmux/pickerOpeners");
+    const picked: unknown[] = [];
+    const model = { id: "gpt-6.2-astra", name: "Astra", efforts: ["high"], fast: true };
+    root = createRoot(host);
+    await act(async () =>
+      root!.render(
+        <ModelPicker
+          catalog={[{ id: "codex", name: "Codex", models: [model], pickable: true }]}
+          harness="codex"
+          model="terra"
+          label="Terra"
+          efforts={[]}
+          recents={[]}
+          onLand={(id) => picked.push(id)}
+          onCombo={(combo) => picked.push(combo)}
+          onEffort={() => {}}
+        />,
+      ),
+    );
+    expect(runModelCommand("astra-6.2 fast high")).toBe(true);
+    expect(picked).toEqual([{ harness: "codex", model: model.id, fast: true, effort: "high" }]);
+    expect(typeof runModelCommand("astra-6.2 fast low")).toBe("string");
+    expect(picked).toHaveLength(1);
+  });
+
   test("the full picker lists uninstalled catalog models as disabled beside Install…", async () => {
     const { createRoot } = await import("react-dom/client");
     const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");

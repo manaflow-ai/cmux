@@ -115,6 +115,34 @@ async fn codex_lists_every_page_without_hidden_models_and_the_default_first() {
 }
 
 #[tokio::test]
+async fn refreshed_provider_offers_new_models_and_tiers_missing_from_app_server() {
+    let cwd = scratch("codex-provider");
+    let path = cwd.join("provider.json");
+    let raw = serde_json::json!({"models": [
+        {"slug": "gpt-6.2-astra", "display_name": "Astra", "visibility": "list",
+         "supported_reasoning_levels": [{"effort": "low"}, {"effort": "high"}],
+         "service_tiers": [], "additional_speed_tiers": ["priority"]},
+        {"slug": "internal", "visibility": "hide"}
+    ]});
+    std::fs::write(&path, raw.to_string()).unwrap();
+    let models = probe(
+        Cli::Codex,
+        &fake("fake_codex_app_server.py"),
+        &env(&[("FAKE_CODEX_PROVIDER", path.to_str().unwrap())]),
+        &cwd,
+        DEADLINE,
+    )
+    .await
+    .unwrap();
+    assert!(!ids(&models).contains(&"internal"));
+    assert!(models[0].is_default);
+    let astra = models.iter().find(|m| m.id == "gpt-6.2-astra").unwrap();
+    assert_eq!(astra.efforts, ["low", "high"]);
+    assert_eq!(astra.fast, Some(true));
+    assert_eq!(astra.service_tiers, [serde_json::json!("priority")]);
+}
+
+#[tokio::test]
 async fn a_signed_out_codex_reports_why() {
     let cwd = scratch("codex-unauth");
     let err = probe(

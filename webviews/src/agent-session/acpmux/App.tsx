@@ -228,7 +228,7 @@ import { ComposerPickers } from "./ComposerPickers";
 import { PICKER_LABELS } from "./composerPickerModel";
 import { openComposerControl } from "./composerControls";
 import { chatAccessGrants, revokeAccessRows } from "./header/grantsMenu";
-import { openPicker } from "./pickerOpeners";
+import { openPicker, runModelCommand } from "./pickerOpeners";
 import { SIGN_IN_REQUIRED, startRefusalRoute } from "./startRefusal";
 import { EmptyState, type EmptyStateProjects } from "./EmptyState";
 import { isNewChat, projectName } from "./emptyStateModel";
@@ -10482,7 +10482,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // Arguments keep the harness form useful (`/model opus`, `/plan explain`). New Tab has no chat
     // to act on yet, so there they go to the harness as typed.
     if (command.action === "model") {
-      if (argument || fresh) return CMUX_PASS_THROUGH;
+      if (argument) return runModelCommand(argument) ?? CMUX_PASS_THROUGH;
+      if (fresh) return CMUX_PASS_THROUGH;
       return openPicker(translate(PICKER_LABELS.model)) || CMUX_PASS_THROUGH;
     }
     if (command.action === "context") {
