@@ -505,6 +505,24 @@ test("grid: a column change keeps the first listing in view where it was, and si
   });
 });
 
+// The view's top cuts the first row in view (half of it above the top): that row's first listing,
+// partly in view, stays where it was across the column change, at the same negative offset, both
+// ways. Before, the page held the first row starting below the top, so the listing at the top moved.
+test("grid: a column change keeps a partly visible first listing at the same offset from the top", async () => {
+  await columnChange(async ({ width, rowHeight, resize }) => {
+    const { scroller } = await mount(1_000, "grid");
+    // Row 30 (listings 60 and 61) with its top half above the view.
+    await scrollBy(scroller, 30 * (GRID_ROW + 14) + GRID_ROW / 2);
+    const placeOf = (index: number) => gridLayout(scroller, width() >= 830 ? 3 : 2, rowHeight(), index).top;
+    expect(placeOf(60)).toBe(-GRID_ROW / 2);
+    await resize(830);
+    // Listing 60 begins row 20 of three columns, still half a two-column row above the top.
+    expect(placeOf(60)).toBe(-GRID_ROW / 2);
+    await resize(800);
+    expect(placeOf(60)).toBe(-GRID_ROW / 2);
+  });
+});
+
 // The catalog holds back TanStack's private `notify` across a batch of row resizes (one draw for
 // them all). A TanStack without it (renamed or dropped by an upgrade) gets the rows resized one at a
 // time, as before the batching: the page neither throws nor writes the field, and a column change
