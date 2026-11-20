@@ -1026,7 +1026,7 @@ class Wiring(unittest.TestCase):
                 for name in consumers:
                     condition = str(workflow_jobs[name]["if"])
                     if name == "web-validation":
-                        self.assertEqual(condition, "!cancelled()")
+                        self.assertEqual(condition, "${{ !cancelled() }}")
                     else:
                         self.assertIn("always()", condition)
                         self.assertIn("!cancelled()", condition)
@@ -1040,7 +1040,7 @@ class Wiring(unittest.TestCase):
     def test_merge_group_skips_placement_but_keeps_web_rollup(self):
         workflow_jobs = jobs("web-validation.yml")
         self.assertIn("github.event_name != 'merge_group'", workflow_jobs["portable-placement"]["if"])
-        self.assertEqual(workflow_jobs["web-validation"]["if"], "!cancelled()")
+        self.assertEqual(workflow_jobs["web-validation"]["if"], "${{ !cancelled() }}")
 
     def test_runner_state_bootstrap_does_not_fall_through_to_github_api(self):
         state = {
