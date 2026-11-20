@@ -585,6 +585,7 @@ impl Client {
         let runtime =
             tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().build()?;
         let http = reqwest::Client::builder()
+            .default_headers(cmux_build_space::headers()?)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
             // A store that cannot be reached leaves the copy to the link soon, not after the
