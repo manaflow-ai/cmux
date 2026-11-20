@@ -260,3 +260,34 @@ fn a_source_resize_keeps_the_manual_crop_size() {
     let r = camera.advance(2_000_000);
     assert_eq!((r.w, r.h), (405.0, 720.0), "resume lost the pinched size: {r:?}");
 }
+
+#[test]
+fn a_longer_cut_settle_snaps_to_typing_that_starts_a_second_after_the_cut() {
+    // A recording: a scene change, then the new scene's first typing 1 s later.
+    let config = Config { cut_settle_us: 1_500_000, ..Config::default() };
+    let mut camera = Camera::new(config, SCREEN.0, SCREEN.1);
+    camera.push(Event { t_us: 0, signal: Signal::Caret { x: 400.0, y: 700.0, w: 9.0, h: 18.0 } });
+    camera.advance(500_000);
+    camera.push(Event { t_us: 500_000, signal: Signal::Cut });
+    camera.push(Event {
+        t_us: 1_500_000,
+        signal: Signal::Caret { x: 2000.0, y: 700.0, w: 9.0, h: 18.0 },
+    });
+    let r = camera.advance(1_510_000);
+    assert!((r.x + r.w / 2.0 - 2004.5).abs() < 0.01, "panned instead of snapping: {r:?}");
+}
+
+#[test]
+fn the_live_default_still_pans_to_typing_long_after_a_cut() {
+    let mut camera = Camera::new(Config::default(), SCREEN.0, SCREEN.1);
+    assert_eq!(camera.config().cut_settle_us, 200_000);
+    camera.push(Event { t_us: 0, signal: Signal::Caret { x: 400.0, y: 700.0, w: 9.0, h: 18.0 } });
+    camera.advance(500_000);
+    camera.push(Event { t_us: 500_000, signal: Signal::Cut });
+    camera.push(Event {
+        t_us: 1_500_000,
+        signal: Signal::Caret { x: 2000.0, y: 700.0, w: 9.0, h: 18.0 },
+    });
+    let r = camera.advance(1_510_000);
+    assert!((r.x + r.w / 2.0 - 2004.5).abs() > 100.0, "snapped long after the cut: {r:?}");
+}
