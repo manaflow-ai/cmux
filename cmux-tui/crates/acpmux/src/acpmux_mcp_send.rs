@@ -19,7 +19,7 @@
 
 use super::*;
 use cmux_json::JsonSet as _;
-use futures::StreamExt as _;
+use futures::{FutureExt as _, StreamExt as _};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Work in flight, not a limit on messages or recipients. Large batches keep taking turns in
@@ -546,20 +546,37 @@ async fn send_batch(daemon: &Arc<Client>, args: &Value, sub: Option<&Value>) -> 
     let chains = same_session(&aliases(daemon, &targets).await);
     let now = tokio::time::Instant::now();
     let deadline = now.checked_add(STATUS_WAIT).unwrap_or(now);
-    let sent = futures::stream::iter(chains.into_iter().map(|chain| {
-        in_order(&targets, chain, deadline, move |target, wait| async move {
-            match queue(daemon, target, sub).await {
-                Ok((prompt, queued)) => settle(daemon, target, &prompt, queued, wait).await,
-                Err(e) => match relay(target, &e, sub).await {
-                    Some(row) => row,
-                    None => target.row(false, "failed", Some(format!("{e:#}"))),
-                },
+    let targets: Arc<[Target]> = targets.into();
+    let sub = sub.cloned().map(Arc::new);
+    // Materialize owned, Send futures before buffering: a lazy iterator borrowing the
+    // request makes the enclosing MCP server's Send bound depend on those borrow lifetimes.
+    let deliveries: Vec<_> = chains
+        .into_iter()
+        .map(|chain| {
+            let daemon = Arc::clone(daemon);
+            let targets = Arc::clone(&targets);
+            let sub = sub.clone();
+            async move {
+                let daemon = &daemon;
+                let sub = sub.as_deref();
+                in_order(&targets, chain, deadline, move |target, wait| async move {
+                    match queue(daemon, target, sub).await {
+                        Ok((prompt, queued)) => settle(daemon, target, &prompt, queued, wait).await,
+                        Err(e) => match relay(target, &e, sub).await {
+                            Some(row) => row,
+                            None => target.row(false, "failed", Some(format!("{e:#}"))),
+                        },
+                    }
+                })
+                .await
             }
+            .boxed()
         })
-    }))
-    .buffer_unordered(SEND_CONCURRENCY)
-    .collect::<Vec<_>>()
-    .await;
+        .collect();
+    let sent = futures::stream::iter(deliveries)
+        .buffer_unordered(SEND_CONCURRENCY)
+        .collect::<Vec<_>>()
+        .await;
     for (seat, row) in sent.into_iter().flatten() {
         let index = targets.get(seat).map_or(0, |t| t.index);
         rows.insert((index, seat.saturating_add(1)), row);
@@ -613,22 +630,30 @@ pub(super) fn same_session(aliases: &[Vec<String>]) -> Vec<Vec<usize>> {
 /// A name that resolves to nothing cannot be told apart from any session it might be: all such
 /// names are one chain, and one on a peer (`host/...`) also joins every target on that host.
 pub(super) async fn aliases(daemon: &Arc<Client>, targets: &[Target]) -> Vec<Vec<String>> {
-    let mut names: Vec<&str> =
-        targets.iter().filter(|t| t.tag.is_none()).map(|t| t.key.as_str()).collect();
+    let mut names: Vec<String> =
+        targets.iter().filter(|t| t.tag.is_none()).map(|t| t.key.clone()).collect();
     names.sort_unstable();
     names.dedup();
     let deadline = tokio::time::Instant::now() + RESOLVE_WAIT;
-    let resolved: BTreeMap<&str, Option<String>> =
-        futures::stream::iter(names.into_iter().map(|name| async move {
-            if tokio::time::Instant::now() >= deadline {
-                return (name, None);
+    let lookups: Vec<_> = names
+        .into_iter()
+        .map(|name| {
+            let daemon = Arc::clone(daemon);
+            async move {
+                if tokio::time::Instant::now() >= deadline {
+                    return (name, None);
+                }
+                let id =
+                    tokio::time::timeout_at(deadline, crate::cli::run::resolve_id(&daemon, &name))
+                        .await
+                        .ok()
+                        .and_then(Result::ok);
+                (name, id)
             }
-            let id = tokio::time::timeout_at(deadline, crate::cli::run::resolve_id(daemon, name))
-                .await
-                .ok()
-                .and_then(Result::ok);
-            (name, id)
-        }))
+            .boxed()
+        })
+        .collect();
+    let resolved: BTreeMap<String, Option<String>> = futures::stream::iter(lookups)
         .buffer_unordered(SEND_CONCURRENCY)
         .collect::<Vec<_>>()
         .await

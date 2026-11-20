@@ -21,6 +21,11 @@ count merely moves the failure. Detectors in the existing acpmux suites:
 - `an_active_goal_accepts_the_persons_steered_and_queued_sends`: a fake harness reports a
   native goal, then the real CLI sends through all three running-turn paths.
 
+Buffered async work owns its session names, client handles and request metadata. Materialize
+the boxed `Send` futures before buffering them; a lazy iterator borrowing the request can
+fail the enclosing MCP server's `Send` bound even when individual operations are safe. The
+fleet `acpmux` lib-test compilation detects this at the real MCP serving boundary.
+
 These tests prove the daemon and CLI paths; the fake harness does not establish behavior of a
 particular installed harness or app build. Subsession creation settings are a separate policy
 from message admission.
