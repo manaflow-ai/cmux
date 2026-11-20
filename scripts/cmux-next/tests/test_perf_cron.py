@@ -3595,5 +3595,51 @@ class StalePartFirstTests(unittest.TestCase):
         self.assertEqual(d["part"], "build")
 
 
+def typing_run(mode, p50, p95, p99, **more):
+    """One typing-frame-bench.py --modes run, in the shape step 3b72dd7b stored on cmux20-bench (2026-11-20)."""
+    return {"mode": mode, "surface": "agentpane", "phase": "idle" if mode == "L0" else "load", "complete": True,
+            "text_exact": True, "key_order_ok": True, "expected_keys": 200, "observed_keys": 200, "mode_missing": [],
+            "dispatch_to_after_frame_p50_ms": p50, "dispatch_to_after_frame_p95_ms": p95,
+            "dispatch_to_after_frame_p99_ms": p99, **more}
+
+
+class TypingLoadPartTests(unittest.TestCase):
+    REPORT = {"runs": [
+        typing_run("L0", 10.43, 16.17, 18.25),
+        typing_run("L2", 10.98, 18.33, 24.37, complete=False),
+        typing_run("L3", 3.12, 10.98, 13.59, mode_missing=["the 100k-row chat transcript"]),
+        typing_run("L4", 10.66, 24.89, 29.43),
+        typing_run("L4", 9.0, 30.6, 35.8),
+        typing_run("L1", 3.26, 9.96, 13.19, text_exact=False, observed_keys=199),
+    ]}
+
+    def test_a_complete_fully_loaded_mode_is_a_row_set_and_its_worst_round_wins(self):
+        rows = cron.rows_of_part(cron.PART_BY_NAME["typing-load"], self.REPORT, None, {})
+        self.assertEqual(rows["typing.agentpane.L0.after_frame"],
+                         {"p50": 10.43, "p95": 16.17, "unit": "ms", "budget": 16.0, "floor": 2.0})
+        self.assertEqual(rows["typing.agentpane.L0.after_frame_p99"]["p95"], 18.25)
+        self.assertEqual(rows["typing.agentpane.L0.after_frame_p99"]["budget"], 33.0)
+        self.assertEqual(rows["typing.agentpane.L0.lost_keys"]["p95"], 0)
+        self.assertEqual(rows["typing.agentpane.L4.after_frame"]["p95"], 30.6)
+        self.assertEqual(rows["typing.agentpane.L4.after_frame_p99"]["p95"], 35.8)
+        self.assertEqual(rows["typing.agentpane.L1.lost_keys"]["p95"], 1, "a key lost or out of order is a count")
+
+    def test_an_incomplete_or_partly_loaded_mode_gives_no_row(self):
+        rows = cron.rows_of_part(cron.PART_BY_NAME["typing-load"], self.REPORT, None, {})
+        self.assertFalse([n for n in rows if ".L2." in n or ".L3." in n])
+
+    def test_its_rows_route_to_the_part(self):
+        self.assertEqual(cron.part_for_row("typing.agentpane.L4.after_frame"), "typing-load")
+
+    def test_the_part_runs_only_where_the_bench_has_the_load_modes(self):
+        def git(args, **_kw):
+            if args[3] == "show" and args[4].endswith("typing-frame-bench.py"):
+                return mock.Mock(returncode=0, stdout="--modes agentpane" if args[4].startswith("new") else "--phases")
+            return mock.Mock(returncode=0, stdout="--suite=launch --suite=wake \"--activation\"")
+        with mock.patch.object(cron.subprocess, "run", git):
+            self.assertIn("typing-load", cron.supported_parts_at("new"))
+            self.assertNotIn("typing-load", cron.supported_parts_at("old"))
+
+
 if __name__ == "__main__":
     unittest.main()
