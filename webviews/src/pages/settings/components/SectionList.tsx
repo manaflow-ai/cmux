@@ -1,4 +1,4 @@
-import { useSyncExternalStore, type ComponentProps } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore, type ComponentProps } from "react";
 import { createLink, type AnyRouter } from "@tanstack/react-router";
 import { useSettingsState } from "../context";
 import { categoryRows, shownSidebarSections, type Category } from "../categories";
@@ -9,6 +9,8 @@ import type { SettingsState } from "../store";
 import { managedOf } from "../store";
 import { t, text } from "../strings";
 import { harnessesNeedAttention } from "../harnesses";
+import { followScrollEdges } from "../../../ui/scrollEdges";
+import { followStripWheel, revealInStrip } from "./sectionStrip";
 
 function badge(state: SettingsState, category: string): "warning" | "lock" | "update" | null {
   const keys = categoryRows(category).map((row) => row.key);
@@ -111,6 +113,30 @@ export function SectionList({
 }) {
   const state = useSettingsState();
   const expanded = currentPart !== null;
+  // A narrow pane's strip (sectionStrip.ts): its edges fade where categories are past them, a wheel
+  // scrolls it sideways, and the shown category scrolls into view.
+  const strip = useRef<HTMLElement | null>(null);
+  const stopStrip = useRef<(() => void) | undefined>(undefined);
+  const stripRef = useCallback((node: HTMLElement | null) => {
+    stopStrip.current?.();
+    stopStrip.current = undefined;
+    strip.current = node;
+    if (!node) return;
+    const stopWheel = followStripWheel(node);
+    const stopEdges =
+      typeof ResizeObserver === "function" && typeof MutationObserver === "function"
+        ? followScrollEdges(node, "x")
+        : undefined;
+    stopStrip.current = () => {
+      stopWheel();
+      stopEdges?.();
+    };
+  }, []);
+  useEffect(() => {
+    const node = strip.current;
+    const link = node?.querySelector<HTMLElement>(".section-link[aria-current]");
+    if (node && link) revealInStrip(node, link);
+  }, [current, currentPart]);
   const link = (category: Category) => {
     const parent = category.id === "personalization";
     const mark = badge(state, category.id);
@@ -183,7 +209,7 @@ export function SectionList({
   // Each run of categories sits under its small header (Look and Feel, AI, ...), the layout the
   // Swift `SettingsPageLayout.sidebarSections` exports; the lead run (General, Updates) has none.
   return (
-    <nav className="section-list" aria-label={t("settingsPage.sections")}>
+    <nav ref={stripRef} className="section-list" aria-label={t("settingsPage.sections")}>
       {shownSidebarSections(state.host?.dev_build === true).map(({ section, categories }) => {
         const headerId = `sidebar-section-${section.id}`;
         return (
