@@ -10,7 +10,7 @@ import UIKit
 /// edge over empty space.
 @MainActor
 @Suite(.serialized) struct KeyboardReconcileTests {
-    private struct Rig {
+    @MainActor private struct Rig {
         let center = NotificationCenter()
         let tracker: MobileKeyboardFrameTracker
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
