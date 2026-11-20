@@ -30,6 +30,10 @@ done
 # reused a stale cmux-tui-util on aws-m4pro-7 (step a89bbf49c265a936150712bf: "unresolved import AgentsCmuxMcp", which
 # this tree defines), and failed the app build.
 export CMUX_TUI_CLIENT_TARGET_DIR="${CI_SHARED_CACHE_DIR:-$(pwd)/cmux-tui/target}/glass-parity-cmux-tui-target"
+# The explicit precompiled modules of the kept DerivedData go stale when a C header a module map names changes
+# (step b144aae4: "cmux_motion_ffi.h has been modified since the module file", the bench app did not build). They
+# rebuild in seconds; the compiled Swift stays.
+rm -rf "$(pwd)/.build/DerivedData/cmux-measure-at/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules"
 scratch="$(mktemp -d)"
 trap 'measure_remove_scratch "$scratch"' EXIT
 app="$(measure_app_at_commit "$(git rev-parse HEAD)" "$tag" "$scratch/tree" --config bench)" \
