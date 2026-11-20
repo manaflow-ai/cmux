@@ -1759,7 +1759,12 @@ mod tests {
         assert_eq!(Account::load(&dir).unwrap(), Some(account));
         assert_eq!(
             machine::Joined::load(&dir).unwrap(),
-            Some(machine::Joined { acpmux_home: "/acpmux-home".into(), ..Default::default() })
+            Some(machine::Joined {
+                acpmux_home: "/acpmux-home".into(),
+                consent_tracked: true,
+                ..Default::default()
+            }),
+            "a first sign-in by this build tracks its join's consent"
         );
         machine::Joined::clear(&dir).unwrap();
         assert_eq!(machine::Joined::load(&dir).unwrap(), None);
