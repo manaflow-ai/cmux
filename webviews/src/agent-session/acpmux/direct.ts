@@ -162,6 +162,7 @@ import {
 } from "./conversation/incomingMessage";
 import { noticeRowText } from "./conversation/agentNotice";
 import { inboxMessages, inboxText, type InboxMessage, type InboxNotice } from "./conversation/inboxNotice";
+import { newerSurge, SURGE_EVENT_KINDS, surgeCounts, surgeOfEvent, type SurgeHold } from "./conversation/surgeHold";
 import { withoutRelayEnvelope, withoutRelayLabel, withoutRelayLabelOfMessage } from "./conversation/relayEnvelope";
 import { bareSender, provenanceAuthenticated } from "./conversation/senderIdentity";
 import { recapDismissed, rememberRecapDismissed } from "./conversation/recapDismissed";
@@ -3499,6 +3500,10 @@ export class AcpmuxDirectClient {
   /// that turn (stopThroughReconnect.ts).
   private turnPrompt?: string;
   private lastSeq = 0;
+  /// The chat's held surge, its newest snapshot by seq (conversation/surgeHold.ts): the composer hat's
+  /// one row for it (SurgeHoldRow.tsx). A full refold keeps it: its events set it again or leave a
+  /// listing's newer one.
+  private surge?: SurgeHold;
   /// Each gap read out or failed (`fetchMissedEvents`), by its own key: the seq the chat's records
   /// are whole through below a page merged past that gap. A copy kept, or the next open's resume,
   /// continues from the lowest of them, not from `lastSeq`, so the records in a hole are read once
@@ -4794,6 +4799,7 @@ export class AcpmuxDirectClient {
     this.planBuilds.clear();
     this.memoryEarly.clear();
     this.presetApprovals.clear();
+    this.surge = undefined;
     this.presetApprovalRemoved.clear();
     this.queueAuthors.clear();
     this.queueEdited.clear();
@@ -9988,6 +9994,10 @@ export class AcpmuxDirectClient {
             failover: { from: msg.from, to: msg.to },
           });
         }
+      } else if (SURGE_EVENT_KINDS.has(event.kind)) {
+        // A held surge's snapshot (acpmux's receiver, a triage, a read or removal that cleared what
+        // needed the chat): the hat's one row, never a row per message.
+        this.surge = newerSurge(this.surge, surgeOfEvent(event.kind, msg, event.seq, event.at));
       } else if (event.kind === "recap") {
         this.recordRecap(event, msg);
       } else if (event.kind === "memory_offer") {
@@ -11580,6 +11590,7 @@ export class AcpmuxDirectClient {
       peerLinks: this.peerLinks,
       peerResources: this.peerResources,
       ...(this.forkedAtSeq !== undefined ? { forkedAtSeq: this.forkedAtSeq } : {}),
+      ...(this.surge ? { surge: this.surge } : {}),
       summary: this.publishedSummary(summary, effort, limits),
       connection,
       ...(this.daemonWaitingSince !== undefined ? { daemonWaitingSince: this.daemonWaitingSince } : {}),
@@ -13306,6 +13317,34 @@ export class AcpmuxDirectClient {
       messages?: unknown;
     } | null;
     return inboxMessages(Array.isArray(reply?.messages) ? reply.messages : []).reverse();
+  }
+  /// The chat's inbox threads (acpmux `_acpmux/inbox_threads`), as acpmux sent them, for the held
+  /// surge's panel (SurgeHoldRow.tsx). A reply that carries the surge's snapshot is as new as every
+  /// event the page has heard, so it takes the row's place until a later event moves it.
+  async inboxThreads(): Promise<unknown> {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId) throw new Error(translate("error.notOpen"));
+    const reply = (await this.request("_acpmux/inbox_threads", { sessionId }, 15_000)) as {
+      surge?: unknown;
+    } | null;
+    const counts = surgeCounts(reply?.surge);
+    if (counts && this.selectedSessionId === sessionId) {
+      this.surge = newerSurge(this.surge, { ...counts, seq: this.lastSeq });
+      this.emit();
+    }
+    return reply;
+  }
+  /// A page of the chat's inbox archive matching `search` (acpmux `_acpmux/inbox_threads` with
+  /// `{search, before?}`): `{hits, next}`, as acpmux sent it, for the held surge's search
+  /// (SurgeArchiveResults.tsx). Asked only when the person searches, never as posts arrive.
+  async searchInbox(search: string, before?: string | number): Promise<unknown> {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || !search.trim()) throw new Error(translate("error.notOpen"));
+    return this.request(
+      "_acpmux/inbox_threads",
+      { sessionId, search: search.trim(), ...(before !== undefined && { before }) },
+      15_000,
+    );
   }
   /// An offer the reducer draws: offers of one group share one card, in the order they came.
   private addOffer(offer: AcpmuxSessionOffer, at: number): void {
