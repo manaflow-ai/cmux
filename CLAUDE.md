@@ -61,7 +61,12 @@ Known limit: a tree build is not Team-signed, so Rust hot-apply from it into a D
   or the acpmux `run_wait` tool, which uses it. Its daemon waits on GitHub's PR events
   (`gh event listen`, gh 2.105.0+, where the account has Event Streams access) and polls otherwise.
   Never `gh pr checks --watch`, `gh run watch`, a sleep loop, or a `gh event listen` of your own
-  (each listener holds one of the account's few subscriptions). Rules:
+  (each listener holds one of the account's few subscriptions), and no `gh api` / `gh run view` /
+  `gh pr view` re-read on a timer: on 2026-11-19 nine such loops in agents' background tasks made
+  most of this host's ~800 gh calls an hour. A fleet test's Actions run: `glaeda-gh wait run`; a
+  reply comment: `glaeda-gh wait comment OWNER/REPO#N --match RE --since URL`; a fleet job:
+  `cmux-ci wait ID`; a file or a process: `glaeda-gh wait file PATH` / `glaeda-gh wait pid PID`.
+  The Chief's `watch` tool routes such waits to glaeda-gh itself and refuses GitHub poll loops. Rules:
   [github-ci-wait](https://github.com/teamleaderleo/glaeda/blob/main/skills/github-ci-wait/SKILL.md).
 - **Scope every search.** `rg`/`find`/`fd` only inside your worktree or a named subfolder, never
   `..`, `~`, `~/fun`, `/`, `$TMPDIR` or `/var/folders` (worktrees and caches there hold millions of
@@ -448,6 +453,41 @@ Leo and every agent:
   `gh-merge-green` and main's rulesets. `gh-merge-green` refuses a PR
   that touches a path an open `merge-freeze` issue freezes, or when the freeze state can't be read;
   only the freeze owner's `freeze-ok` label lets that PR through ([merge freezes](docs/ci/merge-freeze.md)).
+
+## Dev builds are separate
+
+A tagged dev build (Mac and iPhone) never sees or changes another build's backend data, nor nightly's or stable's,
+even when the same person is signed in to all of them. Every dev build sends `X-Cmux-Build-Space: dev:<slug>` (its
+tag's slug) to the cloud API and to cmux-mobile-api; nightly and stable send nothing. So anything a dev build stores
+in a backend is keyed by its build space: a per-build Durable Object is named `dev:<slug>|<name>` (only through
+`spacedEnv` and `envForObject` in `backend/apps/api/src/build-space.ts`), and a per-build Postgres or MySQL row
+carries the space and is read filtered by it. Production ignores the header (cloud API) or refuses it (cmux-mobile-api).
+Every new Durable Object binding goes in exactly one of `PER_BUILD_BINDINGS` or `ACCOUNT_WIDE_BINDINGS` with the
+reason; account-wide is only for what one person shares across builds (team membership, billing, cloud machines).
+The pre-push gate's "Build spaces" check (`scripts/cmux-next/check-build-spaces.py`) refuses an unlisted binding and an
+object or entry point that reaches objects outside its space. Why: agents dogfood several dev builds at once under the
+person's own account, and a build under test must not change what another build, or the person's own nightly, shows.
+What does not reach a dev build yet (each lands in nightly's space, because nothing on the request names a build):
+provider webhooks (GitHub, Slack, Linear, Google), OAuth completions from the web, invite links and their landing
+pages, and inbound texts and email. A dev build's Postgres projection rows go to Postgres only (as the primary, or as
+the shadow beside MySQL), never to MySQL; with no Postgres target a dev build's `home.search` finds nothing.
+On the Mac a dev build's settings and local state are its own too: `BuildStatePaths` (CmuxNextCompat) keeps its
+`cmux-next.json` (with the themes, keybindings, customize, automations and skills beside it), Cloud secrets index and
+Keychain service, keys audit, host budget, recovery drafts, agent home, chat uploads and caches under
+`~/Library/Application Support/cmux-next/builds/<key>` (caches: `~/Library/Caches/cmux-next/builds/<key>`), starts them
+empty (schema defaults plus `SettingsBuildDefaults`, never a copy of nightly's) and names them to its Rust children
+through its environment (also its `cmux vm` config, MCP tool lists, mux plugins and classic import folder, which
+starts empty: a DEV build never imports the person's classic data); nightly, stable and the other shipped builds keep
+`~/.config/cmux`. Its `SettingsBuildDefaults` reach the Rust settings owner as `CMUX_NEXT_SETTINGS_BUILD_DEFAULTS`, and
+state named after the bundle id (Chief home, mobile host, Chromium profiles) uses `BuildIdentity.stateFolderName`. The gate's "Dev build state
+is its own" check (`scripts/cmux-next/check-dev-build-state.py`) refuses a new shared path without a reviewed row. The dev
+sign-in inputs `~/.config/cmux/dev-account` and `~/.secrets/cmuxterm-dev.env` stay shared on purpose.
+Sign-in on a Mac dev build (signed NEXT DEV `com.cmuxterm.app.debug.next` included): a dev build never reuses
+NIGHTLY's session, in any form. The production cloud-api ignores `X-Cmux-Build-Space`, so a dev build on NIGHTLY's
+session would read and write NIGHTLY's real data. With a dev account configured (`scripts/setup-team-dev.sh`), the
+launch hand-off signs that account in automatically, as the build's own session; otherwise you sign each dev build in
+once, in the browser. No build's control socket hands out its session, and `CloudAuthNeverNightlySessionTests` fails
+if a dev build's store takes another build's.
 
 ## Settings on every surface
 

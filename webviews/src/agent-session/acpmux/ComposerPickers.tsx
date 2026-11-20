@@ -1,6 +1,6 @@
 import { composerPickerEntries } from "./composerPickerEntries";
 import { acpmuxPerf } from "./perf";
-import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useContext, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
 import { useClaudeConnectFlow } from "./ClaudeConnectRow";
@@ -993,7 +993,8 @@ export function ComposerPickers({
   // A mode the person picked for that start (`cloudStartMode`, cloudModePick.ts) is what the
   // machine starts it in, Bypass permissions included (Leo 2026-11-10: "but shouldnt the user be
   // allowed to just go through with stuff?"); with no pick, the asking mode above.
-  const chipFamily = summary?.family ?? snapshot.catalog.find((entry) => entry.id === chipHarness)?.family;
+  const chipCatalogEntry = snapshot.catalog.find((entry) => entry.id === chipHarness);
+  const chipFamily = summary?.family ?? chipCatalogEntry?.family;
   // The agent the Cloud machine starts (cloudStartAgent): the composer's own, except UniiChat (a Mac
   // with no agent CLI shows it), which the send leaves out so the machine starts Claude. Another
   // agent whose Cloud modes cmux does not know keeps the chip's generic label: the machine decides.
@@ -1025,11 +1026,21 @@ export function ComposerPickers({
     : undefined;
   // The default agent's own menu, not the face harness's modes, for a Cloud start that runs it.
   const cloudDefaultMenu = cloudAsking && !cloudKnown ? harnessFamilyMenu(cloudFamily, cloudHarness) : undefined;
+  // A harness whose chats report no permission modes (Pi: its ACP modes only copy its thinking
+  // levels, permissionModes.ts) has no Mode chip to hold a place for, and none appears later: its
+  // own session reports none (Lawrence 2026-11-19: "pi should not have a "mode""). acpmux's harness
+  // list says so (`reported`), else this pane's last session of it; unknown keeps the place.
+  const modeless =
+    awaiting &&
+    modes.length === 0 &&
+    (harnessProfiles.get(chipHarness)?.modeless ?? chipCatalogEntry?.modeless) === true;
   const startMode: KeptStartMode | undefined =
     (cloudStart ? { modeId: cloudStart.id, name: cloudStart.name } : undefined) ??
-    startAnswer ??
-    (highest ? { modeId: highest.id, name: highest.name } : undefined) ??
-    (awaiting && modes.length === 0 ? MODE_PLACEHOLDER : undefined);
+    (modeless
+      ? undefined
+      : (startAnswer ??
+        (highest ? { modeId: highest.id, name: highest.name } : undefined) ??
+        (awaiting && modes.length === 0 ? MODE_PLACEHOLDER : undefined)));
   // Another folder's answer (acpmux has not answered for this one yet) only holds the chip's
   // place: this folder's profile or preset may start the chat in another mode, so it names none.
   // The harness's own menu names the start mode as it names the mode once the chat reports it.
@@ -1949,9 +1960,9 @@ export type Section = { title?: string; choices: Choice[]; current?: string; onP
 /// flips it; the tooltip names the mode it is in and the key.
 function PlanToggle({ planning, label, onToggle }: { planning: boolean; label: string; onToggle(): void }) {
   const shortcut = useShortcut(SHORTCUT_ACTIONS.composerTogglePlan);
-  const latest = useRef(onToggle);
-  latest.current = onToggle;
-  useEffect(() => registerPicker(PLAN_TOGGLE_OPENER, () => latest.current()), []);
+  // An effect event always calls the latest onToggle, so the shortcut registers once per mount.
+  const toggle = useEffectEvent(() => onToggle());
+  useEffect(() => registerPicker(PLAN_TOGGLE_OPENER, () => toggle()), []);
   return (
     <button
       type="button"
