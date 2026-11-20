@@ -118,15 +118,88 @@ Claude Code 2.1 reads under any config directory and beside any
   take the messages queued for the terminal's agent, through the plugin, the
   installed hooks or the shim's hooks. So the copy of the hooks that reports
   `SessionStart` (whichever it is) appends
-  `export CMUX_TUI_CLAUDE_OWNER=<terminal>/<session>` to Claude Code's
-  `CLAUDE_ENV_FILE` (creating it), which Claude Code sources before each Bash
-  tool command. Every copy of the Claude hooks does nothing in a Claude whose
-  environment names its terminal and another session, so the terminal's
-  session, last reply and messages stay the outer Claude's. A Claude started
-  with `cmux agent start` from a tool command runs in its own terminal and
-  reports there. The shim's fallback when no hook helper is found
-  (`cmux-tui agent hook emit`) records events only, delivers no messages, and
-  does not read the claim; the terminal keeps its first live session.
+  `export CMUX_TUI_CLAUDE_OWNER=<terminal>/<session>/<pid>` to Claude Code's
+  `CLAUDE_ENV_FILE` (creating it). `<terminal>` is the hook's route, which
+  can also be a tmux or ancestor route. `<pid>` is `CLAUDE_PID`, the Claude
+  Code process; without a numeric `CLAUDE_PID` the claim is
+  `<terminal>/<session>`. Claude Code 2.1.319 sources that file before each
+  Bash tool command, and not for its hooks. A Claude hook whose environment
+  names its terminal, a session other than its own and another Claude
+  process (or no process) reports nothing: no events, messages, banner or
+  session context. The claiming Claude's own hooks never stand down, so
+  `/clear` keeps reporting even if a later Claude Code lets hooks see that
+  file.
+- A Claude that a hook, an MCP server or a teammate starts does not source
+  that file, so it has no claim. Its events still reach the journal; the
+  daemon keeps the terminal's session, state, prompt and last reply on the
+  first live session and drops the events and live fields of another. Its
+  hooks hand over no messages, banner or session context when it is not the
+  terminal's agent:
+  - A Claude whose `CLAUDE_PID` is the one that the terminal's agent
+    recorded at its `SessionStart` (a file in the hook queue directory) is
+    that agent, also after `/clear` or an in-process `/resume` (Claude Code
+    2.1.319 ends the old session with `SessionEnd` first, in the same
+    process).
+  - Without a `CLAUDE_PID`, a `SessionStart` with source `clear` is the
+    terminal's agent (only a running Claude starts a session that way).
+  - Else the hook reads its terminal's agent row (one `agent.list`
+    request). A live hook session other than its own means another agent's
+    Claude: it hands over nothing and writes no claim. When the read fails
+    or times out, the hook reports as before, so the terminal's own agent is
+    never silenced by a daemon that does not answer in time. Only a read
+    that shows no other live session (at `SessionStart`), or this session as
+    the terminal's (at any check), records this process. A start whose read
+    failed records nothing; its next check that reads the row (a
+    `UserPromptSubmit` reads only while messages are queued) records it.
+
+  This relies on each Claude Code process setting its own `CLAUDE_PID` for
+  its hooks (2.1.319 does). A nested Claude that passes on its parent's
+  `CLAUDE_PID` counts as the terminal's agent.
+  A nested Claude that runs the agent's own session id (`claude -p
+  --continue` or `--resume <id>` from a hook or an MCP server) also counts
+  as the terminal's agent, as before.
+
+  The check runs after the event is handed to the daemon, so it never
+  delays the event. At `SessionStart` the journal hook and the
+  `agent session-context` hook each make it (two reads at most); a
+  `UserPromptSubmit` makes it only when messages are queued.
+
+  The `SessionStart` hook writes the claim whether or not the daemon took
+  the event, so a Claude that starts while no daemon takes it still claims
+  its terminal (its read fails, so it counts as the agent). Claude Code
+  kills the hook at its 5 s timeout: the hand-off waits at most 4.25 s and
+  never past 4.5 s after the hook started, and the read ends no later than 4.5 s after
+  the hook started. With no time left the hook makes no read and acts as
+  when the read fails. A `UserPromptSubmit` hook keeps the same 4.5 s
+  budget: the hand-off, the message list, the read and the "delivered"
+  mark all end inside it, and the read ends 0.5 s before the list's
+  deadline, so a read that does not answer still leaves time for the
+  mark (without it the next prompt shows the same messages again).
+- Limit: a Claude that ended without `SessionEnd` (a crash or `kill -9`)
+  leaves a live row. The next Claude started by hand in that terminal then
+  counts as another agent's and gets no messages, banner or context until
+  the screen detector replaces the row. Each such `startup` beside a row of
+  another recorded process with no hook event for 30 s writes one line to
+  the hook's stderr (Claude Code's debug log) and adds one to the
+  `claude-stale-agent-rows` count in the hook queue directory (a count only:
+  an agent busy in one long tool call can look quiet too).
+- Limit: the first live session takes the row. A nested Claude whose start
+  reaches the daemon before its parent's (a `SessionStart` hook or MCP
+  server that starts one at once), or one that outlives its parent, holds
+  the row; the terminal's own Claude then counts as another agent's until
+  that session ends.
+- Limit: a claim on a tmux or ancestor route names the terminal that showed
+  the session at `SessionStart`. After the tmux session is attached in
+  another terminal, the agent's events report there, but its claim still
+  names the first terminal. A Claude that a tool command then starts is not
+  claimed for the new terminal: only the agent check and the first live
+  session keep the terminal the agent's. The agent's next `SessionStart`
+  (`/clear`, `/resume`, compaction) writes a claim for the new terminal.
+- A Claude started with `cmux agent start` from a tool command runs in its
+  own terminal and reports there. The shim's fallback when no hook helper is
+  found (`cmux-tui agent hook emit`) records events only, delivers no
+  messages, and does not read the claim or the row; the terminal keeps its
+  first live session.
 - The wrapper removes the plugin from the folders it passes on, because its
   `--settings` already carries the same hooks. Other plugin folders stay.
 - `CMUX_TUI_CLAUDE_HOOKS_DISABLED=1` turns the plugin's hooks off. Set in the
