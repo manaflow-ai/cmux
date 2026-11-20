@@ -1768,7 +1768,7 @@ button.cv-subagent > :last-child {
   cursor: default;
 }
 .acpmux-running-tray__open:hover {
-  background: var(--ds-color-hover);
+  background: var(--ds-surface-hover);
   color: var(--agent-text);
 }
 .acpmux-running-tray__open:focus-visible {
