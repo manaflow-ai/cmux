@@ -647,17 +647,18 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
    brighter (Leo 2026-10-21: "a subtle hairline border that brightens slightly on focus"; before it
    the ring flashed, 10-19, and then drew nothing): a focused composer, the chat's and the New
    Tab's, its strip and its queue keep the one-device-pixel rim and take
-   --acpmux-composer-edge-focus, 22% text where the resting edge is 18%. No ring, no glow, no wider
+   --acpmux-composer-edge-focus, 26% text where the resting edge is 22%. No ring, no glow, no wider
    line, nothing moves. Over art the glass card's top-lit rim stays as it rests. The prompt itself
    draws no ring (desktop.css, cx-ncc.57). A page that is not the key one rests (below).
    The step was 28% until Leo found the focused frame too loud (2026-11-07: "the border on the
    composer, like it being this, like super duper prominent glass, I feel like is sort of strange"):
    22% still reads as a brighten beside a resting card, without outlining it (gallery
-   agent-pane.composer-rim). */
+   agent-pane.composer-rim). The resting edge then rose from 18% to 22%, session info's edge, and focus
+   to 26% (CMUX-652; Leo at standup 2026-11-18: the composer's border read thinner than session info's). */
 .acpmux-composer,
 .nt-composer,
 .nt-composer-surface {
-  --acpmux-composer-edge-focus: color-mix(in srgb, var(--agent-text) 22%, var(--agent-page-bg, var(--acpmux-base)));
+  --acpmux-composer-edge-focus: color-mix(in srgb, var(--agent-text) 26%, var(--agent-page-bg, var(--acpmux-base)));
 }
 /* Under Increase Contrast the resting edge is already the full text color, so 28% would dim it on
    focus: keep the resting edge there (the shared ring below marks a focused box). */
@@ -976,7 +977,7 @@ body:has(.nt-box :focus-visible) .nt-popover {
   padding: 0;
   border: 0;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  background: var(--ds-surface-inset);
   cursor: zoom-in;
 }
 .acpmux-queued-image:disabled {
