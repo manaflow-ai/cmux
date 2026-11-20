@@ -25,7 +25,7 @@ Those two used to pass, on the promise that the PR autofix or the base autofix e
 It did not: #44894 (appearance.themeFileExceptions) and the MCP Servers commit (agents.mcpServers.enabled) merged
 unexported on 2026-11-18, every base autofix run after them was cancelled, and the base export lacked both keys for
 two days, so every later pull request that added a setting failed its schema tests (cmuxterm-hq
-docs/handbook/settings-export-left-to-a-later-run.md). With HEAD equal to BASE nothing can be found, so the check is
+docs/handbook/settings-export-from-an-older-base.md). With HEAD equal to BASE nothing can be found, so the check is
 never red on the base.
 
 Usage: settings-export-key-drift.py --repo DIR --base REV --head REV
