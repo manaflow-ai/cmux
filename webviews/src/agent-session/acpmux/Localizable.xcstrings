@@ -441791,127 +441791,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "انقطعت الشبكة أثناء التثبيت. تحقّق من اتصالك ثم أعد المحاولة."
+            "value": "انقطعت الشبكة. تحقّق من اتصالك ثم أعد المحاولة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mreža je prekinuta tokom instalacije. Provjerite vezu i pokušajte ponovo."
+            "value": "Mreža je prekinuta. Provjerite vezu i pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Netværket faldt ud under installationen. Tjek din forbindelse, og prøv igen."
+            "value": "Netværket faldt ud. Tjek din forbindelse, og prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Das Netzwerk ist während der Installation abgebrochen. Prüfe deine Verbindung und versuche es erneut."
+            "value": "Das Netzwerk ist abgebrochen. Prüfe deine Verbindung und versuche es erneut."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The network dropped during the install. Check your connection and retry."
+            "value": "The network dropped. Check your connection and retry."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La red se cortó durante la instalación. Comprueba tu conexión y vuelve a intentarlo."
+            "value": "La red se cortó. Comprueba tu conexión y vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le réseau a été coupé pendant l’installation. Vérifiez votre connexion et réessayez."
+            "value": "Le réseau a été coupé. Vérifiez votre connexion et réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "La rete si è interrotta durante l’installazione. Controlla la connessione e riprova."
+            "value": "La rete si è interrotta. Controlla la connessione e riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インストール中にネットワークが切断されました。接続を確認して、もう一度お試しください。"
+            "value": "ネットワークが切断されました。接続を確認して、もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បណ្តាញបានដាច់ក្នុងពេលដំឡើង។ សូមពិនិត្យការតភ្ជាប់របស់អ្នក ហើយព្យាយាមម្តងទៀត។"
+            "value": "បណ្តាញបានដាច់។ សូមពិនិត្យការតភ្ជាប់របស់អ្នក ហើយព្យាយាមម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "설치 중에 네트워크 연결이 끊겼습니다. 연결을 확인한 후 다시 시도하세요."
+            "value": "네트워크 연결이 끊겼습니다. 연결을 확인한 후 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nettverket falt ut under installasjonen. Sjekk tilkoblingen og prøv igjen."
+            "value": "Nettverket falt ut. Sjekk tilkoblingen og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sieć została przerwana podczas instalacji. Sprawdź połączenie i spróbuj ponownie."
+            "value": "Sieć została przerwana. Sprawdź połączenie i spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A rede caiu durante a instalação. Verifique sua conexão e tente novamente."
+            "value": "A rede caiu. Verifique sua conexão e tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сеть пропала во время установки. Проверьте подключение и повторите попытку."
+            "value": "Сеть пропала. Проверьте подключение и повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เครือข่ายหลุดระหว่างการติดตั้ง ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง"
+            "value": "เครือข่ายหลุด ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kurulum sırasında ağ bağlantısı koptu. Bağlantınızı kontrol edip yeniden deneyin."
+            "value": "Ağ bağlantısı koptu. Bağlantınızı kontrol edip yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Мережа зникла під час встановлення. Перевірте з’єднання та повторіть спробу."
+            "value": "Мережа зникла. Перевірте з’єднання та повторіть спробу."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mạng bị ngắt trong khi cài đặt. Hãy kiểm tra kết nối và thử lại."
+            "value": "Mạng bị ngắt. Hãy kiểm tra kết nối và thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "安装过程中网络中断。请检查网络连接后重试。"
+            "value": "网络中断。请检查网络连接后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "安裝過程中網路中斷。請檢查網路連線後重試。"
+            "value": "網路中斷。請檢查網路連線後重試。"
           }
         }
       }

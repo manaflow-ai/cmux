@@ -486,7 +486,7 @@ test("an install the network dropped says so in plain words and offers Retry, wh
   await until(() => row(container, "OpenCode")!.dataset.harnessStatus === "failed", "the install to fail");
   const failed = row(container, "OpenCode")!;
   expect(failed.querySelector(".acpmux-harness-detail")?.textContent).toBe(
-    "The network dropped during the install. Check your connection and retry.",
+    "The network dropped. Check your connection and retry.",
   );
   // The installer's own words stay one hover away.
   expect(failed.querySelector(".acpmux-harness-detail")?.getAttribute("title")).toBe(

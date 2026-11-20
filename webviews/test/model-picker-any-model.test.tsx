@@ -325,11 +325,7 @@ test("a failed install says why in the menu and starts nothing", async () => {
   await open();
   await search("gemini 3.8 flash");
   await click(topMatch());
-  await until(
-    () =>
-      strip()?.textContent?.includes("The network dropped during the install. Check your connection and retry.") ===
-      true,
-  );
+  await until(() => strip()?.textContent?.includes("The network dropped. Check your connection and retry.") === true);
   expect(strip()?.textContent).not.toContain("npm ERR!");
   expect(switched).toEqual([]);
   expect(calls.some((call) => call.method === "harness.health")).toBe(false);
