@@ -881,6 +881,14 @@ pub struct Brain {
     owner_stopped: bool,
     /// This turn's send was refused for length once; its next send posts.
     length_refused: bool,
+    /// Subagents whose landed report this turn saw, with what landed
+    /// (landed_told.rs): `sleep` and `stop` are refused once until a post
+    /// of the turn names them.
+    turn_landed: Vec<(String, String)>,
+    /// The words the turn posted (`send`, `reply`), to see whom it named.
+    turn_posts: String,
+    /// This turn was refused once for a landed report it had not told.
+    landed_refused: bool,
     /// The subagents the running turn started (spawn_text.rs).
     turn_spawned: Vec<String>,
     /// The running turn posted words by `send` or `reply` (spawn_text.rs).
@@ -1183,6 +1191,9 @@ impl Brain {
             fatal: None,
             stop_wanted: false,
             length_refused: false,
+            turn_landed: Vec::new(),
+            turn_posts: String::new(),
+            landed_refused: false,
             turn_spawned: Vec::new(),
             turn_said: false,
             spawn_text_nudged: false,
@@ -1765,6 +1776,7 @@ impl Brain {
                 let result = self.reply_now(id, &text);
                 if result.is_ok() {
                     self.said_in_turn();
+                    self.posted_in_turn(&text);
                 }
                 let _ = reply.send(result);
             }
@@ -1777,14 +1789,15 @@ impl Brain {
                 message,
             } => self.tell_unsteered(&id, &session, &message),
             Input::Send { call, reply } => {
-                let words = call.text.as_deref().is_some_and(|t| !t.trim().is_empty());
+                let words = call.text.clone().filter(|t| !t.trim().is_empty());
                 let result = self.send(call);
-                if words
+                if let Some(words) = words
                     && result
                         .as_deref()
                         .is_ok_and(|r| r.starts_with("outcome: done"))
                 {
                     self.said_in_turn();
+                    self.posted_in_turn(&words);
                 }
                 let _ = reply.send(result);
             }

@@ -110,7 +110,7 @@ fn quiet(sub: &SubRecord, now: u64) -> bool {
     since > 0 && now.saturating_sub(since) >= QUIET_AFTER.as_millis() as u64
 }
 
-fn minutes(ms: u64) -> String {
+pub(super) fn minutes(ms: u64) -> String {
     crate::sub_watch::minutes(ms)
 }
 
@@ -120,7 +120,7 @@ fn busy(status: cmux_chief::acp::SessionStatus) -> bool {
 }
 
 /// `text` on one line, at most `n` characters.
-fn one_line(text: &str, n: usize) -> String {
+pub(super) fn one_line(text: &str, n: usize) -> String {
     let line: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if line.chars().count() <= n {
         line
