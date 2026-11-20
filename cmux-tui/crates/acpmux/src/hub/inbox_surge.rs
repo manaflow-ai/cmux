@@ -149,9 +149,9 @@ impl Hub {
         client: &str,
         blocks: &[Value],
         opts: &PromptOptions,
+        now: u64,
     ) -> Result<Option<Value>, RpcError> {
         let Some(from) = eligible(opts, blocks) else { return Ok(None) };
-        let now = now_ms();
         let period =
             session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner()).reply_period_ms(now);
         if !session.inbox().surge_rate.arrival(now, period) {

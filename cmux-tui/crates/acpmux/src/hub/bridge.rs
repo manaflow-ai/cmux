@@ -342,7 +342,14 @@ impl Hub {
             Ok(rx) => rx,
             Err(rx) => return Some(resent(session, &prompt_id, rx, opts).await),
         };
-        match self.hold_surge_message(session, &prompt_id, client, blocks, opts) {
+        match self.hold_surge_message(
+            session,
+            &prompt_id,
+            client,
+            blocks,
+            opts,
+            crate::store::now_ms(),
+        ) {
             Ok(Some(receipt)) => {
                 self.schedule_surge_triage(session);
                 let Some(thread) = receipt["threadId"].as_str() else {

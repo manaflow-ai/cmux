@@ -510,7 +510,7 @@ impl Hub {
                 .map_err(|e| RpcError::invalid_params(e.to_string()))?;
         }
         if let Some(receipt) =
-            self.hold_surge_message(session, &prompt_id, client, &blocks, &opts)?
+            self.hold_surge_message(session, &prompt_id, client, &blocks, &opts, now_ms())?
         {
             self.schedule_surge_triage(session);
             if let Some(accept) = opts.on_accepted.take() {

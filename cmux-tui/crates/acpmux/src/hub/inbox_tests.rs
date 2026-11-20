@@ -2,6 +2,9 @@
 
 use super::*;
 
+#[path = "inbox_replay_tests.rs"]
+mod replay;
+
 #[test]
 fn fyi_flush_is_a_fifteen_minute_austerity_window() {
     // FYIs are intentionally coalesced to at most four notice turns per hour;
@@ -535,8 +538,11 @@ async fn surge_receipt_restores_the_same_held_message_and_searches_its_original_
         ..Default::default()
     };
     let body = [json!({"type":"text","text":"Read the runner report for #418."})];
-    assert!(hub.hold_surge_message(&session, "first", "cli", &body, &opts).unwrap().is_none());
-    let receipt = hub.hold_surge_message(&session, "second", "cli", &body, &opts).unwrap().unwrap();
+    assert!(
+        hub.hold_surge_message(&session, "first", "cli", &body, &opts, 41_000).unwrap().is_none()
+    );
+    let receipt =
+        hub.hold_surge_message(&session, "second", "cli", &body, &opts, 42_000).unwrap().unwrap();
     assert_eq!(receipt["surgeHeld"], true);
     let thread = receipt["threadId"].as_str().unwrap();
     assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":1,"needYou":0}));
@@ -558,7 +564,9 @@ async fn surge_receipt_restores_the_same_held_message_and_searches_its_original_
         &json!({"sender":"watcher","severity":"fire","title":"Runner failure"}),
         "busy-chat",
     ));
-    assert!(hub.hold_surge_message(&session, "fire", "cli", &body, &opts).unwrap().is_none());
+    assert!(
+        hub.hold_surge_message(&session, "fire", "cli", &body, &opts, 43_000).unwrap().is_none()
+    );
     let mut urgent = item("fire", "runner", "watcher", PromptClass::Fyi, now_ms(), "fire");
     urgent.tool_notice = tool_notice_of(opts.provenance.as_ref());
     assert!(wakes(&session.meta(), &urgent));
