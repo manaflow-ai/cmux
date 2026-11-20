@@ -286,6 +286,16 @@ extension AppearanceSettingsSchema {
                 keywords: ["experimental", "tuning", "tint", "transparency", "hue", "saturation", "labs"]
             ),
             SettingDescriptor(
+                AppearanceSettingsSchema.glassControlsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.glassControls", "Glass Controls"),
+                help: SettingsText.keyed("settings.appearance.glassControls.help", "Draws the knobs of the switches and sliders in Settings as glass."),
+                kind: .toggle,
+                default: .bool(AppearanceSettingsSchema.glassControlsDefault),
+                keywords: ["experimental", "glass", "liquid glass", "switch", "toggle", "slider", "knob", "thumb", "labs"]
+            ),
+            SettingDescriptor(
                 WindowBackgroundSetting.opacityPath,
                 section: .appearance,
                 group: group,

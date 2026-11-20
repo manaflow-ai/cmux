@@ -16,6 +16,7 @@ import { SectionList } from "./SectionList";
 import { personalizationPartOf } from "./PersonalizationCard";
 import { ScrollArea } from "../../../ui/ScrollArea";
 import { whenPageShown } from "../../shared/paintGate";
+import { glassControlsOn } from "../glassControls";
 
 /**
  * The page (P1): the search field and the categories in the sidebar at the window's left, the
@@ -136,7 +137,12 @@ export function SettingsApp() {
   };
 
   return (
-    <div className="settings" ref={keyboardRef} data-section-switched={switched ? "" : undefined}>
+    <div
+      className="settings"
+      ref={keyboardRef}
+      data-section-switched={switched ? "" : undefined}
+      data-glass-controls={glassControlsOn(state) ? "" : undefined}
+    >
       <aside className="sidebar">
         <h2 className="sidebar-title">{t("settingsPage.title")}</h2>
         <SearchField query={query} onQuery={setQuery} onSubmit={submit} />
