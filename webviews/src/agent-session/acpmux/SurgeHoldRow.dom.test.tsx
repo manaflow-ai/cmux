@@ -66,7 +66,7 @@ const LISTING = {
     {
       threadId: "topic:runner",
       label: "runner-capacity",
-      from: ["glaeda-watch"],
+      from: ["runner-watch"],
       count: 9,
       newestAt: 300,
       newestPreview: "Queued jobs on fleet-linux",
@@ -156,7 +156,7 @@ test("opening lists the held threads once, need-you first; search and the need-y
   });
   lines = threadIds(container);
   expect(lines.length).toBe(1);
-  expect(lines[0]).toContain("glaeda-watch");
+  expect(lines[0]).toContain("runner-watch");
   await act(async () => {
     const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!;
     setter.call(input, "");

@@ -29,7 +29,7 @@ const THREADS = [
   ...LABELS.map((label, i) => ({
     threadId: `topic:runner-capacity/${label}`,
     label: `runner-capacity/${label}`,
-    from: ["glaeda-watch"],
+    from: ["runner-watch"],
     count: 6 + i,
     newestAt: NOW - (5 + i) * MINUTE,
     newestPreview: `Queued jobs on ${label}: ${3 + i} waiting, oldest ${8 + i} min`,
