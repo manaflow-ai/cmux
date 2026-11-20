@@ -286,7 +286,7 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
     dead = every_dead(evidence, now, pools) >= set(CANDIDATES)
     lines = [f"trusted: {'yes' if trusted else 'no'} ({trusted_why})", f"blacksmith: {blacksmith} ({blacksmith_why})"]
     if dead:
-        lines.append("every Blacksmith macOS 26 label shows dead (dead=true)")
+        lines.append("every Blacksmith macOS 26 label is resting for now (dead=true)")
     for line in lines:
         print(f"classic nightly build runner: {line}")
     if env.get("GITHUB_OUTPUT"):
