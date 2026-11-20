@@ -269,8 +269,9 @@ def _changed_first(root, locations, base_locations=None):
         grown = {name for name, count in per_file(locations).items() if count > on_base[name]}
     try:
         import subprocess
-        refresh_base(root, "origin/feat-cmux-next")
-        out = subprocess.run(["git", "-C", root, "diff", "--name-only", "origin/feat-cmux-next...HEAD"],
+        # The full name: a local branch `origin/feat-cmux-next` would win over the short one (push_range.UPSTREAM).
+        refresh_base(root, "refs/remotes/origin/feat-cmux-next")
+        out = subprocess.run(["git", "-C", root, "diff", "--name-only", "refs/remotes/origin/feat-cmux-next...HEAD"],
                              capture_output=True, text=True, timeout=30).stdout
     except (OSError, subprocess.SubprocessError):
         out = ""
