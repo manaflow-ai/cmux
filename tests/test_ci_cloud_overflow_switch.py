@@ -1239,17 +1239,40 @@ class ReadTokenTests(unittest.TestCase):
         api.rerun(8)
         self.assertEqual([token for *_, token in sent], ["bot", "bot", "workflow", "workflow"])
 
-    def test_a_refused_read_is_asked_once_on_the_workflow_token(self) -> None:
-        for code in (401, 403, 429):
+    def test_a_refused_read_is_not_asked_again_on_the_workflow_token(self) -> None:
+        # The workflow token can never read a variable: its 403 hid the first refusal's cause.
+        for code in (401, 403, 404, 429):
             api, sent = self.client(refuse=code)
-            self.assertEqual(api.jobs(7, 1), [])
-            self.assertEqual([token for *_, token in sent], ["bot", "workflow"], code)
+            with self.assertRaises(switch.GitHubError) as caught:
+                api.jobs(7, 1)
+            self.assertEqual(caught.exception.status, code)
+            self.assertEqual([token for *_, token in sent], ["bot"], code)
 
-    def test_other_read_errors_are_not_retried(self) -> None:
-        api, sent = self.client(refuse=404)
-        with self.assertRaises(RuntimeError):
-            api.jobs(7, 1)
-        self.assertEqual(len(sent), 1)
+    def test_a_refusal_names_githubs_message_and_the_rate_limit(self) -> None:
+        import email.message
+        import io
+        import urllib.error
+        headers = email.message.Message()
+        headers["x-ratelimit-remaining"] = "0"
+        headers["x-ratelimit-resource"] = "core"
+        headers["x-ratelimit-reset"] = "1795575600"  # 2026-11-25T03:00:00Z
+        body = io.BytesIO(json.dumps({"message": "API rate limit exceeded for installation ID 1."}).encode())
+        api = switch.GitHub("only", "manaflow-ai/cmux")
+
+        def send(method: str, path: str, data: bytes | None, token: str) -> dict:
+            raise urllib.error.HTTPError(path, 403, "Forbidden", headers, body)
+
+        api._send = send  # type: ignore[method-assign]
+        with self.assertRaises(switch.GitHubError) as caught:
+            api.get_variable("RUNNER_POOLS")
+        self.assertEqual(str(caught.exception),
+                         "GET /actions/variables/RUNNER_POOLS failed (403: API rate limit exceeded for installation "
+                         "ID 1.; rate limit 0 left (resource core), resets 03:00:00Z)")
+
+    def test_a_missing_variable_still_reads_as_unset(self) -> None:
+        api, _ = self.client(refuse=404)
+        api.token = "bot"
+        self.assertIsNone(api.get_variable("CI_CLOUD_OVERFLOW_SAVED"))
 
     def test_without_a_fallback_everything_uses_the_one_token(self) -> None:
         api = switch.GitHub("only", "manaflow-ai/cmux")
