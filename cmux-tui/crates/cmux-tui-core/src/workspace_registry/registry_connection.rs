@@ -22,6 +22,7 @@ use parking_lot::{
     ArcReentrantMutexGuard, RawMutex, RawThreadId, ReentrantMutex, ReentrantMutexGuard,
 };
 use rusqlite::Connection;
+use rusqlite::config::DbConfig;
 
 use crate::lock_rank::{HeldRank, LockRank};
 
@@ -79,6 +80,9 @@ pub(crate) struct RegistryConnection {
     /// Flushes the WAL to disk off every request path (`wal_durability`);
     /// `None` for an in-memory registry.
     durability: Option<super::wal_durability::WalDurability>,
+    /// Set when the owner gave the session up ([`Self::mark_released`]).
+    /// Each store of the session folder reads it at each commit.
+    released: super::wal_durability::OwnerRelease,
     /// Read-only connections to the same file for reads of committed data
     /// that need neither the workspace registry lock nor this connection's
     /// lock ([`Self::read_committed`]). In WAL mode a reader sees the last
@@ -295,6 +299,7 @@ impl RegistryConnection {
         connection: Connection,
         database_path: Option<&std::path::Path>,
     ) -> Arc<Self> {
+        let released = super::wal_durability::OwnerRelease::default();
         let durability = database_path.map(|path| {
             super::wal_durability::WalDurability::attach_with_commit_delay(
                 &connection,
@@ -302,6 +307,7 @@ impl RegistryConnection {
                 slow_durable_commit_delay(),
                 false,
                 registry_commit_delay(),
+                released.clone(),
             )
         });
         let readers =
@@ -327,6 +333,7 @@ impl RegistryConnection {
             point_reader,
             write_path_stats: crate::diagnostics::WritePathStats::default(),
             durability,
+            released,
             #[cfg(test)]
             journal_hooks: std::sync::Mutex::default(),
         })
@@ -419,6 +426,31 @@ impl RegistryConnection {
     /// `write_path.registry_wal_file_bytes` and `registry_wal_file_high_water_bytes`); 0 in memory.
     pub(crate) fn wal_file_bytes(&self) -> (u64, u64) {
         self.durability.as_ref().map(|durability| durability.wal_file_bytes()).unwrap_or_default()
+    }
+
+    /// The owner's release, for the commit hook of each other store of the
+    /// session folder (`wal_durability::open_store`).
+    pub(crate) fn owner_release(&self) -> &super::wal_durability::OwnerRelease {
+        &self.released
+    }
+
+    /// The owner gives the session up: from here each commit of each store
+    /// of this owner fails. `_held` is this connection's lock: no registry
+    /// transaction is open on another thread while the caller holds it, so
+    /// each commit that began before the release ended, and each later one
+    /// reads the release. The caller drops the session locks before it
+    /// drops `held`.
+    ///
+    /// From here this connection makes no checkpoint at its close either:
+    /// SQLite's last connection of a database moves the log into the main
+    /// file and removes the log when it closes, and that close is after the
+    /// release, in a file that the next owner has. The log stays in the
+    /// folder, and the next owner reads each commit that it holds.
+    pub(crate) fn mark_released(&self, held: &RegistryConnectionGuard<'_>) {
+        self.released.set();
+        if let Err(error) = held.set_db_config(DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, true) {
+            eprintln!("cmux-tui: the registry keeps its checkpoint at the close: {error}");
+        }
     }
 
     /// The connection for a request thread. The caller holds the workspace

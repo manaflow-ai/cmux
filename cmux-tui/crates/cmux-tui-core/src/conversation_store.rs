@@ -23,6 +23,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+use crate::workspace_registry::wal_durability::{self, OwnerRelease};
+
 #[path = "conversation_import.rs"]
 mod import;
 #[path = "conversation_inbox.rs"]
@@ -137,18 +139,24 @@ impl std::fmt::Debug for ConversationStore {
 }
 
 impl ConversationStore {
-    /// Open `conversations.sqlite3` in `directory`, or an in-memory store
-    /// when there is no directory (an in-memory session, tests).
+    /// [`Self::open_for_owner`] for a store that no owner releases.
+    #[cfg(test)]
     pub(crate) fn open(directory: Option<&Path>) -> anyhow::Result<Self> {
+        Self::open_for_owner(directory, &OwnerRelease::default())
+    }
+
+    /// Open `conversations.sqlite3` in `directory`, or an in-memory store
+    /// when there is no directory (an in-memory session, tests). `released`
+    /// is the release of the session's owner: after it the store takes no
+    /// write, also when it opens for the first time then.
+    pub(crate) fn open_for_owner(
+        directory: Option<&Path>,
+        released: &OwnerRelease,
+    ) -> anyhow::Result<Self> {
         let connection = match directory {
             Some(directory) => {
                 let path = directory.join(CONVERSATIONS_FILE);
-                let connection = crate::workspace_registry::open_registry_database(&path)
-                    .with_context(|| format!("open conversation store {}", path.display()))?;
-                crate::platform::restrict_file(&path)
-                    .with_context(|| format!("restrict conversation store {}", path.display()))?;
-                crate::workspace_registry::wal_durability::attach_store(&connection, &path);
-                connection
+                wal_durability::open_store(&path, "conversation store", released)?
             }
             None => Connection::open_in_memory()?,
         };

@@ -135,7 +135,7 @@ impl LostPaths {
         self.shared.stopping.store(true, Ordering::SeqCst);
         self.shared.wake.trigger();
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = cmux_tui_core::Mux::join_within_stop("lost paths watch", thread);
         }
     }
 }

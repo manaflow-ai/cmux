@@ -227,6 +227,7 @@ impl Mux {
             committed_snapshots,
             bound_socket_path: OnceLock::new(),
             workspace_registry: SignaledMutex::new(registry),
+            release_left_locks: AtomicBool::new(false),
             session_public_id,
             machine_public_id,
             connection_stats: Arc::default(),

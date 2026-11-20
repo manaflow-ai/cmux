@@ -298,6 +298,7 @@ mod rows;
 mod screen_changed;
 pub(crate) mod screen_groups;
 mod signaled_mutex;
+pub(crate) mod stop_join;
 #[cfg(test)]
 pub(crate) use signaled_mutex::plain_turns_ahead_on_this_thread;
 #[cfg(test)]
@@ -557,6 +558,8 @@ pub struct Mux {
     pub(crate) bound_socket_path: OnceLock<std::path::PathBuf>,
     /// Serializes durable commits and their projection; lock order: registry, connection, state.
     pub(crate) workspace_registry: SignaledMutex<WorkspaceRegistry>,
+    /// A release did not get the registry's lock: the session's locks stay in it until the drop.
+    pub(crate) release_left_locks: AtomicBool,
     pub(crate) session_public_id: SessionPublicId,
     pub(crate) machine_public_id: crate::resource::MachinePublicId,
     /// The launch keys (plans/cmux-next/identity.md section 2).
@@ -1197,11 +1200,7 @@ impl Mux {
 
 impl Drop for Mux {
     fn drop(&mut self) {
-        if let Some(maintenance) =
-            self.journal_maintenance.get_mut().unwrap_or_else(PoisonError::into_inner).take()
-        {
-            maintenance.stop();
-        }
+        self.stop_journal_maintenance();
         self.stop_output_cleanup();
         self.journal_plugin.shutdown();
         self.finalize_terminal_journal("mux drop", false);
@@ -1211,6 +1210,7 @@ impl Drop for Mux {
         {
             runtime.shutdown();
         }
+        self.keep_the_locks_a_release_left();
     }
 }
 

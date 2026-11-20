@@ -31,7 +31,10 @@ impl Mux {
         let mut store = self.conversations.store.lock().unwrap();
         if store.is_none() {
             let directory = self.session_state_directory();
-            *store = Some(ConversationStore::open(directory.as_deref())?);
+            *store = Some(ConversationStore::open_for_owner(
+                directory.as_deref(),
+                self.owner_release(),
+            )?);
         }
         operation(store.as_mut().expect("conversation store opened above"))
     }
@@ -154,6 +157,15 @@ impl Mux {
     /// The Chief registry (chief_registry.rs).
     pub(crate) fn chiefs(&self) -> &crate::chief_registry::ChiefHost {
         &self.chiefs
+    }
+
+    /// Opens this owner's Chief registry, for the slot of [`Self::chiefs`]. The one place that
+    /// opens it: the store gets the owner's release, so it takes no write after it.
+    pub(crate) fn open_chief_store(&self) -> anyhow::Result<crate::chief_registry::ChiefStore> {
+        crate::chief_registry::ChiefStore::open(
+            self.session_state_directory().as_deref(),
+            self.owner_release(),
+        )
     }
 
     /// The remote-relay state (peers, pairing records, revocation limits).

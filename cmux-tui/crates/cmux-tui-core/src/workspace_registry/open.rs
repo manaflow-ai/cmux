@@ -106,7 +106,15 @@ impl WorkspaceRegistry {
         {
             return Err(error.into());
         }
-        let session_guard = acquire_session_guard(&root, session_name)?;
+        // Each of the two session locks: one try, and a bounded wait only
+        // for an owner that said that it keeps the session until its exit.
+        let mut kept_owner = owner_release::KeptOwnerWait::new(&session_dir);
+        let guard_lock = session_guard_lock_path(
+            &platform::normalize_filesystem_path(root.join(SESSION_GUARD_DIR)),
+            session_name,
+        );
+        let session_guard =
+            kept_owner.take(&guard_lock, || acquire_session_guard(&root, session_name))?;
         let machine_id = load_or_create_machine_id(&root)?;
         let resource_effect_pepper = load_or_create_resource_effect_pepper(&root)?;
         fs::create_dir_all(&session_dir).with_context(|| {
@@ -120,7 +128,7 @@ impl WorkspaceRegistry {
         }
         let session_lock =
             platform::normalize_filesystem_path(session_dir.join(SESSION_WRITER_LOCK_FILE));
-        let lease = SessionLease::acquire(&session_lock)?;
+        let lease = kept_owner.take(&session_lock, || SessionLease::acquire(&session_lock))?;
         // The session's locks: a wait here is an earlier owner still closing.
         timings.lap("registry.session_locks");
         // A rollback an earlier start could not finish goes first.
@@ -200,7 +208,7 @@ impl WorkspaceRegistry {
             };
         #[cfg(not(debug_assertions))]
         let first = open_once(&mut session_guard, &mut lease);
-        let registry = match first {
+        let mut registry = match first {
             Ok(mut registry) => {
                 // Also true on a later start when the swap start never got
                 // through a full start (killed during restore).
@@ -225,6 +233,9 @@ impl WorkspaceRegistry {
                 open_guard::keep_with_quarantined(&db_path, quarantined);
             }
         })?;
+        // Under this open's locks: what the owner before said of its
+        // release goes into this owner's start line, and the file goes.
+        registry.previous_owner_release = owner_release::take_record(&session_dir);
         // A roster the next build folded beside the previous owner.
         premigrate::adopt(&registry);
         Ok(registry)
@@ -704,6 +715,7 @@ impl WorkspaceRegistry {
             session_guard: session_guard.take(),
             lease: lease.take(),
             output_cleanup_swapped: false,
+            previous_owner_release: None,
         })
     }
 

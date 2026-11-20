@@ -900,7 +900,7 @@ impl TerminalReaper {
     pub fn stop(mut self) {
         self.signal_stop();
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = Mux::join_within_stop("terminal reaper", thread);
         }
     }
 

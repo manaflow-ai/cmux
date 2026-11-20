@@ -69,6 +69,7 @@ impl Session {
                 provider_user_deadline: Duration::from_secs(1),
                 safe_mode_file: None,
                 safe_mode_env: false,
+                owner_release: Default::default(),
             },
             Box::new(MuxRouter::new(mux)),
             Box::new(HttpFetcher),

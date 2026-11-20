@@ -48,13 +48,16 @@
 //! The thread sleeps on a condition variable while nothing is owed (no
 //! timer, no wakeups at idle).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
+use anyhow::Context;
 use rusqlite::Connection;
+use rusqlite::config::DbConfig;
 
 use crate::panic_free::RecoverPoison;
 
@@ -115,12 +118,114 @@ struct Shared {
     commit_delay: Option<Duration>,
     /// Bytes of one WAL frame: its header and one page.
     frame_bytes: u64,
+    /// The release of the database's owner: the syncer does not checkpoint
+    /// after it ([`checkpoint_if_large`]).
+    released: OwnerRelease,
 }
 
 thread_local! {
     /// The syncer of the commit in progress on this thread: the commit hook
     /// sets it before SQLite writes the frames, the WAL hook takes it after.
     static COMMITTING: RefCell<Option<Arc<Shared>>> = const { RefCell::new(None) };
+    /// This thread said that a write of it was refused after the release
+    /// ([`OwnerRelease`]): one line for each thread, not one for each try.
+    static SAID_REFUSED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Whether the owner of a session gave the session up.
+/// One object for each owner: the registry connection owns it
+/// and sets it, under its lock, in the same step in which the owner drops
+/// its session locks. The commit hook of each store of the session folder
+/// holds a clone and reads it at each commit: once it is set the commit
+/// becomes a rollback and its caller gets an error, because the next owner
+/// has the store from then on. A store that the owner opens after the
+/// release gets the same object, so its first commit fails too.
+#[derive(Clone, Default)]
+pub(crate) struct OwnerRelease {
+    released: Arc<AtomicBool>,
+    /// Test seam: what takes the line of a refused commit in place of
+    /// stderr.
+    #[cfg(test)]
+    line: Arc<Mutex<Option<Box<dyn std::io::Write + Send>>>>,
+}
+
+impl OwnerRelease {
+    pub(crate) fn is_released(&self) -> bool {
+        self.released.load(Ordering::Acquire)
+    }
+
+    /// Only [`super::RegistryConnection::mark_released`] calls this, with
+    /// the connection lock held.
+    pub(super) fn set(&self) {
+        self.released.store(true, Ordering::Release);
+    }
+
+    /// Test seam: `line` takes the line of each refused commit of this
+    /// owner's stores, in place of stderr.
+    #[cfg(test)]
+    pub(crate) fn set_line_for_test(&self, line: Box<dyn std::io::Write + Send>) {
+        *self.line.lock().recover_poison() = Some(line);
+    }
+
+    /// The commit hook's part: true when the commit must fail. Says so on
+    /// stderr the first time on each thread.
+    ///
+    /// The answer is decided when the release is read, and nothing after
+    /// that changes it. The SQLite binding reads a
+    /// panic in a commit hook as "commit", so a panic of the line would let
+    /// that commit land after the release. The line's write is not
+    /// `eprintln!`, which panics when it fails; its result is dropped, and a
+    /// panic that still comes is caught here.
+    fn refuses_commit(&self, database_path: &Path) -> bool {
+        if !self.is_released() {
+            return false;
+        }
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            // A thread at its end has no value of its own any more: it says
+            // nothing.
+            let said = SAID_REFUSED.try_with(|said| said.replace(true)).unwrap_or(true);
+            if !said {
+                let _ = self.write_refused_line(database_path);
+            }
+        }));
+        true
+    }
+
+    /// Writes the line of a thread's first refused commit to stderr.
+    #[cfg(not(test))]
+    fn write_refused_line(&self, database_path: &Path) -> std::io::Result<()> {
+        write_refused_line_to(std::io::stderr(), database_path)
+    }
+
+    /// Writes the line of a thread's first refused commit: to the writer
+    /// that a test gave, or to stderr.
+    #[cfg(test)]
+    fn write_refused_line(&self, database_path: &Path) -> std::io::Result<()> {
+        match self.line.lock().recover_poison().as_mut() {
+            Some(line) => write_refused_line_to(line, database_path),
+            None => write_refused_line_to(std::io::stderr(), database_path),
+        }
+    }
+}
+
+/// The one write of the line of a refused commit. The product gives it
+/// stderr; a test can give it another writer, and then runs this same write.
+fn write_refused_line_to(
+    mut line: impl std::io::Write,
+    database_path: &Path,
+) -> std::io::Result<()> {
+    writeln!(line, "{}", refused_line(database_path))
+}
+
+/// What a thread says at its first commit that is refused after the release.
+fn refused_line(database_path: &Path) -> String {
+    let thread = std::thread::current();
+    format!(
+        "cmux-tui: thread {} tried to write {} after this daemon released its session; each \
+         such write fails",
+        thread.name().unwrap_or("with no name"),
+        database_path.display()
+    )
 }
 
 /// A view of one database's syncer (see the module docs): its commit
@@ -151,12 +256,42 @@ impl Drop for SyncerOwner {
     }
 }
 
-/// [`WalDurability::attach`] for a store at `database_path`, with the
-/// `CMUX_TUI_DEBUG_SLOW_DURABLE_COMMIT_MS` seam. A later
-/// `PRAGMA wal_autocheckpoint` on the connection would replace its WAL hook.
-pub(crate) fn attach_store(connection: &Connection, database_path: &Path) -> WalDurability {
+/// Opens a store of a session's folder that is not the registry: the
+/// database at `path` (`what` names it in an error), its file restricted,
+/// with the hooks of [`attach_store`]. The one way such a store opens, so
+/// each of them takes no write after the release of the session's owner.
+/// `released` is the owner's ([`super::RegistryConnection::owner_release`]).
+pub(crate) fn open_store(
+    path: &Path,
+    what: &str,
+    released: &OwnerRelease,
+) -> anyhow::Result<Connection> {
+    let connection = super::open_registry_database(path)
+        .with_context(|| format!("open {what} {}", path.display()))?;
+    crate::platform::restrict_file(path)
+        .with_context(|| format!("restrict {what} {}", path.display()))?;
+    attach_store(&connection, path, released);
+    Ok(connection)
+}
+
+/// [`WalDurability::attach_with_commit_delay`] for a store at
+/// `database_path`, with the `CMUX_TUI_DEBUG_SLOW_DURABLE_COMMIT_MS` seam.
+/// A later `PRAGMA wal_autocheckpoint` on the connection would replace its
+/// WAL hook.
+fn attach_store(
+    connection: &Connection,
+    database_path: &Path,
+    released: &OwnerRelease,
+) -> WalDurability {
     let delay = super::registry_connection::slow_durable_commit_delay();
-    WalDurability::attach(connection, database_path, delay, true)
+    WalDurability::attach_with_commit_delay(
+        connection,
+        database_path,
+        delay,
+        true,
+        None,
+        released.clone(),
+    )
 }
 
 impl WalDurability {
@@ -167,30 +302,17 @@ impl WalDurability {
     /// caller asks ([`Self::request_flush`]), so a request's several commits
     /// share one flush and none of them waits behind a flush of an earlier
     /// one (an F_FULLFSYNC holds the file, so a WAL write that lands during
-    /// it waits for it).
-    pub(crate) fn attach(
-        connection: &Connection,
-        database_path: &Path,
-        slow_flush: Option<Duration>,
-        flush_each_commit: bool,
-    ) -> Self {
-        Self::attach_with_commit_delay(
-            connection,
-            database_path,
-            slow_flush,
-            flush_each_commit,
-            None,
-        )
-    }
-
-    /// [`Self::attach`] whose commits each wait `commit_delay` inside
-    /// `COMMIT` (the registry's `CMUX_TUI_TEST_REGISTRY_COMMIT_DELAY_MS` seam).
+    /// it waits for it). `commit_delay`: each commit waits that long inside
+    /// `COMMIT` (the registry's `CMUX_TUI_TEST_REGISTRY_COMMIT_DELAY_MS`
+    /// seam). `released`: the owner's release; a commit after it fails
+    /// ([`OwnerRelease`]).
     pub(crate) fn attach_with_commit_delay(
         connection: &Connection,
         database_path: &Path,
         slow_flush: Option<Duration>,
         flush_each_commit: bool,
         commit_delay: Option<Duration>,
+        released: OwnerRelease,
     ) -> Self {
         let mut wal_path = database_path.as_os_str().to_owned();
         wal_path.push("-wal");
@@ -214,9 +336,14 @@ impl WalDurability {
             flush_each_commit,
             commit_delay,
             frame_bytes: page_size + WAL_FRAME_HEADER_BYTES,
+            released: released.clone(),
         });
         let owner = SyncerOwner(shared.clone());
         let _ = connection.commit_hook(Some(move || {
+            if released.refuses_commit(&owner.0.database_path) {
+                // SQLite turns this commit into a rollback.
+                return true;
+            }
             crate::debug_spans::mark("sqlite.commit");
             if let Some(delay) = owner.0.commit_delay {
                 std::thread::sleep(delay);
@@ -241,6 +368,25 @@ impl WalDurability {
             shared.state.lock().recover_poison().stopping = true;
         }
         Self { shared }
+    }
+
+    /// [`Self::attach_with_commit_delay`] for a database that no owner
+    /// releases, with no commit delay.
+    #[cfg(test)]
+    pub(crate) fn attach(
+        connection: &Connection,
+        database_path: &Path,
+        slow_flush: Option<Duration>,
+        flush_each_commit: bool,
+    ) -> Self {
+        Self::attach_with_commit_delay(
+            connection,
+            database_path,
+            slow_flush,
+            flush_each_commit,
+            None,
+            OwnerRelease::default(),
+        )
     }
 
     /// Wait until every commit made before this call is on disk.
@@ -391,7 +537,15 @@ fn run(shared: &Shared) {
 /// `journal_size_limit`), so a file that passed [`CHECKPOINT_BYTES`] once
 /// stays above it while it holds a few frames. A file past the limit is
 /// one a reader pinned: a checkpoint lets the next commit cut it back.
+///
+/// No checkpoint after the release of the database's owner:
+/// the syncer's connection has no commit hook, and a checkpoint
+/// writes the database file, which the next owner has from then on. A
+/// checkpoint that began before the release ends after it.
 fn checkpoint_if_large(shared: &Shared, checkpointer: &mut Option<Connection>) -> bool {
+    if shared.released.is_released() {
+        return false;
+    }
     let file = wal_file_len(shared);
     let frames = shared.state.lock().recover_poison().wal_frames;
     if frames.saturating_mul(shared.frame_bytes) <= CHECKPOINT_BYTES && file <= WAL_SIZE_LIMIT_BYTES
@@ -406,6 +560,10 @@ fn checkpoint_if_large(shared: &Shared, checkpointer: &mut Option<Connection>) -
         .and_then(|connection| {
             connection.execute_batch(CHECKPOINTER_PRAGMAS)?;
             connection.execute_batch(&journal_size_limit_pragma())?;
+            // This connection makes a checkpoint only where this function
+            // asks for one, never at its close: that close can be the last
+            // one of the database, after the owner's release.
+            connection.set_db_config(DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, true)?;
             Ok(connection)
         })
         .map_err(|error| eprintln!("cmux-tui: open the WAL checkpointer failed: {error:#}"))
@@ -474,10 +632,14 @@ fn drive_sync(file: &File, full: bool) -> std::io::Result<()> {
 }
 
 #[cfg(test)]
+#[path = "wal_durability/release_tests.rs"]
+mod release_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
-    fn database(name: &str) -> (PathBuf, Connection) {
+    pub(super) fn database(name: &str) -> (PathBuf, Connection) {
         let dir =
             std::env::temp_dir().join(format!("wal-durability-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);

@@ -473,7 +473,7 @@ impl JournalPluginRuntime {
             handler(&plugin_id, generation);
         }
         if let Some(handle) = self.thread.lock().recover_poison().take()
-            && handle.join().is_err()
+            && let Some(Err(_)) = crate::Mux::join_within_stop("journal plugin supervisor", handle)
         {
             eprintln!("cmux-tui: journal plugin supervisor panicked during shutdown");
         }

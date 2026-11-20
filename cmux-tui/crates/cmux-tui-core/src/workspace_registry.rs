@@ -92,6 +92,7 @@ mod mutation_ledger;
 pub(crate) mod mutation_ledger_retention;
 mod open_guard;
 pub(crate) mod output_cleanup;
+pub(crate) mod owner_release;
 pub(crate) mod personal_bookmarks;
 mod personal_browser_profiles;
 pub(crate) mod personal_mutations;
@@ -900,6 +901,9 @@ pub struct WorkspaceRegistry {
     pub(crate) session_guard: Option<SessionLease>,
     /// This open swapped in a registry without stored output.
     output_cleanup_swapped: bool,
+    /// What the owner before said of its release (`owner_release`), until
+    /// this owner's start line takes it.
+    pub(crate) previous_owner_release: Option<Value>,
 }
 
 /// Prepared statements each registry connection keeps compiled

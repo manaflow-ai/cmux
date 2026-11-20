@@ -85,6 +85,7 @@ pub(super) fn final_pass(mux: &Mux, store: &OutputStore, policy: PersistencePoli
 fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quitting: bool) {
     let Some(directory) = store.directory() else { return };
     let _pass = store.lock_pass();
+    let _last = quitting.then(|| super::writer::LastWrite { mux, store, mode: policy.mode });
     let full = policy.mode == PersistenceMode::Full;
     let tail = policy.mode == PersistenceMode::Snapshot;
     store.full.set_enabled(full);

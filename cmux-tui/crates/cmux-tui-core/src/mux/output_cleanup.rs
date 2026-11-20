@@ -34,6 +34,9 @@ pub(super) struct OutputCleanupState {
     /// seals no more live rows (they are almost all output to be removed).
     pending: Arc<AtomicBool>,
     worker: Mutex<Option<OutputCleanupWorker>>,
+    /// Workers that lived past their stop. Each receiver disconnects when
+    /// its worker's thread ends: the owner's release waits for that.
+    left_alive: Mutex<Vec<Receiver<()>>>,
 }
 
 struct Control {
@@ -76,25 +79,35 @@ struct OutputCleanupWorker {
 }
 
 impl OutputCleanupWorker {
-    /// Stops the worker and joins it, waiting at most `wait`: a worker still
-    /// blocked after that is left to finish on its own.
-    fn stop(mut self, wait: Duration) {
+    /// Tells the worker to stop and returns at once: no wait for its end.
+    fn signal_stop(&self) {
         *self.control.stopped.lock().unwrap_or_else(PoisonError::into_inner) = true;
         self.control.changed.notify_all();
-        let Some(thread) = self.thread.take() else { return };
+    }
+
+    /// Stops the worker and joins it, waiting at most `wait`: a worker still
+    /// blocked after that is left to finish on its own, and this returns
+    /// what says when its thread ended.
+    fn stop(mut self, wait: Duration) -> Option<Receiver<()>> {
+        self.signal_stop();
+        let thread = self.thread.take()?;
         // The last `Arc<Mux>` can drop on the worker itself; it must not
         // join its own thread.
         if thread.thread().id() == std::thread::current().id() {
-            return;
+            return None;
         }
         match self.exited.recv_timeout(wait) {
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => eprintln!(
-                "cmux-tui: output cleanup: the worker did not stop within {:.1} s; \
-                 shutdown goes on without it",
-                wait.as_secs_f64()
-            ),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                eprintln!(
+                    "cmux-tui: output cleanup: the worker did not stop within {:.1} s; \
+                     shutdown goes on without it",
+                    wait.as_secs_f64()
+                );
+                Some(self.exited)
+            }
             _ => {
                 let _ = thread.join();
+                None
             }
         }
     }
@@ -187,11 +200,57 @@ impl Mux {
     }
 
     pub(super) fn stop_output_cleanup(&self) {
+        self.stop_output_cleanup_within(STOP_WAIT);
+    }
+
+    /// [`Self::stop_output_cleanup`], with `wait` as the longest wait for the
+    /// worker's end.
+    fn stop_output_cleanup_within(&self, wait: Duration) {
         let worker =
             self.output_cleanup.worker.lock().unwrap_or_else(PoisonError::into_inner).take();
-        if let Some(worker) = worker {
-            worker.stop(STOP_WAIT);
+        if let Some(worker) = worker
+            && let Some(alive) = worker.stop(wait)
+        {
+            self.output_cleanup
+                .left_alive
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(alive);
         }
+    }
+
+    /// Tells the cleanup worker to stop and returns at once, with no wait
+    /// for its end. The owner's release calls this before its first wait, so
+    /// the worker has the whole of the release's one bound to end, and not
+    /// what another wait left of it.
+    /// [`Self::output_cleanup_ended_by`] then says if it ended.
+    pub(super) fn signal_output_cleanup_stop(&self) {
+        if let Some(worker) =
+            self.output_cleanup.worker.lock().unwrap_or_else(PoisonError::into_inner).as_ref()
+        {
+            worker.signal_stop();
+        }
+    }
+
+    /// True when no cleanup worker of this owner lives. A worker writes the
+    /// staged registry in the session's folder on a connection of its own,
+    /// and the next owner's start acts on that file, so the owner's release
+    /// keeps the session while one lives. A worker
+    /// that no stop reached yet is stopped here. The stop and the wait for a
+    /// worker that lived past its stop end at `deadline` at the latest; a
+    /// caller that waits for something else first signals the stop before
+    /// that wait ([`Self::signal_output_cleanup_stop`]).
+    pub(super) fn output_cleanup_ended_by(&self, deadline: Instant) -> bool {
+        self.stop_output_cleanup_within(
+            deadline.saturating_duration_since(Instant::now()).min(STOP_WAIT),
+        );
+        let mut alive =
+            self.output_cleanup.left_alive.lock().unwrap_or_else(PoisonError::into_inner);
+        alive.retain(|exited| {
+            let wait = deadline.saturating_duration_since(Instant::now());
+            matches!(exited.recv_timeout(wait), Err(std::sync::mpsc::RecvTimeoutError::Timeout))
+        });
+        alive.is_empty()
     }
 }
 
@@ -268,8 +327,47 @@ fn lower_thread_priority() {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
+
+    /// Makes `worker` the cleanup worker of `mux`. The owner's own worker,
+    /// if it started one, ends at its stop first.
+    fn put_worker(mux: &Mux, worker: OutputCleanupWorker) {
+        mux.stop_output_cleanup();
+        let left_alive =
+            mux.output_cleanup.left_alive.lock().unwrap_or_else(PoisonError::into_inner).len();
+        assert_eq!(left_alive, 0, "setup: the owner's own cleanup worker did not end at its stop");
+        *mux.output_cleanup.worker.lock().unwrap_or_else(PoisonError::into_inner) = Some(worker);
+    }
+
+    /// Gives `mux` a cleanup worker that can stop: its thread waits for the
+    /// stop on the stop's condition variable, with no bound, then it runs
+    /// `at_its_stop` and ends.
+    pub(in crate::mux) fn put_a_worker_that_ends_at_its_stop(
+        mux: &Mux,
+        at_its_stop: impl FnOnce() + Send + 'static,
+    ) {
+        let control = Arc::new(Control { stopped: Mutex::new(false), changed: Condvar::new() });
+        let worker_control = control.clone();
+        let (exited_sender, exited) = std::sync::mpsc::channel::<()>();
+        let thread = std::thread::spawn(move || {
+            let _exited = exited_sender;
+            let mut stopped = worker_control.stopped.lock().unwrap_or_else(PoisonError::into_inner);
+            while !*stopped {
+                stopped =
+                    worker_control.changed.wait(stopped).unwrap_or_else(PoisonError::into_inner);
+            }
+            drop(stopped);
+            at_its_stop();
+        });
+        put_worker(mux, OutputCleanupWorker { control, thread: Some(thread), exited });
+    }
+
+    /// Gives `mux` a cleanup worker that lives past its stop: its thread
+    /// waits on `lock`, as the real worker can at its last step.
+    pub(in crate::mux) fn put_a_worker_blocked_on(mux: &Mux, lock: Arc<Mutex<()>>) {
+        put_worker(mux, worker_blocked_on(lock));
+    }
 
     fn worker_blocked_on(lock: Arc<Mutex<()>>) -> OutputCleanupWorker {
         let control = Arc::new(Control { stopped: Mutex::new(false), changed: Condvar::new() });
@@ -322,5 +420,79 @@ mod tests {
     fn a_stop_joins_a_worker_that_ends() {
         let worker = worker_blocked_on(Arc::new(Mutex::new(())));
         worker.stop(Duration::from_secs(5));
+    }
+
+    /// The owner of a session on disk, with a cleanup worker that lives past
+    /// its stop: it waits on `lock`, as the real worker can at its last step.
+    /// The worker writes files of the session's folder, and the next owner's
+    /// start acts on them.
+    fn owner_with_a_worker_blocked_on(
+        session: &str,
+        lock: Arc<Mutex<()>>,
+    ) -> (std::path::PathBuf, Arc<Mux>) {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-session-release-cleanup-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let mux = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+        put_a_worker_blocked_on(&mux, lock);
+        (root, mux)
+    }
+
+    /// The text with which the open of `session` is refused, if it is. The
+    /// owner in these tests never gives the session up, so the open's wait
+    /// for it has a small bound.
+    fn refusal_of_the_next_open(root: &Path, session: &str) -> Option<String> {
+        crate::workspace_registry::terminal_state_end::set_kept_owner_wait_for_test(
+            Duration::from_millis(50),
+            None,
+        );
+        WorkspaceRegistry::open(root, session).err().map(|error| format!("{error:#}"))
+    }
+
+    /// The owner's stop of its cleanup worker ran out, and the owner then
+    /// releases the session. While that worker lives, the session keeps its
+    /// owner: the next owner's open is refused.
+    #[test]
+    fn session_release_the_session_has_its_owner_while_the_cleanup_worker_lives() {
+        let session = "release-cleanup";
+        let lock = Arc::new(Mutex::new(()));
+        let held = lock.lock().unwrap();
+        let (root, mux) = owner_with_a_worker_blocked_on(session, lock.clone());
+        mux.shutdown();
+        mux.release_ownership(&root.join("control.sock"));
+        let refused = refusal_of_the_next_open(&root, session);
+        drop(held);
+        drop(mux);
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(
+            refused.as_deref().is_some_and(|text| text.contains("already owned by another daemon")),
+            "the next owner has the session while the cleanup worker of the owner before it \
+             lives: the next open's refusal: {refused:?}"
+        );
+    }
+
+    /// The same, and the owner's value is dropped before the next owner's
+    /// open (the server's function returned; the process did not end yet).
+    /// The session keeps its owner until that process ends.
+    #[test]
+    fn session_release_a_kept_session_stays_kept_after_the_owners_value_is_dropped() {
+        let session = "release-cleanup-drop";
+        let lock = Arc::new(Mutex::new(()));
+        let held = lock.lock().unwrap();
+        let (root, mux) = owner_with_a_worker_blocked_on(session, lock.clone());
+        mux.shutdown();
+        mux.release_ownership(&root.join("control.sock"));
+        let dropped = Arc::into_inner(mux).map(drop).is_some();
+        let refused = refusal_of_the_next_open(&root, session);
+        drop(held);
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(
+            refused.as_deref().is_some_and(|text| text.contains("already owned by another daemon")),
+            "the next owner has the session while the cleanup worker of the owner before it \
+             lives, after that owner's value was dropped (dropped: {dropped}): the next open's \
+             refusal: {refused:?}"
+        );
+        assert!(dropped, "setup: the test had the last handle of the owner's value");
     }
 }

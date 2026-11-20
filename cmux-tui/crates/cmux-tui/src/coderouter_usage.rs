@@ -339,7 +339,7 @@ impl UsagePoller {
     pub(crate) fn stop(mut self) {
         self.stop.notify_one();
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = Mux::join_within_stop("usage poller", thread);
         }
     }
 }

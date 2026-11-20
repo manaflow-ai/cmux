@@ -164,4 +164,26 @@ mod tests {
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }
+
+    /// A commit hook can refuse a commit (the hook of a store whose owner
+    /// released its session does). That error is not congestion: a later
+    /// attempt fails in the same way, so the writer does not try the batch
+    /// again.
+    #[test]
+    fn session_release_a_commit_that_its_hook_refuses_is_not_transient() {
+        let mut connection = rusqlite::Connection::open_in_memory().unwrap();
+        connection.execute_batch("CREATE TABLE written (value INTEGER NOT NULL)").unwrap();
+        let _ = connection.commit_hook(Some(|| true));
+        let transaction = connection.transaction().unwrap();
+        transaction.execute("INSERT INTO written (value) VALUES (1)", []).unwrap();
+        let refused = transaction.commit().expect_err("a commit that its hook refuses fails");
+        let error = anyhow::Error::from(refused).context("commit a journal batch");
+        // A deadline that passed: the widest reading of `transient`.
+        let deadline = std::time::Instant::now();
+        assert!(
+            !super::is_transient(&error, deadline),
+            "a commit that its hook refuses counts as congestion, so the writer tries it with \
+             no end: {error:#}"
+        );
+    }
 }

@@ -1,6 +1,59 @@
 //! Mux lifecycle: side-table purges on close, shutdown and journal finalization, server readiness, daemon handoff and shutdown requests, surface options and machine usage.
 
 use super::*;
+use crate::workspace_registry::wal_durability::OwnerRelease;
+
+/// How long the owner's release waits for what can still write the session's
+/// stores. A person's quit waits at most this much
+/// longer, and only when such a writer lives.
+const RELEASE_WAIT: Duration = Duration::from_secs(2);
+
+/// The names, in [`OwnershipRelease::KeptUntilExit`], of what the release
+/// waits for.
+const JOURNAL_WRITER: &str = "session journal writer";
+const OUTPUT_CLEANUP_WORKER: &str = "output cleanup worker";
+const STORE_WRITE: &str = "a write of the session's store";
+const REGISTRY_HOLD: &str = "a hold of the registry's lock";
+const LAST_PASS: &str = "output store: the last pass";
+
+/// How [`Mux::release_ownership`] ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OwnershipRelease {
+    /// The session is free for the next owner. From here each commit of
+    /// this owner fails in the registry, the conversation store and the
+    /// Chief registry. No other file of the session's folder has that guard
+    /// (the terminal output store, the app storage, the git checkpoint
+    /// store, the launch snapshot, the stores of unowned hosts, cloud runs,
+    /// shares and settings).
+    Released,
+    /// This owner keeps the session until its process ends, because a
+    /// thread that can still write the session's stores did not end in the
+    /// release's wait. The next owner cannot open the session before that.
+    KeptUntilExit {
+        /// What still lived.
+        alive: Vec<&'static str>,
+        /// How long the release waited for it.
+        waited: Duration,
+    },
+}
+
+/// Writes this owner's release record into its session's folder
+/// (`workspace_registry::owner_release`). The owner holds the session's
+/// locks. A write that fails is said on stderr: it never stops the release.
+fn write_release_record(
+    session_dir: Option<&Path>,
+    kept: bool,
+    alive: &[&'static str],
+    began: Instant,
+    writer_join: Option<String>,
+) {
+    use crate::workspace_registry::owner_release::{ReleaseRecord, write_record};
+    let Some(session_dir) = session_dir else { return };
+    let record = ReleaseRecord { kept, alive, waited: began.elapsed(), writer_join };
+    if let Err(error) = write_record(session_dir, &record) {
+        eprintln!("cmux-tui: could not write the record of this owner's release: {error}");
+    }
+}
 
 impl Mux {
     /// Drop per-surface metadata for a surface that has left the tree.
@@ -173,13 +226,165 @@ impl Mux {
     /// (feed_local, "detached session owner did not become ready"). The
     /// leases go first: this owner keeps listening until it exits, so no new
     /// owner binds the socket before it is removed here.
-    pub fn release_ownership(&self, socket_path: &Path) {
-        {
-            let mut registry = self.workspace_registry.lock().unwrap_or_else(|e| e.into_inner());
-            drop(registry.lease.take());
-            drop(registry.session_guard.take());
+    ///
+    /// The session's locks are the last thing this owner gives up, and from
+    /// that step on no commit of it lands in the registry, the conversation
+    /// store or the Chief registry. The other files
+    /// of the session's folder have no such guard. The release first waits, with one deadline of
+    /// [`RELEASE_WAIT`], for the end of each thread that writes a store of
+    /// the session and that `shutdown` can leave alive: the journal writer
+    /// (its join gives up after a bound, with an admitted commit still the
+    /// writer's own) and the output cleanup worker (it writes the staged
+    /// registry on a connection of its own). It tells the worker to stop
+    /// before the first of these waits: the 2
+    /// threads end side by side in the one bound, and the wait for the
+    /// first leaves the second no less of it. Then it takes the registry
+    /// connection's lock, so no registry transaction is open on another
+    /// thread, and under that lock it sets the owner's release and drops the
+    /// locks. Each later commit of this process fails in the one commit hook
+    /// that each of those 3 stores has
+    /// (`workspace_registry::wal_durability`), whichever thread makes it.
+    ///
+    /// The same deadline holds for each thread that a bounded join of the
+    /// stop left alive (`mux/stop_join.rs`), by its name, and for the take
+    /// of the registry's lock: a thread of this
+    /// owner that holds that lock and does not end cannot make the release
+    /// wait with no bound.
+    ///
+    /// When one of them does not end in that wait, this owner keeps the
+    /// session and says so: the locks move to a list that nothing drops
+    /// (`workspace_registry::owner_release`), so they also outlive this
+    /// owner's value, and the kernel frees them when the process ended. The
+    /// owner stays the one writer of its stores until then. The control
+    /// socket is removed in both cases: this owner serves nobody from here.
+    ///
+    /// An owner that keeps its session, or whose journal writer ended after
+    /// its join ran out, writes a record of that into the session's folder
+    /// while it holds the locks. The next owner reads it into its start
+    /// line (`previous_owner_release`).
+    pub fn release_ownership(&self, socket_path: &Path) -> OwnershipRelease {
+        let began = Instant::now();
+        let deadline = began + RELEASE_WAIT;
+        // The stop before the first wait: the worker ends while this waits
+        // for the writer, and a writer that only the worker's stop frees
+        // can end in this wait.
+        self.signal_output_cleanup_stop();
+        let mut alive = Vec::new();
+        if !self.journal_ingress.writer_ended_by(deadline) {
+            alive.push(JOURNAL_WRITER);
         }
+        if !self.output_cleanup_ended_by(deadline) {
+            alive.push(OUTPUT_CLEANUP_WORKER);
+        }
+        // Each thread that a bounded join left alive and that keeps this
+        // owner, by name: its own threads, and the threads with no owner.
+        alive.extend(stop_join::alive_at(self.stop_owner(), deadline));
+        // The last write of the output store is still to make (its stop
+        // left its writer, or that write left output of a terminal of the
+        // session in no file): no thread, and it keeps the session too. The
+        // owner's drop makes that write as the session's owner.
+        if self.output_store.last_write_is_missing() {
+            alive.push(LAST_PASS);
+        }
+        // A join of the journal writer that ran out, in this shutdown or
+        // before it: stderr is often lost, the record is not.
+        let writer_join = self.journal_ingress.late_writer_join();
+        let release = {
+            let Some(mut registry) = self.workspace_registry.lock_by(deadline) else {
+                return self.kept_behind_the_registry_lock(socket_path, alive, began, writer_join);
+            };
+            let database = registry.session_journal_database_path();
+            let session_dir = database.as_deref().and_then(Path::parent);
+            let held =
+                if alive.is_empty() { self.registry_connection.get_until(deadline) } else { None };
+            match held {
+                Some(held) => {
+                    // The record first: its writer holds the session.
+                    if writer_join.is_some() {
+                        write_release_record(session_dir, false, &alive, began, writer_join);
+                    }
+                    // One step under the connection lock: the release, then
+                    // the writer lease, then the session guard.
+                    self.registry_connection.mark_released(&held);
+                    drop(registry.lease.take());
+                    drop(registry.session_guard.take());
+                    OwnershipRelease::Released
+                }
+                None => {
+                    if alive.is_empty() {
+                        alive.push(STORE_WRITE);
+                    }
+                    crate::workspace_registry::owner_release::keep_until_exit(
+                        session_dir.unwrap_or(Path::new("")),
+                        registry.lease.take().into_iter().chain(registry.session_guard.take()),
+                    );
+                    write_release_record(session_dir, true, &alive, began, writer_join);
+                    let waited = began.elapsed();
+                    eprintln!(
+                        "cmux-tui: this daemon keeps its session until it exits: {} did not \
+                         end in {} ms",
+                        alive.join(", "),
+                        waited.as_millis()
+                    );
+                    OwnershipRelease::KeptUntilExit { alive, waited }
+                }
+            }
+        };
         crate::server::cleanup(socket_path);
+        release
+    }
+
+    /// The end of a release that did not get the registry's lock in its
+    /// wait: a thread of this owner holds that lock and does not give it
+    /// back. The session's locks are in the locked
+    /// value and stay there, so this owner keeps its session, and it says
+    /// so as each owner that keeps its session does. The drop of this
+    /// owner's value moves the locks to the list that nothing drops
+    /// ([`Self::keep_the_locks_a_release_left`]).
+    fn kept_behind_the_registry_lock(
+        &self,
+        socket_path: &Path,
+        mut alive: Vec<&'static str>,
+        began: Instant,
+        writer_join: Option<String>,
+    ) -> OwnershipRelease {
+        alive.push(REGISTRY_HOLD);
+        self.release_left_locks.store(true, Ordering::Release);
+        // The session's folder with no read of the registry: the output
+        // store's folder is in it.
+        let session_dir = self.output_store.directory().and_then(Path::parent);
+        write_release_record(session_dir, true, &alive, began, writer_join);
+        let waited = began.elapsed();
+        eprintln!(
+            "cmux-tui: this daemon keeps its session until it exits: {} did not end in {} ms",
+            alive.join(", "),
+            waited.as_millis()
+        );
+        crate::server::cleanup(socket_path);
+        OwnershipRelease::KeptUntilExit { alive, waited }
+    }
+
+    /// At the drop of this owner's value: the session's locks that a
+    /// release left in the registry, because it did not get the registry's
+    /// lock, move to the list that nothing drops. That release said `kept
+    /// until the exit`, so the locks outlive this value. No thread holds the
+    /// registry's lock here: the drop has the only handle of the value.
+    pub(super) fn keep_the_locks_a_release_left(&mut self) {
+        if !*self.release_left_locks.get_mut() {
+            return;
+        }
+        let session_dir = self.output_store.directory().and_then(Path::parent);
+        let registry = self.workspace_registry.get_mut();
+        crate::workspace_registry::owner_release::keep_until_exit(
+            session_dir.unwrap_or(Path::new("")),
+            registry.lease.take().into_iter().chain(registry.session_guard.take()),
+        );
+    }
+
+    /// The release of this owner, for each store of the session folder that
+    /// opens at its first use: its commits fail after the release too.
+    pub(crate) fn owner_release(&self) -> &OwnerRelease {
+        self.registry_connection.owner_release()
     }
 
     /// Stop the terminal readers and the journal writer; with

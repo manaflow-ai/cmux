@@ -263,7 +263,7 @@ impl IdleTerminalReaper {
             let _ = stop.send(ReaperMessage::Stop);
         }
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = Mux::join_within_stop("idle terminal reaper", thread);
         }
     }
 }
