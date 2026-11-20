@@ -14,11 +14,14 @@ No app, display or subprocess is run: the definitions are loaded without the scr
 import ast
 import json
 from pathlib import Path
+import sys
 from types import SimpleNamespace
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+import pane_move  # noqa: E402  the rule that the suite imports: animated_row, move_facts, pane_in_a_move
 
 
 def definitions(path, names):
@@ -34,14 +37,14 @@ BENCH = definitions(ROOT / "pane-perf-terminal.py", {"moving_frames", "not_appli
                                                     "late_frames", "motion_arms", "commit_notes", "commit_placements",
                                                     "layout_spans", "windows_behind", "marker_color", "marker_command", "stills_facts",
                                                     "stills_clock", "stills_cost", "docked_state", "cli_settings", "theme_facts",
-                                                    "move_facts", "animated_row", "proof_round_row", "proof_mark",
-                                                    "pane_in_a_move", "move_ticks", "ticks_said", "move_times", "times_said",
+                                                    "proof_round_row", "proof_mark",
+                                                    "move_ticks", "ticks_said", "move_times", "times_said",
                                                     "parts_said", "first_move_row", "measure"})
 ZOOM = definitions(ROOT / "pane-zoom-terminal.py", {"sample_frames"})
 
 
 def loaded(**extra):
-    namespace = dict(extra)
+    namespace = {name: getattr(pane_move, name) for name in ("animated_row", "move_facts", "pane_in_a_move")} | extra
     exec(BENCH, namespace)
     return namespace
 

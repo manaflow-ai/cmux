@@ -15,10 +15,20 @@ through the toggleSplitZoom action. Each zoom and unzoom is measured with:
 Budget rows (always printed; they fail the run with --gate): a zoom or unzoom sends at most one grid per
 terminal that changed size (the zoomed pane: 1), and misses no more than --missed-budget frames.
 
+If a zoom moved is said by pane_move.py's rule, the pane suite's: a pane that is not where it ends in 2 samples of
+the pane trace or more, or a frame of the app's own samples (`layout.travel`, `layout.commit`). A build with
+neither source says NO SOURCE and fails the row. The pane trace's sampler costs main-thread time at each display
+tick, so each layout has one zoom and one unzoom more, first, with the trace: the proof round. It is not timed and
+not in the numbers, and it has the 2 rows `animated` of the layout. A timed zoom runs with no pane trace; its row
+in the report says `move_proved`: if the same direction moved in the layout's proof round.
+
 Usage: pane-zoom-terminal.py --tag <tag> --app PATH [--layouts 1x2,2x2,2x4] [--rounds 3] [--scrollback 20000]
        [--stream] [--json PATH] [--out DIR] [--gate]
 """
 import argparse, glob, json, os, signal, subprocess, sys, tempfile, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from pane_move import animated_row, move_facts  # noqa: E402  the one rule for `did a pane move` (the pane suite calls it too)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -128,7 +138,19 @@ def sample_frames(samples, name):
                if isinstance(sample, dict) and sample.get("name") == name and (sample.get("v") or 0) > 0)
 
 
-def measure(label):
+def moved_row(run):
+    """The row of a proof round's zoom or unzoom that says if it moved: (its name, what it expects, what it saw,
+    passed). `run`: that act's `measure` with `proof`. The rule is `animated_row`'s, with the app's own setting
+    of the pane motion."""
+    return animated_row(None, run["moving_frames"], run["commit_frames"], run["move"], ())
+
+
+def measure(label, proof=False):
+    """One zoom or unzoom, measured. `proof`: the act of a proof round: it runs with the pane trace, its line says
+    that it is not timed, and its numbers go into no summary. A timed act runs with no pane trace."""
+    if proof:
+        rpc("debug.motion", {"action": "trace_start", "targets": ["panes"]})
+        time.sleep(0.05)  # test harness: record the resting geometry before the input
     rpc("debug.hangs", {"clear": True})
     rpc("debug.motion", {"action": "start"})
     rpc("debug.frames", {"action": "start"})
@@ -138,6 +160,7 @@ def measure(label):
     trace = rpc("debug.window_transition", {"action": "stop"}) or {}
     frames = rpc("debug.frames", {"action": "stop"}) or {}
     motion = rpc("debug.motion", {"action": "stop"}) or {}
+    move = move_facts(rpc("debug.motion", {"action": "trace_stop"})) if proof else None  # the proof round's row reads it
     hangs = rpc("debug.hangs") or {}
     # The display-link tick is the per-frame work MotionTrace measures ("clock"); layout.travel samples
     # above zero are the frames the layout springs moved in. A zoom by a commit motion steps no layout spring: its
@@ -150,13 +173,19 @@ def measure(label):
         "label": label, "reply_error": reply.get("error") if isinstance(reply, dict) else None,
         "missed": frames.get("missed"), "frames_max_ms": frames.get("max_ms"), "frames_p99_ms": frames.get("p99_ms"),
         "frames_p50_ms": frames.get("p50_ms"), "frames_p95_ms": frames.get("p95_ms"), "frames": frames.get("frames"),
-        "moving_frames": moving, "commit_frames": committed,
+        "moving_frames": moving, "commit_frames": committed, "move": move,
         "refresh_ms": frames.get("refresh_ms"),
         "layout_max_ms": work.get("max_ms"), "layout_p95_ms": work.get("p95_ms"), "layout_p50_ms": work.get("p50_ms"),
         "layout_frames": work.get("frames"),
         "grid_reports": trace.get("terminal_grid_reports"), "resizes_sent": trace.get("terminal_resizes_sent"),
         "hangs": len(hang_list) if isinstance(hang_list, list) else hangs.get("count"),
     }
+    if proof:
+        said = (f"NO SOURCE: {move['no_source']}" if move["no_source"]
+                else f"{move['samples_in_a_move']} of {move['samples']} samples of the pane trace in a move")
+        print(f"  {label:<18} proof round (not timed, not in the numbers): {said}; moved {moving} frames commit {committed}  "
+              f"err {result['reply_error']}", flush=True)
+        return result
     print(f"  {label:<18} moved {moving} frames commit {committed}  frame p50 {result['frames_p50_ms']} p95 {result['frames_p95_ms']} "
           f"p99 {result['frames_p99_ms']} max {result['frames_max_ms']} ms missed {result['missed']}  "
           f"tick p50 {work.get('p50_ms')} p95 {work.get('p95_ms')} ms  grids {result['grid_reports']}/{result['resizes_sent']}  "
@@ -202,21 +231,26 @@ def main():
         print(open(os.path.join(opts.out, f"app-{TAG}.log"), errors="replace").read()[-6000:], flush=True)
         sys.exit(1)
     time.sleep(5)  # test harness: launch work settles
-    report = {"tag": TAG, "stream": opts.stream, "scrollback": opts.scrollback, "runs": []}
+    report = {"tag": TAG, "stream": opts.stream, "scrollback": opts.scrollback, "runs": [], "proof_rounds": []}
     for name in opts.layouts.split(","):
         columns, rows = (int(v) for v in name.split("x"))
         layout(columns, rows)
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}-before.png")})
+        proved = {}
+        for direction in ("zoom", "unzoom"):
+            run = measure(f"{name} {direction} proof", proof=True)
+            said, expected, seen, proved[direction] = moved_row(run)
+            report["proof_rounds"].append({"layout": name, "direction": direction, "move": run["move"], "reply_error": run["reply_error"],
+                                           "moving_frames": run["moving_frames"], "commit_frames": run["commit_frames"]})
+            row(f"{name} {direction} proof round: {said}", expected, seen, proved[direction])
+            time.sleep(0.5)  # test harness: idle between runs
         for index in range(opts.rounds):
             for direction in ("zoom", "unzoom"):
                 run = measure(f"{name} {direction} #{index}")
-                run.update(layout=name, direction=direction)
+                run.update(layout=name, direction=direction, move_proved=proved[direction])
                 report["runs"].append(run)
                 if index == 0 and direction == "zoom":
                     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}-zoomed.png")})
-                row(f"{name} {direction} #{index}: the zoom animated (layout springs or a commit motion moved)", "> 0 frames",
-                    f"{run['moving_frames']} spring frames, {run['commit_frames']} commit frames",
-                    run["moving_frames"] > 0 or run["commit_frames"] > 0)
                 sent = run["resizes_sent"]
                 row(f"{name} {direction} #{index}: grids sent to the PTY owner" + ("" if opts.gate else " (info)"),
                     "<= 1", str(sent), sent is not None and sent <= 1 or not opts.gate)
@@ -234,8 +268,9 @@ def main():
             def med(key):
                 values = sorted(v for v in (r.get(key) for r in runs) if v is not None)
                 return values[len(values) // 2] if values else None
+            mark = "" if runs and all(r["move_proved"] for r in runs) else "  NO MOVE PROVED"  # by the layout's proof round
             print(f"  {name:<4} {direction:<6} moved {med('moving_frames')} commit {med('commit_frames')} frame p50 {med('frames_p50_ms')} "
-                  f"p95 {med('frames_p95_ms')} ms  tick p50 {med('layout_p50_ms')} p95 {med('layout_p95_ms')} ms")
+                  f"p95 {med('frames_p95_ms')} ms  tick p50 {med('layout_p50_ms')} p95 {med('layout_p95_ms')} ms{mark}")
             print(f"  {name:<4} {direction:<6} missed {med('missed')} max {med('frames_max_ms')} p99 {med('frames_p99_ms')} ms  "
                   f"layout max {med('layout_max_ms')} ms  grids {med('grid_reports')}/{med('resizes_sent')}  "
                   f"hangs {med('hangs')}", flush=True)

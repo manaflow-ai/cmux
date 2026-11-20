@@ -177,6 +177,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, LaunchError  # noqa: E402  the shared GUI launch (session check, failure report)
 import bench_background  # noqa: E402  background daemon CPU per round (a reader drops a round over its limit)
 import window_look as looks  # noqa: E402  the window's look: the option's keys, the launch's config, the app's own answers
+from pane_move import animated_row, move_facts, pane_in_a_move  # noqa: E402  the one rule for `did a pane move` (the zoom script calls it too)
 
 
 def load_stress():
@@ -388,14 +389,6 @@ def stills_facts(trace, at_start, names):
             "samples_in_a_move": move_facts(trace)["samples_in_a_move"], "problem": "; ".join(missing) or None}
 
 
-def pane_in_a_move(sample):
-    """If a pane of one sample of the pane trace IS not where it ends, by more than 0.5 pt: a pane row's last 4
-    numbers against its first rect. A row of fewer than 22 entries does not say where the pane is: not in a move."""
-    def moves(row):
-        return isinstance(row, list) and len(row) >= 22 and any(abs(now - end) > 0.5 for now, end in zip(row[-4:], row[1:5]))
-    return isinstance(sample, dict) and any(moves(row) for row in sample.get("panes") or [])
-
-
 def move_ticks(trace):
     """The rate of a move in a pane trace. A sample is one tick of the window's display link, and its `t` the link's
     own time of that tick: the link that steps the app's frame clients of that window. `ticks`: the samples with a
@@ -498,47 +491,6 @@ def parts_said(parts):
     round's line: each part's count, sum and longest one with its start. A build with no such span: no text."""
     return "".join(f"; {name} {part['count']} x, sum {part['sum_ms']} ms, max {part['max_ms']} ms at {part['max_at_ms']} ms"
                    for name, part in sorted((parts or {}).items()))
-
-
-def move_facts(trace):
-    """What a pane trace (the reply of `debug.motion` trace_stop) says of a move: `samples`, `samples_in_a_move` (the
-    samples in which a pane IS not where it ends by more than 0.5 pt: a pane row's last 4 numbers against its first
-    rect) and `no_source`: None, or why this trace cannot say if a pane moved (no sample, no pane in a sample, or a
-    build with a sampler that says only where a pane ends: a pane row of fewer than 22 entries)."""
-    samples = trace.get("samples") if isinstance(trace, dict) and isinstance(trace.get("samples"), list) else []
-    rows = [row for sample in samples if isinstance(sample, dict) for row in sample.get("panes") or []]
-    in_a_move = sum(1 for sample in samples if pane_in_a_move(sample))
-    if not samples:
-        no_source = f"no sample in the pane trace: {trace!r}"[:200]
-    elif not rows:
-        no_source = f"no pane in the {len(samples)} samples of the pane trace"
-    elif not all(isinstance(row, list) and len(row) >= 22 for row in rows):
-        no_source = "the build's pane trace does not say where a pane is in a sample (a pane row of fewer than 22 entries)"
-    else:
-        no_source = None
-    return {"samples": len(samples), "samples_in_a_move": in_a_move, "no_source": no_source}
-
-
-def animated_row(arm, moving, committed, move, notes):
-    """The row of one timed act that says if the act moved: (its name, what it expects, what it saw, passed).
-    `move`: `move_facts` of the pane trace that ran through the act; `moving` and `committed`: `moving_frames` and
-    `commit_frames` of the same act (the app's own samples; `layout.commit` is only in a build with the probe).
-    With the motion on (`arm` on, or None: the app's own setting) the act is animated when a pane is in a move in 2
-    samples or more (a change that the app shows in one frame has 1 sample at the most: a new pane's first sample),
-    or a spring or commit frame is there (New Column moves only the strip camera, and no pane). With the motion off
-    it is still with 1 sample at the most and no such frame. A row with no source (no trace that says where a pane
-    is, and no frame of the app's samples) says NO SOURCE and fails: it does not say that the app did not move."""
-    counts = f"{moving} spring frames, {committed} commit frames"
-    seen = (f"NO SOURCE: {move['no_source']}; {counts}" if move["no_source"]
-            else f"{move['samples_in_a_move']} of {move['samples']} samples of the pane trace in a move; {counts}")
-    traced = not move["no_source"]
-    if arm == "off":
-        return ("still (the pane motion is off)", "1 sample in a move at the most, 0 frames", seen,
-                traced and move["samples_in_a_move"] <= 1 and not moving and not committed)
-    animated = (moving or 0) > 0 or (committed or 0) > 0 or (traced and move["samples_in_a_move"] >= 2)
-    return ("animated (a pane's rect moves in the pane trace, or a layout spring, the strip camera or a commit motion moved)",
-            "2 samples in a move or more, or above 0 frames", seen + ("" if animated or not traced else f"; the app's notes: {list(notes)[:4]}"),
-            animated)
 
 
 def proof_round_row(arm, run):
