@@ -41,6 +41,7 @@ fn forum_work_hosts_converge_and_restart_preserves_the_receipt() {
         .unwrap();
     assert_eq!(again["postId"], receipts[0]["postId"]);
     assert_eq!(again["duplicate"], true);
+    assert_eq!(forum.work_digest("coord", 101)[0].source_count, 32);
     assert_eq!(forum.work_threads("someone-else", None, None)["threads"], json!([]));
 }
 
