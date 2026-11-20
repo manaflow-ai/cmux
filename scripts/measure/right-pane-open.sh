@@ -69,7 +69,7 @@ if [[ -n "$pair" ]]; then
       echo "right-pane-open: --pair takes two full commit SHAs, BEFORE,AFTER (got '$pair')" >&2
       exit 2
     fi
-    git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --quiet origin "$sha" 2>/dev/null || git fetch --quiet https://github.com/manaflow-ai/cmux.git "$sha"
+    git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --quiet --recurse-submodules=no origin "$sha" 2>/dev/null || git fetch --quiet --recurse-submodules=no https://github.com/manaflow-ai/cmux.git "$sha"
   done
   # Worktrees of this attempt only: cleanup_out removes them on exit by path.
   git worktree add --detach "$out/before" "$before_sha" >/dev/null

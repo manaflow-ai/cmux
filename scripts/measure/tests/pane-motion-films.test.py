@@ -41,6 +41,9 @@ SPEED_KEYS = ("speed", "speed_before", "speed_after", "speed_at_stop", "speed_fa
 PREFLIGHT_KEYS = 5
 NO_ROOM = "Not enough room to split this column"  # the app's refusal of a split, by a read of its source (RefusalStrings.swift)
 ASKED = 'Close "/sbin/ping -i 0.2 127.0.0.1"?: Still running: ping.'  # the title and the line of the fake's close question
+HOME = "workspace-of-home"  # the fake's id of the app's own Home workspace
+# The page that each action opens, by a read of the app's code (the ids of its internal pages).
+PAGE_OF = {"home.tab": "home-tab", "openMarkdownFile": "markdown", "openSettings": "settings"}
 
 
 class Clock:
@@ -125,6 +128,13 @@ class World:
         # The workspaces that the session's maker made, and each `goToWorkspace` action: (the workspace, if the
         # recorder of a film captured).
         self.session, self.shows = [], []
+        # The group `pages`. `opened`: each action that opens a page: (the action, its `path`, its target, the pane that
+        # had the focus). The app's own Home workspace, which no film makes and no film closes: with `home-workspace`
+        # its pane has a shell, with `chief-tab` it has the Chief's conversation tab; with none the fake has no Home.
+        self.opened = []
+        if faults & {"home-workspace", "chief-tab"}:
+            kind = "conversation" if "chief-tab" in faults else "terminal"
+            self.spaces[HOME] = {"panes": [{"id": "pane-of-home", "tabs": [{"id": "tab-of-home", "kind": kind, "title": "Chief"}]}], "zoomed": None}
 
     def film(self, state):
         """If the recorder of a FILM (not of the preflight) is in `state` now: `capturing` or `written`."""
@@ -248,13 +258,20 @@ class World:
 class FakeApp:
     made, faults = [], set()
 
-    def __init__(self, app, out=None, env=None, log_name=None):
+    def __init__(self, app, out=None, env=None, log_name=None, config=None):
         self.app, self.binary, self.window, self.socket, self.extra = app, BINARY, (40, 40, 1440, 900), "/fake.sock", env or {}
         # The process that the launcher started; with the fault, a pid that the fake `ps` does not list.
         self.process = mock.Mock(pid=999 if "launched-pid-not-listed" in FakeApp.faults else 100)
+        # The app config that the launch names (None: the launcher's own), and the launcher's scratch folder.
+        self.config, self.scratch = config, out
 
     def launch(self):
         env = {"CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_AGENT_PANE_MOCK": "1", "ACPMUX_AGENT_LAUNCH": "deny", **self.extra}
+        if self.config is not None:  # as the launcher: the named config is a file of the scratch folder, by the environment
+            env.update(CMUX_NEXT_CONFIG_FILE=os.path.join(self.scratch, "fake-cmux.json"),
+                       CMUX_NEXT_GHOSTTY_CONFIG=os.path.join(self.scratch, "ghostty"))
+            with open(env["CMUX_NEXT_CONFIG_FILE"], "w") as f:
+                json.dump({} if "look-not-in-the-config" in FakeApp.faults else self.config, f)
         self.launched_env = {k: v for k, v in env.items() if v is not None}
         self.world = World(self.launched_env, FakeApp.faults, len(FakeApp.made))
         FakeApp.made.append(self)
@@ -265,6 +282,25 @@ class FakeApp:
 
     def rpc(self, method, params=None, timeout=60):
         world, params = self.world, params or {}
+        # The window's look, as a model from a read of the app's code: the app's settings answer is the launch's config,
+        # and the backdrop shows the config's picture with a tint whose alpha is the config's opacity.
+        appearance = dict((self.config or {}).get("appearance") or {})
+        if method == "settings.get":
+            if "look-key-not-taken" in world.faults:
+                appearance.pop("backgroundBlur", None)
+            return {"path": params.get("path"), "exists": True, "value": appearance, "file": "/fake/cmux.json"}
+        if method == "debug.themes" and "backdrop-not-read" in world.faults:
+            return {"error": "a fake fault of the themes read"}
+        if method == "debug.themes":
+            world.theme_reads = getattr(world, "theme_reads", 0) + 1
+            late = "picture-loads-late" in world.faults and world.theme_reads < 3
+            opacity = appearance.get("backgroundOpacity", 1)
+            # Glass carries the tint itself (`glassTint`); an opaque window paints its sheet and shows no tint.
+            tint, glass = "" if opacity == 1 else "#102030%02X" % round(opacity * 255), str(appearance.get("backgroundBlur", "")).startswith("glass")
+            backdrop = {"sheet": "#102030FF" if opacity == 1 else "", "tint": "" if glass else tint, "glassTint": tint if glass else "",
+                        "picture": "" if late or "look-not-shown" in world.faults else appearance.get("background", ""),
+                        "blending": "true" if late else "false"}
+            return {"windows": [{"backdrop": backdrop}]}
         # `focus-read-fails`: the read before the preflight's close of a tab, and each read while a film with a speed runs.
         if method == "debug.focus" and "focus-read-fails" in world.faults and (world.tracing or world.sequences == 1):
             return {"error": "a fake fault of the focus read"}  # as the socket call gives a read that failed
@@ -534,6 +570,21 @@ class FakeStress:
             for space in self.world.spaces.values():
                 for pane in space["panes"]:
                     pane["tabs"][:] = [tab for tab in pane["tabs"] if tab["id"] != ident]
+                # The close of a pane's last tab closes the pane (not the last pane of a workspace).
+                space["panes"][:] = [pane for pane in space["panes"] if pane["tabs"] or len(space["panes"]) == 1]
+        elif name in PAGE_OF:
+            self.world.opened.append((name, (params or {}).get("path"), target, self.world.focus))
+            if "page-actions-dead" in self.world.faults:
+                return {"error": "a fake refusal of the page"}
+            # By a read of the app's code: `home.tab` and `openSettings` take no target and open in the pane with the
+            # focus; `openMarkdownFile` opens in its target pane.
+            where = ident if name == "openMarkdownFile" else self.world.focus
+            page = {"id": self.world.ident("tab"), "kind": "page", "page": PAGE_OF[name]}
+            next(p for s in self.world.spaces.values() for p in s["panes"] if p["id"] == where)["tabs"].append(page)
+        elif name == "home.show":
+            if HOME not in self.world.spaces:
+                return {"error": "a fake refusal: Home is not ready"}
+            self.world.shown = HOME
         return {}
 
 
@@ -888,7 +939,10 @@ class FilmsCase(unittest.TestCase):
     def test_the_group_cap_is_the_6_films_with_a_speed_and_the_group_kinds_stays_the_9(self):
         ids = [spec["id"] for spec in M.FILMS]
         self.assertEqual([i for i in ids if M.GROUPS["cap"](i)], ["T-C", "T-Z.2", "T-ZT", "T-C.N", "T-Z.N", "T-ZT.N"])
-        self.assertEqual({spec["id"]: spec["speed"] for spec in M.FILMS if spec.get("speed")},
+        # (The 8 films of the group `pages` and the 2 new films of the group `close` have a speed too, and they are no
+        # films of the group `cap`.)
+        self.assertEqual({spec["id"]: spec["speed"] for spec in M.FILMS
+                          if spec.get("speed") and not M.GROUPS["pages"](spec["id"]) and spec["id"] not in ("B-C", "A-C")},
                          {"T-C": "fast", "T-Z.2": "fast", "T-ZT": "fast", "T-C.N": "normal", "T-Z.N": "normal", "T-ZT.N": "normal"})
         self.assertEqual([i for i in ids if M.GROUPS["kinds"](i)], [f"{kind}-{act}" for kind in "TBA" for act in ("D", "SD", "Z")])
         self.assertEqual(len(ids), len(set(ids)))
@@ -1563,6 +1617,240 @@ class FilmsCase(unittest.TestCase):
         self.assertEqual((M.label(act), M.label(act, "key")), ("Cmd-Shift-Enter", "Cmd-Shift-Enter"))
         self.assertEqual(M.label(act, M.BY_ACTION), "action toggleSplitZoom (zoom by action.run, not by a key)")
         self.assertEqual(M.label(M.K("cmd+d"), M.BY_ACTION), "Cmd-D")
+
+    def test_the_group_pages_is_a_split_with_its_close_and_a_zoom_on_each_of_4_set_ups(self):
+        ids = [spec["id"] for spec in M.FILMS]
+        pages = [i for i in ids if M.GROUPS["pages"](i)]
+        self.assertEqual(pages, [f"{kind}-{act}" for kind in "HDSC" for act in ("C", "Z")])
+        self.assertEqual({kind: M.SETUPS[kind] for kind in "HDSC"}, {"H": ("row", ("home", "redraw")), "D": ("row", ("markdown", "redraw")),
+                                                                     "S": ("row", ("settings", "redraw")), "C": ("home", ("chief",))})
+        # Each one records the app's motions (a speed) and is `made` only with the 2 `layout` spans of its 2 acts.
+        specs = {spec["id"]: spec for spec in M.FILMS}
+        self.assertEqual({(specs[i]["speed"], specs[i]["layout"]) for i in pages}, {("fast", (2, 2))})
+        self.assertEqual([specs[i]["acts"] for i in ("H-C", "H-Z")], [M.SPLIT_CLOSE, M.ZOOM])
+        # No film of another group is a film of this one, and the old groups have no film of it.
+        self.assertFalse([i for i in pages if any(M.GROUPS[group](i) for group in ("kinds", "mixed", "plist", "extra", "cap"))])
+        self.assertFalse(set("HDSC") & set(M.MOCK_SETUPS))  # ONE launch, with the page mock off
+
+    def test_a_film_of_a_page_set_up_opens_the_page_in_the_pane_with_the_focus_and_closes_its_shell(self):
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "H-C,D-Z,S-C")
+        rows, world = report["films"], launches[0].world
+        self.assertEqual((code, [(row["id"], row["status"], row["panes"], row["pages"], row["layout_spans"]) for row in rows]),
+                         (0, [("H-C", "made", ["home", "redraw"], ["home-tab"], 2), ("D-Z", "made", ["markdown", "redraw"], ["markdown"], 2),
+                              ("S-C", "made", ["settings", "redraw"], ["settings"], 2)]))
+        self.assertEqual([name for name, _, _, _ in world.opened], ["home.tab", "openMarkdownFile", "openSettings"])
+        for name, path, target, focus in world.opened:
+            # The pane had the focus before the action; only the Markdown action has a path and a target.
+            self.assertEqual((path is not None, target), (name == "openMarkdownFile", f"pane:{focus}" if name == "openMarkdownFile" else None), name)
+        path = world.opened[1][1]
+        self.assertEqual((os.path.dirname(path), os.path.splitext(path)[1]), (self.out, ".md"))
+        with open(path) as f:
+            self.assertIn("\n## ", f.read())  # a Markdown text with headings: the page has more than one line to draw
+        self.assertEqual((rows[0]["speed"], rows[0]["source_ms"], rows[1]["source_ms"]),
+                         ("fast", {"split": "101 ms", "paneClose": "75 ms"}, {"zoom": "235 ms", "unzoom": "177 ms"}))
+        # The time of each `layout` span is in the row by itself: a motion that is at rest in its first frame is a span too.
+        self.assertEqual([(len(row["layout_ms"]), row["layout_ms"] == [span["ms"] for span in row["spans"] if span["name"] == "layout"]) for row in rows],
+                         [(2, True)] * 3)
+        self.assertEqual(world.spaces, {})  # each film's workspace is closed again
+
+    def test_a_page_that_does_not_open_is_no_film_and_the_row_has_the_app_s_reply(self):
+        code, report, lines, launches = self.run_films({"launch-activates", "page-actions-dead"}, "--films", "H-C,S-Z")
+        self.assertEqual((code, [row["status"] for row in report["films"]]), (1, ["not_run", "not_run"]))
+        self.assertIn("no tab of the page `home-tab` in the pane in 20 s", report["films"][0]["reason"])
+        self.assertIn("a fake refusal of the page", report["films"][0]["reason"])
+        self.assertIn("no tab of the page `settings`", report["films"][1]["reason"])
+        self.assertFalse([name for name in os.listdir(self.out) if name.startswith(("H-C", "S-Z"))])  # no movie of a film that did not run
+
+    def test_the_chief_s_films_are_in_the_app_s_home_workspace_and_make_no_workspace(self):
+        code, report, lines, launches = self.run_films({"launch-activates", "chief-tab"}, "--films", "C-C,C-Z")
+        rows, world = report["films"], launches[0].world
+        self.assertEqual((code, [(row["id"], row["status"], row["panes"], row["layout_spans"]) for row in rows]),
+                         (0, [("C-C", "made", ["chief"], 2), ("C-Z", "made", ["chief"], 2)]))
+        self.assertEqual([row["chief_tab"] for row in rows], ["Chief", "Chief"])  # the tab's title, as the layout gives it
+        self.assertEqual((rows[0]["panes_before"], rows[0]["panes_after"], rows[0]["dock"]), (1, 1, "not asked: the app's own Home workspace"))
+        # The Home workspace is there after the films, with its one pane, not zoomed; the films opened no page.
+        self.assertEqual((list(world.spaces), [pane["id"] for pane in world.spaces[HOME]["panes"]], world.spaces[HOME]["zoomed"], world.opened),
+                         ([HOME], ["pane-of-home"], None, []))
+        self.assertEqual([name for name, _ in world.actions if name == "home.show"], ["home.show", "home.show"])
+
+    def test_a_home_workspace_with_no_chief_s_tab_gives_no_film_and_the_row_says_what_it_has(self):
+        code, report, lines, launches = self.run_films({"launch-activates", "home-workspace"}, "--films", "C-Z")
+        row = report["films"][0]
+        self.assertEqual((code, row["status"]), (1, "not_run"))
+        self.assertIn("no tab of the kind `conversation` in the workspace that the window shows after home.show", row["reason"])
+        self.assertIn("[['terminal']]", row["reason"])  # the tab kinds of each pane that the script found
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "C-Z")
+        self.assertEqual((code, report["films"][0]["status"]), (1, "not_run"))
+        self.assertIn("the app refused home.show: a fake refusal: Home is not ready", report["films"][0]["reason"])
+
+    def test_a_pane_that_a_film_left_in_the_home_workspace_is_closed_again(self):
+        # The split leaves the focus in the Chief's pane, so the close is not sent and the new pane stays: the script
+        # closes it at the film's end (no film closes the Home workspace).
+        code, report, lines, launches = self.run_films({"chief-tab", "split-keeps-focus"}, "--films", "C-C", "--launch-form", "one-key")
+        row, world = report["films"][0], launches[-1].world
+        self.assertEqual((code, row["status"], row["left_open"]), (1, "not_made", []))
+        self.assertEqual([pane["id"] for pane in world.spaces[HOME]["panes"]], ["pane-of-home"])
+
+    def test_the_group_close_is_a_split_with_its_close_on_each_of_the_3_pane_kinds(self):
+        ids = [spec["id"] for spec in M.FILMS]
+        specs = {spec["id"]: spec for spec in M.FILMS}
+        close = [i for i in ids if M.GROUPS["close"](i)]
+        self.assertEqual(close, ["T-C", "B-C", "A-C"])
+        # Each one has the speed `fast` set and read back, so its row has the app's spans: `made` only with the 2
+        # `layout` spans of its 2 acts. The close goes to the NEW pane only (the read between the 2 keys).
+        self.assertEqual([(specs[i]["setup"], specs[i]["acts"], specs[i]["speed"], specs[i]["springs"], specs[i]["layout"]) for i in close],
+                         [(kind, M.SPLIT_CLOSE, "fast", ("split", "paneClose"), (2, 2)) for kind in "TBA"])
+        self.assertEqual([specs[i]["title"] for i in ("B-C", "A-C")], ["A split, then a close, in a row of 2 loaded browser pages, speed fast",
+                                                                      "A split, then a close, in a row of 2 chats with a thread that streams, speed fast"])
+        # The 2 new films are films of no older group, and each older group keeps its films.
+        self.assertFalse([i for i in ("B-C", "A-C") if any(M.GROUPS[group](i) for group in ("kinds", "mixed", "plist", "extra", "cap", "pages"))])
+        self.assertEqual([i for i in ids if M.GROUPS["kinds"](i)], [f"{kind}-{act}" for kind in "TBA" for act in ("D", "SD", "Z")])
+        self.assertEqual([i for i in ids if M.GROUPS["cap"](i)], ["T-C", "T-Z.2", "T-ZT", "T-C.N", "T-Z.N", "T-ZT.N"])
+        self.assertEqual(len([i for i in ids if M.GROUPS["pages"](i)]), 8)
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_the_films_of_the_group_close_are_made_with_the_close_of_the_new_pane_and_2_layout_spans(self):
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "close")
+        rows = report["films"]
+        self.assertEqual((code, [(row["id"], row["status"], row["panes"], row["panes_before"], row["panes_after"], row["layout_spans"]) for row in rows]),
+                         (0, [("T-C", "made", ["redraw", "stream"], 2, 2, 2), ("B-C", "made", ["page", "page"], 2, 2, 2),
+                              ("A-C", "made", ["chat", "chat"], 2, 2, 2)]))
+        for row in rows:
+            self.assertEqual((row["keys"], [act["label"] for act in row["acts"]], row["acts"][1]["new_pane"], row["speed"]),
+                             ("Cmd-D, Cmd-W", ["Cmd-D", "read: the tabs of the pane with the focus", "Cmd-W"], True, "fast"), row["id"])
+            self.assertIn("the new pane before the close, the `layout` spans", row["act_check"], row["id"])
+        # The chat film alone needs the page mock: 2 launches, as for the group `kinds`.
+        self.assertEqual(([row["agent_page_mock"] for row in rows], len(launches)), ([False, False, True], 2))
+
+    def test_a_close_film_of_a_page_or_a_chat_set_up_sends_no_close_to_a_pane_of_the_set_up(self):
+        code, report, lines, launches = self.run_films({"split-keeps-focus"}, "--films", "B-C,A-C", "--launch-form", "one-key")
+        rows = report["films"]
+        self.assertEqual((code, [(row["id"], row["status"], [act["label"] for act in row["acts"]]) for row in rows]),
+                         (1, [(i, "not_made", ["Cmd-D", "read: the tabs of the pane with the focus"]) for i in ("B-C", "A-C")]))
+        for row in rows:
+            self.assertIn(M.NO_NEW_PANE, row.get("reason", ""), row["id"])
+
+    # `--window-look`: the films of a window with a look. The launch's config gets the keys that the option names and
+    # no other; no film is made of a window that does not show the look. The fake's settings answer and its backdrop
+    # are a model: no test here says what the app draws.
+    LOOK = "background=test-picture,opacity=0.5,blur=frosted"
+    TAG = "look-background-test-picture-opacity-0.5-blur-frosted"
+
+    def not_run(self, *args):
+        """`main()` for a command line that starts no app: (exit code, the printed lines, the fake launches)."""
+        FakeApp.made, said, out = [], io.StringIO(), tempfile.mkdtemp(prefix="pane-films-test-")
+        self.addCleanup(shutil.rmtree, out, True)
+        argv = ["pane-motion-films.py", "--app", BUNDLE, "--out", out, "--films", "T-D", *args]
+        with mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(said), contextlib.redirect_stderr(said):
+            code = M.main()
+        return code, said.getvalue().splitlines(), list(FakeApp.made)
+
+    def test_no_look_and_the_word_opaque_change_nothing(self):
+        for args in ((), ("--window-look", "opaque")):
+            code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "T-D", *args)
+            self.assertEqual((code, launches[0].config, "window_look" in report, "window_look" in report["launches"][0],
+                              "window_look" in report["films"][0], [line for line in lines if "look" in line]),
+                             (0, None, False, False, False, []), args)
+            self.assertEqual(getattr(launches[0].world, "theme_reads", 0), 0, args)
+
+    def test_a_look_is_in_the_launchs_config_and_in_the_report_as_the_app_says_it(self):
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "T-D", "--window-look", self.LOOK)
+        self.assertEqual((code, launches[0].config),
+                         (0, {"appearance": {"background": "test-picture", "backgroundOpacity": 0.5, "backgroundBlur": "frosted"}}))
+        self.assertEqual(report["window_look"], {"look": self.TAG, "background": "test-picture", "opacity": 0.5, "blur": "frosted",
+                                                 "terminal_config": [], "kind": "picture"})
+        seen = report["launches"][0]["window_look"]
+        self.assertEqual((seen["resolved"]["background"], seen["resolved"]["picture"], seen["resolved"]["opacity"], seen["resolved"]["blur"]),
+                         ("picture", "test-picture", 0.502, "frosted"))
+        self.assertEqual(seen["backdrop_shown"]["tint"], "#10203080")
+        self.assertEqual([(row["status"], row["window_look"], row["window_look_kind"]) for row in report["films"]], [("made", self.TAG, "picture")])
+        self.assertIn(f"PREFLIGHT window look: {self.TAG}: the app shows picture 'test-picture', opacity 0.502, blur 'frosted'", lines)
+
+    def test_a_key_that_is_not_named_is_not_in_the_launchs_config(self):
+        # Not the launcher's own config either: its opacity of 1 is a key that the option does not name.
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "T-D", "--window-look", "background=test-picture")
+        self.assertEqual((code, launches[0].config), (0, {"appearance": {"background": "test-picture"}}))
+        self.assertFalse(os.path.exists(os.path.join(self.out, "ghostty")))  # no terminal line is named: no terminal file
+
+    def test_a_named_terminal_line_is_in_the_launchs_terminal_file(self):
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "T-D", "--window-look", "opacity=0.5,terminal-blur=8")
+        with open(os.path.join(self.out, "ghostty")) as f:
+            written = f.read()
+        self.assertEqual((code, written, report["window_look"]["terminal_config"], launches[0].config),
+                         (0, "background-blur = 8\n", ["background-blur = 8"], {"appearance": {"backgroundOpacity": 0.5}}))
+
+    def test_a_picture_that_loads_after_the_launch_is_waited_for(self):
+        code, report, lines, launches = self.run_films({"launch-activates", "picture-loads-late"}, "--films", "T-D", "--window-look", self.LOOK)
+        self.assertEqual((code, launches[0].world.theme_reads, report["launches"][0]["window_look"]["resolved"]["picture"]),
+                         (0, 3, "test-picture"))
+
+    def test_no_film_is_made_of_a_window_that_does_not_show_the_look(self):
+        for fault, words in (("look-not-shown", "the window shows the picture '', not 'test-picture'"),
+                             ("look-key-not-taken", "appearance.backgroundBlur is None in the app's settings, not 'frosted'"),
+                             ("look-not-in-the-config", "not in the launch's config: ['appearance.background', 'appearance.backgroundOpacity', 'appearance.backgroundBlur']")):
+            code, report, lines, launches = self.run_films({"launch-activates", fault}, "--films", "T-D,T-Z", "--window-look", self.LOOK)
+            # One launch: the other launch form has the same config, so it is not tried.
+            # No answer of the app says the look's kind: the rows keep the plain ids.
+            self.assertEqual((code, len(launches), launches[0].stopped, [(row["id"], row["status"]) for row in report["films"]]),
+                             (1, 1, True, [("T-D", "not_run"), ("T-Z", "not_run")]), fault)
+            self.assertNotIn("kind", report["window_look"], fault)
+            self.assertIn(f"PREFLIGHT window look FAILED: {self.TAG}: {words}", lines, fault)
+            for row in report["films"]:
+                self.assertIn("the window does not show the look", row["reason"], fault)
+                self.assertIn(words, row["reason"], fault)
+            self.assertNotIn("forms_not_run", report, fault)
+
+    def test_a_film_of_a_look_has_the_looks_kind_in_its_id_and_in_its_file_names(self):
+        # The kind is the app's own answer (a picture shows), never a value of the option and never the picture's name.
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "T-D,T-Z", "--window-look", self.LOOK)
+        self.assertEqual((code, [(row["id"], row["status"], row.get("file")) for row in report["films"]]),
+                         (0, [("T-D-picture", "made", "T-D-picture.mov"), ("T-Z-picture", "made", "T-Z-picture.mov")]))
+        self.assertEqual((report["window_look"]["kind"], report["launches"][0]["window_look"]["kind"]), ("picture", "picture"))
+        self.assertEqual(sorted(name for name in os.listdir(self.out) if name.startswith(("T-D", "T-Z"))),
+                         ["T-D-picture.mov", "T-D-picture.mov.frames.json", "T-Z-picture.mov", "T-Z-picture.mov.frames.json"])
+        for row in report["films"]:
+            self.assertNotIn("test-picture", row["id"] + row["file"])
+
+    def test_the_kind_of_each_look_is_what_the_app_shows(self):
+        for look, kind, name in (("opacity=0.5,blur=glass", "glass", "T-D-glass"), ("opacity=0.5", "seethrough", "T-D-seethrough"),
+                                 ("background=test-picture,opacity=0.5,blur=glass", "picture", "T-D-picture")):
+            code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "T-D", "--window-look", look)
+            self.assertEqual((code, report["window_look"]["kind"], [(row["id"], row["file"]) for row in report["films"]]),
+                             (0, kind, [(name, name + ".mov")]), look)
+
+    def test_a_named_look_that_the_app_shows_as_opaque_keeps_the_names_of_an_opaque_run(self):
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "T-D", "--window-look", "opacity=1")
+        self.assertEqual((code, report["window_look"]["kind"], [(row["id"], row["file"]) for row in report["films"]]),
+                         (0, "opaque", [("T-D", "T-D.mov")]))
+
+    def test_a_film_of_a_look_that_is_not_made_or_not_run_has_the_kind_in_its_id_too(self):
+        code, report, lines, launches = self.run_films({"launch-activates", "dialog-open"}, "--films", "T-D,T-Z", "--window-look", self.LOOK)
+        rows = report["films"]
+        self.assertEqual((code, [(row["id"], row["status"]) for row in rows]), (1, [("T-D-picture", "not_made"), ("T-Z-picture", "not_run")]))
+        self.assertTrue(rows[1]["reason"].startswith("the launch stopped after the film T-D-picture: "))
+
+    def test_a_film_of_a_second_launch_that_does_not_come_has_the_kind_of_the_first_launch(self):
+        # `A-D` needs the page mock: a launch of its own. The first launch's films are in the report one time each.
+        code, report, lines, launches = self.run_films({"launch-activates"}, "--films", "T-D,A-D", "--window-look", self.LOOK)
+        self.assertEqual((code, len(launches), [(row["id"], row["status"]) for row in report["films"]]),
+                         (0, 2, [("T-D-picture", "made"), ("A-D-picture", "made")]))
+
+    def test_a_look_with_no_kind_by_the_app_gets_no_film(self):
+        # The settings answer holds the named key, and the backdrop was not read: no film under a name with no kind.
+        code, report, lines, launches = self.run_films({"launch-activates", "backdrop-not-read"}, "--films", "T-D", "--window-look", "blur=frosted")
+        self.assertEqual((code, [(row["id"], row["status"]) for row in report["films"]]), (1, [("T-D", "not_run")]))
+        self.assertIn("PREFLIGHT window look FAILED: look-blur-frosted: the app's backdrop was not read: the look has no kind", lines)
+
+    def test_another_word_starts_no_app(self):
+        for value in ("glass", "opacity=2", "behind=checker", "shade=1"):
+            code, said, launches = self.not_run("--window-look", value)
+            self.assertEqual((code, launches), (3, []), value)
+            self.assertTrue(any(line.startswith("pane-motion-films: NOT RUN: --window-look takes") for line in said), value)
+
+    def test_a_panel_behind_the_window_is_not_a_film_of_this_tool(self):
+        code, said, launches = self.not_run("--window-look", "opacity=0.5,behind=stripes")
+        self.assertEqual((code, launches), (3, []))
+        self.assertIn("pane-motion-films: NOT RUN: --window-look behind=stripes: this tool makes no panel behind the window", said)
 
 
 if __name__ == "__main__":

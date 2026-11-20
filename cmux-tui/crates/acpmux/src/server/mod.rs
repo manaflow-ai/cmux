@@ -839,7 +839,8 @@ pub async fn serve_unix_with_v2(
     }
 }
 
-const INDEX_HTML: &str = include_str!("../../web/index.html");
+static INDEX_HTML: cmux_embed::PackedStr =
+    cmux_embed::packed_str!(include_str!("../../web/index.html"));
 
 /// One TCP port serves both the dashboard page (plain HTTP GET) and the
 /// WebSocket protocol. The request head is peeked, never consumed, so the
@@ -1458,7 +1459,7 @@ async fn serve_http(
     } else if path == "/health" {
         ("200 OK", "ok".to_owned(), "text/plain")
     } else if path == "/" || path == "/index.html" {
-        ("200 OK", INDEX_HTML.to_owned(), "text/html; charset=utf-8")
+        ("200 OK", INDEX_HTML.inflate(), "text/html; charset=utf-8")
     } else {
         ("404 Not Found", "not found".to_owned(), "text/plain")
     };
@@ -1721,7 +1722,7 @@ async fn serve_connection_from(
     queue_gauge::register(&conn);
     tracing::debug!(conn = %conn.id, "client connected");
 
-    let fan = fanout::start(hub.clone(), conn.clone(), flushes);
+    let mut fan = fanout::start(hub.clone(), conn.clone(), flushes);
     let request_slots = Arc::new(Semaphore::new(REQUEST_WORK_LIMIT));
     let (notification_tx, notification_rx) =
         mpsc::channel::<(String, Value)>(NOTIFICATION_QUEUE_LIMIT);
@@ -1747,10 +1748,17 @@ async fn serve_connection_from(
     loop {
         // A reader past its byte bound is disconnected (`outbound.rs`): it reads again from its
         // cursor on a new connection, so nothing this one would still ask is answered. So is one
-        // whose output ended (its reader gone, the journal's writer ended).
+        // whose output ended (its reader gone, the journal's writer ended). So is one whose
+        // fan-out task ended (a panic, the hub's feed closed): it would answer requests and never
+        // push another record, so an attached client would wait on a chat that never moves. Its
+        // reader sees the connection end and attaches again from its cursor.
         let line = tokio::select! {
             biased;
             () = conn.out.closed() => None,
+            ended = &mut fan => {
+                fanout::ended(&conn, ended);
+                None
+            }
             line = inbound.recv() => line,
         };
         let Some(line) = line else { break };
@@ -1810,7 +1818,10 @@ async fn serve_connection_from(
                                 "reason": "connection.busy",
                                 "retryable": true,
                             }));
-                        conn.send(&Message::err(id, error));
+                        // In the lane of its method's answer: a busy refusal of a cheap read (the
+                        // pane's liveness probe) proves the daemon alive only if it arrives.
+                        let reply_to = outbound::is_cheap_read(&m).then_some(m.as_str());
+                        conn.send_replying(&Message::err(id, error), reply_to);
                         continue;
                     }
                 };
@@ -2361,6 +2372,7 @@ mod cancel_classes_tests;
 #[path = "cancel_prompt_tests.rs"]
 mod cancel_prompt_tests;
 mod client_request;
+mod computer_use_relay;
 #[cfg(test)]
 #[path = "connection_token_tests.rs"]
 mod connection_token_tests;
@@ -2416,6 +2428,7 @@ pub(crate) mod queue_gauge;
 mod review_queue;
 mod run_elsewhere;
 mod sign_in_follow;
+mod ssh_carry;
 pub use pairing::serve_connection_device;
 pub(crate) mod host_power;
 pub mod peer_auth;
@@ -2441,6 +2454,8 @@ pub(crate) mod remote_guard;
 mod requests;
 pub use requests::{DURABLE_DISPATCH_FEATURE, SESSION_RESUME_FEATURE};
 mod accounts;
+#[cfg(test)]
+mod attach_latency_bench;
 mod connections;
 mod mcp_connect;
 mod routes;

@@ -113,6 +113,8 @@ extension SettingsSchema {
         "updates.web": .network,
         // How long a nightly waits before it restarts into an update: the person's call.
         "updates.idleInstallMaxWaitSeconds": .userOnly, "updates.idleInstallQuietSeconds": .userOnly,
+        // On, cmux restarts into a downloaded update by itself once idle: the person's call.
+        "updates.installWhenIdle": .userOnly, "updates.installWhenIdleMinutes": .userOnly,
         "announcements.fetch": .network,
         // Whether this Mac sends hang reports (stacks and timings) to cmux: the person's choice only.
         "diagnostics.hangReports": .privacy,
@@ -120,10 +122,15 @@ extension SettingsSchema {
         "diagnostics.usagePatterns": .privacy,
         // What a new chat may do without asking: an agent must not widen its own approvals.
         "agents.defaultPermissionMode": .userOnly,
+        // Whether cmux adds its tools to the person's own coding agents (their config files and each terminal launch): the onboarding step asks the person, and only the person answers; an agent must not grant itself or other agents cmux's tools.
+        "agents.cmuxMcp": .userOnly,
         // How long Claude Code chats keep their prompt cache: it moves the person's model bill.
         "agents.promptCache": .userOnly,
-        // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
-        "computerUse.enabled": .userOnly, "computerUse.driver": .userOnly,
+        // Computer Use: what agents may do with the person's apps. An agent must never widen (or even change) its own access, so every computerUse.* key is the person's alone.
+        "computerUse.mode": .userOnly, "computerUse.deniedApps": .userOnly, "computerUse.allowOwnMachines": .userOnly,
+        "computerUse.pauseOnTakeover": .userOnly, "computerUse.allowForeground": .userOnly,
+        "computerUse.showCursor": .userOnly, "computerUse.cursorTag": .userOnly, "computerUse.settle": .userOnly,
+        "computerUse.livePreview": .userOnly, "computerUse.menus": .userOnly,
         // How hard cmux pulls the person back from another app: theirs to pick, not an agent's.
         "notifications.dockBounce": .userOnly,
         // Privacy: whether banners show what agents said is the person's call.
@@ -149,6 +156,8 @@ extension SettingsSchema {
         // Whether and how often a failed turn is sent again spends the person's usage: their call, as `sessions.resumeAgents` is.
         "agents.autoRetry.enabled": .userOnly, "agents.autoRetry.intervalSeconds": .userOnly,
         "agents.autoRetry.attempts": .userOnly,
+        // Whether new chats get the person's saved MCP servers opens their connected services (Linear, Slack and others) to agents: the person's call.
+        "agents.mcpServers.enabled": .network,
         // Compacting on a timer spends the person's usage (one model call each): their call.
         "agents.cacheCompact.enabled": .userOnly, "agents.cacheCompact.minContextPercent": .userOnly,
         // Which folders an agent may open without asking is the person's call: an agent must not widen what it may open without asking.
@@ -164,6 +173,8 @@ extension SettingsSchema {
         "mobile.terminalSizing": .userOnly, "mobile.terminalSizingOrder": .userOnly,
         // On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on. cmux Remote: the person's call.
         "macScreen.systemShortcuts": .userOnly,
+        // It is the person's standing yes to Share This Mac; an agent that could set it would approve its own share request. cmux Remote: the person's call.
+        "macScreen.shareWithoutAsking": .userOnly,
         // cmux Remote: the person's call.
         "remote.endSharingOnQuit": .userOnly,
         // Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.
