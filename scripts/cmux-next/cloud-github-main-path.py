@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Record cmux's GitHub main path on staging: a new user connects GitHub, then opens a PR from a Cloud chat.
 
-Run by cloud-chat-proof.yml with `flow: github-pr` (build=tagged: it drives the app through the Debug build's
+Run by cloud-chat-proof.yml with `flow: github-pr-app` (build=tagged: it drives the app through the Debug build's
 `debug.*` socket methods), after cloud-github-config-check.py. The click path, what reads each step back, the
 expected times and what to do on a GitHub verification page: docs/cmux-next/cloud-github-main-path-recording.md.
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Is staging set up for the GitHub main-path recording? Fails early, with the reason, before any app starts.
 
-Run by cloud-chat-proof.yml's `flow: github-pr` before the recording (docs/cmux-next/cloud-github-main-path-recording.md):
+Run by cloud-chat-proof.yml's `flow: github-pr-app` before the recording (docs/cmux-next/cloud-github-main-path-recording.md):
 
 1. The App's public page: `GET https://api.github.com/apps/<slug>` answers 200. A 404 means GitHub does not show the
    App to the public (a private App, or a wrong slug), and then an organization the App's owner does not own (the test

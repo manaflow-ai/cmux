@@ -3,11 +3,48 @@
 Leo (2026-11-19): "the GitHub thing in relation to cloud ... The connect with GitHub or whatever, the various ways that
 people will want to use it. Having all those paths be proper."
 
-The main path: a new user connects GitHub, then opens a PR from a Cloud chat. One dispatch records it on staging in a
-tagged DEV build on a fleet macOS runner (never a person's Mac, never a running NIGHTLY):
+Leo (2026-11-20): "those steps, we ought to be able to make it more repeatable. a la ci. all these things. they will
+be useful for testing out onboarding flows and interaction flows".
+
+The main path: a new user connects GitHub, then opens a PR from a Cloud chat. It runs two ways.
+
+## Flows in CI (Linux, headless)
+
+A flow is one JSON file in `scripts/cmux-next/flows/`: steps, what each reads back, and what each needs. It runs
+through `scripts/cmux-next/cloud-flows.ts`, which hosts every step as a `cloud-journey.ts` step (the same
+PASS/FAIL/SKIP log, `journey.json`, `summary.md`); the whole Cloud journey is one step kind (`journey`). Browser steps
+(GitHub's sign-in, the App install, the repository pick, the PR page) run in headless Chromium (Playwright, the
+repository's pin in `scripts/gallery-matrix`), which records `flow.webm`, and each browser step leaves a screenshot.
 
 ```sh
-gh workflow run cloud-chat-proof.yml -R manaflow-ai/cmux --ref feat-cmux-next -f flow=github-pr -f build=tagged
+gh workflow run cloud-chat-proof.yml -R manaflow-ai/cmux --ref feat-cmux-next -f flow=github-connect
+gh workflow run cloud-chat-proof.yml -R manaflow-ai/cmux --ref feat-cmux-next -f flow=cloud-first-chat
+```
+
+The artifact is `flow-<name>`. By hand: `bun scripts/cmux-next/cloud-flows.ts --flow FILE --backend staging --out DIR`;
+`--check` lists the steps and which can run with the environment as it is.
+
+| Flow | Steps | Needs |
+|---|---|---|
+| `github-connect.json` | the App's install page signed out; sign in; staging's App config; the App public; the test org's old connection revoked; Connect GitHub (`integration.connect`, as the app); GitHub sign-in (password, TOTP); install on the org, only `pr-target`; the completion link finished (`integration.complete`, as the app); connection active and the repo listed; a Cloud chat on the repo opens a PR (the journey's "GitHub by the agent (live)"); the PR page; cleanup: the App uninstalled | staging account; GitHub test user from "GitHub sign-in" on; Claude login for the chat |
+| `cloud-first-chat.json` | cmux's home page; sign in, a new Cloud machine, a chat and its reply (model stub), the machine deleted | staging account |
+
+A step whose secrets are absent is skipped with the reason ("needs GitHub test user: secrets absent
+(CMUX_GITHUB_TEST_LOGIN, ...)"), so are the later steps that need them, and the run passes with skips. The App
+public check (`warn_without: github-test-user`) runs anyway and, while the test user is absent, records its failure as
+a skip that keeps the reason. A new flow is a new file (and an option of the workflow's `flow` input); a new kind of
+step is one function in `KINDS` in `cloud-flows.ts`.
+
+No schedule yet: scheduled workflows run only from `main`, whose `cloud-chat-proof-nightly-dispatch.yml` dispatches
+this workflow and opens an issue on a red. A nightly flow is one more leg there (a `main` change).
+
+## The app on macOS (`flow: github-pr-app`)
+
+The same path through the real app's UI: a tagged DEV build on a fleet macOS runner (never a person's Mac, never a
+running NIGHTLY):
+
+```sh
+gh workflow run cloud-chat-proof.yml -R manaflow-ai/cmux --ref feat-cmux-next -f flow=github-pr-app -f build=tagged
 ```
 
 The run's artifact `github-main-path` holds `github-main-path.mp4` (the main window, 1 frame a second; `frames/` when
@@ -19,7 +56,7 @@ Pieces:
 - `scripts/cmux-next/cloud-github-config-check.py`: job `github-config`, before any Mac is taken.
 - `scripts/cmux-next/cloud-github-main-path.py`: the six steps below, in `proof-staging`'s step "GitHub main path
   recording".
-- `.github/workflows/cloud-chat-proof.yml`, input `flow: github-pr`. Manual dispatch only: no schedule, no gate, no
+- `.github/workflows/cloud-chat-proof.yml`, input `flow: github-pr-app`. Manual dispatch only: no schedule, no gate, no
   required check.
 
 ## Before the first run
