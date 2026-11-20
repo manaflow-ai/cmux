@@ -3,6 +3,7 @@ import CmuxMobileAuth
 import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileOnboarding
+import CmuxSpinner
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -25,6 +26,11 @@ struct AccountPage: View {
     let directory: (any SettingsDeviceDirectory)?
     @State private var methods: SettingsLoad<[SignInMethod]> = .loading
     @State private var confirmsDeletion = false
+    /// Apple's subscription page while the App Store warning is up.
+    @State private var renewingSubscription: URL?
+    /// Delete Account was tapped and the pre-delete check is in flight; its
+    /// task runs from `.task(id:)`, so leaving the page cancels it.
+    @State private var checkingDeletion = false
     @State private var deleting = false
     @State private var deletionError: String?
     /// The sign-in glyph grows with Dynamic Type like the other row icons.
@@ -56,7 +62,7 @@ struct AccountPage: View {
                 switch methods {
                 case .loading:
                     CmuxMobileGutterRow {
-                        ProgressView()
+                        CmuxSpinner()
                     } content: {
                         Text("Loading").foregroundStyle(theme.colors.label2)
                     }
@@ -82,38 +88,75 @@ struct AccountPage: View {
                     }
                 }
             } header: {
-                Text("Sign-in methods").cmuxMobileTextColumn()
+                Text("Sign-in methods")
             }
             Section {
                 Button(role: .destructive) {
-                    confirmsDeletion = true
+                    // Set here, before the next render, so a second tap
+                    // cannot start a second check.
+                    checkingDeletion = true
                 } label: {
                     HStack {
                         Text("Delete Account").foregroundStyle(theme.colors.danger).cmuxMobileTextColumn()
-                        if deleting {
+                        if deleting || checkingDeletion {
                             Spacer()
-                            ProgressView()
+                            CmuxSpinner()
                         }
                     }
                 }
-                .disabled(deleting)
+                .disabled(deleting || checkingDeletion)
                 .accessibilityIdentifier("settings.deleteAccount")
             } footer: {
-                Text("Deletes your cmux account and its data for every cmux app, and removes your Macs and phones from the cmux service. This can't be undone.")
-                    .cmuxMobileTextColumn()
+                Text("Permanently deletes your account and data across all cmux apps.")
             }
         }
         .settingsPage("Account")
         .task(id: auth.user?.id) { await loadMethods() }
-        .confirmationDialog("Delete your cmux account?", isPresented: $confirmsDeletion, titleVisibility: .visible) {
+        .task(id: checkingDeletion) { if checkingDeletion { await askBeforeDeleting() } }
+        // An alert, not a confirmation dialog: on iOS 26 a confirmation
+        // dialog opens as a popover with no Cancel button, closed only by a
+        // tap outside it. Account deletion (Guideline 5.1.1(v)) shows Cancel
+        // beside Delete Account on every iPhone and iPad.
+        .alert("Delete your cmux account?", isPresented: $confirmsDeletion) {
+            Button("Cancel", role: .cancel) {}
             Button("Delete Account", role: .destructive) { Task { await delete() } }
         } message: {
             Text("Your cmux account is used by every cmux app (Mac, iPhone and web). Deleting it signs you out everywhere, removes your Macs and phones from the cmux service and permanently deletes your account. This can't be undone.")
+        }
+        // Deleting the account does not cancel an App Store subscription
+        // (Guideline 5.1.1(v)): Apple keeps charging until it is cancelled in
+        // the App Store. This alert stands in for the confirmation above, so
+        // its Delete Account deletes.
+        .alert(
+            Text(String(localized: "mobile.account.deleteAppStore.title", defaultValue: "Your subscription keeps renewing", bundle: .module)),
+            isPresented: Binding(get: { renewingSubscription != nil }, set: { if !$0 { renewingSubscription = nil } }),
+            presenting: renewingSubscription
+        ) { manageURL in
+            Button(String(localized: "mobile.account.deleteAppStore.manage", defaultValue: "Manage Subscription", bundle: .module)) {
+                Task { await openAppStoreSubscriptionManagement(fallback: manageURL) }
+            }
+            Button("Delete Account", role: .destructive) { Task { await delete() } }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text(String(localized: "mobile.account.deleteAppStore.message", defaultValue: "Deleting your cmux account doesn't cancel your App Store subscription: cancel it in the App Store. Deletion signs you out everywhere and is permanent.", bundle: .module))
         }
         .alert("Account not deleted", isPresented: Binding(get: { deletionError != nil }, set: { if !$0 { deletionError = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(deletionError ?? "")
+        }
+    }
+
+    /// Delete Account: asks the cmux service whether an App Store
+    /// subscription will keep renewing, then shows the App Store warning or
+    /// the plain confirmation (``AccountDeletionPrompt``).
+    private func askBeforeDeleting() async {
+        let check = await auth.accountDeletionCheck()
+        guard !Task.isCancelled else { return }
+        checkingDeletion = false
+        switch AccountDeletionPrompt(check: check) {
+        case .appStoreSubscriptionWarning(let manageURL): renewingSubscription = manageURL
+        case .confirmation: confirmsDeletion = true
         }
     }
 
@@ -193,13 +236,13 @@ struct TeamPage: View {
                     }
                 }
             } footer: {
-                Text("Color and icon are yours only; teammates choose their own.").cmuxMobileTextColumn()
+                Text("Only you see these changes.")
             }
             Section {
                 switch members {
                 case .loading:
                     CmuxMobileGutterRow {
-                        ProgressView()
+                        CmuxSpinner()
                     } content: {
                         Text("Loading members").foregroundStyle(theme.colors.label2)
                     }
@@ -222,7 +265,7 @@ struct TeamPage: View {
                     }
                 }
             } header: {
-                Text("Members").cmuxMobileTextColumn()
+                Text("Members")
             }
             // The personal space is just you: nobody to invite.
             if !team.isPersonalSpace {
@@ -266,8 +309,6 @@ struct TerminalPage: View {
                     .padding(12)
                     .background(Color.black, in: .rect(cornerRadius: 12, style: .continuous))
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-            } footer: {
-                Text("Applies to open terminals at once.").cmuxMobileTextColumn()
             }
             Section {
                 NavigationLink(value: SettingsRoute.terminalSizing) {
@@ -275,15 +316,37 @@ struct TerminalPage: View {
                 }
                 .accessibilityIdentifier("settings.terminalSizing")
             } footer: {
-                Text("Which device's size a terminal takes when this iPhone and the Mac show it at once.")
+                Text("Choose which device controls the shared terminal's size.")
+            }
+            Section {
+                Toggle(isOn: $settings.predictiveEcho) { SettingsLabel("Predictive echo", symbol: "bolt.horizontal") }
+                    .accessibilityIdentifier("settings.predictiveEcho")
+            } footer: {
+                Text("On a slow connection, what you type shows at once, underlined until the remote confirms it.")
+            }
+            Section {
+                Toggle(isOn: $settings.terminalJumpToBottom) {
+                    SettingsLabel("Jump to Bottom Button", symbol: "arrow.down.to.line")
+                }
+                .accessibilityIdentifier("settings.terminalJumpToBottom")
+            } footer: {
+                Text("Shows a Jump to bottom button above the composer when you scroll up. Full-screen apps such as vim never show it.")
+            }
+            Section {
+                Toggle(isOn: $settings.terminalChatToggle) {
+                    SettingsLabel("Terminal and Chat Toggle", symbol: "arrow.left.arrow.right")
+                }
+                .accessibilityIdentifier("settings.terminalChatToggle")
+            } footer: {
+                Text("Adds Show Chat and Show Terminal to a Claude Code or Codex tab's menu when both views can open. Still in progress.")
             }
             Section {
                 Toggle(isOn: $settings.wrapCode) { SettingsLabel("Wrap code and diff lines", symbol: "text.word.spacing") }
                 Toggle(isOn: $settings.keyClicks) { SettingsLabel("Key clicks", symbol: "keyboard") }
             } header: {
-                Text("Code").cmuxMobileTextColumn()
+                Text("Code")
             } footer: {
-                Text("Key clicks sound when you tap the keys above the keyboard. They follow the ring/silent switch.").cmuxMobileTextColumn()
+                Text("Key clicks follow the silent switch.")
             }
         }
         .settingsPage("Terminal")
@@ -307,7 +370,8 @@ struct ComposerPage: View {
                 }
                 .pickerStyle(.menu)
             } footer: {
-                Text("Queue sends after the current turn. Steer interrupts the agent.").cmuxMobileTextColumn()
+                // The Mac's Toggle Prompt Queueing: Send steers either way, as the Mac's Return does.
+                Text("Send steers the running turn. With Queue, a long press on Send can queue a message for after the turn; with Steer, that steers too.")
             }
         }
         .settingsPage("Composer")
@@ -347,7 +411,7 @@ struct NotificationsPage: View {
                 .accessibilityIdentifier("settings.notifications.allow")
             } footer: {
                 if !push {
-                    Text("For Chief's replies, while cmux is open or still running in the background.").cmuxMobileTextColumn()
+                    Text("Chief alerts require cmux to stay running.")
                 }
             }
             if push {
@@ -394,9 +458,9 @@ struct NotificationsPage: View {
                 .pickerStyle(.inline)
                 .labelsHidden()
             } header: {
-                Text("Notify me").cmuxMobileTextColumn()
+                Text("Notify me")
             } footer: {
-                if off { Text("Turn on notifications in iOS Settings to choose what you get.").cmuxMobileTextColumn() }
+                if off { Text("Enable notifications in iOS Settings.") }
             }
             if !macs.isEmpty {
                 Section {
@@ -408,7 +472,7 @@ struct NotificationsPage: View {
                         .accessibilityIdentifier("settings.notifications.mac.\(mac.id)")
                     }
                 } header: {
-                    Text("Macs").cmuxMobileTextColumn()
+                    Text("Macs")
                 }
             }
             Section {
@@ -416,9 +480,8 @@ struct NotificationsPage: View {
                     .accessibilityIdentifier("settings.notifications.previews")
             } footer: {
                 Text(self.settings.notifyPreviews
-                    ? "Notifications show the question, the command or the last lines, so you can answer from the notification."
-                    : "The lock screen shows only who needs you and on which Mac.")
-                    .cmuxMobileTextColumn()
+                    ? "Notifications include the question or recent output."
+                    : "The lock screen shows only who needs you and the Mac.")
             }
         }
         .disabled(off)
@@ -434,6 +497,7 @@ struct NotificationsPage: View {
 /// builds add the Relay only developer switch.
 struct TransportPage: View {
     let settings: SettingsStore
+    let store: AppStore
     /// Whether the service has a relay (nil: not known yet).
     let relayAvailable: Bool?
     #if DEBUG
@@ -453,10 +517,7 @@ struct TransportPage: View {
                         theme.haptics.selection()
                     } label: {
                         HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                UnbrokenText(kind.pickerTitle).foregroundStyle(theme.colors.label)
-                                UnbrokenText(Self.subtitle(kind), style: .footnote).foregroundStyle(theme.colors.label2)
-                            }
+                            UnbrokenText(kind.pickerTitle).foregroundStyle(theme.colors.label)
                             Spacer(minLength: 8)
                             Image(systemName: "checkmark")
                                 .font(.body.weight(.semibold))
@@ -466,7 +527,7 @@ struct TransportPage: View {
                         .padding(.vertical, 4)
                         .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cmuxPressFill)
                     .accessibilityAddTraits(settings.transport == kind ? .isSelected : [])
                     .accessibilityIdentifier("settings.transport.\(kind.rawValue)")
                 }
@@ -477,9 +538,42 @@ struct TransportPage: View {
                     Text("Switching reconnects to your Macs.")
                 }
             }
+            Section {
+                Picker(selection: $settings.ultra) {
+                    ForEach(UltraConnection.allCases) { Text($0.title).tag($0) }
+                } label: {
+                    Text("Ultra mode")
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("settings.transport.ultra")
+            } footer: {
+                Text("Auto sends no extra data while the network is clean, and repair data within a round trip of the first lost packet, so a dropped packet costs milliseconds instead of seconds. On cellular, Auto keeps the repair data within the data it protects; Always sends it on every network, at about 2 to 3 times the data. Applies at the next connection.")
+            }
+            Section {
+                Toggle(isOn: $settings.alignKeepalives) {
+                    Text("Align keepalives")
+                }
+                .accessibilityIdentifier("settings.transport.alignKeepalives")
+            } footer: {
+                Text("Sends every connection's keepalive at the same moments, every 10 seconds, so the radio wakes once for all of them instead of for each. Applies at the next connection.")
+            }
+            Section {
+                Toggle(isOn: $settings.agentCLIHybrid) {
+                    Text("Agent CLI Screen Changes")
+                }
+                .accessibilityIdentifier("settings.transport.agentCLIHybrid")
+            } footer: {
+                Text("A terminal running an agent CLI such as Claude Code or Codex comes from your Mac as the parts of its screen that changed, at most 10 times a second, instead of everything it writes. It looks the same and uses less data. Applies when a terminal opens or reconnects.")
+            }
+            #if !DEBUG
+            Section {
+                TransportDetails(store: store)
+            }
+            #endif
             #if DEBUG
             // No icons, as the transport choices above: the page keeps one text column.
             Section {
+                TransportDetails(store: store, explainsDeveloperOptions: true)
                 Toggle(isOn: $relayOnly) {
                     Text("Relay only")
                 }
@@ -497,21 +591,54 @@ struct TransportPage: View {
                 .accessibilityIdentifier("settings.transport.browserVideoOnChannel")
             } header: {
                 Text("Developer")
-            } footer: {
-                Text(relayAvailable == false
-                     ? "Relay unavailable."
-                     : "Relay only: always through TURN, as from a distant network. Block UDP (WireGuard; WebRTC ignores it): as on a network that passes only TCP: WireGuard rides TURN over TLS on port 443. Both apply at once. Browser video on channel: streamed browser tabs skip the media lane (RTP on WebRTC or in the WireGuard tunnel). Applies at the next connection.")
             }
             #endif
         }
         .settingsPage("Transport")
     }
 
-    static func subtitle(_ kind: TransportKind) -> String {
-        switch kind {
-        case .wireguard: String(localized: "Encrypted tunnel to your Mac. Browser tabs stream over WebRTC when that is faster.")
-        case .webrtc: String(localized: "Everything over one WebRTC connection, direct when possible.")
+}
+
+/// Live connection information is available on demand without filling normal status lines.
+struct TransportDetails: View {
+    let store: AppStore
+    var explainsDeveloperOptions = false
+    #if DEBUG
+    @State private var expanded = UserDefaults.standard.bool(forKey: "cmux-mobile-transport-details")
+    #else
+    @State private var expanded = false
+    #endif
+
+    var body: some View {
+        DisclosureGroup("Connection details", isExpanded: $expanded) {
+            if store.macLinkDiagnostics.isEmpty {
+                Text("No active connections.")
+                    .foregroundStyle(theme.colors.label2)
+            } else {
+                ForEach(store.macLinkDiagnostics.keys.sorted(), id: \.self) { macID in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(verbatim: store.teams.lazy.flatMap(\.macs).first(where: { $0.id == macID })?.name ?? String(localized: "Mac"))
+                            .font(theme.type.rowTitle)
+                        Text(verbatim: store.macLinkDiagnostics[macID] ?? "")
+                            .font(theme.type.meta)
+                            .foregroundStyle(theme.colors.label2)
+                            .textSelection(.enabled)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
+            #if DEBUG
+            if explainsDeveloperOptions {
+                Text("Relay only forces TURN. Block UDP uses TURN over TLS for WireGuard; WebRTC is unchanged. Both reconnect immediately.")
+                    .font(theme.type.meta)
+                    .foregroundStyle(theme.colors.label2)
+                Text("Browser video on channel skips the media lane at the next connection.")
+                    .font(theme.type.meta)
+                    .foregroundStyle(theme.colors.label2)
+            }
+            #endif
         }
+        .accessibilityIdentifier("settings.transport.details")
     }
 }
 

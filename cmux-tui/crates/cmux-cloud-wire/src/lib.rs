@@ -15,6 +15,9 @@
 //! ([`OpRequest`], [`ReadResponse`], [`OpResponse`], [`HttpError`]) mirrors
 //! `backend/packages/protocol/src/api.ts`.
 //!
+//! [`hands`] are the Chief hands' rules and user-socket frames, and
+//! [`automation`] the Cloud automation relay's routing (both sans-I/O too).
+//!
 //! The socket side lives here too: [`frames`] are the ownership protocol's
 //! frames and [`mirror::StreamMirror`] is the client engine (confirmed
 //! mirror + intent log) that the daemon and the mobile apps share
@@ -33,8 +36,10 @@
 
 #[macro_use]
 mod macros;
+pub mod automation;
 mod envelope;
 pub mod frames;
+pub mod hands;
 pub mod mirror;
 mod op;
 mod value;
@@ -56,4 +61,4 @@ pub use mirror::{
     SnapshotBackoff, SnapshotRetry, StreamMirror,
 };
 pub use op::{Op, OpVisitor, WireClass, WireError, WireIdempotency, WirePrincipal};
-pub use value::{BoolLit, WireNumber};
+pub use value::{BoolLit, IntLit, WireNumber};

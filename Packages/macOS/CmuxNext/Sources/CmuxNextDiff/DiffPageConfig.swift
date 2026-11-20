@@ -35,9 +35,16 @@ public nonisolated enum DiffOpenSource: Sendable, Hashable {
     case staged
     /// The tab's chat turn (``DiffTurn``, the Last turn scope), read-only.
     case turn
+    /// Only the chat's own patch (``DiffChatPatch``), read-only: no repository holds the turn.
+    case chat(DiffChatPatch)
 
     /// The branch against the daemon's base.
     public static let `default` = DiffOpenSource.branch(base: nil)
+
+    /// The chat's patch a ``chat(_:)`` source shows; nil for every other.
+    public var chatPatch: DiffChatPatch? {
+        if case .chat(let patch) = self { patch } else { nil }
+    }
 }
 
 /// A chat turn a diff tab offers as its Last turn scope (D2): checkpoint `from` against `to`, the
@@ -74,10 +81,11 @@ public nonisolated struct DiffTurn: Sendable, Hashable {
 
 /// What `cmux.diff.config` answers (webviews/src/diff/page.ts): the viewer
 /// config the classic CLI embedded as `<script id="cmux-diff-viewer-config">`,
-/// plus `ops`, the optional ops this host serves. Comments, viewed files and
-/// prefs arrive with S5, so `ops` lists none and the page keeps comments hidden.
+/// plus `ops`, the optional ops this host serves. The provider adds the ops of
+/// what the tab has: prefs and viewed marks (`withStores`), git, and review
+/// comments (`withComments`, `cmux.diff.comments`).
 nonisolated enum DiffPageConfig {
-    /// The optional ops served (`cmux.diff.comments` is S5).
+    /// The optional ops every config serves.
     static let ops: [String] = []
     /// The sidecar session options the page may use, by their handshake capability names
     /// (Native/DiffSidecar/src/protocol.rs). The bundled sidecar is built with the app, so its
@@ -116,7 +124,7 @@ nonisolated enum DiffPageConfig {
             payload["sessionSource"] = ["kind": "unstaged", "repoRoot": root]
         case .staged:
             payload["sessionSource"] = ["kind": "staged", "repoRoot": root]
-        case .turn:
+        case .turn, .chat:
             payload["sessionSource"] = DiffTurnPatch.pageSource
             if let base = repository.base { payload["branchBaseRef"] = .string(base) }
             if let file = turn?.file { payload["revealPath"] = .string(file) }
@@ -124,6 +132,23 @@ nonisolated enum DiffPageConfig {
         if turn != nil {
             payload["sourceOptions"] = [["value": "last-turn", "sessionSource": DiffTurnPatch.pageSource]]
         }
+        return ["payload": .object(payload), "ops": .array(ops.map(JSONValue.string))]
+    }
+
+    /// The config of a tab that shows only a chat's own patch (``DiffChatPatch``): Last turn, no
+    /// repository, so the page offers no git source; at `file` when given.
+    static func chatPatch(title: String, token: String, file: String?) -> JSONValue {
+        var payload: [String: JSONValue] = [
+            "title": .string(title),
+            "transport": ["kind": "page", "endpoint": "cmux.diff", "protocolVersion": 1],
+            "capabilityToken": .string(token),
+            "layout": "auto",
+            "layoutSource": "default",
+            "sessionCapabilities": .array([]),
+            "sessionSource": DiffTurnPatch.pageSource,
+            "sourceOptions": [["value": "last-turn", "sessionSource": DiffTurnPatch.pageSource]],
+        ]
+        if let file { payload["revealPath"] = .string(file) }
         return ["payload": .object(payload), "ops": .array(ops.map(JSONValue.string))]
     }
 

@@ -89,9 +89,7 @@ fn other_ops_run_while_a_connect_waits() {
 
 fn command() -> cmux_cloud::link::LinkCommand {
     cmux_cloud::link::LinkCommand {
-        binary: "/opt/cmux/bin/cmux-tui".into(),
-        args: Vec::new(),
-        env: Vec::new(),
+        upstream: "/tmp/cmux-test/carrier-vm-alpha01.sock".into(),
         state_dir: "/tmp/cmux-test/link-state".into(),
         local_socket: "/tmp/cmux-test/link.sock".into(),
     }
@@ -125,4 +123,18 @@ fn the_ready_deadline_ends_a_link_that_never_gets_ready_and_an_up_link_cancels_i
     supervisor.pump();
     assert!(matches!(supervisor.outcome("vm-beta02", generation), Some(Ok(_))));
     assert_eq!(clock.fire_all(), 0, "the up link's deadline was cancelled");
+}
+
+#[test]
+fn a_connect_whose_start_finds_the_machine_already_woken_still_connects() {
+    // The projection says paused, but inbound traffic woke the machine
+    // before the connect's start: the start answers not_paused (state
+    // running). The connect reads the machine and links, instead of
+    // ending with "only a paused machine can be started".
+    let mut host = Host::start(&["vm-list", "vm-start-not-paused"]);
+    host.answer_of("1", "cloud.machine.list", json!({}));
+    let result =
+        host.result("2", "cloud.machine.connect", json!({ "machine": "vm-beta02" }), Some("c-2"));
+    assert_eq!(result["ok"], true, "{result}");
+    assert_eq!(result["result"]["machine"], "vm-beta02");
 }

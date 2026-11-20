@@ -1,13 +1,55 @@
 import { authenticate, bearerOf, primaryProject, stackProjects, type Caller } from "./auth.ts"
 import type { Env } from "./env.ts"
 import { iceServers } from "./ice.ts"
-import { createTeam, sendTeamInvite, userTeams } from "./stack.ts"
-import { apnsConfig, apnsTopics, clean, isSealedText, MAX_MAILBOX_SEALED, notifyLimitKey, parseNotify, pushTargets, sendApns, TURN_PUSH_WINDOW_MS, turnPushKey, wantedKinds } from "./push.ts"
+import { createTeam, sendTeamInvite, userEmail, userTeams } from "./stack.ts"
+import { audienceOf, judgedAt, parseReport, ReportError } from "./connectivity-alerts.ts"
+import { apnsConfig, apnsTopics, clean, isSealedText, MAX_MAILBOX_SEALED, notifyFailures, notifyLimitKey, notifyTargets, parseNotify, pushTargets, sendApns, TURN_PUSH_WINDOW_MS, turnPushKey, wantedKinds } from "./push.ts"
 import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
 import { userHubName, type Attachment } from "./team-hub.ts"
 import { Timing, timingFor } from "./timing.ts"
+import { WorkerEntrypoint } from "cloudflare:workers"
 
 export { TeamHub } from "./team-hub.ts"
+export { ConnectivityAlertDesk } from "./connectivity-alerts.ts"
+
+const CLOUD_MACHINE = /^vm_[a-z0-9]{20}$/
+const CLOUD_ID = /^[A-Za-z0-9._:-]{1,128}$/
+const CLOUD_KINDS = new Set(["question", "permission", "done"])
+
+/** Private service-binding entrypoint used by cmux-platform; it has no public HTTP route. */
+export class CloudAttentionPush extends WorkerEntrypoint<Env> {
+  async sendAttention(event: {
+    recipient: string
+    kind: "question" | "permission" | "done"
+    event_id: string
+    team_id: string
+    machine_id: string
+    session_id: string
+    deep_link: string
+  }): Promise<{ accepted: boolean; correlation_id?: string }> {
+    if (!CLOUD_ID.test(event.recipient) || !CLOUD_ID.test(event.event_id) || !CLOUD_ID.test(event.team_id) || !CLOUD_ID.test(event.session_id) || !CLOUD_MACHINE.test(event.machine_id) || !CLOUD_KINDS.has(event.kind))
+      throw new Error("invalid cloud attention identity")
+    if (event.deep_link !== `cmux://cloud/chat/${encodeURIComponent(event.machine_id)}/${encodeURIComponent(event.session_id)}`)
+      throw new Error("invalid cloud attention deep link")
+    const owner = event.recipient
+    const config = apnsConfig(this.env)
+    if (!config) return { accepted: false }
+    const store = await openStore(this.env)
+    try {
+      const wanted = event.kind === "done" ? "completed" : event.kind
+      const targets = (await store.listOwnerPush(owner)).filter((target) => target.kinds.includes(wanted as PushKind))
+      if (targets.length === 0) return { accepted: true, correlation_id: `no-targets:${event.event_id}` }
+      const { sendCloudAttention } = await import("./push.ts")
+      const results = await sendCloudAttention(config, targets, event, Date.now())
+      const dropped = results.filter((r) => r.outcome === "drop_target").map((r) => r.token)
+      if (dropped.length) await store.dropPushTokens(dropped)
+      const sent = results.find((r) => r.outcome === "sent" && r.status === 200 && !!r.apns_id)
+      return { accepted: !!sent, ...(sent ? { correlation_id: `apns:${sent.apns_id}` } : {}) }
+    } finally {
+      await store.close().catch(() => {})
+    }
+  }
+}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const TEAM_ID = /^[A-Za-z0-9_-]{1,128}$/
@@ -327,6 +369,44 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     return json({ devices, macs, myMacs, ice })
   }
 
+  if (path === "/v1/diagnostics/connectivity-incidents" && method === "POST") {
+    // A team member's phone reports a major connectivity incident (PROTOCOL.md "Connectivity incidents").
+    // Who it is comes from Stack, not the body: only a verified team email is heard, and agent accounts and
+    // simulators go to the test route.
+    await limit(env.INCIDENT_LIMIT, me, "connectivity reports")
+    let report
+    try {
+      report = parseReport(await readJson(req))
+    } catch (e) {
+      if (e instanceof ReportError) throw new HttpError(400, "bad_request", e.message)
+      throw e
+    }
+    let who
+    try {
+      who = await t.span("stack_user", userEmail(env, caller))
+    } catch (e) {
+      console.log(JSON.stringify({ msg: "connectivity report: user lookup failed", error: String(e) }))
+      throw new HttpError(502, "user_unavailable", "could not look up the account; retry later")
+    }
+    const audience = audienceOf(who.email, who.verified, { ...report.app, ...(report.simulations ? { simulations: report.simulations } : {}) }, env.CONNECTIVITY_ALERT_EXCLUDED_EMAILS)
+    if (audience.route === "refuse") return fail(403, audience.why === "unverified" ? "email_unverified" : "not_team", "connectivity reports are for the cmux team")
+    // Whether the Mac is awake: its socket lives in the caller's own hub (v1 links only reach the caller's
+    // own Macs), so another user's Mac id finds nothing there.
+    const liveness = await t
+      .span("hub", userHub(env, caller).macLiveness(me, report.mac.id.toLowerCase(), judgedAt(report, Date.now())))
+      .catch((e) => {
+        console.log(JSON.stringify({ msg: "connectivity report: liveness unavailable", error: String(e) }))
+        return null
+      })
+    const desk = env.CONNECTIVITY_ALERT_DESK.get(env.CONNECTIVITY_ALERT_DESK.idFromName("desk"))
+    const r = await t.span(
+      "desk",
+      desk.report(report, { key: me, email: who.email! }, audience.route === "test" ? { route: "test", why: audience.why } : { route: "team" }, { liveness })
+    )
+    if (!r.accepted) return fail(409, "conflict", "this incident id belongs to another account")
+    return json({ accepted: true, route: audience.route, ...(r.note ? { note: r.note } : {}) }, 202)
+  }
+
   if (path === "/v1/me/devices" && method === "GET") {
     const [rows, presence] = await Promise.all([withStore(env, ctx, (s) => s.listOwnerDevices(me)), t.span("hub", userHub(env, caller).macs(me))])
     // Presence for Macs from the caller's own hub.
@@ -436,25 +516,42 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       const device = await withStore(env, ctx, (s) => s.getDevice(deviceId))
       if (!device) throw new HttpError(404, "not_found", "no such device")
       if (device.ownerUserId !== me || device.kind !== "mac") throw new HttpError(403, "not_owner", "notify from your own Mac")
-      await limit(env.NOTIFY_LIMIT, notifyLimitKey(deviceId, parsed.kind), "notifications")
+      await limit(env.NOTIFY_LIMIT, notifyLimitKey(deviceId, parsed.kind, parsed.batch), "notifications")
       const config = apnsConfig(env)
       const kind = parsed.kind
       const regs = await withStore(env, ctx, (s) => s.listOwnerPush(me))
       // The kinds some phone that has not muted this Mac wants: the Mac skips the rest (terminal, say).
       const wants = wantedKinds(regs, deviceId)
-      const targets = config ? pushTargets(regs, deviceId, kind).slice(0, 20) : []
-      if (!config || targets.length === 0) return json({ configured: !!config, sent: 0, failed: 0, dropped: 0, wants })
+      // Every phone that wants it, however many: a Mac with more than MAX_SEALED_PHONES boxes splits one
+      // event into a lead and batches, and each phone is a target of exactly one of them.
+      const wanting = config ? pushTargets(regs, deviceId, kind) : []
+      if (!config || wanting.length === 0) return json({ configured: !!config, sent: 0, failed: 0, dropped: 0, wants })
       // A burst of turn ends from one session is one notification (a Mac on an older host sends every one).
-      // Checked only once some phone wants this kind, so an unwanted kind never uses up the window.
-      const key = turnPushKey(deviceId, parsed)
+      // Checked only once some phone wants this kind, so an unwanted kind never uses up the window; a batch
+      // follows a lead that passed it (the Mac sends no batch after a coalesced lead).
+      const key = parsed.batch ? undefined : turnPushKey(deviceId, parsed)
       if (key && !(await userHub(env, caller).turnPushAllowed(me, key, TURN_PUSH_WINDOW_MS)))
         return json({ configured: true, sent: 0, failed: 0, dropped: 0, coalesced: true, wants })
+      const targets = notifyTargets(wanting, parsed)
+      // `batches`: this Worker sends each phone one push across a lead and its batches (API 0.16.0), so the Mac
+      // may send the batches; an older Worker ignores `batch` and would push them to everyone again.
+      if (targets.length === 0) return json({ configured: true, sent: 0, failed: 0, dropped: 0, wants, batches: true })
       const results = await sendApns(config, targets, { ...parsed, macId: deviceId, macName: clean(device.name, 40) }, Date.now())
       const drop = results.filter((r) => r.outcome === "drop_target").map((r) => r.token)
       if (drop.length) await withStore(env, ctx, (s) => s.dropPushTokens(drop))
       const failed = results.filter((r) => r.outcome === "failed")
-      if (failed.length) console.log(JSON.stringify({ msg: "apns failed", results: failed.map((r) => ({ status: r.status, reason: r.reason })) }))
-      return json({ configured: true, sent: results.filter((r) => r.outcome === "sent").length, failed: failed.length, dropped: drop.length, wants })
+      if (failed.length) console.log(JSON.stringify({ msg: "apns failed", results: failed.map((r) => ({ environment: r.environment, status: r.status, reason: r.reason })) }))
+      // Why APNs refused, so the Mac (and whoever reads its log) can see it without the Worker's logs.
+      const failures = notifyFailures(results)
+      return json({
+        configured: true,
+        sent: results.filter((r) => r.outcome === "sent").length,
+        failed: failed.length,
+        dropped: drop.length,
+        wants,
+        batches: true,
+        ...(failures.length ? { failures } : {})
+      })
     }
     return fail(405, "method_not_allowed", "method not allowed")
   }
@@ -548,7 +645,8 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
 
   if (path === "/v1/teams" && method === "POST") {
     // Create team (PROTOCOL.md): Stack's client API refuses it, so the Worker creates the team with the
-    // caller's project server key and the caller as its creator and first member.
+    // caller's project server key and the caller as its creator and first member, then grants the caller
+    // team_admin (rolled back by deleting the team when the grant fails; see createTeam).
     const b = await readJson(req)
     const name = typeof b.name === "string" ? b.name.trim() : ""
     if (!name || name.length > 64 || /\p{Cc}/u.test(name)) throw new HttpError(400, "bad_request", "name must be 1 to 64 characters, no control characters")

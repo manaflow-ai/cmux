@@ -4,7 +4,8 @@
 
 use super::*;
 use crate::terminal_host_runtime::shared::clipboard_read::{
-    ClipboardClock, ClipboardReadState, decode_clipboard_read_request, encode_clipboard_read_reply,
+    CLIPBOARD_READ_TIMEOUT, ClipboardClock, ClipboardReadState, decode_clipboard_read_request,
+    encode_clipboard_read_reply,
 };
 use ghostty_vt::{ClipboardLocation, ClipboardReadRequest};
 use std::sync::MutexGuard;
@@ -126,7 +127,7 @@ impl Harness {
         let term = Terminal::new(80, 24, 0, callbacks).unwrap();
         let (parser_commands, receiver) = sync_channel(HOST_PARSER_QUEUE_CAPACITY);
         let host = test_host_shared_with(term, parser_commands, clipboard);
-        host.clipboard.start_timer(&host).unwrap();
+        host.clipboard.bind_timer(&host);
         let (pty_sender, pty) = mpsc_channel();
         *host.writer.lock().unwrap() = Box::new(ChannelWriter(pty_sender));
         let initial_colors = host.term.lock().unwrap().color_overrides();
@@ -146,7 +147,7 @@ impl Harness {
         self.host
             .parser_commands
             .send(ParserCommand::Output {
-                bytes: bytes.to_vec(),
+                frame: Arc::new(Frame::new(MessageKind::Output, bytes.to_vec())),
                 source_cursor: self.cursor,
                 accounted_bytes: 0,
             })
@@ -375,11 +376,37 @@ fn an_open_read_is_refused_after_sixty_seconds_on_the_injected_clock() {
     assert_ne!(next.token, request.token);
 }
 
+/// A terminal that never reads the clipboard has no timeout thread: the
+/// first read that opens starts it, and later reads reuse it.
+#[test]
+fn the_timeout_worker_starts_with_the_first_open_read() {
+    let mut h = Harness::new();
+    let mut owner = h.owner();
+    assert!(!h.host.clipboard.timer_running_for_test(), "a timer runs before any read");
+    assert_eq!(h.clock.wait_count(), 0, "a timer waited before any read");
+
+    h.output(OSC52_READ);
+    let request = next_clipboard_request(&mut owner);
+    assert!(h.host.clipboard.timer_running_for_test());
+    // The new worker saw the open read's deadline on its first wait.
+    h.clock.await_wait(0, |wait| wait == Some(CLIPBOARD_READ_TIMEOUT));
+    reply(&mut owner, request.token, Some(b"hi"));
+    assert_eq!(h.pty_reply(), GRANTED_HI);
+
+    // The same worker bounds the next read.
+    h.output(OSC52_READ);
+    let request = next_clipboard_request(&mut owner);
+    h.clock.advance(CLIPBOARD_READ_TIMEOUT + Duration::from_secs(1));
+    h.host.clipboard.notify_timer();
+    assert_eq!(h.pty_reply(), REFUSED);
+    assert_eq!(next_clipboard_cancel(&mut owner), request.token);
+}
+
 /// A clock that, each time the broker reads it, records whether the owner
 /// could already see the read request.
 struct OwnerProbeClock {
     now: Instant,
-    owner_inbox: Mutex<Receiver<Frame>>,
+    owner_inbox: Mutex<Receiver<Arc<Frame>>>,
     request_visible_at_read: Mutex<Vec<bool>>,
 }
 
@@ -729,6 +756,95 @@ fn fake_owner_host(
     let release = read_required_frame(&mut stream, "viewer release")?;
     anyhow::ensure!(release.kind == MessageKind::ReleaseViewer);
     Ok(hello.requested_rights)
+}
+
+/// A host that answers one smart owner handshake up to its Ready in one
+/// write and then closes the link at once (a host that ends right then).
+fn fake_owner_host_closing_after_ready(
+    mut stream: UnixStream,
+    record: TerminalHostRecord,
+) -> anyhow::Result<()> {
+    stream.set_read_timeout(Some(SAFETY_BOUND))?;
+    let hello_frame = read_required_frame(&mut stream, "owner hello")?;
+    let version = hello_frame.version;
+    let hello = ClientHello::decode(&hello_frame.payload)?;
+    let response = HostHello {
+        selected_version: version,
+        granted_rights: hello.requested_rights,
+        terminal_id: hello.terminal_id,
+        incarnation: HostIncarnation::from_bytes(decode_hex_array(&record.incarnation)?),
+    };
+    let mut host_hello = Frame::new(MessageKind::HostHello, response.encode());
+    host_hello.version = version;
+    host_hello.request_id = hello_frame.request_id;
+    host_hello.flags = hello_frame.flags & (FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS);
+    let snapshot = HostSnapshot {
+        cols: 80,
+        rows: 24,
+        cell_pixels: DEFAULT_CELL_PIXELS,
+        replay: Vec::new(),
+        kitty_image_aliases: Vec::new(),
+        kitty_state: test_kitty_state(),
+        sequence_boundary: 0,
+        colors: TerminalColorOverrides::default(),
+        pid: None,
+        command: vec!["/bin/sh".into()],
+        cwd: None,
+        osc_progress: String::new(),
+        program_status: None,
+        shell_activity: None,
+    };
+    let mut bytes = Vec::new();
+    write_frame(&mut bytes, &host_hello)?;
+    for (kind, payload) in [
+        (MessageKind::Snapshot, encode_snapshot_for_version(&snapshot, version, false)?),
+        (MessageKind::Colors, encode_terminal_color_overrides(&TerminalColorOverrides::default())),
+        (MessageKind::Ready, Vec::new()),
+    ] {
+        let mut frame = Frame::new(kind, payload);
+        frame.version = version;
+        frame.sequence = 5;
+        write_frame(&mut bytes, &frame)?;
+    }
+    stream.write_all(&bytes)?;
+    stream.shutdown(std::net::Shutdown::Both)?;
+    Ok(())
+}
+
+/// A host that ends right after its Ready: the owner's attach reads the
+/// closed link as such. On macOS `setsockopt` refuses a socket whose peer
+/// closed with EINVAL, and the attach failed with "Invalid argument" while
+/// clearing its read timeout, where Linux reads the end (the same bug class
+/// as the terminal holder's link, #30740). Many tries: the host's close must
+/// come before the owner clears its timeout, which it does in most tries.
+#[test]
+fn an_attach_to_a_host_that_closes_after_ready_never_fails_on_the_timeout() {
+    for attempt in 0..40 {
+        let (record_path, mut record, lease) = record_fixture("attach-closed-after-ready");
+        record.supports_terminal_metadata = false;
+        let (daemon, host) = UnixStream::pair().unwrap();
+        let host_record = record.clone();
+        let host = thread::spawn(move || fake_owner_host_closing_after_ready(host, host_record));
+        let attachment = connect_record_at_version(
+            record,
+            record_path.clone(),
+            SAFETY_BOUND,
+            PROTOCOL_VERSION,
+            true,
+            daemon,
+            OwnerIntent::Surface,
+        );
+        host.join().unwrap().unwrap();
+        drop(lease);
+        let _ = fs::remove_dir_all(record_path.parent().unwrap());
+        if let Err(error) = attachment {
+            let einval = error.chain().any(|cause| {
+                cause.downcast_ref::<std::io::Error>().and_then(std::io::Error::raw_os_error)
+                    == Some(libc::EINVAL)
+            });
+            assert!(!einval, "attempt {attempt}: the attach failed on its timeout: {error:#}");
+        }
+    }
 }
 
 fn connect_to_fake_host(

@@ -8,8 +8,7 @@ public import Foundation
 /// - `url` (empty by default): a DEV build's override of the hub address.
 ///   Empty uses the built-in hub; an address that is not valid turns the hub off.
 public nonisolated struct DeviceHubSettings: Sendable, Equatable {
-    public static let urlPath = ["deviceHub", "url"]
-    public var url = ""
+    public var url = DeviceHubSettings.urlDefault
 
     public init() {}
 
@@ -46,23 +45,5 @@ public nonisolated struct DeviceHubSettings: Sendable, Equatable {
         if let value = reader.string("url") { settings.url = value }
         diagnostics = reader.diagnostics
         return settings
-    }
-}
-
-/// The Development section's Device Hub row.
-nonisolated enum DeviceHubSettingsSchema {
-    static var descriptors: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.deviceHub", "Device Hub")
-        return [
-            SettingDescriptor(
-                DeviceHubSettings.urlPath, section: .development, group: group,
-                title: SettingsText.keyed("settings.deviceHub.url", "Device Hub Address"),
-                help: SettingsText.keyed("settings.deviceHub.url.help",
-                                         "Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub."),
-                summary: SettingsText.keyed("settings.deviceHub.url.summary", "Device hub address"),
-                kind: .url, default: .string(DeviceHubSettings().url),
-                keywords: ["device hub", "devices", "mac screen", "backend", "development", "debug"]
-            ),
-        ]
     }
 }

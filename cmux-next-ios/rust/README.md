@@ -260,8 +260,8 @@ Services (default deny, `unknown_service` otherwise):
   (refused unless the listener is on loopback). One data frame per message.
   acpmux treats this as a remote-origin (`Web`) connection.
 - `file` `{path}`: an absolute path, canonicalized (symlinks resolved) and
-  required to stay inside a `CMUX_MOBILE_FILE_ROOTS` root; streams the regular file,
-  then closes with `eof`.
+  required to stay inside a `CMUX_MOBILE_FILE_ROOTS` root; streams the regular file
+  of any size in bounded chunks, then closes with `eof`.
 - `upload` `{name, size, cwd?}`: writes the next `size` bytes to a new file
   and answers `{"path","size"}`. The file goes into
   `<cwd>/.cmux/attachments/phone-<session>/` when `cwd` is a folder of one of

@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -57,12 +58,8 @@ beforeEach(() => {
   root = createRoot(host);
 });
 afterEach(async () => act(() => root.unmount()));
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) globals[key] = value;
-    else delete globals[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope: globals });
 });
 
 for (const fromLocal of [true, false]) {
@@ -281,4 +278,52 @@ test("a same-host selection change fences forced replay before React renders", a
   expect(lateRefusal(pending(cwd))).toBe(false);
   await act(async () => save.resolve(undefined));
   expect(resent).toBe(0);
+});
+
+test("a canceled send cannot route its late refusal through a fresh handler", async () => {
+  const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");
+  const { MockAcpmuxSocket, mockHost } = await import("../src/agent-session/acpmux/mock");
+  const entered = deferred<unknown>();
+  const reply = deferred<unknown>();
+  class RefusingHost extends MockAcpmuxSocket {
+    constructor() {
+      super(() => Promise.resolve());
+      const self = this as unknown as {
+        answer(method: string, params: Record<string, unknown>): Promise<unknown>;
+      };
+      const answer = self.answer.bind(this);
+      self.answer = (method, params) => {
+        if (method !== "session/prompt") return answer(method, params);
+        entered.resolve(undefined);
+        return reply.promise.then(() => {
+          throw Object.assign(new Error("trust.pending"), {
+            code: -32000,
+            data: { reason: "trust.pending", cwd: "/home/you/original" },
+          });
+        });
+      };
+    }
+  }
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    () => undefined,
+    undefined,
+    () => new RefusingHost() as unknown as WebSocket,
+  );
+  try {
+    let routed = 0;
+    client.onTrustRefused = () => routed++;
+    const sent = client.send("original prompt", [], undefined, () => undefined).catch(() => undefined);
+    await entered.promise;
+    client.cancelTrustRefusals();
+    // React replaces its mutable handler after the folder dialog closes. A fresh handler
+    // must not give the canceled request a new retry identity.
+    client.onTrustRefused = () => routed++;
+
+    reply.resolve(undefined);
+    await sent;
+    expect(routed).toBe(0);
+  } finally {
+    client.close();
+  }
 });

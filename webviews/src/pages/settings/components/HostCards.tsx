@@ -3,6 +3,7 @@
 // file with its problems (Advanced). Data comes from the host lists; writes run host ops or
 // catalog actions, the palette's paths.
 import { useEffect, useId, useRef, useState } from "react";
+import { Button } from "../../../ui/Button";
 import { useSettingsState, useStore } from "../context";
 import { settingsFileName } from "../format";
 import { rowsByKey } from "../schema";
@@ -13,11 +14,25 @@ import { ArtBrowser } from "./ArtBrowser";
 import { BackdropLink, formatBytes } from "./BackdropLink";
 import { BackdropScopePicker, FOLLOW_ID, useWorkspaceBackground, WorkspaceOpacity } from "./BackdropScope";
 import { SettingRow } from "./SettingRow";
+import { WallpaperSwitch } from "./WallpaperSwitch";
+import {
+  DARK_KEY,
+  DYNAMIC_KEY,
+  LIGHT_KEY,
+  LOCATION_KEY,
+  modeOf,
+  SCHEDULE_KEY,
+  WALLPAPER_KEYS,
+  type WallpaperValues,
+} from "../wallpaperSwitch";
+import { focusRingShown } from "../../../ui/focusModality";
 
 export const BACKGROUND_KEY = "appearance.background";
 export const BACKGROUND_OPACITY_KEY = "appearance.backgroundOpacity";
 /** Shuffle Paintings (cx-t2x.5): the art set, turning as often as appearance.backgroundRotation says. */
 const DAILY_ID = "daily";
+/** The person's desktop picture (BackdropSelection.desktopID), first in the picker. */
+const DESKTOP_ID = "desktop";
 /** The person's own images (BackdropUserImages.collection): removable, and shown in Finder. */
 const YOURS = "yours";
 /** The rows the picker draws, left out of their group while it shows. */
@@ -30,6 +45,12 @@ export const BACKDROP_ROWS: ReadonlySet<string> = new Set([
   BACKGROUND_OPACITY_KEY,
   MATERIAL_KEY,
   ROTATION_KEY,
+  // Switch Automatically's keys: its editors draw them.
+  LIGHT_KEY,
+  DARK_KEY,
+  SCHEDULE_KEY,
+  DYNAMIC_KEY,
+  LOCATION_KEY,
 ]);
 /** `folder:<absolute path>`: the pictures in that folder, shuffled. */
 const FOLDER_PREFIX = "folder:";
@@ -77,6 +98,8 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   const [linking, setLinking] = useState(false);
   // What the person's own images take, and their folder (Shuffle Your Images is `folder:` it).
   const [usage, setUsage] = useState<{ bytes: number; folder: string | null } | null>(null);
+  // The macOS screen saver's aerial (Use My Screen Saver); null when it is not one.
+  const [screenSaver, setScreenSaver] = useState<{ id: string; pending: boolean } | null>(null);
   const dwell = useRef<ReturnType<typeof setTimeout> | null>(null);
   // How to end the running preview: the app's, or a workspace's.
   const previewing = useRef<(() => void) | null>(null);
@@ -124,6 +147,17 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
       live = false;
     };
   }, [store, ownCount]);
+  // Read again when the person is back from System Settings, where the screen saver is chosen.
+  useEffect(() => {
+    let live = true;
+    const read = () => void store.screenSaverBackdrop().then((saver) => live && setScreenSaver(saver));
+    read();
+    window.addEventListener("focus", read);
+    return () => {
+      live = false;
+      window.removeEventListener("focus", read);
+    };
+  }, [store]);
   if (backdrops.length === 0) return null;
   const background = rows.get(BACKGROUND_KEY);
   const appCurrent = ((background?.value ?? background?.default) as string | undefined) ?? "none";
@@ -140,6 +174,25 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   // A folder shuffled that is not Your Images: its own tile, chosen, by the folder's name.
   const otherFolder = !own && current.startsWith(FOLDER_PREFIX) && current !== yours ? current : null;
   const shuffles = current === DAILY_ID || current.startsWith(FOLDER_PREFIX);
+  // Switch Automatically reads the app's keys; a workspace's own background is one picture.
+  const read = (key: string) => {
+    const row = rows.get(key);
+    return (row?.value ?? row?.default ?? null) as unknown;
+  };
+  const switchValues: WallpaperValues = {
+    background: appCurrent,
+    light: (read(LIGHT_KEY) as string | null) ?? null,
+    dark: (read(DARK_KEY) as string | null) ?? null,
+    schedule: (read(SCHEDULE_KEY) as Record<string, string> | null) ?? null,
+    dynamic: (read(DYNAMIC_KEY) as string | null) ?? "appearance",
+  };
+  // A slot holds one picture that stays: the shuffles and macOS wallpapers still downloading are not one.
+  const pictures = [
+    { id: "none", title: t("settingsWindow.backdropPicker.none") },
+    ...backdrops.filter((choice) => choice.downloaded !== false),
+  ];
+  const rotating = !own && modeOf(switchValues, backdrops) === "rotate";
+  const rotationRow = rotation && <SettingRow row={rotation} focused={focus === ROTATION_KEY} inactive={!shuffles} />;
   const choose = async (id: string) => {
     cancelDwell();
     if (own) {
@@ -191,7 +244,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
         onClick={() => void (pending ? store.openWallpaperSettings() : choose(id))}
         onPointerEnter={pending ? undefined : () => preview(id, PREVIEW_DWELL_MS)}
         onPointerLeave={pending ? undefined : endPreview}
-        onFocus={(event) => !pending && event.currentTarget.matches(":focus-visible") && preview(id, PREVIEW_DWELL_MS)}
+        onFocus={(event) => !pending && focusRingShown(event.currentTarget) && preview(id, PREVIEW_DWELL_MS)}
         onBlur={pending ? undefined : endPreview}
       >
         {id === "none" || id === FOLLOW_ID ? (
@@ -223,10 +276,14 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
     );
   };
   // Art arrives grouped by collection (Dark Art, Museum Icons, Calm, Doré), each under its
-  // title, then the person's own images ("Your images"), the desktop picture in an untitled
-  // group, and every macOS wallpaper ("Apple Wallpapers").
+  // title, then the person's own images ("Your images") and every macOS wallpaper ("Apple
+  // Wallpapers"). The desktop picture is drawn first instead, in the top row.
   const groups: Array<{ key: string; title: string | null; choices: typeof backdrops }> = [];
+  // The desktop picture leads the picker (Leo: "use my wallpaper stuff ... stick it wayyy up there").
+  const desktop = backdrops.find((choice) => choice.id === DESKTOP_ID);
+  const saverChoice = screenSaver ? backdrops.find((choice) => choice.id === screenSaver.id) : undefined;
   for (const choice of backdrops) {
+    if (choice.id === DESKTOP_ID) continue;
     const key = choice.collection ?? "";
     const last = groups[groups.length - 1];
     if (last && last.key === key) last.choices.push(choice);
@@ -244,6 +301,13 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
       </span>
       {/* The happy path first: one background for every window, or one that turns on its own. */}
       <div className="backdrop-grid">
+        {/* The person's own desktop picture and screen saver first: the quickest way to a background. */}
+        {desktop && tile(desktop.id, desktop.title, desktop.attribution)}
+        {screenSaver &&
+          tile(screenSaver.id, t("settingsWindow.backdropPicker.screenSaver"), saverChoice?.title ?? null, {
+            video: true,
+            pending: screenSaver.pending,
+          })}
         {own &&
           tile(
             FOLLOW_ID,
@@ -325,13 +389,39 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
           }}
         />
       )}
+      {/* Below the first tiles, so an editor opening never moves them. */}
+      {!own && (
+        <WallpaperSwitch
+          values={switchValues}
+          choices={pictures}
+          location={(read(LOCATION_KEY) as string | null) ?? null}
+          yoursFolder={usage?.folder ?? null}
+          disabled={!state.readable}
+          onWrite={(writes, label) =>
+            store.trackAppearance(
+              WALLPAPER_KEYS,
+              async () => {
+                // In order, stopping at a refusal: Background is written after the pictures it names.
+                for (const [key, value] of writes) {
+                  const result = await (value === null ? store.reset(key) : store.set(key, value));
+                  if (!result.ok) break;
+                }
+              },
+              { label },
+            )
+          }
+          onLocation={(value) => (value === null ? store.reset(LOCATION_KEY) : store.set(LOCATION_KEY, value))}
+          onChooseFolder={() => store.chooseBackdropFolder()}
+          rotation={rotating ? rotationRow : undefined}
+        />
+      )}
       {own && ownPicture && (
         <WorkspaceOpacity background={own} onSaved={(saved) => setWorkspaceBackground({ ...own, opacity: saved })} />
       )}
       <div className="rows">
         {/* How often the shuffle turns: the app's, so only for All Workspaces. Off without a shuffle,
           but still here, so search and a deep link find it. */}
-        {!own && rotation && <SettingRow row={rotation} focused={focus === ROTATION_KEY} inactive={!shuffles} />}
+        {!own && !rotating && rotationRow}
         {!own && opacity && <SettingRow row={opacity} focused={focus === BACKGROUND_OPACITY_KEY} />}
         {/* The window's other control, on either scope: Frosted, Glass, Clear Glass (the desktop
           through the wallpaper) or None. It replaces the Window Glass switch, which set Clear Glass. */}
@@ -349,9 +439,9 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
                   {t("settingsWindow.backdropPicker.usage", formatBytes(usage.bytes, locale()))}
                 </span>
               )}
-              <button type="button" className="button" onClick={() => store.revealBackdropImage()}>
+              <Button type="button" className="button" onClick={() => store.revealBackdropImage()}>
                 {t("settingsWindow.showInFinder")}
-              </button>
+              </Button>
             </div>
           )}
           <div className="backdrop-grid">
@@ -365,7 +455,10 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
                     pending: choice.downloaded === false,
                   })}
                   {/* The background in use stays: removing it would leave the window blank. */}
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon
                     type="button"
                     className="icon-button backdrop-remove"
                     aria-label={t("settingsWindow.backdropPicker.remove", choice.title)}
@@ -379,7 +472,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
                     }
                   >
                     ×
-                  </button>
+                  </Button>
                 </div>
               ) : (
                 tile(choice.id, choice.title, choice.attribution, {
@@ -424,9 +517,9 @@ export function AdvancedInfo() {
           <div className="rows">
             <ActionRow title={t("settingsWindow.settingsFile")} help="">
               <span className="row-help selectable">{host.settings_file}</span>
-              <button type="button" className="button" onClick={() => store.revealSettingsFile()}>
+              <Button type="button" className="button" onClick={() => store.revealSettingsFile()}>
                 {t("settingsWindow.showInFinder")}
-              </button>
+              </Button>
             </ActionRow>
           </div>
         </section>

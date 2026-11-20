@@ -11,6 +11,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { StyleSwitch } from "../src/agent-session/acpmux/newtab/StyleSwitch";
 import { pickNewTabStyle } from "../src/agent-session/acpmux/newtab/templates";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -41,11 +42,8 @@ beforeAll(() => {
   });
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 test("the New Tab page offers its six styles as named dots, the current one checked", async () => {
@@ -60,20 +58,11 @@ test("the New Tab page offers its six styles as named dots, the current one chec
   const group = host.querySelector("fieldset")!;
   expect(group.getAttribute("aria-label")).toBe("New Tab templates");
   const radios = [...host.querySelectorAll<HTMLInputElement>("input[type=radio]")];
-  expect(radios.map((radio) => radio.value)).toEqual([
-    "minimal",
-    "cards",
-    "default",
-    "composer",
-    "threads",
-    "console",
-    "classic",
-  ]);
+  expect(radios.map((radio) => radio.value)).toEqual(["minimal", "cards", "default", "threads", "console", "classic"]);
   expect(radios.map((radio) => radio.getAttribute("aria-label"))).toEqual([
     "Minimal",
     "Cards",
     "Default",
-    "Composer",
     "Threads",
     "Console",
     "Classic",
@@ -84,12 +73,12 @@ test("the New Tab page offers its six styles as named dots, the current one chec
   expect(name().hasAttribute("data-shown")).toBe(false);
   // A pointer over a dot shows its name, over that dot; leaving the row hides it.
   await act(async () => {
-    radios[3]!.closest("label")!.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true }));
+    radios[4]!.closest("label")!.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true }));
   });
-  expect(name().textContent).toBe("Composer");
+  expect(name().textContent).toBe("Console");
   expect(name().hasAttribute("data-shown")).toBe(true);
   await act(async () => {
-    radios[3]!.closest("label")!.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true }));
+    radios[4]!.closest("label")!.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true }));
   });
   expect(name().hasAttribute("data-shown")).toBe(false);
 
@@ -102,8 +91,8 @@ test("the New Tab page offers its six styles as named dots, the current one chec
   jest.useFakeTimers();
   try {
     await act(async () => {
-      radios[6]!.dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
-      radios[6]!.click();
+      radios[5]!.dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
+      radios[5]!.click();
     });
     expect(picks).toEqual(["classic"]);
     expect(fieldAsked).toBe(0);
@@ -135,7 +124,7 @@ test("the style radios draw no native dot: the page's own stylesheet hides them"
     root.render(createElement(StyleSwitch, { current: "default", onPick() {}, onCancel() {} }));
   });
   const radios = [...host.querySelectorAll<HTMLInputElement>("input[type=radio]")];
-  expect(radios).toHaveLength(7);
+  expect(radios).toHaveLength(6);
   for (const radio of radios) {
     const drawn = window.getComputedStyle(radio);
     expect([radio.value, drawn.position, drawn.width, drawn.height, drawn.opacity]).toEqual([

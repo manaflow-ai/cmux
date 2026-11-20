@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxHomeCore
 import CmuxNextDesign
+public import CmuxNextHomeModel
 
 /// "Invite to cmux-next…": one email address, and the invites still
 /// waiting for someone to join. The host's `onSend` makes the invite (a
@@ -36,6 +37,8 @@ public final class HomeInviteSheet: HomeSheetController, NSTextFieldDelegate {
         stack.addArrangedSubview(pendingList)
     }
 
+    override var initialResponder: NSView? { email }
+
     public override func viewDidAppear() {
         super.viewDidAppear()
         view.window?.makeFirstResponder(email)
@@ -50,7 +53,7 @@ public final class HomeInviteSheet: HomeSheetController, NSTextFieldDelegate {
 
     override func submit() {
         guard let address else {
-            show(HomeConversationStrings.outcome(.invalidAddress(email.stringValue)))
+            show(HomeModelStrings.outcome(.invalidAddress(email.stringValue)))
             return
         }
         let send = onSend

@@ -22,7 +22,8 @@ use super::super::host_auto_update::NO_AUTO_UPDATE;
 use super::super::host_lock::Lease;
 use super::super::{Remote, RemoteOut};
 use super::{
-    CLOUD_VM_MARK, Outcome, PeerUpdate, UpdateOptions, embedded_build, local_target, update_peer,
+    CLOUD_VM_MARK, OWN_UNIT, Outcome, PeerUpdate, UpdateOptions, embedded_build, is_own_unit,
+    local_target, update_peer,
 };
 use crate::cli::output::print_json;
 use anyhow::{Context, Result, anyhow, bail};
@@ -46,7 +47,7 @@ pub(super) const ROLLED_BACK: &str = "rolled-back";
 
 /// A channel file as CI writes it.
 #[derive(Debug, Deserialize)]
-pub(super) struct Channel {
+pub(crate) struct Channel {
     /// The tree whose folder (`cmux-tui/tree/<key>/`) holds the binaries.
     pub(super) key: String,
     /// The channel commit the tree was tested for. The binaries may report an
@@ -58,7 +59,7 @@ pub(super) struct Channel {
 
 impl Channel {
     /// A channel file's contents, its key and commit full lowercase hashes.
-    pub(super) fn parse(body: &[u8]) -> Result<Channel> {
+    pub(crate) fn parse(body: &[u8]) -> Result<Channel> {
         let channel: Channel =
             serde_json::from_slice(body).context("the channel file is not a channel")?;
         if !lower_hex(&channel.key, 40) {
@@ -71,7 +72,7 @@ impl Channel {
     }
 
     /// The sha256 of the acpmux build for `target`.
-    pub(super) fn sha256_for(&self, target: &str) -> Result<&str> {
+    pub(crate) fn sha256_for(&self, target: &str) -> Result<&str> {
         let name = format!("cmux-tui-acpmux-{target}");
         let sha = self
             .binaries
@@ -83,7 +84,7 @@ impl Channel {
         Ok(sha)
     }
 
-    fn binary_url(&self, target: &str) -> String {
+    pub(crate) fn binary_url(&self, target: &str) -> String {
         format!("{FILES}/tree/{}/cmux-tui-acpmux-{target}", self.key)
     }
 }
@@ -94,7 +95,7 @@ fn lower_hex(text: &str, len: usize) -> bool {
 }
 
 /// The URL of a channel's file; a channel is lowercase letters, digits and `-`.
-pub(super) fn channel_url(channel: &str) -> Result<String> {
+pub(crate) fn channel_url(channel: &str) -> Result<String> {
     let plain = !channel.is_empty()
         && channel.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
     if !plain {
@@ -164,6 +165,8 @@ pub(super) struct Paths {
     pub(super) off: PathBuf,
     /// [`CLOUD_VM_MARK`].
     pub(super) cloud_vm: PathBuf,
+    /// `~/.config/systemd/user/acpmux.service` ([`OWN_UNIT`]).
+    pub(super) unit: PathBuf,
     /// This host's release target, as `acpmux-<target>` names it.
     pub(super) target: &'static str,
 }
@@ -179,6 +182,7 @@ impl Paths {
             off: home.join(NO_AUTO_UPDATE),
             home,
             cloud_vm: PathBuf::from(CLOUD_VM_MARK),
+            unit: user.join(OWN_UNIT),
             target,
         })
     }
@@ -219,13 +223,13 @@ pub(super) enum Step {
 /// Take the update lock, read the channel and, when the installed binary
 /// differs from the channel's, download this host's binary into
 /// `update/<sha256>/` (kept for the next run; other builds' folders go) and
-/// check its sha256. Errors (a Cloud VM, a channel without this target, a
+/// check its sha256. Errors (a Cloud VM without acpmux's own `acpmux.service`, a channel without this target, a
 /// download that does not match) change nothing on the host.
 pub(super) async fn prepare(paths: &Paths, fetch: &dyn Fetch, channel: &str) -> Result<Prepared> {
     if paths.off.exists() {
         return Ok(Prepared::Off);
     }
-    if paths.cloud_vm.exists() {
+    if paths.cloud_vm.exists() && !own_unit(&paths.unit) {
         bail!("this host is a cmux Cloud VM: `cmux link machine update --to-bundled` updates it");
     }
     let url = channel_url(channel)?;
@@ -255,6 +259,15 @@ pub(super) async fn prepare(paths: &Paths, fetch: &dyn Fetch, channel: &str) -> 
     Ok(Prepared::Ready(Plan { commit: feed.commit, sha256: sha, step, dir, lease }))
 }
 
+/// Whether `unit` is acpmux's own `acpmux.service` ([`is_own_unit`]): a regular
+/// file, not a link. On a cmux Cloud VM only that daemon is this host's to
+/// update; the update's probe then checks the daemon runs under it
+/// (`cloud_vm_check`, `host_update.rs`).
+fn own_unit(unit: &Path) -> bool {
+    std::fs::symlink_metadata(unit).is_ok_and(|m| m.file_type().is_file())
+        && std::fs::read(unit).is_ok_and(|text| is_own_unit(&text))
+}
+
 /// Remove the download folders (`<sha256>/`) of builds other than `keep`,
 /// except a rolled-back build's [`ROLLED_BACK`] marker: only its binary goes,
 /// so the channel moving on and back never installs that build again.
@@ -267,12 +280,12 @@ fn prune(downloads: &Path, keep: &str) {
         }
         let dir = entry.path();
         if !dir.join(ROLLED_BACK).is_file() {
-            let _ = std::fs::remove_dir_all(&dir);
+            let _ = crate::home_fs::remove_dir_all(&dir);
             continue;
         }
         for file in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
             if file.file_name() != ROLLED_BACK {
-                let _ = std::fs::remove_file(file.path());
+                let _ = crate::home_fs::remove_file(file.path());
             }
         }
     }
@@ -310,15 +323,12 @@ fn keep(dir: &Path, target: &str, bytes: &[u8]) -> Result<()> {
     if std::fs::read(&path).is_ok_and(|have| have == bytes) {
         return Ok(());
     }
-    std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+    crate::home_fs::create_dirs(dir).with_context(|| format!("creating {}", dir.display()))?;
     let part = dir.join(format!(".acpmux-{target}.part"));
-    std::fs::write(&part, bytes).with_context(|| format!("writing {}", part.display()))?;
+    crate::home_fs::write(&part, bytes).with_context(|| format!("writing {}", part.display()))?;
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&part, std::fs::Permissions::from_mode(0o755))?;
-    }
-    std::fs::rename(&part, &path).with_context(|| format!("writing {}", path.display()))?;
+    crate::home_fs::set_mode(&part, 0o755)?;
+    crate::home_fs::rename(&part, &path).with_context(|| format!("writing {}", path.display()))?;
     Ok(())
 }
 
@@ -328,8 +338,17 @@ fn keep(dir: &Path, target: &str, bytes: &[u8]) -> Result<()> {
 /// alone and restarts one that is not, so an update stopped between the
 /// install and the restart is finished by the next run (review of #24232). A
 /// build whose daemon was rolled back is marked, so the next run leaves it
-/// alone; when the mark cannot be written, the row says so.
-pub(super) fn apply(remote: &dyn Remote, plan: &Plan, target: &'static str) -> PeerUpdate {
+/// alone; when the mark cannot be written, the row says so. Unless `now`, a
+/// daemon an update restarted within the host's restart window (this timer's
+/// or a `host update` from another machine: one stamp on the host) is left
+/// alone, and nothing is installed: the first run after the window brings
+/// the newest build.
+pub(super) fn apply(
+    remote: &dyn Remote,
+    plan: &Plan,
+    target: &'static str,
+    now: bool,
+) -> PeerUpdate {
     let (dir, installed) = match &plan.step {
         Step::Current(build) => (&plan.dir, build.as_deref()),
         Step::Install(dir) => (dir, None),
@@ -338,7 +357,11 @@ pub(super) fn apply(remote: &dyn Remote, plan: &Plan, target: &'static str) -> P
         binary_dir: Some(dir.clone()),
         if_idle: false,
         keep_newer: false,
+        // The channel names the build this host runs (an older one too, when
+        // it pulls a bad build back); only pushes from elsewhere are refused.
+        allow_downgrade: true,
         caller: None,
+        now,
     };
     let mut up = update_peer(&plan.lease.fence(remote), &opts);
     up.target.get_or_insert(target);
@@ -347,7 +370,7 @@ pub(super) fn apply(remote: &dyn Remote, plan: &Plan, target: &'static str) -> P
     }
     if up.outcome == Outcome::RolledBack {
         let mark = dir.join(ROLLED_BACK);
-        if let Err(e) = std::fs::write(&mark, up.error.as_deref().unwrap_or("")) {
+        if let Err(e) = crate::home_fs::write(&mark, up.error.as_deref().unwrap_or("")) {
             let why = up.error.take().unwrap_or_default();
             up.error = Some(format!(
                 "{why}; marking the build rolled back failed ({}: {e}), so the next run tries it again",
@@ -426,10 +449,10 @@ impl Remote for LocalRemote {
 /// Exits 1 when the row failed. The channel decides: a build pushed by hand
 /// with `host update` is replaced by the channel's at the next run, unless
 /// automatic updates are off.
-pub(crate) async fn self_update(channel: &str, json_out: bool) -> Result<()> {
+pub(crate) async fn self_update(channel: &str, now: bool, json_out: bool) -> Result<()> {
     if std::env::consts::OS != "linux" {
         bail!(
-            "host self-update keeps a Linux host's own daemon updated; update another machine with `acpmux host update NAME`"
+            "host self-update keeps a Linux host's own daemon updated; update another machine with `acpmux machine update NAME`"
         );
     }
     let paths = Paths::here()?;
@@ -453,7 +476,7 @@ pub(crate) async fn self_update(channel: &str, json_out: bool) -> Result<()> {
         }
         Prepared::Ready(plan) => plan,
     };
-    let up = apply(&LocalRemote, &plan, paths.target);
+    let up = apply(&LocalRemote, &plan, paths.target, now);
     let name = crate::hand::pair::hostname();
     if json_out {
         print_json(&json!({

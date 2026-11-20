@@ -46,17 +46,6 @@ fn a_merged_pr_says_its_merge_commit() {
 }
 
 #[test]
-fn merge_watch_waits_for_green_and_disarms_on_a_push() {
-    let mut pr = open(json!([check("build", "COMPLETED", "SUCCESS")]), json!([]));
-    assert_eq!(merge_watch_decision(&pr, HEAD), MergeWatchDecision::Merge);
-    pr["headRefOid"] = json!(OLD);
-    assert_eq!(merge_watch_decision(&pr, HEAD), MergeWatchDecision::DisarmHeadChanged);
-    pr["headRefOid"] = json!(HEAD);
-    pr["statusCheckRollup"] = json!([check("build", "IN_PROGRESS", "")]);
-    assert_eq!(merge_watch_decision(&pr, HEAD), MergeWatchDecision::Wait);
-}
-
-#[test]
 fn an_open_green_pr_is_ok() {
     let pr = open(
         json!([check("build", "COMPLETED", "SUCCESS"), check("lint", "COMPLETED", "SKIPPED")]),

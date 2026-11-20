@@ -393,13 +393,13 @@ pub fn status(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     let service = services(ctx, &layout)?.state();
     let last = store.last_applied()?.map(|a| a.sequence);
     let json = json!({
-        "enabled": service.installed, "mode": host::mode_str(layout.mode),
+        "enabled": service.installed && service.active != Some(false), "mode": host::mode_str(layout.mode),
         "store": {"generation": generation, "version": version, "channel": cfg.channel(),
             "pinned": cfg.pinned_version(), "generations": store.generations(),
             "last_applied_sequence": last, "packages": entries},
         "service": {"installed": service.installed, "active": service.active, "enabled": service.enabled},
         "postgres": {"port": cfg.postgres_port(), "state": postgres_state(&layout)},
-        "roles": [], "apps": [], "alerts": [],
+        "roles": [], "apps": [], "alerts": [], "pairing": super::pairing::app_view(ctx),
     });
     let human = format!(
         "cmux server ({})\n  generation: {}\n  version:    {}\n  channel:    {}{}\n  service:    {}\n  postgres:   {} (port {})\n",
@@ -417,6 +417,37 @@ pub fn status(ctx: &Context<'_>, args: &Args) -> Result<Output> {
         cfg.postgres_port().map_or("-".to_owned(), |p| p.to_string()),
     );
     Ok(Output::new(json, human))
+}
+
+/// `server up`: starts the installed service and keeps it started across logins and
+/// boots. A server that is not installed is refused: `server install` writes the units.
+pub fn up(ctx: &Context<'_>, _args: &Args) -> Result<Output> {
+    set_running(ctx, true)
+}
+
+/// `server down`: stops the service and keeps it stopped across logins and boots; the
+/// install, its state and its databases stay. `server up` starts it again.
+pub fn down(ctx: &Context<'_>, _args: &Args) -> Result<Output> {
+    set_running(ctx, false)
+}
+
+fn set_running(ctx: &Context<'_>, on: bool) -> Result<Output> {
+    let layout = mutating_layout(ctx, false)?;
+    let svc = services(ctx, &layout)?;
+    if !svc.state().installed {
+        return Err(Error::rejected(
+            "the server is not installed; run `cmux server install` first",
+        ));
+    }
+    if on {
+        svc.start()?;
+    } else {
+        svc.stop()?;
+    }
+    let state = svc.state();
+    let json = json!({"enabled": on, "service": {"installed": state.installed, "active": state.active,
+        "enabled": state.enabled}});
+    Ok(Output::new(json, if on { "cmux server: started\n" } else { "cmux server: stopped\n" }))
 }
 
 fn restart_if(ctx: &Context<'_>, layout: &Layout, changed: bool) -> Result<Vec<String>> {

@@ -21,19 +21,27 @@
 #                        Chromium Host's C++ tests where the commit has them
 #                        (scripts/cmux-next/tests/chromium-host-dispatch.test.sh and
 #                        remote-shim-abi.test.sh, on perf/chrome-parity).
-#   swift-portable PKG   swift-packages-linux.yml for one package its matrix lists:
+#   swift-portable PKG   swift-linux-packages.yml for one package its matrix lists:
 #                        `swift build --build-tests`, then `swift test --skip-build --parallel`
 #                        when it has Tests, with CMUX_SWIFTPM_TARGET_LINUX=1. Linux only (the
 #                        job runs in swift:6.2-noble, with libsqlite3-dev): elsewhere it exits 78.
 #   web                  ci-web.yml's web/ checks: bun install --frozen-lockfile, the managed
 #                        relay catalog check, typecheck, lint:complexity and the unit tests
 #                        (all four shards in one run), with the bun ci-web.yml pins.
+#   notices              cmux-next-guards.yml rust-notices-tree's "Generate the Rust notices from
+#                        this tree (as the nightly does)": generate-third-party-notices.sh
+#                        --tui-source tree --write-cargo-trees with CMUX_NOTICES_ALLOW_CARGO=1 (cargo
+#                        writes the exact cargo trees). cmux-tui's pinned cargo runs every
+#                        `cargo tree --locked` (a Linux fleet runner's rustup has no default
+#                        toolchain for a tree with no pin). Its crate cache and trees are in the
+#                        step's .build. The caller decides whether the change reaches a notice input
+#                        (the job's "Changed notice inputs" step).
 # Every step of a mode runs, even after a red one; the summary lists each, and the step exits
 # with the first red step's code. Nothing is committed or pushed. Cargo runs only as a fleet
 # step: outside one (CMUX_CI_STEP_KEY) the script refuses.
 set -euo pipefail
 usage() {
-  echo "usage: feat-parity-check.sh rust-workspace ROOT | swift-portable PKG | sdk-rust | sdk-msrv | cef-shim-cpp | web" >&2
+  echo "usage: feat-parity-check.sh rust-workspace ROOT | swift-portable PKG | sdk-rust | sdk-msrv | cef-shim-cpp | web | notices" >&2
   exit 2
 }
 if [[ -z "${CMUX_CI_STEP_KEY:-}" ]]; then
@@ -49,13 +57,11 @@ case "$mode" in
   rust-workspace | swift-portable)
     [[ $# -eq 2 && "$workspace" =~ ^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$ && "/$workspace/" != *"/../"* && "/$workspace/" != *"/./"* ]] || usage
     ;;
-  sdk-rust | sdk-msrv | cef-shim-cpp | web) [[ $# -eq 1 ]] || usage ;;
+  sdk-rust | sdk-msrv | cef-shim-cpp | web | notices) [[ $# -eq 1 ]] || usage ;;
   *) usage ;;
 esac
 umask 022
 root="$(pwd -P)"
-# The web job's bun (ci-web.yml `Setup Bun`); web/run-tests.sh needs 1.3.14 or later.
-web_bun_pin=1.4.4
 msrv=1.88.0
 
 first_rc=0
@@ -226,19 +232,37 @@ if [[ "$mode" == cef-shim-cpp ]]; then
   finish
 fi
 
+if [[ "$mode" == notices ]]; then
+  # The crate cache stays in .build (a warm slot keeps it between steps); the trees are written fresh.
+  notices_dir="$root/.build/notices"
+  rm -rf "$notices_dir/cargo-trees"
+  mkdir -p "$notices_dir"
+  step "pinned cargo" use_pinned_cargo "$root/cmux-tui"
+  step "notices from the tree" env CMUX_NOTICES_ALLOW_CARGO=1 CMUX_NOTICES_CACHE="$notices_dir/cache" \
+    ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
+    --cargo-trees "$notices_dir/cargo-trees" --write-cargo-trees
+  finish
+fi
+
 if [[ "$mode" == swift-portable ]]; then
   pkg="$workspace"
-  # The packages of swift-packages-linux.yml's matrix (`packages: >-` blocks).
-  python3 -I - "$root/.github/workflows/swift-packages-linux.yml" "$pkg" <<'PY' || { echo "error: $pkg is not a package of swift-packages-linux.yml's matrix" >&2; exit 2; }
+  # The packages of swift-linux-packages.yml's portable matrix groups (`packages:` lines and `>-` blocks).
+  python3 -I - "$root/.github/workflows/swift-linux-packages.yml" "$pkg" <<'PY' || { echo "error: $pkg is not a package of swift-linux-packages.yml's matrix" >&2; exit 2; }
 import re, sys
+# A repo-relative package path: Packages/... or vendor/..., never absolute or with a .. part.
+PATH = r"(?!/)(?!.*(?:^|/)\.\.(?:/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+"
 listed, block = set(), None
 for line in open(sys.argv[1], encoding="utf-8"):
     indent = len(line) - len(line.lstrip())
     if re.match(r"\s*packages:\s*>-\s*$", line):
         block = indent
         continue
+    one = re.fullmatch(r"\s*packages:\s*(" + PATH + r")\s*", line)
+    if one:
+        listed.add(one.group(1))
+        continue
     if block is not None:
-        if line.strip() and indent > block and re.fullmatch(r"Packages/[A-Za-z0-9._/-]+", line.strip()):
+        if line.strip() and indent > block and re.fullmatch(PATH, line.strip()):
             listed.add(line.strip())
             continue
         block = None
@@ -256,7 +280,10 @@ PY
   finish
 fi
 
-# web: the pinned bun, installed into the step's own .build when the host has another.
+# web: the bun webviews/package.json pins (the web job's bun, ci-web.yml `Setup Bun`), read
+# by the one shared reader beside this script's folder; installed into the step's own
+# .build when the host has another. No pin the reader accepts stops the step.
+web_bun_pin="$(python3 -I "$(dirname "${BASH_SOURCE[0]}")/../webviews_bun_version.py" "$root/webviews/package.json")" || exit 3
 ensure_web_bun() {
   local dir="$root/.build/tools/bun-$web_bun_pin"
   if [[ "$(bun --version 2>/dev/null || true)" != "$web_bun_pin" ]]; then

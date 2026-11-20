@@ -789,6 +789,18 @@ describe("FreestyleProvider create with edge rules", () => {
     expect(fake.writes).toHaveLength(0);
   });
 
+  test("names the owning customer on create and restore, and omits a malformed id", async () => {
+    const fake = fakeFreestyle({ probeExit: 0 });
+    await providerWith(fake).create({ image: "sh-devbox", customerId: "team-owner" });
+    await providerWith(fake).restore("snap-1", { customerId: "user_owner-2" });
+    await providerWith(fake).create({ image: "sh-devbox", customerId: "not a customer id" });
+    await providerWith(fake).create({ image: "sh-devbox" });
+    expect(fake.creates[0]).toMatchObject({ customer: { customerId: "team-owner" } });
+    expect(fake.creates[1]).toMatchObject({ customer: { customerId: "user_owner-2" } });
+    expect(fake.creates[2]).not.toHaveProperty("customer");
+    expect(fake.creates[3]).not.toHaveProperty("customer");
+  });
+
   test("restore passes the rule inline without guest setup", async () => {
     const ok = fakeFreestyle({ probeExit: 0 });
     const restored = await providerWith(ok).restore("snap-1", { edgeRules: [EDGE_RULE] });
@@ -958,7 +970,7 @@ describe("Freestyle client configuration", () => {
       readFileSync(path.join(import.meta.dirname, "../package.json"), "utf8"),
     ) as { dependencies: Record<string, string> };
     expect(packageJson.dependencies["freestyle-beta"]).toBeUndefined();
-    expect(packageJson.dependencies.freestyle).toBe("0.2.10");
+    expect(packageJson.dependencies.freestyle).toBe("0.2.21");
   });
 });
 

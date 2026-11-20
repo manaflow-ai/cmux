@@ -1,0 +1,28 @@
+{
+  "title": "Pane polish: every pane surface's small details (themes, density and separation)",
+  "settings": {"appearance": {"density": "compact"}},
+  "steps": [
+    {"title": "Launch", "wait": 3},
+    {"title": "New workspace", "cmux": ["workspace", "new", "--name", "Polish"], "shot": false},
+    {"title": "Show the Polish workspace", "cmux": ["workspace", "name:Polish", "focus"], "shot": false},
+    {"title": "Write a Markdown file and a source file", "daemon": true,
+     "cmux": ["workspace", "name:Polish", "screen", "current", "pane", "current", "tab", "current", "terminal", "current", "write", "--text",
+              "printf '# Pane polish\\n\\nA paragraph with `code` and a [link](https://example.com).\\n\\n| Name | Value |\\n| --- | --- |\\n| radius | 6 |\\n| inset | 3 |\\n\\n```swift\\nlet x = 1\\n```\\n' > /tmp/pane-polish.md; printf 'import AppKit\\n\\nlet radius: CGFloat = 6\\n' > /tmp/pane-polish.swift; clear; echo 'lawrence@cmux-orchestrator ~ %'\r"],
+     "wait": 2},
+    {"title": "Second terminal tab", "cmux": ["action", "run", "newSurface"], "wait": 2},
+    {"title": "Browser tab", "cmux": ["tab", "new-browser", "--url", "https://example.com"], "wait": 5},
+    {"title": "Light theme", "cmux": ["settings", "set", "appearance.theme", "Soft Blue Light"], "wait": 3},
+    {"title": "Tab hover cards, light", "rpc": {"method": "debug.hover_cards", "params": {"gallery": "tabs"}}, "wait": 2,
+     "optional": "debug.hover_cards is DEBUG only"},
+    {"title": "Close the gallery, light", "rpc": {"method": "debug.hover_cards", "params": {"gallery": "none"}}, "shot": false,
+     "optional": "debug.hover_cards is DEBUG only"},
+    {"title": "Comfortable density, light", "cmux": ["settings", "set", "appearance.density", "comfortable"], "wait": 3},
+    {"title": "Comfortable density, dark", "cmux": ["settings", "unset", "appearance.theme"], "wait": 3},
+    {"title": "Borders separation, dark", "cmux": ["settings", "set", "layout.paneSeparation", "borders"], "wait": 3},
+    {"title": "Cards separation, dark", "cmux": ["settings", "set", "layout.paneSeparation", "cards"], "wait": 3},
+    {"title": "Floating panes, dark", "cmux": ["settings", "set", "appearance.chromeStyle", "floating"], "wait": 3,
+     "optional": "chromeStyle floating"},
+    {"title": "Floating panes, light", "cmux": ["settings", "set", "appearance.theme", "Soft Blue Light"], "wait": 3,
+     "optional": "chromeStyle floating"}
+  ]
+}

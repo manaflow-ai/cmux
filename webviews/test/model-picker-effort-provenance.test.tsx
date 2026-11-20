@@ -3,6 +3,8 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { openEffort } from "./support/effortDropdown";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -72,12 +74,8 @@ afterEach(() => {
   host.replaceChildren();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 test.each(["absent", "empty", "unmarked-empty"] as const)(
@@ -149,7 +147,7 @@ test.each(["absent", "empty", "unmarked-empty"] as const)(
       await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
     }
     expect(document.querySelector(".acpmux-quick-menu")).not.toBeNull();
-    const segments = document.querySelectorAll(".acpmux-quick-effort-segment");
+    const segments = await openEffort(document);
     const fallback = [...document.querySelectorAll(".acpmux-quick-sub")].some((row) =>
       row.textContent?.startsWith("Effort"),
     );

@@ -30,6 +30,10 @@ pub enum ScopeError {
     NoMergeBase {
         base: String,
     },
+    /// The commits scope names a commit this repository does not have.
+    MissingCommit {
+        commit: String,
+    },
     Git(GitFailure),
 }
 
@@ -42,6 +46,9 @@ impl std::fmt::Display for ScopeError {
             ),
             Self::NoMergeBase { base } => {
                 write!(formatter, "HEAD and {base} have no common commit")
+            }
+            Self::MissingCommit { commit } => {
+                write!(formatter, "the repository has no commit {commit}")
             }
             Self::Git(failure) => formatter.write_str(&failure.reason()),
         }
@@ -93,6 +100,35 @@ pub fn comparison(repository: &Repository, scope: &str) -> Result<Comparison, Sc
             compare(vec![merge_base.clone()], false, true, Some(merge_base))
         }
         other => return Err(ScopeError::UnknownScope(other.to_string())),
+    })
+}
+
+/// `head` against its merge base with `base`, with nothing untracked: what a
+/// pull request from `head` into `base` changes (GitHub's three-dot diff).
+/// Both are full commit ids; only commits already in the repository are
+/// read, nothing is fetched.
+pub fn commits(repository: &Repository, base: &str, head: &str) -> Result<Comparison, ScopeError> {
+    let present = |commit: &str| {
+        let full = matches!(commit.len(), 40 | 64)
+            && commit.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'));
+        match full.then(|| repository.commit(commit)).flatten() {
+            Some(found) if found == commit => Ok(found),
+            _ => Err(ScopeError::MissingCommit { commit: commit.to_string() }),
+        }
+    };
+    let (base, head) = (present(base)?, present(head)?);
+    let arguments = ["merge-base", base.as_str(), head.as_str()];
+    let merge_base = match repository.run(&arguments, MAX_SMALL_OUTPUT_BYTES) {
+        Ok(output) => String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        Err(GitFailure::Exit(_)) => return Err(ScopeError::NoMergeBase { base }),
+        Err(failure) => return Err(ScopeError::Git(failure)),
+    };
+    Ok(Comparison {
+        revisions: Some(vec![merge_base.clone(), head.clone()]),
+        cached: false,
+        untracked: false,
+        head: Some(head),
+        base: Some(merge_base),
     })
 }
 

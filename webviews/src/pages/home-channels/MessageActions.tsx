@@ -14,6 +14,7 @@ import { Toolbar, ToolbarButton } from "../../ui/Toolbar";
 import type { Strings } from "../shared/i18n";
 import { EmojiPicker, loadEmoji } from "./EmojiPicker";
 import { HomeIcon } from "./icons";
+import "../../ui/motion/motion.css";
 
 const QUICK_REACTIONS = ["✅", "👀", "🙌"];
 
@@ -114,7 +115,7 @@ export function MessageActions({
         {children}
       </ContextMenu>
       {active && (
-        <div ref={box} className={`hc-msg-actions${picker || menu ? " pinned" : ""}`}>
+        <div ref={box} className={`hc-msg-actions ui-reveal${picker || menu ? " pinned" : ""}`}>
           {one ? (
             moreMenu
           ) : (

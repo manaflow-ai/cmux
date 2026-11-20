@@ -9,6 +9,7 @@
 // cannot touch the page; it returns SVG text. Ondine always renders; Mermaid 11 (securityLevel
 // "strict") draws only a source Ondine refuses, with no flag or setting to choose it. Either SVG is parsed
 // as HTML (Mermaid writes HTML labels), cleaned of script, handlers and script URLs, then inserted.
+import { markdownColorScheme } from "./colorScheme";
 type MermaidAPI = {
   initialize(config: Record<string, unknown>): void;
   render(id: string, source: string): Promise<{ svg: string }>;
@@ -67,7 +68,8 @@ export class DiagramLibraries {
 let mermaidCount = 0;
 let mermaidScheme: string | null = null;
 
-const darkScheme = () => globalThis.matchMedia?.("(prefers-color-scheme: dark)").matches === true;
+// The paper's scheme when `markdown.theme` fixes it, else the App Theme's (markdown-paper-scheme.test.ts).
+const darkScheme = () => markdownColorScheme() === "dark";
 
 let ondineRenderer: ReturnType<OndineAPI["create"]> | null = null;
 
@@ -93,11 +95,33 @@ async function renderMermaidJS(libraries: DiagramLibraries, source: string): Pro
   return (await mermaid.render(`cmux-mermaid-${++mermaidCount}`, source)).svg;
 }
 
+/** The latest draw into each target: a render still running for an earlier one must not write over it. */
+const draws = new WeakMap<HTMLElement, number>();
+const views = new WeakMap<HTMLElement, { finalize(): void }>();
+
+/** Starts a draw into `target`; the returned check is false once a newer draw or `cancelDiagram` took over. */
+function beginDraw(target: HTMLElement): () => boolean {
+  const mine = (draws.get(target) ?? 0) + 1;
+  draws.set(target, mine);
+  return () => draws.get(target) === mine;
+}
+
+/**
+ * Cancels the draw into `target` and stops the Vega view it holds (its timers and window listeners):
+ * the block redrew from another source or left the page. A render still running for it drops its result.
+ */
+export function cancelDiagram(target: HTMLElement): void {
+  draws.set(target, (draws.get(target) ?? 0) + 1);
+  views.get(target)?.finalize();
+  views.delete(target);
+}
+
 /**
  * Renders a mermaid diagram as SVG into `target` with Ondine, falling back to Mermaid for a source
  * Ondine refuses; when both refuse, Ondine's reason is the error.
  */
 export async function renderMermaid(libraries: DiagramLibraries, source: string, target: HTMLElement): Promise<void> {
+  const current = beginDraw(target);
   let svg: string;
   try {
     svg = await renderOndine(libraries, source);
@@ -108,6 +132,7 @@ export async function renderMermaid(libraries: DiagramLibraries, source: string,
       throw ondineError;
     }
   }
+  if (!current()) return;
   target.replaceChildren(document.importNode(cleanSVG(svg), true));
 }
 
@@ -144,8 +169,6 @@ export function cleanSVG(text: string): SVGSVGElement {
   return svg as unknown as SVGSVGElement;
 }
 
-const views = new WeakMap<HTMLElement, { finalize(): void }>();
-
 /** Renders a Vega or Vega-Lite spec (JSON) as SVG into `target`, without eval. */
 export async function renderVega(
   libraries: DiagramLibraries,
@@ -153,6 +176,7 @@ export async function renderVega(
   source: string,
   target: HTMLElement,
 ): Promise<void> {
+  const current = beginDraw(target);
   const spec = JSON.parse(source) as Record<string, unknown>;
   const [, { expressionInterpreter }] = await Promise.all([libraries.load("vega"), import("vega-interpreter")]);
   const globals = globalThis as { vega?: VegaAPI; vegaLite?: VegaLiteAPI };
@@ -174,6 +198,11 @@ export async function renderVega(
     hover: true,
   });
   await view.runAsync();
+  // A newer draw or a cancel took over while this one ran: stop its view and leave the target alone.
+  if (!current()) {
+    view.finalize();
+    return;
+  }
   views.get(target)?.finalize();
   views.set(target, view);
   target.replaceChildren(container);

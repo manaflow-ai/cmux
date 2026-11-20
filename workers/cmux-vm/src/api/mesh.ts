@@ -9,7 +9,8 @@ import { Schema } from "effect";
 import { BadRequest, Conflict, Forbidden, NotFound, PaymentRequired, QuotaExceeded, ServiceUnavailable } from "../errors.ts";
 import { InstallPublicKey, Nonce, Signature, SignedAt } from "../mesh/signed-request.ts";
 import { DeviceId, MeshId, TenantId, TunnelId, VmId } from "../lib/ids.ts";
-import { describe, DisplayName, GroupCreateHeaders, GroupTeamHeaders } from "./common.ts";
+import { describe, DisplayName, GroupCreateHeaders, GroupCreationKeyHeaders, GroupTeamHeaders } from "./common.ts";
+import { Labels as ResourceLabels } from "./snapshots.ts";
 
 const EXPERIMENT = "Experiment: answers 404 unless the mesh experiment is enabled for the team.";
 
@@ -33,9 +34,24 @@ export class CreateMeshRequest extends Schema.Class<CreateMeshRequest>("CreateMe
   displayName: Schema.optional(DisplayName),
 }) {}
 
+export class CreateMeshIntentRequest extends Schema.Class<CreateMeshIntentRequest>("CreateMeshIntentRequest")({
+  displayName: Schema.optional(DisplayName),
+  labels: Schema.optional(ResourceLabels.annotations({ identifier: "MeshLabels", description: "Up to 16 public labels. A service key may create or reach only meshes carrying every one of its required labels. Labels are retained with the original creation intent." })),
+}) {}
+
 const SIGNED =
   "Signed by the device's install key over the cmux-mesh-v1 message (workers/cmux-vm/src/mesh/signed-request.ts); a stale (more than 120 s off), forged or tampered request is 403, a replayed one 409.";
 
+/** The caller's own id for one enroll attempt: letters, digits and . _ : ~ -, at most 128 characters. */
+export const DeviceIntentId = Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9._:~-]{1,128}$/u)).annotations({
+  description:
+    "The caller's id for this enroll attempt (letters, digits and . _ : ~ -, at most 128 characters), unique per mesh. " +
+    "A repeat with the same intentId answers the device it made instead of 409. After POST /v1/meshes/{meshId}/device-intents/{intentId}/revoke " +
+    "(or the device's delete) the intent is revoked for 7 days: an enroll with it answers 409 with code mesh.device.intent_revoked and leaves nothing live. " +
+    "While an earlier enroll with it is running, or may have left a tunnel the provider has not confirmed deleted, an enroll with it answers 409 (retry).",
+});
+
+/** The signed fields of every enroll (devices and overlay servers). Only the device route adds an intentId. */
 export class EnrollDeviceRequest extends Schema.Class<EnrollDeviceRequest>("EnrollDeviceRequest")(
   {
     name: DeviceName,
@@ -47,6 +63,11 @@ export class EnrollDeviceRequest extends Schema.Class<EnrollDeviceRequest>("Enro
   },
   { description: SIGNED },
 ) {}
+
+/** `POST /v1/meshes/{meshId}/devices`: the signed enroll, optionally keyed by the caller's intentId (migration 0018). */
+export class EnrollMeshDeviceRequest extends EnrollDeviceRequest.extend<EnrollMeshDeviceRequest>("EnrollMeshDeviceRequest")({
+  intentId: Schema.optional(DeviceIntentId),
+}) {}
 
 /** A one-time enrollment code: `mec_` and 26 base32 characters (130 random bits). */
 export const EnrollmentCodeValue = Schema.String.pipe(Schema.pattern(/^mec_[0-9a-hjkmnp-tv-z]{26}$/u)).annotations({
@@ -227,6 +248,16 @@ export class PeerMap extends Schema.Class<PeerMap>("PeerMap")({
   peers: Schema.Array(Peer),
 }) {}
 
+/** Account-authorized VM ingress metadata; the Cloud owner joins backend grants. */
+export class VmReceiverPolicy extends Schema.Class<VmReceiverPolicy>("VmReceiverPolicy")({
+  schemaVersion: Schema.Literal(1), tenantId: TenantId, vmId: VmId, meshId: MeshId,
+  ipv4: Schema.NullOr(Schema.String), aclVersion: Schema.Int.pipe(Schema.nonNegative()),
+  checkedAt: Schema.Int.pipe(Schema.nonNegative()), expiresAt: Schema.Int.pipe(Schema.nonNegative()),
+  ownerExpiresAt: Schema.NullOr(Schema.Int.pipe(Schema.nonNegative())).annotations({ description: "The earliest expiry of an API key that owns one of the listed peers' devices, or null when none expires. Also folded into expiresAt; the Cloud owner bounds the receiver's local admission horizon by it." }),
+  policyDigest: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/u)),
+  peers: Schema.Array(Schema.Struct({ deviceId: DeviceId, wgPublicKey: WgPublicKey, installPublicKey: InstallPublicKey, allow: Schema.Array(PeerAllow).pipe(Schema.maxItems(4096)) })).pipe(Schema.maxItems(128)),
+}) {}
+
 export const OverlayPeer = Schema.Struct({
   deviceId: DeviceId,
   wgPublicKey: WgPublicKey,
@@ -243,6 +274,8 @@ export class OverlayPolicy extends Schema.Class<OverlayPolicy>("OverlayPolicy")(
   aclVersion: Schema.Int,
   policyDigest: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/u)).annotations({ description: "SHA-256 identity of this projection, including public keys and ACL version. Changes when peers or keys change at the same ACL version; not an ordering, freshness or authorization proof." }),
   peers: Schema.Array(OverlayPeer),
+  // Older services omit this projection. Cloud authorization must require it.
+  vms: Schema.optional(Schema.Array(Peer)).annotations({ description: "The requesting device's current VM service permissions from the same compiled policy and identity snapshot. Absence is unsupported, never permission. Public address transport rules are excluded; reachability does not grant a daemon session." }),
 }, { description: "Default-deny device overlay policy. Only connected peers with live owners and install identities are included. A policy read does not activate transport, admit a relay session or grant command execution. Consumers must obtain current policy through their authorized control plane." }) {}
 
 export class DeviceOverlayPolicy extends OverlayPolicy.extend<DeviceOverlayPolicy>("DeviceOverlayPolicy")({
@@ -255,6 +288,12 @@ const OWN =
   "Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404.";
 
 const MeshPath = Schema.Struct({ meshId: Schema.String });
+const DeviceIntentPath = Schema.Struct({ meshId: Schema.String, intentId: Schema.String });
+
+export class DeviceIntentRevocation extends Schema.Class<DeviceIntentRevocation>("DeviceIntentRevocation")(
+  { deleted: Schema.Boolean.annotations({ description: "Whether this call deleted the intent's device (and its tunnel)." }) },
+  { description: "The intent is revoked: no enroll with it makes a device for 7 days, so an empty device list after this is final." },
+) {}
 
 /** Unauthenticated: the one-time code is the credential. src/api.ts adds this group without the Authentication middleware. */
 export class MeshEnrollGroupDefinition extends HttpApiGroup.make("meshEnroll").add(
@@ -380,14 +419,26 @@ const MemberPath = Schema.Struct({ meshId: Schema.String, vmId: Schema.String })
 /** Endpoints without the Authentication middleware; src/api.ts applies it. */
 export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
   .add(
+    HttpApiEndpoint.post("createMeshIntent", "/v1/mesh-creations")
+      .setPayload(CreateMeshIntentRequest)
+      .setHeaders(GroupCreationKeyHeaders)
+      .addSuccess(Mesh, { status: 201 })
+      .addError(NotFound)
+      .addError(Conflict)
+      .addError(PaymentRequired)
+      .addError(QuotaExceeded)
+      .annotateContext(describe("Create a mesh with durable replay", "mesh:write", `Requires an Idempotency-Key and a team admin for sessions. Reuses the original mesh across retries, conflicts on changed intent and never recreates a deleted mesh. Older servers without this route refuse it before allocation. ${EXPERIMENT}`)),
+  )
+  .add(
     HttpApiEndpoint.post("createMesh", "/v1/meshes")
       .setPayload(CreateMeshRequest)
       .setHeaders(GroupCreateHeaders)
       .addSuccess(Mesh, { status: 201 })
       .addError(NotFound)
+      .addError(Conflict)
       .addError(PaymentRequired)
       .addError(QuotaExceeded)
-      .annotateContext(describe("Create the team's mesh", "mesh:write", `A session must be a team admin. ${EXPERIMENT}`)),
+      .annotateContext(describe("Create the team's mesh", "mesh:write", `A session must be a team admin. An Idempotency-Key retains the team's original creation across retries; changed intent is 409 and a deleted key cannot create another mesh. Retry an uncertain result with the same key. ${EXPERIMENT}`)),
   )
   .add(
     HttpApiEndpoint.get("listMeshes", "/v1/meshes")
@@ -419,7 +470,7 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
   .add(
     HttpApiEndpoint.post("enrollDevice", "/v1/meshes/:meshId/devices")
       .setPath(MeshPath)
-      .setPayload(EnrollDeviceRequest)
+      .setPayload(EnrollMeshDeviceRequest)
       .setHeaders(GroupCreateHeaders)
       .addSuccess(DeviceEnrollment, { status: 201 })
       .addError(BadRequest)
@@ -453,6 +504,23 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
       .addError(NotFound)
       .addError(QuotaExceeded)
       .annotateContext(describe("Get a device", "mesh:read", `Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. ${EXPERIMENT}`)),
+  )
+  .add(
+    HttpApiEndpoint.post("revokeDeviceIntent", "/v1/meshes/:meshId/device-intents/:intentId/revoke")
+      .setPath(DeviceIntentPath)
+      .setHeaders(GroupTeamHeaders)
+      .addSuccess(DeviceIntentRevocation)
+      .addError(NotFound)
+      .addError(QuotaExceeded)
+      .addError(Conflict)
+      .addError(ServiceUnavailable)
+      .annotateContext(
+        describe(
+          "Revoke an enroll intent",
+          "mesh:join",
+          `Writes a tombstone for the intentId and deletes the device it made, with its tunnel. Idempotent. An enroll with this intentId that has not committed refuses with 409 mesh.device.intent_revoked and removes what it created. A 200 is final: no device of the intent is live or can become live, and no enroll with it can commit. A tunnel its provider create makes after the 200 (a create the provider processes late) backs no device and is deleted by the service's tunnel sweep within minutes; the caller has nothing more to do. A 503 (an enroll that may still be creating its tunnel, or a tunnel delete that failed) means retry the revoke until it answers 200. The tombstone lasts 7 days. Only the principal that used the intent or a tenant admin carrying its labels may revoke it, and a key limited to resources only if every device the intent's enrolls made is in its list; anyone else gets 404 and nothing is written. ${EXPERIMENT}`,
+        ),
+      ),
   )
   .add(
     HttpApiEndpoint.del("deleteDevice", "/v1/devices/:deviceId")
@@ -524,6 +592,18 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
       .addError(NotFound)
       .addError(QuotaExceeded)
       .annotateContext(describe("Get a device tunnel's config", "mesh:read", `Never includes a private key. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. ${EXPERIMENT}`)),
+  )
+  .add(
+    HttpApiEndpoint.get("getMeshVm", "/v1/meshes/:meshId/vms/:vmId")
+      .setPath(MemberPath).setHeaders(GroupTeamHeaders).addSuccess(MeshMember)
+      .addError(NotFound).addError(Conflict).addError(QuotaExceeded)
+      .annotateContext(describe("Read a VM's current mesh address", "mesh:read", `Also needs vm:read. Reads the exact owned VM and mesh without attaching or moving it. An unavailable address is null. ${EXPERIMENT}`)),
+  )
+  .add(
+    HttpApiEndpoint.get("getVmReceiverPolicy", "/v1/meshes/:meshId/vms/:vmId/receiver-policy")
+      .setPath(MemberPath).setHeaders(GroupTeamHeaders).addSuccess(VmReceiverPolicy)
+      .addError(NotFound).addError(Conflict).addError(QuotaExceeded)
+      .annotateContext(describe("Read a VM's current receiving policy", "mesh:read", `Also needs vm:read and visibility of the exact VM and mesh. Returns unique live public client identities and at most 4096 incoming service rules, with a lease of at most 30 seconds capped by included owner-key expiry. Public-address transport rules are excluded. No listener activation or backend service grant is implied. ${EXPERIMENT}`)),
   )
   .add(
     HttpApiEndpoint.put("attachMeshVm", "/v1/meshes/:meshId/vms/:vmId")

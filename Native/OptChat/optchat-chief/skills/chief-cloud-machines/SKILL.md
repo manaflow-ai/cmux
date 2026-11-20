@@ -1,6 +1,6 @@
 ---
 name: chief-cloud-machines
-description: Use the user's cmux Cloud machines from the Mac with the cmux CLI: list, create (cmux Pro), run commands, use the machine's own cmux, and drive its Linux desktop with cua-driver (open apps, click, type, screenshots). Use when the user asks for a cloud machine, a VM, or a task on a remote desktop or browser.
+description: Use the user's cmux Cloud machines from the Mac with the cmux CLI: list, create (cmux Pro), hand a task to an agent chat there and read its reply (`cmux cloud start-chat`), run commands, use the machine's own cmux, and drive its Linux desktop with cua-driver (open apps, click, type, screenshots). Use when the user asks for a cloud machine, a VM, or a task on a remote desktop or browser.
 cmux-managed: true
 ---
 
@@ -74,6 +74,56 @@ run it again before deciding there is no machine.
   switches their current plan. When they say they paid, check
   `cmux --json billing status` and run the create once more. Do not mention
   plans when Cloud works.
+
+## Run a task as an agent chat on a Cloud machine
+
+For subagents, `spawn` picks a machine automatically; `place` accepts here/local/mac, cloud (also cloud:small|medium|large), or a paired machine name, while optional harness routing stays off by default.
+
+To hand a task to a coding agent on a Cloud machine and get its answer, use
+one command:
+
+```sh
+cmux --json chat --on cloud --prompt '<the task>' --wait
+```
+
+That is the Cloud workspace chat the composer starts, with the same picks:
+
+- `--harness claude` (default) or `codex`; `--model <model>`; `--effort
+  low|medium|high|xhigh|max`; `--mode <permission mode>`. Effort and mode are
+  set before the first prompt; one the harness refuses fails with
+  `chat.settings_refused` and nothing is sent.
+- A folder: `--from-folder <folder on this Mac>` copies it to the machine
+  (`.env` files and keys left out), `--cwd <folder on the machine>` uses one
+  there. Or No folder: `--no-folder` (also what no folder flag means), a fresh
+  folder of the chat's own under `~/chats`.
+- `--on cloud` takes the user's running Cloud VM (a new one when they have
+  none); `--on vm:new` always makes one, `--on vm:<id or name>` uses that one.
+
+`cmux agents chat new --on cloud …` is the same start. `cmux cloud
+start-chat` (below) is its older name and takes the same flags.
+
+It starts a chat (`--agent claude` by default, or `codex`) on a new small
+machine of its own (or `--name <name>`, or `--target machine:<id>` for a
+machine the user named), sends the prompt, waits for the turn to end and
+answers `.reply` with `.machine_id`, `.session_id` and `.tab_id`. The chat is
+a tab in that machine's workspace, so the user can open it. `--cwd <folder
+on the machine>` picks the folder; `--timeout <seconds>` bounds the wait
+(default 900). The app first asks the user with a card (Start, Not now);
+nothing starts until they click Start, and a refusal says so.
+
+The answer's `.follow_up` holds the `cloud exec` commands for that chat:
+`send` (the next prompt, in place of `PROMPT`), `wait` (20 s at a time) and
+`last` (the newest reply). Run them with `cmux --json` and read the remote
+command's `exit_code` in the answer, since `cloud exec` itself succeeds
+either way: for `wait`, 0 means the turn ended (then run `last`), 2 means
+the agent asks the user for a permission, and 3 means still working (run it
+again). On an error, read
+`.code`: `cloud.signed_out` (tell the user to sign in to cmux),
+`cloud.start_pending` (the machine is still starting: run
+`.details.again` later), `chat.permission_waiting` (the agent asks the user
+for a permission in the chat's tab: tell them), `chat.wait_timeout` (still
+working: wait on with `.details.answer.follow_up.wait`, the
+answer so far).
 
 ## 2. Run commands
 

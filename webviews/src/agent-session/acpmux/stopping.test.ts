@@ -3,6 +3,7 @@
 // turn's end takes that away.
 import { afterAll, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -16,7 +17,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];
@@ -230,6 +232,81 @@ test("cancel resolution and the old grace deadline do not end Stopping", () =>
     expect(f.shown().stopping).toBeUndefined();
     await f.start("stop-turn-2");
     expect(f.shown().stopping).toBeUndefined();
+  }));
+
+// Leo, 2026-10-29: "i literally can't stop you i clicked the stop button and it didnt do anything".
+// A Stop acpmux refuses (a chat on another machine that only its owner can stop) comes back as
+// `_acpmux/cancel_refused`: the turn runs on, so it no longer reads as stopping, and the chat says why.
+test("a refused Stop stops reading as stopping and says why", () =>
+  withStoppingClient(async (f) => {
+    const { translate } = await import("./i18n");
+    await f.start();
+    const notes = () =>
+      f
+        .shown()
+        .rows.filter((row) => row.kind === "notice")
+        .map((row) => row.text);
+    const before = notes().length;
+    await f.client.cancel();
+    expect(f.shown().stopping).toBe(true);
+    // The mock socket delivers in a microtask: wait past it, so what follows reads its effect.
+    const deliver = async (params: unknown) => {
+      (f.socket as unknown as { deliver(message: unknown): void }).deliver({
+        jsonrpc: "2.0",
+        method: "_acpmux/cancel_refused",
+        params,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    };
+    const reason = "This chat runs on lane-host, and only its owner can stop it";
+    // Another chat's refusal is not this one's.
+    await deliver({ sessionId: "another-chat", message: reason, reason: "remote.session_cancel_ownership" });
+    expect(f.shown().stopping).toBe(true);
+    expect(notes()).toHaveLength(before);
+    await deliver({ sessionId: f.id, message: reason, reason: "remote.session_cancel_ownership" });
+    await f.until(() => f.shown().stopping === undefined);
+    expect(f.shown().isWorking).toBe(true);
+    // The pane's own words for the reason it knows; acpmux's English stays in the log.
+    const said = translate("queue.stopRefused", { reason: translate("error.stopOwnerOnly") });
+    expect(said).not.toContain(reason);
+    expect(notes().slice(before)).toEqual([said]);
+  }));
+
+test("only the refusal of the Stop still waiting counts", () =>
+  withStoppingClient(async (f) => {
+    await f.start();
+    const notes = () =>
+      f
+        .shown()
+        .rows.filter((row) => row.kind === "notice")
+        .map((row) => row.text);
+    // The mock socket delivers in a microtask: wait past it, so what follows reads its effect.
+    const deliver = async (params: unknown) => {
+      (f.socket as unknown as { deliver(message: unknown): void }).deliver({
+        jsonrpc: "2.0",
+        method: "_acpmux/cancel_refused",
+        params,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    };
+    const message = "only its owner can stop it";
+    const before = notes().length;
+    // No Stop waits: a late refusal says nothing.
+    await deliver({ sessionId: f.id, message, turnId: "stop-turn-1" });
+    expect(notes()).toHaveLength(before);
+    await f.client.cancel();
+    expect(f.shown().stopping).toBe(true);
+    // An earlier turn's refusal does not answer the Stop of this one.
+    await deliver({ sessionId: f.id, message: "an earlier Stop's answer", turnId: "stop-turn-0" });
+    expect(f.shown().stopping).toBe(true);
+    expect(notes()).toHaveLength(before);
+    await deliver({ sessionId: f.id, message, turnId: "stop-turn-1" });
+    await f.until(() => f.shown().stopping === undefined);
+    expect(notes().slice(before)).toHaveLength(1);
+    // A reason the pane does not word: the plain line, never acpmux's text.
+    const { translate } = await import("./i18n");
+    expect(notes().at(-1)).toBe(translate("queue.stopRefusedPlain"));
+    expect(notes().at(-1)).not.toContain(message);
   }));
 
 test("a failed cancel send leaves Stop available for a successful retry", () =>

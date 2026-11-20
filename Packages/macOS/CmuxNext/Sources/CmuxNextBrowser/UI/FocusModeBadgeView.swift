@@ -19,7 +19,7 @@ final class FocusModeBadgeView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.cornerRadius = 5
+        layer?.cornerRadius = Metrics.controlCornerRadius
         layer?.cornerCurve = .continuous
         translatesAutoresizingMaskIntoConstraints = false
         label.translatesAutoresizingMaskIntoConstraints = false

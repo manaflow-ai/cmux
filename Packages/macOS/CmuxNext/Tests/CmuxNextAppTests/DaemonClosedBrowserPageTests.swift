@@ -1,12 +1,13 @@
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
 /// A browser tab the daemon closes on its own (`cmux tab close`, another client, a batch close)
 /// lets its page go as the app's own close does. Before, only terminals were released when the
 /// daemon tree dropped their tab: a Chromium page kept its browser and renderer until the app quit.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"), .closesItsWindows)
 struct DaemonClosedBrowserPageTests {
     @Test func aBrowserTabTheDaemonClosesReleasesItsPage() async throws {
         try await PinnedPageTests.withApp { services, connection in
@@ -20,6 +21,8 @@ struct DaemonClosedBrowserPageTests {
             try await PinnedPageTests.until({ surfaces.allSatisfy { store.tab(surface: $0)?.resourceID != nil } })
             let tabs = try surfaces.map { try #require(store.tab(surface: $0)) }
             for tab in tabs { _ = services.cache.browser(for: tab) }
+            // Release both even if the close request or its wait fails; an already retired tab is harmless.
+            defer { for tab in tabs { services.cache.release(tab.id) } }
             #expect(tabs.allSatisfy { services.cache.hasContent(for: $0.id) }, "each tab has its page")
 
             let closing = tabs[1]

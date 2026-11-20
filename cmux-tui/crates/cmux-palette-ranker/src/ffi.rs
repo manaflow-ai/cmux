@@ -5,10 +5,10 @@
 //! JSON request per keystroke. The response (ranked sections JSON, or an error message) stays
 //! owned by the ranker until its next call or until it is freed.
 
-use crate::{Entry, RankRequest, Ranker};
+use crate::{Entry, Frecency, RankRequest, Ranker};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-pub const ABI_VERSION: u32 = 1;
+pub const ABI_VERSION: u32 = 2;
 pub const OK: i32 = 0;
 pub const ERR_NULL: i32 = -1;
 pub const ERR_INVALID: i32 = -2;
@@ -79,6 +79,37 @@ pub unsafe extern "C" fn cmux_palette_ranker_install(
         catch_unwind(AssertUnwindSafe(|| match serde_json::from_slice::<Vec<Entry>>(entries) {
             Ok(entries) => {
                 handle.ranker.install(version, entries);
+                OK
+            }
+            Err(_) => ERR_INVALID,
+        }));
+    result.unwrap_or(ERR_PANIC)
+}
+
+/// Installs a JSON usage history (`PaletteFrecency`: entries, picks, hidden keys) for
+/// `revision`; a request naming that `historyRevision` may omit `frecency`.
+///
+/// # Safety
+///
+/// `ranker` is a live handle; `history` points to `history_len` readable bytes (or is null with
+/// length 0).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_palette_ranker_install_history(
+    ranker: *mut CmuxPaletteRanker,
+    revision: i64,
+    history: *const u8,
+    history_len: usize,
+) -> i32 {
+    if ranker.is_null() {
+        return ERR_NULL;
+    }
+    let Some(history) = (unsafe { input(history, history_len) }) else { return ERR_NULL };
+    // SAFETY: a live handle, used by one caller at a time.
+    let handle = unsafe { &mut *ranker };
+    let result =
+        catch_unwind(AssertUnwindSafe(|| match serde_json::from_slice::<Frecency>(history) {
+            Ok(history) => {
+                handle.ranker.install_history(revision, history);
                 OK
             }
             Err(_) => ERR_INVALID,

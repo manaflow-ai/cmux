@@ -6,7 +6,10 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 fn main() {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("js");
+    // Read at run time: a build script binary reused from another checkout
+    // keeps that checkout's compile-time path, which may no longer exist.
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
+    let dir = Path::new(&manifest_dir).join("js");
     let manifest_path = dir.join("manifest.json");
     println!("cargo:rerun-if-changed={}", manifest_path.display());
     let manifest = std::fs::read_to_string(&manifest_path)

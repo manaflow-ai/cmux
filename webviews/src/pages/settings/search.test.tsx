@@ -39,6 +39,14 @@ test("search finds rows by keyword across sections, highlighted and editable", a
   ).not.toBeNull();
 });
 
+test("search finds Keep Mac Awake under the words people use for it", async () => {
+  page = await renderPage();
+  for (const query of ["keep awake", "sleep", "prevent sleep", "caffeinate", "stay awake"]) {
+    await changeValue(search(page), query);
+    expect(resultKeys(page)).toContain("sessions.keepAwake");
+  }
+});
+
 test("search finds rows by current value", async () => {
   page = await renderPage({
     mock: { values: { "browser.newTabPage": "https://start.cmux.dev", "appearance.backgroundBlur": "glass-clear" } },
@@ -55,10 +63,11 @@ test("Return reveals the row in its section and focuses its control; Esc clears,
   page = await renderPage({ path: "/settings/general" });
   await changeValue(search(page), "appearance.backgroundOpacity");
   await fire(search(page), "keydown", { key: "Enter" });
-  expect(page.history.location.pathname).toBe("/settings/appearance");
+  // Personalization is the one page that draws the background rows: Return opens it on the row.
+  expect(page.history.location.pathname).toBe("/settings/personalization");
   expect(page.history.location.search).toBe("?focus=appearance.backgroundOpacity");
   expect(search(page).value).toBe("");
-  expect(page.container.querySelector('[data-section="appearance"]')).not.toBeNull();
+  expect(page.container.querySelector('[data-section="personalization"]')).not.toBeNull();
   const focused = document.activeElement as HTMLElement;
   expect(focused.closest("[data-row-key]")?.getAttribute("data-row-key")).toBe("appearance.backgroundOpacity");
 
@@ -66,7 +75,7 @@ test("Return reveals the row in its section and focuses its control; Esc clears,
   await fire(search(page), "keydown", { key: "Escape" });
   expect(search(page).value).toBe("");
   await fire(search(page), "keydown", { key: "Escape" });
-  expect((document.activeElement as HTMLElement).getAttribute("data-section-link")).toBe("appearance");
+  expect((document.activeElement as HTMLElement).getAttribute("data-section-link")).toBe("personalization");
 });
 
 test("Up/Down move between rows, Space toggles; dispatcher commands reset, go back and find; chords do nothing", async () => {
@@ -105,6 +114,25 @@ test("Up/Down move between rows, Space toggles; dispatcher commands reset, go ba
   expect(document.activeElement).not.toBe(search(page));
   await run(() => page!.provider.sendCommand("find"));
   expect(document.activeElement).toBe(search(page));
+});
+
+test("Up/Down in search skip rows an earlier, wider query left mounted but filtered out", async () => {
+  page = await renderPage({ path: "/settings/general" });
+  await changeValue(search(page), "font");
+  await changeValue(search(page), "font family");
+  const visible = resultKeys(page);
+  expect(visible.length).toBeGreaterThan(0);
+  expect(page.container.querySelector("[data-search-results] [data-filtered]")).not.toBeNull();
+  await fire(search(page), "keydown", { key: "ArrowDown" });
+  const first = document.activeElement as HTMLElement;
+  expect(first.hasAttribute("data-filtered")).toBe(false);
+  expect(first.getAttribute("data-row-key")).toBe(visible[0]!);
+  // Walking down never lands on a filtered row, and the last visible row is the end of the list.
+  for (let step = 0; step < visible.length + 2; step += 1) {
+    await fire(document.activeElement!, "keydown", { key: "ArrowDown" });
+    expect((document.activeElement as HTMLElement).hasAttribute("data-filtered")).toBe(false);
+  }
+  expect((document.activeElement as HTMLElement).getAttribute("data-row-key")).toBe(visible.at(-1)!);
 });
 
 test("a focused route reveals its row once values arrive and focuses its visible control", async () => {

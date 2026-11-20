@@ -1,0 +1,16 @@
+.ui-stable-label {
+  display: inline-grid;
+  white-space: nowrap;
+}
+.ui-stable-label > span {
+  grid-area: 1 / 1;
+}
+/* Generated sizing text stays out of textContent, selection and the accessible name. */
+.ui-stable-label__size {
+  visibility: hidden;
+  user-select: none;
+  pointer-events: none;
+}
+.ui-stable-label__size::after {
+  content: attr(data-label);
+}

@@ -121,6 +121,7 @@ export function cardItems(notes: ReleaseNotes, language: string): UpdateHighligh
         title: localized(e.title, language),
         summary: firstLine(localized(e.summary, language)),
         category: e.category,
+        pr: e.pr,
       }))
     : notes.highlights.length
       ? notes.highlights.map((h) => ({ id: h.id, title: h.title, summary: firstLine(h.body), category: "new" }))

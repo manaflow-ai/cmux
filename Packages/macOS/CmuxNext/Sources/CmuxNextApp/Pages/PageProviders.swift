@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextPages
 import CmuxNextSettings
@@ -43,6 +44,10 @@ final class AppPageNativeProvider: PageProvider {
             guard let name = params["action"]?.stringValue, page.actions.contains(name) else {
                 throw PageError(code: "cmux.app.action_refused", message: "\(params["action"]?.stringValue ?? "") is not an action of this page")
             }
+            let previewAction = name == "cloudPreviewShare" || name == "cloudPreviewRevoke"
+            guard !previewAction || context.userGesture || context.isConfirmedUser else {
+                throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+            }
             let id = ActionID(rawValue: name)
             // A person-only action (the import window, the CSV file picker) needs the person's own
             // click or key in this page view: page script alone never starts one.
@@ -59,6 +64,24 @@ final class AppPageNativeProvider: PageProvider {
             // (destructive confirmation) still ask. The click may change the view it was made in.
             let invocation = ActionInvocation(target: target, arguments: Self.arguments(params["args"], for: services.registry.descriptor(for: id)),
                                               origin: context.isConfirmedUser ? .user : .page, focusRequested: true)
+            if previewAction {
+                var captured: (work: [ActionWork], results: [ActionResultWork]) = ([], [])
+                var ran = false
+                captured = services.registry.capturingRun {
+                    ran = services.registry.perform(id, invocation: invocation)
+                }
+                guard ran else { return ["ran": .bool(false)] }
+                var fields: [String: CmuxNextSettings.JSONValue] = [:]
+                for result in captured.results {
+                    switch await result.value {
+                    case .success(let value):
+                        for (key, field) in value { fields[key] = Self.json(field) }
+                    case .failure(let failure):
+                        throw PageError.unavailable(failure.message)
+                    }
+                }
+                return ["ran": .bool(true), "result": .object(fields)]
+            }
             return ["ran": .bool(services.registry.perform(id, invocation: invocation))]
         case PageNativeOp.clipboardWrite:
             guard let text = params["text"]?.stringValue else { throw PageError.invalidParams("text is required") }
@@ -72,6 +95,18 @@ final class AppPageNativeProvider: PageProvider {
             return .object([:])
         default:
             throw PageError.unknownOp(op)
+        }
+    }
+
+    private static func json(_ value: ActionResultValue) -> CmuxNextSettings.JSONValue {
+        switch value {
+        case .string(let text): .string(text)
+        case .int(let number): CmuxNextSettings.JSONValue(number)
+        case .double(let number): .number(number)
+        case .bool(let flag): .bool(flag)
+        case .null: .null
+        case .array(let items): .array(items.map(json))
+        case .object(let members): .object(members.mapValues(json))
         }
     }
 
@@ -164,28 +199,12 @@ final class DaemonPageRelay: PageProvider {
     }
 
     static func daemonParams(_ members: [String: CmuxNextSettings.JSONValue]) throws -> [String: CmuxNextDaemon.JSONValue] {
-        try JSONDecoder().decode([String: CmuxNextDaemon.JSONValue].self,
-                                 from: Data(CmuxNextSettings.JSONValue.object(members).compactText.utf8))
+        try DaemonPageValue.daemonParams(members)
     }
 
-    static func pageValue(_ value: CmuxNextDaemon.JSONValue) throws -> CmuxNextSettings.JSONValue {
-        try CmuxNextSettings.JSONValue.parse(JSONEncoder().encode(value))
-    }
+    static func pageValue(_ value: CmuxNextDaemon.JSONValue) throws -> CmuxNextSettings.JSONValue { try DaemonPageValue.pageValue(value) }
 
-    static func pageError(_ error: DaemonError) -> PageError {
-        switch error {
-        case .command(_, let message, let code, let details, let retryable):
-            let pageCode = code.map { $0.hasPrefix("cmux.") ? $0 : "cmux." + $0 } ?? "cmux.daemon.failed"
-            return PageError(code: pageCode, message: message, retryable: retryable ?? false,
-                             details: details.flatMap { try? pageValue($0) })
-        case .notConnected, .connectionClosed, .daemonShutdown:
-            return PageError(code: "cmux.protocol.closed", message: error.description, retryable: true)
-        case .timedOut:
-            return PageError(code: "cmux.protocol.timeout", message: error.description, retryable: true)
-        default:
-            return PageError(code: "cmux.daemon.failed", message: error.description)
-        }
-    }
+    static func pageError(_ error: DaemonError) -> PageError { DaemonPageValue.pageError(error) }
 }
 
 /// A namespace an organization policy can turn off (DisabledFeatures): while `turnedOff` answers a

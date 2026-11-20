@@ -1,0 +1,20 @@
+{
+  "title": "A new workspace goes right below the selected one, in its group",
+  "steps": [
+    {"title": "Launch", "wait": 3, "shot": false},
+    {"title": "Loose workspace Notes", "cmux": ["workspace", "new", "--name", "Notes"], "wait": 2, "shot": false},
+    {"title": "Workspace Alpha", "cmux": ["workspace", "new", "--name", "Alpha"], "wait": 2, "shot": false},
+    {"title": "Show Alpha", "cmux": ["workspace", "name:Alpha", "focus"], "wait": 2, "shot": false},
+    {"title": "Alpha into a new group Work", "cmux": ["action", "run", "workspace.moveToNewGroup", "--name", "Work"], "wait": 3, "shot": false},
+    {"title": "Workspace Omega in Work", "cmux": ["workspace", "new", "--name", "Omega"], "wait": 2, "shot": false},
+    {"title": "Show Alpha again", "cmux": ["workspace", "name:Alpha", "focus"], "wait": 2, "shot": false},
+    {"title": "From Alpha (in Work): the new workspace lands right below Alpha, inside Work",
+     "cmux": ["workspace", "new", "--name", "New from Alpha"], "wait": 3},
+    {"title": "Show Notes (no group)", "cmux": ["workspace", "name:Notes", "focus"], "wait": 2, "shot": false},
+    {"title": "From Notes (no group): the new workspace lands right below Notes, not at the sidebar's end",
+     "cmux": ["workspace", "new", "--name", "New from Notes"], "wait": 3},
+    {"title": "Home: the sidebar as it ends (no terminal on screen)", "cmux": ["workspace", "name:Home", "focus"], "wait": 2},
+    {"title": "Dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2,
+     "optional": "debug.appearance is DEBUG only"}
+  ]
+}

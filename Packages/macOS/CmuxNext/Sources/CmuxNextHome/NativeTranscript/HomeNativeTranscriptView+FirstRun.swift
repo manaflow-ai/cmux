@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+public import CmuxNextHomeModel
 
 /// The first-run panel's inputs from the host (`HomeFirstRunView`): shortcuts, agents, the
 /// Chief's face, the pet row's state and the hero's Debug Settings switch; and the
@@ -33,12 +34,21 @@ extension HomeNativeTranscriptView {
         firstRun.setIntro(HomeStrings.chiefIntro(kind))
     }
 
-    /// The Chief's avatar as the host resolved it (its picture, else its text: the profile's, or
-    /// 🫡 for a Chief with none, `HomeChiefAvatar.headerText`), on the header and the first-run hero.
+    /// The Chief's avatar as the host resolved it (its picture, else its profile's text, else nil:
+    /// the monogram of its name, "CH" for "Chief"), on the header and the first-run hero.
     public func setChiefAvatar(picture: NSImage?, text: String?) {
         avatarPicture = picture
         avatarText = text
-        firstRun.hero.setAvatar(picture: picture, text: text)
+        applyHeroFace()
+    }
+
+    /// The letters the header's monogram shows now (its text, else its name's initials, "CH" for
+    /// "Chief"), for another view of the same Chief (the settings card) to match it.
+    public var shownMonogram: String { transcript.shownInitials }
+
+    /// The first-run hero wears the header's face: its picture, its text, else its name's monogram.
+    func applyHeroFace() {
+        firstRun.hero.setAvatar(picture: avatarPicture, text: avatarText, name: headerTitle ?? "")
     }
 
     /// Whether the Chief pet shows (`DesignSettings.homeChiefPetEnabled`, from `home.chiefPetEnabled`):
@@ -56,14 +66,5 @@ extension HomeNativeTranscriptView {
     /// none.
     public func setFirstRunAgents(_ agents: [HomeAgentGlance]) {
         firstRun.setAgents(agents)
-    }
-
-    /// Debug Settings > Home > Chief front page hero: off keeps the rows-only first-run panel.
-    func followHeroTunable() {
-        withObservationTracking {
-            firstRun.showsHero = HomeTunables.firstRunHero.value
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in self?.followHeroTunable() }
-        }
     }
 }

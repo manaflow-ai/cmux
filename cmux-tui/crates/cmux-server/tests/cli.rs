@@ -133,16 +133,16 @@ fn the_reexec_really_execs_the_server_binary() {
     assert_eq!(lines.len(), 5, "{out}");
 }
 
-/// The app's reader fixture: `LocalServerStatusTests.status` in
-/// Packages/macOS/CmuxNext/Tests/CmuxNextServerTests/LocalServerStatusTests.swift
-/// (without its `future_field`). Change both together.
+/// The app's reader fixture: the keys `LocalServerStatus.snapshot` in
+/// Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/LocalServerStatus.swift reads.
+/// Change both together.
 const APP_READER_STATUS_FIXTURE: &str = r#"
 {"enabled": true, "mode": "user",
  "store": {"generation": 3, "version": "0.9.1", "channel": "stable", "pinned": "0.9.1",
            "generations": [2, 3], "last_applied_sequence": 7, "packages": [{"name": "cmux", "version": "0.9.1"}]},
  "service": {"installed": true, "active": true, "enabled": true},
  "postgres": {"port": 55432, "state": "running"},
- "roles": [], "apps": [], "alerts": []}
+ "roles": [], "apps": [], "alerts": [], "pairing": {"state": "unpaired"}}
 "#;
 
 /// Every key of `fixture` is in `actual` with the same JSON type (null
@@ -198,4 +198,32 @@ fn status_json_matches_the_app_reader_fixture() {
         fixture_fits(&fixture, status, "status");
     }
     assert_eq!(after["store"]["packages"][0]["name"], "cmux");
+}
+
+/// `server up` / `server down` (the Server panel's switch): refused before install; after
+/// install `down` stops and disables the service, `up` enables and starts it, and the
+/// install stays.
+#[test]
+fn up_and_down_switch_the_installed_service_and_keep_the_install() {
+    if cmux_server::sys::is_root() {
+        eprintln!("skipped: user-mode install refuses root");
+        return;
+    }
+    let env = Env::new();
+    let refused = env.run("up").unwrap_err();
+    assert!(refused.message.contains("server install"), "{}", refused.message);
+    env.publish(1, "1.0.0");
+    env.run(&format!("install {CHAN}")).unwrap();
+    let before = env.runner.lines().len();
+    let down = env.run("down").unwrap();
+    assert_eq!(down["enabled"], false);
+    assert_eq!(down["service"]["installed"], true);
+    let lines = env.runner.lines()[before..].join("\n");
+    assert!(lines.contains("disable"), "{lines}");
+    let before = env.runner.lines().len();
+    let up = env.run("up").unwrap();
+    assert_eq!(up["enabled"], true);
+    let lines = env.runner.lines()[before..].join("\n");
+    assert!(lines.contains("enable") && !lines.contains("disable"), "{lines}");
+    assert_eq!(env.run("status").unwrap()["service"]["installed"], true);
 }

@@ -34,13 +34,12 @@ transaction. Limits: 100,000 nodes per profile, depth 64.
 
 ## 2. Storage and ownership
 
-| Where | When |
-| --- | --- |
-| home session table `bookmarks` (capability `bookmarks-v1`) | the home daemon serves it |
-| `<Application Support>/<bundle id>/BrowserProfiles/bookmarks.json` | older home daemon (the pinned cmux-tui until the pin moves) |
-
-The app copies the file into the daemon once when the daemon gains
-`bookmarks-v1`, then deletes the file. Incognito windows read the default
+The home session table `bookmarks` (capability `bookmarks-v1`) is the only
+store. Until the home daemon serves it, the app refuses bookmark edits.
+Builds before 2026-11 also wrote
+`<Application Support>/<bundle id>/BrowserProfiles/bookmarks.json` while the
+daemon lacked `bookmarks-v1`; the app copies that file into the daemon once
+(same ids, so an interrupted copy resumes), then deletes it. Incognito windows read the default
 profile's bookmarks and write to them
 only on an explicit Bookmark action.
 

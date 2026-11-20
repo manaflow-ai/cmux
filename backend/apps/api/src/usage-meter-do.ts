@@ -1,20 +1,22 @@
 import type { Principal } from "@cmux/ownership"
 import { UsageRecord, type Meter, type UsageSummary } from "@cmux/protocol"
 import { Schema } from "effect"
-import { ceilingUsd, MONEY_METERS, recordMicros, METERS, summarize, usageDomain, utcMonth, type MeterCounter, type UsageState } from "./domains/usage.ts"
+import { BILLABLE_METERS, BILLABLE_METERS_SQL, billedMetersSql, ceilingUsd, MONEY_METERS, recordMicros, METERS, summarize, usageDomain, utcMonth, type MeterCounter, type UsageState } from "./domains/usage.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
-import { addUserSpend, BILLABLE_GRACE_MS, ensureUserTables, expireUserReservations, nextUserWake, recordCostMicros, reserveUser, settleCall, userSpentMicros, type UserReserve } from "./usage-user.ts"
-import type { IncludedMode } from "./billing-catalog.ts"
+import { addUserSpend, BILLABLE_GRACE_MS, ensureUserTables, expireUserReservations, nextMonthStart, nextUserWake, recordCostMicros, reserveUser, settleCall, userSpentMicros, type UserReserve } from "./usage-user.ts"
+import { billedLevelMicros, teamCapUnpaidMaxPools, type IncludedMode, type UsagePriceSet } from "./billing-catalog.ts"
+import { addPeriodSpend, ensurePeriodSpendTable, periodSpend, teamCapState, type TeamCap } from "./team-cap.ts"
+import { usagePriceSet } from "./billing-usage-sync.ts"
 import { creditAdd, creditBalance, creditCustomer, creditNoticeOnce, creditRelease, creditReserve, creditSettle, ensureCreditTables, expireCreditHolds, nextCreditWake, setCreditCustomer, type ChiefCallCap, type CreditBalance, type CreditReserve } from "./usage-credits.ts"
 import { autoReloadDecision, chargeSavedCard, endRun, failAutoReload, monthReloaded, readAutoReload, startRun, writeAutoReload, type AutoReloadSettings } from "./credits-autoreload.ts"
 import { MIRROR_DEADLINE_MS, mirrorCredits, mirrorDue, mirrorFailed } from "./credits-mirror.ts"
-import { currentBillable, ensureBillingTables, markBillable, previousPush, pushState, recordPush, lastSeenSeats, setTeamMode, teamModeAt, teamModeHistory, type BillableInfo, type ModeChange, type PushInfo } from "./usage-billing-store.ts"
+import { currentBillable, ensureBillingTables, markBillable, markPaidInvoice, PASS_THROUGH_BP, periodMarkupBp, previousPush, pushState, recordPush, lastSeenSeats, setTeamMode, teamModeAt, teamModeHistory, type BillableInfo, type ModeChange, type PushInfo } from "./usage-billing-store.ts"
 
 /** How long a record key is remembered for dedupe (longer than any run's retry window that records it twice). */
 export const USAGE_KEY_RETENTION_MS = 35 * 24 * 3600_000
 /**
- * How long a billable fact (a money meter row: model.spend_usd) is kept: the bill and its later
+ * How long a billable fact (a money meter row: BILLABLE_METERS, model.spend_usd and cloud.machine_usd) is kept: the bill and its later
  * corrections read these rows (cx-y79zh S2, plans/cmux-next/usage-billing.md), so they outlive the
  * dedupe window by far. Count-meter rows are priced 0 to customers today and keep the dedupe window.
  */
@@ -23,6 +25,8 @@ export const BILLABLE_FACT_RETENTION_MS = 400 * 24 * 3600_000
 export const MAX_RECORDS_PER_CALL = 500
 /** Egress requests per team per minute (abuse limit A18, automations-billing.md 5.5). */
 export const EGRESS_PER_MINUTE = 600
+
+export type { TeamCap } from "./team-cap.ts"
 
 /** The egress gateway's admission: `limited` = over the minute's limit (nothing recorded), `allowed` = under the hard cap. */
 export interface EgressAdmission {
@@ -80,13 +84,23 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     }
     ensureUserTables(ctx.storage.sql)
     ensureBillingTables(ctx.storage.sql)
+    ensurePeriodSpendTable(ctx.storage.sql)
     ensureCreditTables(ctx.storage)
   }
 
   /** The usage sync saw this team on a billable subscription (a usage item) whose period ends at `periodEnd` (s), with its included amount. */
   async markBillable(entity: string, subscription: string, periodEnd: number, info?: BillableInfo): Promise<void> {
     this.bind(entity)
-    markBillable(this.ctx.storage.sql, subscription, periodEnd, Date.now(), info)
+    const now = Date.now()
+    markBillable(this.ctx.storage.sql, subscription, periodEnd, now, info)
+    // Seeds the period's running spend for the team cap once (team-cap.ts), off the model router's path.
+    if (info?.period_start !== undefined) periodSpend(this.ctx.storage.sql, info.period_start, periodEnd, now)
+  }
+
+  /** The usage sync saw a paid renewal invoice (`paidAt` in s) of this team's subscription: the raise lock lifts (team-cap.ts). */
+  async markPaidInvoice(entity: string, subscription: string, invoice: string, amountPaid: number, paidAt: number): Promise<void> {
+    this.bind(entity)
+    markPaidInvoice(this.ctx.storage.sql, invoice, subscription, amountPaid, paidAt, Date.now())
   }
 
   /** The usage sync's last sent identifier for a subscription period, or null (never sent, or the team never used the meter). */
@@ -95,7 +109,7 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
   }
 
   /** The usage sync's last push for a subscription period: its identifier, mode and seats (S5 included modes). */
-  async pushState(entity: string, subscription: string, periodStart: number): Promise<{ identifier: string; mode: IncludedMode; seats: number; event_ts: number | null } | null> {
+  async pushState(entity: string, subscription: string, periodStart: number): Promise<{ identifier: string; mode: IncludedMode; seats: number; event_ts: number | null; included_usd: number | null } | null> {
     if (!this.isBound(entity)) return null
     return pushState(this.ctx.storage.sql, subscription, periodStart)
   }
@@ -106,65 +120,81 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     recordPush(this.ctx.storage.sql, subscription, periodStart, periodEnd, identifier, micros, Date.now(), info)
   }
 
+  /** The model overage markup (basis points) pinned to the period starting at `periodStart` (s), else `fallbackBp` (usage-billing-store.ts periodMarkupBp). */
+  async periodMarkup(entity: string, periodStart: number, fallbackBp: number): Promise<number> {
+    if (!this.isBound(entity)) return fallbackBp
+    return periodMarkupBp(this.ctx.storage.sql, periodStart, fallbackBp)
+  }
+
   /** The latest period before `beforeStart` that the sync sent for this subscription (its final push after renewal). */
   async previousPush(entity: string, subscription: string, beforeStart: number): Promise<{ period_start: number; period_end: number; mode: IncludedMode; seats: number; included_usd: number | null } | null> {
     if (!this.isBound(entity)) return null
     return previousPush(this.ctx.storage.sql, subscription, beforeStart)
   }
 
-  /** The included mode of this subscription period (start in s): the mode it was pushed in, else the setting in force at its start. */
-  async periodMode(entity: string, subscription: string, periodStart: number): Promise<IncludedMode> {
-    if (!this.isBound(entity)) return "per_team"
-    return pushState(this.ctx.storage.sql, subscription, periodStart)?.mode ?? teamModeAt(this.ctx.storage.sql, periodStart * 1000)
+  /**
+   * The included mode of this subscription period (start in s): the mode it was pushed in, else the setting in force at its
+   * start, else `fallback` (the sync's billing-catalog.ts defaultTeamMode for the price set in force).
+   */
+  async periodMode(entity: string, subscription: string, periodStart: number, fallback: IncludedMode = "per_team"): Promise<IncludedMode> {
+    if (!this.isBound(entity)) return fallback
+    return pushState(this.ctx.storage.sql, subscription, periodStart)?.mode ?? teamModeAt(this.ctx.storage.sql, periodStart * 1000, fallback)
   }
 
   /** The operator's included-mode setting (POST /v1/internal/billing/team-mode): recorded now, in force from the next period start. */
-  async setIncludedMode(entity: string, mode: IncludedMode, actor: string, reason: string | null): Promise<{ before: IncludedMode; changed: boolean }> {
+  async setIncludedMode(entity: string, mode: IncludedMode, actor: string, reason: string | null, fallback: IncludedMode = "per_team"): Promise<{ before: IncludedMode; changed: boolean }> {
     this.bind(entity)
-    return setTeamMode(this.ctx.storage.sql, mode, actor, reason, Date.now())
+    return setTeamMode(this.ctx.storage.sql, mode, actor, reason, Date.now(), fallback)
   }
 
-  /** The setting history and the mode in force now (for the operator read). Never binds. */
-  async includedModes(entity: string): Promise<{ requested: IncludedMode; in_force_now: IncludedMode; changes: ReadonlyArray<ModeChange> }> {
-    if (!this.isBound(entity)) return { requested: "per_team", in_force_now: "per_team", changes: [] }
-    const h = teamModeHistory(this.ctx.storage.sql)
+  /** The setting history and the mode in force now (for the operator read; `fallback` with no setting). Never binds. */
+  async includedModes(entity: string, fallback: IncludedMode = "per_team"): Promise<{ requested: IncludedMode; in_force_now: IncludedMode; changes: ReadonlyArray<ModeChange> }> {
+    if (!this.isBound(entity)) return { requested: fallback, in_force_now: fallback, changes: [] }
+    const h = teamModeHistory(this.ctx.storage.sql, 20, fallback)
     const mark = currentBillable(this.ctx.storage.sql, Date.now(), BILLABLE_GRACE_MS)
     const start = mark?.period_start !== undefined ? mark.period_start * 1000 : Date.parse(`${utcMonth(Date.now())}-01T00:00:00Z`)
-    return { ...h, in_force_now: mark?.mode ?? teamModeAt(this.ctx.storage.sql, start) }
+    return { ...h, in_force_now: mark?.mode ?? teamModeAt(this.ctx.storage.sql, start, fallback) }
   }
 
   /**
    * team.ai_limit.get, the team line (S5 console): with a billable mark in force, the billing period's
    * settled level against the included amount the sync saw (x seats per seat); otherwise this UTC
-   * month's model spend (settled plus open, what the included-amount stop counts). Never binds.
+   * month's billable spend (models and Cloud machine time, settled plus open model calls; what the included-amount stop counts). `fallback`: the unbilled
+   * mode with no operator setting (billing-catalog.ts defaultIncludedMode). The billed line is the level the sync
+   * sends (billedLevelMicros with the period's pinned markup, usage-billing-store.ts periodMarkupBp), so its part
+   * above the included amount is the billed overage. Never binds.
    */
-  async teamUsage(entity: string): Promise<{ billable: ({ period_start: number | null; period_end: number; mode: IncludedMode; seats: number; included_usd: number | null; spent_usd: number }) | null; month_spent_usd: number; unbilled: { mode: IncludedMode; seats: number } }> {
-    if (!this.isBound(entity)) return { billable: null, month_spent_usd: 0, unbilled: { mode: "per_team", seats: 1 } }
+  async teamUsage(entity: string, fallback: IncludedMode = "per_team", machineTime = false): Promise<{ billable: ({ period_start: number | null; period_end: number; mode: IncludedMode; seats: number; included_usd: number | null; spent_usd: number }) | null; month_spent_usd: number; unbilled: { mode: IncludedMode; seats: number } }> {
+    if (!this.isBound(entity)) return { billable: null, month_spent_usd: 0, unbilled: { mode: fallback, seats: 1 } }
     const sql = this.ctx.storage.sql
     const now = Date.now()
     const month = utcMonth(now)
-    const spent = Number(sql.exec<{ m: number | null }>(`SELECT usd_micros AS m FROM usage_month WHERE month = ? AND meter = 'model.spend_usd'`, month).toArray()[0]?.m ?? 0)
+    const spent = Number(sql.exec<{ m: number | null }>(`SELECT SUM(usd_micros) AS m FROM usage_month WHERE month = ? AND meter IN ${billedMetersSql(machineTime)}`, month).toArray()[0]?.m ?? 0)
     const open = Number(sql.exec<{ m: number | null }>(`SELECT SUM(micros) AS m FROM user_reservation WHERE month = ?`, month).toArray()[0]?.m ?? 0)
     const month_spent_usd = Math.round(spent + open) / 1_000_000
     const mark = currentBillable(sql, now, BILLABLE_GRACE_MS)
     // As the stop counts it (usage-user.ts includedRefusal): the mode in force at the month start, the last billable seats.
-    const unbilled = teamModeAt(sql, Date.parse(`${month}-01T00:00:00Z`)) === "per_seat" ? { mode: "per_seat" as const, seats: lastSeenSeats(sql, now) } : { mode: "per_team" as const, seats: 1 }
+    const unbilled = teamModeAt(sql, Date.parse(`${month}-01T00:00:00Z`), fallback) === "per_seat" ? { mode: "per_seat" as const, seats: lastSeenSeats(sql, now) } : { mode: "per_team" as const, seats: 1 }
     if (!mark) return { billable: null, month_spent_usd, unbilled }
     const mode = mark.mode ?? "per_team"
     const seats = mark.seats ?? 1
-    const level = mark.period_start !== undefined ? await this.level(entity, mark.period_start * 1000, mark.period_end * 1000) : null
+    const level = mark.period_start !== undefined ? await this.level(entity, mark.period_start * 1000, mark.period_end * 1000, machineTime) : null
+    const included_usd = mark.included_usd === undefined ? null : mode === "per_seat" ? mark.included_usd * seats : mark.included_usd
+    const markup = mark.period_start !== undefined ? periodMarkupBp(sql, mark.period_start, PASS_THROUGH_BP) / 10_000 : 1
+    const billed = level && included_usd !== null ? billedLevelMicros(level.models_micros, level.machine_micros, Math.round(included_usd * 1_000_000), markup) : level?.micros
     return {
-      billable: { period_start: mark.period_start ?? null, period_end: mark.period_end, mode, seats, included_usd: mark.included_usd === undefined ? null : mode === "per_seat" ? mark.included_usd * seats : mark.included_usd, spent_usd: level ? level.micros / 1_000_000 : month_spent_usd },
+      billable: { period_start: mark.period_start ?? null, period_end: mark.period_end, mode, seats, included_usd, spent_usd: billed !== undefined ? billed / 1_000_000 : month_spent_usd },
       month_spent_usd,
       unbilled
     }
   }
 
   /** Model router (inference/route.ts): reserve `maxMicros` of the member's monthly limit before the upstream call (usage-user.ts). */
-  async reserveUser(entity: string, user: string, id: string, maxMicros: number, limitMicros: number, includedMicros?: number): Promise<UserReserve> {
-    this.bind(entity)
+  async reserveUser(entity: string, user: string, id: string, maxMicros: number, limitMicros: number, includedMicros?: number, includedFallback?: IncludedMode, machineTime = false, capSet?: UsagePriceSet): Promise<UserReserve> {
+    const state = this.bind(entity).currentState
     const now = Date.now()
-    const r = reserveUser(this.ctx.storage, utcMonth(now), user, id, maxMicros, limitMicros, now, includedMicros)
+    // `capSet`: the team spending cap applies (teamCapApplies, price set v2), checked in the reservation's transaction.
+    const r = reserveUser(this.ctx.storage, utcMonth(now), user, id, maxMicros, limitMicros, now, includedMicros, includedFallback, machineTime, capSet ? { set: capSet, admin_cap_usd: state.team_cap_usd, unpaid_max_pools: teamCapUnpaidMaxPools(this.env.TEAM_CAP_UNPAID_MAX_POOLS) } : undefined)
     if (r.ok) this.scheduleAlarm()
     return r
   }
@@ -436,6 +466,8 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
           `INSERT INTO usage_month (month, meter, quantity, usd_micros) VALUES (?, ?, ?, ?) ON CONFLICT (month, meter) DO UPDATE SET quantity = quantity + excluded.quantity, usd_micros = usd_micros + excluded.usd_micros`,
           month, v.meter, v.quantity, recordMicros(v.meter, v.quantity)
         )
+        // The team cap's running period total (team-cap.ts), at the fact's recorded time like the billing level.
+        addPeriodSpend(sql, v.meter, recordMicros(v.meter, v.quantity), now)
       }
     })
     if (invalid > 0) console.error(JSON.stringify({ msg: "usage records refused", team: entity, invalid }))
@@ -482,6 +514,33 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     return { allowed: summary.stopped === null, summary }
   }
 
+  /**
+   * The team spending cap (Leo 2026-11-09, plans/team-plan/margins.md "Decided" and section 4), for cmux-platform and
+   * the console: at `at_cap` new model calls (the model router, inside reserveUser's transaction) and new machine
+   * starts (cmux-platform) are refused for every member, and running machines are paused after a 15-minute warning
+   * (the platform's half); `near` at 80% of the cap. The numbers come from team-cap.ts teamCapState, in O(1) of the
+   * team's facts (running per-period totals).
+   *
+   * `spent_usd`: the billing period's (the fresh billable mark's period, else the UTC month) model spend, settled plus
+   * open calls at their reserved maximum, at billed prices (the model overage above the pool x the period's pinned
+   * markup; at cost without a billable mark, which has no overage billed), plus Cloud machine time at list when
+   * `machineTime` (the caller passes poolsMachineTime(set), as for level()).
+   * `cap_usd`: the admin's cap (usage.cap.set), else under v2 for any account the usage sync marked with a pool (a
+   * personal plan per team, a Team per seat), twice the pool; else null (no cap: `under`). Until the account's first
+   * paid renewal invoice the cap counts up to TEAM_CAP_UNPAID_MAX_POOLS x the pool (default 4), whatever the admin set
+   * (`raise_locked`): a new account cannot raise its way past the abuse guard.
+   * Two caps refuse model calls, and the stricter one wins: this cap (billing period, billed prices) and the A18 hard
+   * cap (`check`, summarize: the UTC month at cost over every meter against min(admin cap, AUTOMATION_CAP_CEILING_USD)).
+   * The deployment ceiling is an operator brake on model calls only; it is not this cap and pauses no machine.
+   * `set`: the price set in force; the Worker's own (usagePriceSet) when the caller passes none. Never binds.
+   */
+  async teamCap(entity: string, machineTime = false, set: UsagePriceSet = usagePriceSet(this.env)): Promise<TeamCap> {
+    const now = Date.now()
+    if (!this.isBound(entity)) return { state: "under", spent_usd: 0, cap_usd: null, period_end: nextMonthStart(now) }
+    const { state, spent_usd, cap_usd, period_end, raise_locked } = teamCapState(this.ctx.storage.sql, now, BILLABLE_GRACE_MS, machineTime, set, this.bind(entity).currentState.team_cap_usd, 0, teamCapUnpaidMaxPools(this.env.TEAM_CAP_UNPAID_MAX_POOLS))
+    return { state, spent_usd, cap_usd, period_end, ...(raise_locked ? { raise_locked } : {}) }
+  }
+
   protected override nextWakeAt(): number | null {
     const sql = this.ctx.storage.sql
     // One index search per meter (usage_ledger_meter_recorded, `meter = ?`); a GROUP BY scans the whole index.
@@ -489,7 +548,7 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     for (const meter of METERS) {
       const at = sql.exec<{ at: number | null }>(`SELECT MIN(recorded_at) AS at FROM usage_ledger WHERE meter = ?`, meter).toArray()[0]?.at
       // One hour of slack: one wake prunes a batch of keys, not one wake per key.
-      if (at !== null && at !== undefined) times.push(Number(at) + (MONEY_METERS.has(meter) ? BILLABLE_FACT_RETENTION_MS : USAGE_KEY_RETENTION_MS) + 3600_000)
+      if (at !== null && at !== undefined) times.push(Number(at) + (BILLABLE_METERS.includes(meter) ? BILLABLE_FACT_RETENTION_MS : USAGE_KEY_RETENTION_MS) + 3600_000)
     }
     const reservations = nextUserWake(sql)
     if (reservations !== null) times.push(reservations)
@@ -502,8 +561,8 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
 
   /** Dedupe keys leave after their retention, billable facts after theirs; monthly counters stay; stale member reservations are charged. */
   protected override async onWake(now: number): Promise<void> {
-    this.ctx.storage.sql.exec(`DELETE FROM usage_ledger WHERE meter != 'model.spend_usd' AND recorded_at < ?`, now - USAGE_KEY_RETENTION_MS)
-    this.ctx.storage.sql.exec(`DELETE FROM usage_ledger WHERE meter = 'model.spend_usd' AND recorded_at < ?`, now - BILLABLE_FACT_RETENTION_MS)
+    this.ctx.storage.sql.exec(`DELETE FROM usage_ledger WHERE meter NOT IN ${BILLABLE_METERS_SQL} AND recorded_at < ?`, now - USAGE_KEY_RETENTION_MS)
+    this.ctx.storage.sql.exec(`DELETE FROM usage_ledger WHERE meter IN ${BILLABLE_METERS_SQL} AND recorded_at < ?`, now - BILLABLE_FACT_RETENTION_MS)
     this.ctx.storage.sql.exec(`DELETE FROM usage_push WHERE pushed_at < ?`, now - BILLABLE_FACT_RETENTION_MS)
     expireCreditHolds(this.ctx.storage, now, this.mirrorOn())
     expireUserReservations(this.ctx.storage, now, utcMonth(now))
@@ -512,17 +571,45 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
   }
 
   /**
-   * The billing level (cx-y79zh S2): the sum of the team's settled AI spend facts recorded in
-   * [from, to), corrections included, in integer micro-dollars. Pass-through pricing: the billed
-   * amount is our cost (AI_PRICE_VERSION). The reconcile worker sends this level, never deltas.
+   * The levels read (POST /v1/internal/billing/levels): the period's level as the usage sync bills it. The pool is
+   * the one the sync used for the period that starts at `from` (its push, else its billable mark): included x seats
+   * per seat, the included amount per team. `micros`: the billed level (billing-catalog.ts billedLevelMicros, the
+   * model overage x the period's pinned markup `markup_bp`, usage-billing-store.ts periodMarkupBp); `cost_micros`: the level at cost; `meter_micros`: what the Stripe meter summary shows
+   * (per seat the billed level above the pool, per team the billed level). A period the sync never saw has no pool:
+   * the level at cost. Never binds.
    */
-  async level(entity: string, from: number, to: number): Promise<{ micros: number; facts: number; last_at: number | null }> {
+  async billedLevel(entity: string, from: number, to: number, machineTime = false): Promise<{ micros: number; cost_micros: number; models_micros: number; machine_micros: number; facts: number; last_at: number | null; mode: IncludedMode | null; included_micros: number | null; meter_micros: number; markup_bp: number }> {
+    const level = await this.level(entity, from, to, machineTime)
+    const base = { cost_micros: level.micros, models_micros: level.models_micros, machine_micros: level.machine_micros, facts: level.facts, last_at: level.last_at }
+    const start = Math.floor(from / 1000)
+    const sql = this.isBound(entity) ? this.ctx.storage.sql : null
+    const info =
+      sql?.exec<{ mode: string | null; seats: number | null; included_usd: number | null }>(`SELECT mode, seats, included_usd FROM usage_push WHERE period_start = ? AND included_usd IS NOT NULL ORDER BY pushed_at DESC LIMIT 1`, start).toArray()[0] ??
+      sql?.exec<{ mode: string | null; seats: number | null; included_usd: number | null }>(`SELECT mode, seats, included_usd FROM usage_billable WHERE period_start = ? AND included_usd IS NOT NULL ORDER BY seen_at DESC LIMIT 1`, start).toArray()[0]
+    if (!info || info.included_usd === null) return { ...base, micros: level.micros, mode: null, included_micros: null, meter_micros: level.micros, markup_bp: PASS_THROUGH_BP }
+    const mode: IncludedMode = info.mode === "per_seat" ? "per_seat" : "per_team"
+    const pool = Math.round(Number(info.included_usd) * 1_000_000) * (mode === "per_seat" ? Math.max(1, Number(info.seats ?? 1)) : 1)
+    const markup_bp = periodMarkupBp(sql!, start, PASS_THROUGH_BP)
+    const billed = billedLevelMicros(level.models_micros, level.machine_micros, pool, markup_bp / 10_000)
+    return { ...base, micros: billed, mode, included_micros: pool, meter_micros: mode === "per_seat" ? Math.max(0, billed - pool) : billed, markup_bp }
+  }
+
+  /**
+   * The billing level (cx-y79zh S2): the sum of the team's settled billable facts (BILLABLE_METERS:
+   * model spend and Cloud machine time) recorded in [from, to), corrections included, in integer
+   * micro-dollars, with its split into model spend and machine time. Models are recorded at cost (AI_PRICE_VERSION);
+   * machine time arrives at list price. The reconcile worker sends the billed level made from it (billing-catalog.ts
+   * billedLevelMicros: the model markup above the pool under price set v2), never deltas.
+   */
+  async level(entity: string, from: number, to: number, machineTime = false): Promise<{ micros: number; facts: number; last_at: number | null; models_micros: number; machine_micros: number }> {
     // A team that never used the meter has no facts; a read does not bind (create) its object (S2 review P3).
-    if (!this.isBound(entity)) return { micros: 0, facts: 0, last_at: null }
-    const row = this.ctx.storage.sql.exec<{ micros: number | null; facts: number; last_at: number | null }>(
-      `SELECT SUM(CAST(ROUND(quantity * 1000000) AS INTEGER)) AS micros, COUNT(*) AS facts, MAX(recorded_at) AS last_at FROM usage_ledger WHERE meter = 'model.spend_usd' AND recorded_at >= ? AND recorded_at < ?`,
+    if (!this.isBound(entity)) return { micros: 0, facts: 0, last_at: null, models_micros: 0, machine_micros: 0 }
+    const row = this.ctx.storage.sql.exec<{ models: number | null; machines: number | null; facts: number; last_at: number | null }>(
+      `SELECT SUM(CASE WHEN meter = 'model.spend_usd' THEN CAST(ROUND(quantity * 1000000) AS INTEGER) ELSE 0 END) AS models, SUM(CASE WHEN meter = 'model.spend_usd' THEN 0 ELSE CAST(ROUND(quantity * 1000000) AS INTEGER) END) AS machines, COUNT(*) AS facts, MAX(recorded_at) AS last_at FROM usage_ledger WHERE meter IN ${billedMetersSql(machineTime)} AND recorded_at >= ? AND recorded_at < ?`,
       from, to
     ).toArray()[0]
-    return { micros: Number(row?.micros ?? 0), facts: Number(row?.facts ?? 0), last_at: row?.last_at === null || row?.last_at === undefined ? null : Number(row.last_at) }
+    const models = Number(row?.models ?? 0)
+    const machines = Number(row?.machines ?? 0)
+    return { micros: models + machines, facts: Number(row?.facts ?? 0), last_at: row?.last_at === null || row?.last_at === undefined ? null : Number(row.last_at), models_micros: models, machine_micros: machines }
   }
 }

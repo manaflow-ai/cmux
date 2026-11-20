@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextWindowRules
 import Foundation
 
 /// The command-palette/CLI/MCP setters for a live agent chat's model, effort
@@ -10,10 +11,9 @@ enum AgentConfigurationHandlers {
     @MainActor
     private final class SuggestionStore {
         var modelsByHarness: [String: [ActionEnumCase]] = [:]
-        let efforts = ["default", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]
-            .map { ActionEnumCase(value: $0, title: $0) }
-        let modes = ["default", "read-only", "agent", "agent-full-access", "plan"]
-            .map { ActionEnumCase(value: $0, title: $0) }
+        /// The protocol's names (cmux-window-rules `chat::agent::tables`).
+        let efforts = (WindowRules.chatAgentTables?.efforts ?? []).map { ActionEnumCase(value: $0, title: $0) }
+        let modes = (WindowRules.chatAgentTables?.modes ?? []).map { ActionEnumCase(value: $0, title: $0) }
     }
 
     private struct Binding {
@@ -34,16 +34,16 @@ enum AgentConfigurationHandlers {
             registry.bind(binding.id, run: { invocation in
                 guard let value = invocation[binding.argument]?.stringValue,
                       !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    return context.refuse(MiscHandlerStrings.noAgentChat)
+                    return context.registry.refuse(.needsValue, binding.id)
                 }
-                guard let view = chatView(context, invocation) else { return }
+                guard let view = chatView(binding.id, context, invocation) else { return }
                 let operation = binding.operation
                 context.report {
                     do {
                         try await view.setConfiguration(operation, value: value)
                         return nil
                     } catch {
-                        return ActionWorkFailure("\(operation.rawValue): \(error)")
+                        return ActionWorkFailure(log: "\(operation.rawValue): \(error)")
                     }
                 }
             })
@@ -70,36 +70,22 @@ enum AgentConfigurationHandlers {
         let center = context.services.agentHarnesses
         Task { @MainActor in
             guard let answer = try? await center.models(), let harnesses = answer["harnesses"]?.arrayValue else { return }
-            var modelsByHarness: [String: [String: ActionEnumCase]] = [:]
+            var listed: [WindowRules.HarnessModels] = []
             for harness in harnesses {
                 guard let harnessID = harness["harness"]?.stringValue,
                       let models = harness["models"]?.arrayValue else { continue }
-                var choices: [String: ActionEnumCase] = [:]
-                for model in models {
-                    if let id = model.stringValue, !id.isEmpty {
-                        choices[id] = ActionEnumCase(value: id, title: id)
-                    } else if let id = model["id"]?.stringValue, !id.isEmpty {
-                        choices[id] = ActionEnumCase(value: id, title: model["name"]?.stringValue ?? id)
-                    }
-                }
-                modelsByHarness[harnessID] = choices
+                listed.append(WindowRules.HarnessModels(harness: harnessID, models: models.compactMap { model -> WindowRules.HarnessModels.Model? in
+                    if let id = model.stringValue { return WindowRules.HarnessModels.Model(id: id, name: nil) }
+                    return model["id"]?.stringValue.map { WindowRules.HarnessModels.Model(id: $0, name: model["name"]?.stringValue) }
+                }))
             }
-            var aliases: [String: [String: ActionEnumCase]] = [:]
-            var collisions = Set<String>()
-            for (harnessID, choices) in modelsByHarness {
-                guard let short = harnessID.split(separator: "/").last.map(String.init) else { continue }
-                if aliases[short] != nil { collisions.insert(short) } else { aliases[short] = choices }
-            }
-            for collision in collisions {
-                aliases[collision] = nil
-                // The pane records only the final harness component. If a
-                // peer and local profile share it, fail closed instead of
-                // showing either profile's models for an ambiguous session.
-                modelsByHarness[collision] = nil
-            }
-            store.modelsByHarness = modelsByHarness.merging(aliases) { current, _ in current }.mapValues { choices in
-                choices.values.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-            }
+            // By harness and by its id's last component, which the pane records; a component two harnesses share
+            // (a peer and a local profile) fails closed (cmux-window-rules `chat::agent::model_catalog`).
+            guard let catalog = WindowRules().modelCatalog(listed) else { return }
+            store.modelsByHarness = Dictionary(catalog.map { choices in
+                (choices.harness, choices.models.map { ActionEnumCase(value: $0.value, title: $0.title) }
+                    .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending })
+            }, uniquingKeysWith: { first, _ in first })
         }
     }
 
@@ -113,11 +99,11 @@ enum AgentConfigurationHandlers {
     /// A Priority row carries an `agent-chat:` session id rather than the tab
     /// id that `ActionScope` normally resolves. Explicit tab targets and the
     /// focused pane continue through the normal scope path.
-    private static func chatView(_ context: AppActionContext, _ invocation: ActionInvocation) -> AgentPaneView? {
+    private static func chatView(_ id: ActionID, _ context: AppActionContext, _ invocation: ActionInvocation) -> AgentPaneView? {
         if let target = invocation.target, target.kind == .agentChat {
             guard let key = context.services.agentTabs.tab(showing: target.id),
                   let view = context.services.agentTabs.existingView(key) else {
-                context.refuse(MiscHandlerStrings.noAgentChat)
+                context.registry.refuse(.noChat, id)
                 return nil
             }
             return view
@@ -125,7 +111,7 @@ enum AgentConfigurationHandlers {
         guard let pane = context.scope(invocation).pane,
               let key = context.scope(invocation).tab?.id.rawValue ?? pane.currentTabKey,
               let view = context.services.agentTabs.existingView(key) else {
-            context.refuse(MiscHandlerStrings.noAgentChat)
+            context.registry.refuse(.noChat, id)
             return nil
         }
         return view

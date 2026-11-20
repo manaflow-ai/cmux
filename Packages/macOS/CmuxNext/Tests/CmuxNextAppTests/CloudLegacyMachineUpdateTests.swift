@@ -31,9 +31,20 @@ struct CloudLegacyMachineUpdateTests {
         #expect(machine.legacyJudged == [String(repeating: "c", count: 40)], "the exec update is held to the build the CLI judged")
         #expect(fixture.states == [.updating, .updated(build: Self.bundled)])
         #expect(machine.reconnectRestarts == [true], "the connection is pointed at the new daemon")
-        #expect(fixture.notices.isEmpty)
         #expect(fixture.board.otherMachines == nil, "an updated machine still listed as one that cannot update")
         #expect(fixture.ledger.targets == [CloudMachineUpdateTarget.id("vm-1"): "updated"])
+    }
+
+    /// A tree-mode DEV build pins the commit that published its cmux-tui tree, an earlier one than
+    /// its own: the machine then reports that commit, and the update is still a success.
+    @Test func anExecUpdateToTheTreesPublishingCommitIsAnUpdate() async throws {
+        let tree = String(repeating: "e", count: 40)
+        let machine = FakeCloudMachine(build: CloudMachineUpdateTargetTests.older, level: .limited, answers: [Self.unsupported],
+                                       legacy: [CloudMoveCLI.Answer(ok: true, updated: true, build: tree)])
+        let fixture = try CloudUpdateFixture()
+        defer { fixture.remove() }
+        await fixture.run(machine)
+        #expect(fixture.states == [.updating, .updated(build: tree)])
     }
 
     /// A CLI answer that names no build: no build to hold the exec update to, so it does not run
@@ -58,20 +69,21 @@ struct CloudLegacyMachineUpdateTests {
 
         #expect(machine.legacyUpdates == 0)
         #expect(fixture.board.targets[CloudMachineUpdateTarget.id("vm-1")]?.state == .cannotUpdate(reason: CloudMachineUpdateStrings.unsupported("Leo VM")))
-        #expect(fixture.notices.isEmpty)
     }
 
-    /// A rolled-back exec update is a rollback (one notice), and asks for no second exec run.
+    /// A rolled-back exec update is a rollback: one exec run per attempt, tried twice more in the
+    /// background (no toast), then final on the machine's row.
     @Test func aRollbackThroughExecIsARollback() async throws {
-        let machine = FakeCloudMachine(build: CloudMachineUpdateTargetTests.older, level: .limited, answers: [Self.unsupported],
-                                       legacy: [CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_rolled_back", error: "ROLLBACK new-daemon-unstable")])
+        let rollback = CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_rolled_back", error: "ROLLBACK new-daemon-unstable")
+        let machine = FakeCloudMachine(build: CloudMachineUpdateTargetTests.older, level: .limited, answers: Array(repeating: Self.unsupported, count: 3),
+                                       legacy: Array(repeating: rollback, count: 3))
         let fixture = try CloudUpdateFixture()
         defer { fixture.remove() }
         await fixture.run(machine)
 
-        #expect(machine.legacyUpdates == 1)
+        #expect(machine.legacyUpdates == 3)
         #expect(fixture.states.last == .failed(reason: "ROLLBACK new-daemon-unstable", rolledBack: true))
-        #expect(machine.reconnectRestarts == [true])
+        #expect(machine.reconnectRestarts == [true, true, true])
     }
 
     /// One exec starts the run, detached as root with the pinned install and the guest script;
@@ -141,15 +153,15 @@ struct CloudLegacyMachineUpdateTests {
 
     /// The exec path runs only for the build this app pins: another build's manifest is not this
     /// app's to install.
-    @Test func theExecPathRunsOnlyForThePinnedBuild() throws {
+    @Test func theExecPathRunsOnlyForThePinnedBuild() async throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("legacy-build-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         try FileManager.default.createDirectory(at: folder.appendingPathComponent("cmux-tui-ssh"), withIntermediateDirectories: true)
         let manifest = #"{"commit":"\#(Self.pin.commit)","binaries":{"cmux-tui-x86_64-unknown-linux-musl":"\#(Self.pin.sha256)"}}"#
         try Data(manifest.utf8).write(to: folder.appendingPathComponent("cmux-tui-ssh/manifest.json"))
         let cli = folder.appendingPathComponent("cmux")
-        #expect(CloudLegacyMachineUpdate.pin(for: String(Self.pin.commit.prefix(12)), besideCLI: cli) == Self.pin)
-        #expect(CloudLegacyMachineUpdate.pin(for: String(repeating: "c", count: 12), besideCLI: cli) == nil)
+        #expect(await CloudLegacyPin.pin(for: String(Self.pin.commit.prefix(12)), besideCLI: cli, ask: { nil }) == Self.pin)
+        #expect(await CloudLegacyPin.pin(for: String(repeating: "c", count: 12), besideCLI: cli, ask: { nil }) == nil)
     }
 
     /// The start and wait commands run for real under /bin/sh, with stand-ins for sudo, systemd
@@ -198,44 +210,20 @@ struct CloudLegacyMachineUpdateTests {
         #expect(!CloudLegacyMachineUpdate.startCommand(pin: Self.pin, script: "", nonce: "c", expected: "not-hex; rm -rf /").contains("expect-build"))
     }
 
-    /// Each result line of the guest script as a `link machine update` answer.
-    @Test func resultLinesMapToAnswers() {
-        func code(_ stdout: String, exit: Int = 0) -> String? {
-            let answer = CloudLegacyMachineUpdate.answer(CloudExecResult(exitCode: exit, stdout: stdout, stderr: "sudo: a password is required"), pin: Self.pin)
-            return answer.ok ? (answer.updated ? "updated:\(answer.build ?? "")" : "current") : answer.errorCode
-        }
-        #expect(code("OK already-current daemon=9\n") == "current", "nothing restarted")
-        #expect(code("OK canary daemon=9 hosts-before=1\n") == "updated:\(Self.pin.commit)")
-        #expect(code("UNVERIFIED terminal count unavailable terminals=?->2 daemon=9\n") == "updated:\(Self.pin.commit)")
-        #expect(code("ROLLBACK lost-hosts=[12] old-daemon=7\n") == "machine_update_rolled_back")
-        #expect(code("FAIL rollback-daemon-unhealthy reason=x\n") == "machine_update_failed")
-        #expect(code("SKIP busy another upgrade run holds the lock\n") == "machine_update_busy")
-        #expect(code("SKIP changed binary=\(String(repeating: "2", count: 40)) expected=\(String(repeating: "1", count: 40))\n") == "machine_update_busy",
-                "a machine updated since the CLI judged it: asked again, never a failure")
-        #expect(code("SKIP no-daemon\n") == "machine_unreachable")
-        #expect(code("SKIP unsupported-cloud-auth\n") == "machine_update_unsupported")
-        #expect(code("SKIP disk-free=120MB\n") == "machine_update_busy", "nothing changed: asked again, not a failure kept for the build")
-        #expect(code("NOROOT\n") == "machine_update_unsupported", "an account that cannot become root")
-        #expect(code("running\n") == "machine_update_unresolved")
-        #expect(code("") == "machine_update_unresolved")
-        #expect(code("", exit: 124) == "machine_update_unresolved", "the provider ended the wait; the run may go on")
-        #expect(code("garbage", exit: 124) == "machine_update_unresolved")
-    }
-
     /// The pin is the app bundle's own manifest; anything that is not plain hex is refused.
     @Test func thePinComesFromTheBundledManifestOnly() throws {
         let sha = String(repeating: "C", count: 64)
         let good = Data(#"{"commit":"\#(String(repeating: "d", count: 40))","binaries":{"cmux-tui-x86_64-unknown-linux-musl":"\#(sha)","cmux-tui-aarch64-unknown-linux-musl":"x"}}"#.utf8)
-        #expect(CloudLegacyMachineUpdate.pin(manifest: good) == CloudLegacyMachineUpdate.Pin(commit: String(repeating: "d", count: 40), sha256: sha.lowercased()))
-        #expect(CloudLegacyMachineUpdate.pin(manifest: Data(#"{"commit":"d; rm -rf /","binaries":{"cmux-tui-x86_64-unknown-linux-musl":"\#(sha)"}}"#.utf8)) == nil)
-        #expect(CloudLegacyMachineUpdate.pin(manifest: Data(#"{"commit":"\#(String(repeating: "d", count: 40))","binaries":{}}"#.utf8)) == nil)
+        #expect(CloudLegacyPin.pin(manifest: good) == CloudLegacyMachineUpdate.Pin(commit: String(repeating: "d", count: 40), sha256: sha.lowercased()))
+        #expect(CloudLegacyPin.pin(manifest: Data(#"{"commit":"d; rm -rf /","binaries":{"cmux-tui-x86_64-unknown-linux-musl":"\#(sha)"}}"#.utf8)) == nil)
+        #expect(CloudLegacyPin.pin(manifest: Data(#"{"commit":"\#(String(repeating: "d", count: 40))","binaries":{}}"#.utf8)) == nil)
 
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("legacy-pin-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         try FileManager.default.createDirectory(at: folder.appendingPathComponent("cmux-tui-ssh"), withIntermediateDirectories: true)
         try good.write(to: folder.appendingPathComponent("cmux-tui-ssh/manifest.json"))
-        #expect(CloudLegacyMachineUpdate.pin(besideCLI: folder.appendingPathComponent("cmux"))?.sha256 == sha.lowercased())
-        #expect(CloudLegacyMachineUpdate.pin(besideCLI: folder.appendingPathComponent("missing/cmux")) == nil, "a dev build has no pin")
+        #expect(CloudLegacyPin.pin(besideCLI: folder.appendingPathComponent("cmux"))?.sha256 == sha.lowercased())
+        #expect(CloudLegacyPin.pin(besideCLI: folder.appendingPathComponent("missing/cmux")) == nil, "a dev build has no pin")
     }
 
     /// The app runs the fleet's own guest script, byte for byte (web/tests checks the other side).

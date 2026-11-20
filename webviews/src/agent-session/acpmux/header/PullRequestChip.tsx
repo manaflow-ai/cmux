@@ -3,20 +3,18 @@
 // linking the pull request, its state and review, and each check, failing first, linking its run.
 // The App pushes it with the header state, again while checks run and when a turn ends. A green
 // one offers Merge (PullRequestMerge.tsx, cx-ncc.77.4).
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { Popover } from "../../../ui/Popover";
 import { usePopoverTrigger } from "../../../ui/popoverTrigger";
 import type { HeaderPullRequest } from "./headerState";
-import { PullRequestMerge, readyToMerge, type MergeResult, type Merging } from "./PullRequestMerge";
+import { PullRequestMerge, type MergeResult } from "./PullRequestMerge";
+import { pullRequestStatus, usePullRequestOps, type PullRequestOps } from "./pullRequestOps";
+import { FinishBurst } from "../finish/FinishBurst";
+import { usePullRequestFinish } from "../finish/finishMoments";
+import { PullRequestActions } from "./PullRequestActions";
 
-const STATES: Record<string, StringKey> = {
-  open: "header.prState.open",
-  draft: "header.prState.draft",
-  merged: "header.prState.merged",
-  closed: "header.prState.closed",
-};
 const BADGES: Record<string, StringKey> = {
   open: "header.prBadge.open",
   draft: "header.prBadge.draft",
@@ -30,69 +28,28 @@ const REVIEWS: Record<string, StringKey> = {
 };
 
 export function PullRequestChip({
-  pullRequest,
+  pullRequest: initialPullRequest,
   onMerge,
-  onFixChecks,
-  onAddressComments,
+  ops,
 }: {
   pullRequest: HeaderPullRequest;
   /// Merge (PullRequestMerge.tsx); absent where the chat can't merge from here.
   onMerge?: (pullRequest: { number: number; url: string }) => Promise<MergeResult>;
-  /// Reads the failing run logs and sends a focused prompt to this chat.
-  onFixChecks?: (pullRequest: HeaderPullRequest) => Promise<void>;
-  /// Reads unresolved review threads and sends them to this chat.
-  onAddressComments?: (pullRequest: HeaderPullRequest) => Promise<void>;
+  ops?: PullRequestOps;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  // Where Merge stands for this pull request, kept here: the popover's content unmounts on close.
-  const [merge, setMerge] = useState<{ url: string; merging: Merging }>();
-  const [action, setAction] = useState<"fixing" | "addressing" | undefined>();
-  const [actionError, setActionError] = useState<string>();
-  const [watch, setWatch] = useState<{ token: string; state: "armed" | "merging" | "merged" | "queued" | "failed" }>();
-  const merging = merge?.url === pullRequest.url ? merge.merging : { step: "idle" as const };
+  const fallbackOps = usePullRequestOps(ops ? undefined : initialPullRequest, onMerge);
+  const mergedOps = ops ?? fallbackOps;
+  const pullRequest = mergedOps.displayed ?? initialPullRequest;
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const trigger = usePopoverTrigger(open, setOpen);
   const { number, checks } = pullRequest;
-  const state = STATES[pullRequest.state] ? t(STATES[pullRequest.state]!) : pullRequest.state;
-  const failed = pullRequest.checkList.filter((check) => check.state === "failed").length;
-  const label =
-    checks.total === 0
-      ? t("header.pullRequestLabel", { number, state })
-      : failed > 0
-        ? t("header.pullRequestLabelFailing", { number, state, passed: checks.passed, total: checks.total, failed })
-        : t("header.pullRequestLabelChecks", { number, state, passed: checks.passed, total: checks.total });
+  const { label } = pullRequestStatus(pullRequest, t);
   const review = REVIEWS[pullRequest.review];
-  const watchToken = pullRequest.headSha ?? pullRequest.updatedAt ?? `${pullRequest.url}:${pullRequest.number}`;
-  useEffect(() => {
-    if (!watch || watch.token === watchToken) return;
-    setWatch(undefined);
-  }, [watch, watchToken]);
-  useEffect(() => {
-    if (!watch || watch.state !== "armed" || !onMerge || !readyToMerge(pullRequest)) return;
-    setWatch({ ...watch, state: "merging" });
-    onMerge({ number: pullRequest.number, url: pullRequest.url }).then(
-      (result) => setWatch({ token: watch.token, state: result.queued ? "queued" : "merged" }),
-      () => setWatch({ token: watch.token, state: "failed" }),
-    );
-  }, [onMerge, pullRequest, watch]);
-  const runAction = (kind: "fixing" | "addressing", run?: (pr: HeaderPullRequest) => Promise<void>) => {
-    if (!run || action) return;
-    setAction(kind);
-    setActionError(undefined);
-    run(pullRequest).then(
-      () => setAction(undefined),
-      (error: unknown) => {
-        setAction(undefined);
-        setActionError(error instanceof Error && error.message ? error.message : t("header.prActionFailed"));
-      },
-    );
-  };
-  const armMerge = () => {
-    if (!onMerge || watch) return;
-    setWatch({ token: watchToken, state: "armed" });
-  };
+  // Green checks or a merge that just happened (finish/finishMoments.ts).
+  const finish = usePullRequestFinish(pullRequest.url);
   return (
     <>
       <button
@@ -104,14 +61,16 @@ export function PullRequestChip({
         className="acpmux-header-tool acpmux-header-pr"
         data-state={pullRequest.state}
         data-checks={checks.state}
+        data-finish={finish}
         aria-label={label}
-        aria-haspopup="dialog"
-        aria-expanded={open}
         {...trigger}
       >
-        <Icon name="git.pullrequest" size={13} />#{number}
+        <Icon name="git.pullrequest" size={14} />#{number}
+        {finish === "merged" && <FinishBurst />}
       </button>
       <Popover
+        id={trigger["aria-controls"]}
+        fade
         open={open}
         // The chip owns opening; Base UI only reports dismissals (Escape and outside press).
         onOpenChange={(next) => {
@@ -158,39 +117,8 @@ export function PullRequestChip({
             ))}
           </ul>
         )}
-        {onMerge && (
-          <PullRequestMerge
-            pullRequest={pullRequest}
-            merging={merging}
-            setMerging={(next) => setMerge({ url: pullRequest.url, merging: next })}
-            merge={onMerge}
-          />
-        )}
-        {(onFixChecks || onAddressComments || onMerge) && (
-          <div className="acpmux-pr-actions">
-            {onFixChecks && failed > 0 && (
-              <button type="button" disabled={action !== undefined} onClick={() => runAction("fixing", onFixChecks)}>
-                {action === "fixing" ? t("header.prFixingChecks") : t("header.prFixChecks")}
-              </button>
-            )}
-            {onAddressComments && (
-              <button type="button" disabled={action !== undefined} onClick={() => runAction("addressing", onAddressComments)}>
-                {action === "addressing" ? t("header.prAddressingComments") : t("header.prAddressComments")}
-              </button>
-            )}
-            {onMerge && !watch && (
-              <button type="button" onClick={armMerge}>
-                {t("header.prMergeWhenReady")}
-              </button>
-            )}
-            {watch?.state === "armed" && <output>{t("header.prMergeWatchArmed")}</output>}
-            {watch?.state === "merging" && <output>{t("header.prMerging")}</output>}
-            {watch?.state === "merged" && <output>{t("header.prMerged")}</output>}
-            {watch?.state === "queued" && <output>{t("header.prMergeQueued")}</output>}
-            {watch?.state === "failed" && <output role="alert">{t("header.prMergeFailed")}</output>}
-            {actionError && <output role="alert">{actionError}</output>}
-          </div>
-        )}
+        <PullRequestMerge ops={mergedOps} />
+        <PullRequestActions ops={mergedOps} />
       </Popover>
     </>
   );

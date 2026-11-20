@@ -30,9 +30,11 @@ public enum FileOpenKind: Sendable, Equatable {
     /// selected in a Files pane tab from a chat, opened in its app from the Files pane.
     case other
 
-    /// Whether only a person's own click may open this kind this way: a page runs script and an
-    /// app runs code, so an agent's or a script's open (`cmux file open`) uses the editor instead.
-    public var needsUserChoice: Bool { self == .web || self == .app }
+    /// Whether only a person's own click may open this kind this way: an app runs code outside
+    /// cmux, so an agent's or a script's open (`cmux file open`) never launches it. A web page is
+    /// not one: it renders in a sandboxed browser tab for an agent too (u18051), as any URL an
+    /// agent opens does, with its source one click away (Open as Text).
+    public var needsUserChoice: Bool { self == .app }
 
     /// Whether a file of this kind also opens as its source text in the code editor ("Open as
     /// Text", u9489): true for the pages cmux renders (Markdown, HTML, SVG). Other files already
@@ -70,6 +72,40 @@ public enum FileOpenKind: Sendable, Equatable {
         let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
         guard let values, let isDirectory = values.isDirectory else { return nil }
         self.init(fileName: url.lastPathComponent, isDirectory: isDirectory, isPackage: values.isPackage ?? false)
+    }
+
+    /// The local web page a browser tab at `page` renders (a `file://` HTML or SVG file), whose
+    /// source Edit Source (`browser.editSource`, u18051) opens in the code editor.
+    ///
+    /// - Parameter page: the tab's URL string.
+    /// - Returns: the file, or nil for a web site, a preview, any other file or no URL.
+    public static func sourceFile(ofPage page: String?) -> URL? {
+        guard let page, let url = URL(string: page), url.isFileURL,
+              FileOpenKind(fileName: url.lastPathComponent, isDirectory: false, isPackage: false) == .web else { return nil }
+        return URL(fileURLWithPath: url.path)
+    }
+
+    /// The file Open as Page (`file.openAsPage`, u18462) renders from a code editor tab showing
+    /// `source`: an HTML, SVG or Markdown file (``opensAsText``), as a browser tab or the markdown page.
+    ///
+    /// - Parameter source: the file the code editor tab shows.
+    /// - Returns: `source`, or nil for a file cmux shows only as text, or no file.
+    public static func renderedFile(ofSource source: URL?) -> URL? {
+        guard let source, source.isFileURL,
+              FileOpenKind(fileName: source.lastPathComponent, isDirectory: false, isPackage: false).opensAsText else { return nil }
+        return source
+    }
+
+    /// The file a tab's other view shows (Edit Source, Open as Page, u18462).
+    ///
+    /// - Parameters:
+    ///   - asText: true for Edit Source (the source of a rendered page), false for Open as Page.
+    ///   - editorFile: the file the tab shows in the code editor, if it is a code editor tab.
+    ///   - markdownFile: the file the tab shows in the markdown page, if it is one.
+    ///   - pageURL: the tab's URL, if it is a browser tab.
+    /// - Returns: the file to open in the other view, or nil when the tab has none.
+    public static func otherView(asText: Bool, editorFile: URL?, markdownFile: URL?, pageURL: String?) -> URL? {
+        asText ? markdownFile ?? sourceFile(ofPage: pageURL) : renderedFile(ofSource: editorFile)
     }
 
     /// Markdown names (the Markdown page's own list plus the common long forms).

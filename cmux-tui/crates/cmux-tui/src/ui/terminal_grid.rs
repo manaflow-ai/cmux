@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::num::NonZeroU16;
 
 use cmux_tui_core::{Rect, SurfaceRenderFrame};
-use ghostty_vt::{Cell as VtCell, CellWidth, ColorSpec, CursorInfo, Rgb};
+use ghostty_vt::{Cell as VtCell, CellWidth, ColorSpec, CursorInfo, RenderRow, Rgb};
 use ratatui::Frame;
 use ratatui::buffer::{Buffer, CellDiffOption, CellWidth as RatatuiCellWidth};
 use ratatui::layout::Rect as RatatuiRect;
@@ -182,7 +182,7 @@ fn selected_cell(
 /// grapheme lead before applying crop bounds.
 fn cropped_cursor_position(
     cursor: CursorInfo,
-    rows: &[Vec<VtCell>],
+    rows: &[RenderRow],
     source_x: u16,
     live_cols: usize,
     live_rows: usize,
@@ -831,10 +831,7 @@ mod tests {
 
         assert_eq!(resolver.resolve_fg(ColorSpec::Default), Color::Reset);
         assert_eq!(resolver.resolve_bg(ColorSpec::Default), Color::Reset);
-        assert_eq!(
-            resolver.blank_style(),
-            Style::default().fg(Color::Rgb(0x11, 0x22, 0x33)).bg(Color::Reset)
-        );
+        assert_eq!(resolver.blank_style(), Style::default().fg(Color::Reset).bg(Color::Reset));
     }
 
     #[test]

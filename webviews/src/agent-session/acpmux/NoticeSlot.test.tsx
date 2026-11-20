@@ -5,8 +5,11 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { type HarnessHealth, HarnessHealthNotice } from "./HarnessHealthNotice";
-import { Notice, NoticeSlot, type NoticeTier, topNotice } from "./NoticeSlot";
+import { HarnessHealthNotice } from "./HarnessHealthNotice";
+import { type HarnessHealth } from "./harnessHealthNoticeModel";
+import { Notice, NoticeSlot } from "./NoticeSlot";
+import { type NoticeTier, topNotice } from "./noticeSlotModel";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -32,6 +35,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

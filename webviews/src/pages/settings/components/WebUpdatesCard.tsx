@@ -3,6 +3,7 @@
 // cmux.settings.host.changed). Check Now and Roll Back take the paths of the socket's
 // updates.web.check and updates.web.rollback. Which updates it takes is the schema row updates.web.
 import { useState } from "react";
+import { Button } from "../../../ui/Button";
 import { useSettingsState, useStore } from "../context";
 import type { WebUpdatesState, WebUpdateVersion } from "../ops";
 import { locale, t } from "../strings";
@@ -68,7 +69,7 @@ export function WebUpdatesCard() {
           title={t("settingsWindow.webUpdates.status")}
           help={[statusText(state), pending].filter(Boolean).join(" ")}
         >
-          <button
+          <Button
             type="button"
             className="button"
             data-web-updates="check"
@@ -76,10 +77,10 @@ export function WebUpdatesCard() {
             onClick={() => void run("check")}
           >
             {t("settingsWindow.webUpdates.checkNow")}
-          </button>
+          </Button>
         </ActionRow>
         <ActionRow title={t("settingsWindow.webUpdates.rollBack")} help={rollBackText(state)}>
-          <button
+          <Button
             type="button"
             className="button"
             data-web-updates="rollback"
@@ -87,7 +88,7 @@ export function WebUpdatesCard() {
             onClick={() => void run("rollback")}
           >
             {t("settingsWindow.webUpdates.rollBack")}
-          </button>
+          </Button>
         </ActionRow>
       </div>
       {failed && (

@@ -19,8 +19,23 @@ public struct InboxRow: Hashable, Sendable, Identifiable {
     public var isSending: Bool
     public var hasFailedSend: Bool
     public var isTyping: Bool
+    /// A Chief's running turn there is in a tool, not the model (``HomeLiveActivity/isTool``).
+    public var isRunningTool = false
 
     public var id: ConversationID { summary.id }
+
+    /// The newest message, from someone other than `me`, asks something still open: a pending question
+    /// or an undecided approval. The conversation waits on the person.
+    public func waitsOnPerson(me: ParticipantID?) -> Bool {
+        guard let last = summary.lastMessage, !last.isRetracted, last.author != me else { return false }
+        return last.parts.contains {
+            switch $0 {
+            case .question(let question): question.isPending
+            case .approval(let approval): approval.decided == nil
+            default: false
+            }
+        }
+    }
 }
 
 extension Array where Element == InboxRow {
@@ -44,7 +59,7 @@ extension Array where Element == InboxRow {
 extension HomeMirror {
     /// The conversation list: the mirror overlaid with the intent log
     /// (pending sends, pin/mute and read-cursor intents), in inbox order.
-    public func inboxRows(log: IntentLog, typing: Set<ConversationID> = []) -> [InboxRow] {
+    public func inboxRows(log: IntentLog, typing: Set<ConversationID> = [], tools: Set<ConversationID> = []) -> [InboxRow] {
         let mirror = self
         guard let me = mirror.me?.id else { return [] }
         var summaries = mirror.conversations
@@ -62,6 +77,13 @@ extension HomeMirror {
             case .sendMessage(let id, _, _, _):
                 if case .failed = entry.state { failed.insert(id) }
                 pendingSend[id] = entry
+            case .retractMessage(let message, let id):
+                // Delete or Undo Send leaves the preview at the press, not at the owner's echo (#36019);
+                // a refused retract is discarded from the log, which shows the preview again.
+                if summaries[id]?.lastMessage?.id == message {
+                    summaries[id]?.lastMessage?.parts = []
+                    summaries[id]?.lastMessage?.retractedAt = entry.intent.issuedAt
+                }
             default:
                 break
             }
@@ -100,7 +122,8 @@ extension HomeMirror {
                 isPinned: summary.pinRank != nil,
                 isSending: pending.map { if case .failed = $0.state { false } else { true } } ?? false,
                 hasFailedSend: failed.contains(summary.id),
-                isTyping: typing.contains(summary.id)
+                isTyping: typing.contains(summary.id),
+                isRunningTool: tools.contains(summary.id)
             )
         }
         return rows.orderedForInbox()

@@ -1,16 +1,21 @@
+public import CmuxNextAgentIntegrations
 public import CmuxNextDesign
 public import Foundation
 public import Observation
 
-/// The tool window: one screen for one tool, Import from Browser or
-/// Computer Use setup (Lawrence 2026-10-09: no onboarding window, no
-/// sequence). Work is async and cancellable; nothing here blocks the main
+/// The tool window: one screen for one tool, Agents (first run), Import
+/// from Browser or Computer Use setup (Lawrence 2026-10-09: no onboarding
+/// window, no sequence). Work is async and cancellable; nothing here blocks the main
 /// thread.
 @MainActor
 @Observable
 public final class OnboardingModel {
     public enum Step: String, CaseIterable, Sendable {
-        case importData, computerUse
+        // Agents comes first: at first run it opens over Bring your history.
+        // The app may host importData as Bring your history (web); the standalone browser
+        // importer remains this model's native import tool.
+        // agentTools asks whether cmux may add its MCP server to the person's coding agents.
+        case agents, importData, computerUse, agentTools
     }
 
     /// The tool this window shows; it never changes.
@@ -19,27 +24,35 @@ public final class OnboardingModel {
     public var steps: [Step] { [step] }
     public let importer: ImportStepModel
     public let computerUse: ComputerUseStepModel
+    public let agents: AgentsStepModel
+    public let agentTools: AgentToolsStepModel
     @ObservationIgnored public let services: any OnboardingServices
     /// Set once the window ended, so a second close does not report twice.
     public private(set) var ended = false
     /// The window asks to close (the controller observes this).
     public var onEnd: ((Bool) -> Void)?
 
-    public init(services: any OnboardingServices, step: Step) {
+    /// `agentTools`: the cmux Tools source, else the services' own.
+    public init(services: any OnboardingServices, step: Step, agentTools tools: (any AgentToolsSource)? = nil) {
         self.services = services
         self.step = step
         importer = ImportStepModel(services: services)
         computerUse = ComputerUseStepModel(source: services.computerUsePermissions)
+        agents = AgentsStepModel(source: services.agentSignIns)
+        agentTools = AgentToolsStepModel(source: tools ?? services.agentTools)
     }
 
     /// The primary button: Find Browsers on the import step before a person
     /// asked for them, Import while it has a checked choice it has not run,
     /// else Done.
     public var primaryTitle: String {
+        if step == .importData, importer.phase == .detecting { return OnboardingStrings.detecting }
         if step == .importData, importer.phase == .idle { return OnboardingStrings.findBrowsers }
         if step == .importData, importer.explainingAccess != nil { return OnboardingStrings.continueTitle }
         if step == .importData, importer.isConfirmingPasswords { return OnboardingStrings.beginImporting }
         if step == .importData, importer.canStart { return OnboardingStrings.importButton }
+        if step == .agents { return OnboardingStrings.continueTitle }
+        if step == .agentTools, !agentTools.answered { return OnboardingStrings.turnOnTools }
         return OnboardingStrings.done
     }
 
@@ -52,6 +65,10 @@ public final class OnboardingModel {
             return
         case .importData where importer.phase == .idle:
             importer.detect()
+            return
+        case .importData where importer.phase == .detecting:
+            // Detection is already in flight. Do not let a slow privacy or
+            // filesystem probe turn Return into an accidental Done action.
             return
         case .importData where importer.explainingAccess != nil:
             importer.continueAccess()
@@ -67,6 +84,12 @@ public final class OnboardingModel {
         // row's Allow, Restart for a helper that did not answer, or Done.
         case .computerUse where !computerUse.allGranted:
             if computerUse.permissions.helperFailed { computerUse.restart() } else { computerUse.allowNext() }
+            return
+        // cmux Tools: Turn On answers yes and stays, so the rows show what it did; then Done.
+        case .agentTools where !agentTools.answered:
+            agentTools.add()
+            return
+        case .agentTools where agentTools.applying:
             return
         default:
             finish(completed: true)
@@ -87,6 +110,15 @@ public final class OnboardingModel {
         return importer.isConfirmingPasswords && !importer.authorizing
     }
 
+    /// Whether the footer's primary action can run now. Browser detection is
+    /// started as soon as the import tool opens, so its transient state must
+    /// not offer a misleading Done action while the scan is still running.
+    public var canAdvance: Bool {
+        !(step == .importData && importer.phase == .detecting)
+            // cmux Tools: Return answers only once the agents it would change are listed, and not twice.
+            && !(step == .agentTools && (agentTools.applying || !agentTools.loaded))
+    }
+
     /// Back: from either explainer to the list, nothing read.
     public func goBack() {
         guard canGoBack else { return }
@@ -101,13 +133,29 @@ public final class OnboardingModel {
     /// answers after the window is gone.
     public func skipStep() {
         if step == .importData, importer.isConfirmingPasswords { importer.backFromConsent() }
+        // cmux Tools' Not Now is the person's no (Escape too): nothing is written to any agent.
+        if step == .agentTools, !agentTools.answered { agentTools.decline() }
+        // Once answered, Escape is Done (the step's work is finished).
+        if step == .agentTools, agentTools.answered, !agentTools.applying { return finish(completed: true) }
         finish(completed: false)
     }
 
-    /// Starts the step's lazy work. Browser detection reads other apps'
-    /// data: only Find Browsers starts it.
+    /// Starts the step's work. Opening Import from Browser is already an
+    /// explicit request, so browser detection can begin immediately; the
+    /// privacy prompt (when macOS needs one) still remains under the person's
+    /// control.
     public func stepDidAppear() {
-        if step == .computerUse { computerUse.start() }
+        switch step {
+        case .importData: importer.detect()
+        case .computerUse: computerUse.start()
+        case .agents: agents.start()
+        case .agentTools: agentTools.start()
+        }
+    }
+
+    /// The window became key: back from an agent's sign-in, the Agents step reads again.
+    public func windowBecameKey() {
+        if step == .agents { agents.cameBack() }
     }
 
     /// The window closed without Skip or Done (the close button, quit):
@@ -116,12 +164,18 @@ public final class OnboardingModel {
         guard !ended else { return }
         ended = true
         computerUse.stop()
+        importer.stopDetecting()
+        agents.stop()
+        agentTools.stop()
     }
 
     public func finish(completed: Bool) {
         guard !ended else { return }
         ended = true
         computerUse.stop()
+        importer.stopDetecting()
+        agents.stop()
+        agentTools.stop()
         onEnd?(completed)
     }
 }

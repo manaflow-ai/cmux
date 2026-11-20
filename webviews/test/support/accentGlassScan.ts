@@ -1,4 +1,4 @@
-// The page side of test/accent-glass-invariants.test.ts: two standing rules, read from the
+// The page side of test/accent-glass-invariants-N.test.ts: two standing rules, read from the
 // computed styles of a rendered gallery stage.
 //
 //   - The accent is never orange. macOS paints its system accent wherever a page asks for it

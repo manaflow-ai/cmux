@@ -28,6 +28,7 @@ import Testing
             switch entry {
             case let .action(id), let .choices(id), let .submenu(id, _): id.rawValue
             case let .folder(folder, _): "\(folder)"
+            case let .group(group, _): group.key
             case .separator: nil
             }
         }

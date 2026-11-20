@@ -1,0 +1,69 @@
+{
+  "title": "cmux ext new --kind: a new extension loads, a saved edit reloads in well under a second",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "New workspace",
+      "cmux": ["workspace", "new", "--name", "Extension"],
+      "shot": false
+    },
+    {
+      "title": "Show the Extension workspace",
+      "cmux": ["workspace", "name:Extension", "focus"],
+      "shot": false
+    },
+    {
+      "title": "New: cmux ext new hello --kind sidebar, then cmux ext dev loads it into this cmux",
+      "daemon": true,
+      "cmux": [
+        "workspace", "name:Extension", "screen", "current", "pane", "current", "tab", "current",
+        "terminal", "current", "write", "--text",
+        "clear; export PATH=\"$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH\"; cd \"$(mktemp -d)\" && cmux ext new hello --kind sidebar && cd hello && ls && (cmux ext dev --no-install & echo $! > .dev.pid)\r"
+      ],
+      "wait": 6
+    },
+    {
+      "title": "Edit: save src/main.ts with Hello changed to Edited; cmux ext dev prints the reload time",
+      "daemon": true,
+      "cmux": [
+        "workspace", "name:Extension", "screen", "current", "pane", "current", "tab", "current",
+        "terminal", "current", "write", "--text",
+        "perl -pi -e 's/Hello/Edited/' src/main.ts\r"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Reloaded: cmux ext shot outlines what the reloaded section draws (the edit)",
+      "daemon": true,
+      "cmux": [
+        "workspace", "name:Extension", "screen", "current", "pane", "current", "tab", "current",
+        "terminal", "current", "write", "--text",
+        "kill \"$(cat .dev.pid)\"; sleep 0.5; cmux ext shot --out /dev/null 2>&1 | head -12\r"
+      ],
+      "wait": 5
+    },
+    {
+      "title": "Session Info too: cmux ext new info --kind session-info loads as written",
+      "daemon": true,
+      "cmux": [
+        "workspace", "name:Extension", "screen", "current", "pane", "current", "tab", "current",
+        "terminal", "current", "write", "--text",
+        "clear; cd .. && cmux ext new info --kind session-info && cd info && cmux ext shot --out /dev/null 2>&1 | head -12\r"
+      ],
+      "wait": 6
+    },
+    {
+      "title": "A pane too: cmux ext new board --kind pane loads as written",
+      "daemon": true,
+      "cmux": [
+        "workspace", "name:Extension", "screen", "current", "pane", "current", "tab", "current",
+        "terminal", "current", "write", "--text",
+        "clear; cd .. && cmux ext new board --kind pane && cd board && cmux ext shot --out /dev/null 2>&1 | head -12; cmux ext new tab --kind menu\r"
+      ],
+      "wait": 6
+    }
+  ]
+}

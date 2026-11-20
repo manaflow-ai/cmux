@@ -1,0 +1,39 @@
+{
+  "id": "scripted-newtab-keeps-person-keys",
+  "priority": "P0",
+  "title": "A person types in the Chief composer on Home; a script's newTab makes a terminal but the person's text stays in the composer and no key reaches the new shell",
+  "why": "Automation never competes with the person (CLAUDE.md, \"Go past Chrome where cmux is scripted\"). Since cp/fix-chief-composer-focus only the person's own newTab (key, menu, click, palette) claims the window's keyboard; a script's newTab (the socket, origin script) makes the workspace without showing it while a text input has the person's keyboard. Before it, a script's newTab took the window from a person typing to Chief and their next keys went to the new shell.",
+  "source": "cp/fix-chief-composer-focus (80723559628): a script's newTab never takes a field the person focused",
+  "first_in_app": true,
+  "budget_seconds": 90,
+  "steps": [
+    {"do": "fresh_app"},
+    {"do": "expect", "title": "one window on Home, the daemon connected, no workspace but Home", "timeout": 30,
+     "all": [
+       {"app_rpc": {"method": "debug.windows", "path": "windows", "len": 1}},
+       {"app_rpc": {"method": "debug.windows", "path": "launch_window", "equals": null}},
+       {"app_rpc": {"method": "snapshot.get", "path": "topology.loaded", "equals": true}},
+       {"app_rpc": {"method": "snapshot.get", "path": "topology.daemon_state", "equals": "connected"}},
+       {"app_rpc": {"method": "snapshot.get", "path": "topology.workspaces", "len": 1}}
+     ]},
+    {"do": "rpc", "title": "set-up: the person's window is the active app's key window (a capture slot never is; the app's own become-active and become-key notices, NSApp.isActive stays false)",
+     "method": "debug.app_activation", "params": {"active": true, "window_notices": true}},
+    {"do": "rpc", "title": "where the keyboard is before the person types", "method": "debug.focus", "params": {}},
+    {"do": "type", "text": "keep-${nonce}", "mark": "typed"},
+    {"do": "rpc", "title": "where the keyboard is after the person typed", "method": "debug.focus", "params": {}},
+    {"do": "script_new_terminal", "name": "jr-scripted-${nonce}", "focus": true},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "-more-${nonce}", "mark": "more"},
+    {"do": "rpc", "title": "where the keyboard is after the script's newTab", "method": "debug.focus", "params": {}},
+    {"do": "expect", "title": "the script's workspace exists with a working shell that got none of the person's keys; the window stays on Home and the composer shows all the person typed", "since": "more", "timeout": 10, "settle": 1.5,
+     "all": [
+       {"app_rpc": {"method": "snapshot.get", "path": "topology.workspaces", "len": 2}},
+       {"app_rpc": {"method": "debug.windows", "path": "windows", "len": 1}},
+       {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "not_equals": "terminal"}},
+       {"daemon_prompt": true},
+       {"daemon_lacks": "keep-"},
+       {"daemon_lacks": "more-"},
+       {"frame_text": "keep-${nonce}-more-${nonce}"}
+     ]}
+  ]
+}

@@ -1,4 +1,5 @@
 public import CmuxHomeCore
+public import CmuxNextHomeModel
 public import Foundation
 
 /// One avatar circle: initials over a muted gradient picked from a stable seed.
@@ -40,6 +41,9 @@ public struct HomeSidebarItem: Hashable, Sendable, Identifiable {
     /// by its Chief's participant id, else its `defaultChiefAvatar`); nil
     /// draws the participant's initials.
     public var chiefAvatar: HomeChiefAvatar?
+    /// This row's Chief is working (its turn is running). Its avatar does not show it: a Chief's
+    /// avatar carries only the unread dot and the typing bubble, as a pinned avatar in Messages.
+    public var chiefIsWorking = false
     /// A Chief that runs on another engine than the default: that engine's name
     /// ("UniiChat", "Codex"; ``ChiefBackend/badge(for:)``); nil otherwise.
     public var backendBadge: String?
@@ -60,7 +64,8 @@ public struct HomeSidebarItem: Hashable, Sendable, Identifiable {
 /// team is someone to chat to); a search filters both and lists matching
 /// people the user has no DM with yet (``people``). In
 /// the owner's order (`init(ordered:)`, its `home-inbox` rows) only the
-/// person's own pins are pinned; with this Mac's pins Chiefs are pinned by default.
+/// person's own pins are pinned, in the owner's pin order (the main Chief too); with this Mac's
+/// pins Chiefs are pinned by default and the main Chief leads until the person places it.
 public struct HomeSidebarModel: Hashable, Sendable {
     public var pinned: [HomeSidebarItem]
     public var rows: [HomeSidebarItem]
@@ -77,6 +82,16 @@ public struct HomeSidebarModel: Hashable, Sendable {
     /// (the sidebar's Home item, a Home tab, the Dock) counts. Read it from an unfiltered model.
     public var unreadConversations: [ConversationID] { (pinned + rows).filter { $0.unread && !$0.isMuted }.map(\.id) }
 
+    /// ``unreadConversations`` from the rows alone, with no search and no display work (time strings, people,
+    /// avatars): what Home's unread indicator outside the list reads, in the list's order (the pinned rows first,
+    /// `mainChief` leading them when the list leads with it: ``HomePins/leading(_:)``, nil in an owner's order).
+    public static func unreadConversations(pinned: [InboxRow], rest: [InboxRow], unreadMarks: Set<ConversationID>,
+                                           mainChief: ConversationID?) -> [ConversationID] {
+        var pinned = pinned
+        if let mainChief, let at = pinned.firstIndex(where: { $0.id == mainChief }) { pinned.insert(pinned.remove(at: at), at: 0) }
+        return (pinned + rest).filter { ($0.unread > 0 || unreadMarks.contains($0.id)) && !$0.summary.muted }.map(\.id)
+    }
+
     /// `unreadMarks`: conversations the user marked unread (Mark as Unread), shown unread until read.
     /// `chiefHarnesses`: each Chief's engine by participant id, for the rows' badges.
     /// `chiefAvatars`: each Chief's own avatar by participant id; a Chief not in it draws
@@ -87,25 +102,30 @@ public struct HomeSidebarModel: Hashable, Sendable {
                 chiefRoster: HomeChiefRoster = HomeChiefRoster(), chiefNames: [ConversationID: String] = [:],
                 now: Date = Date(), calendar: Calendar = .current, locale: Locale = .current) {
         let (pinnedRows, rest) = pins.split(rows)
-        self.init(pinned: pinnedRows, rest: rest, all: rows, me: me, query: query, contacts: contacts, unreadMarks: unreadMarks,
+        self.init(pinned: pinnedRows, rest: rest, all: rows, leading: pins.leading(chiefRoster.main), me: me, query: query,
+                  contacts: contacts, unreadMarks: unreadMarks,
                   chiefAvatars: chiefAvatars, defaultChiefAvatar: defaultChiefAvatar, chiefHarnesses: chiefHarnesses,
                   chiefRoster: chiefRoster, chiefNames: chiefNames, now: now, calendar: calendar, locale: locale)
     }
 
     /// The list in an order made elsewhere (the owner's `home-inbox` rows): `rows` in list order, the
-    /// pinned grid is the rows in `pinned` in that order, the other rows follow in that order.
+    /// pinned grid is the rows in `pinned` in that order (the person's own order: no row is moved
+    /// ahead, the main Chief neither), the other rows follow in that order.
     public init(ordered rows: [InboxRow], pinned: Set<ConversationID>, me: ParticipantID?, query: String = "",
                 contacts: [HomeContact] = [], unreadMarks: Set<ConversationID> = [], chiefAvatars: [String: HomeChiefAvatar] = [:],
                 defaultChiefAvatar: HomeChiefAvatar? = nil, chiefHarnesses: [String: String] = [:],
                 chiefRoster: HomeChiefRoster = HomeChiefRoster(), chiefNames: [ConversationID: String] = [:], now: Date = Date(),
                 calendar: Calendar = .current, locale: Locale = .current) {
-        self.init(pinned: rows.filter { pinned.contains($0.id) }, rest: rows.filter { !pinned.contains($0.id) }, all: rows, me: me,
+        self.init(pinned: rows.filter { pinned.contains($0.id) }, rest: rows.filter { !pinned.contains($0.id) }, all: rows,
+                  leading: nil, me: me,
                   query: query, contacts: contacts, unreadMarks: unreadMarks, chiefAvatars: chiefAvatars,
                   defaultChiefAvatar: defaultChiefAvatar, chiefHarnesses: chiefHarnesses,
                   chiefRoster: chiefRoster, chiefNames: chiefNames, now: now, calendar: calendar, locale: locale)
     }
 
-    private init(pinned pinnedRows: [InboxRow], rest: [InboxRow], all rows: [InboxRow], me: ParticipantID?, query: String,
+    /// `leading`: the conversation moved to the front of the grid (the main Chief by default), or nil.
+    private init(pinned pinnedRows: [InboxRow], rest: [InboxRow], all rows: [InboxRow], leading: ConversationID?,
+                 me: ParticipantID?, query: String,
                  contacts: [HomeContact], unreadMarks: Set<ConversationID>, chiefAvatars: [String: HomeChiefAvatar],
                  defaultChiefAvatar: HomeChiefAvatar?, chiefHarnesses: [String: String], chiefRoster: HomeChiefRoster,
                  chiefNames: [ConversationID: String], now: Date, calendar: Calendar, locale: Locale) {
@@ -113,8 +133,9 @@ public struct HomeSidebarModel: Hashable, Sendable {
         let match = { (row: InboxRow) in needle.isEmpty || row.matches(needle, me: me) }
         var pinnedRows = pinnedRows.filter(match)
         let rest = rest.filter(match)
-        // The main Chief leads the pinned grid.
-        if let main = chiefRoster.main, let at = pinnedRows.firstIndex(where: { $0.id == main }) {
+        // The main Chief leads the pinned grid until the person orders it (Lawrence 2026-11-05: a dropped
+        // tile stays where it was dropped, the main Chief too).
+        if let main = leading, let at = pinnedRows.firstIndex(where: { $0.id == main }) {
             pinnedRows.insert(pinnedRows.remove(at: at), at: 0)
         }
         let item = { (row: InboxRow, pinned: Bool) in
@@ -123,6 +144,7 @@ public struct HomeSidebarModel: Hashable, Sendable {
             if item.isChief {
                 let chief = row.summary.participants.first(where: \.isChief)?.id.rawValue
                 item.chiefAvatar = chief.flatMap { chiefAvatars[$0] } ?? defaultChiefAvatar
+                item.chiefIsWorking = row.isTyping
                 item.backendBadge = ChiefBackend.badge(for: chief.flatMap { chiefHarnesses[$0] })
                 // The Chief's own name (renamed in its header or Settings), else the title the row has.
                 if let name = chiefNames[row.id]?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty, name != item.title {
@@ -138,19 +160,42 @@ public struct HomeSidebarModel: Hashable, Sendable {
                     item.accessibilityLabel = ([item.title, tag] + (rest.isEmpty ? [] : [String(rest)])).joined(separator: ", ")
                 }
             }
+            // A channel (a group with its own Chief) is tagged after its name, read right after it too.
+            if row.summary.isChannel, item.listBadge == nil {
+                let tag = HomeConversationStrings.channelTag
+                item.listBadge = tag
+                let rest = item.accessibilityLabel.dropFirst(item.title.count).drop { $0 == "," || $0 == " " }
+                item.accessibilityLabel = ([item.title, tag] + (rest.isEmpty ? [] : [String(rest)])).joined(separator: ", ")
+            }
             item.isMuted = row.summary.muted
             return item
         }
         pinned = needle.isEmpty ? pinnedRows.map { item($0, true) } : []
         self.rows = needle.isEmpty ? rest.map { item($0, false) } : pinnedRows.map { item($0, true) } + rest.map { item($0, false) }
         // People the user has no DM with yet: by name in a search, else the whole team.
-        let dmPeers = Set(rows.filter { $0.kind == .direct }.flatMap { $0.summary.participants.map(\.id) })
+        let dms = rows.filter { $0.kind == .direct }
+        let dmPeers = Set(dms.flatMap { $0.summary.participants.map(\.id) })
         guard !needle.isEmpty else {
             people = []
-            teammates = contacts.filter { $0.source == .team && $0.id != me && !dmPeers.contains($0.id) }
+            // One name is one person in the list (the user, 2026-10-29: "there are 2 austins now?"):
+            // a teammate with a second account (a work and a personal sign-in in one team) gets no row
+            // beside the DM or the row of the first. New Message's search still finds each account.
+            var listed = Set(dms.flatMap { $0.summary.participants.filter { $0.id != me }.map { Self.nameKey($0.displayName) } })
+            // The Worker's "Member" (a Stack member with no name) names nobody: each such row stays.
+            teammates = contacts.filter {
+                let key = Self.nameKey($0.name)
+                return $0.source == .team && $0.id != me && !dmPeers.contains($0.id) && (key == "member" || listed.insert(key).inserted)
+            }
             return
         }
         people = contacts.filter { !dmPeers.contains($0.id) && $0.name.localizedStandardContains(needle) }
+    }
+}
+
+extension HomeSidebarModel {
+    /// A display name as the list compares people: case, width and accents aside, spaces trimmed.
+    static func nameKey(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
     }
 }
 

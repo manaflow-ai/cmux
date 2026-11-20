@@ -1,13 +1,15 @@
 import { EMPTY_ROWS, OverlayRows, type RowReader, type RowWrite } from "@cmux/ownership"
-import type { Automation, Body } from "@cmux/protocol"
+import type { Automation, Body, MovedAutomation } from "@cmux/protocol"
 import type { RunRecord, SchedulerState } from "./scheduler.ts"
 import {
+  allAutomations,
   bodyHash,
   joinAutomation,
   runBody,
   TABLE_AUTOMATION,
   TABLE_BODY,
   TABLE_FINISHED,
+  TABLE_MOVED,
   TABLE_RUN,
   type AutomationRow,
   type BodyRow,
@@ -66,6 +68,11 @@ export class SchedulerStore {
     return pending ? { ...joinWithout(row), body: pending } : joinAutomation(this.view, row)
   }
 
+  /** Every automation row as this reduction sees it (at most MAX_AUTOMATIONS). */
+  allAutomations(): Array<AutomationRow> {
+    return allAutomations(this.view)
+  }
+
   run(id: string): RunRow | undefined {
     return this.view.get<RunRow>(TABLE_RUN, id)?.row
   }
@@ -102,6 +109,16 @@ export class SchedulerStore {
     const prior = this.view.get<AutomationRow>(TABLE_AUTOMATION, row.id)
     if (!prior || prior.row.body_hash !== row.body_hash) throw new Error(`scheduler: automation ${row.id} row replaced with another body`)
     this.write({ table: TABLE_AUTOMATION, op: "upsert", key: row.id, n: prior.n, row })
+  }
+
+  /** Records where a teleported automation went (its row is deleted by the caller). */
+  putMoved(m: MovedAutomation): void {
+    const prior = this.view.get<MovedAutomation>(TABLE_MOVED, m.id)
+    this.write({ table: TABLE_MOVED, op: "upsert", key: m.id, n: prior?.n ?? this.next(), row: m })
+  }
+
+  dropMoved(id: string): void {
+    if (this.view.get<MovedAutomation>(TABLE_MOVED, id)) this.write({ table: TABLE_MOVED, op: "delete", key: id })
   }
 
   deleteAutomation(id: string): void {

@@ -1,5 +1,5 @@
 //! Prints the motion parity corpus as JSON: every chrome spring token
-//! resolved under bounce `none` and `subtle`, and the frame-by-frame path
+//! resolved at speed fast, and the frame-by-frame path
 //! of a 200 pt move (and a mid-flight retarget to 50 pt) at 60 and 120 Hz
 //! until the spring rests. cmux-next macOS prints the same corpus from its
 //! own spring (`debug.motion {action: "trajectory"}`);
@@ -11,8 +11,8 @@
 //! `cargo run -p cmux-motion --example motion_trajectories`
 
 use cmux_motion::{
-    AnimationSwitches, GEOMETRY_EPSILON, MotionBounce, MotionPolicy, MotionSpeed, MotionSpring,
-    MotionTween, SpringParameters, SpringValue, TweenParameters, TweenValue,
+    GEOMETRY_EPSILON, MotionPolicy, MotionSpeed, MotionSpring, MotionTween, SpringParameters,
+    SpringValue, TweenParameters, TweenValue,
 };
 
 /// Tween tokens both ports have, by their spec name.
@@ -42,13 +42,12 @@ fn tween_path(p: TweenParameters, hz: f64, retarget: Option<(usize, f64)>) -> Ve
 }
 
 /// Tokens both ports have, by their spec name.
-const TOKENS: [(&str, MotionSpring); 13] = [
+const TOKENS: [(&str, MotionSpring); 12] = [
     ("move", MotionSpring::Move),
     ("appear", MotionSpring::Appear),
     ("disappear", MotionSpring::Disappear),
     ("settle", MotionSpring::Settle),
     ("scroll", MotionSpring::Scroll),
-    ("screen", MotionSpring::Screen),
     ("track", MotionSpring::Track),
     ("selection", MotionSpring::Selection),
     ("panel", MotionSpring::Panel),
@@ -85,31 +84,25 @@ fn list(values: &[f32]) -> String {
 fn main() {
     let mut tokens = Vec::new();
     let mut paths = Vec::new();
-    for bounce in [MotionBounce::None, MotionBounce::Subtle] {
-        let policy = MotionPolicy::new(MotionSpeed::Fast, false)
-            .with_animations(AnimationSwitches { bounce, ..AnimationSwitches::DEFAULT });
-        for (name, token) in TOKENS {
-            let p = policy.spring(token);
-            tokens.push(format!(
-                "{{\"token\":\"{name}\",\"bounce\":\"{}\",\"response\":{:.9},\"damping_fraction\":{:.9},\"visible_end\":{:.6}}}",
-                bounce.as_str(),
-                p.response,
-                p.damping_fraction,
-                p.visible_end()
-            ));
-            for hz in [60., 120.] {
-                for (case, retarget) in [("move", None), ("retarget", Some((5, 50.)))] {
-                    paths.push(format!(
-                        "{{\"token\":\"{name}\",\"bounce\":\"{}\",\"hz\":{hz},\"case\":\"{case}\",\"values\":[{}]}}",
-                        bounce.as_str(),
-                        list(&path(p, hz, retarget))
-                    ));
-                }
+    let policy = MotionPolicy::new(MotionSpeed::Fast, false);
+    for (name, token) in TOKENS {
+        let p = policy.spring(token);
+        tokens.push(format!(
+            "{{\"token\":\"{name}\",\"response\":{:.9},\"damping_fraction\":{:.9},\"visible_end\":{:.6}}}",
+            p.response,
+            p.damping_fraction,
+            p.visible_end()
+        ));
+        for hz in [60., 120.] {
+            for (case, retarget) in [("move", None), ("retarget", Some((5, 50.)))] {
+                paths.push(format!(
+                    "{{\"token\":\"{name}\",\"hz\":{hz},\"case\":\"{case}\",\"values\":[{}]}}",
+                    list(&path(p, hz, retarget))
+                ));
             }
         }
     }
     let mut tweens = Vec::new();
-    let policy = MotionPolicy::new(MotionSpeed::Fast, false);
     for (name, token) in TWEENS {
         let p = token.base();
         let seconds = policy.tween(token);

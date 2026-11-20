@@ -10,20 +10,8 @@ enum ConfirmationStrings {
         String(localized: "confirm.button.close", defaultValue: "Close", table: "Handlers", bundle: .module)
     }
 
-    static var delete: String {
-        String(localized: "confirm.button.delete", defaultValue: "Delete", table: "Handlers", bundle: .module)
-    }
-
-    static var quit: String {
-        String(localized: "confirm.button.quit", defaultValue: "Quit", table: "Handlers", bundle: .module)
-    }
-
     static var closeIncognitoWindowTitle: String {
         String(localized: "confirm.closeIncognitoWindow.title", defaultValue: "Close this incognito window?", table: "Handlers", bundle: .module)
-    }
-
-    static var quitIncognitoTitle: String {
-        String(localized: "confirm.quitIncognito.title", defaultValue: "Quit and close incognito windows?", table: "Handlers", bundle: .module)
     }
 
     static func closeWorkspaceTitle(_ name: String) -> String {
@@ -40,6 +28,11 @@ enum ConfirmationStrings {
     /// "Still running: vim, npm." for a tab or workspace close.
     static func stillRunning(_ programs: String) -> String {
         String(localized: "confirm.stillRunning", defaultValue: "Still running: \(programs).", table: "Handlers", bundle: .module)
+    }
+
+    /// "build logs may still be running a program.", naming closing terminals that did not answer by their tab titles.
+    static func noAnswer(_ terminals: String) -> String {
+        String(localized: "confirm.noAnswer", defaultValue: "\(terminals) may still be running a program.", table: "Handlers", bundle: .module)
     }
 
     /// "Claude is still working.", naming the agent in the closing terminal.
@@ -66,7 +59,7 @@ enum ConfirmationStrings {
 
     static func userOnlySettingBody(_ key: String, _ value: String) -> String {
         String(format: String(localized: "confirm.userOnlySetting.body",
-                              defaultValue: "A command asks to set %1$@ to %2$@. Only you can change this setting, so cmux asks you first.",
+                              defaultValue: "A command wants to set %1$@ to %2$@.",
                               table: "Handlers", bundle: .module), key, value)
     }
 
@@ -81,7 +74,7 @@ enum ConfirmationStrings {
 
     static func remoteLocalhostBody(_ workspace: String, _ choice: String) -> String {
         String(format: String(localized: "confirm.remoteLocalhost.body",
-                              defaultValue: "A command asks to set localhost for %1$@ to %2$@. Only you can change this, so cmux asks you first.",
+                              defaultValue: "A command wants to set localhost for %1$@ to %2$@.",
                               table: "Handlers", bundle: .module), workspace, choice)
     }
 }

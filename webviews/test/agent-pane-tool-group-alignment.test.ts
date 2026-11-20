@@ -1,4 +1,4 @@
-// Collapsed tool-group rows use one inset and a trailing chevron across summaries, failure counts,
+// Collapsed tool-group rows use one inset and an inline chevron across summaries, failure counts,
 // group kinds and nested placement (Leo: "this space between command and chevron often gets
 // misalinged it seems like there's sometimes an indent?"). The gallery matrix is the fixture and
 // this test measures the rendered geometry in Chromium.
@@ -28,14 +28,17 @@ await requireBrowserLane("agent-pane-tool-group-alignment.test.ts", async () => 
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
-    await warmGalleryFrame(vite, "agent-pane.tool-group-alignment", { browser, params: { variant: "dark" } });
+    await warmGalleryFrame(vite, "agent-pane.tool-group-alignment", {
+      browser,
+      params: { variant: "dark" },
+    });
   });
   afterAll(async () => {
     await browser?.close();
     await vite?.close();
   });
 
-  test("all collapsed group variants share the inset and trailing chevron", async () => {
+  test("all collapsed group variants keep the caret beside their label", async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width: 1200, height: 700 } });
     await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.tool-group-alignment", { variant: "dark" })}`);
@@ -56,18 +59,19 @@ await requireBrowserLane("agent-pane-tool-group-alignment.test.ts", async () => 
             group: cell.getAttribute("data-group"),
             iconInset: i.left - b.left,
             textInset: t.left - b.left,
-            trailingInset: b.right - c.right,
+            caretGap: c.left - t.right,
+            gapToken: Number.parseFloat(getComputedStyle(button).getPropertyValue("--cv-disclosure-gap")),
           };
         }),
       );
-    const spread = (key: "iconInset" | "textInset" | "trailingInset") => {
+    const spread = (key: "iconInset" | "textInset") => {
       const values = metrics.map((metric) => metric[key]);
       return Math.max(...values) - Math.min(...values);
     };
     expect(metrics).toHaveLength(6);
     expect(spread("iconInset")).toBeLessThanOrEqual(0.5);
     expect(spread("textInset")).toBeLessThanOrEqual(0.5);
-    expect(spread("trailingInset")).toBeLessThanOrEqual(0.5);
+    expect(metrics.every((metric) => metric.caretGap >= -0.5 && metric.caretGap <= metric.gapToken + 0.5)).toBe(true);
     await page.close();
   });
 });

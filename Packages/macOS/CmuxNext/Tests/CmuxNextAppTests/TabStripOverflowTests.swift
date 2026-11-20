@@ -1,12 +1,13 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Tab Overflow (cx-kp9b4) on a real strip in a window: crowded Shrink tabs stop at a minimum that keeps
 /// part of the title and then scroll; Scroll keeps tabs about 140 wide and scrolls; a crowded strip
 /// scrolls with no banner, and wheel, trackpad and selection move it.
-@MainActor @Suite(.serialized) struct TabStripOverflowTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabStripOverflowTests {
     private struct Harness {
         let window: NSWindow
         let strip: TabStripView
@@ -35,10 +36,12 @@ import Testing
     @Test func shrinkingTabsStopAtChromesMinimumThenScroll() throws {
         DesignSettings.shared.tabOverflow = .shrink
         let harness = Harness(count: 60)
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         let metrics = harness.strip.metrics
-        // Room for the favicon and the x (Lawrence 2026-10-20, was Chrome's 32) inactive, Chrome's 56 selected.
-        #expect(metrics.minInactiveTabWidth == metrics.faviconCloseWidth && metrics.minActiveTabWidth == 56,
+        // Room for the favicon, a few title characters and the x (Lawrence 2026-10-20 and msg 19596, was
+        // Chrome's 32) inactive; the selected minimum (Chrome's 56) never goes under it.
+        #expect(metrics.minInactiveTabWidth == metrics.crowdedMinimumWidth
+                && metrics.minActiveTabWidth == max(56, metrics.crowdedMinimumWidth),
                 "\(metrics.minInactiveTabWidth) / \(metrics.minActiveTabWidth)")
         #expect(metrics.minActiveTabWidth >= metrics.minInactiveTabWidth)
         #expect(harness.unselectedWidths.allSatisfy { $0 == metrics.minInactiveTabWidth }, "\(Set(harness.unselectedWidths))")
@@ -54,7 +57,7 @@ import Testing
         DesignSettings.shared.tabOverflow = .scroll
         defer { DesignSettings.shared.tabOverflow = .shrink }
         let harness = Harness(count: 20)
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         harness.strip.applyTokens(animated: false)
         harness.settle()
         let metrics = harness.strip.metrics
@@ -88,16 +91,18 @@ import Testing
         DesignSettings.shared.tabOverflow = .shrink
         // The tab strip of an 1100 pt window.
         let harness = Harness(count: 40, width: 854)
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         let strip = harness.strip
         try #require(strip.result.isOverflowing, "40 tabs fit in 854 pt, nothing scrolls")
         #expect(isInView(harness.selected, strip), "the selected last tab is scrolled out of view")
         #expect(strip.edgeFade.edges.leading && !strip.edgeFade.edges.trailing, "\(strip.edgeFade.edges)")
 
-        // No banner: the tabs' viewport runs up to the +, and the strip holds no label or button of its own.
+        // No banner: the tabs' viewport runs up to the +, less the + 's own leading gap (#41212, Lucas 2026-11-11: the
+        // split +'s fill touched the last tab), and the strip holds no label or button of its own.
         let metrics = strip.metrics
-        let plusX = strip.bounds.width - metrics.stripHorizontalPadding - metrics.newTabButtonWidth
-        #expect(abs(strip.tabsClip.frame.maxX - plusX) <= 0.5, "something takes \(plusX - strip.tabsClip.frame.maxX) pt beside the tabs")
+        let plusX = strip.bounds.width - metrics.stripHorizontalPadding - strip.newTabControlsWidth
+        #expect(abs(strip.tabsClip.frame.maxX + strip.newTabLeadingGap - plusX) <= 0.5,
+                "something takes \(plusX - strip.newTabLeadingGap - strip.tabsClip.frame.maxX) pt beside the tabs")
         func controls(in view: NSView) -> [NSView] {
             view.subviews.flatMap { ($0 is NSButton || $0 is NSTextField ? [$0] : []) + controls(in: $0) }
         }
@@ -113,7 +118,7 @@ import Testing
     @Test func wheelAndTrackpadScrollACrowdedStripAndSelectionScrollsBack() throws {
         DesignSettings.shared.tabOverflow = .shrink
         let harness = Harness(count: 40, width: 854)
-        defer { harness.window.orderOut(nil) }
+        defer { harness.window.closeAfterTest() }
         let strip = harness.strip
         try #require(strip.result.isOverflowing)
         let end = strip.scrollOffset

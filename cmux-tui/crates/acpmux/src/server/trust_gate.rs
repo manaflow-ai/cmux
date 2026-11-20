@@ -13,7 +13,9 @@
 //! - `trust.untrusted`: the user answered Don't trust.
 //!
 //! The level is `trust::session_level`: acpmux's decision, else the session's
-//! own agent's level. A record that cannot be read is no answer. The check is
+//! own agent's level. A record that cannot be read is no answer. A queued or started
+//! prompt's check with no answer once the daemon's shutdown began answers that the daemon
+//! restarts instead (`Hub::check_dispatch`): the next daemon checks it again. The check is
 //! here, in the daemon, so a page cannot get around it.
 //!
 //! A Web client cannot answer the question (`acp.trust.set` is refused for it
@@ -89,6 +91,7 @@ pub(super) async fn check(
         | method::SESSION_SET_MODE
         | method::SESSION_SET_CONFIG_OPTION
         | method::MUX_SET_TOOLS
+        | method::MUX_SET_DIRECTORIES
         // A reconnect starts the server's configured command again, in the chat's folder.
         | method::MUX_MCP_RECONNECT => session_key(params).ok().map(str::to_owned),
         method::MUX_HANDOFF_START => params
@@ -107,7 +110,22 @@ pub(super) async fn check(
     // folder, which the remote guard made canonical: that folder answers.
     let fork_cwd = params.get("cwd").and_then(Value::as_str).filter(|_| m == method::SESSION_FORK);
     let cwd = fork_cwd.map_or_else(|| meta.cwd.to_string_lossy().into_owned(), str::to_owned);
-    let family = meta.family.clone().unwrap_or_else(|| meta.harness.clone());
+    // A guest from another harness (`_acpmux/btw` with `targetHarness`, hub/btw.rs) starts that
+    // harness's agent in the folder: its family's answer counts, before anything starts.
+    // A switch (`session/fork` with `_meta.acpmux.harness`, `hub/fork.rs` `Retarget`) starts the
+    // picked harness's agent in the folder too: its family answers, so a switch the folder's
+    // answer does not cover is refused before a fork exists, as `session/new` is (review of
+    // cmux#41030).
+    let target = match m {
+        method::MUX_BTW => params.get("targetHarness").and_then(Value::as_str),
+        method::SESSION_FORK => params.pointer("/_meta/acpmux/harness").and_then(Value::as_str),
+        _ => None,
+    }
+    .map(str::trim);
+    let family = match target.filter(|h| !h.is_empty()) {
+        Some(target) => resolve_family(hub, target).await,
+        None => meta.family.clone().unwrap_or_else(|| meta.harness.clone()),
+    };
     let answered = folder_answered(paths, cwd, family, web).await;
     // A fork, a side session and a handoff start an agent of their own: not a running chat's.
     let same_agent = matches!(
@@ -116,6 +134,7 @@ pub(super) async fn check(
             | method::SESSION_SET_MODE
             | method::SESSION_SET_CONFIG_OPTION
             | method::MUX_SET_TOOLS
+            | method::MUX_SET_DIRECTORIES
             | method::MUX_MCP_RECONNECT
     );
     if same_agent && !web && running(&session) { pending_passes(answered) } else { answered }
@@ -135,13 +154,16 @@ fn running(session: &crate::hub::Session) -> bool {
 /// Web client still waits: its folder needs a person's decision.
 fn pending_passes(answered: Result<(), RpcError>) -> Result<(), RpcError> {
     match answered {
-        Err(e)
-            if e.data.as_ref().and_then(|d| d.get("reason")) == Some(&json!("trust.pending")) =>
-        {
-            Ok(())
-        }
+        Err(e) if is_pending(&e) => Ok(()),
         answered => answered,
     }
+}
+
+/// The gate's refusal for a folder with no answer (`trust.pending`): no answer was read, which
+/// is also what a record that cannot be read gives (`folder_answered`). Not `trust.untrusted`,
+/// the person's own No.
+pub(crate) fn is_pending(e: &RpcError) -> bool {
+    e.data.as_ref().and_then(|d| d.get("reason")) == Some(&json!("trust.pending"))
 }
 
 /// `web`: the prompt came from a Web client or a peer forwarding for one.
@@ -223,13 +245,21 @@ async fn resolve_family(hub: &Arc<Hub>, name: &str) -> String {
     if name.is_empty() {
         return String::new();
     }
+    resolve_harness(hub, name).await.1
+}
+
+/// The profile a harness name (a family or profile name, as `session/new` takes it) resolves to,
+/// and its family; the name for both when it resolves to none.
+pub(super) async fn resolve_harness(hub: &Arc<Hub>, name: &str) -> (String, String) {
     let cfg = hub.config.read().await;
     cfg.resolve_harness(name)
         .ok()
         .and_then(|resolved| {
-            cfg.harnesses.get(&resolved).map(|p| crate::config::derive_family(&resolved, p))
+            let family =
+                cfg.harnesses.get(&resolved).map(|p| crate::config::derive_family(&resolved, p))?;
+            Some((resolved, family))
         })
-        .unwrap_or_else(|| name.to_owned())
+        .unwrap_or_else(|| (name.to_owned(), name.to_owned()))
 }
 
 /// A Web client, or a peer that forwards for one: an auto-trust rule is no answer for it
@@ -238,7 +268,9 @@ pub(super) fn for_web(origin: Origin, params: &Value) -> bool {
     match origin {
         Origin::Web => true,
         Origin::Peer => params.pointer("/_meta/acpmux/via").and_then(Value::as_str) == Some("web"),
-        Origin::LocalApp | Origin::Local => false,
+        Origin::LocalApp => false,
+        // The phone's prompt through the local relay: Web decisions only.
+        Origin::Local => super::remote_guard::cloud_mobile(params),
     }
 }
 
@@ -250,7 +282,8 @@ pub(super) fn gated(origin: Origin, params: &Value) -> bool {
         Origin::Peer => matches!(via, Some("web" | "app")),
         // Native inline /btw uses the app marker on the local status socket so the
         // daemon applies the same folder-trust gate as a LocalApp WebSocket.
-        Origin::Local => via == Some("app"),
+        // The cmux-tui mobile relay's phone prompts (`via: cloud-mobile`) are gated too.
+        Origin::Local => matches!(via, Some("app" | "cloud-mobile")),
     }
 }
 
@@ -330,5 +363,17 @@ mod tests {
         assert!(gated(Origin::Local, &params));
         assert!(!gated(Origin::Local, &serde_json::json!({})));
         assert!(gated(Origin::LocalApp, &serde_json::json!({})));
+    }
+
+    /// The cmux-tui mobile relay reaches acpmux over the local socket: a phone's
+    /// prompt there is folder-trust gated, on Web decisions only, and the queued
+    /// prompt keeps that gate (`PromptRun::trust_gate` comes from `gated`).
+    #[test]
+    fn local_cloud_mobile_marker_is_trust_gated_for_the_web() {
+        let phone = serde_json::json!({"_meta": {"acpmux": {"via": "cloud-mobile"}}});
+        assert!(gated(Origin::Local, &phone));
+        assert!(for_web(Origin::Local, &phone));
+        assert!(!for_web(Origin::Local, &serde_json::json!({"_meta": {"acpmux": {"via": "app"}}})));
+        assert!(!for_web(Origin::LocalApp, &phone));
     }
 }

@@ -11,14 +11,33 @@ public struct PaletteTargetOption: Identifiable, Sendable, Hashable {
     public var swatches: [ThemeRGB]
     /// False keeps an unavailable destination visible but prevents choosing it.
     public var isEnabled: Bool
+    /// The action taken by choosing this row, visible beside its state.
+    public var accessory: String?
+    /// A source may offer a repair instead of selecting an unavailable object.
+    public var recovery: PaletteTargetRecovery?
 
-    public init(id: String, title: String, subtitle: String? = nil, symbol: String? = nil, swatches: [ThemeRGB] = [], isEnabled: Bool = true) {
+    public init(id: String, title: String, subtitle: String? = nil, symbol: String? = nil, swatches: [ThemeRGB] = [], isEnabled: Bool = true,
+                accessory: String? = nil, recovery: PaletteTargetRecovery? = nil) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
         self.symbol = symbol
         self.swatches = swatches
         self.isEnabled = isEnabled
+        self.accessory = accessory
+        self.recovery = recovery
+    }
+}
+
+/// A repair offered inline by an object source, run through the action registry.
+public struct PaletteTargetRecovery: Sendable, Hashable {
+    public var action: ActionID
+    public var title: String
+    /// The object being repaired, when recovery is an inline action for a listed row.
+    public var target: ActionTargetRef?
+
+    public init(action: ActionID, title: String, target: ActionTargetRef? = nil) {
+        (self.action, self.title, self.target) = (action, title, target)
     }
 }
 
@@ -33,6 +52,8 @@ public protocol PaletteTargetSource: AnyObject {
     /// An optional live inventory read when the argument page opens. Its cached rows may draw
     /// immediately; the palette's existing provider task is cancelled when the page closes.
     func targetRefresh(of kind: ActionTargetKind, for action: ActionID) -> (@MainActor () async -> [PaletteTargetOption])?
+    /// A live inventory that comes over time (a first list, then a fuller one); nil: `targetRefresh` once.
+    func targetUpdates(of kind: ActionTargetKind, for action: ActionID) -> (@MainActor () -> AsyncStream<[PaletteTargetOption]>)?
     /// The object's own name, which a rename prompt starts from; nil when
     /// it has none (an untitled object shows a fallback label instead).
     func title(of target: ActionTargetRef) -> String?
@@ -43,6 +64,7 @@ public protocol PaletteTargetSource: AnyObject {
 
 extension PaletteTargetSource {
     public func targetRefresh(of kind: ActionTargetKind, for action: ActionID) -> (@MainActor () async -> [PaletteTargetOption])? { nil }
+    public func targetUpdates(of kind: ActionTargetKind, for action: ActionID) -> (@MainActor () -> AsyncStream<[PaletteTargetOption]>)? { nil }
 
     /// The kind's whole list, for sources no action narrows.
     public func targets(of kind: ActionTargetKind, for action: ActionID) -> [PaletteTargetOption] {

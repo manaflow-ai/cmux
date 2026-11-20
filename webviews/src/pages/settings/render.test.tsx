@@ -24,6 +24,10 @@ const allowedFills = new Set([
   "var(--row-focus)",
   // A floating bar over the content (Appearance's Undo, Redo and Reset) is a popup surface.
   "var(--surface-popup)",
+  // The pinned jump bar is liquid glass: the popup surface at the chrome tint over a blur.
+  "var(--surface-glass)",
+  // The scroll edge's tint is the page's own background, easing out under the jump bar.
+  "var(--scroll-edge-tint)",
 ]);
 const containerTags = new Set([
   "HTML",
@@ -74,7 +78,13 @@ test("no rule declares a background other than transparent or the two interactio
   expect(fills.length).toBeGreaterThan(0);
   const htmlSurface = (item: { selector: string; value: string }) =>
     item.value === surface && selectors(item).every((part) => part === "html");
-  expect(fills.filter((item) => !allowedFills.has(item.value) && !htmlSurface(item))).toEqual([]);
+  // A progress bar's filled part is its value, not a surface (Settings > Updates' download bar, #33176).
+  const progressValue = (item: { selector: string; value: string }) =>
+    item.value === "var(--text)" &&
+    selectors(item).every((part) => /::-(?:webkit-progress-value|moz-progress-bar)$/.test(part));
+  expect(fills.filter((item) => !allowedFills.has(item.value) && !htmlSurface(item) && !progressValue(item))).toEqual(
+    [],
+  );
   // Containers never take a token fill; only controls and interaction states do.
   const containers =
     /^(body|#root|\.settings|\.sidebar|\.content|\.section|\.group|\.rows|\.row|\.row-main|\.result-section|\.domain-panel|\.notice|\.banner)$/;
@@ -83,24 +93,7 @@ test("no rule declares a background other than transparent or the two interactio
   ).toEqual([]);
 });
 
-test("theme colors read the one web theme first, then the page theme", () => {
-  const root = new Map(
-    declarations(stylesheet)
-      .filter((item) => item.selector === ":root")
-      .map((item) => [item.property, item.value.replace(/\s+/g, " ").replace(/\(\s/g, "(")]),
-  );
-  const expected: Array<[string, string, string]> = [
-    ["--text", "--cmux-text", "--app-text"],
-    ["--muted-text", "--cmux-text-secondary", "--app-muted-text"],
-    ["--soft-text", "--cmux-text-tertiary", "--app-soft-text"],
-    ["--border", "--cmux-separator", "--app-border"],
-    ["--input-bg", "--cmux-hover", "--app-input-bg"],
-    ["--accent-soft", "--cmux-selection", "--app-accent-soft"],
-  ];
-  for (const [name, cmux, app] of expected) {
-    expect(root.get(name)).toStartWith(`var(${cmux}, var(${app},`);
-  }
-});
+// Real host-theme propagation is exercised in settings-controls-browser.test.ts.
 
 test("the rendered page: html carries only the surface background, body and containers none", async () => {
   // Probe: the computed-style check sees stylesheet fills, so a pass below is meaningful.
@@ -158,4 +151,21 @@ test("on controls follow appearance.accent with a neutral fallback; links and th
   }
   expect(root.get("--accent")).toBe("var(--cmux-accent, var(--text))");
   expect(root.get("--accent-text")).not.toContain("accent");
+});
+
+// A status dot (Connected, Signed in, a paired device) is the shared status color of its theme:
+// --success, --warning and --danger name the design tokens (--ds-color-*, light and dark in
+// pages/shared/desktop.css), and no rule reads them with a fallback, so a missing role shows as a
+// missing role in review instead of quietly painting the dot the text color.
+test("status colors are the shared design tokens, with no fallback to the text color", () => {
+  const root = new Map<string, string>();
+  for (const { selector, property, value } of declarations(stylesheet))
+    if (selector === ":root") root.set(property, value);
+  expect(root.get("--success")).toBe("var(--ds-color-success)");
+  expect(root.get("--warning")).toBe("var(--ds-color-attention)");
+  expect(root.get("--danger")).toBe("var(--ds-color-danger)");
+  const fallbacks = declarations(stylesheet)
+    .filter((item) => /var\(--(success|warning|danger)\s*,/.test(item.value))
+    .map((item) => `${item.selector} { ${item.property}: ${item.value} }`);
+  expect(fallbacks).toEqual([]);
 });

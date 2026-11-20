@@ -55,8 +55,8 @@ export declare class Vm {
     linuxUser(linuxUser: string): VmLinuxUser;
     /**
      * Capture the VM's exact state, memory and disk. The VM must be running or
-     * paused. The new snapshot is private and fully materialized when this
-     * resolves.
+     * paused. The new snapshot is private, and VMs can be created from it as
+     * soon as this resolves.
      */
     snapshot(options?: CreateSnapshotOptions): Promise<SnapshotCreated>;
 }
@@ -117,4 +117,6 @@ export declare class VmsNamespace {
     ref(vmIdOrSlug: string): Vm;
     delete(vmIdOrSlug: string): Promise<void>;
 }
+export { connectXterm } from "./xterm.js";
+export type { ConnectXtermOptions, XtermTerminal } from "./xterm.js";
 //# sourceMappingURL=index.d.ts.map

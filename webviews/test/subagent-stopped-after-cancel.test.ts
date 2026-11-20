@@ -179,7 +179,7 @@ test("a subagent the restarted agent no longer reports reads disconnected", asyn
 });
 
 test("a foreground subagent whose turn completed reads done, never running for good", async () => {
-  // Leo's Inspector read "5 running" with about 3 live: a foreground subagent's end the harness
+  // Leo's Session Info read "5 running" with about 3 live: a foreground subagent's end the harness
   // never sent kept it running after its turn completed. A foreground subagent cannot outlive a
   // turn that completed (the turn waits on it); a background one runs on.
   const rows = await connect(

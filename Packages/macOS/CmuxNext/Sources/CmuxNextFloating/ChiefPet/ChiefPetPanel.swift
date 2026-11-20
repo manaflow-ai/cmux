@@ -34,6 +34,8 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     var visibleFrame: () -> CGRect? = { nil }
     /// The pet was pulled back on its screen after a screen change (the bubble and reply box take their side again).
     var onKeptOnScreen: (() -> Void)?
+    /// The pet was shown, hidden, covered or uncovered (another window, the screen asleep): its frames stop or go on.
+    var onVisibilityChange: (() -> Void)?
     /// The didChangeScreenParameters observer's token, kept for the panel's life.
     private var screenObserver: MainActorObservation?
 
@@ -116,16 +118,28 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
         }
         // Never key, never activating: it shows over the frontmost app and leaves it in front.
         orderFrontRegardless()
+        onVisibilityChange?()
     }
 
     func dismiss() {
         pet.runClip(false)  // hidden: the clip's loop stops
         orderOut(nil)
+        onVisibilityChange?()
     }
 
     /// A screen change (a display unplugged, the pet dragged onto another) keeps it on its screen.
     public func windowDidChangeScreen(_ notification: Notification) {
         keepOnScreen()
+    }
+
+    public func windowDidChangeOcclusionState(_ notification: Notification) {
+        onVisibilityChange?()
+    }
+
+    /// Whether the pet faces right: toward the nearer side of its screen, the side it is docked toward.
+    var facesRight: Bool {
+        guard let visible = visibleFrame() else { return true }
+        return frame.midX >= visible.midX
     }
 
     /// Pulls the pet fully back on its screen. Not during a drag: AppKit reports the screen change as
@@ -134,7 +148,12 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     func keepOnScreen() {
         guard !pet.isDragging, let visible = visibleFrame() else { return }
         let origin = ChiefPetPlacement.clamped(frame.origin, size: frame.size, in: visible)
-        guard origin != frame.origin else { return }
+        // The screen's middle can move with no move of the pet (another screen, a new resolution):
+        // the controller redraws the character's facing either way.
+        guard origin != frame.origin else {
+            onKeptOnScreen?()
+            return
+        }
         setFrameOrigin(origin)
         onKeptOnScreen?()
     }
@@ -171,9 +190,15 @@ final class ChiefPetView: NSView, StatusIndicatorConfigClient {
     private let character = ChiefPetCharacter()
     /// The person's upload, drawn instead of `image` while set (``play(_:)``).
     private var clip: ChiefPetClip?
+    /// An animated character's frames, over the character's box (hidden for a still character).
+    let sprite = ChiefPetSpriteLayer()
     /// Where the press started, in screen points, the panel's origin then, and whether it was on the character.
     private var press: (start: CGPoint, origin: CGPoint, onCharacter: Bool)?
     private var dragging = false
+    /// Where the pointer was when the drag's lean last turned: the next turn needs `leanSlop` points from here.
+    private var leanSample: CGPoint?
+    /// How far the pointer moves before the lean follows it, so a jitter does not flip it.
+    static let leanSlop: CGFloat = 3
     /// A press is moving the pet now.
     var isDragging: Bool { dragging }
 
@@ -183,6 +208,7 @@ final class ChiefPetView: NSView, StatusIndicatorConfigClient {
         character.layer?.contentsGravity = .resizeAspect
         character.layer?.magnificationFilter = .nearest
         character.layer?.minificationFilter = .trilinear
+        character.layer?.addSublayer(sprite.layer)
         addSubview(character)
         addSubview(rail)
         badgeView.isHidden = true
@@ -201,6 +227,12 @@ final class ChiefPetView: NSView, StatusIndicatorConfigClient {
         StatusIndicatorAppearance.shared.register(self)
     }
 
+    /// The name VoiceOver and the tooltip give the pet: the Chief, or the chat Show in Mini picked.
+    func name(_ title: String) {
+        character.setAccessibilityLabel(title)
+        themedToolTip = title
+    }
+
     /// Loops just turned off (or on): the clip stops on its first frame (or moves again).
     func statusIndicatorConfigDidChange(_ config: StatusIndicatorConfig) {
         reconcileClip()
@@ -215,14 +247,18 @@ final class ChiefPetView: NSView, StatusIndicatorConfigClient {
     required init?(coder: NSCoder) { nil }
 
     var image: NSImage? {
-        didSet { if clip == nil { character.layer?.contents = image } }
+        didSet { if clip == nil { character.layer?.contents = sprite.layer.isHidden ? image : nil } }
     }
 
-    /// Draws `clip` (the person's upload) instead of `image`; nil draws `image` again. Its first
-    /// frame shows until `runClip(_:)` lets it move.
+    /// Draws `clip` (the person's upload) instead of `image` or an animated character; nil draws the
+    /// character again (the controller redraws an animated one). Its first frame shows until
+    /// `runClip(_:)` lets it move.
     func play(_ clip: ChiefPetClip?) {
         self.clip = clip
-        character.layer?.contents = clip?.frames.first ?? image
+        // An upload covers the character: an animated one's frames stop and hide under it.
+        if clip != nil { sprite.show(nil, state: .idle, facingRight: true, moving: false) }
+        // No clip: the still `image`, unless an animated character's frames show over the box.
+        character.layer?.contents = clip?.frames.first ?? (sprite.layer.isHidden ? image : nil)
         character.layer?.removeAnimation(forKey: "clip")
         clipRuns = false
         runClip(clipAllowed)
@@ -246,10 +282,20 @@ final class ChiefPetView: NSView, StatusIndicatorConfigClient {
         if let loop { layer.add(loop, forKey: "clip") }
     }
 
+    /// Draws an animated character's `state` (nil: the still `image`), facing right or left, its row
+    /// stepping while `moving`. A still character keeps `image` and never moves; an upload (`clip`)
+    /// is drawn instead of either.
+    func animate(_ animated: ChiefPetSprite?, state: ChiefPetState, facingRight right: Bool, moving: Bool) {
+        guard clip == nil else { return }
+        sprite.show(animated, state: state, facingRight: right, moving: moving)
+        character.layer?.contents = animated == nil ? image : nil
+    }
+
     override func layout() {
         super.layout()
         let size = ChiefPetPanel.characterSize
         character.frame = CGRect(x: ((bounds.width - size.width) / 2).rounded(), y: bounds.height - size.height, width: size.width, height: size.height)
+        sprite.layer.frame = character.bounds
         let width = rail.width
         rail.frame = CGRect(x: ((bounds.width - width) / 2).rounded(), y: 0, width: width, height: ChiefPetRail.height)
         let badge = badgeView.fittingSize
@@ -287,6 +333,7 @@ final class ChiefPetView: NSView, StatusIndicatorConfigClient {
         let local = convert(event.locationInWindow, from: nil)
         press = (pointer(), window?.frame.origin ?? .zero, character.frame.contains(local))
         dragging = false
+        leanSample = press?.start
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -296,21 +343,29 @@ final class ChiefPetView: NSView, StatusIndicatorConfigClient {
         dragging = true
         // Whole points, as the saved spot is: the drop then rounds nothing and the notices stay put.
         window.setFrameOrigin(CGPoint(x: (press.origin.x + point.x - press.start.x).rounded(), y: (press.origin.y + point.y - press.start.y).rounded()))
+        lean(toward: point)
         onDragMoved?()
     }
 
+    /// An animated character leans the way the drag pulls it: the dominant way since the last turn.
+    private func lean(toward point: CGPoint) {
+        let from = leanSample ?? point
+        guard let direction = ChiefPetDirection.dominant(dx: point.x - from.x, dy: point.y - from.y, minimum: Self.leanSlop) else { return }
+        leanSample = point
+        sprite.drag(direction)
+    }
+
     override func mouseUp(with event: NSEvent) {
-        defer { press = nil; dragging = false }
+        // The drop: the character draws its state again.
+        defer { press = nil; dragging = false; leanSample = nil; sprite.drag(nil) }
         guard let press else { return }
         if dragging { onDragEnded?() } else if press.onCharacter { onClick?() }
     }
 
     /// Where the character sits in the view.
     var characterFrame: CGRect { character.frame }
-
-    override func resetCursorRects() {
-        addCursorRect(character.frame, cursor: .pointingHand)
-    }
+    /// What the character's own box draws (the still or an upload frame; nil under an animated character's frames).
+    var characterContents: Any? { character.layer?.contents }
 }
 
 /// The character's view: a VoiceOver press on it is a click on the character.

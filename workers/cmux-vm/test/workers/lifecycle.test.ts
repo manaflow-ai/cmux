@@ -53,6 +53,7 @@ describe("createVm", () => {
       idleTimeoutSeconds: 300,
       metadata: { cmux_tenant: TENANT_A, cmux_id: id, cmux_env: "local", cmux_actor: expect.stringMatching(/^key:/), cmux_create: expect.stringMatching(/^[A-Za-z0-9_-]+$/) },
       firewall: { rules: [] },
+      customer: { customerId: TENANT_A },
     });
     const upstreamId = [...t.upstream.vms.keys()][0] ?? "missing";
     expect(text).not.toContain(upstreamId);
@@ -100,9 +101,22 @@ describe("createVm", () => {
     expect((await createVm(t, devTest, { idleTimeoutSeconds: 3600 })).status).toBe(400);
 
     expect(t.upstream.callsTo("POST", /^\/v5\/vms$/).map((call) => call.json)).toEqual([
-      expect.objectContaining({ idleTimeoutSeconds: -1, metadata: expect.objectContaining({ cmux_tenant: TENANT_A, cmux_env: "production" }) }),
-      expect.objectContaining({ idleTimeoutSeconds: 300, metadata: expect.objectContaining({ cmux_tenant: TENANT_B }) }),
+      expect.objectContaining({ idleTimeoutSeconds: -1, metadata: expect.objectContaining({ cmux_tenant: TENANT_A, cmux_env: "production" }), customer: { customerId: TENANT_A } }),
+      expect.objectContaining({ idleTimeoutSeconds: 300, metadata: expect.objectContaining({ cmux_tenant: TENANT_B }), customer: { customerId: TENANT_B } }),
     ]);
+  });
+
+  it("tags a Stack team's VM with the vault's production tenant key, outside the create digest", async () => {
+    const team = "0b6f3a52-6c1e-4f43-9a1e-2d7c5e8f9a10";
+    const t = await harness({ environment: "production" });
+    t.setBilling(team, true);
+    const key = await t.addKey(team, ["vm:write"]);
+
+    expect((await createVm(t, key)).status).toBe(201);
+    const [sent] = t.upstream.callsTo("POST", /^\/v5\/vms$/).map((call) => call.json);
+    expect(sent).toMatchObject({ metadata: { cmux_tenant: team, cmux_vt: team } });
+    expect(sent).not.toHaveProperty("metadata.cmux_vt_stg");
+    expect(sent).not.toHaveProperty("metadata.cmux_vt_dev");
   });
 
   it("boots from the tenant's own snapshot by its upstream id", async () => {
@@ -325,8 +339,20 @@ describe("start, stop, pause, resume", () => {
     expect(response.status).toBe(200);
     expect(await json(response)).toMatchObject({ id: vmId, state: "stopped" });
     expect(t.upstream.callsTo("POST", new RegExp(`^/v5/vms/${upstreamId}/exec-await$`)).map((call) => call.json)).toEqual([
-      { command: "poweroff", timeoutMs: 10000 },
+      { command: "poweroff", timeoutMs: 10000, linuxUser: "root" },
     ]);
+  });
+
+  it("stop answers an error, not the running VM as stopped, when the guest refuses the poweroff", async () => {
+    const t = await harness();
+    const { vmId } = t.addVm(TENANT_A, "running");
+    const key = await t.addKey(TENANT_A, ["vm:write"]);
+    t.upstream.replyToExec("poweroff", () =>
+      Response.json({ statusCode: 1, stdout: "", stderr: "Call to PowerOff failed\n", vmId: "x", node: "n" }));
+
+    const response = await action(t, key, vmId, "stop");
+
+    expect(response.status).toBe(503);
   });
 
   it("stop is a no-op on a stopped VM and refuses a paused one", async () => {

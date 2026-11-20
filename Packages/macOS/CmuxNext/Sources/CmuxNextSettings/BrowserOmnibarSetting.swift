@@ -18,33 +18,20 @@ import Foundation
 ///                "glassTintStrength": 0.35,     // 0 to 1
 ///                "cornerRadius": "theme",       // capsule, or points 0 to 16
 ///                "shadow": false,
-///                "backgroundOpacity": 0 }       // 0 to 1, over a see-through window
+///                "backgroundOpacity": 0,        // 0 to 1, over a see-through window
+///                // the bar's size (issue 28734): "density" follows the density preset
+///                "height": "density",           // or points 20 to 56
+///                "fontSize": "density" }        // or points 10 to 24
 /// }
 /// ```
 ///
 /// `%s` or `{searchTerms}` marks where the typed text goes. A bad value is
-/// that key's default plus a diagnostic at its key.
+/// that key's default plus a diagnostic at its key. Each key's path, default, range and words
+/// (`searchEngineValues`: the built-in engines, then `custom`) come from
+/// schemas/settings/source/browser.json (SettingsSchema+Browser.generated.swift).
 public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
-    public static let searchEnginePath = ["browser", "searchEngine"]
-    public static let customSearchPath = ["browser", "customSearchEngine", "search"]
-    public static let customSuggestPath = ["browser", "customSearchEngine", "suggest"]
-    public static let remoteSuggestionsPath = ["browser", "omnibar", "remoteSuggestions"]
-    public static let inlineAutocompletePath = ["browser", "omnibar", "inlineAutocomplete"]
-    public static let maxRowsPath = ["browser", "omnibar", "maxRows"]
-    public static let calculatorPath = ["browser", "omnibar", "calculator"]
-    /// Chrome's "Always show full URLs" (the address bar's right-click menu).
-    public static let showFullURLsPath = ["browser", "omnibar", "showFullURLs"]
-    public static let glassPath = ["browser", "omnibar", "glass"]
-    public static let glassTintPath = ["browser", "omnibar", "glassTint"]
-    public static let glassTintStrengthPath = ["browser", "omnibar", "glassTintStrength"]
-    public static let cornerRadiusPath = ["browser", "omnibar", "cornerRadius"]
-    public static let shadowPath = ["browser", "omnibar", "shadow"]
-    public static let backgroundOpacityPath = ["browser", "omnibar", "backgroundOpacity"]
-    /// `cornerRadius` points; the words are `theme` and `capsule`.
-    public static let cornerRadiusRange: ClosedRange<Double> = 0...16
-    /// The built-in engines, then `custom`.
-    public static let engines = ["google", "duckduckgo", "bing", "brave", "kagi", "custom"]
-    public static let maxRowsRange: ClosedRange<Double> = 3...15
+    /// The paths whose number is clamped into range (with a diagnostic) instead of refused.
+    static let clampedPaths: [[String]: ClosedRange<Double>] = [heightPath: heightRange, fontSizePath: fontSizeRange]
     /// The custom engine's addresses: each must mark where the typed text goes.
     public static let templatePaths = [customSearchPath, customSuggestPath]
 
@@ -60,48 +47,59 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
             .replacingOccurrences(of: "{searchTerms}", with: "x")) != nil
     }
 
-    public var searchEngine = "google"
-    public var customSearch = ""
-    public var customSuggest = ""
-    public var remoteSuggestions = true
-    public var inlineAutocomplete = true
-    public var maxRows = 8
-    public var calculator = true
+    public var searchEngine = BrowserOmnibarSetting.searchEngineDefault
+    public var customSearch = BrowserOmnibarSetting.customSearchDefault
+    public var customSuggest = BrowserOmnibarSetting.customSuggestDefault
+    public var remoteSuggestions = BrowserOmnibarSetting.remoteSuggestionsDefault
+    public var inlineAutocomplete = BrowserOmnibarSetting.inlineAutocompleteDefault
+    public var maxRows = Int(BrowserOmnibarSetting.maxRowsDefault)
+    public var calculator = BrowserOmnibarSetting.calculatorDefault
     /// The bar shows the whole address at rest (no elided `https://` or `www.`).
-    public var showFullURLs = false
-    public var glass = "off"
-    public var glassTint = "background"
-    public var glassTintStrength = 0.35
+    public var showFullURLs = BrowserOmnibarSetting.showFullURLsDefault
+    public var glass = BrowserOmnibarSetting.glassDefault
+    public var glassTint = BrowserOmnibarSetting.glassTintDefault
+    public var glassTintStrength = BrowserOmnibarSetting.glassTintStrengthDefault
     /// nil: the theme's radius; `.infinity`: a capsule; else points.
     public var cornerRadius: Double?
-    public var shadow = false
+    public var shadow = BrowserOmnibarSetting.shadowDefault
     /// How much the flat bar covers a see-through window, 0 to 1; 0 keeps
     /// the window's transparency down to the text's legibility floor.
-    public var backgroundOpacity = 0.0
+    public var backgroundOpacity = BrowserOmnibarSetting.backgroundOpacityDefault
+    /// The bar's height in points; nil follows density.
+    public var height: Double?
+    /// The bar's text size in points; nil follows density.
+    public var fontSize: Double?
 
     public init() {}
 
     public static let fallback = BrowserOmnibarSetting()
 
-    /// Each key is checked against its schema row (`OmnibarSettingsSchema`),
+    /// Each key is checked against its schema row (`BrowserSettingsSchema.addressBar`),
     /// so the parser and the Settings window agree on what is valid.
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> BrowserOmnibarSetting {
         var setting = fallback
-        for descriptor in OmnibarSettingsSchema.descriptors {
-            guard let value = root.value(at: descriptor.path) else { continue }
+        for descriptor in BrowserSettingsSchema.addressBar {
+            guard var value = root.value(at: descriptor.path) else { continue }
+            if let range = clampedPaths[descriptor.path], let number = value.doubleValue, number.isFinite, !range.contains(number) {
+                // A size past its range applies at the nearest end, and says so.
+                let clamped = min(max(number, range.lowerBound), range.upperBound)
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id,
+                                                      message: OmnibarSettingsSchema.expectation(descriptor) + "; using \(Int(clamped))"))
+                value = .number(clamped)
+            }
             guard descriptor.accepts(value) else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
                 continue
             }
             switch descriptor.path {
             case searchEnginePath: setting.searchEngine = value.stringValue ?? setting.searchEngine
-            case customSearchPath: setting.customSearch = value.stringValue ?? ""
-            case customSuggestPath: setting.customSuggest = value.stringValue ?? ""
-            case remoteSuggestionsPath: setting.remoteSuggestions = value.boolValue ?? true
-            case inlineAutocompletePath: setting.inlineAutocomplete = value.boolValue ?? true
-            case maxRowsPath: setting.maxRows = Int(value.doubleValue ?? 8)
-            case calculatorPath: setting.calculator = value.boolValue ?? true
-            case showFullURLsPath: setting.showFullURLs = value.boolValue ?? false
+            case customSearchPath: setting.customSearch = value.stringValue ?? setting.customSearch
+            case customSuggestPath: setting.customSuggest = value.stringValue ?? setting.customSuggest
+            case remoteSuggestionsPath: setting.remoteSuggestions = value.boolValue ?? setting.remoteSuggestions
+            case inlineAutocompletePath: setting.inlineAutocomplete = value.boolValue ?? setting.inlineAutocomplete
+            case maxRowsPath: setting.maxRows = value.doubleValue.map { Int($0) } ?? setting.maxRows
+            case calculatorPath: setting.calculator = value.boolValue ?? setting.calculator
+            case showFullURLsPath: setting.showFullURLs = value.boolValue ?? setting.showFullURLs
             case glassPath: setting.glass = value.stringValue ?? setting.glass
             case glassTintPath: setting.glassTint = value.stringValue ?? setting.glassTint
             case glassTintStrengthPath: setting.glassTintStrength = value.doubleValue ?? setting.glassTintStrength
@@ -111,8 +109,10 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
                 case "capsule": setting.cornerRadius = .infinity
                 default: setting.cornerRadius = value.doubleValue
                 }
-            case shadowPath: setting.shadow = value.boolValue ?? false
+            case shadowPath: setting.shadow = value.boolValue ?? setting.shadow
             case backgroundOpacityPath: setting.backgroundOpacity = value.doubleValue ?? setting.backgroundOpacity
+            case heightPath: setting.height = value.stringValue == "density" ? nil : value.doubleValue
+            case fontSizePath: setting.fontSize = value.stringValue == "density" ? nil : value.doubleValue
             default: break
             }
         }

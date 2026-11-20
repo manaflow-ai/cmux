@@ -1,7 +1,8 @@
 // A nightly digest built from summary lines carries each line as both title and summary
 // (scripts/cmux-next/release-notes.py). The page must show the line once, not "Title  Title".
 import { expect, test } from "bun:test";
-import { releaseView } from "../src/pages/changelog/model";
+import { highlightMedia, releaseView } from "../src/pages/changelog/model";
+import { parseCompareMode } from "../src/pages/changelog/store";
 import type { ReleaseNotes, WhatsNewEntry } from "../src/pages/changelog/types";
 
 function entry(id: string, title: string, summary: string): WhatsNewEntry {
@@ -41,12 +42,84 @@ test("a summary that repeats its title is dropped", () => {
   expect(summaries(view)).toEqual({ "summary-0": "", "summary-1": "" });
 });
 
+test("a quoted summary that repeats its title is dropped", () => {
+  const view = releaseView(notes([entry("tabs", "Tabs stay put", '"Tabs stay put."')]), "en");
+  expect(summaries(view)).toEqual({ tabs: "" });
+});
+
 test("a summary that says more than its title is kept", () => {
   const view = releaseView(
     notes([entry("tabs", "Tab groups", "Colored labels, icons, and pins that keep a group.")]),
     "en",
   );
   expect(summaries(view)).toEqual({ tabs: "Colored labels, icons, and pins that keep a group." });
+});
+
+test("All Changes suppresses a title-fallback description without changing the source notes", () => {
+  const title = "Tabs keep their position, even after restarting with several windows open";
+  const source = notes([]);
+  // Missing or rejected PR prose produces this full-title description at release time.
+  source.items = [
+    { title: `fix(tabs): ${title}`, pr: 123, description: `${title}.` },
+    { title: "fix(tabs): Tabs stay put", pr: 124, description: "tabs stay put." },
+    {
+      title: "Provider allocations stay consistent",
+      internal: true,
+      description: "Provider allocations stay consistent.",
+    },
+  ];
+  const original = structuredClone(source);
+  const view = releaseView(source, "en");
+  expect(view.changes.map((item) => [item.title, item.description])).toEqual([
+    [title, ""],
+    ["Tabs stay put", ""],
+  ]);
+  expect(view.underTheHood[0]?.description).toBe("");
+  expect(source).toEqual(original);
+  expect(source.items[0]?.description).toBe(`${title}.`);
+});
+
+test("All Changes preserves distinct descriptions and changes without descriptions", () => {
+  const source = notes([]);
+  source.items = [
+    { title: "fix(tabs): Tabs stay put", description: "Your layout comes back after restart." },
+    { title: "fix(panes): Panes restore" },
+  ];
+  const view = releaseView(source, "en");
+  expect(view.changes.map((item) => item.description)).toEqual(["Your layout comes back after restart.", undefined]);
+});
+
+test("a shortened digest title and its full summary title appear as one change", () => {
+  const title = "Tabs keep their position, even after restarting with several windows open";
+  const description = "Your workspace comes back where you left it.";
+  const source = notes([entry("summary-0", "Tabs keep their position", description)]);
+  source.summary = [{ group: "new", title, description }];
+
+  const view = releaseView(source, "en");
+  expect(view.count).toBe(1);
+  expect(view.groups.flatMap((group) => group.items).map((item) => [item.id, item.title, item.summary])).toEqual([
+    ["summary-0", "Tabs keep their position", description],
+  ]);
+});
+
+test("summary entries missing from the digest remain visible beside deduplicated entries", () => {
+  const description = "Your workspace comes back where you left it.";
+  const source = notes([entry("summary-1", "Tabs keep their position", description)]);
+  source.summary = [
+    { group: "new", title: "Search open tabs", description: "Find a tab by its name." },
+    {
+      group: "new",
+      title: "Tabs keep their position, even after restarting with several windows open",
+      description,
+    },
+  ];
+
+  const view = releaseView(source, "en");
+  expect(view.count).toBe(2);
+  expect(view.groups.flatMap((group) => group.items).map((item) => [item.id, item.title])).toEqual([
+    ["summary-1", "Tabs keep their position"],
+    ["summary-0", "Search open tabs"],
+  ]);
 });
 
 // An older pipeline cut long titles with "…" and carried the whole line as the summary: the row
@@ -63,8 +136,10 @@ test("a title cut with an ellipsis is made whole from its summary", () => {
 });
 
 // The digest of a new pipeline carries a shortened title and the rest of its line as the summary;
-// an older one carries the whole line. Either way the row reads the line once.
-test("a summary that continues its title shows only what it adds", () => {
+// an older one carries the whole line. Either way the row reads the line once: as one title, since
+// "so a column scrolled in is never blank" is the rest of a sentence, not one of its own (Leo
+// 2026-11-02: "the 0 information density one", on rows whose grey line was a piece of the title).
+test("a summary that continues its title reads as one whole title", () => {
   const view = releaseView(
     notes([
       entry(
@@ -75,7 +150,10 @@ test("a summary that continues its title shows only what it adds", () => {
     ]),
     "en",
   );
-  expect(summaries(view)).toEqual({ "summary-0": "So a column scrolled in is never blank" });
+  expect(summaries(view)).toEqual({ "summary-0": "" });
+  expect(view.groups.flatMap((g) => g.items)[0]?.title).toBe(
+    "Terminals in the keep-alive band keep drawing, so a column scrolled in is never blank",
+  );
 });
 
 // A reviewed entry is a person's words: product names, a "Word:" lead and a long title stay, and
@@ -102,4 +180,60 @@ test("a reviewed entry keeps its words and its summary", () => {
       "Everything comes back where you left it.",
     ],
   ]);
+});
+
+// A highlight's before/after pair (release-notes.py add_gallery_media): [after, before], each with its role.
+const after = { url: "data:image/png;base64,QUZURVI=", kind: "image", alt: "The sidebar now", role: "after" as const };
+const before = {
+  url: "data:image/png;base64,QkVGT1JF",
+  kind: "image",
+  alt: "The sidebar before",
+  role: "before" as const,
+};
+
+test("a before/after pair shows the after with its before", () => {
+  expect(highlightMedia([after, before])).toEqual({
+    light: after.url,
+    dark: after.url,
+    alt: after.alt,
+    video: false,
+    before: { src: before.url, alt: before.alt },
+  });
+  // The order does not choose the main picture: the after does.
+  expect(highlightMedia([before, after])?.light).toBe(after.url);
+});
+
+test("a lone picture has no before", () => {
+  const lone = { url: "data:image/png;base64,TE9ORQ==", kind: "image", alt: "A picture" };
+  expect(highlightMedia([lone])).toEqual({ light: lone.url, dark: lone.url, alt: lone.alt, video: false });
+});
+
+test("a before alone shows no picture", () => {
+  expect(highlightMedia([before])).toBeUndefined();
+});
+
+test("a before whose source the page cannot show is dropped, and the after stays", () => {
+  const remote = { ...before, url: "https://example.com/before.png" };
+  expect(highlightMedia([after, remote])).toEqual({ light: after.url, dark: after.url, alt: after.alt, video: false });
+});
+
+test("a release's highlight carries its pair to the view", () => {
+  const view = releaseView(
+    {
+      build: "3911762409401",
+      shortVersion: "1.0.0-nightly.3911762409401",
+      date: "2026-10-18",
+      highlights: [{ id: "sidebar", title: "A calmer sidebar", body: "Rows line up.", media: [after, before] }],
+      changes: [],
+    },
+    "en",
+  );
+  expect(view.hero?.media?.before).toEqual({ src: before.url, alt: before.alt });
+});
+
+test("the route names the compare mode; the dragged split by default", () => {
+  expect(parseCompareMode("#/?compare=side")).toBe("side");
+  expect(parseCompareMode("#/?compare=toggle")).toBe("toggle");
+  expect(parseCompareMode("#/?compare=other")).toBe("slider");
+  expect(parseCompareMode("")).toBe("slider");
 });

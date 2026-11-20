@@ -60,6 +60,14 @@ package final class ActionLatencyHUD {
         panel?.orderOut(nil)
     }
 
+    /// Hides the panel and closes it (a test's teardown); the next show makes a new one.
+    package func close() {
+        hide()
+        panel?.close()
+        panel = nil
+        label = nil
+    }
+
     /// Puts `run` first (the stream, or a test).
     package func add(_ run: ActionTimingSample) {
         rows.insert(run, at: 0)

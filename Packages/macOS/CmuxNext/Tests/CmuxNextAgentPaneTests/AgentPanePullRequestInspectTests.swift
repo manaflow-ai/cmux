@@ -18,13 +18,29 @@ struct AgentPanePullRequestInspectTests {
             == .inspectPullRequest(try #require(URL(string: "https://github.com/o/r/pull/7"))))
     }
 
+    /// An issue link gets its card too (Leo 2026-11-08, of a private repo's issue card that showed
+    /// only its link): `/issues/<n>` is taken by the same rule and kept as an issue URL, while
+    /// ``AgentPaneReplyRequest/pullRequestURL(_:)``, which the GitHub page and the sidebar use,
+    /// still takes only a pull request.
+    @Test func takesAGitHubIssueLinkForItsCard() throws {
+        let issue = try #require(URL(string: "https://github.com/manaflow-ai/cmuxterm-hq/issues/7707"))
+        #expect(AgentPaneReplyRequest(method: "pr.inspect", params: ["url": "https://github.com/manaflow-ai/cmuxterm-hq/issues/7707/"])
+            == .inspectPullRequest(issue))
+        #expect(AgentPaneReplyRequest.pullRequestURL(issue.absoluteString) == nil)
+        // A repository named `pull` is a name, not the kind.
+        #expect(AgentPaneReplyRequest.pullRequestURL("https://github.com/o/pull/issues/3") == nil)
+        #expect(AgentPaneReplyRequest.githubItemURL("https://github.com/o/pull/issues/3")?.absoluteString == "https://github.com/o/pull/issues/3")
+        #expect(AgentChatPullRequestReader.Target(url: issue.absoluteString)?.number == 7707)
+    }
+
     @Test func refusesAnythingElse() {
         for url in [
             "http://github.com/o/r/pull/7",
             "https://evil.example/o/r/pull/7",
             "https://github.com.evil.example/o/r/pull/7",
             "https://user:secret@github.com/o/r/pull/7",
-            "https://github.com/o/r/issues/7",
+            "https://github.com/o/r/issues/7/files",
+            "https://github.com/o/r/discussions/7",
             "https://github.com/o/r/pull/7x",
             "https://github.com/o/r/pull/-1",
             "https://github.com/o/r/pull/7?x=--web",

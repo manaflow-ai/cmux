@@ -1,3 +1,4 @@
+package import CmuxNextCompat
 package import Foundation
 package import Security
 
@@ -14,9 +15,12 @@ package nonisolated protocol BrowserHTTPCredentialStoring: Sendable {
 /// callers run it off the main actor.
 package nonisolated struct KeychainHTTPCredentialStore: BrowserHTTPCredentialStoring {
     package let service: String
+    /// The app's one guard of the Keychain UI switch.
+    let loginKeychain: LoginKeychain
 
-    package static var standard: KeychainHTTPCredentialStore {
-        KeychainHTTPCredentialStore(service: "\(Bundle.main.bundleIdentifier ?? "com.cmuxterm.app").browser-http-auth")
+    /// The app's store, under this bundle's `<bundle id>.browser-http-auth`.
+    package static func standard(loginKeychain: LoginKeychain) -> KeychainHTTPCredentialStore {
+        KeychainHTTPCredentialStore(service: "\(Bundle.main.bundleIdentifier ?? "com.cmuxterm.app").browser-http-auth", loginKeychain: loginKeychain)
     }
 
     private func base(_ key: BrowserHTTPCredentialKey) -> [String: Any] {
@@ -28,7 +32,9 @@ package nonisolated struct KeychainHTTPCredentialStore: BrowserHTTPCredentialSto
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
+        // No UI: an item another signature of this bundle id made is refused, never prompted for.
+        guard loginKeychain.withoutUI({ SecItemCopyMatching(query as CFDictionary, &result) }) == errSecSuccess,
+              let data = result as? Data else { return nil }
         return try? JSONDecoder().decode(BrowserHTTPRememberedLogin.self, from: data)
     }
 
@@ -47,8 +53,17 @@ package nonisolated struct KeychainHTTPCredentialStore: BrowserHTTPCredentialSto
         SecItemDelete(base(key) as CFDictionary)
     }
 
-    package init(service: String) {
+    package init(service: String, loginKeychain: LoginKeychain) {
         self.service = service
+        self.loginKeychain = loginKeychain
     }
+}
+
+/// A store that remembers no sign-in (in-memory browser stores: tests, nothing reaches the Keychain).
+package nonisolated struct ForgettingHTTPCredentialStore: BrowserHTTPCredentialStoring {
+    package init() {}
+    package func login(for key: BrowserHTTPCredentialKey) -> BrowserHTTPRememberedLogin? { nil }
+    package func save(_ login: BrowserHTTPRememberedLogin, for key: BrowserHTTPCredentialKey) {}
+    package func forget(_ key: BrowserHTTPCredentialKey) {}
 }
 

@@ -6,6 +6,7 @@
 // flight.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -48,12 +49,8 @@ await loadDiffViewerLabels("en");
 const { useRenderDiff } = await import("../src/diff-viewer/useRenderDiff");
 const { pendingSessionID } = await import("../src/diff-viewer/session");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const label = createDiffViewerLabelResolver(undefined, { language: "en" });

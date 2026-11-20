@@ -27,9 +27,9 @@ impl Hub {
         if let Err(error) = result {
             tracing::error!("reading the session store failed: {error}");
         }
-        self.watch_transfers();
         self.watch_orphans();
         self.store_load.ready.send_replace(true);
+        self.bg_notify_resume_in_background();
     }
 
     pub(crate) async fn wait_store(&self) {
@@ -88,7 +88,7 @@ impl Hub {
                     plan.waiting.insert(id.clone());
                 }
             }
-            hub.install_stored_session(meta, true, hosted);
+            hub.install_stored_session(meta, true, hosted, true);
             true
         })
         .await
@@ -130,6 +130,18 @@ impl Hub {
         } else {
             "ready"
         };
-        json!({"phase": phase, "sessionsLoaded": loaded, "sessionsTotal": total})
+        let startup_done = *self.startup_work_done.borrow();
+        json!({"phase": phase, "sessionsLoaded": loaded, "sessionsTotal": total,
+               "startupDone": startup_done})
+    }
+
+    /// The daemon's startup task runs (`daemon.rs`) until [`Hub::end_startup_work`].
+    pub(crate) fn begin_startup_work(&self) {
+        self.startup_work_done.send_replace(false);
+    }
+
+    /// The daemon's startup task ended: `_acpmux/status` `loading.startupDone`.
+    pub(crate) fn end_startup_work(&self) {
+        self.startup_work_done.send_replace(true);
     }
 }

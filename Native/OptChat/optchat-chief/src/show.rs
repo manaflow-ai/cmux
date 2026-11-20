@@ -3,8 +3,9 @@
 //! else would be useful to show in the workspace ... a column to the right to
 //! show a browser preview or a diff"). The host reads a report for the commit
 //! ranges it landed, the pages it names and the preview files it made, and adds
-//! a `<show>` block with the command that opens each one in the column right of
-//! the Chief's chat. The Chief picks what is worth showing (the system prompt's
+//! a `<show>` block with the command that opens each one in the subagent's own
+//! workspace, else in one new workspace named for the work, which the Chief
+//! links (2026-10-31: never Home's right column by default). The Chief picks what is worth showing (the system prompt's
 //! "After work" rule); the host only finds the candidates, with no I/O.
 //! `show.afterReport` (default on) turns the block off.
 
@@ -72,38 +73,77 @@ pub fn find(report: &str) -> Shown {
 
 /// The `<show>` block for `report`, or None when it names nothing to show.
 pub fn block(report: &str) -> Option<String> {
+    block_in(report, None)
+}
+
+/// `block` for a subagent whose cmux workspace is `workspace` (`ws_…`): each
+/// item opens there as a new tab, and the Chief links that tab, so the person
+/// finds the work beside the agent's chat (Lawrence, Oct 29: "diff should have
+/// been opened in a845 workspace"). None: one new workspace named for the work.
+pub fn block_in(report: &str, workspace: Option<&str>) -> Option<String> {
     let shown = find(report);
     if shown.is_empty() {
         return None;
     }
+    if let Some(ws) = workspace {
+        return Some(block_in_workspace(&shown, ws));
+    }
+    Some(block_in_new_workspace(&shown))
+}
+
+/// No subagent workspace (the Chief's own work, a headless subagent): one new
+/// workspace named for the work holds the items, and the Chief links it
+/// (Lawrence 2026-10-31: "by default chief should link to workspaces, and 'set
+/// up workspaces' properly"). Home's right column is only for when the user
+/// asks.
+fn block_in_new_workspace(shown: &Shown) -> String {
+    let ws = "<ws_…>";
     let mut lines = vec![
         "<show>".to_owned(),
-        "Done work to show (show.afterReport): open the one or two most useful in the column right of your chat, never the dock, without moving focus; show nothing if none helps."
-            .to_owned(),
+        format!(
+            "Done work to show (show.afterReport): open the one or two most useful in one new workspace named for the work, made once with `cmux --json workspace create --name \"<2-5 word title>\" --cwd <its repo or folder>` ({ws} from its answer), as new tabs, without moving focus; link it in your reply ([title](cmux://workspace/ws_…), or a tab in it). Never Home's column or the dock; show nothing if none helps."
+        ),
     ];
+    push_items(&mut lines, shown, ws);
+    lines.push("</show>".to_owned());
+    lines.join("\n")
+}
+
+fn block_in_workspace(shown: &Shown, ws: &str) -> String {
+    let mut lines = vec![
+        "<show>".to_owned(),
+        format!(
+            "Done work to show (show.afterReport): open the one or two most useful as new tabs in the subagent's own workspace {ws}, without moving focus, and link each tab in your reply ([diff](cmux://tab/tab_…), the id from the command's answer); show nothing if none helps."
+        ),
+    ];
+    push_items(&mut lines, shown, ws);
+    lines.push("</show>".to_owned());
+    lines.join("\n")
+}
+
+/// The command that opens each item as a new tab in workspace `ws`.
+fn push_items(lines: &mut Vec<String>, shown: &Shown, ws: &str) {
     for (old, new) in &shown.ranges {
         match &shown.repo {
             Some(repo) => lines.push(format!(
-                "- diff {old}..{new}: cmux browser right navigate https://github.com/{repo}/compare/{old}...{new} --agent \"<your name>\""
+                "- diff {old}..{new}: cmux --json tab create browser --workspace {ws} --url https://github.com/{repo}/compare/{old}...{new}"
             )),
             None => lines.push(format!(
-                "- diff {old}..{new}: cmux tab create terminal --pane <pane_…> with `git log -p {old}..{new}` in the repo"
+                "- diff {old}..{new}: cmux --json tab create terminal --workspace {ws} with `git log -p {old}..{new}` in the repo"
             )),
         }
     }
     for page in &shown.pages {
         lines.push(format!(
-            "- page {page}: cmux browser right navigate {page} --agent \"<your name>\""
+            "- page {page}: cmux --json tab create browser --workspace {ws} --url {page}"
         ));
     }
     for file in &shown.files {
         lines.push(format!(
-            "- file {file}: cmux action run file.open --target <pane_…> --path {} --where tab",
+            "- file {file}: cmux action run file.open --target <its pane: cmux pane list --workspace {ws}> --path {} --where tab",
             shell_quote(file)
         ));
     }
-    lines.push("</show>".to_owned());
-    Some(lines.join("\n"))
 }
 
 fn is_break(c: char) -> bool {

@@ -7,8 +7,8 @@
 // only under Reduce Transparency is it that solid popup surface again, unblurred. Floating surfaces
 // that are not popups keep the solid surface. The two
 // web tooltips (Base UI's `.ui-tooltip`, the title tooltip) match the native tooltip: primary ink,
-// 5 px radius, 4×8 padding, a separator hairline and the caption font; since 2026-10-14 they are
-// frosted glass instead (tooltip-surface.test.ts).
+// 5 px radius, 2×8 padding (compact since #35205), a separator hairline and the caption font;
+// since 2026-10-14 they are frosted glass instead (tooltip-surface.test.ts).
 //
 // The pages are the real stylesheets with the variables the host sets, in a see-through window
 // (a translucent elevated background). The engines come from `playwright install chromium
@@ -80,17 +80,20 @@ await requireBrowserLane("popup-surface.test.ts", async () => {
     ),
     body: `<div class="ui-positioner"><div class="ui-popup ui-glass" id="menu">Menu</div></div>
 ${tooltips}
-<div class="page-menu" id="page-menu">Sort</div>
+<div class="ui-positioner"><div class="page-menu ui-popup ui-glass" id="page-menu">Sort</div></div>
 <div class="ui-glass icon-bar-pill" id="icon-bar-pill">Icons</div>
 <div class="md-link-bubble" id="md-link-bubble">https://example.com</div>
 <div class="ui-popup ui-glass ui-popover md-link-popover" id="md-link-popover">Edit link</div>
 <div class="hc-msg-toolbar" id="hc-msg-toolbar">React</div>
 <div class="lg-palette" id="lg-palette">Search conversations</div>
-<div class="lg-form" id="lg-form">New message</div>
+<div class="ui-dialog ui-glass ui-glass-floats lg-form" id="lg-form">New message</div>
 <div id="editor-widget" style="background: var(--cmux-editor-widget-background)">Suggest</div>`,
     // Tooltips are frosted glass (tooltip-surface.test.ts).
-    // The markdown link editor is a ui/Popover: glass, like the menus.
-    glass: ["menu", "icon-bar-pill", "md-link-popover"],
+    // The markdown link editor is a ui/Popover: glass, like the menus. The History page menu
+    // (pages/shared/PageMenu.tsx) is the menu glass too (Leo 2026-10-21: "STOP DOING SOLID. WE HAVE
+    // GLASS, SO JUST USE GLASS.").
+    // Home's form dialogs are the sheet role's glass (ui/popupSurface.css .ui-dialog.ui-glass).
+    glass: ["menu", "page-menu", "icon-bar-pill", "md-link-popover", "lg-form"],
     surfaces: [
       "menu",
       "page-menu",
@@ -121,6 +124,7 @@ ${tooltips}
       "agent-session/acpmux/needsYou/needsYou.css",
       "agent-session/acpmux/subagents/subagents.css",
       "agent-session/acpmux/addProject.css",
+      "agent-session/acpmux/share/share.css",
     ),
     body: `<div class="acpmux-shell">
 <div class="ui-popup ui-glass acpmux-menu" id="cascade">Model</div>
@@ -135,11 +139,12 @@ ${tooltips}
 <div class="ui-positioner"><div class="ui-popup ui-glass acpmux-access-menu" id="access">Full access</div></div>
 <div class="ui-positioner"><div class="ui-popup ui-glass acpmux-chat-menu-popover" id="chat-menu">Rename</div></div>
 <div class="ui-positioner"><div class="ui-popup ui-glass ui-popover acpmux-pr-status" id="pr-status">Checks</div></div>
-<div class="acpmux-shell"><div class="acpmux-summary-card" data-placement="popover" id="summary">Summary</div></div>
+<div class="acpmux-shell"><div class="ui-glass ui-glass-floats acpmux-summary-card" data-placement="popover" id="summary">Summary</div></div>
 <div class="ui-positioner"><div class="ui-popup ui-glass ui-popover nt-popover" id="new-tab-suggestions">reddit.com</div></div>
 <div class="ui-positioner"><div class="ui-popup ui-glass ui-popover acpmux-needs-you" id="needs-you">Needs you</div></div>
 <div class="acpmux-shell"><dialog open class="ui-popup ui-glass acpmux-agents-list" id="agents-list">Agents</dialog></div>
-<dialog open class="ui-glass acpmux-add-project-dialog" id="add-project">Add project</dialog>
+<dialog open class="ui-dialog ui-glass ui-glass-floats acpmux-add-project-dialog" id="add-project">Add project</dialog>
+<div class="ui-dialog ui-glass ui-glass-floats share-dialog-popup" id="share">Share</div>
 ${tooltips}`,
     glass: [
       "cascade",
@@ -157,8 +162,12 @@ ${tooltips}`,
       "new-tab-suggestions",
       "needs-you",
       "agents-list",
-      // A dialog, not a popup (no popup elevation), but glass all the same.
+      // The Summary popover (Outputs, Subagents, Sources, Background tasks) floats over the chat
+      // (Leo 2026-10-30: "I don't like the non-glassness").
+      "summary",
+      // Dialogs, not popups (no popup elevation), but glass all the same: the sheet role.
       "add-project",
+      "share",
     ],
     surfaces: [
       "cascade",
@@ -322,7 +331,7 @@ ${tooltips}`,
               id,
               ink: TEXT,
               radius: "5px",
-              padding: "4px 8px",
+              padding: "2px 8px",
               border: `1px solid ${SEPARATOR}`,
               font: "11px/14px",
               shadow: true,

@@ -14,6 +14,7 @@ import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { threadMinimapLayout } from "../src/agent-session/acpmux/threadMinimap/layout.experiment";
 import { LIT_OPACITY, threadMinimapLit } from "../src/agent-session/acpmux/threadMinimap/lit.experiment";
 import { experimentArm } from "../src/experiments/experiment";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -52,6 +53,11 @@ for (const key of Object.getOwnPropertyNames(dom.window))
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
 
+// This test checks the command's target, not its animation clock. Keep the step synchronous even
+// when another jsdom test has installed a different matchMedia implementation in the shared Bun
+// worker: reducedMotion() also honors the app's motion token.
+dom.window.document.documentElement.style.setProperty("--agent-motion-in", "0ms");
+
 // jsdom has no layout: a 600 px viewport in a pane wide enough for any rail (1040 px).
 const VIEWPORT = 600;
 const PANE = 1040;
@@ -75,12 +81,8 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const document = dom.window.document;
@@ -210,14 +212,21 @@ test("the wave moves no row: the transcript lays out as it does with no minimap"
   expect(wave.offset).toBe(off.offset);
 });
 
-test("the rail's list never draws a scroller of its own, and the rail takes no room", () => {
+test("the rail's list owns overflow without drawing a second visible scrollbar, and the rail takes no room", () => {
   const css = readFileSync(
     new URL("../src/agent-session/acpmux/threadMinimap/threadMinimap.css", import.meta.url),
     "utf8",
   ).replace(/\/\*[\s\S]*?\*\//g, "");
   const list = /\.acpmux-minimap__list\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  // A list that fits its prompts is no scroll container, so the wheel over it reaches the transcript.
   expect(list).toMatch(/overflow:\s*hidden/);
   expect(list).not.toMatch(/overflow(-[xy])?:\s*(auto|scroll)/);
+  expect(list).toMatch(/scrollbar-width:\s*none/);
+  // Only one longer than its room scrolls itself, and never chains the wheel on at its ends.
+  const scrolls = /\.acpmux-minimap__list\[data-rail-scrolls\]\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  expect(scrolls).toMatch(/overflow-y:\s*auto/);
+  expect(scrolls).toMatch(/overscroll-behavior:\s*contain/);
+  expect(css).toMatch(/\.acpmux-minimap__list::-webkit-scrollbar\s*\{[^}]*display:\s*none/);
   // The rail sits over the transcript: sticky, no height of its own, so it takes no room in the layout.
   const shell = /\.acpmux-minimap\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
   expect(shell).toMatch(/position:\s*sticky/);
@@ -285,6 +294,23 @@ test("at rest the lit band glides as it moves (the wave); hover, scrub and Reduc
     expect(query).toBeGreaterThan(-1);
     // No block closes the query between it and the rule.
     expect(css.slice(query, at)).not.toMatch(/\}\s*\}/);
+  }
+});
+
+test("keyboard focus on a rail tick has a visible focus treatment", async () => {
+  const css = minimapCss();
+  const focus = /\.acpmux-minimap__tick:focus-visible\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  expect(focus).toMatch(/outline:.*var\(--cmux-focus-ring-width/);
+  expect(focus).toMatch(/outline-offset:\s*-1\.5px/);
+  expect(css).toMatch(
+    /@media \(prefers-contrast: more\)[\s\S]*\.acpmux-minimap__tick:focus-visible[\s\S]*outline-offset:\s*2px/,
+  );
+  const { host, root } = await render();
+  try {
+    expect(host.querySelector('[data-tick="2"]')?.getAttribute("data-focus-ring")).toBe("tick");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
   }
 });
 

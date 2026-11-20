@@ -68,6 +68,16 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         Accepted::Shape(
             "none, a listed painting, system:<absolute path>, file:<absolute path> or folder:<absolute path>",
         )
+    } else if row.validation == super::Validation::Domain(DomainKind::BackdropPicture) {
+        Accepted::Shape(
+            "a listed painting, desktop, system:<absolute path> or file:<absolute path>",
+        )
+    } else if row.validation == super::Validation::Domain(DomainKind::BackdropSchedule) {
+        Accepted::Shape(
+            "an object of HH:MM or dawn, sunrise, noon, sunset, dusk (with +Nm, -Nm, +Nh or -Nh) to fixed backgrounds",
+        )
+    } else if row.validation == super::Validation::Domain(DomainKind::BackdropLocation) {
+        Accepted::Shape("\"LAT,LON\" in degrees, such as \"37.77,-122.42\"")
     } else if row.validation == super::Validation::Domain(DomainKind::ChatRoots) {
         Accepted::Shape(
             "an array of absolute folders outside / , the home folder, other volumes and privacy-protected folders",
@@ -76,6 +86,12 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         Accepted::Shape("an address with %s or {searchTerms}, or \"\"")
     } else if row.validation == super::Validation::Domain(DomainKind::CustomDensities) {
         Accepted::Shape("an array of density objects, each with a lowercase id and a name")
+    } else if row.validation == super::Validation::Domain(DomainKind::CommandLabels) {
+        Accepted::Shape(
+            "an array of preset names and rule objects, each with a label and a program or match",
+        )
+    } else if row.validation == super::Validation::Domain(DomainKind::AppId) {
+        Accepted::Shape("an app id, publisher/name in lowercase letters, digits and -")
     } else {
         accepted(&row.kind, domains)
     };
@@ -88,8 +104,14 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
 }
 
 /// The stored value when valid, else the default (what the app applies).
+/// An unset row that replaced a retired key reads that key through the
+/// retired-keys table (`super::retired`), as the app does.
 pub fn effective_value(row: &Row, root: &Value, domains: &Domains) -> Option<Value> {
-    match crate::value::value_at(root, &row.path) {
+    let stored = crate::value::value_at(root, &row.path).or_else(|| {
+        let replaced = super::replaced_by_row(&row.path)?;
+        replaced.read(crate::value::value_at(root, &replaced.old)?)
+    });
+    match stored {
         Some(stored) if row_accepts(row, stored, domains) => Some(stored.clone()),
         _ => row.default.clone(),
     }
@@ -112,8 +134,23 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         super::Validation::Domain(DomainKind::SearchTemplate) => {
             return value.as_str().is_some_and(is_search_template);
         }
+        super::Validation::Domain(DomainKind::BackdropPicture) => {
+            return value.as_str().is_some_and(super::backdrop::is_picture);
+        }
+        super::Validation::Domain(DomainKind::BackdropSchedule) => {
+            return super::backdrop::is_schedule(value);
+        }
+        super::Validation::Domain(DomainKind::BackdropLocation) => {
+            return value.as_str().is_some_and(super::backdrop::is_location);
+        }
         super::Validation::Domain(DomainKind::CustomDensities) => {
             return value.as_array().is_some_and(|items| items.iter().all(is_custom_density));
+        }
+        super::Validation::Domain(DomainKind::CommandLabels) => {
+            return value.as_array().is_some_and(|items| items.iter().all(is_command_label));
+        }
+        super::Validation::Domain(DomainKind::AppId) => {
+            return value.as_str().is_some_and(super::app_id::is_valid_app_id);
         }
         _ => {}
     }
@@ -242,6 +279,31 @@ fn is_custom_density(value: &Value) -> bool {
     id_ok && name_ok && numbers_ok && tokens_ok
 }
 
+/// Swift `CommandLabelsSetting.isItem`: a non-blank preset name, or an object
+/// with a non-blank `label`, a non-blank `program` (or a non-empty list of
+/// them) or `match`, and string `link` and `icon` when present.
+fn is_command_label(value: &Value) -> bool {
+    let non_blank = |value: &Value| value.as_str().is_some_and(|text| !text.trim().is_empty());
+    if value.is_string() {
+        return non_blank(value);
+    }
+    let Some(members) = value.as_object() else { return false };
+    if !members.get("label").is_some_and(non_blank) {
+        return false;
+    }
+    let program_ok = members.get("program").is_none_or(|program| match program.as_array() {
+        Some(names) => !names.is_empty() && names.iter().all(non_blank),
+        None => non_blank(program),
+    });
+    let match_ok = members.get("match").is_none_or(non_blank);
+    let strings_ok =
+        ["link", "icon"].iter().all(|key| members.get(*key).is_none_or(Value::is_string));
+    program_ok
+        && match_ok
+        && strings_ok
+        && (members.contains_key("program") || members.contains_key("match"))
+}
+
 /// Swift `BrowserOmnibarSetting.isSearchTemplate`: empty, or an address
 /// with a `%s` or `{searchTerms}` placeholder that is valid once filled.
 fn is_search_template(text: &str) -> bool {
@@ -339,8 +401,13 @@ fn domain_name(kind: DomainKind) -> &'static str {
         DomainKind::FontFamily => "font_family",
         DomainKind::Sound => "sound",
         DomainKind::BackdropSelection => "backdrop_selection",
+        DomainKind::BackdropPicture => "backdrop_picture",
+        DomainKind::BackdropSchedule => "backdrop_schedule",
+        DomainKind::BackdropLocation => "backdrop_location",
         DomainKind::ChatRoots => "chat_roots",
         DomainKind::SearchTemplate => "search_template",
         DomainKind::CustomDensities => "custom_densities",
+        DomainKind::CommandLabels => "command_labels",
+        DomainKind::AppId => "app_id",
     }
 }

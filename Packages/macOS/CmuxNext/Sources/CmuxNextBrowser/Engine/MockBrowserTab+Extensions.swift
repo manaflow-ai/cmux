@@ -85,3 +85,6 @@ public final class MockExtensionBackend: BrowserExtensionBackend {
         return true
     }
 }
+
+/// A fake page takes rounded holes as a Chromium page does, so chrome tests see where its bars cover it.
+extension MockBrowserTab: BrowserRoundedOcclusionHosting {}

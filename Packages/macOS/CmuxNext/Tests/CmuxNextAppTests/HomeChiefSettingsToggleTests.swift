@@ -1,27 +1,54 @@
 import AppKit
 @testable import CmuxNextHomeEngine
+import CmuxNextTestSupport
 import Testing
 
 /// `home.toggleChiefSettings` (the palette, `cmux action run`) opens the Chief Settings of the
 /// front window's Home only. It reached every Home on screen, so with Chiefs in two windows one
 /// palette run opened two popovers.
-@MainActor @Suite struct HomeChiefSettingsToggleTests {
+@MainActor @Suite(.closesItsWindows) struct HomeChiefSettingsToggleTests {
     static func window() -> NSWindow {
         NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.titled], backing: .buffered, defer: true)
     }
 
     @Test func theKeyWindowTakesTheToggle() {
         let (key, other) = (Self.window(), Self.window())
+        defer {
+            key.closeAfterTest()
+            other.closeAfterTest()
+        }
         #expect(HomeChiefSettingsPopover.toggleTarget(key: key, ordered: [other, key]) === key)
+    }
+
+    /// With a key window, the window order is never read: `NSApp.orderedWindows` is a synchronous
+    /// WindowServer query that waits for the pending CA transaction. `home.stopAllAgents`'s
+    /// unavailable reason reads the target on every catalog refresh, so a Cmd-N that had just
+    /// ordered in a Chromium page window held the main thread 40-60 ms before its first frame
+    /// (cmux22 `sample`, 2026-11-06).
+    @Test func aKeyWindowNeverReadsTheWindowOrder() {
+        let key = Self.window()
+        defer { key.closeAfterTest() }
+        var reads = 0
+        func ordered() -> [NSWindow] {
+            reads += 1
+            return [key]
+        }
+        #expect(HomeChiefSettingsPopover.toggleTarget(key: key, ordered: ordered()) === key)
+        #expect(reads == 0)
+        #expect(HomeChiefSettingsPopover.toggleTarget(key: nil, ordered: ordered()) == nil)
+        #expect(reads == 1)
     }
 
     /// With no key window (a CLI run while another app is in front) the frontmost visible window
     /// takes it, and with none on screen no Home does.
     @Test func withoutAKeyWindowTheFrontVisibleOneTakesIt() {
         let (hidden, shown) = (Self.window(), Self.window())
+        defer {
+            hidden.closeAfterTest()
+            shown.closeAfterTest()
+        }
         #expect(HomeChiefSettingsPopover.toggleTarget(key: nil, ordered: [hidden]) == nil)
         shown.orderFrontRegardless()
-        defer { shown.orderOut(nil) }
         #expect(HomeChiefSettingsPopover.toggleTarget(key: nil, ordered: [hidden, shown]) === shown)
     }
 
@@ -35,8 +62,8 @@ import Testing
         home.addChildWindow(page, ordered: .above)
         defer {
             home.removeChildWindow(page)
-            page.orderOut(nil)
-            home.orderOut(nil)
+            page.closeAfterTest()
+            home.closeAfterTest()
         }
         #expect(page.isVisible)
         #expect(HomeChiefSettingsPopover.toggleTarget(key: nil, ordered: [page, home]) === home)
@@ -47,12 +74,20 @@ import Testing
     @Test func aChildPanelWithTheKeysStandsForItsWindow() {
         let (home, popover) = (Self.window(), Self.window())
         home.addChildWindow(popover, ordered: .above)
-        defer { home.removeChildWindow(popover) }
+        defer {
+            home.removeChildWindow(popover)
+            popover.closeAfterTest()
+            home.closeAfterTest()
+        }
         #expect(HomeChiefSettingsPopover.toggleTarget(key: popover, ordered: []) === home)
     }
 
     @Test func onlyTheHomeInTheTargetWindowAnswers() {
         let (front, back) = (Self.window(), Self.window())
+        defer {
+            front.closeAfterTest()
+            back.closeAfterTest()
+        }
         let target = ObjectIdentifier(front)
         #expect(HomeChiefSettingsPopover.answersToggle(for: target, in: front))
         #expect(!HomeChiefSettingsPopover.answersToggle(for: target, in: back))

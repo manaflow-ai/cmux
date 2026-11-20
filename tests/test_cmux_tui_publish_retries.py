@@ -11,10 +11,12 @@ tree publishes. On 2026-10-26 promotions stopped from 18:42 to 19:44 UTC:
   with no retry.
 Run 40422130372 (2026-10-27) then failed both tries of a single retry 4 s
 apart: its core budget had calls left, so the refusal was GitHub's secondary
-limit. The attestation is now tried four times, each failed try backing off
-through scripts/ci/gh_budget_wait.sh --backoff (until the reset, else 60, 120,
-240 s) within a 15 minute total, and the last try must pass. The job timeouts
-leave room for that wait.
+limit. The attestation is now tried four times, and the last try must pass.
+Each failed try backs off through scripts/ci/gh_budget_wait.sh --backoff-probe:
+owner run 41017791425 (2026-10-30) spent its fixed 60, 120 and 240 s while the
+limit still held, so the backoff now reads the attestations API with the same
+token and waits for the reset each refusal names until GitHub answers it, within
+50 minutes in all. The job timeouts leave room for that wait.
 publish-tree's reads go straight to R2 (scripts/ci/upload-r2-object.py
 --download-to), which retries a dropped, stalled or 5xx read and exits 22 on a
 404: run 40670486094 lost the tree to one HTTP/2 reset from files.cmux.com
@@ -67,15 +69,20 @@ class PublishRetries(unittest.TestCase):
                 self.assertEqual(len(between), 1, f"{job_name}: exactly one backoff sits between two tries")
                 backoff = between[0]
                 self.assertEqual(backoff.get("if"), gate)
-                self.assertRegex(str(backoff.get("run", "")), rf"gh_budget_wait\.sh --backoff {index}\b")
+                # Each backoff waits until GitHub stops refusing a read of the attestations API (owner run
+                # 41017791425, 2026-10-30: a fixed 60/120/240 s ran out while the limit still held).
+                self.assertRegex(str(backoff.get("run", "")), rf'gh_budget_wait\.sh --backoff-probe {index} "\$ATTEST_PROBE"')
                 env = backoff.get("env", {})
                 # Without a token the backoff cannot read the reset and the next try hits the same limit.
                 self.assertEqual(env.get("GH_TOKEN"), "${{ github.token }}", f"{job_name}: the backoff reads the budget with the job's token")
-                self.assertLessEqual(int(env.get("GH_BUDGET_WAIT_MAX_SECONDS", "3600")), 900, f"{job_name}: the backoffs wait 15 minutes at most in all")
+                self.assertRegex(env.get("ATTEST_PROBE", ""), r"^repos/\$\{\{ github\.repository \}\}/attestations/sha256:[0-9a-f]{64}$",
+                                 f"{job_name}: the probe reads the attestations API, the refused write's own API")
+                cap = int(env.get("GH_BUDGET_WAIT_MAX_SECONDS", "3600"))
+                self.assertGreaterEqual(cap, 30 * 60, f"{job_name}: the backoffs outlast a limit that holds past 15 minutes")
             self.assertFalse(last.get("continue-on-error"), f"{job_name}: the last try must pass; nothing ships without provenance")
             self.assertGreaterEqual(
-                int(self.jobs[job_name]["timeout-minutes"]), 15 + 15 + 5,
-                f"{job_name}: the timeout must leave room for the work plus the 15 minutes the backoffs may take",
+                int(self.jobs[job_name]["timeout-minutes"]) * 60, 15 * 60 + cap + 5 * 60,
+                f"{job_name}: the timeout must leave room for the work plus every second the backoffs may wait",
             )
 
     def step(self, name: str) -> str:
@@ -212,6 +219,59 @@ sys.exit(status)
         code = [line for line in script.splitlines() if not line.lstrip().startswith("#")]
         self.assertEqual(sum(bool(re.search(r"\bcurl -", line)) for line in code), 1, "every read goes through get()")
 
+
+
+# Jobs whose GitHub calls ask for the next step of a published tree. On 2026-11-16 run 43797999732's
+# image roll dispatch was refused "HTTP 403: API rate limit exceeded for installation" in publish and
+# again in request-image-roll: every workflow's github.token shares one hourly budget, so no Cloud
+# image rolled. Each of these jobs mints the cmux-bot App's token (its own limit) and its gh calls go
+# through scripts/ci/gh_budget_wait.sh, which moves a refused call to GH_TOKEN_SPARE at once.
+SPARE_DISPATCHERS = ("request-image-roll", "request-nightly-next", "request-team-signed-tree")
+# Bare dispatches on github.token alone, each with a backup above: publish's roll asks before
+# verify-publish (request-image-roll asks when it did not), and the tick ask is an early one
+# (request-nightly-next asks, and the tick's workflow_run trigger fires at the run's end).
+BARE_DISPATCH_OK = {
+    ("publish", "Request the Cloud VM image roll"),
+    ("publish-windows", "Request the Cloud VM image roll"),
+    ("publish-tree", "Ask the nightly-next tick to promote this commit"),
+    ("publish-tree-windows", "Ask the nightly-next tick to promote this commit"),
+}
+MINT = "actions/create-github-app-token@"
+
+
+class DispatchesHaveASpareToken(unittest.TestCase):
+    def setUp(self) -> None:
+        self.jobs = load()["jobs"]
+
+    def test_each_request_job_moves_a_refused_call_to_the_bot_token(self) -> None:
+        for name in SPARE_DISPATCHERS:
+            job = self.jobs[name]
+            self.assertEqual(job.get("environment", {}).get("name"), "ci-routing-agent", name)
+            steps = job["steps"]
+            mints = [s for s in steps if str(s.get("uses", "")).startswith(MINT)]
+            self.assertEqual(len(mints), 1, name)
+            self.assertEqual(mints[0].get("id"), "cmux-bot-token", name)
+            self.assertEqual(mints[0]["with"].get("permission-actions"), "write", name)
+            self.assertIs(mints[0].get("continue-on-error"), True, name)
+            callers = [s for s in steps if "GH_TOKEN" in (s.get("env") or {})]
+            self.assertTrue(callers, name)
+            installed = any("gh_budget_wait.sh --install" in str(s.get("run", "")) for s in steps)
+            for step in callers:
+                env = step["env"]
+                self.assertEqual(env.get("GH_TOKEN_SPARE"), "${{ steps.cmux-bot-token.outputs.token }}", (name, step.get("name")))
+                self.assertTrue(installed or "gh_budget_wait.sh workflow run" in str(step.get("run", "")), (name, step.get("name")))
+                # A wait (only when the spare is refused too) ends inside the job's own limit.
+                self.assertLess(int(env["GH_BUDGET_WAIT_MAX_SECONDS"]), int(job["timeout-minutes"]) * 60 - 60, name)
+
+    def test_no_other_dispatch_rides_on_the_shared_token_alone(self) -> None:
+        bare = set()
+        for name, job in self.jobs.items():
+            for step in job.get("steps", []):
+                run = str(step.get("run", ""))
+                if "gh workflow run" in run and "GH_TOKEN_SPARE" not in (step.get("env") or {}):
+                    bare.add((name, step.get("name")))
+        self.assertEqual(bare - BARE_DISPATCH_OK, set(),
+                         "mint the cmux-bot App token and pass GH_TOKEN_SPARE, as request-image-roll does")
 
 if __name__ == "__main__":
     result = unittest.main(exit=False, verbosity=2).result

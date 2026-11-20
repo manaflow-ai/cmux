@@ -17,6 +17,44 @@ for (let index = 1; index <= 28; index += 1) {
   };
 }
 
+// Hello Deploy (install = deploy + pin): its listing names where it runs, and once installed its
+// row shows the running instance. The machine is a sample name, never a fleet host.
+const deployed = structuredClone(base);
+deployed.details["manaflow-ai/hello-deploy"] = {
+  ...structuredClone(template),
+  id: "manaflow-ai/hello-deploy",
+  name: "Hello Deploy",
+  description:
+    "Install = deploy + pin: runs a small web server on your cmux Cloud machine or on a machine you host yourself, and opens it as a pane in your workspace.",
+  publisher: "manaflow-ai",
+  publisher_verified: false,
+  tier: "unverified",
+  categories: ["developer-tools", "cloud"],
+  icon: { symbol: "server.rack" },
+  latest_version: "1.0.0",
+  versions: [{ version: "1.0.0", engines: "cmux ^2.0" }],
+  scopes: [],
+  deploy: { targets: ["self-hosted", "cloud-vm"], tenancy: ["user"] },
+};
+const deployedInstalled = structuredClone(deployed);
+deployedInstalled.details["manaflow-ai/hello-deploy"]!.installed = true;
+deployedInstalled.installed["manaflow-ai/hello-deploy"] = {
+  id: "manaflow-ai/hello-deploy",
+  name: "Hello Deploy",
+  version: "1.0.0",
+  enabled: true,
+  hidden: false,
+  sandboxed: true,
+  source: "user",
+  tier: "unverified",
+  instance: {
+    id: "inst_sample",
+    target: "self-hosted:ops@build-01.example.com",
+    state: "running",
+    url: "http://127.0.0.1:49153",
+  },
+};
+
 export default appsPageEntry({
   id: "pages.apps",
   title: "App Store",
@@ -66,6 +104,16 @@ export default appsPageEntry({
       hash: "#/discover?layout=split&app=cmux.github-prs",
       data: base,
     },
+    "detail-deploy": {
+      note: "A deployed app's listing: Runs on names the kinds of machine its server accepts.",
+      hash: "#/discover?layout=split&app=manaflow-ai/hello-deploy",
+      data: deployed,
+    },
+    "installed-deploy": {
+      note: "Installed with a deployed app: its row says where the instance runs.",
+      hash: "#/installed",
+      data: deployedInstalled,
+    },
     loading: {
       note: "The catalog is still loading.",
       mode: "loading",
@@ -81,6 +129,11 @@ export default appsPageEntry({
       note: "An empty catalog and installed tab.",
       hash: "#/discover?layout=grid",
       data: empty,
+    },
+    "installed-empty": {
+      note: "No installed apps: the Installed tab names the next step, with Discover still in the toolbar.",
+      hash: "#/installed",
+      data: { ...base, installed: {}, grants: {} },
     },
     "many-apps": {
       note: "Twenty-eight long-named listings for scrolling and narrow panes.",

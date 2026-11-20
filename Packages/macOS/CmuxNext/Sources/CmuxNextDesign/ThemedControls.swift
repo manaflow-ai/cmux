@@ -13,13 +13,13 @@ public final class ThemedTableRowView: NSTableRowView {
         guard selectionHighlightStyle != .none else { return }
         let rect = bounds.insetBy(dx: Metrics.space1, dy: 1)
         performWithTheme { Palette.selectionFill }.setFill()
-        NSBezierPath(roundedRect: rect, xRadius: Metrics.itemCornerRadius, yRadius: Metrics.itemCornerRadius).fill()
+        NSBezierPath(roundedRect: rect, xRadius: Metrics.itemCornerRadius, yRadius: Metrics.itemCornerRadius).fill() // radius-allow: a table row's selection, not a button
     }
 }
 
 /// A button whose bezel is a theme color instead of the system accent (cx-wqn5), re-resolved in
 /// its view's scope when it moves into a window and on every theme change.
-public class ThemedBezelButton: NSButton {
+public class ThemedBezelButton: ClickableButton {
     /// The bezel; runs inside `performWithTheme`. theme-scoped
     var themeBezel: NSColor { Palette.selectionFill }
 

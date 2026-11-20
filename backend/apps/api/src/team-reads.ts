@@ -10,6 +10,7 @@ import { noOwnerOf, seatsOf } from "./domains/team-stack.ts"
 import { auditPage } from "./domains/team-audit-rows.ts"
 import { aiLimitViewOf } from "./domains/team-ai-limit.ts"
 import { groupRead } from "./domains/team-group-reads.ts"
+import { cloudSessionRead } from "./domains/team-cloud-sessions.ts"
 import type { Env } from "./env.ts"
 import { nextMonthStart } from "./usage-user.ts"
 import { teamUsageLine } from "./team-ai-usage.ts"
@@ -31,7 +32,10 @@ const READ_GRANTS: Readonly<Record<string, TeamGrant>> = {
   "team.device.compliance": "team.manage",
   "team.audit.list": "audit.read_billing",
   "group.get": "team.resources",
-  "group.list": "team.resources"
+  "group.list": "team.resources",
+  "group.members.list": "team.resources",
+  "team.cloud.session.list": "team.resources",
+  "team.cloud.session.get": "team.resources"
 }
 
 /** TeamDO reads (members only; admin reads for owners and admins). Pure over the team state. */
@@ -130,7 +134,11 @@ export const teamRead = (state: TeamState, op: string, params: unknown, principa
     }
     case "group.get":
     case "group.list":
+    case "group.members.list":
       return groupRead(state, op, params, principal.user!, rows)
+    case "team.cloud.session.list":
+    case "team.cloud.session.get":
+      return cloudSessionRead(state, op, params, principal.user!, rows)
     default:
       return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
   }

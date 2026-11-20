@@ -51,6 +51,8 @@ pub fn install(s: &Services<'_>, restart: bool) -> Result<ServiceReport> {
         report.restarted = true;
     }
     if !was_loaded || changed {
+        // A `server down` override would refuse the bootstrap; installing starts the server.
+        let _ = s.runner.run(&launchctl().args(["enable", &target(s)]));
         s.runner.check(&launchctl().args(["bootstrap", &domain(s)]).arg(&plist))?;
     } else if restart {
         s.runner.check(&launchctl().args(["kickstart", "-k", &target(s)]))?;
@@ -61,6 +63,24 @@ pub fn install(s: &Services<'_>, restart: bool) -> Result<ServiceReport> {
 
 pub fn restart(s: &Services<'_>) -> Result<()> {
     s.runner.check(&launchctl().args(["kickstart", "-k", &target(s)])).map(|_| ())
+}
+
+/// Clears a `down` override, then loads the plist when it is not loaded.
+pub fn start(s: &Services<'_>) -> Result<()> {
+    s.runner.check(&launchctl().args(["enable", &target(s)]))?;
+    if !loaded(s) {
+        s.runner.check(&launchctl().args(["bootstrap", &domain(s)]).arg(s.unit_path()?))?;
+    }
+    Ok(())
+}
+
+/// Records a disabled override (kept across logins), then unloads the job.
+pub fn stop(s: &Services<'_>) -> Result<()> {
+    s.runner.check(&launchctl().args(["disable", &target(s)]))?;
+    if loaded(s) {
+        s.runner.check(&launchctl().args(["bootout", &target(s)]))?;
+    }
+    Ok(())
 }
 
 pub fn uninstall(s: &Services<'_>) -> Result<Vec<PathBuf>> {

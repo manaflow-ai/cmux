@@ -3,8 +3,9 @@ import Foundation
 
 /// Pure rules of the profile bar: visibility, stepping, and drag reorder.
 public nonisolated enum ProfileBarLogic {
-    /// The bar shows only while there is more than one profile.
-    public static func isVisible(profileCount: Int) -> Bool { profileCount > 1 }
+    /// A profile mark remains useful with one profile: it identifies the
+    /// current space and is the hover target for the new-space affordance.
+    public static func isVisible(profileCount: Int) -> Bool { profileCount > 0 }
 
     /// The profile `delta` steps from `current` (swipe, next/previous),
     /// clamped at the ends (no wrap). Nil when nothing changes.
@@ -27,9 +28,17 @@ public nonisolated enum ProfileBarLogic {
     /// spaces do not fit at `slot` each, every slot narrows to fit down to
     /// `fullMinimum`; below that the strip turns compact: the active space
     /// keeps a full slot and the others share the rest as small dots, at least
-    /// `compactMinimum` each (a strip that still does not fit is clipped).
+    /// `compactMinimum` each. A strip that still does not fit scrolls: it
+    /// starts at `minLeading` and shifts left just enough to keep the active
+    /// space in view, so stepping through the spaces scrolls the row. The "+"
+    /// is always there (Leo 2026-11-03: "why do we not just have the plus to
+    /// the right of the center circle? always to the rightmost of the circles,
+    /// maybe with the horizontal scrollbar?"): right after the last dot, and on
+    /// a scrolled strip pinned to the bar's trailing edge, or with
+    /// `plusRidesContent` at the end of the scrolled dots (a gallery choice).
     public static func strip(count: Int, active: Int?, width: Double, center: Double, minLeading: Double = 0,
-                             slot: Double, plus: Double, fullMinimum: Double, compactMinimum: Double) -> SpaceStrip {
+                             slot: Double, plus: Double, fullMinimum: Double, compactMinimum: Double,
+                             plusRidesContent: Bool = false) -> SpaceStrip {
         // The furthest the "+" may start: the dots always end on or before it.
         let plusX = max(minLeading, width - plus)
         guard count > 0 else { return SpaceStrip(slots: [], plus: (plusX, plus), compact: false) }
@@ -50,14 +59,20 @@ public nonisolated enum ProfileBarLogic {
             }
         }
         let total = widths.reduce(0, +)
-        let start = max(minLeading, min(center - total / 2, plusX - total))
+        let scrolled = total > room + 0.5
+        var start = max(minLeading, min(center - total / 2, plusX - total))
+        if scrolled, let active, widths.indices.contains(active) {
+            // The active dot's trailing edge sits on or before the "+".
+            let activeEnd = minLeading + widths[...active].reduce(0, +)
+            start = minLeading - max(0, activeEnd - plusX)
+        }
         var x = start
         let slots = widths.map { width -> (x: Double, width: Double) in
             defer { x += width }
             return (x, width)
         }
-        // Right after the last dot; a strip clipped past the bar keeps the "+" on the bar's edge.
-        return SpaceStrip(slots: slots, plus: (min(x, plusX), plus), compact: compact)
+        // Right after the last dot; a scrolled strip keeps the "+" on the bar's edge unless it rides the dots.
+        return SpaceStrip(slots: slots, plus: (plusRidesContent ? x : min(x, plusX), plus), compact: compact, scrolled: scrolled)
     }
 
     /// The hover background of a space (F2): its slot inset by `inset` on
@@ -111,11 +126,13 @@ public nonisolated enum ProfileBarLogic {
 public nonisolated struct SpaceStrip: Sendable {
     /// One slot per space, in order: its leading x and width.
     public var slots: [(x: Double, width: Double)]
-    /// The "+" slot, right after the last space's (on the bar's trailing edge only for a clipped strip).
+    /// The "+" slot, right after the last space's (on the bar's trailing edge for a scrolled strip).
     public var plus: (x: Double, width: Double)
     /// The spaces are too many for full slots: the inactive ones draw as
     /// small dots and the active one keeps its full mark.
     public var compact: Bool
+    /// The dots do not fit even compact: the row scrolls to keep the active one in view.
+    public var scrolled = false
 
     /// The strip's horizontal middle (the dots only, not the "+").
     public var midX: Double? {
@@ -141,6 +158,10 @@ public nonisolated struct ProfileSwipeTracker: Sendable {
     /// Whether the gesture so far is horizontal (the sidebar should not
     /// scroll vertically for it).
     public var isHorizontal: Bool { active && abs(dx) > abs(dy) * 2 && abs(dx) > 4 }
+
+    /// Whether the gesture so far can no longer turn horizontal: it moved more than 4 points and
+    /// not mostly sideways. Once the gesture has moved, exactly one of this and `isHorizontal` holds.
+    public var isVertical: Bool { active && abs(dy) * 2 >= abs(dx) && max(abs(dx), abs(dy)) > 4 }
 
     /// Feeds one scroll event. Returns -1 (previous) or +1 (next) once per
     /// gesture when it qualifies. Positive `deltaX` is a swipe to the right

@@ -1,14 +1,19 @@
 // The composer's look (Leo 2026-10-22: "first dot claude, second dot codex. since it's just all looks
-// anyways"): one composer, two layouts of the same controls. `claude`, the default, is today's
-// composer, Claude Code's (with the plain footer, the mode, model and effort in the quiet row under
-// the box). `codex` keeps its distinct box and action styling, while the model picker remains in that
-// same footer. On New Tab the folder and computer strip stay in Codex's tray
-// (composerLocation.css, newtab/screen.css). Dots pick it: on New Tab the page's three (newtab/tabDots.ts: Claude Minimal,
-// Claude Minimal with the quick actions, Codex Minimal), in a chat two on hover in the composer's
-// bottom area (LookSwitch.tsx). The choice is the
-// viewer's, kept in localStorage across chats, panes and launches (in step by the `storage` event),
-// as the transcript's wrap choice is (conversation/blockWrap.ts).
-import { useSyncExternalStore } from "react";
+// anyways"): one composer, two looks of the same controls. Both lay +, the prompt, the mic and Send
+// out as Claude's compact layout: + left of the prompt, the send slot and the mic right of it on the
+// prompt's row (Leo 2026-11-01: "the placement of the buttons are just really bad compared to our
+// claude code version", then "we already have a good version"). `claude` draws the mode, the model
+// and effort and the context ring in the quiet row under the box; `codex` draws that row inside the
+// chat's box under the prompt (Leo 2026-10-30: "the bypass/context/model picker stuff should
+// literally be inside the composer box"; 2026-11-02: "switching to the codex view in the middle of an
+// agent chat doesn't do anything right now"), Codex's folder and computer tray tucked under the box's
+// top edge, and the accent on Full access (composerLook.css). Replaced: Codex's own row in the box
+// under the prompt with + in it (cmux #28901, last good commit 8b44a8a1dc2), kept in gallery
+// `agent-pane.composer-look` `codex-chat-alt-in-box-row`. Chat dots pick the look on hover in the
+// composer's bottom area (LookSwitch.tsx). The choice stays in localStorage across chats, panes
+// and launches. New Tab always uses Claude's look, including its shared controls.
+import { useContext, useSyncExternalStore } from "react";
+import { OnNewTab } from "./newTabComposer";
 
 export const COMPOSER_LOOKS = ["claude", "codex"] as const;
 export type ComposerLook = (typeof COMPOSER_LOOKS)[number];
@@ -21,12 +26,12 @@ export const COMPOSER_LOOK_NAMES: Readonly<Record<ComposerLook, string>> = {
   codex: "Codex",
 };
 
-/// The default: Claude's look, the composer as it was before the dots.
-export const DEFAULT_COMPOSER_LOOK: ComposerLook = "claude";
+/// New viewers use Codex's look across agent families; explicit choices remain saved.
+export const DEFAULT_COMPOSER_LOOK: ComposerLook = "codex";
 const KEY = "cmux.composer.look";
 
 function parse(value: unknown): ComposerLook {
-  return value === "codex" ? "codex" : DEFAULT_COMPOSER_LOOK;
+  return value === "claude" || value === "codex" ? value : DEFAULT_COMPOSER_LOOK;
 }
 
 /// The page's copy, for a page with no storage; storage's when there is one.
@@ -35,13 +40,17 @@ let fallback: ComposerLook = DEFAULT_COMPOSER_LOOK;
 let shown: ComposerLook | undefined;
 const listeners = new Set<() => void>();
 
-function current(): ComposerLook {
-  if (shown) return shown;
+/// The look the viewer chose (storage's, else the page's copy), under any gallery stage's shown one.
+export function savedComposerLook(): ComposerLook {
   try {
     return globalThis.localStorage ? parse(globalThis.localStorage.getItem(KEY)) : fallback;
   } catch {
     return fallback;
   }
+}
+
+function current(): ComposerLook {
+  return shown ?? savedComposerLook();
 }
 
 function subscribe(listener: () => void) {
@@ -77,12 +86,7 @@ export function setComposerLook(look: ComposerLook, { remember = true }: { remem
 
 /// The composer's look; re-renders the caller when it changes, here or in another pane.
 export function useComposerLook(): ComposerLook {
-  return useSyncExternalStore(subscribe, current, current);
-}
-
-/// The model picker has one anchor in both looks: the quiet row under the box. Keeping the
-/// whole chip group there also preserves its ordering and a single picker instance when the
-/// person switches looks (ComposerFoot.tsx).
-export function useQuietRow(): boolean {
-  return true;
+  const onNewTab = useContext(OnNewTab);
+  const look = useSyncExternalStore(subscribe, current, current);
+  return onNewTab ? "claude" : look;
 }

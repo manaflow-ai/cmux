@@ -258,22 +258,25 @@ fn send_upload(service: &CloudConversations, upload: CloudUpload) -> anyhow::Res
         }
     }
     let body = original.ok_or_else(|| anyhow::anyhow!("an upload without its file"))?;
-    let url = plan
-        .field("upload_url")
-        .as_str()
-        .ok_or_else(|| CloudError::Unavailable("no upload slot".into()))?;
-    let presigned = plan.field("mode") == "presigned";
-    // A Worker slot is on the lease's origin; only a presigned object URL may be elsewhere.
-    let answer =
-        service.attachment_put(url, &plan_headers(plan.field("headers")), body, !presigned)?;
-    let committed = if presigned {
-        let slot = plan
-            .field("slot")
-            .as_str()
-            .ok_or_else(|| CloudError::Unavailable("a presigned slot without its id".into()))?;
-        service.attachment_commit(&conversation, slot)?
+    let committed = if plan.field("mode") == "multipart" {
+        service.attachment_multipart(&conversation, &plan, body)?
     } else {
-        answer
+        let url = plan
+            .field("upload_url")
+            .as_str()
+            .ok_or_else(|| CloudError::Unavailable("no upload slot".into()))?;
+        let presigned = plan.field("mode") == "presigned";
+        let answer =
+            service.attachment_put(url, &plan_headers(plan.field("headers")), body, !presigned)?;
+        if presigned {
+            let slot = plan
+                .field("slot")
+                .as_str()
+                .ok_or_else(|| CloudError::Unavailable("a presigned slot without its id".into()))?;
+            service.attachment_commit(&conversation, slot)?
+        } else {
+            answer
+        }
     };
     // The owner's record (the first upload of a hash wins its derived image).
     Ok(match committed.get("attachment") {

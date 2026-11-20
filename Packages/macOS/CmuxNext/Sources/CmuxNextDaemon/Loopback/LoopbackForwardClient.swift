@@ -31,7 +31,7 @@ public actor LoopbackForwardClient {
     /// The connected daemon has `browser-runtime-v1` and this connection opted in.
     var runtimeEnabled = false
 
-    public init(requestTimeout: Duration = .seconds(2), openTimeout: Duration = .seconds(5),
+    public init(requestTimeout: Duration = DaemonConnection.defaultRequestTimeout, openTimeout: Duration = .seconds(5),
                 endpoint: @escaping EndpointProvider) {
         self.endpoint = endpoint
         self.requestTimeout = requestTimeout

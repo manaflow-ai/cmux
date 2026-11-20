@@ -1,0 +1,17 @@
+{
+  "source": "schemas/settings/source/machines.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Machines.generated.swift",
+  "type": "MachineSettingsSchema",
+  "lists": {
+    "computerUse": ["computerUse", "ComputerUseSettings"],
+    "freeModel": ["freeModel", "FreeModelSettings"],
+    "sshLinks": ["sshLinks", "SSHLinkHostsSetting"],
+    "cloud": ["cloud", "CloudNewWorkspaceSetting"],
+    "mobile": ["mobile", "MobileSettings"],
+    "macScreen": ["macScreen", "MacScreenSettings"],
+    "macScreenDebug": ["macScreenDebug", "MacScreenDebugSettings"],
+    "remote": ["remote", "RemoteSettings"],
+    "deviceHub": ["deviceHub", "DeviceHubSettings"],
+    "imessage": ["imessage", "CmuxConfigSnapshot"]
+  }
+}

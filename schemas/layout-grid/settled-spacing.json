@@ -1,0 +1,34 @@
+{
+  "about": "Spacing values Leo settled, each with his words, the reference captures it was measured against (cmux-design-references index ids) and its design spec. Leo (2026-11-02, ask-08a8b942a0): \"we'll really want to study how chatgpt desktop and claude desktop do their spacing ... we need to like enforce the good versions when we find them later in the specs/comments/tests or something\". scripts/cmux-next/gen-layout-grid.py --check fails when a pinned value leaves its source (a layout-grid metric, or the one match of a pattern with one group in a file; tighten the pattern if a file states the value twice) or when that source lost its `settled-spacing: <id>` comment, so moving a settled value also edits this file, in front of the reviewer, with Leo's words beside it. Add a pin whenever Leo settles a spacing.",
+  "pins": [
+    {
+      "id": "rest-gap",
+      "what": "From the newest row's line to the top of the bottom stack (the running tray, else the composer)",
+      "value": 56,
+      "source": {
+        "file": "webviews/src/agent-session/acpmux/model.ts",
+        "pattern": "export const REST_GAP = (\\d+(?:\\.\\d+)?);"
+      },
+      "date": "2026-11-01",
+      "words": "in the next build, will we have more space between composer and latest messages? i'd like it... tho maybe not as much as claude code / idk why theirs is so big",
+      "references": [
+        "codex/live/composer-gap-above-input-codex",
+        "claude/live/composer-gap-above-input-claude-code",
+        "cmux/live/transcript-gap-above-composer"
+      ],
+      "spec": "design/chat-transcript.md#rest-gap-above-the-composer"
+    },
+    {
+      "id": "turn-gap",
+      "what": "The person's prompt to any row over or under it (centred in its gap)",
+      "value": 32,
+      "source": {
+        "grid": "gap-turn"
+      },
+      "date": "2026-11-01",
+      "words": "this is too close to tool calls, center it",
+      "references": [],
+      "spec": "design/chat-transcript.md#prompts-after-tool-rows"
+    }
+  ]
+}

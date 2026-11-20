@@ -51,15 +51,50 @@ struct RawAgentPlugin {
 }
 
 /// What the default selection needs to know about the running daemon.
-pub(crate) struct DaemonHost<'a> {
-    /// Directory of the daemon executable; the bundled plugin is looked up here.
-    pub(crate) exe_dir: Option<&'a Path>,
+pub(crate) struct DaemonHost {
+    /// Where the bundled plugin may be, first match wins
+    /// ([`DaemonHost::for_exe`]).
+    pub(crate) candidates: Vec<PathBuf>,
     /// Whether this platform can run the bundled plugin (Unix only).
     pub(crate) supported: bool,
 }
 
+impl DaemonHost {
+    /// The places the daemon executable `exe` looks for the bundled plugin:
+    /// beside its resolved file (symlinks resolved, so a PATH link to the
+    /// bundled `cmux` still finds the app's bin/ siblings), under the name
+    /// with the same suffix as the executable's when it has one
+    /// (`cmux-tui-aarch64-apple-darwin` next to
+    /// `cmux-agent-screen-detection-aarch64-apple-darwin`), then beside the
+    /// path it was started by (a folder of links to such files).
+    pub(crate) fn for_exe(exe: &Path) -> Self {
+        let resolved = std::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
+        let mut candidates = Vec::new();
+        if let Some(dir) = resolved.parent() {
+            candidates.push(dir.join(BUNDLED_SCREEN_DETECTION_FILE));
+            let name = resolved.file_name().and_then(|name| name.to_str()).unwrap_or_default();
+            let suffix = ["cmux-tui", "cmux"].iter().find_map(|stem| name.strip_prefix(stem));
+            if let Some(suffix) = suffix.filter(|suffix| suffix.starts_with('-')) {
+                candidates.push(dir.join(format!("{BUNDLED_SCREEN_DETECTION_FILE}{suffix}")));
+            }
+        }
+        if let Some(dir) = exe.parent() {
+            let beside_link = dir.join(BUNDLED_SCREEN_DETECTION_FILE);
+            if !candidates.contains(&beside_link) {
+                candidates.push(beside_link);
+            }
+        }
+        Self { candidates, supported: cfg!(unix) }
+    }
+
+    /// The first candidate that is an executable file.
+    fn installed(&self) -> Option<&Path> {
+        self.candidates.iter().map(PathBuf::as_path).find(|path| is_executable_file(path))
+    }
+}
+
 /// The agent plugin the daemon should supervise, if any.
-pub(crate) fn agent_plugin(raw: RawAgents, host: &DaemonHost<'_>) -> Option<JournalPluginOptions> {
+pub(crate) fn agent_plugin(raw: RawAgents, host: &DaemonHost) -> Option<JournalPluginOptions> {
     if raw.unreadable {
         return None;
     }
@@ -69,10 +104,7 @@ pub(crate) fn agent_plugin(raw: RawAgents, host: &DaemonHost<'_>) -> Option<Jour
     if raw.screen_detection == Some(false) || !host.supported {
         return None;
     }
-    let path = host.exe_dir?.join(BUNDLED_SCREEN_DETECTION_FILE);
-    if !is_executable_file(&path) {
-        return None;
-    }
+    let path = host.installed()?.to_path_buf();
     let options = JournalPluginOptions {
         id: BUNDLED_SCREEN_DETECTION_ID.to_string(),
         command: vec![path.to_str()?.to_string()],
@@ -120,17 +152,50 @@ fn is_executable_file(path: &Path) -> bool {
     path.is_file()
 }
 
-/// [`agent_plugin`] for this process: the daemon executable's directory
-/// (symlinks resolved, so a PATH link to the bundled `cmux` still finds its
-/// siblings).
+/// [`agent_plugin`] for this process ([`DaemonHost::for_exe`]).
 pub(crate) fn agent_plugin_for_this_daemon(raw: RawAgents) -> Option<JournalPluginOptions> {
-    let exe_dir = this_daemon_dir();
-    let host = DaemonHost { exe_dir: exe_dir.as_deref(), supported: cfg!(unix) };
-    agent_plugin(raw, &host)
+    agent_plugin(raw, &this_daemon_host())
 }
 
-fn this_daemon_dir() -> Option<PathBuf> {
-    test_daemon_dir().or_else(|| daemon_dir_of(&std::env::current_exe().ok()?))
+fn this_daemon_host() -> DaemonHost {
+    if let Some(dir) = test_daemon_dir() {
+        return DaemonHost {
+            candidates: vec![dir.join(BUNDLED_SCREEN_DETECTION_FILE)],
+            supported: cfg!(unix),
+        };
+    }
+    match std::env::current_exe() {
+        Ok(exe) => DaemonHost::for_exe(&exe),
+        Err(_) => DaemonHost { candidates: Vec::new(), supported: cfg!(unix) },
+    }
+}
+
+/// What the daemon at `daemon_exe` does for screen detection under `raw`
+/// (`daemon status`): the same decision as [`agent_plugin`], with the
+/// places it looked.
+pub(crate) fn screen_detection_status(
+    raw: RawAgents,
+    daemon_exe: Option<&Path>,
+) -> crate::screen_detection_status::ScreenDetection {
+    use crate::screen_detection_status::ScreenDetection;
+    if raw.unreadable {
+        return ScreenDetection::Unreadable;
+    }
+    if let Some(plugin) = raw.plugin {
+        return ScreenDetection::Replaced { id: plugin.id.unwrap_or_default() };
+    }
+    if raw.screen_detection == Some(false) {
+        return ScreenDetection::Off;
+    }
+    let Some(exe) = daemon_exe else { return ScreenDetection::Unknown };
+    let host = DaemonHost::for_exe(exe);
+    if !host.supported {
+        return ScreenDetection::Unsupported;
+    }
+    match host.installed() {
+        Some(path) => ScreenDetection::Installed { path: path.to_path_buf() },
+        None => ScreenDetection::NotInstalled { looked_in: host.candidates },
+    }
 }
 
 #[cfg(not(test))]
@@ -141,13 +206,6 @@ fn test_daemon_dir() -> Option<PathBuf> {
 #[cfg(test)]
 fn test_daemon_dir() -> Option<PathBuf> {
     TEST_DAEMON_DIR.with(|dir| dir.borrow().clone())
-}
-
-/// The directory of `exe` with symlinks resolved (`exe`'s own directory when
-/// it cannot be resolved).
-fn daemon_dir_of(exe: &Path) -> Option<PathBuf> {
-    let exe = std::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
-    exe.parent().map(Path::to_path_buf)
 }
 
 #[cfg(test)]
@@ -234,8 +292,10 @@ mod tests {
         (directory, sibling)
     }
 
-    fn host(exe_dir: Option<&Path>, supported: bool) -> DaemonHost<'_> {
-        DaemonHost { exe_dir, supported }
+    fn host(exe_dir: Option<&Path>, supported: bool) -> DaemonHost {
+        let candidates =
+            exe_dir.map(|dir| dir.join(BUNDLED_SCREEN_DETECTION_FILE)).into_iter().collect();
+        DaemonHost { candidates, supported }
     }
 
     #[test]
@@ -369,7 +429,66 @@ mod tests {
         std::fs::write(&exe, b"").unwrap();
         let link = path_dir.path().join("cmux");
         std::os::unix::fs::symlink(&exe, &link).unwrap();
-        assert_eq!(daemon_dir_of(&link), Some(std::fs::canonicalize(app_bin.path()).unwrap()));
+        let resolved = std::fs::canonicalize(app_bin.path()).unwrap();
+        let candidates = DaemonHost::for_exe(&link).candidates;
+        assert_eq!(candidates[0], resolved.join(BUNDLED_SCREEN_DETECTION_FILE));
+        assert_eq!(candidates[1], path_dir.path().join(BUNDLED_SCREEN_DETECTION_FILE));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn screen_detection_finds_a_suffixed_sibling_and_one_beside_the_link() {
+        // A download folder of target-suffixed files, and a folder of plain
+        // links to them (the round 3 bench layout).
+        let downloads = tempfile::tempdir().expect("downloads");
+        let links = tempfile::tempdir().expect("links");
+        let exe = downloads.path().join("cmux-tui-aarch64-apple-darwin");
+        std::fs::write(&exe, b"").unwrap();
+        let link = links.path().join("cmux-tui");
+        std::os::unix::fs::symlink(&exe, &link).unwrap();
+        let status = screen_detection_status(raw("{}"), Some(&link));
+        let crate::screen_detection_status::ScreenDetection::NotInstalled { looked_in } = &status
+        else {
+            panic!("nothing is installed yet: {status:?}");
+        };
+        assert_eq!(looked_in.len(), 3, "{looked_in:?}");
+        let suffixed = write_sibling(downloads.path(), b"#!/bin/sh\n", 0o755);
+        let suffixed_path =
+            downloads.path().join(format!("{BUNDLED_SCREEN_DETECTION_FILE}-aarch64-apple-darwin"));
+        std::fs::rename(&suffixed, &suffixed_path).unwrap();
+        let options =
+            agent_plugin(raw("{}"), &DaemonHost::for_exe(&link)).expect("suffixed sibling");
+        assert_eq!(
+            std::fs::canonicalize(&options.command[0]).unwrap(),
+            std::fs::canonicalize(&suffixed_path).unwrap()
+        );
+        std::fs::remove_file(&suffixed_path).unwrap();
+        let beside = write_sibling(links.path(), b"#!/bin/sh\n", 0o755);
+        let status = screen_detection_status(raw("{}"), Some(&link));
+        assert_eq!(
+            status,
+            crate::screen_detection_status::ScreenDetection::Installed { path: beside }
+        );
+    }
+
+    #[test]
+    fn screen_detection_status_follows_the_agents_settings() {
+        use crate::screen_detection_status::ScreenDetection;
+        let exe = Path::new("/nonexistent/cmux-tui");
+        assert_eq!(
+            screen_detection_status(raw(r#"{"screen_detection":false}"#), Some(exe)),
+            ScreenDetection::Off
+        );
+        assert_eq!(
+            screen_detection_status(RawAgents::invalid(), Some(exe)),
+            ScreenDetection::Unreadable
+        );
+        let json = r#"{"plugin":{"id":"mine","command":["/opt/mine/plugin"]}}"#;
+        assert_eq!(
+            screen_detection_status(raw(json), Some(exe)),
+            ScreenDetection::Replaced { id: "mine".into() }
+        );
+        assert_eq!(screen_detection_status(raw("{}"), None), ScreenDetection::Unknown);
     }
 
     #[test]

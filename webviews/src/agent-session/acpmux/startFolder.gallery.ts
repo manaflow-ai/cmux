@@ -10,9 +10,8 @@ const AGENT_HOME = "/Users/you/Library/Application Support/cmux/agent-home/6b16a
 
 const WORKTREE = "/Users/you/.cmux/worktrees/cmux/fix-sidebar";
 
-/// A new chat in a project folder: its folder menu offers New Worktree (cx-lyqio.2).
-// A new chat (no session yet: the summary's empty id matches the snapshot's), so its folder menu
-// offers New Worktree.
+/// A new chat in a project folder: New Worktree is an action in its folder menu (cx-lyqio.2).
+// A new chat (no session yet: the summary's empty id matches the snapshot's), so it offers New Worktree.
 const inProject = noChat([session({ sessionId: "cmux", title: "Fix the sidebar", cwd: "/Users/you/src/cmux" })], {
   sessionId: "",
   summary: { sessionId: "", cwd: "/Users/you/src/cmux", harness: "claude", model: "claude-opus-5-5", effort: "high" },
@@ -84,7 +83,7 @@ export default agentPaneEntry({
       },
     },
     "new-worktree": {
-      note: "Play: New Worktree in a new chat's folder menu; the host makes the worktree on its own branch and the chat starts there (the folder chip names it).",
+      note: "Play: New Worktree from a new chat's folder menu; the host makes the worktree on its own branch and the chat starts there (the folder chip names it).",
       ready: { newSession: true },
       native: {
         "git.worktree.create": {
@@ -114,17 +113,7 @@ export default agentPaneEntry({
       nativeDelayMs: { "git.worktree.create": 1500 },
       snapshot: inProject,
       play: async (ctx) => {
-        await ctx.click({ selector: '[aria-label="Folder"]' });
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        const folder = ctx.document.querySelector('[aria-label="Folder"]');
-        const items = [...ctx.document.querySelectorAll(".acpmux-location-menu .acpmux-location-action")].map((item) =>
-          item.textContent?.trim(),
-        );
-        if (!items.includes("New Worktree"))
-          throw new Error(
-            `the folder control (${folder?.tagName} ${folder?.className}) offers ${JSON.stringify(items)}`,
-          );
-        await ctx.click({ role: "option", name: "New Worktree" });
+        await newWorktree(ctx);
         await ctx.waitFor(() =>
           ctx.document.querySelector(".acpmux-worktree-creating")?.textContent?.includes("Creating worktree"),
         );
@@ -133,6 +122,47 @@ export default agentPaneEntry({
         );
         if (ctx.document.querySelector(".acpmux-worktree-creating"))
           throw new Error("the creating line outlived the worktree");
+      },
+    },
+    "worktree-setup-runs": {
+      note: "Play: New Worktree in a project whose recipe has a setup script: Creating worktree… becomes the setup line in the same row, and it stays while the setup runs.",
+      ready: { newSession: true },
+      native: {
+        "git.worktree.create": {
+          value: {
+            root: WORKTREE,
+            branch: "cmux/fix-sidebar",
+            base: "main",
+            base_commit: "4f2a9c1",
+            setup: { state: "running", port: 40_010 },
+          },
+          replayed: false,
+        },
+        "git.worktree.setup": {
+          root: WORKTREE,
+          recipe: { setup: "bun install", run: null, teardown: null, include: [], repository: {}, files: [] },
+          run: {
+            state: "running",
+            output: "bun install v1.3\n",
+            output_start: "0",
+            output_end: "17",
+            setup: "bun install",
+            port: 40_010,
+          },
+        },
+        "workspace.useFolder": { status: "ok", cwd: WORKTREE },
+      },
+      nativeDelayMs: { "git.worktree.create": 600 },
+      snapshot: inProject,
+      play: async (ctx) => {
+        await newWorktree(ctx);
+        await ctx.waitFor(() =>
+          ctx.document.querySelector('[aria-label="Folder"]')?.textContent?.includes("fix-sidebar"),
+        );
+        // The chat's summary still names the checkout; the line follows the worktree's setup.
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".acpmux-worktree-setup")?.textContent?.includes("Running setup script"),
+        );
       },
     },
     "worktree-refused": {

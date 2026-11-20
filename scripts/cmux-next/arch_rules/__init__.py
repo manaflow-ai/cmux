@@ -17,19 +17,21 @@ change that came in through the merge is in the base and is never the push's own
     changes.files        [(status, path)] that BASE..HEAD changes (`git diff --name-status --no-renames`)
     changes.delta        arch_counts.Delta of the range: .total(row), .by_package(row), .new_sites(row)
     changes.counts       the arch_counts module (ROWS, ROW_IDS, strip(), analyze(), ...)
-    changes.allow        {row or rule id: n} from the valid dated exceptions this push adds to
-                         plans/cmux-next/arch-ratchet.json (a module's own id is accepted there)
+    changes.allow        {row or rule id: n} from the valid dated exceptions this push adds as files of
+                         plans/cmux-next/arch-exceptions/ (or to arch-ratchet.json's old list; a module's own
+                         id is accepted there)
     changes.read(items)  {(rev, path): text or None} for [(rev, path)] in one `git cat-file --batch`
-    changes.record(rev)  plans/cmux-next/arch-ratchet.json at REV as a dict, or None (read once per push)
+    changes.record(rev)  plans/cmux-next/arch-ratchet.json at REV as a dict, or None (read once per push); its
+                         `exceptions` hold the json's list and then the arch-exceptions/ files at REV
     changes.records()    (record(base), record(head)) through one `git cat-file --batch`
 
 A refusal is `(id, text)` or `(id, text, row)` (a bare text is named by the module's id). ID is the module's
 `ID` (layer_gate.py's "layer-gate"), else its file stem. TEXT is printed as is and names the rule, the
 file:line, the right pattern and the escape. ROW, when given, is the arch_counts row whose rise the refused change makes (the layer gate's new
 edge: its class's row): the count rule then does not refuse that unit of the row again, so one change has
-one refusal and one escape. The one escape is the same as the built-in rows': a dated exception for ID in
-arch-ratchet.json's `exceptions` ({"date": "YYYY-MM-DD", "row": "<id>", "allow": <n>, "why": "..."}) that
-the push adds lets it carry up to n of the module's refusals (the loader applies it; `changes.allow` shows
+one refusal and one escape. The one escape is the same as the built-in rows': a dated exception for ID that
+the push adds as a new file plans/cmux-next/arch-exceptions/<id>.json ({"date": "YYYY-MM-DD", "row": "<id>",
+"allow": <n>, "why": "...", and the review fields arch-ratchet.py names}) lets it carry up to n of the module's refusals (the loader applies it; `changes.allow` shows
 it to the module). There is no environment-variable skip. A note is a string, printed, never refusing.
 
 Keep a rule fast (it runs in every push): read only `changes.files` and the blobs it needs through

@@ -19,4 +19,26 @@ export declare class FreestyleApiError extends Error {
     readonly path?: string;
     constructor(status: number, body: FreestyleErrorBody, path?: string);
 }
+/** One underlying transport failure, copied explicitly so JSON logging retains it. */
+export interface FreestyleConnectionError {
+    name?: string;
+    message?: string;
+    code?: string;
+    errno?: string | number;
+    syscall?: string;
+    address?: string;
+    port?: number;
+}
+/** A failed fetch with underlying connection diagnostics; no HTTP response was received. */
+export declare class FreestyleTransportError extends TypeError {
+    readonly errors: FreestyleConnectionError[];
+    constructor(cause: unknown, errors: FreestyleConnectionError[]);
+    toJSON(): {
+        name: string;
+        message: string;
+        errors: FreestyleConnectionError[];
+    };
+}
+/** @internal Keep cancellations and unrelated custom-fetch errors unchanged. */
+export declare function withConnectionDiagnostics(error: unknown): unknown;
 //# sourceMappingURL=errors.d.ts.map

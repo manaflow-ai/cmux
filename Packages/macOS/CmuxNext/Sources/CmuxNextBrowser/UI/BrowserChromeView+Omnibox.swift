@@ -23,7 +23,7 @@ extension BrowserChromeView {
         case .didEndEditing(.commit(let url)):
             // The person's own navigation replaces the address the page slept on.
             wakingAddress = nil
-            httpsFallback.committed(url)
+            loads.httpsFallback.committed(url)
             if loadOverride?(url) == true { return }
             onTypedCommit?()
             tab.load(url)

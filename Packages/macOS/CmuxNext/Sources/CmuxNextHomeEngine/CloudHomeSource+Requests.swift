@@ -1,6 +1,6 @@
 public import CmuxHomeCore
 import CmuxNextDaemon
-public import CmuxNextHome
+public import CmuxNextHomeModel
 import Foundation
 
 nonisolated extension CloudHomeSource: HomeMessageRequestSource {

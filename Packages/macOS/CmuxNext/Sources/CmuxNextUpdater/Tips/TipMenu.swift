@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextSettings
 
 /// A setting the updater writes through the App (`UpdaterService.writeSetting`):
 /// the App owns the settings file and maps each case to its path.
@@ -91,12 +92,14 @@ extension UpdaterService {
     }
 
     /// The person saw tip `id` on the card: it is never picked again (it
-    /// stays on the card for now).
+    /// stays on the card for now), and no other tip in the app shows for
+    /// `FeatureTipBudget.minimumDaysBetweenTips` days.
     func markTipSeen(_ id: String) {
         guard !tipState.seen.contains(id), TipCatalog.all.contains(where: { $0.id == id }) else { return }
         var state = tipState
         state.seen.insert(id)
         storeTipState(state)
+        tipBudget.spend(at: now())
     }
 
     /// `sidebar.cards.tips` turned on again: a timed mute ends too.
@@ -112,11 +115,13 @@ extension UpdaterService {
     /// card does, or else picks as at launch at `at` (epoch seconds, default
     /// now); returns the tip shown, `sidebar.cards.tips`, the mute's end and
     /// the seen tips (`error` when `press` finds no tip shown). `press:
-    /// "reset"` forgets everything the tips remember (a fresh install).
+    /// "reset"` forgets everything the tips remember, the shared last-tip
+    /// date included (a fresh install).
     public func debugTips(press: String?, at epoch: Double?) -> [String: String] {
         if press == "reset" {
             tip = nil
-            storeTipState(TipState())
+            tipBudget.reset()
+            storeTipState(TipState(installSettled: true))
         } else if let press {
             guard let id = tip?.id else { return ["error": "no tip shown to press \(press) on"] }
             tipCardAction(id, press)

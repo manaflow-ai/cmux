@@ -1,10 +1,13 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCompat
+import CmuxNextDaemonService
 import CmuxNextPages
 
-/// Set Up GitHub on This Machine (`cmux cloud setup-github --target machine:<id>`), over
+/// Set Up GitHub on This Machine (`cmux cloud setup-github --target machine:<id>`): the cmux GitHub
+/// App's helper by default (CloudGitHubSetup), the machine's own sign-in as the fallback, over
 /// ``CloudHandlers``' machine resolution, runs and results (its own type: CloudHandlers is at the
 /// god-type limit).
 enum CloudGitHubHandlers {
@@ -17,43 +20,62 @@ enum CloudGitHubHandlers {
             // A nested perform inside a CLI run is built with the user origin: the enclosing
             // run's scope decides too, so only `--focus` (or a person) opens the browser.
             let opensBrowser = invocation.allowsViewChange && ActionRunScope.viewChangeAllowed()
-            let setUp: @MainActor (CloudGitHubSetup.GitIdentity) async throws -> CloudGitHubSetup.Outcome = { identity in
-                let ran = try await cloud.api.exec(session.machineID, command: CloudGitHubSetup.command(identity),
-                                                   timeoutMs: CloudGitHubSetup.timeoutMs)
-                return CloudGitHubSetup.parse(exitCode: ran.exitCode, stdout: ran.stdout)
+            // The cmux GitHub App by default; the machine's own sign-in only when the App, the team's
+            // connection or the machine's Cloud agent is not there.
+            let setUp: @MainActor (CloudGitHubSetup.GitIdentity, CloudGitHubApp) async throws -> CloudGitHubSetup.Outcome = { identity, app in
+                try await CloudGitHubSetup.run(identity, app: app == .ready, machine: session.machineID, on: cloud.machineAPI)
             }
             guard CloudHandlers.origin(of: invocation) == .user else {
                 // The caller is the confirmation: it named the machine. It reads the code from the
                 // result; the browser opens only when the run asked for focus.
                 return CloudHandlers.result("set up GitHub on Cloud machine", context) {
                     let identity = try CloudGitHubSetup.validated(await CloudGitHubSetup.localIdentity())
-                    let outcome = try await setUp(identity)
+                    let app = await cloud.gitHubApp()
+                    let outcome = try await setUp(identity, app)
                     if opensBrowser, outcome.deviceCode != nil { openVerificationPage() }
-                    return CloudGitHubSetup.fields(outcome, identity: identity)
+                    return CloudGitHubSetup.fields(outcome, identity: identity, fallback: CloudGitHubSetup.fallback(app, outcome))
                 }
             }
             CloudHandlers.runTracked("set up GitHub on Cloud machine", context) {
                 let identity = try CloudGitHubSetup.validated(await CloudGitHubSetup.localIdentity())
+                let checked = await cloud.gitHubApp(), connect = checked == .notConnected // the team's App first: Connect GitHub, never the machine's own sign-in
                 let go = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
-                    CloudPresenter.confirm(CloudStrings.gitHubConfirmTitle(session.machine.title), confirmBody(identity),
-                                           button: CloudStrings.gitHubSetUp, identifier: "cmux.dialog.cloud.setupGitHub",
+                    CloudPresenter.confirm(CloudStrings.gitHubConfirmTitle(session.machine.title), connect ? CloudStrings.gitHubConnectBody : confirmBody(identity, app: checked),
+                                           button: connect ? CloudStrings.gitHubConnect : CloudStrings.gitHubSetUp, identifier: "cmux.dialog.cloud.setupGitHub",
                                            in: CloudHandlers.window(context)) { done.resume(returning: $0) }
                 }
                 guard go else { return }
-                let outcome = try await setUp(identity)
+                var app = checked
+                if connect {
+                    switch AgentPaneGitHubConnect(await context.services.accounts.github.connectResult()) {
+                    case .opened: return // the installation page is open in the browser; Set Up again once it is done
+                    case .alreadyConnected: app = .ready // connected meanwhile: set up through the App now
+                    case let refused: return CloudPresenter.show(CloudStrings.gitHubSetupTitle, refused.message, failed: true, in: CloudHandlers.window(context))
+                    }
+                }
+                let outcome = try await setUp(identity, app)
                 // The person clicked Set Up: one browser page, with the code on the clipboard to paste.
                 if let code = outcome.deviceCode {
                     CloudPresenter.copy(code)
                     openVerificationPage()
                 }
-                CloudPresenter.show(CloudStrings.gitHubSetupTitle, CloudGitHubSetup.summary(outcome), in: CloudHandlers.window(context))
+                CloudPresenter.show(CloudStrings.gitHubSetupTitle, CloudGitHubSetup.summary(outcome, fallback: CloudGitHubSetup.fallback(app, outcome)),
+                                    in: CloudHandlers.window(context))
             }
         }
     }
 
-    private static func confirmBody(_ identity: CloudGitHubSetup.GitIdentity) -> String {
-        guard identity.name != nil || identity.email != nil else { return CloudStrings.gitHubConfirmNoIdentity }
-        return CloudStrings.gitHubConfirmBody(name: identity.name ?? "—", email: identity.email ?? "—")
+    /// What Set Up will do: the App's helper, else the machine's own sign-in with the reason first.
+    static func confirmBody(_ identity: CloudGitHubSetup.GitIdentity, app: CloudGitHubApp) -> String {
+        let check: String = switch app {
+        case .ready: "ready"
+        case .notConnected: "notConnected"
+        case .notConfigured: "notConfigured"
+        case .unknown: "unknown"
+        }
+        let facts: [String: Any] = ["name": identity.name as Any, "email": identity.email as Any, "app": check]
+        let parts = CloudHandlerRules().ask("cloud_handler_github_confirm", facts.compacted)?["parts"] as? [Any] ?? []
+        return parts.map { CloudHandlerRules.text(CloudHandlerRules.decodeSaid($0)) }.joined(separator: " ")
     }
 
     /// GitHub's device page (a constant, never a URL the machine printed), in a cmux tab (`browser.openSignInPagesInCmux`).

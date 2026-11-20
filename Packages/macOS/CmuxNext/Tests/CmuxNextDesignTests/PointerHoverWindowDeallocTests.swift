@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// p1361 follow-up: a window that deallocates tears its views down, and a view that refreshes
@@ -10,6 +11,7 @@ import Testing
 /// instance ... of class NSWindow"). It crashed PaneCloseMotionTests and
 /// PaneHorizontalScrollClaimTests, and can crash the app when a window closes.
 @MainActor
+@Suite(.closesItsWindows)
 struct PointerHoverWindowDeallocTests {
     /// Refreshes its hover as it leaves its window, as the strip scrollbar does in a teardown.
     private final class RefreshingView: NSView {

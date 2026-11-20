@@ -5,11 +5,14 @@
 // of their title (titleMatch).
 import { fuzzyScore } from "../../viewer-empty/fuzzy";
 import { matchRuns, type FileMatch, type Run } from "./fileSearchModel";
-import { mentionText } from "./MentionMenu";
+import { mentionText } from "./mentionMenuModel";
 import { isAgentHome, listed, projectLabel, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
+import type { AcpmuxSnapshot } from "./model";
+import { isModelRouterKind } from "./routerKinds";
 
 export type MentionItem =
   | { kind: "session"; key: string; sessionId: string; title: string; project?: string; name: Run[] }
+  | { kind: "harness"; key: string; harnessId: string; family?: string; name: Run[] }
   | { kind: "folder" | "file"; key: string; path: string; name: Run[]; dir: Run[] };
 
 /// How many chats and folders the picker lists ahead of the files.
@@ -19,6 +22,56 @@ export const MENTION_FOLDERS = 3;
 /// How much of a chat's title a word is matched against: a chat named for its first prompt has the
 /// whole prompt as its title, and a word deep in it says little about the chat.
 export const MENTION_TITLE_CHARS = 100;
+const RECENT_MENTION_PATHS_KEY = "cmux.acpmux.recentMentionPaths";
+const RECENT_MENTION_PATHS_LIMIT = 12;
+
+/// A file or folder picked from the @ menu, kept for the next bare `@` in the same project.
+export type RecentMention = { kind: "file" | "folder"; path: string };
+
+/// Recent paths are local UI memory, never sent to the host. They are kept per project folder on
+/// its host (`scope`): a relative path means nothing in another folder or on another machine.
+function recentKey(scope: string): string {
+  return `${RECENT_MENTION_PATHS_KEY}:${scope}`;
+}
+
+/// The project a chat's recent picks belong to: its host and folder. Undefined: none are kept.
+export function recentMentionScope(cwd: string | undefined, host: string | undefined): string | undefined {
+  return cwd ? JSON.stringify([host ?? "local", cwd]) : undefined;
+}
+
+export function loadRecentMentionPaths(scope: string | undefined): RecentMention[] {
+  if (!scope) return [];
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(recentKey(scope)) ?? "[]");
+    if (!Array.isArray(value)) return [];
+    return value
+      .filter(
+        (entry): entry is RecentMention =>
+          typeof entry === "object" &&
+          entry !== null &&
+          (entry.kind === "file" || entry.kind === "folder") &&
+          typeof entry.path === "string" &&
+          entry.path.length > 0,
+      )
+      .slice(0, RECENT_MENTION_PATHS_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
+export function rememberMentionPath(scope: string | undefined, item: MentionItem): void {
+  if (!scope || item.kind === "session" || item.kind === "harness") return;
+  const picked: RecentMention = { kind: item.kind, path: item.path };
+  const next = [
+    picked,
+    ...loadRecentMentionPaths(scope).filter((entry) => entry.kind !== picked.kind || entry.path !== picked.path),
+  ].slice(0, RECENT_MENTION_PATHS_LIMIT);
+  try {
+    localStorage.setItem(recentKey(scope), JSON.stringify(next));
+  } catch {
+    // Private windows and blocked storage keep the picker functional without recents.
+  }
+}
 
 /// `text` lowercased a character at a time, with the string index in `text` of the character each
 /// of its units comes from. Some characters lowercase to more units than they take (`İ` is one
@@ -143,6 +196,64 @@ function sessionItems(
 export const hasOtherChats = (sessions: readonly AcpmuxSessionEntry[], chatId: string | undefined) =>
   sessions.some((entry) => entry.sessionId !== chatId && listed(entry));
 
+/// A catalog row that can answer as a read-only guest: an installed agent harness the daemon
+/// resolves by name. A folder's own profile is not one yet: the guest path resolves only the
+/// global profiles (hq#8327).
+export function canBeGuest(entry: AcpmuxSnapshot["catalog"][number]): boolean {
+  return (
+    Boolean(entry.id) &&
+    entry.pickable !== false &&
+    (!entry.unavailable || Boolean(entry.probeFailed)) &&
+    entry.kind !== "terminal" &&
+    entry.kind !== "unknown" &&
+    !isModelRouterKind(entry.kind) &&
+    entry.folder === undefined
+  );
+}
+
+function harnessItems(catalog: readonly AcpmuxSnapshot["catalog"][number][], query: string): MentionItem[] {
+  const ranked: { entry: AcpmuxSnapshot["catalog"][number]; score: number; indexes: number[]; label: string }[] = [];
+  for (const entry of catalog) {
+    if (!canBeGuest(entry)) continue;
+    const label = entry.name?.trim() || entry.id;
+    // A harness answers only to its own name's start: "@ini" is a file, never Gemini.
+    const lower = query.toLowerCase();
+    const named = label.toLowerCase().startsWith(lower);
+    if (query && !named && !entry.id.toLowerCase().startsWith(lower)) continue;
+    const indexes = query && named ? Array.from({ length: query.length }, (_, index) => index) : [];
+    const score = query ? (entry.id.toLowerCase().startsWith(lower) ? 2 : 1) : 0;
+    ranked.push({ entry, score, indexes, label });
+  }
+  ranked.sort((a, b) => b.score - a.score || a.entry.id.localeCompare(b.entry.id));
+  return ranked.slice(0, 8).map(({ entry, indexes, label }) => ({
+    kind: "harness",
+    key: `harness:${entry.id}`,
+    harnessId: entry.id,
+    family: entry.family,
+    name: textRuns(label, indexes),
+  }));
+}
+
+/// The installed harness a send asks as a read-only guest, and the question it asks: the first
+/// `@id` naming one outside code (a fenced block or an inline span is literal text, never a
+/// mention). One guest per send: each guest request spends the send's one gesture. Only that
+/// token leaves the question, so a file's `@path` and the rest of the text stay as written.
+export function guestMention(
+  text: string,
+  catalog: readonly AcpmuxSnapshot["catalog"][number][],
+): { harnessId: string; question: string } | undefined {
+  const outsideCode = text.replace(/(```|~~~)[\s\S]*?(?:\1|$)|`[^`\n]*`/g, (code) => code.replace(/[^\n]/g, " "));
+  for (const match of outsideCode.matchAll(/(^|\s)@([A-Za-z0-9_.:/-]+)(?=\s|$)/g)) {
+    const id = match[2]!.toLowerCase();
+    const entry = catalog.find((candidate) => candidate.id.toLowerCase() === id && canBeGuest(candidate));
+    if (!entry) continue;
+    const start = match.index! + match[1]!.length;
+    const question = `${text.slice(0, start)}${text.slice(start + 1 + match[2]!.length)}`.trim();
+    return { harnessId: entry.id, question };
+  }
+  return undefined;
+}
+
 /// `text` as runs marked matched or not, without splitting it at a slash as a path is.
 function textRuns(text: string, indexes: readonly number[] = []): Run[] {
   const hit = new Set(indexes);
@@ -186,24 +297,47 @@ export function mentionItems({
   files,
   sessions,
   chatId,
+  recent = [],
+  harnesses = [],
 }: {
   query: string;
   files: readonly FileMatch[];
   sessions: readonly AcpmuxSessionEntry[];
   chatId?: string;
+  recent?: readonly RecentMention[];
+  harnesses?: readonly AcpmuxSnapshot["catalog"][number][];
 }): MentionItem[] {
   const text = query.trim();
   const chats = sessionItems(sessions, chatId, text);
+  const harnessRows = text ? harnessItems(harnesses, text) : [];
+  const known = new Set(files.map((file) => file.path));
+  const matching = (entry: RecentMention) => !text || fuzzyIndices(text, entry.path) !== undefined;
+  const recentFiles = recent
+    .filter((entry) => entry.kind === "file" && !known.has(entry.path) && matching(entry))
+    .map((entry): FileMatch => ({ path: entry.path, ...(text ? { matches: fuzzyIndices(text, entry.path) } : {}) }));
+  // A bare @ leads with recent picks; once there is a query, the host's own results come first.
+  const allFiles = text ? [...files, ...recentFiles] : [...recentFiles, ...files];
+  const searchedFolders = folderItems(allFiles, text);
+  const shownFolders = new Set(searchedFolders.flatMap((item) => (item.kind === "folder" ? [item.path] : [])));
+  const recentFolders = recent
+    .filter((entry) => entry.kind === "folder" && !shownFolders.has(entry.path) && matching(entry))
+    .map((entry): MentionItem => {
+      const indexes = text ? fuzzyIndices(text, entry.path) : undefined;
+      return { kind: "folder", key: `folder:${entry.path}`, path: entry.path, ...matchRuns(entry.path, indexes) };
+    });
   const paths = [
-    ...folderItems(files, text),
-    ...files.map((file): MentionItem => ({
+    ...(text ? [...searchedFolders, ...recentFolders] : [...recentFolders, ...searchedFolders]),
+    ...allFiles.map((file): MentionItem => ({
       kind: "file",
       key: `file:${file.path}`,
       path: file.path,
       ...matchRuns(file.path, file.matches),
     })),
   ];
-  return /[./]/.test(text) ? [...paths, ...chats] : [...chats, ...paths];
+  // A harness follows the chats: a chat row being typed toward stays put as "@c" grows to
+  // "@coord", and a bare @ (no query, so no harness) keeps its height.
+  if (/[./]/.test(text)) return [...paths, ...chats, ...harnessRows];
+  return [...chats, ...harnessRows, ...paths];
 }
 
 /// The row Return or Tab picks: the one the person moved to (by key, so it stays put when the
@@ -220,6 +354,7 @@ export function mentionSelection(items: readonly MentionItem[], activeKey: strin
 /// JSON string so a `"` in it does not end it, and full id, which an agent can look up with cmux
 /// and the transcript links (#22055).
 export function mentionInsert(item: MentionItem): { markdown: string; shown: string } {
+  if (item.kind === "harness") return mentionText(item.harnessId);
   if (item.kind !== "session") return mentionText(item.kind === "folder" ? `${item.path}/` : item.path);
   const shown = `cmux session ${JSON.stringify(item.title)} (${item.sessionId}) `;
   return { markdown: shown.replace(/[\\`*_[\]~<&]/g, "\\$&"), shown };

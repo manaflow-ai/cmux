@@ -28,10 +28,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 
 from test_ci_quota_hold_gate import DRAFT, DRAFT_SKIPPED, GATE, HOLD_GATED  # noqa: E402
 from test_ci_required_checks_are_bounded import context_of, load  # noqa: E402
 from test_ci_required_checks_have_no_path_filters import REQUIRED_CHECKS  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 SCRIPT = ROOT / "scripts/ci/pr_size.py"
 WORKFLOW = ROOT / ".github/workflows/pr-checks.yml"
@@ -90,6 +98,7 @@ class ExclusionAllowlistTests(unittest.TestCase):
         for path in (
             "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/CloudSessions.xcstrings",
             "plans/cmux-next/action-surfaces.json",
+            "plans/cmux-next/action-catalog.json",
             "schemas/settings/settings-schema.json",
             "web/data/next-docs/cli-reference.generated.json",
             "cmux-tui/Cargo.lock",
@@ -230,10 +239,16 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertEqual(self.workflow["permissions"], {})
         job = self.job
         self.assertEqual(job["permissions"], {"contents": "read", "pull-requests": "read"})
-        self.assertNotIn("environment", job)
-        self.assertNotIn("macos", str(job["runs-on"]).lower())
-        self.assertNotIn("self-hosted", str(job["runs-on"]).lower())
-        self.assertNotIn("secrets.", self.text)
+        resolved = workflow_jobs.resolve(job, JOB)
+        self.assertIsNone(resolved.environment)
+        self.assertIsNotNone(resolved.runs_on_cells, "a runs-on matrix nothing resolves")
+        self.assertTrue(resolved.runs_on_cells, "the job has no runs-on")
+        for cell in resolved.runs_on_cells:
+            self.assertNotIn("macos", cell.lower())
+            self.assertNotIn("self-hosted", cell.lower())
+        self.assertEqual(workflow_jobs.secret_names(self.text), set())
+        for name, each in workflow_jobs.jobs(self.workflow).items():
+            self.assertEqual(workflow_jobs.secret_names(each), set(), name)
 
     def test_not_ruleset_required_gated_and_draft_skipping(self) -> None:
         job = self.job
@@ -264,8 +279,11 @@ class WorkflowShapeTests(unittest.TestCase):
         return self.run_step_output(script_exit, gh_exit, checkout, live_body, event_body, lines)[0]
 
     def run_step_output(self, script_exit: int | None, gh_exit: int = 0, checkout: str = "success",
-                        live_body: str | None = None, event_body: str = "", lines: int = 10) -> tuple[int, str]:
-        """The job's own count step with gh stubbed, and the script stubbed (SCRIPT_EXIT) or the real one (None)."""
+                        live_body: str | None = None, event_body: str = "", lines: int = 10,
+                        graphql: list[str] | None = None, calls: list[str] | None = None) -> tuple[int, str]:
+        """The job's own count step with gh stubbed, and the script stubbed (SCRIPT_EXIT) or the real one (None).
+        `graphql`: the lines the GraphQL query's --jq prints (None: the query fails, so the REST fallback reads).
+        `calls` collects each gh invocation's arguments."""
         run = self.job["steps"][-1]["run"]
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
@@ -285,15 +303,64 @@ class WorkflowShapeTests(unittest.TestCase):
             bin_dir = directory / "bin"
             bin_dir.mkdir()
             live_exit = 1 if live_body is None else 0
+            graphql_exit = 1 if graphql is None else 0
+            (directory / "graphql.out").write_text("".join(line + "\n" for line in graphql or []), encoding="utf-8")
             (bin_dir / "gh").write_text(
                 "#!/bin/sh\n"
+                f'printf "%s\\n" "$*" >> "{directory}/calls.log"\n'
+                f'case "$1 $2" in "api graphql") [ {graphql_exit} = 0 ] && cat "{directory}/graphql.out"; '
+                f'exit {graphql_exit};; esac\n'
                 f'case "$*" in *pulls/1/files*) [ {gh_exit} = 0 ] && cat "{directory}/files.out"; exit {gh_exit};; esac\n'
                 f'[ {live_exit} = 0 ] && cat "{directory}/live.out"; exit {live_exit}\n', encoding="utf-8")
             (bin_dir / "gh").chmod(0o755)
             env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "RUNNER_TEMP": str(directory),
                    "GITHUB_EVENT_PATH": str(event), "REPOSITORY": "o/r", "PR": "1", "CHECKOUT": checkout}
             done = subprocess.run(["bash", "-c", run], cwd=directory, env=env, capture_output=True, text=True)
+            if calls is not None and (directory / "calls.log").exists():
+                calls.extend((directory / "calls.log").read_text(encoding="utf-8").splitlines())
             return done.returncode, done.stdout
+
+    @staticmethod
+    def graphql_lines(body: str | None, lines: int, pages: int = 1) -> list[str]:
+        """What the query's --jq prints: each page's body line, then its files."""
+        out = []
+        for page in range(pages):
+            out.append(json.dumps({"pull_request": {"body": body, "changed_files": pages}}))
+            out.append(json.dumps({"filename": f"src/{page}.swift", "additions": lines, "deletions": 0}))
+        return out
+
+    def test_one_graphql_query_reads_files_and_the_current_body(self) -> None:
+        # 2026-10-31: the GITHUB_TOKEN REST pool ran out at 00:50Z; the size check now spends none of it.
+        warned = "::warning title=PR size over"
+        calls: list[str] = []
+        code, out = self.run_step_output(None, graphql=self.graphql_lines("Why.", 900), event_body="Size: x",
+                                         calls=calls)
+        self.assertEqual(code, 0)
+        self.assertIn(warned, out, "the current body (no Size: line) decides, not the event's")
+        self.assertEqual([c.split()[:2] for c in calls], [["api", "graphql"]], "no REST read")
+        self.assertIn("--paginate", calls[0])
+        code, out = self.run_step_output(None, graphql=self.graphql_lines("Size: atomic rename", 900))
+        self.assertNotIn(warned, out)
+        # Two pages: each repeats the body line; both pages' files count (2 x 450 > 800), the body line is no file.
+        code, out = self.run_step_output(None, graphql=self.graphql_lines("Why.", 450, pages=2))
+        self.assertIn(warned, out)
+        code, out = self.run_step_output(None, graphql=self.graphql_lines("Why.", 300, pages=2))
+        self.assertNotIn(warned, out)
+
+    def test_the_query_pages_with_end_cursor(self) -> None:
+        # gh api graphql --paginate re-sends page 1 forever unless the cursor variable is $endCursor.
+        run = self.job["steps"][-1]["run"]
+        self.assertIn("$endCursor:String", run)
+        self.assertIn("after:$endCursor", run)
+        self.assertIn("pageInfo{hasNextPage endCursor}", run)
+
+    def test_a_failed_graphql_read_falls_back_to_rest(self) -> None:
+        calls: list[str] = []
+        code, out = self.run_step_output(None, lines=900, live_body="Size: atomic rename", calls=calls)
+        self.assertEqual(code, 0)
+        self.assertNotIn("::warning title=PR size over", out)
+        self.assertEqual(calls[0].split()[:2], ["api", "graphql"])
+        self.assertTrue(any("pulls/1/files" in c for c in calls[1:]))
 
     def test_the_current_body_decides_not_the_events_copy(self) -> None:
         # A re-run of an older run whose event still had the `Size:` line the body has since dropped.

@@ -7,6 +7,7 @@
 //! The local owner (the cmux daemon) and the cloud owner (`ConversationDO`)
 //! run the same reducer, so both speak the same ops and events.
 
+pub mod agent_sender;
 mod attachments;
 mod budget;
 mod home;
@@ -14,12 +15,14 @@ mod id;
 mod link;
 mod link_preview;
 mod question;
+pub mod question_reply;
 mod reducer;
 mod search;
 mod types;
+mod widget;
 
 pub use attachments::{
-    AttachmentClass, AttachmentReject, DerivedVariant, GENERIC_FILE_TYPE, MAX_ATTACHMENT_BYTES,
+    AttachmentClass, AttachmentReject, DerivedVariant, GENERIC_FILE_TYPE,
     MAX_ATTACHMENT_NAME_CHARS, MAX_DIMENSION, MAX_DURATION_MS, MAX_POSTER_BYTES,
     MAX_PREVIEW_IMAGE_BYTES, attachment_class, is_derived_image_type, is_sha256,
     valid_attachment_name, valid_attachment_part, validate_attachment_meta, validate_derived,
@@ -56,6 +59,10 @@ pub use types::{
     AgentClass, Change, ConversationHead, DerivedImage, Message, Op, Origin, Part, PartRef,
     Participant, ParticipantKind, Reaction, ReactionKind, Summary, Tapback, TextRun,
     ThreadResolution, ThreadState, ThreadStatus, WorkStatus,
+};
+pub use widget::{
+    BUILT_IN_WIDGET_PUBLISHERS, MAX_WIDGET_FALLBACK_CHARS, MAX_WIDGET_NAME_BYTES,
+    MAX_WIDGET_PROPS_BYTES, Widget, is_extension_widget_app, valid_widget, valid_widget_app,
 };
 
 /// `Summary.owner` for conversations owned by a local daemon.

@@ -182,7 +182,7 @@ import Testing
         #expect(backend.sentClientIDs == ["client-2", "client-2"])
     }
 
-    @Test func laggedReconnectRebasesOnNewestAndKeepsPendingSends() async throws {
+    @Test func laggedReconnectMergesMissingPagesAndKeepsPendingSends() async throws {
         let backend = ScriptedBackend(total: 50)
         let store = ConversationStore(backend: backend, pageSize: 20, makeClientMessageID: { "client-3" })
         store.apply(.connected(info: backend.info, meID: "me", lagged: false))
@@ -191,10 +191,605 @@ import Testing
         store.send(text: "in flight")
         backend.total = 80
         store.apply(.connected(info: backend.info, meID: "me", lagged: true))
-        try await waitUntil { store.messages.first?.seq == 61 }
-        #expect(store.messages.compactMap(\.seq) == Array(61...80))
+        try await waitUntil { store.message(id: "m80") != nil }
+        #expect(store.messages.compactMap(\.seq) == Array(31...80))
         #expect(store.messages.last?.clientMessageID == "client-3")
         backend.releaseSend()
+    }
+
+    /// A restarted backend's history no longer holds the kept window: the
+    /// client holds 81-100 and the server now has 1-50. Recovery rebuilds from
+    /// the fetched page (keeping an unsent local send), and new live messages
+    /// 51-80, during the fetch and after it, land instead of being dropped as
+    /// older than the stale window.
+    @Test func laggedReconnectAfterABackendResetRebuildsFromTheFetchedHistory() async throws {
+        let backend = ScriptedBackend(total: 100)
+        let store = ConversationStore(backend: backend, pageSize: 20, makeClientMessageID: { "client-4" })
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        #expect(store.messages.compactMap(\.seq) == Array(81...100))
+        backend.holdSend = true
+        defer { backend.releaseSend() }
+        store.send(text: "in flight")
+        let gate = PreparationGate()
+        defer { gate.open() }
+        backend.nextHistoryGate = gate
+        backend.total = 50
+        let historyBefore = backend.historyCount
+        var rebuilt = false
+        store.addObserver { change in
+            if case .reset = change { rebuilt = true }
+        }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { backend.historyCount == historyBefore + 1 }
+        // Live traffic from the restarted backend while its history is held.
+        store.apply(.message(backend.makeMessage(seq: 51, sender: "lc"), eventSeq: 1))
+        gate.open()
+        try await waitUntil { rebuilt }
+        #expect(store.messages.compactMap(\.seq) == Array(31...51))
+        #expect(store.messages.last?.clientMessageID == "client-4")
+        #expect(store.older == .idle)
+        for seq in 52...80 {
+            store.apply(.message(backend.makeMessage(seq: seq, sender: "lc"), eventSeq: seq - 50))
+        }
+        #expect(store.messages.compactMap(\.seq) == Array(31...80))
+        #expect(store.message(id: "m100") == nil)
+        #expect(store.messages.last?.clientMessageID == "client-4")
+    }
+
+    @Test func reconnectDuringCatchUpDoesNotSkipTheGapBeforeALiveArrival() async throws {
+        let backend = ScriptedBackend(total: 50)
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        let gate = PreparationGate()
+        defer { gate.open() }
+        backend.nextHistoryGate = gate
+        backend.total = 100
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { backend.historyCount == 2 }
+        // New live traffic is visible while history is held. A second
+        // reconnect must not mistake that isolated row for a complete tail.
+        store.apply(.message(backend.makeMessage(seq: 100, sender: "lc"), eventSeq: 1))
+        var merged = false
+        store.addObserver { change in
+            if case .live = change { merged = true }
+        }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { merged }
+        #expect(store.messages.compactMap(\.seq) == Array(31...100))
+    }
+
+    @Test func reconnectAfterEmptyHistoryRestoresOlderPaging() async throws {
+        let backend = ScriptedBackend(total: 0)
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        #expect(store.older == .exhausted)
+        backend.total = 80
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { store.message(id: "m80") != nil }
+        #expect(store.older == .idle)
+        store.loadOlder()
+        try await waitUntil { store.message(id: "m41") != nil }
+        #expect(store.messages.compactMap(\.seq) == Array(41...80))
+    }
+
+    @Test(arguments: [20, 200])
+    func interruptedRecoveryAfterEmptyHistoryKeepsOlderMessagesReachable(pageSize: Int) async throws {
+        let backend = ScriptedBackend(total: 0)
+        let store = ConversationStore(backend: backend, pageSize: pageSize)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        #expect(store.older == .exhausted)
+        let gate = PreparationGate()
+        defer { gate.open() }
+        backend.nextHistoryGate = gate
+        backend.total = 100
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { backend.historyCount == 2 }
+        store.apply(.message(backend.makeMessage(seq: 100, sender: "lc"), eventSeq: 1))
+        var merged = false
+        store.addObserver { change in
+            if case .live = change { merged = true }
+        }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { merged }
+        #expect(store.older == .idle)
+        // Recovery retains the live row as the window's anchor, but the
+        // filtered overlap rows and every earlier page must remain reachable.
+        for page in 1...((99 + pageSize - 1) / pageSize) {
+            let oldest = max(1, 100 - page * pageSize)
+            store.loadOlder()
+            try await waitUntil { store.messages.first?.seq == oldest }
+        }
+        #expect(store.messages.compactMap(\.seq) == Array(1...100))
+        #expect(store.older == .exhausted)
+    }
+
+    @Test func liveRowOlderThanTheFetchedPageDuringEmptyRecoveryLeavesNoGap() async throws {
+        let backend = ScriptedBackend(total: 0)
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        let gate = PreparationGate()
+        defer { gate.open() }
+        backend.nextHistoryGate = gate
+        backend.total = 100
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { backend.historyCount == 2 }
+        // An update for message 50 arrives while the newest page (81-100) is
+        // held. Recovery must fetch down to it, not leave 51-80 unreachable.
+        store.apply(.message(backend.makeMessage(seq: 50, sender: "lc"), eventSeq: 1))
+        gate.open()
+        try await waitUntil { store.message(id: "m100") != nil }
+        #expect(store.messages.compactMap(\.seq) == Array(50...100))
+        #expect(store.older == .idle)
+        for oldest in [30, 10, 1] {
+            store.loadOlder()
+            try await waitUntil { store.messages.first?.seq == oldest }
+        }
+        #expect(store.messages.compactMap(\.seq) == Array(1...100))
+    }
+
+    /// An older page asked for before a lagged reconnect carries what the
+    /// server had then. Whether it lands while recovery is fetching or after
+    /// recovery applied (recovery leaves rows above its window to the pager),
+    /// it must never bring back a message unsent while disconnected.
+    @Test(arguments: [false, true])
+    func olderPageAskedBeforeReconnectNeverLandsStaleRows(landsAfterRecovery: Bool) async throws {
+        let backend = ScriptedBackend(total: 100)
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        // An older page (61-80) is asked for and held with its pre-disconnect contents.
+        let older = PreparationGate()
+        defer { older.open() }
+        backend.nextHistoryGate = older
+        store.loadOlder()
+        try await waitUntil { backend.historyCount == 2 }
+        // Message 70 was unsent while disconnected.
+        var unsent = backend.makeMessage(seq: 70, sender: "lc")
+        unsent.text = ""
+        unsent.unsentAt = Date(timeIntervalSince1970: 1_800_000_000)
+        backend.setHistoryMessage(unsent)
+        backend.total = 101
+        let newest = PreparationGate()
+        defer { newest.open() }
+        if !landsAfterRecovery { backend.nextHistoryGate = newest }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        if landsAfterRecovery {
+            try await waitUntil { store.message(id: "m101") != nil }
+            older.open()
+        } else {
+            try await waitUntil { backend.historyCount == 3 }
+            older.open()
+            // Let the stale reply reach the store before recovery's does.
+            try await Task.sleep(for: .milliseconds(50))
+            newest.open()
+            try await waitUntil { store.message(id: "m101") != nil }
+        }
+        try await waitUntil { store.message(id: "m61") != nil }
+        #expect(store.message(id: "m70")?.unsentAt == unsent.unsentAt)
+        #expect(store.message(id: "m70")?.text == "")
+        #expect(store.messages.compactMap(\.seq) == Array(61...101))
+    }
+
+    /// The catch-up jump fetches older pages itself; one asked for before a
+    /// lagged reconnect must not bring back a message unsent meanwhile either.
+    @Test func catchUpPageAskedBeforeReconnectNeverLandsStaleRows() async throws {
+        let backend = ScriptedBackend(total: 100)
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        let older = PreparationGate()
+        defer { older.open() }
+        backend.nextHistoryGate = older
+        let loaded = Task { await store.loadThrough(seq: 70) }
+        try await waitUntil { backend.historyCount == 2 }
+        var unsent = backend.makeMessage(seq: 70, sender: "lc")
+        unsent.text = ""
+        unsent.unsentAt = Date(timeIntervalSince1970: 1_800_000_000)
+        backend.setHistoryMessage(unsent)
+        backend.total = 101
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { store.message(id: "m101") != nil }
+        older.open()
+        #expect(await loaded.value)
+        #expect(store.message(id: "m70")?.unsentAt == unsent.unsentAt)
+        #expect(store.message(id: "m70")?.text == "")
+        #expect(store.messages.compactMap(\.seq) == Array(61...101))
+    }
+
+    /// A vote or an added choice made while recovery fetches is local intent
+    /// over the poll, not a newer revision of the message: the recovered edit
+    /// and other people's votes still apply, the intent stays on top, and a
+    /// refusal rolls back to the recovered poll, not the pre-disconnect one.
+    @Test(arguments: [false, true])
+    func reconnectAppliesAuthoritativeChangeAfterAPendingPollAction(addsChoice: Bool) async throws {
+        let backend = ScriptedBackend(total: 30)
+        var original = backend.makeMessage(seq: 25, sender: "lc")
+        original.text = "Lunch?"
+        original.poll = ConversationPoll(question: "Lunch?", options: [
+            ConversationPollOption(id: "a", text: "Tacos"),
+            ConversationPollOption(id: "b", text: "Ramen"),
+        ])
+        backend.setHistoryMessage(original)
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+
+        // While disconnected the question was edited and someone voted.
+        var changed = original
+        changed.text = "Lunch on Friday?"
+        changed.poll?.setVote(participantID: "aw", optionID: "a", selected: true)
+        backend.setHistoryMessage(changed)
+        backend.total = 31
+        let history = PreparationGate()
+        defer { history.open() }
+        backend.nextHistoryGate = history
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { backend.historyCount == 2 }
+
+        // My poll action is held, then refused.
+        let action = PreparationGate()
+        defer { action.open() }
+        backend.localActionGate = action
+        if addsChoice {
+            store.addPollChoice(messageID: "m25", text: "Pho")
+        } else {
+            store.togglePollVote(messageID: "m25", optionID: "b")
+        }
+        history.open()
+        try await waitUntil { store.message(id: "m31") != nil }
+        let recovered = try #require(store.message(id: "m25"))
+        #expect(recovered.text == changed.text)
+        #expect(recovered.poll?.hasVote(participantID: "aw", optionID: "a") == true)
+        if addsChoice {
+            #expect(recovered.poll?.options.map(\.text) == ["Tacos", "Ramen", "Pho"])
+        } else {
+            #expect(recovered.poll?.hasVote(participantID: "me", optionID: "b") == true)
+        }
+        action.open()
+        try await waitUntil { store.message(id: "m25")?.poll == changed.poll }
+        #expect(store.message(id: "m25")?.text == changed.text)
+    }
+
+    /// My edit made while recovery fetches is local intent over the row: the
+    /// recovered revision still applies under it, and a refusal rolls back to
+    /// that recovered revision, not the copy from before the disconnect.
+    @Test(arguments: [false, true])
+    func editDuringRecoveryRollsBackToTheRecoveredRevision(unsentElsewhere: Bool) async throws {
+        let backend = ScriptedBackend(total: 30)
+        var original = backend.makeMessage(seq: 25, sender: "me")
+        original.sentAt = Date()
+        original.text = "Original"
+        backend.setHistoryMessage(original)
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+
+        // While disconnected my other device edited or unsent it.
+        var changed = original
+        if unsentElsewhere {
+            changed.text = ""
+            changed.unsentAt = Date()
+        } else {
+            changed.text = "Edited elsewhere"
+            changed.editedAt = Date()
+            changed.editCount = 1
+        }
+        backend.setHistoryMessage(changed)
+        backend.total = 31
+        let history = PreparationGate()
+        defer { history.open() }
+        backend.nextHistoryGate = history
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { backend.historyCount == 2 }
+
+        let action = PreparationGate()
+        defer { action.open() }
+        backend.localActionGate = action
+        store.edit(messageID: "m25", text: "Edited here")
+        #expect(store.message(id: "m25")?.text == "Edited here")
+        history.open()
+        try await waitUntil { store.message(id: "m31") != nil }
+        if unsentElsewhere {
+            #expect(store.message(id: "m25")?.unsentAt == changed.unsentAt)
+            #expect(store.message(id: "m25")?.text == "")
+        } else {
+            // My edit is still in flight: it stays on top of the recovered row.
+            #expect(store.message(id: "m25")?.text == "Edited here")
+        }
+        action.open()
+        try await waitUntil { store.message(id: "m25")?.text == changed.text }
+        let result = try #require(store.message(id: "m25"))
+        #expect(result.unsentAt == changed.unsentAt)
+        #expect(result.editCount == changed.editCount)
+    }
+
+    enum PendingLocalAction: CaseIterable, Sendable { case react, vote, edit, unsend }
+
+    /// Whatever local action is in flight (a reaction, a poll vote, an edit,
+    /// an unsend), it holds back only the fields it changes: the recovered
+    /// revision's other fields apply, during the action and after a refusal.
+    @Test(arguments: PendingLocalAction.allCases)
+    func aPendingLocalActionHoldsBackOnlyItsOwnFields(action pending: PendingLocalAction) async throws {
+        let backend = ScriptedBackend(total: 30)
+        var original = backend.makeMessage(seq: 25, sender: "me")
+        original.sentAt = Date()
+        if pending == .vote {
+            original.poll = ConversationPoll(question: "Lunch?", options: [
+                ConversationPollOption(id: "a", text: "Tacos"),
+                ConversationPollOption(id: "b", text: "Ramen"),
+            ])
+        }
+        backend.setHistoryMessage(original)
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+
+        // While disconnected, two replies arrived in its thread.
+        var changed = original
+        changed.replyCount = 2
+        backend.setHistoryMessage(changed)
+        backend.total = 31
+        let history = PreparationGate()
+        defer { history.open() }
+        backend.nextHistoryGate = history
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { backend.historyCount == 2 }
+
+        let action = PreparationGate()
+        defer { action.open() }
+        backend.localActionGate = action
+        switch pending {
+        case .react: store.react(messageID: "m25", reaction: .heart)
+        case .vote: store.togglePollVote(messageID: "m25", optionID: "a")
+        case .edit: store.edit(messageID: "m25", text: "Edited here")
+        case .unsend: store.unsend(messageID: "m25")
+        }
+        history.open()
+        try await waitUntil { store.message(id: "m31") != nil }
+        #expect(store.message(id: "m25")?.replyCount == 2)
+        switch pending {
+        case .react: #expect(store.message(id: "m25")?.reactions.isEmpty == false)
+        case .vote: #expect(store.message(id: "m25")?.poll?.hasVote(participantID: "me", optionID: "a") == true)
+        case .edit: #expect(store.message(id: "m25")?.text == "Edited here")
+        case .unsend: #expect(store.message(id: "m25")?.isUnsent == true)
+        }
+        action.open()
+        switch pending {
+        case .react: try await Task.sleep(for: .milliseconds(50))
+        case .vote: try await waitUntil { store.message(id: "m25")?.poll == changed.poll }
+        case .edit: try await waitUntil { store.message(id: "m25")?.text == changed.text }
+        case .unsend: try await waitUntil { store.message(id: "m25")?.unsendFailed == true }
+        }
+        #expect(store.message(id: "m25")?.replyCount == 2)
+    }
+
+    /// A message that first arrives live while recovery fetches, then is
+    /// edited or reacted to live, keeps that live state: a page fetched
+    /// before those events carries an older copy of it.
+    @Test(arguments: [false, true])
+    func aRowThatArrivesLiveDuringRecoveryKeepsItsLiveState(reacted: Bool) async throws {
+        let backend = ScriptedBackend(total: 30)
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+
+        // Message 31 was sent while disconnected; the held page carries it as sent.
+        backend.total = 31
+        let history = PreparationGate()
+        defer { history.open() }
+        backend.nextHistoryGate = history
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { backend.historyCount == 2 }
+
+        // After the page was read, it arrives live and then changes live.
+        store.apply(.message(backend.makeMessage(seq: 31, sender: "lc"), eventSeq: 1))
+        var changed = backend.makeMessage(seq: 31, sender: "lc")
+        if reacted {
+            changed.reactions = [ConversationReactionMark(participantID: "aw", reaction: .haha)]
+        } else {
+            changed.text = "Edited live"
+            changed.editedAt = Date()
+            changed.editCount = 1
+        }
+        store.apply(.message(changed, eventSeq: 2))
+        var merged = false
+        store.addObserver { change in
+            if case .live = change { merged = true }
+        }
+        history.open()
+        // The merge notifies only after recovery applied in full.
+        try await waitUntil { merged && backend.historyCount >= 2 }
+        let result = try #require(store.message(id: "m31"))
+        #expect(result.text == changed.text)
+        #expect(result.editCount == changed.editCount)
+        #expect(result.reactions == changed.reactions)
+    }
+
+    /// My reaction pending during recovery keeps only my own mark: reactions
+    /// others added while I was disconnected come from the recovered copy.
+    @Test func aPendingReactionKeepsOthersRecoveredReactions() async throws {
+        let backend = ScriptedBackend(total: 30)
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+
+        var changed = backend.makeMessage(seq: 25, sender: "lc")
+        changed.reactions = [ConversationReactionMark(participantID: "aw", reaction: .haha)]
+        backend.setHistoryMessage(changed)
+        backend.total = 31
+        let history = PreparationGate()
+        defer { history.open() }
+        backend.nextHistoryGate = history
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { backend.historyCount == 2 }
+
+        let action = PreparationGate()
+        defer { action.open() }
+        backend.localActionGate = action
+        store.react(messageID: "m25", reaction: .heart)
+        history.open()
+        try await waitUntil { store.message(id: "m31") != nil }
+        let reactions = try #require(store.message(id: "m25")?.reactions)
+        #expect(Set(reactions) == [
+            ConversationReactionMark(participantID: "aw", reaction: .haha),
+            ConversationReactionMark(participantID: "me", reaction: .heart),
+        ])
+    }
+
+    /// A delivery receipt is not a newer revision of the message: a live
+    /// receipt during recovery keeps its delivery, and the recovered edit or
+    /// unsend still applies.
+    @Test(arguments: [false, true])
+    func reconnectAppliesAuthoritativeChangeAfterALiveDeliveryReceipt(unsent: Bool) async throws {
+        let backend = ScriptedBackend(total: 30)
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+
+        // My message 24 was edited or unsent while disconnected.
+        var changed = backend.makeMessage(seq: 24, sender: "me")
+        changed.text = unsent ? "" : "Edited while disconnected"
+        if unsent { changed.unsentAt = Date(timeIntervalSince1970: 2000) }
+        backend.setHistoryMessage(changed)
+        backend.total = 31
+        let gate = PreparationGate()
+        defer { gate.open() }
+        backend.nextHistoryGate = gate
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { backend.historyCount == 2 }
+
+        // A read receipt for the copy still on screen arrives live.
+        var receipt = backend.makeMessage(seq: 24, sender: "me")
+        receipt.delivery = .read(nil)
+        store.apply(.message(receipt, eventSeq: 1))
+        #expect(store.message(id: "m24")?.delivery == .read(nil))
+        gate.open()
+        try await waitUntil { store.message(id: "m31") != nil }
+        let result = try #require(store.message(id: "m24"))
+        #expect(result.text == changed.text)
+        #expect(result.unsentAt == changed.unsentAt)
+        #expect(result.delivery == .read(nil))
+    }
+
+    @Test func reconnectRefreshesMissedEditsThroughoutRetainedHistory() async throws {
+        let backend = ScriptedBackend(total: 100)
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        for oldest in [61, 41, 21] {
+            store.loadOlder()
+            try await waitUntil { store.messages.first?.seq == oldest }
+        }
+        var edited = backend.makeMessage(seq: 25, sender: "lc")
+        edited.text = "Edited while disconnected"
+        backend.setHistoryMessage(edited)
+        var unsent = backend.makeMessage(seq: 26, sender: "lc")
+        unsent.text = ""
+        unsent.unsentAt = Date(timeIntervalSince1970: 1_800_000_000)
+        backend.setHistoryMessage(unsent)
+        backend.total = 105
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { store.message(id: "m105") != nil }
+        #expect(store.message(id: "m25")?.text == edited.text)
+        #expect(store.message(id: "m26")?.unsentAt == unsent.unsentAt)
+        // The overlap page must not load unseen history above the old window.
+        #expect(store.messages.compactMap(\.seq) == Array(21...105))
+    }
+
+    @Test(arguments: [false, true])
+    func reconnectAppliesAuthoritativeChangeAfterLocalPreviewLoads(unsent: Bool) async throws {
+        let backend = ScriptedBackend(total: 30)
+        let url = try #require(URL(string: "https://example.com/article"))
+        var original = backend.makeMessage(seq: 25, sender: "lc")
+        original.text = url.absoluteString
+        original.linkPreview = ConversationLinkPreview(url: url, state: .tapToLoad)
+        backend.setHistoryMessage(original)
+        backend.linkPreviews[url] = ConversationLinkPreview(url: url, title: "Loaded locally")
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+
+        var changed = original
+        changed.text = unsent ? "" : "Updated article \(url.absoluteString)"
+        if unsent {
+            changed.unsentAt = Date(timeIntervalSince1970: 2000)
+            changed.linkPreview = nil
+        }
+        backend.setHistoryMessage(changed)
+        backend.total = 31
+        let gate = PreparationGate()
+        defer { gate.open() }
+        backend.nextHistoryGate = gate
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { backend.historyCount == 2 }
+
+        // Local presentation enrichment is not a newer server revision.
+        // It must not suppress the edit/unsend in the held history reply.
+        store.loadLinkPreview(messageID: "m25")
+        try await waitUntil { store.message(id: "m25")?.linkPreview?.state == .loaded }
+        gate.open()
+        try await waitUntil { store.message(id: "m31") != nil }
+        let result = try #require(store.message(id: "m25"))
+        #expect(result.text == changed.text)
+        #expect(result.unsentAt == changed.unsentAt)
+        if !unsent {
+            // The unchanged URL keeps the enriched card while server text wins.
+            #expect(result.linkPreview?.title == "Loaded locally")
+            #expect(result.linkPreview?.state == .loaded)
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func reconnectAppliesAuthoritativeChangeAfterAFailedLocalReaction(unsent: Bool) async throws {
+        let backend = ScriptedBackend(total: 30)
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+
+        // Message 25 was edited or unsent while disconnected.
+        var changed = backend.makeMessage(seq: 25, sender: "lc")
+        changed.text = unsent ? "" : "Edited while disconnected"
+        if unsent { changed.unsentAt = Date(timeIntervalSince1970: 2000) }
+        backend.setHistoryMessage(changed)
+        backend.total = 31
+        let gate = PreparationGate()
+        defer { gate.open() }
+        backend.nextHistoryGate = gate
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { backend.historyCount == 2 }
+
+        // Reacting to the still-visible copy is an optimistic local change,
+        // and this backend refuses it. It must not hold back the recovered
+        // edit or unsend.
+        store.react(messageID: "m25", reaction: .heart)
+        #expect(store.message(id: "m25")?.reactions.isEmpty == false)
+        gate.open()
+        try await waitUntil { store.message(id: "m31") != nil }
+        let result = try #require(store.message(id: "m25"))
+        #expect(result.text == changed.text)
+        #expect(result.unsentAt == changed.unsentAt)
+        if unsent { #expect(result.reactions.isEmpty) }
     }
 
     @Test func typingClearsWhenThatParticipantsMessageArrives() async throws {
@@ -364,6 +959,10 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
     private let lock = NSLock()
     private var _total: Int
     private var _failNextHistory = 0
+    private var _nextHistoryGate: PreparationGate?
+    private var _historyCount = 0
+    private var _historyMessages: [String: ConversationMessage] = [:]
+    private var _localActionGate: PreparationGate?
     private var _failNextSend = false
     private var _holdSend = false
     private var _sendWaiters: [CheckedContinuation<Void, Never>] = []
@@ -377,6 +976,27 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
 
     var total: Int { get { lock.withLock { _total } } set { lock.withLock { _total = newValue } } }
     var failNextHistory: Int { get { lock.withLock { _failNextHistory } } set { lock.withLock { _failNextHistory = newValue } } }
+    var nextHistoryGate: PreparationGate? { get { lock.withLock { _nextHistoryGate } } set { lock.withLock { _nextHistoryGate = newValue } } }
+    /// When set, a reaction, poll vote or choice, edit or unsend is held
+    /// until it opens and then refused.
+    var localActionGate: PreparationGate? { get { lock.withLock { _localActionGate } } set { lock.withLock { _localActionGate = newValue } } }
+    private func refuseHeldLocalAction() async throws {
+        guard let gate = localActionGate else { return }
+        await gate.wait()
+        throw ConversationBackendError(code: -1, message: "refused")
+    }
+    func votePoll(messageID: String, optionID: String, selected: Bool) async throws -> ConversationMessage {
+        try await refuseHeldLocalAction()
+        throw ConversationBackendError(code: -1, message: "vote refused")
+    }
+    func addPollOption(messageID: String, text: String) async throws -> ConversationMessage {
+        try await refuseHeldLocalAction()
+        throw ConversationBackendError(code: -1, message: "choice refused")
+    }
+    var historyCount: Int { lock.withLock { _historyCount } }
+    func setHistoryMessage(_ message: ConversationMessage) {
+        lock.withLock { _historyMessages[message.id] = message }
+    }
     var failNextSend: Bool { get { lock.withLock { _failNextSend } } set { lock.withLock { _failNextSend = newValue } } }
     var holdSend: Bool { get { lock.withLock { _holdSend } } set { lock.withLock { _holdSend = newValue } } }
     var sentClientIDs: [String] { lock.withLock { _sentClientIDs } }
@@ -412,6 +1032,11 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
     }
 
     func history(beforeSeq: Int?, limit: Int) async throws -> ConversationHistoryPage {
+        let (gate, historyMessages) = lock.withLock { () -> (PreparationGate?, [String: ConversationMessage]) in
+            _historyCount += 1
+            defer { _nextHistoryGate = nil }
+            return (_nextHistoryGate, _historyMessages)
+        }
         let shouldFail = lock.withLock { () -> Bool in
             guard _failNextHistory > 0 else { return false }
             _failNextHistory -= 1
@@ -421,10 +1046,12 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
         let upper = (beforeSeq ?? (total + 1)) - 1
         let lower = max(1, upper - limit + 1)
         guard upper >= 1 else { return ConversationHistoryPage(messages: [], hasMore: false) }
-        return ConversationHistoryPage(
-            messages: (lower...upper).map { makeMessage(seq: $0, sender: $0 % 3 == 0 ? "me" : "lc") },
+        let page = ConversationHistoryPage(
+            messages: (lower...upper).map { historyMessages["m\($0)"] ?? makeMessage(seq: $0, sender: $0 % 3 == 0 ? "me" : "lc") },
             hasMore: lower > 1
         )
+        if let gate { await gate.wait() }
+        return page
     }
 
     func send(_ draft: ConversationOutgoingDraft) async throws -> ConversationMessage {
@@ -460,10 +1087,12 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
     }
 
     func react(messageID: String, reaction: ConversationReaction?) async throws -> ConversationMessage {
+        try await refuseHeldLocalAction()
         throw ConversationBackendError(code: -1, message: "unsupported")
     }
 
     func edit(messageID: String, text: String) async throws -> ConversationMessage {
+        try await refuseHeldLocalAction()
         var message = makeMessage(seq: Int(messageID.dropFirst()) ?? 0, sender: "me")
         message.text = text
         message.editedAt = Date()
@@ -476,6 +1105,7 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
     var failNextUnsend: Bool { get { lock.withLock { _failNextUnsend } } set { lock.withLock { _failNextUnsend = newValue } } }
 
     func unsend(messageID: String) async throws -> ConversationMessage {
+        try await refuseHeldLocalAction()
         let fail = lock.withLock { () -> Bool in
             defer { _failNextUnsend = false }
             return _failNextUnsend

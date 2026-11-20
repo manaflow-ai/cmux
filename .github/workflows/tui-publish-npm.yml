@@ -29,7 +29,7 @@ jobs:
     # becomes npm `latest`. Only strict stable X.Y.Z may go through here; a
     # prerelease versions on latest would put a prerelease in front of every
     # `npx cmux` user.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     permissions:
       actions: read
@@ -213,6 +213,7 @@ jobs:
           mapfile -d '' binaries < <(
             find dist/npm-packages -type f \
               \( -path '*/cmux-tui-*/bin/cmux-tui*' -o \
+                 -path '*/cmux-tui-*/bin/cmux-agent-screen-detection' -o \
                  -path '*/cmux-relay-*/bin/chatmux-relay*' \) \
               -print0 | sort -z
           )

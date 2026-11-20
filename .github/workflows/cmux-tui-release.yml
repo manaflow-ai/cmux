@@ -45,7 +45,7 @@ concurrency:
 jobs:
   version:
     name: derive package version
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     permissions:
       contents: read
     outputs:
@@ -87,7 +87,7 @@ jobs:
       attestations: write
     uses: ./.github/workflows/cmux-tui-build-package.yml
     with:
-      retention_days: 30  # tui-publish-npm/pypi download these by run id
+      retention_days: 7  # tui-publish-npm/pypi download these by run id
       version: ${{ needs.version.outputs.version }}
       package_npm: true
       package_pypi: true
@@ -100,7 +100,7 @@ jobs:
     name: dispatch verified artifacts to registries
     if: ${{ inputs.publish_npm || inputs.publish_pypi }}
     needs: build-package
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     permissions:
       actions: write
       contents: read

@@ -129,10 +129,10 @@ extension PaneController {
         var ownPages = 0
         var kind = "none"
         switch content {
-        case .agent:
-            kind = "agent"
+        case .agent: // an agent chat or New Tab page, and a cmux page, draw in their own Chromium page window: not foreign
+            (kind, ownPages) = ("agent", (content?.childWindowTab as? any BrowserContentVisibilityReporting)?.contentVisibility.isVisible == true ? 1 : 0)
         case .page:
-            kind = "page"
+            (kind, ownPages) = ("page", (content?.childWindowTab as? any BrowserContentVisibilityReporting)?.contentVisibility.isVisible == true ? 1 : 0)
         case .terminal(let entry):
             kind = "terminal"
             terminal = entry.session.diagnostics
@@ -190,7 +190,7 @@ extension PaneController {
         let content = view.convert(view.bounds, to: nil)
         let rect = window.convertToScreen(content)
         let devTools = (currentContent.flatMap { if case .browser(let entry) = $0 { entry.tab } else { nil } }) as? any BrowserDevToolsHosting
-        return NSApp.windows.filter { other in
+        return (NSApp?.windows ?? []).filter { other in
             guard other !== window, other.isVisible, !(other is NSPanel), devTools?.devToolsContains(window: other) != true else { return false }
             let overlap = other.frame.intersection(rect)
             return !overlap.isNull && overlap.width * overlap.height > 0.5 * rect.width * rect.height

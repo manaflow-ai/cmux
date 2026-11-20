@@ -26,7 +26,6 @@ struct TabGroupPage: View {
             .navigationTitle(group?.displayName ?? "Tab Group")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.visible, for: .navigationBar)
-            .toolbar(.hidden, for: .tabBar)
             .background(theme.colors.bg.color.ignoresSafeArea())
             .overlay(alignment: .bottom) { PageToast(source: source) }
             // Ungrouped, closed or moved to another workspace on the Mac: nothing left to act on.
@@ -39,6 +38,7 @@ struct TabGroupPage: View {
                     .accessibilityIdentifier("tabGroup.rename.field")
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") { Task { await source.editGroup(.rename(name), group: groupID) } }
+                    .keyboardShortcut(.defaultAction)
             }
             .alert("Set Tab Group Icon", isPresented: $choosingEmoji) {
                 TextField("Emoji", text: $emojiText)
@@ -47,6 +47,7 @@ struct TabGroupPage: View {
                     if let emoji = WorkspaceIcon.emoji(emojiText) { Task { await source.editGroup(.setIcon(emoji), group: groupID) } }
                 }
                 .disabled(WorkspaceIcon.emoji(emojiText) == nil)
+                .keyboardShortcut(.defaultAction)
             } message: {
                 Text("One emoji.")
             }

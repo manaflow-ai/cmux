@@ -25,7 +25,7 @@ struct BookmarkOpener {
         guard let pane else { return services.registry.refuse(RefusalStrings.noWindowOpen) }
         if disposition == .currentTab, let tab = key.flatMap({ services.cache.tabModel($0) }) ?? pane.selectedTab, tab.kind == .browser,
            let entry = services.cache.existingBrowser(tab.id) {
-            if entry.chrome.loadOverride?(url) == true { return }
+            if entry.state.loadOverride?(url) == true { return }
             entry.tab.load(url)
             return
         }
@@ -44,7 +44,7 @@ struct BookmarkOpener {
 extension AppServices {
     /// The pane controller that shows tab `key`, in any window.
     func paneShowing(tab key: String) -> PaneController? {
-        guard let (_, pane) = locateTab(key) else { return nil }
+        guard let (_, pane) = locateTabOnAnyMachine(key) else { return nil }
         return paneController(for: pane)
     }
 }

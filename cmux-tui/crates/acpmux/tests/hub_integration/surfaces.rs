@@ -162,6 +162,32 @@ async fn each_surface_keeps_its_own_draft_and_others_see_it_composing() {
 }
 
 #[tokio::test]
+async fn surface_drafts_keep_large_text_and_all_surfaces() {
+    let (_hub, mut mac) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut mac, "large-drafts").await;
+    let large = "x".repeat(3 * 1024 * 1024);
+    for index in 0..20 {
+        let text = if index == 0 { large.as_str() } else { "draft" };
+        mac.request(
+            method::MUX_COMPOSER_SET,
+            json!({"sessionId": id, "surface": surface(&format!("surface-{index}"), "Surface"), "text": text}),
+        )
+        .await
+        .unwrap();
+    }
+    let view = mac.request(method::MUX_COMPOSERS, json!({"sessionId": id})).await.unwrap();
+    let composers = view["composers"].as_array().unwrap();
+    assert_eq!(composers.len(), 20);
+    assert_eq!(
+        composers.iter().find(|c| c["surfaceId"] == "surface-0").unwrap()["text"]
+            .as_str()
+            .unwrap()
+            .len(),
+        3 * 1024 * 1024
+    );
+}
+
+#[tokio::test]
 async fn a_malformed_surface_is_refused_and_records_nothing() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "bad").await;

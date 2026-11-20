@@ -31,7 +31,7 @@ FW_NAME="Chromium Embedded Framework.framework"
 FW_BINARY="Chromium Embedded Framework"
 source "$SCRIPT_DIR/cef-locale-allowlist.sh"
 # Bump when the embedded layout changes so existing app bundles are redone.
-LAYOUT="versioned-3-locale-fallback-allowlist-credits-license-stripped-libs"
+LAYOUT="versioned-3-locale-fallback-allowlist-credits-license-stripped-libs-no-intro-sounds-trimmed-paks-kept-images-aliases-no-gpu-shader-cache"
 
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 frameworks="$app/Contents/Frameworks"
@@ -89,6 +89,14 @@ if (( want_x86 )); then
   # a universal build then keeps the arm64 engine.
   x86_dir="$("$SCRIPT_DIR/ensure-cef.sh" --optional --arch x86_64)"
 fi
+# Two engine versions never merge: their resource paks differ and merge-cef-universal.sh refuses
+# them (the manifest can pin x86_64 behind arm64, cmux.48 against cmux.52 on 2026-11-17). A
+# universal build then keeps the arm64 engine and the thin x86_64 variant drops it, as with no
+# x86_64 artifact at all.
+if [[ -n "$arm_dir" && -n "$x86_dir" && "$(basename "$arm_dir")" != "$(basename "$x86_dir" | sed 's/-x86_64$//')" ]]; then
+  echo "warning: the x86_64 CEF ($(basename "$x86_dir")) is not the arm64 engine ($(basename "$arm_dir")); embedding arm64 only, Intel ships without the Chromium engine"
+  x86_dir=""
+fi
 cache_root="$("$SCRIPT_DIR/cef-cache-root.sh")"
 shim_archs=()
 if [[ -n "$arm_dir" && -n "$x86_dir" ]]; then
@@ -126,6 +134,9 @@ if (( ${#shim_archs[@]} == 2 )); then
   x86_shim="$(shim_for x86_64 "$x86_dir")"
   universal_key="$(printf '%s %s' "$(cat "$arm_shim/.build-key")" "$(cat "$x86_shim/.build-key")" | shasum -a 256 | awk '{print $1}')"
   shim_out="$cache_root/shim/universal-${universal_key:0:16}"
+  # A use refreshes the entry, so build-cef-shim.sh's week-old pruning of
+  # this directory keeps it.
+  touch -c "$shim_out" 2>/dev/null || true
   if [[ ! -f "$shim_out/.build-key" ]]; then
     shim_tmp="$(mktemp -d "$cache_root/shim/.universal.XXXXXX")"
     lipo -create "$arm_shim/libcmux_cef_shim.dylib" "$x86_shim/libcmux_cef_shim.dylib" -output "$shim_tmp/libcmux_cef_shim.dylib"
@@ -178,6 +189,27 @@ if [[ ! -f "$source_stamp" || ! -L "$frameworks/$FW_NAME/Versions/Current" || "$
     ditto "$cef_dir/$FW_NAME/$item" "$fw/Versions/A/$item"
   done
   prune_cef_locales "$fw/Versions/A/Resources"
+  # Chrome's first-run intro sounds (IDR_INTRO_SOUND_*, 4.8 MB of FLAC that does
+  # not compress) and the chrome:// pages cmux never shows (New Tab page,
+  # History, Bookmarks, Password Manager, Chrome's omnibox popup and side
+  # panels, its AI assistant: 4.8 MB), and the strings of those Chrome features in
+  # every locale.pak (3.8 MB). Ids come from the artifact's own headers and the
+  # framework's own WebUI resource maps; with none it leaves the paks as they are.
+  if [[ -f "$fw/Versions/A/Resources/resources.pak" ]]; then
+    /usr/bin/python3 -I "$SCRIPT_DIR/cef-pak-drop.py" "$fw/Versions/A/Resources/resources.pak" \
+      "$cef_dir/include/cef_pack_resources.h" --webui "$fw/Versions/A/$FW_BINARY"
+  fi
+  locale_paks=()
+  for pak in "$fw/Versions/A/Resources"/*.lproj/locale.pak; do
+    if [[ -f "$pak" ]]; then locale_paks+=("$pak"); fi
+  done
+  if (( ${#locale_paks[@]} > 0 )); then
+    /usr/bin/python3 -I "$SCRIPT_DIR/cef-pak-drop.py" --strings "$cef_dir/include/cef_pack_strings.h" ${locale_paks[@]+"${locale_paks[@]}"}
+  fi
+  # Chromium recreates this precomputed GPU shader cache under its profile on
+  # first use. It is architecture- and driver-specific, so shipping it costs
+  # 0.9 MiB without removing any runtime capability.
+  rm -f "$fw/Versions/A/Resources/gpu_shader_cache.bin"
   # CEF's dylibs ship with local symbols and debug stabs (7 MiB in
   # libvk_swiftshader.dylib). Drop them before signing; exported symbols stay
   # for the Vulkan loader's dlsym.
@@ -306,7 +338,10 @@ printf '%s' "$shim_key $product" > "$binary_stamp"
 
 # 4. Sign inside out, unless nothing changed since the last signature.
 stamp="$stamp_dir/signed"
-stamp_value="$(basename "$cef_dir") $LAYOUT $shim_key $product $identity"
+# sign-cef.sh's own hash is in the key, so a change to its signing rules (the
+# plain helper's allow-jit, say) re-signs a warm build.
+sign_rules="$(shasum -a 256 "$SCRIPT_DIR/sign-cef.sh" | cut -c1-16)"
+stamp_value="$(basename "$cef_dir") $LAYOUT $shim_key $product $identity $sign_rules"
 if [[ -f "$stamp" && "$(cat "$stamp")" == "$stamp_value" ]] &&
   codesign --verify "$frameworks/$FW_NAME" >/dev/null 2>&1 &&
   codesign --verify "$frameworks/$product Helper.app" >/dev/null 2>&1; then

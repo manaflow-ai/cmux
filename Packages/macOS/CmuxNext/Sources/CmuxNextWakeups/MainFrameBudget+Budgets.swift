@@ -38,6 +38,10 @@ extension MainFrameBudget {
         /// display, commit) stays under it: past 4 ms of render, the scheduled work gets less.
         public var passTarget: Duration = .milliseconds(8)
 
+        /// The longest background work waits in a row for a frame with idle time before it runs
+        /// anyway (Chrome's idle task timeout): a spare still refills under constant load.
+        public var idleTimeout: Duration = .milliseconds(300)
+
         /// The budget of `workClass`; nil for the unbudgeted classes.
         public func budget(_ workClass: MainWorkClass) -> Duration? {
             switch workClass {

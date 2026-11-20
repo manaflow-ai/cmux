@@ -3,13 +3,16 @@ import type { OpFrame, OwnerFrame, Principal, RejectFrame, ResultFrame } from "@
 import type { Body, Run } from "@cmux/protocol"
 import { deadlineOf, dispatchable, dueFires, matchingEventTriggers, schedulerDomain, TERMINAL, type SchedulerState } from "./domains/scheduler.ts"
 import { afterCreate } from "./domains/scheduler-policy.ts"
-import { allAutomations, automationOf, chargedUser, isLegacyHead, openRuns, runBody, runRowOf, SCHEDULER_PRIVATE_TABLES, TABLE_RUN } from "./domains/scheduler-rows.ts"
+import { allAutomations, automationOf, automationRowOf, chargedUser, isLegacyHead, openRuns, runBody, runRowOf, SCHEDULER_PRIVATE_TABLES, TABLE_RUN } from "./domains/scheduler-rows.ts"
 import { schedulerRead } from "./scheduler-reads.ts"
 import { codeRefOf, precheckCodeOp } from "./code-check.ts"
 import type { CodeStorageError } from "./code-storage.ts"
 import type { Env } from "./env.ts"
 import type { DeliverResult } from "./ingress/automation-hook.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
+import { secretExternal, secretList, secretsDrop, secretsOpen, type SecretDeps } from "./automation-secrets.ts"
+import type { DomainReply } from "./team-domain-external.ts"
+import type { Http } from "./integrations/provider-core.ts"
 
 /** What a run's Workflow instance receives. The body is the version that fired. */
 export interface AutomationRunParams {
@@ -86,7 +89,45 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
   }
 
   protected read(state: SchedulerState, op: string, params: unknown, principal: Principal): ReadResult {
+    // Secrets live in a side table, outside the reducer (automation-secrets.ts): names only, never a value.
+    if (op === "automation.secret.list") {
+      const automation = (params as { automation?: unknown } | null)?.automation
+      if (typeof automation !== "string") return { ok: false, code: "validation.invalid", message: "automation is required" }
+      return secretList(this.secretDeps(state.owner ?? principal.team ?? ""), principal, automation)
+    }
     return schedulerRead(state, op, params, principal, this.rows)
+  }
+
+  http: Http = (r) => fetch(r)
+
+  private secretDeps(team: string): SecretDeps {
+    return {
+      team,
+      stream: this.boundEngine?.stream ?? `scheduler:${team}`,
+      env: this.env,
+      http: this.http,
+      sql: this.ctx.storage.sql,
+      now: () => Date.now(),
+      automation: (id) => automationRowOf(this.rows, id) as SecretDeps["automation"] extends (id: string) => infer R ? R : never
+    }
+  }
+
+  /** RPC from the Worker: automation.secret.set and .remove (the value only in this request; automation-secrets.ts). */
+  async secretOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> {
+    this.bind(entity)
+    return secretExternal(this.secretDeps(entity), principal, frame)
+  }
+
+  /**
+   * RPC from a run's Workflow, inside the step that runs the command: the opened secrets of the run's
+   * automation, only while that run is open (queued or running). Never a client read.
+   */
+  async runSecrets(entity: string, run: string): Promise<Record<string, string>> {
+    if (!this.isBound(entity)) return {}
+    this.bind(entity)
+    const r = runRowOf(this.rows, run)
+    if (!r || TERMINAL.has(r.state)) return {}
+    return secretsOpen(this.secretDeps(entity), r.automation)
   }
 
   private get rows() {
@@ -222,7 +263,7 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
       if (at === null || t < at) at = t
     }
     for (const a of allAutomations(rows)) {
-      if (!a.enabled) continue
+      if (!a.enabled || a.handoff) continue
       for (const t of a.triggers) {
         if (t.status !== "active" || t.next_at === null) continue
         take(t.next_at > now ? t.next_at : (this.retryAt(fireKey(a.id, t.id, t.next_at)) ?? t.next_at))
@@ -422,6 +463,11 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     return this.submit(entity, principal, frame)
   }
 
+  /** Whether this op's key is decided (the ledger replays it): the Worker skips its pre-op checks (chief-job-gate.ts). */
+  isReplay(entity: string, principal: Principal, frame: OpFrame): boolean {
+    return this.bind(entity).gate(principal, frame) === "replay"
+  }
+
   /** RPC from TeamDO: the run class of agents.allowedClasses at a policy version (newest wins). */
   async applyRunPolicy(entity: string, policy: { version: number; runs_allowed: boolean }): Promise<{ ok: boolean; message?: string }> {
     this.bind(entity)
@@ -457,7 +503,7 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     const engine = this.boundEngine
     if (!engine || engine.currentState.run_policy !== undefined) return
     try {
-      const team = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity)) as unknown as { runPolicy(e: string): Promise<{ version: number; runs_allowed: boolean }> }
+      const team = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity))
       const p = await team.runPolicy(entity)
       this.submitSystem("scheduler.run_policy", p, `run-policy:${p.version}:${p.runs_allowed ? 1 : 0}`)
     } catch (e) {
@@ -473,7 +519,13 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
   }
 
   /** Any path (wire, HTTP) refused as policy.pending: pull the policy so the client's retry passes. */
-  protected override afterOp(_principal: Principal, _op: string, frames: ReadonlyArray<OwnerFrame>) {
+  protected override afterOp(_principal: Principal, _op: string, frames: ReadonlyArray<OwnerFrame>, params?: unknown) {
+    // A deleted automation's secrets leave with it.
+    if (_op === "automation.delete") {
+      const done = frames.find((f): f is ResultFrame => f.t === "result")
+      const automation = (done?.value as { automation?: unknown } | undefined)?.automation ?? (params as { automation?: unknown } | undefined)?.automation
+      if (done && typeof automation === "string" && !automationRowOf(this.rows, automation)) secretsDrop(this.ctx.storage.sql, automation)
+    }
     const entity = this.boundEngine?.currentState.owner
     if (entity && frames.some((f) => f.t === "reject" && f.code === "policy.pending")) this.ctx.waitUntil(this.ensureRunPolicy(entity))
   }

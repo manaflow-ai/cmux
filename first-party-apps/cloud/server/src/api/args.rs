@@ -18,17 +18,19 @@ pub(crate) fn object<'a>(
         _ => return Err(CloudError::invalid("args must be an object")),
     };
     if let Some(extra) = map.keys().find(|k| !allowed.contains(&k.as_str())) {
-        return Err(CloudError::invalid(format!("unknown argument {extra}")));
+        let valid = if allowed.is_empty() { "none".to_owned() } else { allowed.join(", ") };
+        return Err(CloudError::invalid(format!(
+            "unknown argument {extra}; valid arguments: {valid}"
+        )));
     }
     Ok(map)
 }
 
 /// A required machine, snapshot or plan id: `[A-Za-z0-9][A-Za-z0-9_-]{0,127}`.
 pub(crate) fn id<'a>(map: &'a Map<String, Value>, field: &str) -> Result<&'a str, CloudError> {
-    let value = map
-        .get(field)
-        .and_then(Value::as_str)
-        .ok_or_else(|| CloudError::invalid(format!("{field} is required")))?;
+    let value = map.get(field).and_then(Value::as_str).ok_or_else(|| {
+        CloudError::invalid(format!("{field} is required; pass it in the request arguments"))
+    })?;
     check_id(field, value)
 }
 
@@ -40,7 +42,9 @@ pub(crate) fn opt_id<'a>(
     match map.get(field) {
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(s)) => check_id(field, s).map(Some),
-        Some(_) => Err(CloudError::invalid(format!("{field} is not a valid id"))),
+        Some(_) => Err(CloudError::invalid(format!(
+            "{field} must be an id; pass a non-empty machine, snapshot or plan id"
+        ))),
     }
 }
 
@@ -49,7 +53,9 @@ fn check_id<'a>(field: &str, value: &'a str) -> Result<&'a str, CloudError> {
     let first_ok = chars.next().is_some_and(|c| c.is_ascii_alphanumeric());
     let rest_ok = chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
     if !first_ok || !rest_ok || value.len() > 128 {
-        return Err(CloudError::invalid(format!("{field} is not a valid id")));
+        return Err(CloudError::invalid(format!(
+            "{field} is not a valid id; pass a non-empty machine, snapshot or plan id"
+        )));
     }
     Ok(value)
 }
@@ -141,4 +147,20 @@ pub(crate) fn params(map: &Map<String, Value>, fields: &[&str]) -> Value {
         }
     }
     Value::Object(out)
+}
+
+#[cfg(test)]
+mod hint_tests {
+    use super::*;
+
+    #[test]
+    fn argument_errors_name_the_field_and_valid_choices() {
+        let error = object(&serde_json::json!({"extra":1}), &["machine"]).unwrap_err();
+        assert!(error.message.contains("extra"));
+        assert!(error.message.contains("valid arguments: machine"));
+        assert!(id(&Map::new(), "machine").unwrap_err().message.contains("machine is required"));
+        assert!(
+            check_id("machine", "!").unwrap_err().message.contains("machine is not a valid id")
+        );
+    }
 }

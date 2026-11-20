@@ -121,9 +121,10 @@ fn owner_command_line(pid: u64) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
-/// Reaping is opt-in (`--terminal-reap-grace-seconds`), and the cmux-next app
-/// starts its daemon only through `server ensure`, so ensure must hand the
-/// grace to the owner it spawns. Without the option the owner never reaps.
+/// The cmux-next app starts its daemon only through `server ensure`, so
+/// ensure must hand the grace to the owner it spawns. Without the option an
+/// owner ensure spawns reaps with the default grace (30 s): it used to reap
+/// nothing, and every closed tab's shell ran until the session ended (W5-O).
 #[test]
 fn cmux_next_ensure_starts_the_owner_with_the_reap_grace() {
     let fixture = EnsureFixture::new("reap");
@@ -138,13 +139,13 @@ fn cmux_next_ensure_starts_the_owner_with_the_reap_grace() {
         "owner argv lacks the reap grace: {command_line}"
     );
 
-    let plain = EnsureFixture::new("noreap");
+    let plain = EnsureFixture::new("defaultreap");
     let started = plain.run("ensure");
     let pid = started["pid"].as_u64().expect("owner pid");
     let command_line = owner_command_line(pid);
     assert!(
-        !command_line.contains("--terminal-reap-grace-seconds"),
-        "an owner started without the option must not reap: {command_line}"
+        command_line.contains("--terminal-reap-grace-seconds 30"),
+        "an owner started without the option reaps with the default grace: {command_line}"
     );
 }
 
@@ -202,11 +203,44 @@ fn an_owner_ensured_with_exit_with_pid_stops_when_that_process_exits() {
 /// home. The owner of the deleted state still serves the session socket, so
 /// ensure must refuse it, not report its stale state as the requested one.
 /// The same state dir keeps the owner (`ensure_starts_a_detached_owner_once`).
+/// One run in five failed at 30806df8b37 (job fcd88cea7a09018bf931c4f5),
+/// before df9eb15fa13 kept a client on the first owner; 50 rounds passed on
+/// both OSes after it, alone and under the full suite. To stress it again:
+/// `CMUX_TEST_RECREATED_STATE_ROUNDS=50`. A failure prints the first owner's
+/// log and whether it was still alive.
 #[test]
 fn cmux_next_ensure_refuses_the_owner_of_a_recreated_state_dir() {
+    let rounds: usize = std::env::var("CMUX_TEST_RECREATED_STATE_ROUNDS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(1);
+    for round in 0..rounds {
+        ensure_refuses_the_owner_of_a_recreated_state_dir(round);
+    }
+}
+
+fn ensure_refuses_the_owner_of_a_recreated_state_dir(round: usize) {
     let fixture = EnsureFixture::new("recreated");
-    let first = fixture.run("ensure");
+    // The owner's log goes outside the state dir the test removes, so a
+    // failure can say why the first owner was gone.
+    let log = fixture.dir.join("owner.log");
+    let mut first = fixture.command("ensure");
+    first.env("CMUX_TUI_LOG_FILE", &log);
+    let first = parse_success("ensure", &first.output().unwrap());
     assert_eq!(first["status"], "started", "{first}");
+    let first_pid = first["pid"].as_u64().expect("owner pid");
+    // A client stays connected to the first owner, as a person's app would: an owner whose
+    // state dir is gone and that has no client stops (headless/lost_paths.rs, #29349), and
+    // then a new owner is right. Held, the first owner keeps serving the socket, which is the
+    // case ensure must refuse (cx-lcxo2x). An answered request proves it registered.
+    let mut client =
+        std::os::unix::net::UnixStream::connect(first["socket"].as_str().unwrap()).unwrap();
+    client.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+    std::io::Write::write_all(&mut client, b"{\"id\":1,\"cmd\":\"identify\"}\n").unwrap();
+    let answered = std::io::BufRead::lines(std::io::BufReader::new(&client))
+        .map_while(Result::ok)
+        .any(|line| line.contains("\"id\":1"));
+    assert!(answered, "the first owner never answered identify");
 
     // The owner still writes in its state dir, so removing it in place can
     // race a new file (ENOTEMPTY). Move it away first: the path is then free
@@ -218,10 +252,15 @@ fn cmux_next_ensure_refuses_the_owner_of_a_recreated_state_dir() {
     fs::create_dir_all(&state).unwrap();
 
     let output = fixture.command("ensure").output().unwrap();
+    // SAFETY: signal 0 only checks that the pid exists.
+    let first_alive = unsafe { libc::kill(first_pid as libc::pid_t, 0) } == 0;
+    drop(client);
     assert!(
         !output.status.success(),
-        "ensure reused the owner of the deleted state dir: {}",
-        String::from_utf8_lossy(&output.stdout)
+        "round {round}: ensure reused the owner of the deleted state dir (first owner {first_pid} \
+         alive: {first_alive}): {}\nfirst owner log:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        fs::read_to_string(&log).unwrap_or_default()
     );
     let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap_or_else(|_| {
         panic!("stderr is not one JSON error: {}", String::from_utf8_lossy(&output.stderr))
@@ -558,4 +597,85 @@ fn stop_during_a_restore_past_its_wait_says_why() {
     let ensured = parse_success("ensure", &ensure.output());
     assert_eq!(ensured["status"], "started", "{ensured}");
     assert_eq!(ensured["pid"].as_u64(), Some(u64::from(pid)), "{ensured}");
+}
+
+/// Ends every terminal of the fixture's session when dropped, however the
+/// test ends: a terminal host outlives a plain `server stop`.
+struct EndTerminals<'a>(&'a EnsureFixture);
+
+impl Drop for EndTerminals<'_> {
+    fn drop(&mut self) {
+        let _ = self.0.command("stop").arg("--end-terminals").output();
+    }
+}
+
+impl EnsureFixture {
+    /// `cmux --json <args>` against this fixture's owner; the JSON result.
+    fn cli(&self, args: &[&str]) -> serde_json::Value {
+        let output = Command::new(bin())
+            .args(["--json", "--session", &self.session, "--socket"])
+            .arg(&self.socket)
+            .args(args)
+            .env("CMUX_TUI_STATE_DIR", self.dir.join("state"))
+            .env("CMUX_TUI_CONFIG", self.dir.join("config.json"))
+            .env_remove("CMUX_TUI_SOCKET")
+            .env_remove("CMUX_TUI_TERMINAL_ID")
+            .env_remove("CMUX_TUI_SESSION_ID")
+            .output()
+            .unwrap();
+        parse_success(&args.join(" "), &output)
+    }
+}
+
+/// W5-O (bench round 4, friction 1): an owner that a client starts (`server
+/// ensure` with no `--terminal-reap-grace-seconds`, as `cmux` and `cmux-tui`
+/// start one when none runs) ran no reaper, so a terminal whose tab closed
+/// kept its shell until the session ended (five seen after more than 8 min).
+/// It reaps with the default grace (30 s), as the app's owner does.
+#[test]
+fn w5o_an_owner_a_client_starts_reaps_a_terminal_whose_tab_closed() {
+    let fixture = EnsureFixture::new("w5o-reap");
+    let started = fixture.run("ensure");
+    assert_eq!(started["status"], "started", "{started}");
+    let _end = EndTerminals(&fixture);
+
+    let identify =
+        fixture.cli(&["raw", "command", "--request-json", r#"{"id":"who","cmd":"identify"}"#]);
+    assert!(
+        identify["capabilities"]
+            .as_array()
+            .is_some_and(|all| all.iter().any(|value| value == "terminal-reaper-active-v1")),
+        "an owner a client starts runs no reaper: {identify}"
+    );
+
+    let created = fixture.cli(&["tab", "create", "terminal"]);
+    let field = |name: &str| {
+        created
+            .pointer(&format!("/value/{name}"))
+            .or_else(|| created.get(name))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_else(|| panic!("no {name} in {created}"))
+            .to_owned()
+    };
+    let (tab, terminal) = (field("tab_id"), field("terminal_id"));
+    fixture.cli(&["tab", &tab, "close"]);
+
+    // The default grace is 30 s; the reaper ends the terminal soon after.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    loop {
+        let listed = fixture.cli(&["terminal", "list"]);
+        let running = listed
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|record| record["id"] == terminal.as_str() && record["lifecycle"] != "exited");
+        if !running {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "terminal {terminal} still runs with no tab 60 s after its tab closed: {listed}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
 }

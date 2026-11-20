@@ -175,6 +175,8 @@ def tsx_hits(text: str):
 
 
 SWIFT_TREE = "Packages/macOS/CmuxNext/Sources"
+# What this check reads. scripts/web_lint_prepush.py runs it alone when a push touches one (declared_inputs()).
+INPUTS = (TREE, f"{SWIFT_TREE}/**/*.swift")
 SWIFTUI_FIELD = re.compile(r"(?<![\w.])(?:TextField|SecureField)\s*\(")
 APPKIT_FIELD = re.compile(
     r"(?<![\w.])(?:NSTextField|NSSearchField|NSSecureTextField|NSTokenField|NSComboBox)\s*\("

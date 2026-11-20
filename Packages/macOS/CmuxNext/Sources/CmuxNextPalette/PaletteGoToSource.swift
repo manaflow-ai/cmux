@@ -9,4 +9,7 @@ public protocol PaletteGoToSource: AnyObject {
     /// Starts a new agent chat about `target`. With `prompt` the chat sends
     /// it at once; without, the place waits in the composer for the user's words.
     func askAgent(about target: PaletteQueryTarget, prompt: String?)
+    /// Starts a new agent chat that sends `prompt` at once (a query that matched nothing:
+    /// Ask Agent “…”).
+    func askAgent(prompt: String)
 }

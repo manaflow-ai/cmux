@@ -91,6 +91,29 @@ impl Services<'_> {
         }
     }
 
+    /// Starts the installed server and enables it, so it starts at each login or boot.
+    pub fn start(&self) -> Result<()> {
+        match &self.layout.service {
+            ServiceKind::SystemdUser { .. } | ServiceKind::SystemdSystem { .. } => {
+                systemd::start(self)
+            }
+            ServiceKind::LaunchAgent { .. } => launchd::start(self),
+            other => Err(unsupported(other)),
+        }
+    }
+
+    /// Stops the server and disables it, so it stays stopped across logins and boots.
+    /// The units stay on disk.
+    pub fn stop(&self) -> Result<()> {
+        match &self.layout.service {
+            ServiceKind::SystemdUser { .. } | ServiceKind::SystemdSystem { .. } => {
+                systemd::stop(self)
+            }
+            ServiceKind::LaunchAgent { .. } => launchd::stop(self),
+            other => Err(unsupported(other)),
+        }
+    }
+
     /// Stops, disables and removes every unit this crate writes. Returns
     /// the removed paths.
     pub fn uninstall(&self) -> Result<Vec<PathBuf>> {

@@ -25,29 +25,58 @@ test("every page row has exactly one home", () => {
   expect(homes.size).toBe(schema.rows.length);
 });
 
+// In sidebar-section order (user 2026-10-30, "sections"): General and Updates, then Look and Feel,
+// Tools, AI, Interaction, Accounts and Devices, Data and System.
 test("the categories are the approved ones, in order", () => {
   expect(categories.map((category) => category.id)).toEqual([
     "general",
     "updates",
-    "theme",
+    // Personalization holds the theme; old Theme links open it (next tests).
+    "personalization",
     "appearance",
+    // Settings overhaul (2026-11-07): the sidebar, tabs and panes, and the New Tab page have pages.
+    "sidebar",
+    "tabs",
+    "newTab",
     "terminal",
     "editor",
+    "browser",
+    "chat",
     "agents",
+    "computerUse",
+    // Settings > MCP Servers: the services agents use for the person (user 2026-11-18).
+    "mcpServers",
+    // Settings > Models: which subscription or key each Cloud thread runs on (model-connections.md).
+    "models",
+    // Settings > Cloud: what Cloud chats run on, Cloud Environments and Cloud Workspaces.
+    "cloud",
     "chief",
     "notifications",
-    "browser",
-    "import",
     "keyboard",
-    "privacy",
+    // Settings > Menus: every right-click menu's arrangement (Customize Menu… opens it).
+    "menus",
     "accounts",
+    // Keys: the keys agents keep and ask the person for (design/settings-keys.md).
+    "keys",
+    // Mobile stays its own page (Lucas 2026-11-11); Devices holds what Server showed, and its old
+    // id opens it (next test).
     "mobile",
-    "server",
     "devices",
+    "import",
+    "privacy",
     "advanced",
     "experimental",
     "development",
   ]);
+});
+
+test("old Theme links open Personalization", () => {
+  expect(categoryOf("theme")).toBe("personalization");
+});
+
+test("Mobile opens its own page, and old Server links open Devices", () => {
+  expect(categoryOf("mobile")).toBe("mobile");
+  expect(categoryOf("server")).toBe("devices");
 });
 
 test("a route to the Development category opens the default category outside DEV builds", () => {
@@ -82,6 +111,19 @@ test("old section routes and focused keys open the category that holds the row",
   expect(parseLocation("/settings/notifications").section).toBe("notifications");
   expect(parseLocation("/settings/general?focus=history.terminalCommands").section).toBe("privacy");
   expect(parseLocation("/settings/nope").section).toBe("general");
+});
+
+test.each(["/settings/%", "/settings/%ZZ", "/settings/%E0%A4%A"])(
+  "a malformed deep-link section falls back to General without breaking Settings (%s)",
+  (href) => {
+    expect(parseLocation(href).section).toBe(defaultCategory);
+    // A real focused key still resolves to its home even when the section slug is corrupt.
+    expect(parseLocation(`${href}?focus=history.terminalCommands`).section).toBe("privacy");
+  },
+);
+
+test("a valid percent-encoded Settings category still opens normally", () => {
+  expect(parseLocation("/settings/%61ppearance").section).toBe("appearance");
 });
 
 test("every category and group title is in all locales", () => {
@@ -132,21 +174,17 @@ test("the page renders the exported layout", () => {
 
 // Live QA 7c: Mobile's `iphone` (and Import's `square.and.arrow.down`) had no icon, so the sidebar
 // drew the General gear for them. Every symbol the layout names, in the exported schema and in the
-// Swift source it is exported from, has its own icon.
+// layout source it is exported from, has its own icon.
 test("every category and section symbol has its own icon", () => {
   const exportedSymbols = [
     ...categories.map((category) => category.symbol),
     ...sections.map((section) => section.symbol),
   ];
-  const layout = readFileSync(
-    new URL(
-      "../../../../Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsPageLayout.swift",
-      import.meta.url,
-    ),
-    "utf8",
-  );
-  const swiftSymbols = [...layout.matchAll(/\bsymbol: "([^"]+)"/g)].map((match) => match[1]);
-  expect(swiftSymbols).toContain("iphone");
-  const missing = [...new Set([...exportedSymbols, ...swiftSymbols])].filter((symbol) => !hasIcon(symbol));
+  const layout = JSON.parse(
+    readFileSync(new URL("../../../../schemas/settings/source/page-layout.json", import.meta.url), "utf8"),
+  ) as { sidebar_sections: Array<{ categories: Array<{ symbol: string }> }> };
+  const layoutSymbols = layout.sidebar_sections.flatMap((run) => run.categories.map((category) => category.symbol));
+  expect(layoutSymbols).toContain("sidebar.left");
+  const missing = [...new Set([...exportedSymbols, ...layoutSymbols])].filter((symbol) => !hasIcon(symbol));
   expect(missing).toEqual([]);
 });

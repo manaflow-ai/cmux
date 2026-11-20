@@ -121,6 +121,8 @@ fn plain_ip(addr: SocketAddr) -> IpAddr {
 }
 
 pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
+    // Before any setup: an update during it is still seen (`launchd_refresh.rs`).
+    let watch = super::service::agent_watch();
     let ready = super::service::take_ready_signal();
     // One listener per state directory; the OS drops the lock with the
     // process, so `status` and `stop` never act on a stale pid. Taken before
@@ -181,35 +183,95 @@ pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
         );
     }
     ready("ready");
-    let mut threads = Vec::new();
+    // `None` when a listener stopped; the launchd agent's outcome otherwise.
+    let (done, events) = std::sync::mpsc::channel();
+    super::service::follow_app_updates(watch, done.clone());
+    let mut running = listeners.len();
     for listener in listeners {
         let host = Arc::clone(&host);
-        threads.push(std::thread::spawn(move || accept_loop(&host, &listener)));
+        // Sent when the thread ends, a panic included: a listener that is gone always counts.
+        let stopped = ListenerStopped(done.clone());
+        std::thread::spawn(move || {
+            let _stopped = stopped;
+            accept_loop(&host, &listener);
+        });
     }
-    for thread in threads {
-        let _ = thread.join();
+    drop(done);
+    while running > 0 {
+        match events.recv() {
+            Ok(None) => running -= 1,
+            // KeepAlive restarts only an unsuccessful exit: launchd starts the new build.
+            Ok(Some(super::service::AgentExit::Replaced)) => {
+                bail!("an update replaced this cmux; launchd starts the new build")
+            }
+            Ok(Some(super::service::AgentExit::Removed)) => return Ok(()),
+            Err(_) => break,
+        }
     }
     Err(anyhow!("every listener stopped"))
 }
 
+/// Tells `run` that a listener stopped, when its thread ends for any reason.
+struct ListenerStopped(std::sync::mpsc::Sender<Option<super::service::AgentExit>>);
+
+impl Drop for ListenerStopped {
+    fn drop(&mut self) {
+        let _ = self.0.send(None);
+    }
+}
+
 fn accept_loop(host: &Arc<Host>, listener: &TcpListener) {
-    for stream in listener.incoming() {
-        match stream {
+    let mut incoming = listener.incoming();
+    accept_each(|| incoming.next(), std::thread::sleep, |stream| accept_one(host, stream));
+}
+
+/// First and longest wait after an accept error that can persist, as the
+/// daemon's own accept loops (cmux-tui-core server.rs `ACCEPT_RETRY_*`).
+const ACCEPT_RETRY_INITIAL: Duration = Duration::from_millis(10);
+const ACCEPT_RETRY_MAX: Duration = Duration::from_secs(1);
+
+/// Hand every accepted connection to `serve` until `accept` answers `None`.
+/// Resource exhaustion (EMFILE, ENFILE, ENOBUFS) persists across accepts,
+/// and an immediate retry ran the listener thread at 100% CPU until
+/// descriptors freed up: `wait` spaces those retries with a growing delay.
+/// A per-connection error needs none, because the next accept blocks.
+fn accept_each<S>(
+    mut accept: impl FnMut() -> Option<io::Result<S>>,
+    mut wait: impl FnMut(Duration),
+    mut serve: impl FnMut(S),
+) {
+    let mut backoff = cmux_tui_core::backoff::Backoff::new(ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX);
+    while let Some(accepted) = accept() {
+        match accepted {
             Ok(stream) => {
-                let Ok(peer) = stream.peer_addr().map(plain_ip) else { continue };
-                let Some(pending) = Pending::enter(host, peer) else {
-                    eprintln!("cmux host: refused {peer}: too many pending connections");
-                    continue;
-                };
-                let host = Arc::clone(host);
-                std::thread::spawn(move || {
-                    if let Err(e) = serve_one(&host, stream, peer, pending) {
-                        eprintln!("cmux host: {peer}: {e:#}");
-                    }
-                });
+                backoff.reset();
+                serve(stream);
             }
-            Err(e) => eprintln!("cmux host: accept failed: {e}"),
+            Err(e) => {
+                eprintln!("cmux host: accept failed: {e}");
+                if cmux_tui_core::backoff::accept_error_needs_backoff(&e) {
+                    wait(backoff.next_delay());
+                }
+            }
         }
+    }
+}
+
+fn accept_one(host: &Arc<Host>, stream: TcpStream) {
+    let Ok(peer) = stream.peer_addr().map(plain_ip) else { return };
+    let Some(pending) = Pending::enter(host, peer) else {
+        eprintln!("cmux host: refused {peer}: too many pending connections");
+        return;
+    };
+    let host = Arc::clone(host);
+    // A thread the OS refuses drops this connection, never the listener.
+    let spawned = std::thread::Builder::new().spawn(move || {
+        if let Err(e) = serve_one(&host, stream, peer, pending) {
+            eprintln!("cmux host: {peer}: {e:#}");
+        }
+    });
+    if let Err(e) = spawned {
+        eprintln!("cmux host: refused {peer}: cannot start its thread: {e}");
     }
 }
 
@@ -485,5 +547,68 @@ fn copy_flush(from: &mut impl Read, to: &mut impl Write) -> io::Result<u64> {
         to.write_all(&buf[..n])?;
         to.flush()?;
         total += n as u64;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+    use std::time::Duration;
+
+    use super::{ListenerStopped, accept_each};
+
+    /// Runs `accept_each` over `results` and returns the waits it asked for
+    /// and the connections it served.
+    fn run(results: Vec<io::Result<u32>>) -> (Vec<Duration>, Vec<u32>) {
+        let mut results = results.into_iter();
+        let (mut waits, mut served) = (Vec::new(), Vec::new());
+        accept_each(|| results.next(), |wait| waits.push(wait), |stream| served.push(stream));
+        (waits, served)
+    }
+
+    fn emfile() -> io::Result<u32> {
+        Err(io::Error::from_raw_os_error(libc::EMFILE))
+    }
+
+    /// An accept that fails with EMFILE fails again at once until a
+    /// descriptor frees up: before, the listener thread retried with no
+    /// wait and ran at 100% CPU. Each such failure waits, longer each time;
+    /// a connection accepted in between starts the spacing over.
+    #[test]
+    fn a_persistent_accept_error_waits_longer_each_time() {
+        let (waits, served) = run(vec![emfile(), emfile(), emfile(), emfile(), emfile()]);
+        assert!(served.is_empty());
+        assert_eq!(waits.len(), 5, "every EMFILE waits before the next accept: {waits:?}");
+        assert!(waits[0] > Duration::ZERO, "{waits:?}");
+        assert!(waits.windows(2).all(|pair| pair[1] > pair[0]), "{waits:?}");
+        assert!(waits.iter().all(|wait| *wait <= Duration::from_secs(1)), "{waits:?}");
+
+        let (waits, served) = run(vec![emfile(), emfile(), emfile(), Ok(7), emfile()]);
+        assert_eq!(served, vec![7]);
+        assert_eq!(waits.len(), 4, "{waits:?}");
+        assert!(waits[3] < waits[2], "a served connection resets the spacing: {waits:?}");
+    }
+
+    /// A per-connection error ends with that connection, and the next
+    /// accept blocks: no wait.
+    #[test]
+    fn a_per_connection_accept_error_does_not_wait() {
+        let aborted = || Err(io::Error::from(io::ErrorKind::ConnectionAborted));
+        let (waits, served) = run(vec![aborted(), Ok(1), aborted()]);
+        assert_eq!(served, vec![1]);
+        assert!(waits.is_empty(), "{waits:?}");
+    }
+
+    #[test]
+    fn a_listener_that_panics_still_counts_as_stopped() {
+        let (done, events) = std::sync::mpsc::channel();
+        let stopped = ListenerStopped(done.clone());
+        let thread = std::thread::spawn(move || {
+            let _stopped = stopped;
+            panic!("the OS refused a thread");
+        });
+        assert!(thread.join().is_err());
+        assert_eq!(events.try_recv(), Ok(None));
+        drop(done);
     }
 }

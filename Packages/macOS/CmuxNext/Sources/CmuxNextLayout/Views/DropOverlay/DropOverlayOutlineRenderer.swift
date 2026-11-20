@@ -28,7 +28,7 @@ final class OutlineRenderer: DropOverlayRenderer {
     init() {
         view.layer?.addSublayer(ring.layer)
         chip.wantsLayer = true
-        chip.layer?.cornerRadius = Metrics.space2
+        chip.layer?.cornerRadius = Metrics.insetCornerRadius
         chip.isHidden = true
         chip.addSubview(label.field)
         view.addSubview(chip)

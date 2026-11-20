@@ -34,12 +34,53 @@ import Testing
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("frames-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = TerminalFrameStore(directory: dir)
-        store.save(Data([1, 2, 3]), for: "s/12:tab")
-        // A new store (a new launch) reads it back; the id is a safe file name.
-        #expect(TerminalFrameStore(directory: dir).load("s/12:tab") == Data([1, 2, 3]))
-        #expect(store.url(for: "s/12:tab").lastPathComponent == "s_12_tab.jpg")
-        store.remove("s/12:tab")
-        #expect(store.load("s/12:tab") == nil)
+        let key = TerminalFrameKey(accountID: "account-a", macID: "mac-a", surfaceID: "s/12:tab")
+        store.save(Data([1, 2, 3]), for: key)
+        // A new store (a new launch) reads it back; the scoped key is a safe file name.
+        #expect(TerminalFrameStore(directory: dir).load(key) == Data([1, 2, 3]))
+        #expect(store.url(for: key).lastPathComponent.hasPrefix("v1-"))
+        store.remove(key)
+        #expect(store.load(key) == nil)
+    }
+
+    @Test func cooledFrameNeverCrossesMacsAcrossRelaunch() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("frames-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = TerminalFrameStore(directory: dir)
+        let account = "account-a"
+        let macA = TerminalFrameKey(accountID: account, macID: "mac-a", surfaceID: "s1")
+        let macB = TerminalFrameKey(accountID: account, macID: "mac-b", surfaceID: "s1")
+        let frameA = Data([0xA1])
+
+        // Model Ghostty's four-host warm set: visiting four newer A surfaces
+        // cools A/s1 and persists its last frame.
+        var warm: [TerminalFrameKey] = []
+        var lastFrames: [TerminalFrameKey: Data] = [:]
+        func visit(_ key: TerminalFrameKey, frame: Data) {
+            warm.removeAll { $0 == key }
+            warm.append(key)
+            lastFrames[key] = frame
+            if warm.count > 4, let cooled = warm.first {
+                warm.removeFirst()
+                if let frame = lastFrames.removeValue(forKey: cooled) { store.save(frame, for: cooled) }
+            }
+        }
+        visit(macA, frame: frameA)
+        for index in 2...5 {
+            visit(TerminalFrameKey(accountID: account, macID: "mac-a", surfaceID: "s\(index)"), frame: Data([UInt8(index)]))
+        }
+        #expect(lastFrames[macA] == nil)
+        #expect(store.load(macA) == frameA)
+        // A pre-fix, unscoped entry cannot be assigned to either Mac.
+        try Data([0xFF]).write(to: dir.appendingPathComponent("s1.jpg"))
+        // Mac B opens its same-numbered tab before live output arrives.
+        #expect(store.load(macB) == nil)
+        #expect(store.load(macA) == frameA)
+
+        // A relaunch keeps A's frame for A and never assigns it to B.
+        let relaunched = TerminalFrameStore(directory: dir)
+        #expect(relaunched.load(macB) == nil)
+        #expect(relaunched.load(macA) == frameA)
     }
 
     /// Round 11 A5: a frame rendered off the main thread and written late
@@ -48,16 +89,61 @@ import Testing
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("frames-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = TerminalFrameStore(directory: dir)
-        let old = store.ticket(for: "t")
-        store.save(Data([2]), for: "t")  // a newer frame, written at once (going to the background)
-        store.save(Data([1]), for: "t", ticket: old)
-        #expect(store.load("t") == Data([2]))
-        let late = store.ticket(for: "t")
-        store.remove("t")  // the tab closed
-        store.save(Data([3]), for: "t", ticket: late)
-        #expect(store.load("t") == nil)
-        let next = store.ticket(for: "t")
-        store.save(Data([4]), for: "t", ticket: next)
-        #expect(store.load("t") == Data([4]))
+        let key = TerminalFrameKey(accountID: "account-a", macID: "mac-a", surfaceID: "t")
+        let old = store.ticket(for: key)
+        store.save(Data([2]), for: key)  // a newer frame, written at once (going to the background)
+        store.save(Data([1]), for: key, ticket: old)
+        #expect(store.load(key) == Data([2]))
+        let late = store.ticket(for: key)
+        store.remove(key)  // the tab closed
+        store.save(Data([3]), for: key, ticket: late)
+        #expect(store.load(key) == nil)
+        let next = store.ticket(for: key)
+        store.save(Data([4]), for: key, ticket: next)
+        #expect(store.load(key) == Data([4]))
+    }
+
+    /// A cooled tab keeps its identity until release so closing it removes both
+    /// the in-memory preview and its persisted frame.
+    @Test func cooledFrameIsRemovedWhenTabReleases() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("frames-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = TerminalFrameStore(directory: dir)
+        let key = TerminalFrameKey(accountID: "account-a", macID: "mac-a", surfaceID: "s1")
+        var lastFrames = [key: Data([1, 2, 3])]
+        store.save(Data([1, 2, 3]), for: key)
+
+        var lifecycle = TerminalFrameLifecycle()
+        lifecycle.cooled(tabID: "tab", frameKey: key)
+        lifecycle.release(tabID: "tab", hostFrameKey: nil) { releasedKey in
+            lastFrames[releasedKey] = nil
+            store.remove(releasedKey)
+        }
+
+        #expect(lastFrames[key] == nil)
+        #expect(store.load(key) == nil)
+    }
+
+    @Test func rewarmedTabReleasesOnlyItsCurrentFrame() {
+        let oldKey = TerminalFrameKey(accountID: "account-a", macID: "mac-a", surfaceID: "s1")
+        let currentKey = TerminalFrameKey(accountID: "account-a", macID: "mac-b", surfaceID: "s1")
+        var lifecycle = TerminalFrameLifecycle()
+        lifecycle.cooled(tabID: "tab", frameKey: oldKey)
+        lifecycle.hostBuilt(tabID: "tab")
+        var removed: [TerminalFrameKey] = []
+        lifecycle.release(tabID: "tab", hostFrameKey: currentKey) { removed.append($0) }
+        #expect(removed == [currentKey])
+        lifecycle.release(tabID: "tab", hostFrameKey: nil) { removed.append($0) }
+        #expect(removed == [currentKey])
+    }
+
+    @Test func resetForgetsCooledFrameIdentity() {
+        let key = TerminalFrameKey(accountID: "account-a", macID: "mac-a", surfaceID: "s1")
+        var lifecycle = TerminalFrameLifecycle()
+        lifecycle.cooled(tabID: "tab", frameKey: key)
+        lifecycle.reset()
+        lifecycle.release(tabID: "tab", hostFrameKey: nil) { _ in
+            Issue.record("Reset must not retain another account's cooled identity")
+        }
     }
 }

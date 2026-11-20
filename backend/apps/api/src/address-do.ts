@@ -11,6 +11,7 @@ const STALE_ATTEMPT_MS = 10 * 60_000
 const CARD_WAIT_MS = 24 * 3_600_000
 import type { Fetch } from "./home-send.ts"
 import type { SendblueMessage } from "./home-text.ts"
+import { textChiefInbound, textChiefReply, textChiefTyping, type InboundOutcome } from "./text-chief.ts"
 
 /**
  * AddressDO, one per invited address (home-messaging.md sections 3 and 9, renamed from
@@ -232,6 +233,38 @@ export class AddressDO extends OwnerDO<address.AddressHead> {
     const d = head.deliveries.find((x) => x.provider_id === m.message_handle)
     const state = m.status === "DELIVERED" ? "delivered" : m.status === "SENT" ? "sent" : m.status === "ERROR" || m.status === "DECLINED" ? "failed" : null
     if (d && state) this.submitSystem("address.delivery.record", { invite: d.invite, state, provider_id: m.message_handle }, `status:${m.message_handle}:${state}`)
+  }
+
+  /**
+   * RPC from POST /v1/hooks/sendblue: a fresh inbound text, from SendBlue's own record, routed to the
+   * sender's Chief (text-chief.ts). This object keeps the raw number (address.ensure), the dedupe rows
+   * and the thread memo.
+   */
+  async textInbound(entity: string, phone: string, m: SendblueMessage): Promise<InboundOutcome> {
+    this.bind(entity)
+    this.submitSystem("address.ensure", { id: entity, channel: "sms", value: phone }, `ensure:${entity}`)
+    const head = this.boundEngine!.currentState
+    if (head.channel !== "sms" || head.value !== phone) return "ignored"
+    const binding = head.link?.binding ?? null
+    const outcome = await textChiefInbound({ env: this.env, sql: this.sqlStore, fetcher: this.fetcher, now: Date.now(), phone, address: entity, binding }, m)
+    if (outcome === "routed" || outcome === "command") this.submitSystem("address.inbound.note", { service: m.service ?? "SMS" }, `inbound:${m.message_handle}`)
+    return outcome
+  }
+
+  /** RPC from a bridged ConversationDO: a Chief's message, sent back to this number as a text once. */
+  async chiefReply(entity: string, reply: { message: string; agent: string; name: string; text: string }): Promise<string> {
+    if (!this.isBound(entity)) return "skipped"
+    const head = this.bind(entity).currentState
+    if (head.channel !== "sms" || !head.value || head.suppression) return "skipped"
+    return textChiefReply({ env: this.env, sql: this.sqlStore, fetcher: this.fetcher, now: Date.now(), phone: head.value }, reply)
+  }
+
+  /** RPC from a bridged ConversationDO: its Chief is typing. */
+  async chiefTyping(entity: string): Promise<void> {
+    if (!this.isBound(entity)) return
+    const head = this.bind(entity).currentState
+    if (head.channel !== "sms" || !head.value || head.suppression) return
+    await textChiefTyping({ env: this.env, sql: this.sqlStore, fetcher: this.fetcher, now: Date.now(), phone: head.value })
   }
 
   protected maySubscribe(): boolean {

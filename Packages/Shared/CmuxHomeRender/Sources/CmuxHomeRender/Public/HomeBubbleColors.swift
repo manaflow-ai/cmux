@@ -5,7 +5,7 @@ import Foundation
 /// (`home.bubbleColors.*`): each one nil keeps the bubble style's own colour.
 ///
 /// A fill without a text colour gets a readable text colour picked for it
-/// (``HomePalette/applying(_:)``); a text colour the person sets is kept as set.
+/// (``HomePalette/applying(_:)``); a text colour the person sets keeps its hue, raised to 4.5:1 on its bubble.
 ///
 /// ```swift
 /// let colors = HomeBubbleColors(sent: HomeColor(hex: "#34C759"))
@@ -14,11 +14,11 @@ import Foundation
 public struct HomeBubbleColors: Hashable, Sendable, Codable {
     /// My bubbles' fill; nil keeps the style's (Messages' blue, or the theme's accent).
     public var sent: HomeColor?
-    /// My bubbles' text; nil picks white or black, whichever reads on ``sent``.
+    /// My bubbles' text (raised to 4.5:1 on the bubble when it reads less); nil picks white or black, whichever reads on ``sent``.
     public var sentText: HomeColor?
     /// The other side's bubbles' fill; nil keeps the style's grey.
     public var received: HomeColor?
-    /// The other side's text; nil keeps the style's, raised to 4.5:1 on ``received``.
+    /// The other side's text (raised to 4.5:1 on the bubble when it reads less); nil keeps the style's, raised to 4.5:1 on ``received``.
     public var receivedText: HomeColor?
 
     /// - Parameters:

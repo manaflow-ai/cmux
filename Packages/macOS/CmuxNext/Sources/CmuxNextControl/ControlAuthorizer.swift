@@ -7,10 +7,14 @@ import CmuxNextCompat
 struct ControlAuthorizer: Sendable {
     let configuration: ControlSocketServer.Configuration
     let peer: ControlSocketServer.Peer
+    /// Answers `auth.session.handoff` with its own peer checks, ahead of the access mode (NIGHTLY only).
+    let handoff: SessionHandoffResponder?
 
-    init(configuration: ControlSocketServer.Configuration, peer: ControlSocketServer.Peer) {
+    init(configuration: ControlSocketServer.Configuration, peer: ControlSocketServer.Peer,
+         handoff: SessionHandoffResponder? = nil) {
         self.configuration = configuration
         self.peer = peer
+        self.handoff = handoff
     }
 
     static let accessDenied = "ERROR: Access denied - only processes started inside cmux can connect"
@@ -20,6 +24,11 @@ struct ControlAuthorizer: Sendable {
     mutating func respond(to rawLine: String, router: ControlRouter, connection: ControlConnectionID = .inProcess) async -> (String?, Bool) {
         let line = Self.unwrapEnvelopes(rawLine.trimmingCharacters(in: .whitespacesAndNewlines))
         guard !line.isEmpty else { return (nil, true) }
+        // The session handoff checks its peer itself (uid and code signature) and closes the connection
+        // after its one answer, whatever the access mode admits.
+        if configuration.accessMode != .off, let handoff, let request = handoff.request(in: line) {
+            return (await handoff.respond(to: request, peer: peer.handoff), false)
+        }
         guard isPeerAdmitted else { return (Self.accessDenied, false) }
 
         let isJSON = line.hasPrefix("{")

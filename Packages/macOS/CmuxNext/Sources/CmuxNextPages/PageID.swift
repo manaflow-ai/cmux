@@ -44,25 +44,6 @@ public nonisolated struct PageID {
         registeredRoots.withLock { $0[id.lowercased()] }
     }
 
-    #if DEBUG
-    private static let fixtureRoots = Mutex<[String: [URL]]>([:])
-
-    /// DEBUG only: a test may also serve a reserved page from its own fixture root. `swift test`
-    /// links every test target into one process, so a fixture root registered with
-    /// ``registerBundledRoot(_:for:)`` lost to an app test that registered the bundled page first,
-    /// and the page host then refused the fixture. This leaves the registered root, and so
-    /// ``bundledRoot(for:)``, as it is.
-    public static func allowFixtureRoot(_ root: URL, for id: String) {
-        guard isReserved(id) else { return }
-        fixtureRoots.withLock { $0[id.lowercased(), default: []].append(root) }
-    }
-
-    /// The fixture roots tests allowed for `id` (DEBUG only).
-    static func fixtureRoots(for id: String) -> [URL] {
-        fixtureRoots.withLock { $0[id.lowercased()] ?? [] }
-    }
-    #endif
-
     /// Why an app page was refused.
     public enum Refusal: Error, Sendable, Equatable {
         /// The id is a first-party id or in the reserved `cmux.` namespace.
@@ -77,8 +58,10 @@ public nonisolated struct PageID {
 public extension PageDescriptor {
     /// A page an app manifest declares (third party or first-party app code outside the host
     /// table). Its id must be the app's reverse-DNS id, never a first-party id, and its namespaces
-    /// must be its own; it gets no native ops and runs no registry actions.
-    static func appPage(id: String, resource: String, namespaces: [String]) throws(PageID.Refusal) -> PageDescriptor {
+    /// must be its own; it gets no native ops and runs no registry actions. `entry` is the file
+    /// `/` serves (a name or a nested path inside the root, else `index.html`).
+    static func appPage(id: String, resource: String, namespaces: [String],
+                        entry: String = "index.html") throws(PageID.Refusal) -> PageDescriptor {
         guard !PageID.isReserved(id) else { throw .reservedID(id) }
         let host = id.lowercased()
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789.-")
@@ -88,6 +71,9 @@ public extension PageDescriptor {
             throw .reservedNamespace(reserved)
         }
         // An app's own content decides what sits under a click that only brings the window forward.
-        return PageDescriptor(id: host, resource: resource, namespaces: namespaces, acceptsFirstMouse: false)
+        // The router's own host ops (window, history, popups, menus) are not the app's: it reaches
+        // only its namespaces.
+        return PageDescriptor(id: host, resource: resource, namespaces: namespaces, entry: entry, acceptsFirstMouse: false,
+                              servesHostOps: false)
     }
 }

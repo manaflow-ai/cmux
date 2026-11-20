@@ -1,0 +1,107 @@
+{
+  "id": "scrollback-100k",
+  "priority": "P0",
+  "title": "100k lines of output: scroll up, down, to the top and to the bottom; the view follows new output only at the bottom",
+  "why": "Long output is everyday terminal use (builds, logs). Every row must arrive in order, the wheel and Cmd+Home / Cmd+End must move the view through the scrollback the daemon holds, and output that arrives while the person reads older rows must not yank the view down (dogfood v1: the scrollback jumped on live resize, fix 673587c97dc).",
+  "source": "everyday terminal use (holistic-quality.md 1), dogfood bug v1 (scroll position)",
+  "budget_seconds": 150,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-scrollback"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "seq -f 'S%06g-${nonce}' 1 100000", "enter": true, "mark": "gen"},
+    {"do": "expect", "title": "all 100k rows arrive, in order, and the prompt returns", "since": "gen", "timeout": 90,
+     "all": [
+       {"daemon_line": "S100000-${nonce}"},
+       {"daemon_prompt": true},
+       {"app_rows": {"pattern": "S(\\d{6})-${nonce}", "last": {"eq": 100000}}},
+       {"app_prompt": true},
+       {"frame_text": "S100000-${nonce}"}
+     ]},
+    {"do": "expect", "title": "the daemon's scrollback holds the rows before the screen, in order", "timeout": 10,
+     "all": [
+       {"daemon_history": {"rows": "newest", "count": 2000, "pattern": "S(\\d{6})-${nonce}", "contiguous": true, "contains": "S099900-${nonce}"}},
+       {"daemon_history": {"rows": "oldest", "count": 200, "pattern": "S(\\d{6})-${nonce}", "contiguous": true}}
+     ]},
+
+    {"do": "mouse", "action": "scroll", "dy": 40, "count": 30, "interval": 0.03, "mark": "up"},
+    {"do": "expect", "title": "the wheel scrolls back: older rows show, in order; nothing reaches the shell", "since": "up", "timeout": 5,
+     "all": [
+       {"app_rows": {"pattern": "S(\\d{6})-${nonce}", "last": {"lt": 100000}, "bind": "up"}},
+       {"app_text_lacks": "S100000-${nonce}"},
+       {"daemon_line": "S100000-${nonce}"},
+       {"daemon_prompt": true}
+     ]},
+    {"do": "expect", "title": "the frame shows the scrolled-back rows", "timeout": 5,
+     "all": [{"frame_screen": {"shows": ["${up_mid}"], "lacks": ["S100000-${nonce}"]}}]},
+
+    {"do": "mouse", "action": "scroll", "dy": -40, "count": 8, "interval": 0.03, "mark": "down"},
+    {"do": "expect", "title": "the wheel scrolls forward again, not to the bottom", "since": "down", "timeout": 5,
+     "all": [
+       {"app_rows": {"pattern": "S(\\d{6})-${nonce}", "top": {"gt": "up"}, "last": {"lt": 100000}}},
+       {"daemon_prompt": true}
+     ]},
+
+    {"do": "key", "key": "home", "modifiers": ["cmd"], "mark": "top"},
+    {"do": "expect", "title": "Cmd+Home jumps far back, to older rows than the wheel reached", "since": "top", "within": 1.5, "timeout": 5,
+     "all": [
+       {"app_rows": {"pattern": "S(\\d{6})-${nonce}", "top": {"lt": "up"}, "last": {"lt": 99000}, "bind": "top"}},
+       {"daemon_prompt": true}
+     ]},
+    {"do": "mouse", "action": "scroll", "dy": 40, "count": 20, "interval": 0.03, "mark": "past-top"},
+    {"do": "expect", "title": "it is the top: the wheel cannot go further up", "since": "past-top", "timeout": 5, "settle": 1,
+     "all": [
+       {"app_rows": {"pattern": "S(\\d{6})-${nonce}", "top": {"eq": "top"}, "hold": true}},
+       {"daemon_prompt": true}
+     ]},
+    {"do": "expect", "title": "the frame shows the oldest rows", "timeout": 5,
+     "all": [{"frame_screen": {"shows": ["${top_mid}"], "lacks": ["S100000-${nonce}"]}}]},
+
+    {"do": "key", "key": "end", "modifiers": ["cmd"], "mark": "bottom"},
+    {"do": "expect", "title": "Cmd+End returns to the last row and the prompt", "since": "bottom", "within": 1.5, "timeout": 5,
+     "all": [
+       {"app_rows": {"pattern": "S(\\d{6})-${nonce}", "last": {"eq": 100000}}},
+       {"app_prompt": true},
+       {"daemon_prompt": true},
+       {"frame_text": "S100000-${nonce}"}
+     ]},
+
+    {"do": "type", "text": "for i in $(seq 1 12); do echo T$i-${nonce}; sleep 0.5; done", "enter": true, "mark": "loop"},
+    {"do": "mouse", "action": "scroll", "dy": 40, "count": 30, "interval": 0.03},
+    {"do": "expect", "title": "scrolled back while the loop prints", "timeout": 5,
+     "all": [{"app_rows": {"pattern": "S(\\d{6})-${nonce}", "last": {"lt": 100000}, "bind": "held"}}]},
+    {"do": "expect", "title": "the loop's output reaches the terminal", "since": "loop", "timeout": 30,
+     "all": [
+       {"daemon_line": "T12-${nonce}"},
+       {"daemon_prompt": true}
+     ]},
+    {"do": "expect", "title": "output that arrived while scrolled back did not move the view", "timeout": 5, "settle": 1.5,
+     "all": [
+       {"app_rows": {"pattern": "S(\\d{6})-${nonce}", "top": {"eq": "held"}, "hold": true}},
+       {"app_text_lacks": "T12-${nonce}"},
+       {"daemon_line": "T12-${nonce}"}
+     ]},
+    {"do": "expect", "title": "the frame still shows the rows the person was reading", "timeout": 5,
+     "all": [{"frame_screen": {"shows": ["${held_mid}"], "lacks": ["T12-${nonce}"]}}]},
+
+    {"do": "key", "key": "end", "modifiers": ["cmd"], "mark": "bottom2"},
+    {"do": "expect", "title": "back at the bottom: the loop's output and the prompt show", "since": "bottom2", "within": 1.5, "timeout": 5,
+     "all": [
+       {"app_text_line": "T12-${nonce}"},
+       {"app_prompt": true}
+     ]},
+    {"do": "type", "text": "for i in $(seq 1 6); do echo U$i-${nonce}; sleep 0.5; done", "enter": true, "mark": "follow"},
+    {"do": "expect", "title": "at the bottom, the view follows new output as it arrives", "since": "follow", "timeout": 20,
+     "all": [
+       {"app_text_line": "U3-${nonce}"},
+       {"daemon_line": "U3-${nonce}"}
+     ]},
+    {"do": "expect", "title": "the last line and the prompt show", "since": "follow", "timeout": 20,
+     "all": [
+       {"daemon_line": "U6-${nonce}"},
+       {"daemon_prompt": true},
+       {"app_text_line": "U6-${nonce}"},
+       {"app_prompt": true},
+       {"frame_text": "U6-${nonce}"}
+     ]}
+  ]
+}

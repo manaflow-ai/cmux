@@ -11,7 +11,7 @@ extension WebKitTab {
     /// WebKit started none (closed tab, or a load WebKit refused).
     @discardableResult
     public func startLoad(_ url: URL) -> BrowserNavigationID? {
-        guard !isClosed else { return nil }
+        guard !isClosed, resumeIfSuspended() else { return nil }
         let navigation = if url.isFileURL {
             webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
         } else {
@@ -21,15 +21,32 @@ extension WebKitTab {
     }
 
     @discardableResult
-    public func startGoBack() -> BrowserNavigationID? { register(webView.goBack()) }
+    public func startGoBack() -> BrowserNavigationID? {
+        guard resumeIfSuspended() else { return nil }
+        return register(webView.goBack())
+    }
 
     @discardableResult
-    public func startGoForward() -> BrowserNavigationID? { register(webView.goForward()) }
+    public func startGoForward() -> BrowserNavigationID? {
+        guard resumeIfSuspended() else { return nil }
+        return register(webView.goForward())
+    }
 
     @discardableResult
     public func startReload() -> BrowserNavigationID? {
         if webView.url == nil, let url = state.url { return startLoad(url) }
+        guard resumeIfSuspended() else { return nil }
         return register(webView.reload())
+    }
+
+    /// Hard Reload (``BrowserCacheBypassingReload``): the page from the server, past every cache.
+    public func reloadBypassingCache() {
+        if webView.url == nil, let url = state.url {
+            startLoad(url)
+            return
+        }
+        guard resumeIfSuspended() else { return }
+        _ = register(webView.reloadFromOrigin())
     }
 
     /// Calls `handler` with every navigation event as the tab applies it,

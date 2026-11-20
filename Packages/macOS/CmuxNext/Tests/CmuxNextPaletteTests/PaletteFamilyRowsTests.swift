@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextPalette
+import CmuxNextTestSupport
 import Testing
 
 /// The palette audit's order (plans/cmux-next/palette-ranking.md 5.4): a family folds into one row
@@ -8,6 +9,7 @@ import Testing
 /// rows the focused pane cannot run come last;
 /// a built-in alias puts its command first; nothing is dropped.
 @MainActor
+@Suite(.closesItsWindows)
 struct PaletteFamilyRowsTests {
     @Test func familiesFoldOnTheEmptyQueryAndNoActionIsDropped() async throws {
         let registry = ActionRegistry.standard()
@@ -57,7 +59,7 @@ struct PaletteFamilyRowsTests {
         registry.bind("appearance.customize") {}
         registry.bind("moveWorkspaceUp") {}
         let palette = PaletteController(registry: registry, sources: PaletteSources(), frecencyPersistence: nil)
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         palette.show(.commands)
         await palette.model.settle()
 

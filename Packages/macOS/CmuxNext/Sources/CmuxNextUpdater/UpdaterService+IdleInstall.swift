@@ -71,6 +71,8 @@ extension UpdaterService {
         UpdateRelaunchFocus.write(nil, defaults: defaults)
         automaticInstallInFlight = false
         automaticInstallFrontmost = nil
+        // The app keeps running: any window the relaunch took off the screen comes back.
+        abandonInstall()
         controller?.restageAfterDeclinedQuit()
     }
 }

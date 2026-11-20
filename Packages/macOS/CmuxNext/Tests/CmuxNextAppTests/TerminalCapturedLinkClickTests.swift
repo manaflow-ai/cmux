@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextTerminal
+import CmuxNextTestSupport
 import Foundation
 import GhosttyNextKit
 import Testing
@@ -12,7 +13,7 @@ import Testing
 /// OSC 8 link, then real `NSEvent`s: a Cmd-click on the link opens it through the delegate (the
 /// app's link path) and sends the program no click; plain clicks and Cmd-clicks off the link stay
 /// the program's.
-@MainActor @Suite(.serialized) struct TerminalCapturedLinkClickTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TerminalCapturedLinkClickTests {
     /// Button, drag and any-motion tracking in SGR, as Claude Code's fullscreen TUI sets them.
     static let mouseModes = "\u{1b}[?1000h\u{1b}[?1002h\u{1b}[?1003h\u{1b}[?1006h"
     static let fileURL = "file:///tmp/a610-plans/perf-status.md"

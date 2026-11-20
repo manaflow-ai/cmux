@@ -60,3 +60,30 @@ export function installWheelPassThrough(scroller: HTMLElement, main: HTMLElement
   main.addEventListener("wheel", onWheel, { passive: true });
   return () => main.removeEventListener("wheel", onWheel);
 }
+
+/// Whether a box from `target` up to `stop` (not included) can still scroll `deltaY` its way.
+function scrollsUnder(target: Element, stop: Element, deltaY: number): boolean {
+  for (let at: Element | null = target; at && at !== stop; at = at.parentElement) {
+    if (at.scrollHeight <= at.clientHeight) continue;
+    const overflow = getComputedStyle(at).overflowY;
+    if (overflow !== "auto" && overflow !== "scroll") continue;
+    if (deltaY < 0 ? at.scrollTop > 0 : at.scrollTop + at.clientHeight < at.scrollHeight - 1) return true;
+  }
+  return false;
+}
+
+/// Holds the wheel over the stack's parts (`dock`): a wheel over a part that has nothing of its own
+/// left to scroll that way scrolls nothing, rather than whatever Chromium's compositor finds under
+/// the stack (the transcript, where the stack floats over its rows). A part's gutters and empty room
+/// still go to the transcript (installWheelPassThrough). Not passive, so it is on the stack alone:
+/// a wheel over the transcript never waits on it. Returns the remover.
+export function installDockWheelHold(dock: HTMLElement): () => void {
+  const onWheel = (event: WheelEvent) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target || event.ctrlKey || passesThrough(target)) return;
+    if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+    if (!scrollsUnder(target, dock, event.deltaY)) event.preventDefault();
+  };
+  dock.addEventListener("wheel", onWheel, { passive: false });
+  return () => dock.removeEventListener("wheel", onWheel);
+}

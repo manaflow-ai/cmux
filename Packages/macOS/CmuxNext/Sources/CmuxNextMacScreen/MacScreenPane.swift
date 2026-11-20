@@ -5,7 +5,7 @@ import CmuxNextRemoteView
 import CmuxNextWakeups
 public import Observation
 
-/// What the pane's chrome shows, beyond `ScreenSession`'s own state.
+/// What the pane's chrome shows, beyond `MacScreenSession`'s own state.
 @Observable
 public final class MacScreenPaneModel {
     public enum Gate: Equatable {
@@ -15,7 +15,7 @@ public final class MacScreenPaneModel {
         case unsupported
     }
 
-    public let session: ScreenSession?
+    public let session: MacScreenSession?
     public internal(set) var name: String
     public var gate: Gate
     /// The streamed Mac's displays (pixel sizes) and the one shown.
@@ -34,7 +34,7 @@ public final class MacScreenPaneModel {
     /// The device hub tab's session: its request, approval and ticket; nil for an unsupported record.
     public let hub: MacScreenHubViewer?
 
-    init(session: ScreenSession?, name: String, gate: Gate, hub: MacScreenHubViewer? = nil) {
+    init(session: MacScreenSession?, name: String, gate: Gate, hub: MacScreenHubViewer? = nil) {
         self.session = session
         self.name = name
         self.gate = gate
@@ -51,6 +51,8 @@ public struct MacScreenPaneHandlers {
     public var closeTab: () -> Void = {}
     /// Open the Mac Screen home page in this tab.
     public var openHome: () -> Void = {}
+    /// Sign In pressed on a card that says this Mac is not signed in to cmux.
+    public var signIn: () -> Void = {}
     /// cmux shortcut matcher: true keeps the chord in this app.
     public var isLocalShortcut: (NSEvent) -> Bool = { _ in false }
     /// Whether this screen holds the keyboard may have changed (focus, the
@@ -60,8 +62,8 @@ public struct MacScreenPaneHandlers {
     public init() {}
 }
 
-/// One Mac Screen tab's screen: a `ScreenSession` to one of the user's devices, its
-/// video fitted to the pane, the remote view input surface (keys, pointer,
+/// One Mac Screen tab's screen: a `MacScreenSession` (cmux.rd/1) to one of the user's devices, its
+/// video decoded and presented by the remote view pipeline, fitted to the pane, the remote view input surface (keys, pointer,
 /// scroll; Control-Option-Escape gives the keyboard back) and the toolbar
 /// and state cards. The stream runs while the tab is shown; a tab hidden
 /// for `hiddenGrace` ends its session and asks again when shown.
@@ -78,15 +80,23 @@ public final class MacScreenPane {
     private let inputSink: MacScreenInputSink?
     private var visible = false
     private let hideTimer = DemandTimer(owner: "mac-screen.hidden-grace")
+    /// The decoder of the current transport (one per session).
+    private var decodeTask: Task<Void, Never>?
+    /// The current transport's remote cursor (cap `cursor`) into the pane's one cursor.
+    private var cursorTask: Task<Void, Never>?
 
     /// One of the user's devices from the device hub. Each stream is one
     /// approved session: `viewer` asks for it and hands its ticket's
     /// signaling to the session once; a dropped stream does not reconnect on
     /// its own (Try Again asks again).
     public init(hubDevice viewer: MacScreenHubViewer, name: String, preferences: ScreenPreferences) {
-        let session = ScreenSession(title: name, preferences: preferences, signaling: { [weak viewer] in viewer?.takeSignaling() })
-        session.reconnectLimit = 0
+        let session = MacScreenSession(title: name, preferences: preferences, signaling: { [weak viewer] in viewer?.takeSignaling() })
         model = MacScreenPaneModel(session: session, name: name, gate: .open, hub: viewer)
+        // A quality or display change: the ticket admits once, so the hub gives a new session.
+        session.restart = { [weak viewer] in
+            guard let viewer, let scope = viewer.phase.streamingScope else { return }
+            viewer.request(scope)
+        }
         let sink = MacScreenInputSink(session: session)
         inputSink = sink
         view = MacScreenPaneView(model: model)
@@ -105,28 +115,21 @@ public final class MacScreenPane {
     }
 
     /// A tab restored on an old pairing-link record: link pairing is no
-    /// longer supported, so it says so (Close Tab, Open Mac Screen).
+    /// longer supported, so it says so (Close Tab, Open Screen Sharing).
     public init(unsupportedLink: Void) {
-        model = MacScreenPaneModel(session: nil, name: L.t("macScreen.tab.homeTitle", "Mac Screen"), gate: .unsupported)
+        model = MacScreenPaneModel(session: nil, name: L.t("macScreen.tab.homeTitle", "Screen Sharing"), gate: .unsupported)
         inputSink = nil
         view = MacScreenPaneView(model: model)
         view.chrome.actions.openHome = { [weak self] in self?.handlers.openHome() }
         view.chrome.actions.closeTab = { [weak self] in self?.handlers.closeTab() }
     }
 
-    private func wire(_ session: ScreenSession) {
-        session.onVideoTrack = { [weak self] box in
+    private func wire(_ session: MacScreenSession) {
+        session.onTransport = { [weak self] transport in self?.decode(transport) }
+        view.presenter.onFrameSize = { [weak self, weak session] size in
             guard let self else { return }
-            model.hasFrame = false
-            view.video.attach(box)
-        }
-        view.video.onSize = { [weak self, weak session] size in
+            view.video.setFramePixels(size)
             session?.setStreamFrameSize(size)
-            self?.view.needsLayout = true
-        }
-        view.video.onFrame = { [weak self] in
-            guard let self, !model.hasFrame else { return }
-            model.hasFrame = true
             view.needsLayout = true
         }
         session.onStreamDisplays = { [weak self] sizes, current in
@@ -148,6 +151,7 @@ public final class MacScreenPane {
         actions.disconnect = { [weak self] in self?.disconnectByPerson() }
         actions.closeTab = { [weak self] in self?.handlers.closeTab() }
         actions.openHome = { [weak self] in self?.handlers.openHome() }
+        actions.signIn = { [weak self] in self?.handlers.signIn() }
         actions.selectDisplay = { [weak self] index in
             session.selectDisplay(index)
             self?.model.currentDisplay = index
@@ -158,6 +162,7 @@ public final class MacScreenPane {
         }
         actions.toggleStats = { session.preferences.showStats.toggle() }
         actions.refresh = { session.refresh() }
+        actions.fullScreen = { [weak self] in self?.view.window?.toggleFullScreen(nil) }
         actions.sendKeys = { [weak self] shortcut in
             // A View Only session sends no input (the host would ignore it anyway).
             guard self?.model.viewOnly != true else { return }
@@ -167,8 +172,44 @@ public final class MacScreenPane {
         observePhase(session)
     }
 
+    /// Decodes a new transport's video into the presenter; the first frame shows the picture.
+    private func decode(_ transport: RemoteRdStreamTransport) {
+        decodeTask?.cancel()
+        model.hasFrame = false
+        let presenter = view.presenter
+        let counter = MacScreenFrameCounter()
+        session?.frameCounter = counter
+        let deliver: @Sendable (RemoteDecodedFrame) -> Void = { [weak self] frame in
+            presenter.present(frame)
+            // The stats and the first picture, without a main-actor hop per frame.
+            guard counter.tick(frame: frame.frame, decodedAtNanos: frame.decodedAtNanos) else { return }
+            Task { @MainActor [weak self] in self?.framesShown(counter) }
+        }
+        let pipeline = RemoteDecodePipeline(source: transport, deliver: deliver, presented: { counter.shown($0) })
+        // task-owner: this transport's decoder; ends with its stream or the next session's
+        decodeTask = Task.detached(priority: .userInitiated) { await pipeline.run() }
+        cursorTask?.cancel()
+        view.cursor.setRemoteCursor(nil)
+        let cursors = transport.cursorUpdates()
+        // task-owner: this transport's cursor feed; ends with its stream or the next session's
+        cursorTask = Task { [weak self] in
+            for await cursor in cursors { self?.view.cursor.setRemoteCursor(cursor) }
+        }
+    }
+
+    private func framesShown(_ counter: MacScreenFrameCounter) {
+        guard let session else { return }
+        let count = counter.take()
+        for _ in 0 ..< count { session.framePresented(size: view.video.framePixels) }
+        session.framesCounted(counter)
+        if !model.hasFrame {
+            model.hasFrame = true
+            view.needsLayout = true
+        }
+    }
+
     /// Follows the session's phase: the picture and the hub hear about a stall or a failure.
-    private func observePhase(_ session: ScreenSession) {
+    private func observePhase(_ session: MacScreenSession) {
         withObservationTracking {
             _ = session.phase
             _ = session.isStalled
@@ -190,12 +231,12 @@ public final class MacScreenPane {
         }
     }
 
-    public var session: ScreenSession? { model.session }
+    public var session: MacScreenSession? { model.session }
     /// How the pane starts a connection (showing the tab, Connect, Try
     /// Again): the session's reconnect policy, which retries with backoff
     /// before the failed card shows (a relay often needs a few tries). A
     /// single `connect()` failed at once. Tests count the starts.
-    var connectSession: @MainActor (ScreenSession) -> Void = { $0.reconnect() }
+    var connectSession: @MainActor (MacScreenSession) -> Void = { $0.reconnect() }
 
     public var focusTarget: NSView { view.input.view }
 
@@ -229,6 +270,8 @@ public final class MacScreenPane {
     /// The tab closed: end the session now.
     public func close() {
         hideTimer.cancel()
+        decodeTask?.cancel()
+        cursorTask?.cancel()
         visible = false
         if let hub = model.hub, hub.phase != .idle {
             // The hub hears why first, then the stream closes.
@@ -262,7 +305,8 @@ public final class MacScreenPane {
         hub.request(MacScreenHubViewer.scopeToRequest(last: hub.lastScope, access: hub.accessToHost))
     }
 
-    private func disconnectByPerson() {
+    /// The viewer toolbar or a targeted Stop Viewing action ends this session.
+    public func disconnectByPerson() {
         view.input.releaseKeyboard()
         model.hub?.disconnect(reason: .viewerDisconnected)
     }
@@ -271,12 +315,16 @@ public final class MacScreenPane {
 /// The pane's view: toolbar on top, the fitted screen and its input surface
 /// below, a state card over the screen while there is no picture.
 public final class MacScreenPaneView: NSView {
-    let video = ScreenVideoView(frame: .zero)
+    let video = RemoteVideoView()
+    /// The remote view presenter the decoded frames go to.
+    let presenter = RemoteFramePresenters().make(.metal)
     let input = RemoteInputSurface()
     var capture: NSView { input.view }
+    /// One cursor: the local pointer wears the remote shape; the overlay only where they differ.
+    private(set) lazy var cursor = input.cursorCoordinator(video: video)
     let chrome: MacScreenChromeHost
     private let model: MacScreenPaneModel
-    static let toolbarHeight: CGFloat = 34
+    var toolbarHeight: CGFloat { chrome.toolbar.height(for: bounds.width) }
 
     init(model: MacScreenPaneModel) {
         self.model = model
@@ -284,6 +332,8 @@ public final class MacScreenPaneView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
+        video.install(presenter)
+        video.scaling = .fit
         addSubview(video)
         addSubview(capture)
         addSubview(chrome.toolbar)
@@ -300,7 +350,7 @@ public final class MacScreenPaneView: NSView {
 
     /// The screen area: everything under the toolbar.
     var screenRect: CGRect {
-        CGRect(x: 0, y: Self.toolbarHeight, width: bounds.width, height: max(0, bounds.height - Self.toolbarHeight))
+        CGRect(x: 0, y: toolbarHeight, width: bounds.width, height: max(0, bounds.height - toolbarHeight))
     }
 
     /// Where the streamed display sits (aspect fit), for the input surface.
@@ -311,13 +361,17 @@ public final class MacScreenPaneView: NSView {
 
     public override func layout() {
         super.layout()
-        chrome.toolbar.frame = CGRect(x: 0, y: 0, width: bounds.width, height: Self.toolbarHeight)
+        chrome.toolbar.frame = CGRect(x: 0, y: 0, width: bounds.width, height: toolbarHeight)
         capture.frame = screenRect
+        // Auto streams at the pane's size; the next session (Connect, a quality change) reads it.
+        let pixels = Int((screenRect.width * (window?.backingScaleFactor ?? 2)).rounded(.up))
+        if pixels > 0, let session = model.session, session.paneWidthPixels != pixels { session.paneWidthPixels = pixels }
         if let geometry {
             video.frame = geometry.imageRect.offsetBy(dx: capture.frame.minX, dy: capture.frame.minY)
         } else {
             video.frame = .zero
         }
+        cursor.update()
         let showsCard = chrome.showsCard
         chrome.card.isHidden = !showsCard
         capture.isHidden = model.gate != .open

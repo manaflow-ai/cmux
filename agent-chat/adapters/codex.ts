@@ -1,4 +1,4 @@
-import type { Adapter, AgentEvent, CommandEntry, OptionChoice, OptionValue, SessionCtx, SessionOption } from "../types";
+import type { Adapter, AgentEvent, AgentPlanStatus, AgentQuestionAnswers, AgentQuestionItem, AgentQuestionOutcome, CommandEntry, OptionChoice, OptionValue, SessionCtx, SessionOption } from "../types";
 import { readLines, tryParse, truncate } from "./lines";
 import { prettifyModelLabel } from "./model-label";
 import { agentModelCatalog } from "../catalog";
@@ -49,6 +49,26 @@ interface CodexState {
   // timeout, that many error events.
   pendingStop?: Promise<void>;
   commands: CommandEntry[];
+  // Thread lifecycle rows already shown, so repeated notifications do not
+  // repeat them (see threadLifecycle).
+  lifecycle: CodexLifecycle;
+}
+
+interface CodexLifecycle {
+  // A current app-server reports one compaction as a contextCompaction item
+  // and as the deprecated thread/compacted notification, in either order; an
+  // older one sends only the notification. Counting each signal per turn and
+  // showing max(items, notifications) markers gives one per compaction.
+  compactionTurnId?: string;
+  compactionItems: number;
+  compactionNotices: number;
+  // objective + status of the goal last shown; usage ticks re-send it.
+  goalKey?: string;
+  systemError: boolean;
+}
+
+function freshLifecycle(): CodexLifecycle {
+  return { compactionItems: 0, compactionNotices: 0, systemError: false };
 }
 
 interface TurnWaiter {
@@ -169,6 +189,7 @@ export const codexAdapter: Adapter = {
       });
       // Completion arrives via the turn/completed notification.
     } catch (err) {
+      settleQuestions(sess, "expired");
       const st = sess.internal.codex as CodexState | undefined;
       const generation = st?.activeGeneration;
       if (st) {
@@ -183,6 +204,8 @@ export const codexAdapter: Adapter = {
     }
   },
   stop(sess) {
+    // A blocking question holds the turn; decline it so the interrupt lands.
+    settleQuestions(sess, "declined");
     const st = codexState(sess);
     const threadId = sess.internal.threadId as string | undefined;
     const srv = shared;
@@ -222,6 +245,7 @@ export const codexAdapter: Adapter = {
     st.pendingStop = pending;
   },
   dispose(sess) {
+    settleQuestions(sess, "declined");
     const st = sess.internal.codex as CodexState | undefined;
     if (st) resolveTurnWaiters(st, null);
     const threadId = sess.internal.threadId as string | undefined;
@@ -229,6 +253,9 @@ export const codexAdapter: Adapter = {
   },
   async setOption(sess, id, value) {
     await setCodexOption(sess, id, value);
+  },
+  answerQuestion(sess, questionId, answers) {
+    answerCodexQuestion(sess, questionId, answers);
   },
   async refreshOptions(sess) {
     await ensureCodexState(sess, true);
@@ -273,6 +300,7 @@ function forkedCodexState(sourceState: CodexState): CodexState {
     turnActive: false,
     activeGeneration: undefined,
     commands: sourceState.commands.slice(),
+    lifecycle: freshLifecycle(),
   };
 }
 
@@ -342,6 +370,7 @@ async function startServer(): Promise<AppServer> {
     for (const p of pending.values()) p.reject(new Error("codex app-server exited"));
     pending.clear();
     for (const sess of srv.sessionsByThread.values()) {
+      settleQuestions(sess, "expired", false);
       const st = codexState(sess);
       if (st.turnActive) {
         const generation = st.activeGeneration;
@@ -390,8 +419,9 @@ async function startServer(): Promise<AppServer> {
 // (item/*/requestApproval, keyed by threadId, answered with
 // "accept"/"decline"). Shapes verified against
 // `codex app-server generate-json-schema`. Anything else (permission
-// profiles, tool user input) is declined with a JSON-RPC error so the server
-// falls back instead of hanging on a malformed result.
+// profiles) is declined with a JSON-RPC error so the server falls back instead
+// of hanging on a malformed result. Tool user input is a question for the
+// person (askCodexQuestion), never answered by the approvals policy.
 function approvalResponse(method: string, approve: boolean): { result: unknown } | { error: unknown } {
   switch (method) {
     case "execCommandApproval":
@@ -405,11 +435,153 @@ function approvalResponse(method: string, approve: boolean): { result: unknown }
   }
 }
 
+// item/tool/requestUserInput: Codex asks the person questions mid-turn
+// (`codex app-server generate-json-schema`: ToolRequestUserInputParams). Each
+// becomes a `question` event the chat answers with answerQuestion; the reply
+// is `{answers: {<question id>: {answers: [text]}}}`, and `{answers: {}}`
+// declines. The request stays open until answered, declined, settled by Codex
+// (`serverRequest/resolved`, e.g. a non-blocking ask that timed out), or its
+// turn or app-server ends; every path emits `question-resolved` once.
+interface PendingQuestion {
+  requestId: string | number;
+  items: AgentQuestionItem[];
+  write(msg: unknown): void;
+}
+
+function codexQuestions(sess: SessionCtx): Map<string, PendingQuestion> {
+  let questions = sess.internal.codexQuestions as Map<string, PendingQuestion> | undefined;
+  if (!questions) {
+    questions = new Map();
+    sess.internal.codexQuestions = questions;
+  }
+  return questions;
+}
+
+export function codexQuestionItems(raw: unknown): AgentQuestionItem[] {
+  if (!Array.isArray(raw)) return [];
+  const items: AgentQuestionItem[] = [];
+  const seen = new Set<string>();
+  for (const q of raw) {
+    if (!q || typeof q.id !== "string" || !q.id || typeof q.question !== "string") continue;
+    // Answers are keyed by id: a repeated id would share one answer between
+    // questions (a secret one's included), so the request is declined whole.
+    if (seen.has(q.id)) continue;
+    seen.add(q.id);
+    const options = (Array.isArray(q.options) ? q.options : [])
+      .filter((o: any) => o && typeof o.label === "string" && o.label)
+      .map((o: any) => (typeof o.description === "string" && o.description
+        ? { label: o.label, description: o.description }
+        : { label: o.label }));
+    items.push({
+      id: q.id,
+      ...(typeof q.header === "string" && q.header ? { header: q.header } : {}),
+      question: q.question,
+      options,
+      allowsOther: q.isOther === true || options.length === 0,
+      secret: q.isSecret === true,
+    });
+  }
+  return items;
+}
+
+function askCodexQuestion(srv: AppServerRouting, sess: SessionCtx | undefined, requestId: string | number, p: any) {
+  const items = codexQuestionItems(p.questions);
+  const asked = Array.isArray(p.questions) ? p.questions.length : 0;
+  if (!sess || !items.length || items.length !== asked) {
+    // No chat to ask (an unknown thread), or a question that cannot be
+    // shown (Codex needs every one answered): decline so the turn goes on
+    // instead of waiting on a card nobody can complete.
+    srv.write({ jsonrpc: "2.0", id: requestId, result: { answers: {} } });
+    if (sess) sess.emit({ kind: "status", text: "declined a Codex question it could not show" });
+    return;
+  }
+  const questionId = `codex-${typeof p.itemId === "string" && p.itemId ? p.itemId : String(requestId)}`;
+  codexQuestions(sess).set(questionId, { requestId, items, write: srv.write });
+  sess.emit({ kind: "question", questionId, items });
+}
+
+function questionForRequest(sess: SessionCtx, requestId: unknown): string | undefined {
+  for (const [questionId, pending] of codexQuestions(sess)) {
+    if (pending.requestId === requestId) return questionId;
+  }
+  return undefined;
+}
+
+/** Checks a person's answers against the items: one non-empty answer per
+ * question, and an option label unless the question takes typed text. */
+export function codexQuestionReply(items: AgentQuestionItem[], answers: AgentQuestionAnswers): { answers: Record<string, { answers: string[] }> } {
+  const out: Record<string, { answers: string[] }> = Object.create(null);
+  for (const item of items) {
+    // Own properties only: a question id may be `constructor` or `__proto__`.
+    const answer = Object.hasOwn(answers, item.id) ? answers[item.id] : undefined;
+    const name = item.header ?? item.question;
+    if (typeof answer !== "string" || !answer.trim()) throw new Error(`${name} needs an answer`);
+    if (!item.allowsOther && !item.options.some((o) => o.label === answer)) {
+      throw new Error(`${name} takes only its options: ${item.options.map((o) => o.label).join(", ")}`);
+    }
+    out[item.id] = { answers: [answer] };
+  }
+  for (const id of Object.keys(answers)) {
+    if (!items.some((item) => item.id === id)) throw new Error(`no question ${id}`);
+  }
+  return { answers: out };
+}
+
+function answerCodexQuestion(sess: SessionCtx, questionId: string, answers: AgentQuestionAnswers | null) {
+  const pending = codexQuestions(sess).get(questionId);
+  if (!pending) throw new Error("this question is no longer waiting for an answer");
+  if (answers === null) {
+    settleQuestion(sess, questionId, "declined");
+    return;
+  }
+  const result = codexQuestionReply(pending.items, answers);
+  try {
+    pending.write({ jsonrpc: "2.0", id: pending.requestId, result });
+  } catch {
+    // The app-server is gone, and the request with it: close the card
+    // instead of leaving a question nobody can answer.
+    settleQuestion(sess, questionId, "expired", false);
+    throw new Error("Codex stopped before the answer reached it");
+  }
+  codexQuestions(sess).delete(questionId);
+  sess.emit({ kind: "question-resolved", questionId, outcome: "answered" });
+  const summary = pending.items
+    .map((item) => `${item.header ?? item.question}: ${item.secret ? "(hidden)" : result.answers[item.id].answers[0]}`)
+    .join(" · ");
+  sess.emit({ kind: "status", text: `answered: ${truncate(summary, 200)}` });
+}
+
+/** Ends a pending question; `reply` declines it to Codex first (when Codex
+ * has not already settled it itself). */
+function settleQuestion(sess: SessionCtx, questionId: string | undefined, outcome: AgentQuestionOutcome, reply = true) {
+  if (!questionId) return;
+  const questions = codexQuestions(sess);
+  const pending = questions.get(questionId);
+  if (!pending) return;
+  questions.delete(questionId);
+  if (reply) {
+    try {
+      pending.write({ jsonrpc: "2.0", id: pending.requestId, result: { answers: {} } });
+    } catch {
+      // The app-server already exited; its exit settles the turn.
+    }
+  }
+  sess.emit({ kind: "question-resolved", questionId, outcome });
+}
+
+function settleQuestions(sess: SessionCtx, outcome: AgentQuestionOutcome, reply = true) {
+  for (const questionId of [...codexQuestions(sess).keys()]) settleQuestion(sess, questionId, outcome, reply);
+}
+
 function handleServerMessage(srv: AppServerRouting, msg: any) {
   const p = msg.params ?? {};
   const threadKey = p.threadId ?? p.conversationId;
   const sess = threadKey ? srv.sessionsByThread.get(threadKey) : undefined;
 
+  if (msg.id != null && msg.method === "item/tool/requestUserInput") {
+    askCodexQuestion(srv, sess, msg.id, p);
+    return;
+  }
   // Server -> client request (approvals such as command execution / patches).
   if (msg.id != null && msg.method) {
     const approve = sess ? codexState(sess).approvals === "never" : false;
@@ -426,6 +598,9 @@ function handleServerMessage(srv: AppServerRouting, msg: any) {
   const st = codexState(sess);
 
   switch (msg.method) {
+    case "serverRequest/resolved":
+      settleQuestion(sess, questionForRequest(sess, p.requestId), "resolved", false);
+      break;
     case "turn/started":
       st.turnActive = true;
       st.currentTurnId = p.turn?.id;
@@ -453,12 +628,69 @@ function handleServerMessage(srv: AppServerRouting, msg: any) {
       itemStarted(sess, p.item);
       break;
     case "item/completed":
-      itemCompleted(sess, p.item);
+      if (p.item?.type === "contextCompaction") compactionSignal(sess, st, p.turnId, "item");
+      else itemCompleted(sess, p.item);
       break;
+    case "thread/compacted":
+      compactionSignal(sess, st, p.turnId, "notice");
+      break;
+    case "turn/plan/updated": {
+      const plan = codexPlanEvent(p.plan);
+      if (plan) sess.emit(plan);
+      break;
+    }
+    case "thread/goal/updated":
+      goalUpdated(sess, st, p.goal);
+      break;
+    case "thread/goal/cleared":
+      if (st.lifecycle.goalKey !== undefined) {
+        st.lifecycle.goalKey = undefined;
+        sess.emit({ kind: "status", text: "Goal cleared" });
+      }
+      break;
+    case "thread/status/changed": {
+      // Only a system error is news here. The waiting flags follow the
+      // approval or input request (approvals are answered at once; a question
+      // shows its own card), and running/idle already follow turn/started and
+      // turn/completed.
+      const systemError = p.status?.type === "systemError";
+      if (systemError && !st.lifecycle.systemError) {
+        sess.emit({ kind: "status", text: "Codex reported a system error on this thread" });
+      }
+      st.lifecycle.systemError = systemError;
+      break;
+    }
+    case "thread/archived":
+      sess.emit({ kind: "status", text: "Thread archived in Codex" });
+      break;
+    case "thread/unarchived":
+      sess.emit({ kind: "status", text: "Thread unarchived in Codex" });
+      break;
+    case "thread/closed": {
+      // The server unloaded the thread. Unroute it so the next send takes the
+      // thread/resume path instead of starting a turn on a thread it no longer
+      // holds, and end a turn that can no longer complete. Its open questions
+      // go with it: decline them so no request is left waiting.
+      srv.sessionsByThread.delete(threadKey);
+      settleQuestions(sess, "expired");
+      if (st.turnActive) {
+        const generation = st.activeGeneration;
+        st.turnActive = false;
+        st.currentTurnId = undefined;
+        st.activeGeneration = undefined;
+        resolveTurnWaiters(st, null);
+        sess.emit({ kind: "error", message: "Codex closed the thread mid-turn" });
+        sess.emit({ kind: "done", generation } as any);
+        sess.setStatus("idle");
+      }
+      break;
+    }
     case "thread/tokenUsage/updated":
       sess.internal.lastUsage = p.tokenUsage?.total;
       break;
     case "turn/completed": {
+      // Decline anything still open: an unanswered request must not outlive its turn.
+      settleQuestions(sess, "expired");
       st.turnActive = false;
       st.currentTurnId = undefined;
       const generation = st.activeGeneration;
@@ -475,6 +707,7 @@ function handleServerMessage(srv: AppServerRouting, msg: any) {
       break;
     }
     case "turn/failed": {
+      settleQuestions(sess, "expired");
       st.turnActive = false;
       st.currentTurnId = undefined;
       const generation = st.activeGeneration;
@@ -497,7 +730,27 @@ function handleServerMessage(srv: AppServerRouting, msg: any) {
  * parity tests from growing a second notification mapper.
  */
 export function codexEventsForTest(messages: readonly unknown[]): AgentEvent[] {
+  return codexRoutingForTest(messages).events;
+}
+
+/** Like codexEventsForTest, plus whether the thread still routes to the session and its final status. */
+export function codexRoutingForTest(messages: readonly unknown[]): { events: AgentEvent[]; routed: boolean; status: SessionCtx["status"] } {
+  const harness = codexSessionForTest();
+  harness.feed(messages);
+  return { events: harness.events, routed: harness.routed(), status: harness.sess.status };
+}
+
+/** The same fixture seam with the session and what cmux wrote back to the
+ * app-server, for server requests the chat answers (`answerQuestion`). */
+export function codexSessionForTest(): {
+  sess: SessionCtx;
+  events: AgentEvent[];
+  writes: unknown[];
+  feed(messages: readonly unknown[]): void;
+  routed(): boolean;
+} {
   const events: AgentEvent[] = [];
+  const writes: unknown[] = [];
   const sess: SessionCtx = {
     id: "parity",
     provider: "codex",
@@ -517,10 +770,19 @@ export function codexEventsForTest(messages: readonly unknown[]): AgentEvent[] {
   };
   const server: AppServerRouting = {
     sessionsByThread: new Map([["thread-parity", sess]]),
-    write() {},
+    write(msg) {
+      writes.push(msg);
+    },
   };
-  for (const message of messages) handleServerMessage(server, message);
-  return events;
+  return {
+    sess,
+    events,
+    writes,
+    feed(messages) {
+      for (const message of messages) handleServerMessage(server, message);
+    },
+    routed: () => server.sessionsByThread.get("thread-parity") === sess,
+  };
 }
 
 function itemStarted(sess: SessionCtx, item: any) {
@@ -571,6 +833,54 @@ function itemCompleted(sess: SessionCtx, item: any) {
   }
 }
 
+function compactionSignal(sess: SessionCtx, st: CodexState, turnId: unknown, signal: "item" | "notice") {
+  const lc = st.lifecycle;
+  const turn = typeof turnId === "string" ? turnId : "";
+  if (lc.compactionTurnId !== turn) {
+    lc.compactionTurnId = turn;
+    lc.compactionItems = 0;
+    lc.compactionNotices = 0;
+  }
+  const shown = Math.max(lc.compactionItems, lc.compactionNotices);
+  if (signal === "item") lc.compactionItems += 1;
+  else lc.compactionNotices += 1;
+  if (Math.max(lc.compactionItems, lc.compactionNotices) > shown) {
+    sess.emit({ kind: "status", text: "Conversation compacted" });
+  }
+}
+
+const PLAN_STATUS: Record<string, AgentPlanStatus> = { pending: "pending", inProgress: "in_progress", completed: "completed" };
+
+function codexPlanEvent(steps: unknown): Extract<AgentEvent, { kind: "plan" }> | null {
+  if (!Array.isArray(steps) || !steps.length) return null;
+  return {
+    kind: "plan",
+    entries: steps.map((step: any) => ({
+      text: typeof step?.step === "string" ? step.step : String(step?.step ?? ""),
+      status: PLAN_STATUS[step?.status] ?? "unknown",
+    })),
+  };
+}
+
+const GOAL_STATUS_PREFIX: Record<string, string> = {
+  active: "Goal",
+  paused: "Goal paused",
+  blocked: "Goal blocked",
+  usageLimited: "Goal hit the usage limit",
+  budgetLimited: "Goal reached its token budget",
+  complete: "Goal complete",
+};
+
+function goalUpdated(sess: SessionCtx, st: CodexState, goal: any) {
+  const objective = typeof goal?.objective === "string" ? goal.objective.trim() : "";
+  if (!objective) return;
+  const status = typeof goal.status === "string" ? goal.status : "active";
+  const key = `${status}\n${objective}`;
+  if (st.lifecycle.goalKey === key) return;
+  st.lifecycle.goalKey = key;
+  sess.emit({ kind: "status", text: `${GOAL_STATUS_PREFIX[status] ?? "Goal"}: ${truncate(objective, 200)}` });
+}
+
 function summarizeChanges(item: any): string {
   const changes = item.changes ?? [];
   if (Array.isArray(changes) && changes.length) {
@@ -593,6 +903,7 @@ function defaultState(autoApprove: boolean): CodexState {
     activeGeneration: undefined,
     turnWaiters: [],
     commands: [],
+    lifecycle: freshLifecycle(),
   };
 }
 

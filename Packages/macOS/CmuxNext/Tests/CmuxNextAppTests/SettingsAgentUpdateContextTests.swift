@@ -1,4 +1,5 @@
 import CmuxNextActions
+@testable import CmuxNextAccounts
 @testable import CmuxNextAgentPane
 import CmuxNextDesign
 import CmuxNextPages
@@ -18,7 +19,7 @@ import Testing
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
         try Data("{}".utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
             managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let recorder = Recorder()
@@ -27,7 +28,7 @@ import Testing
         let health = Data(#"{"harnesses":[{"id":"codex","channel":"\#(channel)","outdated":true,"update":{"argv":["npm","install","-g","@openai/codex@latest"],"elevated":false}}]}"#.utf8)
         let harnesses = SettingsHarnesses(environment: { environment },
             fetch: { _ in [.init(id: "codex", kind: "acp", source: "path")] },
-            fetchHealth: { _, _ in health }, openTerminal: { recorder.lines.append($0) },
+            fetchHealth: { _, _ in health }, openTerminal: { recorder.lines.append($0); return true },
             runUpdate: { params, context in
                 let action = params["action"]?.stringValue
                 recorder.lines.append(action == "resumeUpdate" ? "resume:" + (params["intent"]?.stringValue ?? "") + ":" + (context.opid ?? "")

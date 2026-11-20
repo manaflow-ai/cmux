@@ -1,4 +1,7 @@
 import Foundation
+import OSLog
+
+private let log = Logger(subsystem: "dev.cmux.mobile", category: "chief-call")
 
 /// Performs one HTTP request (URLSession in the app, a fake in tests).
 public protocol VoiceCallHTTP: Sendable {
@@ -32,6 +35,9 @@ public enum VoiceCallFailure: Error, Sendable, Equatable {
     case quota(String)
     /// The request reached OpenAI and was refused for another reason.
     case refused(String)
+    /// OpenAI failed on its side (5xx), often with no error body; the call
+    /// retries once before showing it. `requestID` traces it with OpenAI.
+    case server(status: Int, requestID: String?)
     /// No network, TLS failure, or the audio connection could not be set up.
     case network(String)
     /// The connection dropped during the call.
@@ -77,7 +83,10 @@ public struct RealtimeCallsAPI: Sendable {
             throw VoiceCallFailure.network(error.localizedDescription)
         }
         guard (200 ..< 300).contains(response.statusCode) else {
-            throw Self.failure(status: response.statusCode, body: data)
+            let failure = Self.failure(status: response.statusCode, body: data,
+                                       requestID: response.value(forHTTPHeaderField: "x-request-id"))
+            log.error("realtime/calls HTTP \(response.statusCode, privacy: .public) request \(response.value(forHTTPHeaderField: "x-request-id") ?? "-", privacy: .public)")
+            throw failure
         }
         let answer = String(decoding: data, as: UTF8.self)
         guard answer.hasPrefix("v=") else { throw VoiceCallFailure.refused("OpenAI sent no audio answer.") }
@@ -96,7 +105,7 @@ public struct RealtimeCallsAPI: Sendable {
     }
 
     /// Maps an OpenAI error response (`{"error": {"message", "code", "type"}}`).
-    static func failure(status: Int, body: Data) -> VoiceCallFailure {
+    static func failure(status: Int, body: Data, requestID: String? = nil) -> VoiceCallFailure {
         let error = (try? JSONSerialization.jsonObject(with: body) as? [String: Any])?["error"] as? [String: Any]
         let message = error?["message"] as? String ?? HTTPURLResponse.localizedString(forStatusCode: status)
         let code = error?["code"] as? String
@@ -104,6 +113,7 @@ public struct RealtimeCallsAPI: Sendable {
         case 401: return .keyRejected
         case 403, 404: return .modelUnavailable(message)
         case 429: return .quota(code == "insufficient_quota" ? String(localized: "Your OpenAI account is out of credit.") : message)
+        case 500 ..< 600: return .server(status: status, requestID: requestID)
         default: return .refused(message)
         }
     }

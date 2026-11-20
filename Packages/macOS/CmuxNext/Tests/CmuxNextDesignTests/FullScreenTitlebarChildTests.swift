@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// fullscreen-lag (user, 2026-10-20): in full screen AppKit makes its titlebar window
@@ -7,7 +8,7 @@ import Testing
 /// Chromium page, it kept the window in page mode for the whole of full screen (overlay
 /// planes in the panel, divider catcher panels, page re-syncs and child order checks on
 /// every event), and every drag, hover and switch lagged.
-@MainActor @Suite struct FullScreenTitlebarChildTests {
+@MainActor @Suite(.closesItsWindows) struct FullScreenTitlebarChildTests {
     @Test func theFullScreenTitlebarWindowIsAppKitChromeNotAPage() throws {
         // The class still exists under this name and is an NSWindow that is not a panel,
         // so without the name check it would count as a page.
@@ -22,8 +23,10 @@ import Testing
         let type = try #require(cls as? NSWindow.Type)
         let titlebar = type.init(contentRect: NSRect(x: 0, y: 0, width: 100, height: 28), styleMask: [.borderless],
                                  backing: .buffered, defer: true)
+        defer { titlebar.closeAfterTest() }
         let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: true)
+        defer { parent.closeAfterTest() }
         // Bools only: a failing #expect describes its operands, and this class's description
         // asks for its full screen owner, which a standalone one does not have.
         let isChrome = WindowOverlayHost.isAppKitChrome(titlebar)
@@ -37,8 +40,10 @@ import Testing
     @Test func plainWindowsStayPagesAndPanelsStayPanels() {
         let page = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.borderless],
                             backing: .buffered, defer: true)
+        defer { page.closeAfterTest() }
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.borderless],
                             backing: .buffered, defer: true)
+        defer { panel.closeAfterTest() }
         #expect(WindowOverlayHost.isPageWindow(page))
         #expect(!WindowOverlayHost.isAppKitChrome(page))
         #expect(!WindowOverlayHost.isPageWindow(panel))

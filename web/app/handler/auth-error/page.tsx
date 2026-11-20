@@ -7,7 +7,7 @@ import { loadMessages } from "../../../i18n/messages";
 import type { Locale } from "../../../i18n/routing";
 import { DemoteFailedProvider } from "../demote-failed-provider";
 
-type AuthErrorMessageKey = "emailUnverified" | "signupPending" | "generic";
+type AuthErrorMessageKey = "emailUnverified" | "signupPending" | "chatgptLink" | "chatgptEmailUnverified" | "generic";
 
 type AuthErrorMessages = {
   emailUnverifiedTitle: string;
@@ -16,6 +16,9 @@ type AuthErrorMessages = {
   genericTitle: string;
   genericBody: string;
   backToSignIn: string;
+  chatgptLinkTitle: string;
+  chatgptLinkBody: string;
+  chatgptEmailUnverifiedBody: string;
 };
 
 type AuthErrorPageProps = {
@@ -55,7 +58,7 @@ export default async function AuthErrorPage({
       className="flex min-h-screen items-center justify-center bg-background px-4 py-12 text-foreground"
       dir={direction}
     >
-      <DemoteFailedProvider demote={key !== "signupPending"} />
+      <DemoteFailedProvider demote={key !== "signupPending" && key !== "chatgptLink"} />
       <section
         className="w-full max-w-[340px]"
         data-auth-error={key}
@@ -65,11 +68,7 @@ export default async function AuthErrorPage({
           {authErrorTitle(messages, key)}
         </h1>
         <p className="mt-1.5 mb-6 text-sm leading-6 text-muted">
-          {key === "emailUnverified"
-            ? messages.emailUnverifiedBody
-            : key === "signupPending"
-              ? messages.signupPendingBody
-              : messages.genericBody}
+          {authErrorBody(messages, key)}
         </p>
         <Link
           className="flex h-[38px] w-full cursor-pointer items-center justify-center border border-foreground bg-foreground px-3 text-sm font-medium text-background transition-opacity hover:opacity-85 active:opacity-75 focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
@@ -85,6 +84,8 @@ export default async function AuthErrorPage({
 /** Maps an external query token onto the closed set of product-owned states. */
 function authErrorMessageKey(code: string | null): AuthErrorMessageKey {
   if (code === "signup-pending") return "signupPending";
+  if (code === "chatgpt-link") return "chatgptLink";
+  if (code === "chatgpt-email-unverified") return "chatgptEmailUnverified";
   return code === "email-conflict" || code === "email-unverified"
     ? "emailUnverified"
     : "generic";
@@ -110,9 +111,29 @@ function authErrorTitle(
   messages: AuthErrorMessages,
   key: AuthErrorMessageKey,
 ): string {
+  if (key === "chatgptLink") return messages.chatgptLinkTitle;
   return key === "emailUnverified" || key === "signupPending"
     ? messages.emailUnverifiedTitle
     : messages.genericTitle;
+}
+
+/** The body for each product-owned state. */
+function authErrorBody(
+  messages: AuthErrorMessages,
+  key: AuthErrorMessageKey,
+): string {
+  switch (key) {
+    case "emailUnverified":
+      return messages.emailUnverifiedBody;
+    case "signupPending":
+      return messages.signupPendingBody;
+    case "chatgptLink":
+      return messages.chatgptLinkBody;
+    case "chatgptEmailUnverified":
+      return messages.chatgptEmailUnverifiedBody;
+    default:
+      return messages.genericBody;
+  }
 }
 
 /** Reads the first query value when Next represents a repeated parameter. */

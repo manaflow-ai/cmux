@@ -185,6 +185,38 @@ public nonisolated enum HomeEngineStrings {
                                   table: "Home", bundle: .module), reason)
         }
     }
+    /// The settings card's Primary Chief checkbox: texts to the cmux line go to this Chief.
+    static var primaryRow: String { String(localized: "home.engine.primary", defaultValue: "Primary Chief", table: "Home", bundle: .module) }
+    static var primaryNote: String {
+        String(localized: "home.engine.primaryNote", defaultValue: "Your texts to the cmux number go to your primary Chief.", table: "Home", bundle: .module)
+    }
+    /// `home.setPrimaryChief` named no Chief of the account.
+    public static var primaryUnknown: String {
+        String(localized: "home.engine.primaryUnknown", defaultValue: "No Chief on your account has that name or id.", table: "Home", bundle: .module)
+    }
+    /// Why a Chief could not be made primary (``HomeChiefRenameFailure``).
+    public static func primaryFailed(_ failure: HomeChiefRenameFailure) -> String {
+        switch failure {
+        case .signedOut:
+            String(localized: "home.engine.primarySignedOut", defaultValue: "Sign in to cmux to choose your primary Chief.", table: "Home", bundle: .module)
+        case .notFound: primaryUnknown
+        default:
+            String(localized: "home.engine.primaryRefused", defaultValue: "This Chief couldn’t be made primary. Try again.", table: "Home", bundle: .module)
+        }
+    }
+    /// Move and Scale's title: the editor a chosen or dropped Chief picture opens in.
+    static var cropTitle: String {
+        String(localized: "home.engine.cropTitle", defaultValue: "Move and Scale", table: "Home", bundle: .module)
+    }
+    static var cropHint: String {
+        String(localized: "home.engine.cropHint", defaultValue: "Drag to move the picture. Scroll or pinch to zoom.", table: "Home", bundle: .module)
+    }
+    static var cropZoom: String {
+        String(localized: "home.engine.cropZoom", defaultValue: "Zoom", table: "Home", bundle: .module)
+    }
+    static var cropSave: String {
+        String(localized: "home.engine.cropSave", defaultValue: "Save", table: "Home", bundle: .module)
+    }
     static var pictureUnreadable: String {
         String(localized: "home.engine.pictureUnreadable", defaultValue: "That picture could not be used. Choose a PNG, JPEG, HEIC, WebP, or a GIF up to 1 MB.",
                table: "Home", bundle: .module)

@@ -37,12 +37,21 @@ impl Network {
     }
 
     fn json(&self, request: reqwest::blocking::RequestBuilder) -> Result<Value> {
+        self.json_refusing(request, |_| "server.pair.api_refused")
+    }
+
+    /// [`Self::json`], naming each 4xx refusal (the begin route's invite answers).
+    fn json_refusing(
+        &self,
+        request: reqwest::blocking::RequestBuilder,
+        refusal: impl Fn(reqwest::StatusCode) -> &'static str,
+    ) -> Result<Value> {
         let response = request
             .send()
             .map_err(|error| if error.is_connect() { unsent() } else { unavailable() })?;
         if !response.status().is_success() {
             return Err(if response.status().is_client_error() {
-                Error::rejected("server.pair.api_refused")
+                Error::rejected(refusal(response.status()))
             } else if response.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE {
                 // The begin route's 503 means no free code: nothing was issued.
                 unsent()
@@ -75,6 +84,14 @@ fn invalid() -> Error {
 }
 
 impl super::Transport for Network {
+    fn machine_join(
+        &self,
+        join: &cmux_server_core::pairing::enrollment::MachineJoin,
+        api: &str,
+        name: &str,
+    ) -> Value {
+        super::machine_join::redeem(join, api, name)
+    }
     fn backend_post(
         &self,
         api: &str,
@@ -123,7 +140,11 @@ impl super::Transport for Network {
     }
 
     fn begin(&self, api: &str, body: &Value) -> Result<Value> {
-        self.json(self.http.post(format!("{api}/v1/pair/begin")).json(body))
+        let request = self.http.post(format!("{api}/v1/pair/begin")).json(body);
+        if body.get("invite").is_none() {
+            return self.json(request);
+        }
+        self.json_refusing(request, invite_refusal)
     }
 
     fn wait(&self, api: &str, begun: &Begun) -> Result<Waited> {
@@ -256,3 +277,13 @@ where
 #[cfg(test)]
 #[path = "network_tests.rs"]
 mod tests;
+
+/// The begin route's answers to an invite: 404 unknown or expired, 409 used
+/// or voided; any other 4xx stays the generic refusal.
+pub(super) fn invite_refusal(status: reqwest::StatusCode) -> &'static str {
+    match status {
+        reqwest::StatusCode::NOT_FOUND => super::invite::UNKNOWN,
+        reqwest::StatusCode::CONFLICT => super::invite::USED,
+        _ => "server.pair.api_refused",
+    }
+}

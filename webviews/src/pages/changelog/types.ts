@@ -6,6 +6,12 @@ export const ChangelogOps = {
   list: "cmux.changelog.list",
   get: "cmux.changelog.get",
   reel: "cmux.changelog.reel",
+  /** `{ installs }`: whether this app can restart into another listed build (a release build
+      that follows a feed). */
+  installable: "cmux.changelog.installable",
+  /** Restarts into a listed build (`build`): downloaded, its signature checked, kept, swapped. The
+      host takes it only from the person's own click and answers a refusal as an error. */
+  install: "cmux.changelog.install",
 } as const;
 /** Runs a highlight's "Try it" (the host admits only allow-listed actions). */
 export const ACTION_RUN = "cmux.app.action.run";
@@ -30,6 +36,8 @@ export interface HighlightMedia {
   sha256?: string;
   kind: string;
   alt: string;
+  /** A before/after pair's side (release-notes.py add_gallery_media); a lone picture has none. */
+  role?: "after" | "before";
 }
 
 export interface Highlight {
@@ -55,6 +63,8 @@ export interface WhatsNewEntry {
   summary: LocalizedText;
   media?: { kind: string; light: string; dark: string; alt: LocalizedText };
   tryIt?: { action?: string; deeplink?: string };
+  /** Optional GitHub pull request URL shown as the shared colored PR chip. */
+  pr?: string;
   docs?: string;
 }
 
@@ -70,6 +80,8 @@ export interface WhatsNewDocument {
 export interface SummaryLine {
   group: string;
   title: string;
+  /** One plain-language sentence extracted from the PR body at release time. */
+  description?: string;
 }
 
 /** One change of a build: its title, author and pull request (the provider fills these from the
@@ -78,6 +90,8 @@ export interface ChangeItem {
   title: string;
   author?: string;
   pr?: number;
+  /** One plain-language sentence extracted from the PR body at release time. */
+  description?: string;
   /** Every file the commit touches is CI or tooling (release-notes.py tooling_only): internal
       whatever its subject says. Absent in notes published before the flag. */
   internal?: boolean;
@@ -87,6 +101,8 @@ export interface ReleaseNotes {
   build: string;
   shortVersion: string;
   date: string;
+  /** The commit the build was cut from; older notes lack it. */
+  head?: string;
   highlights: Highlight[];
   changes: string[];
   items?: ChangeItem[];
@@ -100,10 +116,23 @@ export interface ReelResult {
   url: string | null;
 }
 
-/** The page design (Debug Settings `whatsNew.design`, route `design=`): the Ledger is the default
-    (u5099, design/changelog-variations-gallery #01). */
-export type ChangelogDesign = "ledger" | "journal" | "rail" | "digest";
+/** The page design (Debug Settings `whatsNew.design`, route `design=`): the What's New sheet is the
+    default (2026-10-31, msg 19251, cmux-shots/whatsnew-variations); the Ledger (u5099) before it. */
+export type ChangelogDesign = "sheet" | "ledger" | "journal" | "rail" | "digest";
 /** How the update's news shows its clips (SpanNews.tsx; the route's `news=`, for the gallery): each
     clip beside its words, alternating sides (default); one under another; two-up cards; or the
     lead row the clips replaced. */
 export type NewsLayout = "alternate" | "stack" | "grid" | "lead";
+/** How the What's New sheet sets its rows (SheetPage.tsx; the route's `sheet=`, for the gallery),
+    all across the pane's width (Leo 2026-11-01: "this is way too narrow and not info dense
+    enough"): a row's title and its muted line on one line where they fit (default); the line
+    tight under the title; or two columns of rows on a wide pane. */
+export type SheetLayout = "inline" | "stack" | "grid";
+/** How a sheet row from a public pull request shows it (SheetPage.tsx; the route's `prs=`, for the
+    gallery), quiet either way (Leo 2026-11-07: "this could maybe still be better with linking to
+    prs..."): the title links it and its `#N` shows at the row's end on hover (default); the `#N`
+    always shows, muted; or the whole row is the link, with a hover fill. */
+export type SheetLinks = "hover" | "end" | "row";
+/** How a highlight's before/after pair shows (MediaCompare.tsx; the route's `compare=`, for the
+    gallery): a split the person drags (default), the two side by side, or a Before / After toggle. */
+export type CompareMode = "slider" | "side" | "toggle";

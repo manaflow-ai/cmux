@@ -5,12 +5,12 @@ import CmuxNextDesign
 import CmuxNextOnboarding
 import CmuxNextSettings
 
-/// `debug.onboarding` (DEBUG builds): drives the tool window (Import from
-/// Browser, Computer Use setup) through its model, the same methods its
+/// `debug.onboarding` (DEBUG builds): drives the tool window (Agents, Import
+/// from Browser, Computer Use setup) through its model, the same methods its
 /// controls call, so an agent can use it without synthetic input. Returns
 /// the state after the action.
 ///
-/// `action`: `open` (`step`: importData, computerUse), `state`, `next`,
+/// `action`: `open` (`step`: agents, importData, computerUse), `state`, `next`,
 /// `skip`, `close`, `skip_all`, `detect`, `toggle_profile` (`id`),
 /// `toggle_kind` (`kind`), `import`, `cancel_import`, `toggle_consent`
 /// (`id`), `skip_passwords`, `consent_back`, `import_from_files` (Import
@@ -18,7 +18,8 @@ import CmuxNextSettings
 /// accessibility or screenRecording), `allow_next` (Return in the Computer
 /// Use window), `dismiss_helper`, `restart`, `grant` (`pane`, `on`; the mock
 /// computer use source only), `mock` (`off`, `failed`, `mismatch`: the mock
-/// source's other states; none of them resets it to no grants).
+/// source's other states; none of them resets it to no grants), `sign_in`
+/// (`id`: an agent's Sign In).
 @MainActor
 enum DebugOnboarding {
     static func run(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
@@ -55,6 +56,7 @@ enum DebugOnboarding {
         case "cancel_access": model.importer.cancelAccess()
         case "allow": if let pane = params["pane"]?.stringValue.flatMap(ComputerUsePermissionPane.init(rawValue:)) { model.computerUse.allow(pane) }
         case "allow_next": model.computerUse.allowNext()
+        case "sign_in": if let id = params["id"]?.stringValue { model.agents.signIn(id) }
         case "dismiss_helper": model.computerUse.dismissHelper()
         case "restart": model.computerUse.restart()
         case "mock":
@@ -111,6 +113,8 @@ enum DebugOnboarding {
             result["targets"] = .object(Dictionary(uniqueKeysWithValues: summary.batches.map { ($0.source.sourceKey, JSONValue.string($0.source.targetProfileID)) }))
             result["failures"] = .object(summary.failures.mapValues(JSONValue.string))
         }
+        // Ids and sign-in states only, never an account.
+        result["agents"] = .object(Dictionary(uniqueKeysWithValues: model.agents.agents.map { ($0.id, JSONValue.string($0.auth.rawValue)) }))
         let computerUse = model.computerUse
         result["computer_use"] = .object(["accessibility": .bool(computerUse.permissions.accessibility),
                                           "screen_recording": .bool(computerUse.permissions.screenRecording),

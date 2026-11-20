@@ -219,3 +219,43 @@ fn workspace_create_with_focus_true_focuses_it() {
         assert_eq!(focused_workspace_id(&mux), new_id);
     }
 }
+
+/// The screen `session.snapshot` reports as focused in the focused workspace.
+fn focused_screen(mux: &Arc<Mux>) -> String {
+    let workspace = focused_workspace_id(mux);
+    let snapshot = public_session_snapshot(mux).unwrap();
+    let focused = snapshot["screens"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|screen| screen["focused"] == true && screen["workspace_id"] == workspace.as_str())
+        .map(|screen| screen["id"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(focused.len(), 1, "exactly one screen is focused: {snapshot}");
+    focused[0].clone()
+}
+
+/// `screen.create` keeps the caller's focus like `pane.split` and
+/// `workspace.create` (bench round 3, T8/T9: the new screen took the
+/// daemon focus, and a reconnected TUI then showed that screen).
+#[test]
+fn w4j_screen_create_keeps_the_callers_focus() {
+    let mux = mux();
+    let home = focused_workspace(&mux, "screen-keep");
+    let screen = focused_screen(&mux);
+    send(&mux, "screen.create", json!({"name":"background"}), Some("screen-keep-create"));
+    let snapshot = public_session_snapshot(&mux).unwrap();
+    assert_eq!(snapshot["screens"].as_array().unwrap().len(), 2, "{snapshot}");
+    assert_eq!(focused_screen(&mux), screen, "screen.create without focus moved the focus");
+    assert_eq!(focused_pane(&mux), home);
+}
+
+#[test]
+fn w4j_screen_create_with_focus_true_focuses_the_new_screen() {
+    let mux = mux();
+    let home = focused_workspace(&mux, "screen-focus");
+    let screen = focused_screen(&mux);
+    send(&mux, "screen.create", json!({"name":"shown","focus":true}), Some("screen-focus-create"));
+    assert_ne!(focused_screen(&mux), screen);
+    assert_ne!(focused_pane(&mux), home);
+}

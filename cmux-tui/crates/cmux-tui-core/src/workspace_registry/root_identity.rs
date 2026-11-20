@@ -64,7 +64,7 @@ pub(super) fn is_cut_machine_id(bytes: &[u8]) -> bool {
 /// absent, so only a writer that skips the lock gets here. The temporary
 /// file is removed on any failure, and a stale one (a killed writer) is
 /// replaced.
-fn write_identity_file(
+pub(super) fn write_identity_file(
     root: &Path,
     path: &Path,
     bytes: &[u8],

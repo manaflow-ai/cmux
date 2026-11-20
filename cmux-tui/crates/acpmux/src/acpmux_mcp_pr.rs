@@ -377,34 +377,6 @@ pub(super) fn pr_state(pr: &Value) -> (String, Value) {
     (lines.join("\n"), structured)
 }
 
-/// The event-driven merge watch's decision for one freshly read PR snapshot. The caller pins
-/// `headSha` when the person arms the watch; a changed head always disarms before any merge call.
-#[derive(Debug, PartialEq, Eq)]
-pub(super) enum MergeWatchDecision {
-    Wait,
-    Merge,
-    DisarmHeadChanged,
-    DisarmNotOpen,
-}
-
-pub(super) fn merge_watch_decision(pr: &Value, pinned_head: &str) -> MergeWatchDecision {
-    let current = text_or_empty(pr, "headRefOid");
-    if current.is_empty() || current != pinned_head {
-        return MergeWatchDecision::DisarmHeadChanged;
-    }
-    if !matches!(text_or_empty(pr, "state").to_ascii_uppercase().as_str(), "OPEN") {
-        return MergeWatchDecision::DisarmNotOpen;
-    }
-    let rollup = field(pr, "statusCheckRollup").as_array().map(Vec::as_slice).unwrap_or_default();
-    let (failing, pending, _) = checks(rollup);
-    let mergeable = text_or_empty(pr, "mergeable").to_ascii_uppercase();
-    if failing.is_empty() && pending == 0 && mergeable == "MERGEABLE" {
-        MergeWatchDecision::Merge
-    } else {
-        MergeWatchDecision::Wait
-    }
-}
-
 #[cfg(test)]
 #[path = "acpmux_mcp_pr_tests.rs"]
 mod tests;

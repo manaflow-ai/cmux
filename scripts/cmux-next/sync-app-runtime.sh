@@ -7,6 +7,8 @@
 #     (only apps with a BUNDLED marker: whole packages, because the App points the
 #     local daemon's app supervisor at this directory as CMUX_APPS_FIRST_PARTY_DIR;
 #     they are installed for everyone and hideable)
+#   samples/apps/<name>/{cmux-app.v2.json,dist/,assets/,catalog/} -> store/<name>/ (apps with a STORE
+#     marker: the App Store examples, handed to the daemon as CMUX_APPS_DIRS)
 #   samples/apps/<name>/{cmux-app.json,assets/}              -> samples/<name>/ (demo transport and
 #     store icons; a sample with a NOT_BUNDLED file stays out)
 # The app supervisor in the daemon runs apps and validates manifests (step 3),
@@ -44,6 +46,19 @@ if [[ -d "$samples" ]]; then
     [[ -f "$app/NOT_BUNDLED" ]] && continue
     copy "$app/cmux-app.json" "samples/$name/cmux-app.json"
     [[ -d "$app/assets" ]] && copy "$app/assets" "samples/$name/assets"
+  done
+fi
+# App Store examples (samples/apps/<name> with a STORE marker): whole packages, because the App
+# hands this folder to its daemon as CMUX_APPS_DIRS; they list as third-party apps the user installs.
+mkdir -p "$stage/store"
+if [[ -d "$samples" ]]; then
+  for app in "$samples"/*/; do
+    name="$(basename "$app")"
+    [[ -f "$app/STORE" && -f "$app/cmux-app.v2.json" ]] || continue
+    copy "$app/cmux-app.v2.json" "store/$name/cmux-app.v2.json"
+    for part in dist assets catalog; do
+      [[ -d "$app/$part" ]] && copy "$app/$part" "store/$name/$part"
+    done
   done
 fi
 mkdir -p "$stage/first-party"

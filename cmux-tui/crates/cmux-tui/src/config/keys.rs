@@ -100,6 +100,8 @@ pub struct Keys {
     action_by_chord: HashMap<Chord, Action>,
     modeless_action_by_chord: HashMap<Chord, Action>,
     pub(crate) provider_menu_overridden: bool,
+    /// Keys of keyboard copy mode, configured under `keys.copy_mode`.
+    pub copy_mode: CopyModeKeys,
 }
 
 impl Default for Keys {
@@ -179,20 +181,24 @@ impl Default for Keys {
                 bind(KeyCode::Char('z'), Action::ZoomPane),
                 bind(KeyCode::Char('{'), Action::SwapPanePrev),
                 bind(KeyCode::Char('}'), Action::SwapPaneNext),
-                bind(KeyCode::Char('['), Action::ScrollUp),
-                bind(KeyCode::PageUp, Action::ScrollUp),
-                bind(KeyCode::PageDown, Action::ScrollDown),
+                bind(KeyCode::Char('['), Action::CopyMode),
+                bind(KeyCode::Char('/'), Action::SearchScrollback),
+                bind(KeyCode::PageUp, Action::ScrollPageUp),
+                bind(KeyCode::PageDown, Action::ScrollPageDown),
                 command(KeyCode::Char('k'), Action::ClearHistory),
                 bind(KeyCode::Char('<'), Action::BrowserBack),
                 bind(KeyCode::Char('>'), Action::BrowserForward),
                 bind(KeyCode::Char('r'), Action::BrowserReload),
                 bind(KeyCode::Char('u'), Action::BrowserEditUrl),
                 bind(KeyCode::Char('?'), Action::ShowShortcuts),
+                bind(KeyCode::Char('a'), Action::NextAttention),
+                bind(KeyCode::Char('A'), Action::AttentionList),
                 bind(KeyCode::Char('d'), Action::Detach),
             ],
             action_by_chord: HashMap::new(),
             modeless_action_by_chord: HashMap::new(),
             provider_menu_overridden: false,
+            copy_mode: CopyModeKeys::default(),
         };
         keys.rebuild_dispatch_maps();
         keys
@@ -366,6 +372,7 @@ impl Keys {
                 || name == "alt_shortcuts"
                 || name == "super_shortcuts"
                 || name == "prefix"
+                || name == "copy_mode"
             {
                 continue;
             }
@@ -425,6 +432,9 @@ impl Keys {
             }
         }
         let prefix = self.prefix;
+        if let Some(value) = raw.get("copy_mode") {
+            self.copy_mode.apply(value, prefix);
+        }
         self.bindings.retain(|(chord, action)| *action == Action::SendPrefix || *chord != prefix);
         self.rebuild_dispatch_maps();
     }

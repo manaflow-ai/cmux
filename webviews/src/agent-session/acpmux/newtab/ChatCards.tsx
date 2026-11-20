@@ -6,19 +6,24 @@ import { AgentMark } from "../NewTabPage";
 import { useListMotion } from "./listMotion";
 import type { ChatCard } from "./screenModel";
 import { useNt } from "./strings";
+import "./chatCardsLoading.css";
 
 /// "Chats" with "All Chats >" and the recent chats as cards: age, title and the last reply, or
 /// the state when the chat needs the user or dropped. Routines join as a second tab once the
 /// automations ops exist (hidden until then, plans/cmux-next/new-tab.md section 4).
 export function ChatCards({
   cards,
+  pending = false,
   variant = "cards",
   title,
   onOpen,
   onOpenInTerminal,
   onShowAll,
+  onColdArchive,
 }: {
   cards: ChatCard[];
+  /** The first session-list read has not settled; populated cards stay visible. */
+  pending?: boolean;
   /// Cards in a grid, or one line per chat (the Threads and Console templates).
   variant?: "cards" | "list";
   /// The section's name; "Chats" when unset.
@@ -28,6 +33,9 @@ export function ChatCards({
   onOpenInTerminal?(sessionId: string): void;
   /// "All Chats >"; omitted when the page shows All chats itself.
   onShowAll?(): void;
+  /// The card menu's Compress Chat and Decompress Chat (acpmux `_acpmux/cold_archive`): an acpmux chat's
+  /// log goes into its cold archive, or comes back. Omitted where the page cannot ask acpmux.
+  onColdArchive?(sessionId: string, archived: boolean): void;
 }) {
   const nt = useNt();
   const t = useT();
@@ -47,12 +55,14 @@ export function ChatCards({
       className="nt-card"
       data-state={card.state}
       data-child={child ? "" : undefined}
+      data-archived={card.archived ? "" : undefined}
       aria-label={nt("card.open", { title: card.title })}
       {...pressToOpen(() => onOpen(card.sessionId))}
     >
       <span className="nt-card-meta">
         <AgentMark harness={card.harness} />
         <span className="nt-card-age">{card.age}</span>
+        {card.archived && <span className="nt-card-badge">{nt("card.compressed")}</span>}
       </span>
       <span className="nt-card-title">{card.title}</span>
       {(card.state !== "idle" || card.message) && (
@@ -91,12 +101,28 @@ export function ChatCards({
           </button>
         )}
       </header>
-      {cards.length === 0 ? (
+      {cards.length === 0 && pending ? (
+        <div className="nt-cards nt-cards-loading" data-variant={variant} aria-busy="true" aria-label={nt("chats")}>
+          {Array.from({ length: 3 }, (_, index) => (
+            <div key={index} className="nt-card" aria-hidden="true">
+              <span className="nt-card-meta">
+                <svg className="nt-card-placeholder nt-card-placeholder-icon" width="16" height="16" />
+                <span className="nt-card-age nt-card-placeholder">&nbsp;</span>
+              </span>
+              <span className="nt-card-title nt-card-placeholder">&nbsp;</span>
+              <span className="nt-card-message">
+                <span className="nt-card-placeholder">&nbsp;</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : cards.length === 0 ? (
         <p className="nt-chats-empty">{nt("noChats")}</p>
       ) : (
         <div ref={list} className="nt-cards" data-variant={variant}>
           {cards.map((card) => (
-            // Its right-click menu: Open, and Open in Terminal (cx-2lm4).
+            // Its right-click menu: Open, Open in Terminal (cx-2lm4), and an acpmux chat's Compress
+            // Chat or Decompress Chat.
             <ContextMenu
               key={card.sessionId}
               className="nt-card-host"
@@ -108,6 +134,15 @@ export function ChatCards({
                         id: "terminal",
                         label: t("shell.openInTerminal"),
                         onSelect: () => onOpenInTerminal(card.sessionId),
+                      },
+                    ]
+                  : []),
+                ...(onColdArchive && !card.chatKey
+                  ? [
+                      {
+                        id: "cold-archive",
+                        label: nt(card.archived ? "card.decompressChat" : "card.compressChat"),
+                        onSelect: () => onColdArchive(card.sessionId, !card.archived),
                       },
                     ]
                   : []),

@@ -14,7 +14,11 @@
  *    terminal, and an MCP client lists its tools and calls them: the browser host takes a
  *    screenshot of a loopback page (the daemon socket-activates the host), and cmux-cua takes a
  *    screenshot of the Xvfb display (the wrapper starts it) with a Chrome window on it.
- * 3. The agent step (a Claude Code session that lists the tools and takes both screenshots
+ * 3. Desktop (role desktop): the cmux-rd host's user, run dir and socket; another user cannot
+ *    connect (EACCES); a connection as the work user (the link receiver's uid) starts the host,
+ *    which runs as its own user with Unix sockets only and no TCP or UDP socket; the work user
+ *    cannot read the host's cookie copy.
+ * 4. The agent step (a Claude Code session that lists the tools and takes both screenshots
  *    itself) runs only with `--model-route edge` on a machine the backend created (`--vm`),
  *    whose agents reach the model through the coderouter edge. Otherwise it is UNVERIFIED.
  *
@@ -26,12 +30,13 @@
  * (also on failure), and a lookup by that id must then answer not found. With --vm the probe
  * neither creates nor deletes the machine; its owner (the backend) does.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
-import { A11Y_TEMPLATE_UNIT, AGENT_DISPLAY, AGENT_TOOLS_BIN, AGENT_XAUTHORITY, CUA_UNIT, DISPLAY_TEMPLATE_UNIT, DISPLAY_UNIT, WORK_USER_CMUX_JSON } from "./agent-tools";
+import { A11Y_TEMPLATE_UNIT, AGENT_DISPLAY, AGENT_DISPLAY_SIZE, AGENT_TOOLS_BIN, DESKTOP_CHECK_SCRIPT, DESKTOP_CHECK_SECONDS, DESKTOP_SESSION_UNIT, AGENT_XAUTHORITY, CUA_UNIT, DISPLAY_TEMPLATE_UNIT, DISPLAY_UNIT, RD_HOST_DIR, RD_PEER_UID, RD_RUN_DIR, RD_SOCKET, RD_SOCKET_UNIT, RD_START_SCRIPT, RD_UNIT, RD_USER, RD_XAUTHORITY, WORK_USER_CMUX_JSON } from "./agent-tools";
 import { createVm, deleteVm, firstExec, freestyleClient, Ledger, run, type Vm } from "./guest";
+import { BROWSER_CHECKS, checkRegressionGate, ensureOutputFile, harnessEnsureScript, LIVE_FAILING_FILE, liveBootImage, liveFailingLines, pickerHarnesses, regressionGate } from "./harness-gate";
 import { CURRENT_BIN, sq } from "./lock";
 
 const PROBE_DIR = "/tmp/cmux-agent-tools-probe";
@@ -46,12 +51,25 @@ const RECORDER_DIR = `${PROBE_DIR}/recorder`;
 const LAUNCHES = `${PROBE_DIR}/claude-launches.txt`;
 /** Ends one recorded launch (ASCII record separator on its own line). */
 const RECORD_END = "\x1e";
+/** Prefixes the recorded contents of the launch's --mcp-config file (the recorder's last line before RECORD_END). */
+const MCP_CONFIG_LINE = "MCP_CONFIG_FILE ";
+/** acpmux folds every other server into the cmux server's env under this name (acpmux agent_tools.rs UPSTREAMS_ENV). */
+const UPSTREAMS_ENV = "CMUX_MCP_UPSTREAMS";
 
 /** Tools and skills the agent must name (Claude Code prefixes MCP tools with mcp__<server>__). */
 export const REQUIRED_TOOLS = ["mcp__cmux-cua__get_desktop_state", "mcp__cmux-cua__click", "mcp__cmux__browser_repl_eval", "mcp__cmux__browser_repl_open"] as const;
 export const REQUIRED_SKILLS = ["cmux:cmux-browser"] as const;
 /** The same tools by server, as an MCP client lists them. */
 const REQUIRED_BY_SERVER: Record<string, string[]> = { "cmux-cua": ["get_desktop_state", "click"], cmux: ["browser_repl_eval", "browser_repl_open"] };
+/**
+ * The tools server NAME must list, as acpmux launched it (`args`). In code mode (no `--all-tools`, acpmux
+ * agent_tools.rs `listing`) the cmux server lists only cmux_exec and cmux_workflow; its tools still answer a
+ * direct call, which mcp-cmux-calls checks.
+ */
+export function requiredTools(name: string, args: readonly string[]): string[] {
+  if (name === "cmux" && !args.includes("--all-tools")) return ["cmux_exec"];
+  return REQUIRED_BY_SERVER[name] ?? [];
+}
 
 /** Problems in the agent's tool list reply. */
 export function toolListProblems(reply: string): string[] {
@@ -59,9 +77,11 @@ export function toolListProblems(reply: string): string[] {
 }
 
 export type ModelRoute = "none" | "edge";
-export type ProbeOptions = { snapshotId?: string; tag: string; vmId?: string; modelRoute: ModelRoute; outDir: string };
+/** The harness gate's baseline: `live` also runs the ensure on a clone of production's boot image (harness-gate.ts regressionGate). */
+export type Baseline = "none" | "live";
+export type ProbeOptions = { snapshotId?: string; tag: string; vmId?: string; modelRoute: ModelRoute; outDir: string; baseline: Baseline };
 
-const VALUE_FLAGS = ["--snapshot", "--tag", "--vm", "--model-route", "--out-dir"] as const;
+const VALUE_FLAGS = ["--snapshot", "--tag", "--vm", "--model-route", "--out-dir", "--baseline"] as const;
 
 /** Parses the probe's flags; any other flag (a token file, credentials) is refused. */
 export function probeOptionsFromArgv(argv: string[]): ProbeOptions {
@@ -80,7 +100,9 @@ export function probeOptionsFromArgv(argv: string[]): ProbeOptions {
   const vmId = values["--vm"];
   if (!tag || (!snapshotId?.startsWith("sh-") && !vmId) || (snapshotId && vmId)) throw new Error("usage: agent-tools-probe.ts (--snapshot <sh-id> | --vm <provider vm id>) --tag <tag> [--model-route none|edge] [--out-dir <dir>]");
   if (route === "edge" && !vmId) throw new Error("agent-tools-probe: --model-route edge needs --vm (a machine the backend created has the coderouter edge; a raw clone does not)");
-  return { snapshotId, tag, vmId, modelRoute: route, outDir: path.resolve(values["--out-dir"] ?? `cmux-vm-image-out/${tag}-agenttools`) };
+  const baseline = values["--baseline"] ?? "none";
+  if (baseline !== "none" && baseline !== "live") throw new Error("agent-tools-probe: --baseline is none or live");
+  return { snapshotId, tag, vmId, modelRoute: route, outDir: path.resolve(values["--out-dir"] ?? `cmux-vm-image-out/${tag}-agenttools`), baseline };
 }
 
 /** Whether the agent step runs: only through the machine's own coderouter edge. */
@@ -94,7 +116,8 @@ export function recorderScript(out: string): string {
   return [
     "#!/bin/sh",
     "# cmux agent tools probe: records the launch acpmux makes; calls no model.",
-    `{ for a in "$@"; do printf '%s\\n' "$a"; done; printf '\\036\\n'; } >> ${sq(out)}`,
+    // acpmux passes --mcp-config as a 0600 file it deletes when the session ends: keep its JSON (one line) too.
+    `{ cfg=; prev=; for a in "$@"; do printf '%s\\n' "$a"; [ "$prev" = --mcp-config ] && cfg="$a"; prev="$a"; done; if [ -n "$cfg" ] && [ -f "$cfg" ]; then printf '${MCP_CONFIG_LINE}%s\\n' "$(tr -d '\\n' < "$cfg")"; fi; printf '\\036\\n'; } >> ${sq(out)}`,
     `if [ "\${1:-}" = --version ]; then echo "2.1.267 (Claude Code)"; exit 0; fi`,
     `echo "cmux agent tools probe: recorder, no model" >&2`,
     "exit 3",
@@ -109,8 +132,19 @@ export function parseRecordedLaunch(text: string): { servers: RecordedServer[]; 
   const launches = text.split(`${RECORD_END}\n`).map((block) => block.split("\n").filter((line, i, all) => i < all.length - 1 || line !== ""));
   const launch = launches.reverse().find((args) => args.includes("--mcp-config"));
   if (!launch) return { servers: [] };
-  const config = JSON.parse(launch[launch.indexOf("--mcp-config") + 1] ?? "{}") as { mcpServers?: Record<string, { command: string; args?: string[]; env?: Record<string, string> }> };
-  const servers = Object.entries(config.mcpServers ?? {}).map(([name, s]) => ({ name, command: s.command, args: s.args ?? [], env: s.env ?? {} }));
+  // The value is a file path (acpmux writes the config to a 0600 file); an inline JSON value is read as it is.
+  const value = launch[launch.indexOf("--mcp-config") + 1] ?? "";
+  const fileLine = launch.find((line) => line.startsWith(MCP_CONFIG_LINE));
+  const json = value.trimStart().startsWith("{") ? value : (fileLine?.slice(MCP_CONFIG_LINE.length) ?? "{}");
+  const config = JSON.parse(json) as { mcpServers?: Record<string, { command: string; args?: string[]; env?: Record<string, string> }> };
+  const servers: RecordedServer[] = [];
+  for (const [name, s] of Object.entries(config.mcpServers ?? {})) {
+    const env = { ...(s.env ?? {}) };
+    // Code mode: the other servers ride in the cmux server's upstreams; each is started as its own server here.
+    const upstreams = env[UPSTREAMS_ENV] ? (JSON.parse(env[UPSTREAMS_ENV]) as Array<{ name: string; command: string; args?: string[]; env?: Record<string, string> }>) : [];
+    servers.push({ name, command: s.command, args: s.args ?? [], env });
+    for (const u of upstreams) servers.push({ name: u.name, command: u.command, args: u.args ?? [], env: u.env ?? {} });
+  }
   const plugin = launch.indexOf("--plugin-dir");
   return { servers, pluginDir: plugin >= 0 ? launch[plugin + 1] : undefined };
 }
@@ -266,7 +300,11 @@ async function prepare(vm: Vm, check: Checker, result: ProbeResult): Promise<boo
 /** The launch acpmux builds for a Claude Code session, captured by the recorder (no model). */
 async function recordLaunch(vm: Vm, check: Checker, result: ProbeResult, outDir: string): Promise<RecordedServer[]> {
   const body = [
-    `export ACPMUX_HOME=${PROBE_DIR}/acpmux-recorder PATH=${RECORDER_DIR}:$PATH`,
+    // acpmux never creates a missing ACPMUX_HOME (it refuses to start a daemon there): make it first.
+    `install -d -m 0700 ${PROBE_DIR}/acpmux-recorder`,
+    // The daemon puts the login shell's PATH first (acpmux login_env.rs), where the image's real claude is;
+    // ACPMUX_LOGIN_ENV=0 keeps this PATH, so the recorder is the claude it launches.
+    `export ACPMUX_HOME=${PROBE_DIR}/acpmux-recorder ACPMUX_LOGIN_ENV=0 PATH=${RECORDER_DIR}:$PATH`,
     `{ ${CURRENT_BIN}/cmux-tui acp new -d -m claude -n recorder --cwd ${WORK_DIR}; echo "exit $?"; } > ${PROBE_DIR}/recorder-new.txt 2>&1`,
     `{ timeout 60 ${CURRENT_BIN}/cmux-tui acp send recorder hello; echo "exit $?"; } > ${PROBE_DIR}/recorder-send.txt 2>&1`,
     `{ timeout 60 ${CURRENT_BIN}/cmux-tui acp daemon shutdown --end-agents; echo "exit $?"; } > ${PROBE_DIR}/recorder-shutdown.txt 2>&1`,
@@ -279,9 +317,16 @@ async function recordLaunch(vm: Vm, check: Checker, result: ProbeResult, outDir:
     text = "";
   }
   writeFileSync(path.join(outDir, "claude-launches.txt"), text);
+  // What acpmux said: without a recorded launch these are the only evidence of why.
+  const said: string[] = [];
+  for (const name of ["recorder-new", "recorder-send", "recorder-shutdown"]) {
+    const out = await readGuest(vm, `${PROBE_DIR}/${name}.txt`).catch((error) => `unreadable: ${String(error).slice(0, 120)}`);
+    writeFileSync(path.join(outDir, `${name}.txt`), out);
+    said.push(`${name}: ${out.trim().replace(/\s+/g, " ").slice(-240)}`);
+  }
   const launch = parseRecordedLaunch(text);
   const names = launch.servers.map((s) => `${s.name}=${s.command} ${s.args.join(" ")}`);
-  check("acpmux-attaches-servers", ["cmux-cua", "cmux"].every((n) => launch.servers.some((s) => s.name === n && s.command.startsWith(`${AGENT_TOOLS_BIN}/`))), names.join("; ") || "no launch with --mcp-config was recorded");
+  check("acpmux-attaches-servers", ["cmux-cua", "cmux"].every((n) => launch.servers.some((s) => s.name === n && s.command.startsWith(`${AGENT_TOOLS_BIN}/`))), names.join("; ") || `no launch with --mcp-config was recorded (${text ? "launches without it" : "no launch at all"}); ${said.join(" | ")}`);
   const skills = launch.pluginDir ? await run(vm, `ls ${sq(`${launch.pluginDir}/skills`)} && test -s ${sq(`${launch.pluginDir}/skills/cmux-browser/SKILL.md`)} && echo skill-ok`) : { stdout: "", code: 1 };
   check("acpmux-attaches-skills", skills.stdout.includes("skill-ok"), `plugin dir ${launch.pluginDir ?? "absent"}: ${skills.stdout.trim().replace(/\n/g, " ")}`);
   return launch.servers;
@@ -320,6 +365,8 @@ async function callServers(vm: Vm, check: Checker, result: ProbeResult, outDir: 
   result.timings.mcpMs = await inTerminal(vm, "mcp", terminalScript("mcp", lines.join("\n")), 600);
   for (const name of Object.keys(calls)) {
     let report: { tools: string[]; initialize: string; calls: Array<{ name: string; isError: boolean; text: string; expect_error?: boolean }> };
+    const stderr = await readGuest(vm, `${PROBE_DIR}/mcp-${name}.stderr`).catch(() => "");
+    if (stderr) writeFileSync(path.join(outDir, `mcp-${name}.stderr`), stderr);
     try {
       report = JSON.parse(await readGuest(vm, `${PROBE_DIR}/mcp-${name}.json`));
     } catch (error) {
@@ -327,8 +374,9 @@ async function callServers(vm: Vm, check: Checker, result: ProbeResult, outDir: 
       continue;
     }
     writeFileSync(path.join(outDir, `mcp-${name}.json`), JSON.stringify(report, null, 2));
-    const missing = REQUIRED_BY_SERVER[name].filter((t) => !report.tools.includes(t));
-    check(`mcp-${name}-tools`, report.initialize === "ok" && missing.length === 0, missing.length ? `missing ${missing.join(", ")}` : `${report.tools.length} tools, including ${REQUIRED_BY_SERVER[name].join(", ")}`);
+    const required = requiredTools(name, servers.find((s) => s.name === name)?.args ?? []);
+    const missing = required.filter((t) => !report.tools.includes(t));
+    check(`mcp-${name}-tools`, report.initialize === "ok" && missing.length === 0, missing.length ? `missing ${missing.join(", ")} (listed: ${report.tools.slice(0, 12).join(", ")})` : `${report.tools.length} tools, including ${required.join(", ")}`);
     const failed = report.calls.filter((c) => c.isError !== (c.expect_error === true));
     check(`mcp-${name}-calls`, report.calls.length > 0 && failed.length === 0, report.calls.map((c) => `${c.name}: ${c.isError ? "error " : ""}${c.text.slice(0, 160)}`).join(" | "));
   }
@@ -344,6 +392,112 @@ async function callServers(vm: Vm, check: Checker, result: ProbeResult, outDir: 
   const host = await run(vm, `pgrep -u ${DEVBOX_WORK_USER} -f '[c]mux-browser-host serve' | wc -l; tr '\\0' ' ' < /proc/$(pgrep -u ${DEVBOX_WORK_USER} -f '[c]hrome-linux64/chrome' | head -1)/cmdline 2>/dev/null | grep -cE -- '--no-sandbox|--disable-setuid-sandbox' || true`);
   const [hosts, sandboxOff] = host.stdout.trim().split("\n");
   check("browser-host-socket-activated-sandbox-on", Number(hosts) >= 1 && sandboxOff === "0", `hosts=${hosts} sandbox-off-switches=${sandboxOff}`);
+}
+
+/** Connects RD_SOCKET and prints `connected` or the errno name; with `holdSeconds`, keeps the connection open that long. */
+export function rdConnectCommand(holdSeconds = 0): string {
+  const py = `import errno, socket, sys, time
+s = socket.socket(socket.AF_UNIX)
+try:
+    s.connect(sys.argv[1])
+except OSError as e:
+    print("connect=" + errno.errorcode.get(e.errno, str(e.errno))); sys.exit(0)
+print("connect=connected"); sys.stdout.flush(); time.sleep(float(sys.argv[2]))`;
+  return `python3 -I -c ${sq(py)} ${RD_SOCKET} ${holdSeconds}`;
+}
+
+/** The desktop host's user, run dir, socket and units before any connection (as root). */
+export function rdStaticCheckCommand(): string {
+  return [
+    `echo "rd-user=$(getent passwd ${RD_USER} | cut -d: -f7)"`,
+    `echo "rd-groups=$(id -nG ${RD_USER} | tr ' ' ',')"`,
+    `echo "rd-run-dir=$(stat -c '%a:%U:%G' ${RD_RUN_DIR})"`,
+    `echo "rd-socket=$(stat -c '%F:%a:%U:%G' ${RD_SOCKET})"`,
+    `echo "rd-socket-unit=$(systemctl is-active ${RD_SOCKET_UNIT})"`,
+    `echo "rd-socket-enabled=$(systemctl is-enabled ${RD_SOCKET_UNIT})"`,
+    `echo "rd-unit=$(systemctl is-active ${RD_UNIT})"`,
+    `echo "rd-peer-uid=$(grep -o -- '--peer-uid [0-9]*' ${RD_START_SCRIPT} | cut -d' ' -f2)"`,
+    `echo "rd-exec-start=$(systemctl show -p ExecStart --value ${RD_UNIT} | grep -o 'path=[^ ;]*' | head -1)"`,
+    `echo "rd-work-uid=$(id -u ${DEVBOX_WORK_USER})"`,
+    `echo "rd-families=$(systemctl show -p RestrictAddressFamilies --value ${RD_UNIT})"`,
+  ].join("; ");
+}
+
+/** As root: a user that is neither root nor the work user (nobody) is refused by the socket's mode. */
+export function rdOtherUserCommand(): string {
+  return `setpriv --reuid=nobody --regid=nogroup --clear-groups ${rdConnectCommand(0)} | sed 's/^/other-/'`;
+}
+
+/**
+ * As root: a connection made as the work user (the link receiver's uid) and held open starts the
+ * host (bounded: the first start downloads OpenH264); then who runs it and what sockets it has.
+ */
+export function rdActivateCommand(waitSeconds = 90): string {
+  return [
+    `{ setpriv --reuid=${DEVBOX_WORK_USER} --regid=${DEVBOX_WORK_USER} --init-groups ${rdConnectCommand(waitSeconds + 10)} > /tmp/cmux-rd-probe-connect.txt 2>&1 & held=$!; }`,
+    `for i in $(seq 1 ${waitSeconds * 5}); do pid=$(systemctl show -p MainPID --value ${RD_UNIT}); [ "\${pid:-0}" != 0 ] && break; sleep 0.2; done`,
+    "sleep 1",
+    `pid=$(systemctl show -p MainPID --value ${RD_UNIT})`,
+    `echo "rd-unit-active=$(systemctl is-active ${RD_UNIT})"`,
+    `echo "rd-host-user=$(ps -o user= -p "\${pid:-0}" 2>/dev/null | tr -d ' ')"`,
+    `echo "rd-host-cmd=$(tr '\\0' ' ' < /proc/\${pid:-0}/cmdline 2>/dev/null | sed 's/^[^ ]*cmux-rd /cmux-rd /')"`,
+    `echo "rd-host-tcp=$(ss -Htanp 2>/dev/null | grep -c "pid=\${pid:-0}," || true)"`,
+    `echo "rd-host-udp=$(ss -Huanp 2>/dev/null | grep -c "pid=\${pid:-0}," || true)"`,
+    `echo "rd-xauth=$(stat -c '%a:%U' ${RD_XAUTHORITY} 2>/dev/null)"`,
+    `echo "rd-host-dir=$(stat -c '%a:%U' ${RD_HOST_DIR} 2>/dev/null)"`,
+    // While the connection is held (the host runs, so its runtime dir and cookie copy exist): the
+    // work user's read of the copy must fail with EACCES, never ENOENT (a gone file proves nothing).
+    `setpriv --reuid=${DEVBOX_WORK_USER} --regid=${DEVBOX_WORK_USER} --init-groups ${rdReadCommand(RD_XAUTHORITY)} | sed 's/^/rd-work-/'`,
+    `sed 's/^/rd-work-/' /tmp/cmux-rd-probe-connect.txt`,
+    // The host's unit wants the desktop session: it must come up (its start ends with the check), and
+    // the display a viewer streams must show a window and lit pixels, never the empty black root.
+    `for i in $(seq 1 ${(DESKTOP_CHECK_SECONDS + 10) * 5}); do st=$(systemctl is-active ${DESKTOP_SESSION_UNIT}); [ "$st" = active ] || [ "$st" = failed ] && break; sleep 0.2; done`,
+    `echo "rd-desktop-session=$(systemctl is-active ${DESKTOP_SESSION_UNIT})"`,
+    `setpriv --reuid=${DEVBOX_WORK_USER} --regid=${DEVBOX_WORK_USER} --init-groups env DISPLAY=${AGENT_DISPLAY} XAUTHORITY=${AGENT_XAUTHORITY} ${DESKTOP_CHECK_SCRIPT} 2>/dev/null | tail -1 | tr ' ' '\\n' | sed 's/^/rd-desktop-/'`,
+    'kill "$held" 2>/dev/null; wait "$held" 2>/dev/null; true',
+  ].join("; ");
+}
+
+/** Opens `file` for reading and prints `read=readable` or the errno name (EACCES, ENOENT, ...). */
+export function rdReadCommand(file: string): string {
+  const py = `import errno, sys
+try:
+    open(sys.argv[1], "rb").close()
+except OSError as e:
+    print("read=" + errno.errorcode.get(e.errno, str(e.errno))); sys.exit(0)
+print("read=readable")`;
+  return `python3 -I -c ${sq(py)} ${file}`;
+}
+
+/**
+ * Desktop checks (role desktop). The boundary is the link admission; on the machine the work
+ * user (the link receiver's uid) reaches the socket, others do not, and the host keeps its own files.
+ */
+async function desktopChecks(vm: Vm, check: Checker): Promise<void> {
+  const s = kv((await run(vm, rdStaticCheckCommand())).stdout);
+  check("rd-user", s["rd-user"] === "/usr/sbin/nologin" && s["rd-groups"] === RD_USER, `shell ${s["rd-user"]}, groups ${s["rd-groups"]} (not ${DEVBOX_WORK_USER}, no sudo)`);
+  check("rd-run-dir-and-socket", s["rd-run-dir"] === "711:root:root" && s["rd-socket"] === `socket:660:root:${DEVBOX_WORK_USER}`, `${RD_RUN_DIR} ${s["rd-run-dir"]}, ${RD_SOCKET} ${s["rd-socket"]}`);
+  check("rd-socket-enabled-host-off", s["rd-socket-unit"] === "active" && s["rd-socket-enabled"] === "enabled" && s["rd-unit"] === "inactive", `socket ${s["rd-socket-unit"]}/${s["rd-socket-enabled"]}, host ${s["rd-unit"]}`);
+  check("rd-peer-uid-is-work-user", s["rd-peer-uid"] === String(RD_PEER_UID) && s["rd-work-uid"] === String(RD_PEER_UID) && s["rd-exec-start"] === `path=${RD_START_SCRIPT}`, `--peer-uid ${s["rd-peer-uid"]}, ${DEVBOX_WORK_USER} uid ${s["rd-work-uid"]}, ${s["rd-exec-start"]}`);
+  // Unix sockets, plus IPv4 UDP and netlink for the datagram link (agent-tools.ts rdUnit); never IPv6 or another family.
+  const families = (s["rd-families"] ?? "").split(/\s+/).filter(Boolean).sort().join(" ");
+  check("rd-host-families", families === "AF_INET AF_NETLINK AF_UNIX", `RestrictAddressFamilies=${s["rd-families"]}`);
+  const other = kv((await run(vm, rdOtherUserCommand(), 30_000)).stdout);
+  check("rd-other-user-refused", other["other-connect"] === "EACCES", `connect as nobody: ${other["other-connect"]}`);
+  const a = kv((await run(vm, rdActivateCommand(), 190_000)).stdout);
+  check(
+    "rd-work-user-connection-starts-host-as-its-user-no-tcp-or-udp",
+    a["rd-work-connect"] === "connected" && a["rd-unit-active"] === "active" && a["rd-host-user"] === RD_USER && (a["rd-host-cmd"] ?? "").includes(`--listen-systemd --peer-uid ${RD_PEER_UID} `) && a["rd-host-tcp"] === "0" && a["rd-host-udp"] === "0",
+    JSON.stringify({ connect: a["rd-work-connect"], unit: a["rd-unit-active"], user: a["rd-host-user"], cmd: a["rd-host-cmd"], tcpSockets: a["rd-host-tcp"], udpSockets: a["rd-host-udp"] }),
+  );
+  check("rd-cookie-copy", a["rd-xauth"] === `600:${RD_USER}` && a["rd-host-dir"] === `700:${RD_USER}`, `${RD_XAUTHORITY} ${a["rd-xauth"]}, ${RD_HOST_DIR} ${a["rd-host-dir"]}`);
+  // Read while the host runs (in rdActivateCommand): EACCES only; ENOENT would mean the copy was not there to test.
+  check("rd-work-user-cannot-read-cookie", a["rd-work-read"] === "EACCES", `${DEVBOX_WORK_USER} reading ${RD_XAUTHORITY} while the host runs: ${a["rd-work-read"]}`);
+  check(
+    "rd-desktop-session-shows-windows",
+    a["rd-desktop-session"] === "active" && Number(a["rd-desktop-viewable"] ?? 0) > 0 && Number(a["rd-desktop-nonblack"] ?? 0) > 0 && a["rd-desktop-size"] === AGENT_DISPLAY_SIZE,
+    `${DESKTOP_SESSION_UNIT} ${a["rd-desktop-session"]}; ${AGENT_DISPLAY} ${a["rd-desktop-size"]}: ${a["rd-desktop-windows"]} window(s), ${a["rd-desktop-viewable"]} viewable, ${a["rd-desktop-nonblack"]} lit pixels sampled`,
+  );
 }
 
 /** The agent itself, through the machine's own model route (no credential is written). */
@@ -366,7 +520,123 @@ async function agentStep(vm: Vm, check: Checker, result: ProbeResult, outDir: st
   await pngCheck(vm, check, result, outDir, "agent-cua");
 }
 
-export async function agentToolsProbe(vm: Vm, options: ProbeOptions): Promise<ProbeResult> {
+/**
+ * The image roll's harness gate (harness-gate.ts): `acp ensure` for every harness the Cloud chat picker offers, in a
+ * terminal of the machine's own daemon with the guest's own acpmux, one check per harness. A failure names the
+ * harness and its ensure output, here and as a workflow error, and fails the probe: the roll promotes nothing.
+ */
+async function harnessEnsureChecks(vm: Vm, check: Checker, result: ProbeResult, outDir: string, live: HarnessOutputs | null): Promise<void> {
+  const harnesses = await pickerHarnesses();
+  const t0 = Date.now();
+  const outputs = await harnessEnsureOutputs(vm, harnesses, outDir, "harness-ensure");
+  result.timings.harnessEnsureMs = Date.now() - t0;
+  const gate = regressionGate(harnesses, outputs, live);
+  const blocked = new Set(gate.blocking.map((b) => b.harness));
+  for (const h of harnesses) {
+    const warned = gate.warnings.find((w) => w.harness === h);
+    check(`harness-ensure-${h}`, !blocked.has(h), warned?.detail ?? gate.blocking.find((b) => b.harness === h)?.detail ?? gate.results[h]!.detail);
+  }
+  const one = (s: string) => s.replace(/[\r\n%]/g, " ");
+  for (const f of gate.blocking) console.log(`::error title=Image harness gate (${f.harness})::${one(f.detail)}`);
+  for (const w of gate.warnings) console.log(`::warning title=Image harness gate (${w.harness})::${one(w.detail)}`);
+  fileLiveFailing(outDir, liveFailingLines("harness gate", gate.warnings.map((w) => ({ name: w.harness, detail: w.detail }))));
+  const summary = process.env.GITHUB_STEP_SUMMARY;
+  if (summary && gate.warnings.length) {
+    appendFileSync(summary, ["", "### Image harness gate: already failing on the live image (not blocking)", "", ...gate.warnings.map((w) => `- **${w.harness}**: ${one(w.detail).slice(0, 400)}`), ""].join("\n"));
+  }
+}
+
+export type HarnessOutputs = Record<string, string | undefined>;
+
+/** Runs the harness gate's ensure script in a terminal of `vm`'s daemon and reads each harness's output (also kept in outDir). */
+async function harnessEnsureOutputs(vm: Vm, harnesses: readonly string[], outDir: string, label: string): Promise<HarnessOutputs> {
+  const guestOut = `${PROBE_DIR}/${label}`;
+  const body = harnessEnsureScript({ cmux: `${CURRENT_BIN}/cmux-tui`, cwd: WORK_DIR, outDir: guestOut, harnesses });
+  await inTerminal(vm, label, terminalScript(label, body), harnesses.length * 160 + 60);
+  const outputs: HarnessOutputs = {};
+  for (const h of harnesses) {
+    outputs[h] = await readGuest(vm, ensureOutputFile(guestOut, h)).catch(() => undefined);
+    writeFileSync(path.join(outDir, `${label}-${h}.txt`), outputs[h] ?? "");
+  }
+  return outputs;
+}
+
+export type LiveBaseline = { harness: HarnessOutputs | null; checks: Record<string, Check> | null };
+
+/**
+ * The live image's results, for the gates that block only regressions: a clone of production's boot image
+ * (harness-gate.ts liveBootImage) runs the probe's own steps (static checks, the recorded launch, the MCP server calls)
+ * and then the harness gate's ensure, through the same daemon terminal; its files go to `live/`; deleted by its id.
+ * A part that cannot be read is null, so its gate falls back to blocking every candidate failure.
+ */
+async function liveBaseline(fs: ReturnType<typeof freestyleClient>, ledger: Ledger, options: ProbeOptions): Promise<LiveBaseline> {
+  const none: LiveBaseline = { harness: null, checks: null };
+  if (options.baseline !== "live") return none;
+  const name = `cmuxnp-dev-vmimg-${options.tag}-agenttools-live`;
+  const outDir = path.join(options.outDir, "live");
+  mkdirSync(outDir, { recursive: true });
+  const warn = (what: string, e: unknown) =>
+    console.log(`::warning title=Image roll baseline::no live image ${what} (${String(e).slice(0, 300).replace(/[\r\n%]/g, " ")}); every candidate failure of it blocks`);
+  const result: ProbeResult = { checks: {}, timings: {}, files: [] };
+  const check: Checker = (n, ok, detail) => {
+    result.checks[n] = { ok, detail };
+    console.log(`live ${ok ? "PASS" : "FAIL"} ${n}: ${detail.slice(0, 300)}`);
+  };
+  let created: Awaited<ReturnType<typeof createVm>> | null = null;
+  try {
+    const live = await liveBootImage();
+    console.log(`baseline: live image ${live.id} (${live.snapshotId})`);
+    created = await createVm(fs, ledger, { name, snapshotId: live.snapshotId });
+    await firstExec(created.vm, created.t0);
+    await run(created.vm, `install -d -o ${DEVBOX_WORK_USER} -g ${DEVBOX_WORK_USER} ${WORK_DIR}`);
+    let checks: Record<string, Check> | null = null;
+    try {
+      if (!(await prepare(created.vm, check, result))) throw new Error(`daemon terminal: ${result.checks["daemon-terminal"]?.detail ?? "unavailable"}`);
+      await callServers(created.vm, check, result, outDir, await recordLaunch(created.vm, check, result, outDir));
+      checks = result.checks;
+    } catch (e) {
+      warn("browser checks", e);
+    }
+    try {
+      return { harness: await harnessEnsureOutputs(created.vm, await pickerHarnesses(), options.outDir, "harness-ensure-live"), checks };
+    } catch (e) {
+      warn("harness result", e);
+      return { harness: null, checks };
+    }
+  } catch (e) {
+    warn("result", e);
+    return none;
+  } finally {
+    if (created) await deleteVm(created.vm, created.vmId, name, ledger);
+  }
+}
+
+/** Appends a gate's warnings to LIVE_FAILING_FILE, which the roll files as an issue (harness-gate.ts liveFailingLines). */
+function fileLiveFailing(outDir: string, lines: string[]): void {
+  if (lines.length) appendFileSync(path.join(outDir, LIVE_FAILING_FILE), `${lines.join("\n")}\n`);
+}
+
+/**
+ * The browser checks block only regressions (harness-gate.ts checkRegressionGate): a candidate failure the live image
+ * shares is re-judged a pass carrying its warning, here, as a workflow warning and in the step summary.
+ */
+function browserGate(result: ProbeResult, live: Record<string, Check> | null, outDir: string): void {
+  const gate = checkRegressionGate(BROWSER_CHECKS, result.checks, live);
+  const one = (s: string) => s.replace(/[\r\n%]/g, " ");
+  for (const b of gate.blocking) console.log(`::error title=Image browser check (${b.check})::${one(b.detail)}`);
+  for (const w of gate.warnings) {
+    result.checks[w.check] = { ok: true, detail: w.detail };
+    console.log(`WARN ${w.check}: ${w.detail.slice(0, 500)}`);
+    console.log(`::warning title=Image browser check (${w.check})::${one(w.detail)}`);
+  }
+  fileLiveFailing(outDir, liveFailingLines("browser check", gate.warnings.map((w) => ({ name: w.check, detail: w.detail }))));
+  const summary = process.env.GITHUB_STEP_SUMMARY;
+  if (summary && gate.warnings.length) {
+    appendFileSync(summary, ["", "### Image browser check: already failing on the live image (not blocking)", "", ...gate.warnings.map((w) => `- **${w.check}**: ${one(w.detail).slice(0, 400)}`), ""].join("\n"));
+  }
+}
+
+export async function agentToolsProbe(vm: Vm, options: ProbeOptions, live: LiveBaseline = { harness: null, checks: null }): Promise<ProbeResult> {
   const result: ProbeResult = { checks: {}, timings: {}, files: [] };
   const check: Checker = (name, ok, detail) => {
     result.checks[name] = { ok, detail };
@@ -375,6 +645,9 @@ export async function agentToolsProbe(vm: Vm, options: ProbeOptions): Promise<Pr
   if (!(await prepare(vm, check, result))) return result;
   const servers = await recordLaunch(vm, check, result, options.outDir);
   await callServers(vm, check, result, options.outDir, servers);
+  browserGate(result, live.checks, options.outDir);
+  await desktopChecks(vm, check);
+  await harnessEnsureChecks(vm, check, result, options.outDir, live.harness);
   const plan = agentStepPlan(options);
   if (plan.run) await agentStep(vm, check, result, options.outDir);
   else {
@@ -389,6 +662,8 @@ export async function main(argv = process.argv): Promise<number> {
   mkdirSync(options.outDir, { recursive: true });
   const fs = freestyleClient();
   const ledger = new Ledger(path.join(options.outDir, "resources.tsv"));
+  // The live image first, on its own clone: the candidate's harness and browser gates compare against it.
+  const live = await liveBaseline(fs, ledger, options);
   const name = `cmuxnp-dev-vmimg-${options.tag}-agenttools`;
   let vm: Vm;
   let vmId: string;
@@ -405,7 +680,7 @@ export async function main(argv = process.argv): Promise<number> {
   let error: string | null = null;
   try {
     await firstExec(vm, t0);
-    result = await agentToolsProbe(vm, options);
+    result = await agentToolsProbe(vm, options, live);
   } catch (e) {
     error = String(e);
     console.error(`AGENT TOOLS PROBE FAILED: ${error}`);

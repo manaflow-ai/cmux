@@ -4,11 +4,12 @@ import CmuxNextActions
 import CmuxNextFocus
 import Testing
 
-/// A web page keeps the shortcuts it handles (Lawrence 2026-10-23: "in google sheet if i do cmd f,
-/// it opens cmux cmd f instead of the one inside google sheet, need to fix in general"). In a
-/// Chromium tab, Find, Find Next / Previous and the page's content shortcuts go to the page first;
-/// cmux runs its action only when Chromium reports that the page did not handle the key (no
-/// `preventDefault`). Window-level keys (Cmd-T, Cmd-W, Cmd-N, Cmd-1 to Cmd-9) stay with cmux.
+/// cmux shortcuts win over a web page unless browser focus mode is on (Lawrence 2026-11-11: "im in linear
+/// and cmd b goes to linear itself instead of toggling left sidebar ... we should only direct keyboard
+/// shortcuts into the website itself if focus mode for website is on, else all keyboard shortcuts should go
+/// to cmux itself"). Only Find and its neighbors stay page-first in a Chromium tab (Lawrence 2026-10-23,
+/// Google Sheets' own Cmd-F): cmux runs Find only when Chromium reports that the page did not handle the
+/// key (no `preventDefault`). Every other cmux shortcut (Cmd-B, Cmd-I, Cmd-R, Cmd-T, Cmd-1...) runs first.
 @MainActor @Suite struct PageFirstKeysTests {
     nonisolated struct Key: CustomStringConvertible, Sendable {
         var name: String
@@ -23,6 +24,17 @@ import Testing
         Key(name: "Cmd-F", characters: "f", keyCode: 3),
         Key(name: "Cmd-G", characters: "g", keyCode: 5),
         Key(name: "Opt-Cmd-G", characters: "g", keyCode: 5, modifiers: [.command, .option]),
+    ]
+
+    /// Chords a page also uses (Cmd-B Bold and Linear's own Cmd-B, Cmd-I Italic) bound to a cmux
+    /// navigation action, and the browser's
+    /// content chords (Reload, Zoom In, Back): cmux runs them before the page sees them.
+    nonisolated static let cmuxKeys: [Key] = [
+        Key(name: "Cmd-B", characters: "b", keyCode: 11),
+        Key(name: "Cmd-I", characters: "i", keyCode: 34),
+        Key(name: "Cmd-R", characters: "r", keyCode: 15),
+        Key(name: "Cmd-=", characters: "=", keyCode: 24),
+        Key(name: "Cmd-[", characters: "[", keyCode: 33),
     ]
 
     /// Window-level keys: cmux runs them before any page.
@@ -78,12 +90,55 @@ import Testing
         #expect(["find", "findNext", "findPrevious"].contains(candidate.id.rawValue))
     }
 
+    /// Cmd-B in a Chromium page toggles the cmux sidebar at once (Linear takes Cmd-B for itself with
+    /// `preventDefault`, so a page-first offer never ran Toggle Sidebar there); the other cmux chords too.
+    @Test(arguments: cmuxKeys) func cmuxShortcutsRunBeforeAChromiumPage(_ key: Key) throws {
+        guard case .run = try Self.decision(key, facts: Self.chromium) else {
+            Issue.record("\(key) went to the page before cmux ran its action")
+            return
+        }
+    }
+
+    /// Cmd-B runs Toggle Sidebar, nothing else.
+    @Test func cmdBTogglesTheSidebarInAChromiumPage() throws {
+        guard case .run(let candidate) = try Self.decision(Self.cmuxKeys[0], facts: Self.chromium) else {
+            Issue.record("Cmd-B did not run a cmux action in a Chromium page")
+            return
+        }
+        #expect(candidate.id == "toggleSidebar")
+    }
+
+    /// Outside a page (a terminal has the keyboard), Cmd-B still toggles the sidebar at once.
+    @Test func editingChordOutsideAPageRunsAtOnce() throws {
+        var focus = FocusState()
+        focus.resolved = .terminal(pane: "pane_term", tab: "tab_term")
+        let decision = KeyRouter(registry: Self.sharedRegistry).decide(try Self.event(Self.cmuxKeys[0]), focus: focus,
+                                                                       keyWindow: .content, facts: Self.chromium)
+        guard case .run(let candidate) = decision else {
+            Issue.record("Cmd-B did not run Toggle Sidebar from a terminal")
+            return
+        }
+        #expect(candidate.id == "toggleSidebar")
+    }
+
     /// Window-level keys never wait for the page.
     @Test(arguments: windowKeys) func windowKeysStayWithCmux(_ key: Key) throws {
         guard case .run = try Self.decision(key, facts: Self.chromium) else {
             Issue.record("\(key) did not run its cmux action first")
             return
         }
+    }
+
+    /// Shift-Cmd-L opens a new browser from a focused Chromium page as from any other pane
+    /// (https://github.com/manaflow-ai/cmux/issues/32789). Opening a tab is a window key, like Chrome's
+    /// reserved Cmd-T: it never waits for the page, though Shift-Cmd-L is also an editing chord.
+    @Test func openBrowserRunsBeforeAChromiumPage() throws {
+        let key = Key(name: "Shift-Cmd-L", characters: "L", keyCode: 37, modifiers: [.command, .shift])
+        guard case .run(let candidate) = try Self.decision(key, facts: Self.chromium) else {
+            Issue.record("Shift-Cmd-L waited for the page instead of opening a browser")
+            return
+        }
+        #expect(candidate.id == "openBrowser")
     }
 
     /// A WebKit page reports no unhandled keys, so cmux keeps running Find first there.

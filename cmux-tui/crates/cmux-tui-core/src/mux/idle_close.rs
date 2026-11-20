@@ -219,7 +219,7 @@ impl Mux {
     /// Every surface a client can attach to for a terminal, grouped by the
     /// stable host id it presents: placed views plus the catalog runtime,
     /// which resource clients attach to even when the terminal is unplaced.
-    fn terminal_placements_by_host(&self) -> HashMap<String, Vec<SurfaceId>> {
+    pub(super) fn terminal_placements_by_host(&self) -> HashMap<String, Vec<SurfaceId>> {
         let state = self.state.lock().unwrap();
         let mut placements: HashMap<String, Vec<SurfaceId>> = HashMap::new();
         let surfaces = state.surfaces.values().chain(state.terminal_catalog.values());

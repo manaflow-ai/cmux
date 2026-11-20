@@ -127,6 +127,16 @@ impl Membership {
         cmux_chief::rules::is_owner_message_as(summary, message, &self.owner)
     }
 
+    /// The acpmux session that sent the owner's `message` through the CLI
+    /// (`cmux_chief::rules::agent_sender_as`); None for anyone else's.
+    pub fn agent_sender(
+        &self,
+        summary: &Summary,
+        message: &Message,
+    ) -> Option<cmux_conversation::agent_sender::AgentSender> {
+        cmux_chief::rules::agent_sender_as(summary, message, &self.owner)
+    }
+
     pub fn is_default(&self) -> bool {
         self.participant == AGENT_MUX
     }

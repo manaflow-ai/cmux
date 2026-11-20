@@ -66,8 +66,9 @@ public final class FilesPaneView: NSView {
             for await _ in ObservationStream({ [model, sidebar] in
                 _ = (model.entries, model.selection, model.folder, model.viewMode, model.phase, model.canGoBack,
                      model.canGoForward, model.showHidden, model.transferProgress, model.lastError,
-                     sidebar.favorites, sidebar.locations, sidebar.isVisible)
+                     sidebar.favorites, sidebar.locations, sidebar.isVisible, Typography.userScale, Typography.body.pointSize)
             }) {
+                self?.status.font = Typography.system(size: TypeScale.caption)
                 self?.render()
             }
         }
@@ -260,7 +261,7 @@ public final class FilesPaneView: NSView {
         let modes = FileViewMode.allCases
         if layoutControl.selectedSegment >= 0, layoutControl.selectedSegment < modes.count {
             model.viewMode = modes[layoutControl.selectedSegment]
-            window?.makeFirstResponder(focusTarget)
+            FocusRoute(.system, "the files pane's layout changed").moveKeyboard(in: window, to: focusTarget)
         }
     }
     @objc private func zoomChanged() { setIconSize(CGFloat(zoomSlider.doubleValue)) }

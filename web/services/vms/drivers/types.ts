@@ -108,6 +108,13 @@ export type CreateOptions = {
   promptIdentity?: GuestPromptIdentity;
   providerMetadata?: Record<string, unknown>;
   /**
+   * The billing customer (its team, or the user for a user-billed machine):
+   * the provider's end-user customer, so its abuse protection tells our
+   * customers apart.
+   * Providers without customers ignore it.
+   */
+  customerId?: string;
+  /**
    * A short-lived credential handed off by the user's local client. Providers
    * must use it only for this operation and never copy it to a VM row.
    */
@@ -213,7 +220,7 @@ export type VmEdgeRule = {
 };
 
 /** Create-time inputs a restore-from-snapshot shares with a fresh create. */
-export type RestoreOptions = Pick<CreateOptions, "edgeRules" | "providerMetadata" | "networkRules"> & {
+export type RestoreOptions = Pick<CreateOptions, "edgeRules" | "providerMetadata" | "networkRules" | "customerId"> & {
   /** The owner's private network; see {@link CreateOptions.network}. */
   network?: ProviderNetworkRef;
 };

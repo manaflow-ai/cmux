@@ -21,7 +21,7 @@ concurrency:
 jobs:
   version:
     name: derive nightly versions
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     permissions:
       contents: read
     outputs:
@@ -89,7 +89,7 @@ jobs:
       attestations: write
     uses: ./.github/workflows/cmux-tui-build-package.yml
     with:
-      retention_days: 30  # tui-publish-npm/pypi download these by run id
+      retention_days: 7  # tui-publish-npm/pypi download these by run id
       version: ${{ needs.version.outputs.npm_version }}
       package_npm: true
       # PyPI's pypi-tui environment admits only cmux-tui-v* tags with a
@@ -108,7 +108,7 @@ jobs:
       # benchmark mini cmux11s, which nightlies must never reach (a153,
       # 2026-10-20). See docs/ci-runners.md.
       macos_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'glaeda-side-light-xcode-26.6' }}
-      macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
+      macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_15 }}
       linux_runner: ''
       linux_arm64_runner: ''
       # Windows legs (include_windows) take the builder's Blacksmith default

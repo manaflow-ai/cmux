@@ -1,10 +1,29 @@
 import { expect, test } from "bun:test";
 import {
   authBlocksSend,
+  authChipText,
   canSessionLogin,
   useRouteAuthSwitch,
   readSessionAuth,
 } from "../src/agent-session/acpmux/sessionAuth";
+import { settleReact } from "./support/domTeardown";
+
+test("pre-send recovery distinguishes first login from an expired or failed login", () => {
+  for (const [state, source, label] of [
+    ["signedOut", "authCheck", "Log In"],
+    ["signedOut", "turn", "Sign in again"],
+    ["expired", "authCheck", "Sign in again"],
+    ["expired", "turn", "Sign in again"],
+    ["routeAuthNeeded", "routeProbe", "Sign in again"],
+    ["ready", "authCheck", undefined],
+    ["unknown", "none", undefined],
+    ["routeUnreachable", "routeProbe", "Unavailable"],
+    // The machine's link, not the model: the quiet row's machine link says it (MachineLinkStatus.tsx).
+    ["peerUnreachable", "peerLink", undefined],
+  ] as const) {
+    expect(authChipText(readSessionAuth({ state, source, evidenceAt: 1 }))).toBe(label);
+  }
+});
 
 test("only explicit auth refusals block", () => {
   expect(authBlocksSend(readSessionAuth({ state: "signedOut", source: "authCheck", evidenceAt: 1 }))).toBe(true);
@@ -133,6 +152,7 @@ test("route coordinator holds through RPC and auth, ignoring stale account compl
   await act(async () => controls!.settleRoute("B", false));
   expect(controls!.routeChanging).toBeUndefined();
   await act(async () => root.unmount());
+  await settleReact();
   if (oldWindow === undefined) delete scope.window;
   else scope.window = oldWindow;
   if (oldDocument === undefined) delete scope.document;

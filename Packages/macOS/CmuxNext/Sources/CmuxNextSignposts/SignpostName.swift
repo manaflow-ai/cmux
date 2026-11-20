@@ -65,6 +65,15 @@ public nonisolated enum SignpostName: Sendable, Hashable, CaseIterable, CustomSt
     /// move), `content` when it went on to the view under the pointer (a terminal or page may show it in a later
     /// frame); `commit=missed` as for ``actionCommit``.
     case scrollToFrame
+    /// A typed palette query (the search field's edit) to the end of the Core Animation commit of the frame that
+    /// first shows its final ranked rows (the palette's view, `PaletteQueryFrameMarks`). Message: `scope=<scope>`.
+    /// Its end can be a later main-thread turn than the key's (the rank runs off the main thread). A query typed
+    /// past before its rows show is never ended (a reader counts it as unpaired). One per typed query.
+    case paletteQueryRows
+    /// A typed palette query to the end of the commit of the frame that first shows a contributed page's answer
+    /// for it (Search's and the Chats & agents scope's agent chats, which acpmux answers in a later turn). End
+    /// message: `rows=<n>`, the answer's rows on screen. Never ended for a query typed past or answered empty.
+    case paletteQueryAnswer
 
     // MARK: switch (reserved: PL-switch, SwitchFrameTimer)
 
@@ -110,6 +119,8 @@ public nonisolated enum SignpostName: Sendable, Hashable, CaseIterable, CustomSt
         case .keyToFrame: "key.frame"
         case .keyFlow: "key.flow"
         case .scrollToFrame: "key.scroll_frame"
+        case .paletteQueryRows: "key.palette_query_rows"
+        case .paletteQueryAnswer: "key.palette_query_answer"
         case .switchWorkspace: "switch.workspace"
         case .switchTab: "switch.tab"
         case .switchPaneFocus: "switch.pane_focus"

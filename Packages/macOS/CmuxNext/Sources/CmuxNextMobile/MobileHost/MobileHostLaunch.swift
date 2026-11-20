@@ -44,9 +44,13 @@ public struct MobileHostLaunch: Sendable, Equatable {
     /// hostd serves `browser` and says `browser-stream-v1` (`CMUX_MOBILE_BROWSER_HOSTS=1`).
     /// Off, phones hide New Browser Tab for this Mac.
     public var browserHosts = false
-    /// This build streams the phone tabs' simulators (SimulatorKit loads): hostd
-    /// serves `surface` and says `surface-stream-v1` (`CMUX_MOBILE_SURFACE_HOSTS=1`).
+    /// This build streams surfaces (the phone tabs' simulators when SimulatorKit loads, the owner's
+    /// Cloud desktops): hostd serves `surface` and says `surface-stream-v1` and `cloud-desktop-v1`
+    /// (`CMUX_MOBILE_SURFACE_HOSTS=1`).
     public var surfaceHosts = false
+    /// The surface source streams phone tabs' simulators too; off (no SimulatorKit), hostd streams
+    /// Cloud desktops only and says no `surface-stream-v1` (`CMUX_MOBILE_SURFACE_SIMULATORS=0`).
+    public var simulatorSurfaces = true
 
     public init(executable: URL, baseURL: URL, teamID: String, userID: String, deviceID: String, deviceName: String,
                 daemonSocket: String, stateDirectory: URL, fileRoots: [String], stackProjectID: String,
@@ -116,6 +120,7 @@ public struct MobileHostLaunch: Sendable, Equatable {
         if let chiefSocket, !chiefSocket.isEmpty { environment["CMUX_MOBILE_CHIEF_SOCKET"] = chiefSocket }
         if browserHosts { environment["CMUX_MOBILE_BROWSER_HOSTS"] = "1" }
         if surfaceHosts { environment["CMUX_MOBILE_SURFACE_HOSTS"] = "1" }
+        if surfaceHosts, !simulatorSurfaces { environment["CMUX_MOBILE_SURFACE_SIMULATORS"] = "0" }
         return environment
     }
 
@@ -141,8 +146,14 @@ public struct MobileHostLaunch: Sendable, Equatable {
     public static func devicesLine(_ devices: MobileHostPairedDevices) -> Data {
         anyLine([
             "type": "devices",
-            "devices": devices.devices.map {
-                ["id": $0.id, "identity_key": $0.identityKey, "approval_key": $0.approvalKey]
+            "devices": devices.hostdDevices.map { device -> [String: Any] in
+                var row: [String: Any] = ["id": device.id, "identity_key": device.identityKey, "approval_key": device.approvalKey]
+                // A machine's record says so: hostd admits a Mac only on a `mac` record (pairing.rs).
+                if device.kind != "phone" {
+                    row["kind"] = device.kind
+                    row["grants"] = device.grants
+                }
+                return row
             },
             "denied": devices.denied.map { ["id": $0.id, "identity_key": $0.identityKey] },
         ])
@@ -158,6 +169,12 @@ public struct MobileHostLaunch: Sendable, Equatable {
     /// The control line that ends a removed phone's live links.
     public static func dropPhoneLine(_ phoneDeviceID: String) -> Data {
         line(["type": "drop_phone", "phone_device_id": phoneDeviceID])
+    }
+
+    /// The person's per-chat Remote Control choice. Persistence and enforcement stay in
+    /// `cmux-mobile-host`; this line is only an intent sent to the running host.
+    public static func sessionExposureLine(sessionID: String, allowed: Bool) -> Data {
+        anyLine(["type": "session_exposure", "session_id": sessionID, "allowed": allowed])
     }
 
     /// The answer to `need_browser` `request`: the browser host listens on

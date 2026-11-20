@@ -2,18 +2,37 @@
 """What the cmux NEXT post-publish launch smoke does with a verdict (nightly-next-launch-smoke.yml).
 
 The feed publishes without waiting on anything here. After a build is on the feed, the workflow
-launches it from a fresh home (scripts/ci/fresh_home_launch_smoke.py) and this script decides:
+launches it from an empty home and then from a seeded home, the home of a person who uses the app
+(scripts/ci/fresh_home_launch_smoke.py --arms empty,seeded), and this script decides:
 
-  verdict --dir DIR
+  verdict --dir DIR [--daemon]
       The verdict of up to two harness runs (DIR/status-N and DIR/attempt-N/report.json). An attempt
       crashed only on the harness's own evidence: exit 1, report verdict fail, and the launched app's
-      pid (the app exited, wrote a crash report, or never rendered Home). Anything else could not run
-      (no GUI session, no app, a hop or harness error before launch). A crash counts only when both
-      attempts crashed: a check cut short after one crash (a step timeout) is cannot-run, and so is
-      any cannot-run attempt. Prints pass, crash or cannot-run.
+      pid, plus a nonzero app exit, a crash report, or an uncaught exception in that report. With
+      --daemon (the publish gate only, never this post-publish smoke: a rollback of a published build
+      is not decided by it) also the harness's word that the app showed Home and its daemon was not
+      connected when the watch ended (`daemon_down`: the app is up and cannot be used). A live
+      app that never rendered Home is a failed smoke, but is not a launch crash and cannot trigger a
+      rollback. Anything else could not run (no GUI session, no app, a hop or harness error before
+      launch). A crash counts only when both attempts crashed: a check cut short after one crash (a
+      step timeout) is cannot-run, and so is any cannot-run attempt. An attempt that the publish gate's
+      watchdog stopped (status 124) is read by its report in the same way: a crash when the harness had
+      already seen the app end, else cannot-run. Prints pass, crash or cannot-run.
+      The crash is of either home: when the empty home passed and the app ended from the seeded home,
+      the harness's report describes that launch (its `arm` is seeded), with the same evidence rule.
+
+  seeded-note --dir DIR
+      One sentence when the verdict is a pass whose seeded home was not checked (the seed could not be
+      made, or the app never read it: the harness then keeps the empty home's pass), else nothing. The
+      workflow says it as a warning; the pass and its marker stay.
+
+  attempt --dir DIR --number N [--daemon]
+      The result of harness run N alone (pass, crash or cannot-run). The publish gate asks it after an
+      attempt that its watchdog stopped: only a crash gets the second attempt.
 
   pick --feed LIVE.xml [--build BUILD]
-      The build to smoke, as GITHUB_OUTPUT lines (build=, url=, length=): the newest feed item that
+      The build to smoke, as GITHUB_OUTPUT lines (build=, url=, length=, ed_signature=, the item's
+      sparkle:edSignature the smoke checks the downloaded DMG against): the newest feed item that
       Nightly apps are offered (untagged, cmux-next or cmux-next-stable) and that has a nightly-next
       DMG, or BUILD when given. A Dev-ring (cmux-next-dev) or Canary-only item is never picked, so a
       newer Dev-only build is skipped and the Nightly build below it is smoked. Exit 1 with no pick.
@@ -31,7 +50,8 @@ launches it from a fresh home (scripts/ci/fresh_home_launch_smoke.py) and this s
       in_flight= ), read live from this workflow's runs (GITHUB_REPOSITORY, GITHUB_RUN_ID, GH_TOKEN). A
       scheduled tick skips such a build, so each build has one smoke at a time: on 2026-10-29 the smokes
       waited 45 minutes to 2 hours for a Mac and the 10-minute ticks queued up to three per build. A read
-      that fails prints a warning and in_flight= (the tick smokes, as before).
+      that fails prints a warning and in_flight=unknown; scheduled ticks skip dispatch until the next
+      successful read. Manual and pull-request runs still proceed.
 
   evidence --report report.json --out FILE [--app-log app.log] [--crash FILE]...
       The crash issue's body: the harness failures, the app's system-log errors, the crash
@@ -48,7 +68,10 @@ import urllib.request
 from pathlib import Path
 from typing import Callable, Mapping
 
-PASS, CRASH, CANNOT_RUN = "pass", "crash", "cannot-run"
+PASS, CRASH, CANNOT_RUN, UNKNOWN = "pass", "crash", "cannot-run", "unknown"
+# The status that launch-smoke-gate.sh writes for an attempt its watchdog stopped (the harness itself never exits
+# with it: 0, 1, 2, 3, or 128 + the signal).
+CUT = 124
 ITEM = re.compile(r"<item>.*?</item>", re.S)
 VERSION = re.compile(r"<sparkle:version>\s*(\d+)\s*</sparkle:version>")
 CHANNEL = re.compile(r"<sparkle:channel>\s*([^<]*?)\s*</sparkle:channel>")
@@ -58,24 +81,88 @@ NIGHTLY_CHANNELS = (None, "cmux-next-stable", "cmux-next")
 LOG_TAIL = 40
 
 
-def attempt_result(status: int, report: dict) -> str:
-    """One harness run's result. A crash needs the harness's own evidence that the app ran: exit 1,
-    a report whose verdict is fail, and the launched app's pid. Exit 1 without that (a console-session
-    hop that failed, an uncaught setup error) could not run."""
+def daemon_not_of_launch(report: dict) -> bool:
+    """The harness marked a daemon read `of_launch` False, in either home: the app said "connected", and no daemon
+    process of that launch was alive. The daemon's socket is the account's, by session, so the app used the daemon of
+    another launch (an installed build of the same channel, another run on the host)."""
+    arms = report.get("arms") if isinstance(report.get("arms"), dict) else {}
+    groups = [report.get("daemon"), *(arm.get("daemon") for arm in arms.values() if isinstance(arm, dict))]
+    return any(isinstance(read, dict) and read.get("of_launch") is False
+               for group in groups if isinstance(group, list) for read in group)
+
+
+def attempt_result(status: int, report: dict, daemon: bool = False) -> str:
+    """One harness run's result.
+
+    A crash needs both the harness's evidence that the app ran (exit 1, a failed report and its pid)
+    and evidence from the app itself: a nonzero process exit, a crash report or an uncaught exception.
+    With DAEMON (the publish gate's --daemon) also its own word, two times, that its daemon is not
+    connected after Home rendered (the harness's `daemon_down`: the app is up and takes no key). That
+    counts as a crash counts, with the same rule. Without DAEMON such a report is cannot-run, as before.
+    With DAEMON a pass whose daemon was not of that launch (daemon_not_of_launch) is cannot-run: the daemon
+    was not judged, and the gate must not call that a pass.
+    A failed report from a live app that never rendered Home is not a launch crash, so it cannot roll a
+    build back. Exit 1 without the harness or app evidence (a console-session hop or setup error) could
+    not run.
+
+    A cut attempt (CUT) has the same rule. The harness puts its verdict in the report before it keeps the
+    evidence (the system log read, the wait for a late crash report), and a stopped harness still writes
+    that report. So a cut after the verdict leaves "fail" with the app's own end, and that is a crash:
+    as cannot-run it let a build that crashed in both attempts be published. `exit` and `crash_reports`
+    are only what the harness saw before it stopped the app itself, so a cut while the app was watched,
+    or of a live app with no Home, has no such evidence and is cannot-run. A cut attempt is never a pass.
+    """
     if status == 0 and report.get("verdict") == "pass":
-        return PASS
-    if status == 1 and report.get("verdict") == "fail" and report.get("pid"):
+        return CANNOT_RUN if daemon and daemon_not_of_launch(report) else PASS
+    exit_status = report.get("exit")
+    app_crashed = (
+        isinstance(exit_status, int) and not isinstance(exit_status, bool) and exit_status != 0
+    ) or bool(report.get("crash_reports")) or bool(report.get("run_exceptions")) or (
+        daemon and bool(report.get("daemon_down")))
+    if status in (1, CUT) and report.get("verdict") == "fail" and report.get("pid") and app_crashed:
         return CRASH
     return CANNOT_RUN
 
 
-def verdict(attempts: list[tuple[int, dict]], required: int = 2) -> str:
+def verdict(attempts: list[tuple[int, dict]], required: int = 2, daemon: bool = False) -> str:
     for status, report in attempts:
-        result = attempt_result(status, report)
+        result = attempt_result(status, report, daemon)
         if result != CRASH:
             return result
     # Every attempt crashed; fewer than REQUIRED means the check was cut short (a timeout).
     return CRASH if attempts and len(attempts) >= required else CANNOT_RUN
+
+
+def seeded_note(attempts: list[tuple[int, dict]]) -> str:
+    """What a pass of the post-publish smoke did not check, as one line, or "".
+
+    The harness is asked for 2 homes. The seeded home's arm can end with no verdict of its own
+    (report.json's `arms.seeded.verdict`: cannot-run when the seed could not be made or the launch could
+    not start, not-run when the app never read the seeded store), and the run then keeps the empty home's
+    pass. That is a pass here too, never a crash: a fault of the seed tool must not roll a published build
+    back. Without this line nobody sees that the second home was not checked. It is about the attempt
+    that gave the pass (verdict()'s rule); any other verdict has no note.
+    """
+    for status, report in attempts:
+        result = attempt_result(status, report)
+        if result == CRASH:
+            continue
+        if result != PASS:
+            return ""
+        arms = report.get("arms")
+        arm = arms.get("seeded") if isinstance(arms, dict) else None
+        arm = arm if isinstance(arm, dict) else {}
+        said = str(arm.get("verdict") or "not-run")
+        if said == PASS:
+            return ""
+        reason = str(arm.get("reason") or "the harness gave no reason")
+        # One line of printable text with no backslash, whatever the harness wrote: the workflow puts it in a
+        # `::warning` command with `echo`, and an `echo` that reads escapes would make `\n` a new line.
+        said, reason = ("".join(ch if ch.isprintable() and ch != "\\" else " " for ch in text)
+                        for text in (said, reason))
+        return " ".join(f"the seeded home (imported-cookie sync on) was not checked ({said}: {reason})".split())[:400] \
+            + "; the empty home passed and the build stays on the feed"
+    return ""
 
 
 def read_attempts(directory: Path) -> list[tuple[int, dict]]:
@@ -97,9 +184,10 @@ def read_attempts(directory: Path) -> list[tuple[int, dict]]:
     return found
 
 
-ENCLOSURE = re.compile(r'<enclosure\s[^>]*?url="([^"]+\.dmg)"[^>]*?length="(\d+)"')
+ENCLOSURE = re.compile(r'<enclosure\s[^>]*?url="([^"]+\.dmg)"[^>]*?length="(\d+)"[^>]*>')
+ED_SIGNATURE = re.compile(r'\ssparkle:edSignature="([^"]*)"')
 DMG_PREFIXES = ("https://github.com/manaflow-ai/cmux/releases/download/nightly-next/",
-                "https://files-next.cmux.com/nightly-next/next/")
+                "https://files-next.cmux.com/nightly-next/")
 
 
 def nightly_offered(item: str) -> bool:
@@ -107,14 +195,17 @@ def nightly_offered(item: str) -> bool:
     return (channel.group(1) if channel else None) in NIGHTLY_CHANNELS
 
 
-def pick(text: str, wanted: str = "") -> tuple[int, str, str]:
-    """(build, DMG url, length) to smoke: the newest Nightly-offered item with a DMG, or WANTED."""
+def pick(text: str, wanted: str = "") -> tuple[int, str, str, str]:
+    """(build, DMG url, length, edSignature) to smoke: the newest Nightly-offered item with a DMG, or
+    WANTED. The edSignature is empty when the enclosure has none (the DMG check then fails)."""
     items = []
     for item in ITEM.findall(text):
         version = VERSION.search(item)
         enclosure = ENCLOSURE.search(item)
         if version and enclosure:
-            items.append((int(version.group(1)), enclosure.group(1), enclosure.group(2), nightly_offered(item)))
+            signature = ED_SIGNATURE.search(enclosure.group(0))
+            items.append((int(version.group(1)), enclosure.group(1), enclosure.group(2), nightly_offered(item),
+                          signature.group(1) if signature else ""))
     if wanted:
         items = [i for i in items if str(i[0]) == wanted]
         if items and not items[0][3]:
@@ -122,10 +213,10 @@ def pick(text: str, wanted: str = "") -> tuple[int, str, str]:
     items = [i for i in items if i[3]]
     if not items:
         raise ValueError(f"no Nightly feed item {'for build ' + wanted if wanted else 'with a DMG'}")
-    build, url, length, _ = max(items)
+    build, url, length, _, signature = max(items)
     if not url.startswith(DMG_PREFIXES):
         raise ValueError(f"{url} is not a nightly-next download")
-    return build, url, length
+    return build, url, length, signature
 
 
 def feed_builds(text: str) -> list[tuple[int, bool]]:
@@ -256,6 +347,13 @@ def main(argv: list[str] | None = None) -> int:
     k.add_argument("--build", default="")
     v = sub.add_parser("verdict")
     v.add_argument("--dir", type=Path, required=True)
+    v.add_argument("--daemon", action="store_true", help="a daemon_down report counts as a crash counts")
+    n = sub.add_parser("seeded-note")  # what a pass did not check, for the post-publish smoke's warning
+    n.add_argument("--dir", type=Path, required=True)
+    a = sub.add_parser("attempt")  # one attempt's result (pass, crash or cannot-run), for the gate's loop
+    a.add_argument("--dir", type=Path, required=True)
+    a.add_argument("--number", type=int, required=True)
+    a.add_argument("--daemon", action="store_true", help="a daemon_down report counts as a crash counts")
     d = sub.add_parser("decide")
     d.add_argument("--feed", type=Path, required=True)
     d.add_argument("--build", type=int, required=True)
@@ -270,24 +368,42 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "pick":
         try:
-            build, url, length = pick(args.feed.read_text(encoding="utf-8"), args.build)
+            build, url, length, signature = pick(args.feed.read_text(encoding="utf-8"), args.build)
         except ValueError as error:
             print(error, file=sys.stderr)
             return 1
-        print(f"build={build}\nurl={url}\nlength={length}")
+        print(f"build={build}\nurl={url}\nlength={length}\ned_signature={signature}")
     elif args.command == "in-flight":
         try:
             run = read_in_flight(args.build, os.environ)
-        except Exception as error:  # noqa: BLE001 - fail open: the tick smokes, as before
-            print(f"::warning title=nightly-next launch smoke::could not read the in-flight smokes ({error})",
-                  file=sys.stderr)
-            run = None
+        except Exception as error:  # noqa: BLE001 - preserve manual/PR behavior, fail closed on schedule
+            message = f"could not read the in-flight smokes ({error}); scheduled dispatch is paused"
+            print(f"::warning title=nightly-next launch smoke::{message}", file=sys.stderr)
+            summary = os.environ.get("GITHUB_STEP_SUMMARY")
+            if summary:
+                try:
+                    with open(summary, "a", encoding="utf-8") as output:
+                        output.write("### cmux NEXT launch smoke: in-flight state unknown\n\n")
+                        output.write(f"{message}. The next scheduled tick will retry the read.\n")
+                except OSError as summary_error:
+                    print(f"::warning title=nightly-next launch smoke::could not write the step summary "
+                          f"({summary_error})", file=sys.stderr)
+            print(f"in_flight={UNKNOWN}")
+            return 0
         if run:
             print(f"::notice title=nightly-next launch smoke::run {run} already has a smoke of build {args.build} "
                   "queued or running; this tick does not start another", file=sys.stderr)
         print(f"in_flight={run or ''}")
     elif args.command == "verdict":
-        print(verdict(read_attempts(args.dir)))
+        print(verdict(read_attempts(args.dir), daemon=args.daemon))
+    elif args.command == "seeded-note":
+        note = seeded_note(read_attempts(args.dir))
+        if note:
+            print(note)
+    elif args.command == "attempt":
+        attempts = read_attempts(args.dir)
+        print(attempt_result(*attempts[args.number - 1], args.daemon) if 0 < args.number <= len(attempts)
+              else CANNOT_RUN)
     elif args.command == "decide":
         print(json.dumps(decide(args.feed.read_text(encoding="utf-8"), args.build, args.verdict)))
     else:

@@ -3,7 +3,8 @@ import type { ServerNetworkReservation } from "@cmux/protocol"
 import { teamEventVisible, teamSubscriberView } from "./domains/team-visibility.ts"
 import { aiLimitViewOf, codeRunLimit, teamDomain, type TeamState } from "./domains/team.ts"
 import type { Env } from "./env.ts"
-import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
+import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
+import { cloudMachineReader, publishOwnershipRefusal, type CloudMachineRead } from "./team-cloud-session-machine.ts"
 import { teamRead, teamVmAccountsFence, withAiSpend } from "./team-reads.ts"
 import { can, firstOwner, homeCoMembersOf, hostOf, memberOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
@@ -18,9 +19,12 @@ import { ssoCallback, ssoMaxAgeMs, ssoSessionConnection, ssoRedeem, ssoStart, ty
 import { stackLowReadPace, stackReadPace, stackServer, type StackServer } from "./stack-server.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
 import { mayEnrollServer, serverPlacementActive, type ServerEnrollRefused } from "./domains/team-servers.ts"
+import { revokePairMachineJoin } from "./pair-machine-join.ts"
 import { revokeInstallCerts, sshExternal, type SshCaDeps } from "./team-ssh-ca.ts"
 import { vmAdminExternal } from "./team-vm-taint-admin.ts"
 import { memberAdminExternal } from "./team-member-admin.ts"
+import { agentKeyExternal, agentKeyOpen, agentKeyStatus, type AgentKeyDeps, type TeamAgent, type TeamSharedKey } from "./team-agent-keys.ts"
+import { modelsPolicyExternal, modelsPolicyGet, type ModelsPolicyDeps } from "./team-models-policy.ts"
 import { vmApiTenantOf, type VmApiTenant, type VmApiTenantPurpose } from "./team-vm-api-tenant.ts"
 import { ensurePersonalTenant, personalTenantTarget, type EnsurePersonalTenantReply } from "./team-vm-api-personal.ts"
 import { PersonalTenantStore } from "./team-vm-api-personal-store.ts"
@@ -30,8 +34,12 @@ import { listMembers } from "./domains/team-members.ts"
 import type { SshPresence } from "./team-ssh-presence.ts"
 import { serverNetworkExternal } from "./server-network-confirm.ts"
 import { hostNetworkExternal } from "./host-network-bind.ts"
+import { hostNetworkTarget, hostNetworkTargetOwner } from "./host-network-target.ts"
+import { vmApiConnection, vmApiOrigin } from "./cloud-vm-api-config.ts"
+import { authorizeNativeDial, recheckNativeDial, type NativeDialDeps, type NativeDialPermit, type NativeDialTarget } from "./cloud-native-dial.ts"
+import { vmReceiverPeers, type VmReceiverPeerTarget } from "./cloud-vm-receiver-peers.ts"
 import { cleanupRemovedMembers, revokeMemberCertsNow } from "./team-member-cleanup.ts"
-import { HostReplicaDrops, hostsLeavingOwner, type ReplicaDropTarget } from "./team-host-replica-drop.ts"
+import { HostReplicaDrops, hostsLeavingOwner } from "./team-host-replica-drop.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
 export type { SignInRules } from "./team-sign-in-rules.ts"
@@ -75,7 +83,7 @@ export class TeamDO extends OwnerDO<TeamState> {
   protected read(state: TeamState, op: string, params: unknown, principal: Principal): ReadResult { return teamRead(state, op, params, principal, this.rows) }
   async aiUserLimit(entity: string, user: string): Promise<number> { return codeRunLimit(this.isBound(entity) ? this.bind(entity).currentState : undefined, this.rows, user) } // RPC from code runs: this member's AI limit only, 0 for a non-member (team-ai-limit.ts)
   async aiLimitView(entity: string, user: string, cursor?: string) { return aiLimitViewOf(this.isBound(entity) ? this.bind(entity).currentState : undefined, this.rows, entity, user, cursor) } // RPC from the team.ai_limit.get route
-  override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> { const r = await super.readOp(entity, principal, op, params); const fenced = (r.ok && (await teamVmAccountsFence(() => this.teamVm(entity).currentInstall(entity), principal, op))) || r; return op === "team.ai_limit.get" ? withAiSpend(this.env, entity, fenced, (await import("./inference/plan.ts")).storedPlan(this.ctx.storage.sql)) : fenced }
+  override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> { if (op === "team.agent_key.status") return this.isBound(entity) ? agentKeyStatus(this.agentKeyDeps(entity), principal) : { ok: false, code: "auth.forbidden", message: "not a member of this team" }; if (op === "team.models_policy.get") return this.isBound(entity) ? modelsPolicyGet(this.modelsPolicyDeps(entity), principal) : { ok: false, code: "auth.forbidden", message: "not a member of this team" }; const r = await super.readOp(entity, principal, op, params); const fenced = (r.ok && (await teamVmAccountsFence(() => this.teamVm(entity).currentInstall(entity), principal, op))) || r; return op === "team.ai_limit.get" ? withAiSpend(this.env, entity, fenced, (await import("./inference/plan.ts")).storedPlan(this.ctx.storage.sql)) : fenced }
 
   /** Backoff after a failed push to ConnectionDO (in memory: a restart retries at once). */
   private syncRetryAt: number | null = null
@@ -95,7 +103,7 @@ export class TeamDO extends OwnerDO<TeamState> {
   /** A host that left its owner loses its read replica (team-host-replica-drop.ts); the queue is SQL, the alarm retries. */
   private _replicaDrops: HostReplicaDrops | undefined
   private get replicaDrops(): HostReplicaDrops {
-    return (this._replicaDrops ??= new HostReplicaDrops(this.ctx.storage.sql, (host) => this.env.HOST_DO.get(this.env.HOST_DO.idFromName(host)) as unknown as ReplicaDropTarget))
+    return (this._replicaDrops ??= new HostReplicaDrops(this.ctx.storage.sql, (host) => this.env.HOST_DO.get(this.env.HOST_DO.idFromName(host))))
   }
 
   private nextTeamWakeAt(state: TeamState, now: number): number | null {
@@ -125,7 +133,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     const team = state.team.id
     const push = runSyncPush(state)
     try {
-      const stub = this.env.SCHEDULER_DO.get(this.env.SCHEDULER_DO.idFromName(team)) as unknown as { applyRunPolicy(e: string, p: typeof push): Promise<{ ok: boolean; message?: string }> }
+      const stub = this.env.SCHEDULER_DO.get(this.env.SCHEDULER_DO.idFromName(team))
       const r = await stub.applyRunPolicy(team, push)
       if (!r.ok) throw new Error(r.message ?? "refused")
       this.requireCommitted(this.submitSystem("team.policy.runs_synced", push, `runs-synced:${push.version}:${push.runs_allowed ? 1 : 0}`))
@@ -189,7 +197,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     // The ordinary Stack mirror receives deletion webhooks even though this logical owner is personal.
     const canonical = stackTeamIdFor(this.env.STACK_PROJECT_ID, target.tenant)
     if (canonical === entity) return null
-    const mirror = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(canonical)) as unknown as { vmApiTenantState(e: string): Promise<string> }
+    const mirror = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(canonical))
     const status = await mirror.vmApiTenantState(canonical).catch(() => null)
     if (status !== "unknown" && status !== "active") return null
     // Solo membership is re-read (briefly cached), not trusted from provisioning: anyone added to the
@@ -223,7 +231,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     return owner && personalTeamIdFor(owner) === entity ? owner : null
   }
   private async personalStackUser(user: string): Promise<string | null> {
-    const stub = this.env.USER_DO.get(this.env.USER_DO.idFromName(user)) as unknown as { stackUserOf(entity: string): Promise<string | null> }
+    const stub = this.env.USER_DO.get(this.env.USER_DO.idFromName(user))
     return stub.stackUserOf(user)
   }
   /** Provisioning is a separate owner command; reads and cleanup never call it. */
@@ -246,6 +254,62 @@ export class TeamDO extends OwnerDO<TeamState> {
   }
 
   async cloudPolicy(entity: string) { return cloudPolicyOf(this.isBound(entity) ? this.bind(entity).currentState : undefined) } // RPC from CloudDO (CLOUD-CONNECT-ACCESS, cloud.idlePause)
+
+  /*
+   * Native network RPCs for the platform CloudDO (cmux-platform). Each answer is pinned to the
+   * caller's live install grant (UserDO networkIdentity) and to this team's current hosts, members
+   * and policy; there is no await between the final state checks and the answer.
+   */
+  private networkIdentity(entity: string) {
+    return (user: string, install: string, grant: string) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).networkIdentity(user, install, grant, entity)
+  }
+  private nativeDialDeps(entity: string): NativeDialDeps | null {
+    if (!this.isBound(entity)) return null
+    const engine = this.bind(entity)
+    return { team: entity, project: this.env.STACK_PROJECT_ID, origin: this.env.CLOUD_VM_API_ORIGIN,
+      state: () => engine.currentState, rows: engine.rows, tenant: () => this.vmApiTenant(entity, "operate"), http: this.http, now: Date.now,
+      identity: this.networkIdentity(entity), allowed: () => cloudPolicyOf(engine.currentState).connect_services }
+  }
+  /** A fresh one-use device proof joined to this install's own Native VM permissions (cloud.machine.link_token on a Native VM). */
+  async authorizeCloudDial(entity: string, p: Principal, target: NativeDialTarget, proof: unknown, services: ReadonlyArray<string>) {
+    const deps = this.nativeDialDeps(entity)
+    return deps ? authorizeNativeDial(deps, p, target, proof, services) : { ok: false as const, code: "auth.forbidden", message: "no active team network owner" }
+  }
+  /** Recheck a permit after signing; false unless the same grant, host, key, tenant and services still hold. */
+  async recheckCloudDial(entity: string, p: Principal, permit: NativeDialPermit): Promise<boolean> {
+    const deps = this.nativeDialDeps(entity)
+    return deps ? recheckNativeDial(deps, p, permit) : false
+  }
+  /** The Native receiver policy's peers joined to live hosts, owners, grants and team policy (cloud.vm.network_policy). */
+  async vmReceiverPeers(entity: string, target: VmReceiverPeerTarget) {
+    if (!this.isBound(entity)) return null
+    const engine = this.bind(entity)
+    return vmReceiverPeers({ team: entity, project: this.env.STACK_PROJECT_ID, origin: () => this.env.CLOUD_VM_API_ORIGIN,
+      state: () => engine.currentState, rows: engine.rows, tenant: () => this.vmApiTenant(entity, "operate"), now: Date.now,
+      allowed: () => cloudPolicyOf(engine.currentState).connect_services, identity: this.networkIdentity(entity),
+      identities: (user, entries) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).networkIdentities(user, entries, entity)
+    }, target)
+  }
+  /** host.network.target for the platform route (cmux-platform NativeNetwork Target.ts); the caller passes the grant classes it verified. */
+  async hostNetworkTarget(entity: string, p: Principal, params: unknown): Promise<ReadResult> {
+    if (!this.isBound(entity)) return { ok: false, code: "auth.forbidden", message: "no active team network owner" }
+    const engine = this.bind(entity)
+    return hostNetworkTarget({
+      team: entity, project: this.env.STACK_PROJECT_ID, connection: () => vmApiConnection(this.env), revision: () => String(engine.currentSeq),
+      state: () => engine.currentState, rows: engine.rows, tenant: () => this.vmApiTenant(entity, "operate"), http: this.http, now: Date.now,
+      identity: (user, install, grant) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).readIdentity(user, install, grant)
+    }, p, params)
+  }
+  /** Verify the Native network owner without reading the mesh. cmux-platform performs that read with its creator key. */
+  async hostNetworkTargetOwner(entity: string, p: Principal, params: unknown) {
+    if (!this.isBound(entity)) return { ok: false as const, code: "auth.forbidden", message: "no active team network owner" }
+    const engine = this.bind(entity)
+    return hostNetworkTargetOwner({
+      team: entity, project: this.env.STACK_PROJECT_ID, origin: () => vmApiOrigin(this.env), revision: () => String(engine.currentSeq),
+      state: () => engine.currentState, rows: engine.rows, tenant: () => this.vmApiTenant(entity, "operate"), now: Date.now,
+      identity: (user, install, grant) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).readIdentity(user, install, grant)
+    }, p, params)
+  }
   /** RPC from SchedulerDO (fail closed): the run class as TeamDO would push it now. */
   async runPolicy(entity: string): Promise<{ version: number; runs_allowed: boolean }> {
     return runSyncPush(this.bind(entity).currentState)
@@ -453,6 +517,20 @@ export class TeamDO extends OwnerDO<TeamState> {
   /** cx-q4f3: team_vm.taint.accept, team_vm.rebuild, team_vm.retired.delete (team-vm-taint-admin.ts). */
   async vmAdminOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> { return vmAdminExternal({ ...this.sshDeps(entity), teamVm: this.teamVm(entity) }, principal, frame) }
   async memberAdminOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> { return memberAdminExternal({ ...this.sshDeps(entity), stackProjectId: this.env.STACK_PROJECT_ID, stack: this.stack ?? stackServer(this.env) }, principal, frame) }
+  /** RPC from the Worker: team.agent_key.set and team.agent_key.remove (team-agent-keys.ts; the key only in this request). */
+  async agentKeyOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> { return agentKeyExternal(this.agentKeyDeps(entity), principal, frame) }
+  /** RPC from the model route only (resolveTeamSharedKey; cmux-platform through its TEAM_DO binding): the team's shared key, or null. Never a client read. */
+  async agentKeyResolve(entity: string, agent: TeamAgent, user?: string): Promise<TeamSharedKey | null> { return this.isBound(entity) ? agentKeyOpen(this.agentKeyDeps(entity), agent, user) : null } // an unknown team has no key, and asking creates no storage
+  private agentKeyDeps(entity: string): AgentKeyDeps {
+    const engine = this.bind(entity)
+    return { state: () => this.boundEngine?.currentState ?? engine.currentState, rows: engine.rows, team: entity, stream: engine.stream, env: this.env, http: this.http, sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) }
+  }
+  /** RPC from the Worker: team.models_policy.set (team-models-policy.ts; a side table beside the agent keys). */
+  async modelsPolicyOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> { return modelsPolicyExternal(this.modelsPolicyDeps(entity), principal, frame) }
+  private modelsPolicyDeps(entity: string): ModelsPolicyDeps {
+    const engine = this.bind(entity)
+    return { state: () => this.boundEngine?.currentState ?? engine.currentState, rows: engine.rows, team: entity, stream: engine.stream, sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) }
+  }
   private teamVm = (team: string) => this.env.TEAM_VM_DO.get(this.env.TEAM_VM_DO.idFromName(team))
 
   /** SSH CA requests running in this instance (team-ssh-ca.ts); a reset object starts with none, so its stored requests resume. */
@@ -534,7 +612,7 @@ export class TeamDO extends OwnerDO<TeamState> {
   async enrollServer(
     entity: string,
     principal: Principal,
-    params: { install: string; name: string; platform: string; wg_public_key: string; network?: typeof ServerNetworkReservation.Type },
+    params: { install: string; name: string; platform: string; wg_public_key: string; network?: typeof ServerNetworkReservation.Type; machine_join_token?: string },
     idempotencyKey: string
   ): Promise<{ ok: true; host: string } | { ok: false; code: string; message: string; refused?: true }> {
     this.bind(entity)
@@ -554,6 +632,9 @@ export class TeamDO extends OwnerDO<TeamState> {
   /** The owner's UserDO for revocation pushes; tests replace it to fail the RPC. */
   userOwner = (user: string): { revokeByTeam(entity: string, team: string, install: string, by: string, idempotencyKey: string): Promise<unknown> } =>
     this.env.USER_DO.get(this.env.USER_DO.idFromName(user))
+
+  /** The platform revoke of a paired server's machine (pair-machine-join.ts); tests replace it. */
+  machineJoins = (team: string, joinTokenId: string): Promise<"done" | "retry"> => revokePairMachineJoin(this.env, { team, join_token_id: joinTokenId })
 
   /** Backoff after a failed revocation push (in memory: a restart retries at once). */
   private revokeRetryAt: number | null = null
@@ -588,6 +669,22 @@ export class TeamDO extends OwnerDO<TeamState> {
         continue
       }
       if (!res.ok) console.error(JSON.stringify({ msg: "server install revocation refused", install: r.install, code: res.code }))
+      // The machine its approval minted goes too (as `cmux machine revoke`); an outage keeps the item for the retry.
+      if (r.machine_join_token) {
+        let machine: "done" | "retry"
+        try {
+          machine = await this.machineJoins(entity, r.machine_join_token)
+        } catch {
+          machine = "retry"
+        }
+        if (machine === "retry") {
+          this.revokeAttempts += 1
+          this.revokeRetryAt = Date.now() + Math.min(5 * 60_000, 1000 * 2 ** this.revokeAttempts)
+          console.error(JSON.stringify({ msg: "server machine revocation failed", install: r.install }))
+          if (res.ok) revoked.push(r.install)
+          continue
+        }
+      }
       this.requireCommitted(this.submitSystem("server.install_revoked", { install: r.install }, `server-install-revoked:${r.install}`))
       if (res.ok) revoked.push(r.install)
     }
@@ -599,6 +696,8 @@ export class TeamDO extends OwnerDO<TeamState> {
   }
 
   /** Stack server access for SSO sign-in, and the shared pace of its webhook reads; tests replace them. */
+  /** Tests only: replaces the carry RPC to the owner's personal TeamDO (team-grant-carry.ts). */
+  carryTo: ((personalTeam: string, fromTeam: string, vmPlan: string) => Promise<void>) | undefined = undefined
   stack: StackServer | undefined = undefined; stackPace: (() => Promise<boolean>) | undefined = undefined; stackLowPace: (() => Promise<boolean>) | undefined = undefined
 
   private loginDeps(entity: string): LoginDeps {
@@ -642,6 +741,17 @@ export class TeamDO extends OwnerDO<TeamState> {
   }
   async memberRole(entity: string, user: string): Promise<string | null> { return (await this.membership(entity, user))?.role ?? null } // team selection (x-cmux-team)
   async noOwner(entity: string): Promise<boolean> { return this.isBound(entity) && noOwnerOf(this.bind(entity).currentState) } // RPC from TeamVmDO's team_vm.status (review P2-3)
+  /**
+   * RPC from a deleted shared team's TeamDO (team-grant-carry.ts): records that team's Cloud grant on this
+   * personal team, whose cloudVmPlan then compares it. Only a personal team id (or an unbound object) takes it.
+   */
+  async receiveCarriedVmPlan(entity: string, fromTeam: string, vmPlan: string): Promise<{ ok: true } | { ok: false; code: string }> {
+    const team = this.isBound(entity) ? this.bind(entity).currentState.team : null
+    if (team && (team.id !== entity || team.kind !== "personal")) return { ok: false, code: "not_personal" }
+    if (this.boundEntity() !== null && this.boundEntity() !== entity) return { ok: false, code: "wrong_object" }
+    ;(await import("./cloud-vm-plan.ts")).storeCarriedVmPlan(this.ctx.storage.sql, fromTeam, vmPlan, Date.now())
+    return { ok: true }
+  }
   async cloudVmPlan(entity: string, stackUser?: string) { return (await import("./cloud-vm-plan.ts")).cloudVmPlanOf(this.ctx.storage.sql, this.isBound(entity) ? this.bind(entity).currentState : null, entity, this.stack ?? stackServer(this.env), stackUser, Date.now()) } // RPC from CloudDO: the operator Cloud grant (cloud-entitlements.ts)
   async inferencePlan(entity: string, user: string, stackUser?: string) { return (await import("./inference/plan.ts")).inferencePlanOf(this.ctx.storage.sql, this.isBound(entity) ? this.bind(entity).currentState : null, entity, this.stack ?? stackServer(this.env), stackUser, user) } // RPC from the model router: the paid-plan gate (inference/plan.ts)
   /** RPC from the Stack webhook route (stack-webhook.ts): one delivery reconciled with Stack, one at a time per team. */
@@ -654,6 +764,11 @@ export class TeamDO extends OwnerDO<TeamState> {
 
   /** An op (an invite accepted, a member added or removed) answers once the members' team indexes follow it, as a Stack delivery does. */
   override async submit(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
+    // A first Cloud session publish needs the machine's creator (CloudDO's record; team-cloud-session-machine.ts).
+    if (frame.op === "team.cloud.session.publish" && this.isBound(entity)) {
+      const refused = await publishOwnershipRefusal({ stream: `team:${entity}`, rows: this.rows, read: this.cloudMachineRead ?? cloudMachineReader(this.env.CLOUD_DO) }, entity, principal, frame)
+      if (refused) return { frames: refused }
+    }
     const r = await super.submit(entity, principal, frame)
     await this.indexesDelivered()
     return r
@@ -673,7 +788,19 @@ export class TeamDO extends OwnerDO<TeamState> {
     return super.promptChannel(channel) || channel.startsWith("UserDO:")
   }
 
-  private readonly stackSync = new StackTeamSync(() => ({ team: this.boundEntity() ?? "", stackProjectId: this.env.STACK_PROJECT_ID, stack: this.stack ?? stackServer(this.env), sql: this.ctx.storage.sql, state: () => this.boundEngine!.currentState, rows: () => this.rows, submitSystem: (op, params, key) => this.submitSystem(op, params, key), revokeStuck: (user) => [revokeMemberCertsNow({ sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) }, user), this.closeSockets((p) => p.user === user, "left the team")], pace: () => this.stackPace?.() ?? stackReadPace(this.env), lowPace: () => this.stackLowPace?.() ?? stackLowReadPace(this.env) }))
+  private readonly stackSync = new StackTeamSync(() => ({ team: this.boundEntity() ?? "", stackProjectId: this.env.STACK_PROJECT_ID, stack: this.stack ?? stackServer(this.env), sql: this.ctx.storage.sql, state: () => this.boundEngine!.currentState, rows: () => this.rows, submitSystem: (op, params, key) => this.submitSystem(op, params, key), revokeStuck: (user) => [revokeMemberCertsNow({ sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) }, user), this.closeSockets((p) => p.user === user, "left the team")], pace: () => this.stackPace?.() ?? stackReadPace(this.env), lowPace: () => this.stackLowPace?.() ?? stackLowReadPace(this.env), carryTo: this.carryTo ?? (async (personalTeam, fromTeam, vmPlan) => { const r = await this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(personalTeam)).receiveCarriedVmPlan(personalTeam, fromTeam, vmPlan); if (!r.ok) throw new Error(`carried grant refused: ${r.code}`) }) }))
 
   protected maySubscribe(state: TeamState, principal: Principal): boolean { return can(state, this.rows, principal.user, "team.resources") }
+
+  /** Tests only: replaces CloudDO's machine read for the first-publish check (team-cloud-session-machine.ts). */
+  cloudMachineRead: CloudMachineRead | undefined = undefined
+
+  /** The first-publish machine check awaits CloudDO, which the socket's synchronous op path cannot: that op goes through POST /v1/ops. */
+  protected override routeFrame(ws: WebSocket, _a: Attachment, frame: { readonly t?: string; readonly op?: unknown } & Record<string, unknown>): boolean {
+    if (frame.t !== "op" || frame.op !== "team.cloud.session.publish") return false
+    try {
+      ws.send(JSON.stringify({ t: "reject", tx: "", idempotency_key: frame.idempotency_key ?? "", code: "validation.invalid", message: "team.cloud.session.publish goes through POST /v1/ops", retryable: false, replayed: false }))
+    } catch {}
+    return true
+  }
 }

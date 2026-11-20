@@ -1114,6 +1114,14 @@ _cmux_report_shell_activity_state() {
 
 _cmux_reset_terminal_keyboard_protocols() {
     [[ -t 1 || -n "${CMUX_TEST_FORCE_KEYBOARD_RESET:-}${CMUX_TEST_FORCE_KITTY_RESET:-}" ]] || return 0
+    # Powerlevel10k's remote worker performs its first prompt handshake through
+    # the same PTY boundary.  Sending the Kitty reset while that worker is
+    # waiting can leave the worker and the interactive shell polling forever
+    # (cmux#4148).  Keep the reset for every other shell, including local p10k.
+    if [[ "${CMUX_REMOTE_TRANSPORT:-}" == ws ]] &&
+       (( $+functions[p10k] || $+functions[_p9k_init] )); then
+        return 0
+    fi
     # A crashed TUI may leave keyboard protocol state pushed. At a fresh shell
     # prompt, return terminal input encoding to plain readline bytes.
     printf '\033[>m\033[<8u'

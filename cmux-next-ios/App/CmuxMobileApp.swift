@@ -1,9 +1,9 @@
 import CmuxMobileAuth
+import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileShell
 import CmuxMobileVoice
 #if DEBUG
-import CmuxMobileLive
 import CmuxMobileTerminal
 #endif
 import SwiftUI
@@ -16,7 +16,11 @@ struct CmuxMobileApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
-        // Settings, account and outboxes saved under the pre-rename (cnx) names move first.
+        // An update from the classic app (the same bundle id) left its Keychain items and
+        // settings here: they are deleted once, before anything reads either, so this app
+        // starts signed out instead of half-reading a classic session.
+        ClassicLeftovers.cleanUpIfDue()
+        // Settings and account saved under the pre-rename (cnx) names move first.
         LegacyStorage.migrate()
         #if !DEBUG
         // Release and Production have no Developer page: remove any developer
@@ -31,14 +35,28 @@ struct CmuxMobileApp: App {
         _auth = State(initialValue: auth)
         // A notification reply on a cold background launch signs in with it (no scene runs then).
         PushReplies.shared.auth = auth
+        #if DEBUG
+        // Screenshot rig: CMUX_MOBILE_FEED_LIVE_FIXTURE=1 fills the Feed from a fixed Mac.
+        LiveFeedFixture.shared.startIfRequested()
+        #endif
     }
 
     var body: some Scene {
         WindowGroup {
             Group {
             #if DEBUG
-            if TerminalFloodBenchRoot.isRequested {
+            if BrowserEventsDemoRoot.isRequested {
+                BrowserEventsDemoRoot()
+            } else if RecoveryGalleryRoot.isRequested {
+                RecoveryGalleryRoot()
+            } else if ShellScreenSharingDemo.isRequested {
+                ShellScreenSharingDemo()
+            } else if TerminalFloodBenchRoot.isRequested {
                 TerminalFloodBenchRoot()
+            } else if TerminalResizeDemoRoot.isRequested {
+                TerminalResizeDemoRoot()
+            } else if AgentCLIHybridBenchRoot.isRequested {
+                AgentCLIHybridBenchRoot()
             } else if TerminalDemoRoot.isRequested || DeveloperOptions.launchDemo == "terminal" {
                 TerminalDemoRoot()
             } else {
@@ -54,6 +72,12 @@ struct CmuxMobileApp: App {
                 scenePhase: scenePhase,
                 accountID: auth.isSignedIn ? auth.user?.id : nil
             ))
+            #if DEBUG
+            // Rig: `-cmux-mobile-run-intent new-agent-chat` with CMUX_MOBILE_INTENT_MESSAGE runs the
+            // App Shortcut's own perform() at launch, as the system would on a tap (a headless
+            // simulator's Spotlight opens the app without running an app's intents).
+            .task { await NewAgentChatIntent.runFromLaunchArguments() }
+            #endif
         }
     }
 }

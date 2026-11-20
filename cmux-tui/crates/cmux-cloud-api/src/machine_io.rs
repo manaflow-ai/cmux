@@ -1,0 +1,381 @@
+//! One file operation or command on a Cloud machine, straight to its provider with a
+//! short-lived client session when it can, else through the cmux API: the logic of
+//! `cmux cloud machine-io` (its stdin entry is cmux-tui's `cli/cloud_machine_io.rs`) and of a
+//! Worker machine's `machine.io` call ([`crate::machine`]), which the daemon serves as
+//! `cloud.machine.io`.
+//!
+//! Request: one JSON object on stdin (never in argv, which other processes can read):
+//!
+//! ```json
+//! {"api": "https://cloud-api.cmux.dev", "credential": "…", "team": "…", "machine": "vm_…",
+//!  "op": "dir|read|stat|write|mkdir|remove|exec", "path": "/…", "data_base64": "…",
+//!  "mode": 420, "command": "…", "timeout_ms": 30000, "cache_dir": "/…",
+//!  "route": "auto|proxy", "app_version": "…"}
+//! ```
+//!
+//! Answer: one JSON line on stdout, `{"route": "direct"|"proxy"|"none", "status": N, "code": C|null,
+//! "body": B}`, where `status`, `code` (the `x-cmux-vm-error` header) and `body` are what the
+//! cmux API's own route (`/v1/cloud/machines/{machine}/{exec,fs/…}`) answers for the same
+//! request, so the app decodes either route the same way. `status` 0 is no answer at all.
+//! Exit 0 for a 2xx answer, 1 for any other, 2 for a request that is not one (route `none`:
+//! nothing ran, and the app sends the request to the cmux API itself).
+//!
+//! The direct route (cmux-platform `src/server/cloud/ClientSession.ts`; freestyle.sh/docs/vms/
+//! client-sessions): mint `POST /v1/cloud/machines/{machine}/client-session`, cache it
+//! ([`session`]), and run the operation with Freestyle's `exec-await` ([`direct`]). The proxy
+//! ([`proxy`]) is taken when the request asks for it, the machine is not a Worker machine
+//! (`vm_` and 20 characters), the mint is refused (a teammate's machine, a provider without client
+//! sessions, the rate limit; remembered a while), Freestyle refuses a freshly minted token, or the
+//! operation needs root (a path the work user may not touch).
+
+mod direct;
+mod directory;
+mod proxy;
+mod session;
+
+use std::io::Seek as _;
+use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64;
+use serde_json::{Value, json};
+
+use crate::session::{mint_session, redact, valid_machine};
+use cmux_cloud_client::machine::Scope;
+use direct::{Direct, Grant};
+use session::{Cache, Entry, Use};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Op {
+    Dir,
+    Read,
+    Stat,
+    Write,
+    Mkdir,
+    Remove,
+    Exec,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RouteChoice {
+    #[default]
+    Auto,
+    Proxy,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Request {
+    pub api: String,
+    pub credential: String,
+    #[serde(default)]
+    pub team: Option<String>,
+    pub machine: String,
+    pub op: Op,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub data_base64: Option<String>,
+    #[serde(default)]
+    pub mode: Option<u32>,
+    #[serde(default)]
+    pub command: Option<String>,
+    #[serde(default)]
+    pub timeout_ms: Option<u64>,
+    #[serde(default)]
+    pub cache_dir: Option<PathBuf>,
+    #[serde(default)]
+    pub route: RouteChoice,
+    #[serde(default)]
+    pub app_version: Option<String>,
+    /// The cmux API is a local stack: a connection it refuses answers code `no_backend`.
+    #[serde(default)]
+    pub local_only: bool,
+    /// The most bytes a read or a listing may come to: past it the direct route stops reading
+    /// and answers code `too_large` (the daemon's `cloud.machine.io` sets it; the CLI does not).
+    #[serde(default)]
+    pub max_bytes: Option<u64>,
+}
+
+impl Request {
+    /// The written bytes: strict standard base64, else none.
+    pub fn data(&self) -> Option<Vec<u8>> {
+        BASE64.decode(self.data_base64.as_deref()?).ok()
+    }
+
+    /// The exec's deadline as the cmux API sets it: 30 s when absent or not positive, at most five minutes.
+    pub fn exec_timeout_ms(&self) -> u64 {
+        match self.timeout_ms {
+            Some(ms) if ms > 0 => ms.min(direct::EXEC_MAX_MS),
+            _ => direct::EXEC_DEFAULT_MS,
+        }
+    }
+
+    /// Whether the direct route can run it as given. Anything else goes to the proxy, which
+    /// answers it (its own 400 or 413) exactly as before.
+    pub fn direct_ready(&self) -> bool {
+        if !valid_machine(&self.machine) {
+            return false;
+        }
+        if self.op == Op::Exec {
+            let command = self.command.as_deref().unwrap_or_default();
+            // Any length: a long command is staged on the machine first.
+            return !command.trim().is_empty();
+        }
+        let Some(path) = self.path.as_deref() else { return false };
+        let path_ok = path.trim() == path
+            && path.starts_with('/')
+            && !path.contains('\0')
+            && !path.split('/').any(|s| s == "..")
+            && path.len() <= 4096;
+        let not_root = self.op != Op::Remove || !path.split('/').all(|s| s.is_empty() || s == ".");
+        let body_ok = self.op != Op::Write
+            || (self.data().is_some() && self.mode.is_none_or(|m| m <= 0o7777));
+        path_ok && not_root && body_ok
+    }
+}
+
+/// One route's answer, as the cmux API's route would give it.
+#[derive(Debug)]
+pub struct Answer {
+    pub status: u16,
+    pub body: Value,
+    pub code: Option<String>,
+    /// Verified bytes or a complete JSON body, kept off the heap.
+    pub file: Option<Spool>,
+}
+
+#[derive(Debug)]
+pub enum Spool {
+    Bytes(std::fs::File),
+    Json(std::fs::File),
+}
+
+fn private_spool() -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::PermissionsExt as _;
+    let file = tempfile::tempfile()?;
+    file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    Ok(file)
+}
+
+fn storage_error(error: std::io::Error) -> Direct {
+    Direct::Done(Answer::error(
+        0,
+        "local_io",
+        &format!("the downloaded response could not be stored: {error}"),
+    ))
+}
+
+impl Answer {
+    pub fn ok(body: Value) -> Self {
+        Answer { status: 200, body, code: None, file: None }
+    }
+
+    /// A refusal in the cmux API's shape: `{ok: false, error: {code, message}}` with the code in the header.
+    /// The refusal of a read or listing past `limit` bytes.
+    pub(crate) fn too_large(limit: u64) -> Self {
+        Answer::error(0, "too_large", &format!("the answer is larger than {limit} bytes"))
+    }
+
+    pub fn error(status: u16, code: &str, message: &str) -> Self {
+        let body = json!({ "ok": false, "error": { "code": code, "message": message } });
+        Answer { status, body, code: Some(code.to_owned()), file: None }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Route {
+    Direct,
+    Proxy,
+    /// Neither ran: the request is not one (the app takes its own HTTP route).
+    None,
+}
+
+/// A request that is not one: nothing ran (route `none` in the answer line).
+pub fn usage(message: &str) -> Answer {
+    Answer::error(400, "validation.invalid", message)
+}
+
+pub fn line(route: Route, answer: &Answer) -> Value {
+    let route = match route {
+        Route::Direct => "direct",
+        Route::Proxy => "proxy",
+        Route::None => "none",
+    };
+    json!({ "route": route, "status": answer.status, "code": answer.code, "body": answer.body })
+}
+
+/// Keep the app's JSON contract while encoding a verified file incrementally. Nothing is
+/// emitted until all ranges agree on one version; a retry never leaks an old file's prefix.
+pub fn write_line(
+    output: &mut impl std::io::Write,
+    route: Route,
+    answer: &mut Answer,
+) -> std::io::Result<()> {
+    if answer.file.is_none() {
+        return writeln!(output, "{}", line(route, answer));
+    }
+    // Metadata only: `file` holds the bytes, so this never clones a file-sized JSON value.
+    let mut envelope = line(route, answer);
+    let body = envelope
+        .as_object_mut()
+        .and_then(|v| v.remove("body"))
+        .ok_or_else(|| std::io::Error::other("missing file metadata"))?;
+    let envelope = envelope.to_string();
+    let body = body.to_string();
+    let envelope =
+        envelope.strip_suffix('}').ok_or_else(|| std::io::Error::other("invalid file envelope"))?;
+    let spool = answer.file.as_mut().ok_or_else(|| std::io::Error::other("missing file"))?;
+    let file = match spool {
+        Spool::Json(file) => {
+            file.rewind()?;
+            write!(output, "{envelope},\"body\":")?;
+            std::io::copy(file, output)?;
+            return output.write_all(b"}\n");
+        }
+        Spool::Bytes(file) => file,
+    };
+    file.rewind()?;
+    let body =
+        body.strip_suffix('}').ok_or_else(|| std::io::Error::other("invalid file metadata"))?;
+    write!(output, "{envelope},\"body\":{body},\"dataBase64\":\"")?;
+    {
+        let mut encoder = base64::write::EncoderWriter::new(&mut *output, &BASE64);
+        std::io::copy(file, &mut encoder)?;
+        encoder.finish()?;
+    }
+    output.write_all(b"\"}}\n")
+}
+
+/// A refusal never carries the caller's credential back (a proxy or server that echoed it).
+pub fn scrub(mut answer: Answer, credential: &str) -> Answer {
+    if !(200..300).contains(&answer.status) && !credential.is_empty() {
+        let text = answer.body.to_string();
+        if text.contains(credential) {
+            answer.body =
+                serde_json::from_str(&redact(&text, "", credential)).unwrap_or(Value::Null);
+        }
+    }
+    answer
+}
+
+pub fn runtime_and_client() -> Result<(tokio::runtime::Runtime, reqwest::Client), String> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok((runtime, http_client()?))
+}
+
+/// The one HTTP client of a call (tests use it too). reqwest is built without a default rustls crypto
+/// provider, so this installs ring first: a process that builds a client before any install panics.
+pub fn http_client() -> Result<reqwest::Client, String> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+pub fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// Runs `request` on the direct route when it can, else (or when that route hands it back) on the proxy.
+pub async fn perform(
+    client: &reqwest::Client,
+    request: &Request,
+    now: impl Fn() -> u64,
+) -> (Route, Answer) {
+    if request.route == RouteChoice::Proxy || !request.direct_ready() {
+        return (Route::Proxy, proxy::run(client, request).await);
+    }
+    let cache = Cache::new(
+        request.cache_dir.as_deref(),
+        &request.api,
+        request.team.as_deref(),
+        &request.machine,
+        &request.credential,
+    );
+    let mut fresh = false;
+    let grant = match session::decide(cache.load().as_ref(), now()) {
+        Use::Direct(grant) => grant,
+        Use::Proxy => return (Route::Proxy, proxy::run(client, request).await),
+        Use::Mint => match mint(client, request, &cache, &now).await {
+            Some(grant) => {
+                fresh = true;
+                grant
+            }
+            None => return (Route::Proxy, proxy::run(client, request).await),
+        },
+    };
+    match direct::run(client, &grant, request).await {
+        Direct::Done(answer) => return (Route::Direct, answer),
+        Direct::Fallback => {}
+        Direct::Auth => {
+            cache.clear();
+            // A cached token the provider no longer takes (revoked, or a clock that kept it too
+            // long): mint once more. A fresh one refused means this machine's sessions do not
+            // work now; take the proxy for a while.
+            let retry = if fresh { None } else { mint(client, request, &cache, &now).await };
+            match retry {
+                Some(grant) => match direct::run(client, &grant, request).await {
+                    Direct::Done(answer) => return (Route::Direct, answer),
+                    Direct::Fallback => {}
+                    Direct::Auth => hold(&cache, &now, 503),
+                },
+                None if fresh => hold(&cache, &now, 503),
+                None => {}
+            }
+        }
+    }
+    (Route::Proxy, proxy::run(client, request).await)
+}
+
+fn hold(cache: &Cache, now: &impl Fn() -> u64, status: u16) {
+    let ms = session::hold_ms(status);
+    if ms > 0 {
+        cache.store(&Entry::ProxyUntil { until_ms: now().saturating_add(ms) });
+    }
+}
+
+async fn mint(
+    client: &reqwest::Client,
+    request: &Request,
+    cache: &Cache,
+    now: &impl Fn() -> u64,
+) -> Option<Grant> {
+    // `direct_ready` checked the origin and the machine id, so the handle is made; a request
+    // that still has neither goes to the proxy like any refused mint.
+    let scope = Scope::new(&request.api, request.team.as_deref()).ok()?;
+    let machine = scope.machine(&request.machine).ok()?;
+    let minted =
+        mint_session(client, &scope, &request.credential, &machine, Some(session::TTL_SECONDS))
+            .await;
+    match minted {
+        Ok(s) => {
+            let grant = Grant {
+                vm_id: s.vm_id,
+                linux_user: s.linux_user,
+                token: s.token,
+                api_base_url: s.api_base_url,
+            };
+            let use_until_ms = session::use_until(s.expires_at, now());
+            cache.store(&Entry::Session { grant: grant.clone(), use_until_ms });
+            Some(grant)
+        }
+        Err(refusal) => {
+            hold(cache, now, refusal.status);
+            None
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

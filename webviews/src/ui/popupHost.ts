@@ -9,6 +9,9 @@
 // scroll in the page.
 import { useEffect, useRef, useState } from "react";
 import { usePopupHost } from "./UiProvider";
+import type { NativePopupTransport } from "./nativePopup";
+import type { NativePopupEvent } from "./popupProtocol";
+import { onVisualViewport, visualViewportScale } from "./visualViewportBox";
 
 export interface PopupItem {
   id: string;
@@ -51,6 +54,8 @@ export type PopupEvent =
  * finds it taken and stays in the page.
  */
 export interface PopupHost {
+  /** Declarative native rendering. Legacy overflow consumers migrate to this path. */
+  native?: NativePopupTransport;
   /** Resolves `{shown: true}` once the rows show; anything else leaves the surface in the page. */
   show(model: PopupModel, owner: object): Promise<unknown>;
   update(model: PopupModel, owner: object): void;
@@ -79,6 +84,19 @@ export function createPopupHost(
       : { ...model };
   let current: object | null = null;
   return {
+    native: {
+      show: (model) => {
+        current = null;
+        return quiet("show", { ...model });
+      },
+      update: (model) => void quiet("update", { ...model }),
+      hide: (id, revision) => void quiet("hide", { schemaVersion: 1, id, revision }),
+      listen: (listener) =>
+        listen((event) => {
+          const native = event as unknown as NativePopupEvent;
+          if (typeof native.popupId === "string" && Number.isSafeInteger(native.revision)) listener(native);
+        }),
+    },
     show(model, owner) {
       current = owner;
       return quiet("show", request(model));
@@ -92,7 +110,10 @@ export function createPopupHost(
       void quiet("hide");
     },
     owner: () => current,
-    listen,
+    listen: (listener) =>
+      listen((event) => {
+        if (!("popupId" in event)) listener(event);
+      }),
   };
 }
 
@@ -148,6 +169,9 @@ export function popupItems(
     copy
       .querySelectorAll('.ui-menu-shortcut,.ui-menu-check,[aria-hidden="true"],[data-popup-skip]')
       .forEach((node) => node.remove());
+    // A row's muted description (`data-popup-detail`) follows its title after a dash: the host draws
+    // one line of text, and the two ran together ("PlanPlan reads and p…", Leo 2026-10-31).
+    copy.querySelectorAll("[data-popup-detail]").forEach((node) => node.prepend(" — "));
     const shortcut = row.querySelector(".ui-menu-shortcut")?.textContent?.trim();
     return {
       id,
@@ -175,7 +199,18 @@ export function naturalHeight(popup: HTMLElement): number {
     if (list.scrollHeight <= list.clientHeight + 1) continue;
     const style = getComputedStyle(list);
     if (!/auto|scroll/.test(style.overflowY)) continue;
-    const cap = parseFloat(style.getPropertyValue("--popup-scroll-cap"));
+    let cap = parseFloat(style.getPropertyValue("--popup-scroll-cap"));
+    // A row viewport inherits the shell's designed cap, which already includes its padding.
+    // Count that padding once when moving scrolling off the glass surface.
+    const shell = list.parentElement;
+    if (
+      Number.isFinite(cap) &&
+      list.classList.contains("ui-popup-scroll") &&
+      shell?.classList.contains("ui-popup-scroll-shell")
+    ) {
+      const outer = getComputedStyle(shell);
+      cap = Math.max(0, cap - (parseFloat(outer.paddingTop) || 0) - (parseFloat(outer.paddingBottom) || 0));
+    }
     const designed = Number.isFinite(cap) ? Math.min(list.scrollHeight, cap) : list.scrollHeight;
     hidden += Math.max(0, designed - list.clientHeight);
   }
@@ -283,14 +318,18 @@ export function useEscapingPopup(
       const at = anchorRef.current();
       if (!at) return null;
       const { items, highlighted } = popupItems(element, kind, active);
-      const box = at.getBoundingClientRect();
+      // Where the anchor shows under a trackpad pinch, so the App's popup opens beside it.
+      // A virtual anchor (a pointer, a plain box) has no document: the page's own window.
+      const view = ("ownerDocument" in at ? (at as Element).ownerDocument?.defaultView : undefined) ?? window;
+      const box = onVisualViewport(at.getBoundingClientRect(), view);
       return {
         items,
         highlighted,
         anchor: { left: box.left, top: box.top, right: box.right, bottom: box.bottom },
         side,
         align,
-        width: kind === "tooltip" ? textWidth(element) : element.getBoundingClientRect().width,
+        width:
+          (kind === "tooltip" ? textWidth(element) : element.getBoundingClientRect().width) * visualViewportScale(view),
         kind,
       };
     };
@@ -324,8 +363,8 @@ export function useEscapingPopup(
       const room = at?.getBoundingClientRect();
       const fits =
         !room ||
-        (fitsInPage(room, naturalHeight(element), gap, innerHeight, flip ? undefined : side) &&
-          (kind !== "tooltip" || wraps || textWidth(element) <= innerWidth - 2 * EDGE));
+        (fitsInPage(room, naturalHeight(element), gap, window.innerHeight, flip ? undefined : side) &&
+          (kind !== "tooltip" || wraps || textWidth(element) <= window.innerWidth - 2 * EDGE));
       if (!flat || items.length === 0 || fits) return;
       const first = model();
       if (!first) return;
@@ -415,16 +454,18 @@ export function useEscapingPopup(
 /**
  * A listbox the page keeps on one side of its field with CSS (the composer's slash and @ lists):
  * the ref for it. With no room on that side, its rows go past the window's edge. Undefined on a
- * page without a host.
+ * page without a host. `anchor` is the box the list stands beside (the composer's lists draw out
+ * of it, in a layer of their own: backdropLayer.tsx); unset, the list's offset parent.
  */
 export function useEscapingList(
   side: "top" | "bottom",
   gap: number,
   onDismiss?: () => void,
+  anchor?: HTMLElement | null,
 ): ((list: HTMLElement | null) => void) | undefined {
   const host = usePopupHost();
   const [list, setList] = useState<HTMLElement | null>(null);
-  useEscapingPopup(host, list, () => list?.offsetParent ?? null, {
+  useEscapingPopup(host, list, () => anchor ?? list?.offsetParent ?? null, {
     side,
     align: "start",
     gap,

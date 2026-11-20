@@ -75,6 +75,13 @@ public final class ChiefBrainKeeper {
         return starting
     }
 
+    /// Whether this home's brain host runs or is starting: one this app watches, or one
+    /// another process started (it holds the home's lock).
+    public var isRunning: Bool {
+        if starting || watch?.isWatching == true { return true }
+        return ChiefHostStop.runningHostPID(home: home) != nil
+    }
+
     /// A Chief chat that found nothing on the Chief home's acpmux socket asks for the host
     /// (#25570): it starts one when none was started in this run, and says whether a host runs
     /// or is starting. A watch that gave up (a host that kept dying) is armed again only by an

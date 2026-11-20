@@ -16,7 +16,8 @@ extension FilePageProvider {
         guard kind == .markdown, !isClosed else { return nil }
         switch request.prefix {
         case MarkdownPageResource.asset:
-            guard let file, request.path.count >= 2, request.path[0] == assetToken else { return nil }
+            // Only this Mac's folders: another machine's file shows no local image of the same path.
+            guard files.isLocal, let file, request.path.count >= 2, request.path[0] == assetToken else { return nil }
             let folder = file.deletingLastPathComponent()
             return await Self.localImage(folder: folder, relative: request.path.dropFirst().joined(separator: "/"))
         case MarkdownPageResource.library:

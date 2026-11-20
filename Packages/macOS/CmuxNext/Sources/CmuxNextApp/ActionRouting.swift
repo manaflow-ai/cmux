@@ -18,6 +18,13 @@ enum ActionRouting {
             let routed = daemon(for: invocation, daemons: services.machines.daemons) { windowID in
                 windows.first { $0.state.id == windowID }.flatMap { services.machines.daemon(machine: $0.state.machineID) }
             }
+            // A native context menu carries an explicit machine owner. If that
+            // machine disappeared while the menu was open, refuse the action;
+            // falling back to the active daemon could mutate a same-ID tab here.
+            if invocation.targetMachineID != nil, routed == nil {
+                services.registry.refuseNotFound("The target machine is no longer connected.")
+                return
+            }
             let previous = services.routedDaemon
             services.routedDaemon = routed ?? previous
             body()
@@ -30,6 +37,7 @@ enum ActionRouting {
     /// object's". `windowMachine` maps a window id to its machine's daemon.
     static func daemon(for invocation: ActionInvocation, daemons: [DaemonService],
                        windowMachine: (String) -> DaemonService?) -> DaemonService? {
+        if let machine = invocation.targetMachineID { return daemons.first { $0.machineID == machine } }
         let arguments = ["workspace", "tab", "pane", "group"].compactMap { invocation[$0]?.targetValue }
         guard let target = invocation.target ?? arguments.first else { return nil }
         switch target.kind {
@@ -38,17 +46,17 @@ enum ActionRouting {
         case .window:
             return windowMachine(target.id)
         case .workspace:
-            return daemons.first { $0.store.workspaces.contains { $0.id == target.id } }
+            return daemons.first { $0.store.workspace(id: target.id) != nil }
         case .workspaceGroup:
             return daemons.first { $0.store.group(WorkspaceGroupID(rawValue: target.id)) != nil }
         case .pane:
-            return daemons.first { panes($0).contains { $0.id == target.id } }
+            return daemons.uniquePane(target.id)?.daemon
         case .tab:
-            return daemons.first { panes($0).contains { $0.tabs.contains { $0.id == target.id } } }
+            return daemons.first { $0.store.tab(id: target.id) != nil }
         case .tabGroup:
             return GroupOwnership.daemon(holdingTabGroup: TabGroupID(rawValue: target.id), in: daemons)
         case .screen:
-            return daemons.first { $0.store.workspaces.flatMap(\.screens).contains { $0.id == target.id } }
+            return daemons.first { $0.store.screen(id: target.id) != nil }
         case .screenGroup:
             return GroupOwnership.daemon(holdingScreenGroup: ScreenGroupID(rawValue: target.id), in: daemons)
         case .column, .browserProfile, .bookmark, .sidebarItem, .sidebarSection, .agentChat:
@@ -58,9 +66,5 @@ enum ActionRouting {
         case .profile:
             return daemons.first { $0.store.profile(ProfileID(rawValue: target.id)) != nil }
         }
-    }
-
-    private static func panes(_ daemon: DaemonService) -> [PaneModel] {
-        daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes)
     }
 }

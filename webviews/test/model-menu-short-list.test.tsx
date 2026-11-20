@@ -11,6 +11,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test
 import { JSDOM } from "jsdom";
 import { act, useState } from "react";
 import type { Root } from "react-dom/client";
+import { openEffort } from "./support/effortDropdown";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -82,11 +84,7 @@ afterEach(() => {
 afterAll(async () => {
   // A checkbox indicator's last update lands a task after the final test: let it run on this window.
   await settle();
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 /// Claude Code's model list as Leo's chat reported it: its aliases named as the releases they run,
@@ -188,7 +186,10 @@ async function mount({
       <ComposerPickers
         snapshot={snapshot}
         pickerCatalog={picker.catalog}
-        onModel={(next) => setState((current) => ({ ...current, model: next }))}
+        onModel={(next) => {
+          sent.push({ id: "model", value: next });
+          setState((current) => ({ ...current, model: next }));
+        }}
         onMode={() => undefined}
         onEffort={(id, value) => {
           sent.push({ id, value });
@@ -217,11 +218,8 @@ const chipButton = () => host.querySelector<HTMLButtonElement>('[data-menu="Mode
 const menus = () => [...doc().querySelectorAll<HTMLElement>(".acpmux-quick-menu")];
 const menu = () => menus()[0];
 const label = (row: Element) => row.querySelector(".acpmux-menu-label")?.textContent?.trim() ?? "";
-const effortFor = (row: HTMLElement) => [
-  ...(row
-    .closest<HTMLElement>(".acpmux-quick-model-effort")
-    ?.querySelectorAll<HTMLElement>(".acpmux-quick-effort-segment") ?? []),
-];
+/// A model row's effort levels: its side dropdown, opened.
+const effortFor = (row: HTMLElement) => openEffort(row.ownerDocument, label(row));
 /// The model rows the menu itself shows (not its submenus').
 const modelRows = () => [...menu()!.querySelectorAll<HTMLElement>('.acpmux-quick-item[role="menuitemradio"]')];
 const rowText = (row: Element) => row.textContent?.replace("✓", "").trim() ?? "";
@@ -229,6 +227,62 @@ const rowText = (row: Element) => row.textContent?.replace("✓", "").trim() ?? 
 async function open() {
   await act(async () => chipButton().click());
   await settle();
+}
+
+test("Fable uses its reported 1M option under one plain model name", async () => {
+  const { sent } = await mount({ harness: "claude", family: "claude" });
+  await open();
+  const fable = modelRows().filter((row) => label(row).includes("Fable 5.1"));
+  expect(fable.map(label)).toEqual(["Fable 5.1"]);
+  await act(async () => fable[0]!.click());
+  expect(sent).toContainEqual({ id: "model", value: "claude-fable-5-1[1m]" });
+});
+
+for (const model of ["claude-fable-5-1", "claude-fable-5-1[1m]"])
+  test(`a chat already on ${model} keeps its checked Fable row without changing the session`, async () => {
+    const { sent } = await mount({ harness: "claude", family: "claude", model });
+    await open();
+    const fable = modelRows().filter((row) => label(row).includes("Fable 5.1"));
+    expect(fable.map(label)).toEqual(["Fable 5.1"]);
+    expect(fable[0]!.getAttribute("aria-checked")).toBe("true");
+    expect(sent).toEqual([]);
+  });
+
+for (const state of ["expired", "signedOut"] as const) {
+  test(`full picker offers Sign in again for ${state} auth before send`, async () => {
+    const { createRoot } = await import("react-dom/client");
+    const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
+    let logins = 0;
+    root = createRoot(host);
+    await act(async () =>
+      root!.render(
+        <ModelPicker
+          catalog={[{ id: "claude", name: "Claude Code", models: CLAUDE_CODE_MODELS }]}
+          harness="claude"
+          model="claude-opus-5-5"
+          label="Opus 5.5"
+          efforts={[]}
+          recents={[]}
+          onLand={() => undefined}
+          onEffort={() => undefined}
+          sessionAuth={{
+            state,
+            source: "turn",
+            evidenceAt: 1,
+            harness: "claude",
+            host: null,
+            login: { kind: "terminal", command: "claude auth login" },
+          }}
+          onSessionLogin={() => logins++}
+        />,
+      ),
+    );
+    await open();
+    const login = doc().querySelector<HTMLButtonElement>(".acpmux-mp-auth-action");
+    expect(login?.textContent).toBe("Sign in again");
+    await act(async () => login!.click());
+    expect(logins).toBe(1);
+  });
 }
 
 for (const [title, harness, family] of [
@@ -269,7 +323,8 @@ for (const [title, harness, family] of [
       await mount({ harness, family });
       await open();
       const rows = modelRows();
-      const keysShown = rows.map((row) => row.querySelector(".ui-menu-shortcut")?.textContent ?? "✓");
+      // The symbols row's menu names its keys ⌘1 to ⌘9 (a bare digit picks the same row).
+      const keysShown = rows.map((row) => row.querySelector(".ui-menu-shortcut")?.textContent?.replace("⌘", "") ?? "✓");
       expect(keysShown).toEqual(
         rows.map((row, index) => (row.getAttribute("aria-checked") === "true" ? "✓" : String(index + 1))),
       );
@@ -307,7 +362,21 @@ for (const harnessFixed of [false, true]) {
       ),
     );
     await open();
-    expect(modelRows().map(label)).toEqual(choices.slice(0, 6).map((choice) => choice.name));
+    const top = choices.slice(0, 6).map((choice) => choice.name);
+    if (!harnessFixed) {
+      // A rail's menu is the columns menu: the top models, then the harness's other models in the
+      // same column, with no caption between them (#41212).
+      const list = [...doc().querySelector('.acpmux-cols [role="listbox"]')!.children];
+      expect(list.some((item) => item.textContent === "Legacy models")).toBe(false);
+      const names = list
+        .filter((item) => item.getAttribute("role") === "option")
+        .map((item) => item.querySelector(".acpmux-cols-name")?.textContent ?? "");
+      expect(names.slice(0, top.length)).toEqual(top);
+      expect(names.slice(top.length).sort()).toEqual(["Choice 6", "Choice 7"]);
+      return;
+    }
+    expect(modelRows().map(label)).toEqual(top);
+    // A started chat's More models opens the full picker.
     expect(menu()!.textContent).toContain("More models");
     expect(modelRows().map(label)).not.toContain("Choice 6");
     expect(modelRows().map(label)).not.toContain("Choice 7");
@@ -318,9 +387,9 @@ test("the current model's inline effort control checks the level the chat is on"
   await mount({ harness: "claude", family: "claude", effort: "high" });
   await open();
   const model = modelRows().find((row) => label(row) === "Opus 5.5")!;
-  const checked = effortFor(model).find((item) => item.getAttribute("aria-checked") === "true");
+  const checked = (await effortFor(model)).find((item) => item.getAttribute("aria-checked") === "true");
   expect(checked).not.toBeNull();
-  expect(checked!.textContent?.replace(/^✓/, "").trim()).toBe("High");
+  expect((checked!.querySelector(".acpmux-menu-label")?.textContent ?? "").trim()).toBe("High");
 });
 
 test("the Fast mode switch shows whether it is on", async () => {
@@ -365,7 +434,7 @@ test("a sibling no-effort model does not hide Effort for the running model", asy
   });
   await open();
   const model = modelRows().find((row) => label(row) === "Fable 5.1")!;
-  const checked = effortFor(model).find((item) => item.getAttribute("aria-checked") === "true");
+  const checked = (await effortFor(model)).find((item) => item.getAttribute("aria-checked") === "true");
   expect(checked).not.toBeNull();
-  expect(checked!.textContent?.replace(/^✓/, "").trim()).toBe("High");
+  expect((checked!.querySelector(".acpmux-menu-label")?.textContent ?? "").trim()).toBe("High");
 });

@@ -1,3 +1,4 @@
+import CmuxNextFiles
 @testable import CmuxNextApp
 import AppKit
 @testable import CmuxNextBrowser
@@ -87,5 +88,13 @@ import Testing
             open: { _, _ in }, returnFocus: {}, liveLink: { _ in nil }, openInBrowser: { _ in },
             back: {}, forward: {}, reload: {}))
         #expect(bar.toolbar.preferredHeight == OmnibarStyle.toolbarHeight(scale: NSScreen.main?.backingScaleFactor ?? 2))
+        // The row sizes the bar (its intrinsic height), so a density change resizes the Markdown tab's row too.
+        #expect(bar.fittingSize.height == bar.toolbar.preferredHeight)
+    }
+
+    /// The settings rows and the omnibar clamp `browser.omnibar.height` and `fontSize` to the same ranges.
+    @Test func theOmnibarSizeRangesMatchTheSettingsRows() {
+        #expect(BrowserOmnibarSetting.heightRange == OmnibarMetrics.heightRange)
+        #expect(BrowserOmnibarSetting.fontSizeRange == OmnibarMetrics.fontSizeRange)
     }
 }

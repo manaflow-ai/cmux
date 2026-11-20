@@ -35,7 +35,7 @@ struct DebugSidebarGroupDrag {
             return .object(["error": .string("phase is lift, move or end")])
         }
         let answer = sidebar.container.groupDragFixture(step)
-        if case .end = step { sidebar.model.docDrag = SidebarDocWiring.docMachines(services.machines).drag() }
+        if case .end = step { sidebar.model.docDrag = services.sidebarDoc.docMachines.drag() }
         return .object(answer.mapValues { .number($0) })
     }
 }

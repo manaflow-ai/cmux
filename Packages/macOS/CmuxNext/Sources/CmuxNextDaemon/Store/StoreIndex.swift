@@ -23,19 +23,32 @@ import Foundation
     private(set) var tabsByTerminalResource: [ResourceID: TabModel] = [:]
     private(set) var panesByHandle: [PaneID: PaneModel] = [:]
     private(set) var panesByResource: [ResourceID: PaneModel] = [:]
-    /// Indexed pane records per durable id (``PaneModel/id``): a watcher asks about its own panes.
-    /// A count, not one record: while a pane moves between workspaces its added delta indexes a
-    /// second record of the same id before the source's closed delta drops the first.
-    private var paneRecordsByID: [String: Int] = [:]
+    /// Indexed pane records per durable id (``PaneModel/id``), oldest first: a watcher asks about its
+    /// own panes, a lookup by id reads the first. A list, not one record: while a pane moves between
+    /// workspaces its added delta indexes a second record of the same id before the source's closed
+    /// delta drops the first.
+    private var paneRecordsByID: [String: [ObjectIdentifier]] = [:]
 
     /// Whether any indexed pane record has durable id `id`.
     func listsPane(id: String) -> Bool { paneRecordsByID[id] != nil }
+
+    /// The first indexed pane record with durable id `id` (``PaneModel/id``).
+    func pane(id: String) -> PaneModel? {
+        paneRecordsByID[id]?.first.flatMap { entries[$0]?.record as? PaneModel }
+    }
     private(set) var screensByHandle: [ScreenID: ScreenModel] = [:]
     private(set) var screensByResource: [ResourceID: ScreenModel] = [:]
+    private(set) var screensByID: [String: ScreenModel] = [:]
     private(set) var workspacesByHandle: [WorkspaceHandle: WorkspaceModel] = [:]
     private(set) var workspacesByKey: [WorkspaceKey: WorkspaceModel] = [:]
     private(set) var workspacesByID: [String: WorkspaceModel] = [:]
     private(set) var workspacesByResource: [ResourceID: WorkspaceModel] = [:]
+    /// The cells of the waits for one workspace public id (``DaemonStore/listedWorkspace(resourceID:)``): touched each
+    /// time a workspace is keyed under an id it did not hold, or dropped from one. Kept by ``rebuild(_:)``.
+    private(set) var workspaceResourceWaits = IDWaitCells<ResourceID>()
+    /// The cells of the waits for one workspace key (``DaemonStore/listsConversationTab(inWorkspace:)``): touched each
+    /// time a workspace is keyed under a key it did not hold, or dropped from one. Kept by ``rebuild(_:)``.
+    private(set) var workspaceKeyWaits = IDWaitCells<WorkspaceKey>()
     private(set) var tabGroupsByID: [TabGroupID: TabGroupModel] = [:]
     /// Indexed tabs the intent overlay shows (``isOverlayTab(id:surface:)``).
     private(set) var provisionalTabCount = 0
@@ -48,10 +61,16 @@ import Foundation
     /// An order change inside a pane, or of the workspaces, noted by its
     /// writer (`noteTabOrderChanged`).
     private var tabOrderChanged = false
+    /// An order-free digest of which panes there are, each in which screen of which workspace (XOR of one hash per
+    /// indexed pane). A record indexed again as it was leaves it as it was, and no tab changes it: it moves only
+    /// when a pane came, went or sits in another screen or workspace. A snapshot that applies a workspace again
+    /// notes a tab order change each time (`tabOrderChanged`); this digest does not move for it.
+    private var paneMembership = 0
+    private var takenPaneMembership = 0
 
     private enum Keys {
         case workspace(handle: WorkspaceHandle, key: WorkspaceKey?, id: String, resource: ResourceID?)
-        case screen(handle: ScreenID, resource: ResourceID?)
+        case screen(handle: ScreenID, id: String, resource: ResourceID?)
         case pane(handle: PaneID, resource: ResourceID?, groups: [TabGroupModel])
         case tab(surface: SurfaceID, id: String, terminal: TerminalID?, resource: ResourceID?, terminalResource: ResourceID?)
     }
@@ -63,6 +82,8 @@ import Foundation
         var children: Set<ObjectIdentifier> = []
         /// A tab's or a pane's share of `tabMembership` (0 for other records).
         var membership = 0
+        /// A pane's share of `paneMembership` (0 for other records).
+        var paneMembership = 0
     }
 
     private var entries: [ObjectIdentifier: Entry] = [:]
@@ -98,9 +119,22 @@ import Foundation
     /// Indexes `workspaces` only (snapshot apply; the one O(tree) write).
     mutating func rebuild(_ workspaces: [WorkspaceModel]) {
         let counted = indexedRecords
-        self = StoreIndex()
+        let waits = workspaceResourceWaits
+        let keyedBefore: [ResourceID: WorkspaceModel] = workspacesByResource
+        let keyWaits = workspaceKeyWaits
+        let keysBefore: [WorkspaceKey: WorkspaceModel] = workspacesByKey
+        let takenPanes = takenPaneMembership
+        self = StoreIndex() // its own new cells, which no wait reads: the inserts below touch none of `waits`
         indexedRecords = counted
+        takenPaneMembership = takenPanes // the same panes indexed again are no pane list change
         for workspace in workspaces { insert(workspace) }
+        workspaceResourceWaits = waits
+        // Only an id whose workspace changed (came, went, or another record) wakes its waits.
+        for (id, record) in keyedBefore where workspacesByResource[id] !== record { waits.touch(id) }
+        for (id, record) in workspacesByResource where keyedBefore[id] !== record { waits.touch(id) }
+        workspaceKeyWaits = keyWaits
+        for (key, record) in keysBefore where workspacesByKey[key] !== record { keyWaits.touch(key) }
+        for (key, record) in workspacesByKey where keysBefore[key] !== record { keyWaits.touch(key) }
         tabOrderChanged = true
     }
 
@@ -112,6 +146,24 @@ import Foundation
     mutating func takeTabListChange() -> Bool {
         defer { (takenMembership, tabOrderChanged) = (tabMembership, false) }
         return tabOrderChanged || tabMembership != takenMembership
+    }
+
+    /// Whether the panes (which there are, each in which screen of which workspace) changed since the last call;
+    /// resets it.
+    mutating func takePaneListChange() -> Bool {
+        defer { takenPaneMembership = paneMembership }
+        return paneMembership != takenPaneMembership
+    }
+
+    /// With the screen and the workspace: a pane that leaves one workspace and comes to another in one publish
+    /// (alone, or with its screen) keeps its id and its handle, and the two records must not cancel in the XOR.
+    private static func paneMembership(_ pane: PaneModel, screen: ScreenID?, workspace: String?) -> Int {
+        var hasher = Hasher()
+        hasher.combine(pane.id)
+        hasher.combine(pane.handle)
+        hasher.combine(screen)
+        hasher.combine(workspace)
+        return hasher.finalize()
     }
 
     /// By the pane's handle, not its record: an overlay that makes the same
@@ -144,7 +196,7 @@ import Foundation
 
     mutating func insert(_ screen: ScreenModel, in workspace: WorkspaceModel) {
         remove(screen)
-        add(screen, .screen(handle: screen.handle, resource: screen.resourceID), parent: workspace)
+        add(screen, .screen(handle: screen.handle, id: screen.id, resource: screen.resourceID), parent: workspace)
         for pane in screen.panes { insert(pane, in: screen) }
     }
 
@@ -168,6 +220,7 @@ import Foundation
     private mutating func remove(id: ObjectIdentifier) {
         guard let entry = entries.removeValue(forKey: id) else { return }
         tabMembership ^= entry.membership
+        paneMembership ^= entry.paneMembership
         for child in entry.children { remove(id: child) }
         if let parent = entry.parent { entries[parent]?.children.remove(id) }
         unkey(entry.keys, entry.record)
@@ -183,6 +236,9 @@ import Foundation
         } else if let pane = record as? PaneModel {
             entry.membership = Self.membership(pane)
             tabMembership ^= entry.membership
+            let screen = parent as? ScreenModel
+            entry.paneMembership = Self.paneMembership(pane, screen: screen?.handle, workspace: screen.flatMap(workspace(holding:))?.id)
+            paneMembership ^= entry.paneMembership
         }
         entries[id] = entry
         if let parentID { entries[parentID]?.children.insert(id) }
@@ -196,17 +252,24 @@ import Foundation
             guard let workspace = record as? WorkspaceModel else { return }
             workspacesByHandle[handle] = workspace
             workspacesByID[id] = workspace
-            if let key { workspacesByKey[key] = workspace }
-            if let resource { workspacesByResource[resource] = workspace }
-        case .screen(let handle, let resource):
+            if let key {
+                if workspacesByKey[key] !== workspace { workspaceKeyWaits.touch(key) }
+                workspacesByKey[key] = workspace
+            }
+            if let resource {
+                if workspacesByResource[resource] !== workspace { workspaceResourceWaits.touch(resource) }
+                workspacesByResource[resource] = workspace
+            }
+        case .screen(let handle, let id, let resource):
             guard let screen = record as? ScreenModel else { return }
             screensByHandle[handle] = screen
+            screensByID[id] = screen
             if let resource { screensByResource[resource] = screen }
         case .pane(let handle, let resource, let groups):
             guard let pane = record as? PaneModel else { return }
             panesByHandle[handle] = pane
             if let resource { panesByResource[resource] = pane }
-            paneRecordsByID[pane.id, default: 0] += 1
+            paneRecordsByID[pane.id, default: []].append(ObjectIdentifier(pane))
             for group in groups { tabGroupsByID[group.id] = group }
         case .tab(let surface, let id, let terminal, let resource, let terminalResource):
             guard let tab = record as? TabModel else { return }
@@ -225,16 +288,24 @@ import Foundation
         case .workspace(let handle, let key, let id, let resource):
             Self.drop(handle, from: &workspacesByHandle, if: record)
             Self.drop(id, from: &workspacesByID, if: record)
-            if let key { Self.drop(key, from: &workspacesByKey, if: record) }
-            if let resource { Self.drop(resource, from: &workspacesByResource, if: record) }
-        case .screen(let handle, let resource):
+            if let key, workspacesByKey[key] === record {
+                workspacesByKey[key] = nil
+                workspaceKeyWaits.touch(key)
+            }
+            if let resource, workspacesByResource[resource] === record {
+                workspacesByResource[resource] = nil
+                workspaceResourceWaits.touch(resource)
+            }
+        case .screen(let handle, let id, let resource):
             Self.drop(handle, from: &screensByHandle, if: record)
+            Self.drop(id, from: &screensByID, if: record)
             if let resource { Self.drop(resource, from: &screensByResource, if: record) }
         case .pane(let handle, let resource, let groups):
             Self.drop(handle, from: &panesByHandle, if: record)
             if let resource { Self.drop(resource, from: &panesByResource, if: record) }
-            if let pane = record as? PaneModel, let count = paneRecordsByID[pane.id] {
-                paneRecordsByID[pane.id] = count > 1 ? count - 1 : nil
+            if let pane = record as? PaneModel {
+                paneRecordsByID[pane.id]?.removeAll { $0 == ObjectIdentifier(pane) }
+                if paneRecordsByID[pane.id]?.isEmpty == true { paneRecordsByID[pane.id] = nil }
             }
             for group in groups { Self.drop(group.id, from: &tabGroupsByID, if: group) }
         case .tab(let surface, let id, let terminal, let resource, let terminalResource):

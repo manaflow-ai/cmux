@@ -21,11 +21,9 @@ public final class TabModel: Identifiable {
     public internal(set) var terminalResourceID: ResourceID?
     public internal(set) var kind: TabKind { didSet { refreshUnread() } }
     public internal(set) var name: String?
-    /// The title as the program or page set it, raw (a terminal's OSC 0/2, a page's `<title>`).
-    /// Views show ``displayTitle``; reading this one redraws on every spinner frame.
-    public internal(set) var title: String
-    /// The title's text without a terminal's leading status glyphs (``TerminalTitle``);
-    /// a browser's title as is. Assigned only when the words change.
+    /// The title's text as the daemon split it: a terminal's without its leading status glyphs, a page's as is
+    /// (plans/cmux-next/main-thread-scheduling.md, D2). Assigned only when the words change. There is no raw title
+    /// here: a spinner frame changes nothing the app holds, and the daemon does not send it.
     public internal(set) var titleText: String
     /// What a terminal title's leading glyph said (a spinner: working); nil for none.
     public internal(set) var titleActivity: TerminalTitle.Activity?
@@ -85,13 +83,50 @@ public final class TabModel: Identifiable {
         publishMarkedUnread()
     }
 
+    /// Whether this client's write of `marked` still waits for the record's echo (``TabReads``).
+    public func expectsMarkedUnread(_ marked: Bool) -> Bool { pendingMarkedUnread == marked }
+
     /// Rolls back ``expectMarkedUnread(_:)`` when the write of `marked`
     /// failed. A newer pending value (a second toggle) stays.
     public func dropExpectedMarkedUnread(_ marked: Bool) {
         guard pendingMarkedUnread == marked else { return }
+        rollbacks.rolledBack("marked-unread", tab: id)
+        holdKeyReads()
         pendingMarkedUnread = nil
         publishMarkedUnread()
     }
+
+    /// An agent needs the person to act in this tab (log in, confirm, approve, pick):
+    /// `tab.update {attention}`, tab-attention-v1. It shows as the tab's unread dot and the
+    /// workspace row's dot like ``markedUnread``, but viewing the tab keeps it: the agent's clear,
+    /// a browser tab's navigation to another page, or the tab's close drops it in the daemon.
+    public private(set) var attention: TabAttention?
+    @ObservationIgnored private var recordAttention: TabAttention?
+    @ObservationIgnored private var pendingAttentionClear: TabAttention?
+
+    /// Hide the request in the action's own turn. The returned token identifies this clear.
+    public func expectAttentionClear() -> TabAttention? {
+        guard let attention, let requestID = attention.requestID, TabAttention.validRequestID(requestID) else { return nil }
+        pendingAttentionClear = attention
+        self.attention = nil
+        return attention
+    }
+
+    /// Whether this client's clear of `request` still waits for the record (``TabReads``).
+    public func expectsAttentionClear(_ request: TabAttention) -> Bool { pendingAttentionClear == request }
+
+    /// A failed old clear never restores over a newer request or a newer clear.
+    public func dropExpectedAttentionClear(_ request: TabAttention) {
+        guard pendingAttentionClear == request else { return }
+        rollbacks.rolledBack("attention-clear", tab: id)
+        pendingAttentionClear = nil
+        attention = recordAttention
+    }
+    /// Client-local generation of the request whose ring the person hid. This never stores time.
+    public var attentionRingHiddenThrough: UInt64?
+    /// A local render identity changes when the owner request changes; TabAttention equality
+    /// includes requestID, so identical reason/time replacements are still distinct.
+    public private(set) var attentionGeneration: UInt64 = 0
 
     /// Counts the times ``markedUnread`` turned on: each new mark is a new unread, so a ring
     /// dismissed for an earlier mark shows again. Changes only with ``markedUnread``, which
@@ -148,6 +183,9 @@ public final class TabModel: Identifiable {
         return titleText
     }
 
+    /// A live daemon terminal: a pty that is not dead and not a creation's stand-in (a provisional surface).
+    public var isLiveTerminal: Bool { kind == .pty && !dead && !ProvisionalTab.isProvisional(surface: surface) }
+
     /// Whether the tab holds an unread notification. A notification this
     /// client read (``expectNotificationRead()``) shows read before the
     /// daemon's echo.
@@ -167,9 +205,42 @@ public final class TabModel: Identifiable {
         readingNotification = notification.notification
     }
 
+    /// This tab's optimistic indicator writes rolled back, against the native budget.
+    @ObservationIgnored let rollbacks = IndicatorRollbackBudget()
+    /// When keys may read this tab's dot again after a read of theirs rolled back (Leo, 2026-11-09:
+    /// "when im typing in the composer the tab and workspace flicker"). Each key's read hid the dot
+    /// at once; a refused one (a daemon that is not connected) brought it back a round trip later
+    /// and the next key hid it again, so the tab's and the workspace row's dot blinked once per key.
+    /// A rollback holds key reads off for ``keyReadBackoff`` (2 s, doubling to 30 s); the daemon's
+    /// record changing the dot resets it. No marker id is cached: ids restart with the daemon.
+    @ObservationIgnored private var keyReadsResumeAt: ContinuousClock.Instant?
+    @ObservationIgnored private var keyReadBackoff: Duration = .seconds(2)
+    /// The clock key reads are timed by; tests set it.
+    @ObservationIgnored var keyReadClock: () -> ContinuousClock.Instant = { .now }
+
+    /// Whether a key may read the tab's unread notification or Mark as Unread now.
+    public func keyMayRead() -> Bool {
+        keyReadsResumeAt.map { keyReadClock() >= $0 } ?? true
+    }
+
+    /// A read rolled back: keys wait before the next one, longer each time in a row.
+    private func holdKeyReads() {
+        keyReadsResumeAt = keyReadClock() + keyReadBackoff
+        keyReadBackoff = min(keyReadBackoff * 2, .seconds(30))
+    }
+
+    /// The daemon's record changed the dot: the next key reads at once again.
+    private func resumeKeyReads() {
+        keyReadsResumeAt = nil
+        keyReadBackoff = .seconds(2)
+    }
+
     /// Rolls back ``expectNotificationRead()`` when the acknowledge failed.
     public func dropExpectedNotificationRead() {
-        if readingNotification != nil { readingNotification = nil }
+        guard readingNotification != nil else { return }
+        rollbacks.rolledBack("notification-read", tab: id)
+        holdKeyReads()
+        readingNotification = nil
     }
 
     /// The tree's notification marker arrived: a read or replaced
@@ -199,7 +270,7 @@ public final class TabModel: Identifiable {
 
     /// Whether the tab shows as unread: an unread notification or the manual mark.
     /// Acknowledging reads only ``hasUnread``; this is for dots and badges.
-    public var showsUnread: Bool { hasUnread || markedUnread }
+    public var showsUnread: Bool { hasUnread || markedUnread || attention != nil }
 
     /// Public tab id (`tab_…`) on registry daemons. Stored and observed: a
     /// tab can get its id in a later snapshot of the same surface, and an
@@ -207,10 +278,16 @@ public final class TabModel: Identifiable {
     public internal(set) var resourceID: ResourceID?
 
     /// The acpmux session record of an agent chat tab (a conversation tab with an agent session
-    /// source, `agent-session-tabs-v1`); nil for every other tab.
+    /// source, `agent-session-tabs-v1`); nil for every other tab. Its host as this Mac names it now
+    /// when its store is this Mac's own and it was saved under a former one (``formerLocalHosts``).
     public var agentSession: AgentSessionRef? {
-        kind == .conversation ? conversation?.agentSession : nil
+        guard kind == .conversation, var record = conversation?.agentSession else { return nil }
+        if let host = formerLocalHosts[record.host] { record.host = host }
+        return record
     }
+    /// Its store's ``DaemonStore/formerLocalHosts`` (written on a change only): observed, so a reader
+    /// of ``agentSession`` hears ids read after the tree arrived.
+    var formerLocalHosts: [String: String] = [:]
 
     /// The app an app tab shows (a frontend tab of an app workspace, `app-screens-v1`).
     public var appTab: AppTabRef? {
@@ -222,6 +299,9 @@ public final class TabModel: Identifiable {
     public var page: String? {
         kind == .conversation ? conversation?.page : nil
     }
+
+    /// Home's docked chat page tab (`WorkspaceModel.homeDockPage`), where a Chief's turns post.
+    public var isHomeDockPage: Bool { page == WorkspaceModel.homeDockPage }
 
     /// What a page tab shows (`page-tab-route-v1`); nil for none or any other tab.
     public var pageRoute: String? {
@@ -238,10 +318,8 @@ public final class TabModel: Identifiable {
         terminalResourceID = s.terminalResourceID
         kind = s.kind
         name = s.name
-        title = s.title
-        let parsed = Self.parsedTitle(s.title, kind: s.kind)
-        titleText = parsed.text
-        titleActivity = parsed.activity
+        titleText = s.title
+        titleActivity = s.titleActivity
         size = s.size
         dead = s.dead
         terminalState = s.terminalState
@@ -266,7 +344,8 @@ public final class TabModel: Identifiable {
         #if DEBUG || CMUX_BENCH_HOOKS
         // A traced new terminal's tab reached the store (its `tab-added`, or a resync's snapshot).
         if NewTerminalTrace.shared.isArmed, let terminal = s.terminalID {
-            NewTerminalTrace.shared.tabAdded(terminal: terminal.rawValue, surface: s.surface.rawValue)
+            NewTerminalTrace.shared.tabAdded(terminal: terminal.rawValue, surface: s.surface.rawValue,
+                                             terminalResourceID: s.terminalResourceID?.rawValue)
         }
         #endif
     }
@@ -285,13 +364,13 @@ public final class TabModel: Identifiable {
         if terminalResourceID != s.terminalResourceID { terminalResourceID = s.terminalResourceID }
         if kind != s.kind { kind = s.kind }
         if name != s.name { name = s.name }
-        applyTitle(s.title)
+        applyTitle(s.title, activity: s.titleActivity)
         if size != s.size { size = s.size }
         if dead != s.dead { dead = s.dead }
         if terminalState != s.terminalState { terminalState = s.terminalState }
         if end != s.end { end = s.end }
         if relaunch != s.relaunch { relaunch = s.relaunch }
-        if notification != s.notification { notification = s.notification }
+        if notification != s.notification { notification = s.notification; resumeKeyReads() }
         settleReadingNotification()
         if url != s.url { url = s.url }
         if pinned != s.pinned { pinned = s.pinned }
@@ -307,6 +386,14 @@ public final class TabModel: Identifiable {
         if remote != s.remote { remote = s.remote }
         if conversation != s.conversation { conversation = s.conversation }
         if app != s.app { app = s.app }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // A provisional tab is patched in place when the daemon's real surface
+        // and resource id arrive. Keep the trace's identity aliases current.
+        if NewTerminalTrace.shared.isArmed, let terminal = s.terminalID {
+            NewTerminalTrace.shared.tabAdded(terminal: terminal.rawValue, surface: s.surface.rawValue,
+                                             terminalResourceID: s.terminalResourceID?.rawValue)
+        }
+        #endif
     }
 
     /// Lays the daemon's tab record and terminal progress over the record.
@@ -316,6 +403,12 @@ public final class TabModel: Identifiable {
         if zoom != record.zoom { zoom = record.zoom }
         if userIcon != record.icon { userIcon = record.icon }
         if emulation != record.emulation { emulation = record.emulation }
+        if recordAttention != record.attention { attentionGeneration &+= 1 }
+        recordAttention = record.attention
+        if pendingAttentionClear != record.attention { pendingAttentionClear = nil }
+        let shownAttention = pendingAttentionClear == nil ? record.attention : nil
+        if attention != shownAttention { attention = shownAttention }
+        if recordMarkedUnread != record.markedUnread { resumeKeyReads() }
         recordMarkedUnread = record.markedUnread
         if pendingMarkedUnread == record.markedUnread { pendingMarkedUnread = nil }
         publishMarkedUnread()
@@ -347,27 +440,17 @@ public final class TabModel: Identifiable {
         timer.schedule(after: delay) { @MainActor [weak self] in self?.commandRecheck += 1 }
     }
 
-    /// Point updates from surface events (no full snapshot).
-    func setTitle(_ value: String) {
-        applyTitle(value)
-        snapshot.title = value
+    /// Point updates from surface events (no full snapshot): the text and activity the daemon split.
+    func setTitle(_ text: String, activity: TerminalTitle.Activity?) {
+        applyTitle(text, activity: activity)
+        snapshot.title = text
+        snapshot.titleActivity = activity
     }
 
-    /// Assigns the raw title, and its text and activity only when they changed, so a
-    /// spinner frame invalidates no view that reads ``displayTitle``.
-    private func applyTitle(_ value: String) {
-        if title != value { title = value }
-        let parsed = Self.parsedTitle(value, kind: kind)
-        if titleText != parsed.text { titleText = parsed.text }
-        if titleActivity != parsed.activity { titleActivity = parsed.activity }
-    }
-
-    /// A terminal's title loses its leading status glyphs; a page's stays as the page wrote it.
-    static func parsedTitle(_ raw: String, kind: TabKind) -> TerminalTitle {
-        switch kind {
-        case .pty, .remoteTerminal: TerminalTitle(raw: raw)
-        default: TerminalTitle(text: raw)
-        }
+    /// Assigns the text and the activity, each only when it changed.
+    private func applyTitle(_ text: String, activity: TerminalTitle.Activity?) {
+        if titleText != text { titleText = text }
+        if titleActivity != activity { titleActivity = activity }
     }
 
     func setSize(_ value: CellSize) {

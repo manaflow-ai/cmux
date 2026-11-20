@@ -52,8 +52,8 @@ pub const POLICY: &str = "deny-all";
 /// Longest one compactor prompt may take, the session's start included.
 pub const CALL_TIMEOUT: Duration = Duration::from_secs(300);
 
-/// Days Claude Code keeps a compactor transcript that `end` could not
-/// delete (a crash); its minimum.
+/// Days the host keeps a compactor transcript that `end` could not delete
+/// (a crash): TurnRetention prunes the slot projects past it.
 pub const TRANSCRIPT_DAYS: u64 = 1;
 
 /// Claude Code's built-in tools, denied in each compactor slot's project
@@ -585,6 +585,8 @@ pub struct AcpmuxCompactor {
     prompts: AtomicU64,
     /// Image descriptions started (each gets its own node id).
     describes: AtomicU64,
+    /// Fresh session names given when acpmux kept a node's name taken (`start`).
+    renames: AtomicU64,
     /// The harness and model a node runs on instead of the compactor's
     /// (a reaction classifier's, `ReactionJudge`); such a node never takes
     /// or leaves a warm session.
@@ -642,6 +644,7 @@ impl AcpmuxCompactor {
             prompts: AtomicU64::new(0),
             flight: crate::single_flight::SingleFlight::new(),
             describes: AtomicU64::new(0),
+            renames: AtomicU64::new(0),
             overrides: Mutex::new(HashMap::new()),
             stamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -894,6 +897,15 @@ impl AcpmuxCompactor {
             // The probe's session is purged when the probe ends.
             let n = self.probes.fetch_add(1, Ordering::SeqCst);
             format!("{}-probe-{}-{n}", self.spec.name, std::process::id())
+        } else if is_describe(node) {
+            // The count under a description's id restarts with each host, so the id alone
+            // named the last run's description again: this run's stamp keeps it apart.
+            format!(
+                "{}-describe-{}-{}",
+                self.spec.name,
+                self.stamp,
+                u64::MAX - node.i
+            )
         } else {
             format!("{}-{}", self.spec.name, node.name())
         }
@@ -1136,15 +1148,11 @@ impl AcpmuxCompactor {
         // Left by a host that stopped while the node was being built. When the
         // list does not name it, acpmux ends a session by its exact name too
         // (`_acpmux/kill` resolves a name; cx-oqnw3: the list missed one).
-        match self.port.find(name) {
-            Ok(Some(old)) => {
-                let _ = self.port.end_session(&old);
-            }
-            _ => {
-                let _ = self.port.end_session(name);
-            }
-        }
-        let spec = SessionSpec {
+        let ended = match self.port.find(name) {
+            Ok(Some(old)) => self.port.end_session(&old),
+            _ => self.port.end_session(name),
+        };
+        let mut spec = SessionSpec {
             name: name.to_owned(),
             cwd: cwd.clone(),
             harness: admitted.profile.clone(),
@@ -1156,17 +1164,33 @@ impl AcpmuxCompactor {
             env: Default::default(),
             fast: self.spec.fast,
             peer: None,
+            stop_condition: None,
         };
         let id = self
             .port
             .new_session(&spec)
-            .inspect_err(|e| {
-                if e.contains("is taken") {
-                    let listed = self.port.find(name);
-                    self.say(&format!(
-                        "compactor: acpmux says the session name {name} is taken; its list finds {listed:?}"
-                    ));
+            .or_else(|e| {
+                if !e.contains("is taken") {
+                    return Err(e);
                 }
+                // acpmux keeps the name: its session did not end (a refused purge kept it
+                // for days, and every try asked for the same name). A fresh name builds
+                // the node now; the old session stays for acpmux to end.
+                let listed = self.port.find(name);
+                let why = ended.as_ref().err().map_or_else(String::new, |k| format!("; ending it: {k}"));
+                let n = self.renames.fetch_add(1, Ordering::SeqCst);
+                spec.name = format!("{name}-r{}-{n}", self.stamp);
+                self.say(&format!(
+                    "compactor: acpmux says the session name {name} is taken (acpmux finds it as {listed:?}{why}); starting it as {}",
+                    spec.name
+                ));
+                self.trace.emit(
+                    "compactor.name_taken",
+                    json!({"name": name, "fresh": spec.name, "end_error": ended.as_ref().err()}),
+                );
+                self.port.new_session(&spec).map_err(|again| {
+                    format!("{again} (after {e}{why})")
+                })
             })
             .and_then(|id| {
                 // The session's own harness is what answers (a name that is
@@ -1666,6 +1690,7 @@ impl AcpmuxCompactor {
             "node",
             json!({
                 "node": node_label(node),
+                "usage_key": format!("{}:{}", node.name(), live.id),
                 "harness": live.route,
                 "model": self.model(),
                 "ms": live.opened.elapsed().as_millis() as u64,
@@ -2090,7 +2115,10 @@ pub fn compactor_settings_with(ttl: CacheTtl, ours: bool) -> Value {
         "disableBundledSkills": true,
         "promptCacheTtl": ttl.as_str(),
         "enableAllProjectMcpServers": false,
-        "cleanupPeriodDays": TRANSCRIPT_DAYS,
+        // No `cleanupPeriodDays`: the slot runs on the user's Claude home,
+        // whose every project the retention sweep would reach
+        // (session_dir::PROJECT_SETTINGS_STORE_WIDE_KEYS). `end` deletes the
+        // node's transcript; TurnRetention prunes what a crash left.
     });
     let mut env = serde_json::Map::new();
     if ttl == CacheTtl::FiveMinutes {
@@ -2238,7 +2266,7 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
     ] {
         env.insert(key.to_owned(), "1".to_owned());
     }
-    env.extend(crate::session_dir::QUIET_ENV.map(|(k, v)| (k.to_owned(), v.to_owned())));
+    env.extend(crate::session_dir::claude_session_env());
     // Claude Code flags and system prompts: a Claude harness only (claude,
     // claude-sr, ...); another harness keeps the old layout.
     let claude = family == Family::Claude;
@@ -2309,6 +2337,12 @@ pub fn is_model_unavailable(message: &str) -> bool {
         || (lower.contains("not_found_error") && lower.contains("model"))
 }
 
+/// The compactor's working directory for `home` (its slot directories
+/// are under it): `optchat-compact-<home id>` in the system temp dir.
+pub fn compactor_work(home: &Path) -> PathBuf {
+    std::env::temp_dir().join(format!("optchat-compact-{}", home_id(home)))
+}
+
 /// How the compactor's sessions start for `home`.
 pub fn compactor_spec(
     paths: &Paths,
@@ -2319,7 +2353,7 @@ pub fn compactor_spec(
 ) -> CompactorSpec {
     let name = format!("optchat-compact-{}", home_id(home));
     CompactorSpec {
-        work: std::env::temp_dir().join(&name),
+        work: compactor_work(home),
         transcript_dirs: vec![paths.compactor_config.clone(), user_claude_home()],
         preset: name.clone(),
         name,

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import os
 
@@ -14,6 +15,14 @@ import os
 ///   ``PageHostTrust`` checks them as for WebKit.
 /// - Replies go back into the sender's context only (`__cmuxPageHostResolve(seq, reply)`).
 /// - ``evaluate(_:)`` runs scripts in order; the ones queued together go in one `Runtime.evaluate`.
+/// - The Runtime domain is on only while a navigation starts: on, a new document's main world
+///   gets the binding when it is made (before any page script runs); off, no binding reaches a new
+///   world, but V8 also stops reporting every context and console call to the session, which made
+///   the chat page's modules evaluate in 116 ms instead of 44 (headless Chromium, cold). So
+///   ``navigate(_:)`` turns it on (with the binding again: turning it off drops the session's
+///   bindings) before each navigation the app starts, and ``documentCommitted()`` turns it off once
+///   the main frame commits, before the document's scripts run. Calls, replies and
+///   `Runtime.evaluate` in a context id all work with it off.
 @MainActor
 public final class ChromiumPageHostBridge: PageHostBridge {
     public let engine = PageHostEngine.cef
@@ -38,6 +47,18 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     private var draining = false
     /// Number of messages answered (tests wait on it).
     public private(set) var answered = 0
+    /// Binding calls waiting for their parse off the main actor, in arrival order.
+    private var inbox: AsyncStream<String>.Continuation?
+    private var reading: Task<Void, Never>?
+    /// Whether the Runtime domain is on in the page's DevTools session, as the calls sent so far
+    /// leave it (``setUp(documentScripts:)`` turns it on, ``documentCommitted()`` off).
+    public private(set) var runtimeEnabled = false
+    /// The page's renderer ended (``rendererEnded()``) and no document has committed since: a
+    /// DevTools call would wait for the next renderer, which only the navigation brings.
+    private var rendererGone = false
+    /// The Runtime switches and the navigations that wait for them, in order; nil when none runs.
+    private var runtimeSwitch: Task<Void, Never>?
+    private var runtimeSwitches = 0
 
     /// - Parameters:
     ///   - page: The Chromium page.
@@ -47,15 +68,16 @@ public final class ChromiumPageHostBridge: PageHostBridge {
         self.fireAndForget = fireAndForget
     }
 
-    /// The DevTools calls that set the page up, in order: run them before the first document loads
-    /// (``ChromiumPageSetup``), then again for every committed document (``rebind()``).
+    /// The DevTools calls that set the page up, in order: ``setUp(documentScripts:)`` runs them
+    /// before the first document loads. The Runtime domain stays on until that document commits
+    /// (``documentCommitted()``).
     public static func setupCalls(handlers: [String], documentScripts: [String]) -> [(String, [String: any Sendable])] {
         var calls: [(String, [String: any Sendable])] = [
             // New-document scripts run only while the Page domain is on, and bindings reach worlds
             // made later only while the Runtime domain is on.
             ("Page.enable", [:]),
             ("Runtime.enable", [:]),
-            ("Runtime.addBinding", ["name": bindingName]),
+            bindingCall,
             ("Page.addScriptToEvaluateOnNewDocument", ["source": pageScript(handlers: handlers), "runImmediately": true]),
         ]
         for source in documentScripts {
@@ -69,11 +91,92 @@ public final class ChromiumPageHostBridge: PageHostBridge {
         self.handler = handler
     }
 
-    /// Adds the binding again for a new document (a no-op where it is still there).
-    public func rebind() {
-        guard let page else { return }
-        // task-owner: one idempotent call on a page that may already be gone
-        Task { _ = try? await page.devTools("Runtime.addBinding", params: ["name": Self.bindingName]) }
+    /// Runs ``setupCalls(handlers:documentScripts:)`` (with this bridge's ``fireAndForget``
+    /// handlers) on the page, in order, before its first load: the Runtime domain is on after it.
+    public func setUp(documentScripts: [String]) async throws {
+        guard let page else { throw PageError.unavailable("the Chromium page is gone") }
+        for (method, params) in Self.setupCalls(handlers: fireAndForget, documentScripts: documentScripts) {
+            _ = try await page.devTools(method, params: params)
+        }
+        runtimeEnabled = true
+    }
+
+    nonisolated static let bindingCall: (String, [String: any Sendable]) = ("Runtime.addBinding", ["name": bindingName])
+
+    /// The calls that turn the Runtime domain on for a navigation: on, then the binding again
+    /// (`Runtime.disable` dropped the session's bindings; without it the new document never gets
+    /// one, measured).
+    nonisolated static let enableCalls: [(String, [String: any Sendable])] = [("Runtime.enable", [:]), bindingCall]
+
+    /// The calls for a committed main-frame document: the Runtime domain off (when it is on), then
+    /// the binding again. The binding call puts the binding in the document's main world whatever
+    /// the domain's state: a navigation the page started itself (``navigate(_:)`` did not turn the
+    /// domain on for it) gets it this way, a few milliseconds after its start, and the page script
+    /// keeps the page's messages until then. Where the binding is there already, it is a no-op.
+    nonisolated static func commitCalls(runtimeEnabled: Bool) -> [(String, [String: any Sendable])] {
+        var calls: [(String, [String: any Sendable])] = []
+        if runtimeEnabled { calls.append(("Runtime.disable", [:])) }
+        calls.append(bindingCall)
+        return calls
+    }
+
+    /// Starts a navigation the app asks for (`navigate` loads or reloads the page) once the Runtime
+    /// domain is on, so the new document's main world gets the binding when it is made. With the
+    /// domain off, `navigate` runs after the page answered the calls that turn it on (measured: a
+    /// domain turned on when Chromium reports the navigation started is too late, and slowed a
+    /// reload from 40 to 108 ms); navigations run in the order asked. With it on and nothing in
+    /// flight, or after the renderer ended (``rendererEnded()``), `navigate` runs at once.
+    ///
+    /// Not for app health's restart of a renderer that stopped answering (``PageChromiumPage/restartRenderer()``):
+    /// that must not wait on the renderer, and its document gets the binding with its commit.
+    ///
+    /// - Parameter navigate: Loads or reloads the page.
+    public func navigate(_ navigate: @escaping () -> Void) {
+        guard !rendererGone else { return navigate() }
+        if !runtimeEnabled {
+            runtimeEnabled = true
+            switchRuntime(Self.enableCalls, then: navigate)
+        } else if runtimeSwitch != nil {
+            switchRuntime([], then: navigate)
+        } else {
+            navigate()
+        }
+    }
+
+    /// The main frame committed a new document of the page: the Runtime domain goes off before the
+    /// document's scripts run (``commitCalls(runtimeEnabled:)``).
+    public func documentCommitted() {
+        rendererGone = false
+        let calls = Self.commitCalls(runtimeEnabled: runtimeEnabled)
+        runtimeEnabled = false
+        switchRuntime(calls)
+    }
+
+    /// The page's renderer ended: until a document commits again, ``navigate(_:)`` does not wait on
+    /// DevTools calls (they would be answered only by the renderer that navigation brings), and
+    /// the binding comes with the commit.
+    public func rendererEnded() {
+        rendererGone = true
+    }
+
+    /// Sends `calls` after the switches before them, then runs `then`.
+    private func switchRuntime(_ calls: [(String, [String: any Sendable])], then: (() -> Void)? = nil) {
+        let previous = runtimeSwitch
+        let page = page
+        runtimeSwitches += 1
+        let number = runtimeSwitches
+        // task-owner: the bridge's Runtime switch FIFO; each ends after its calls (each bounded by
+        // the DevTools call deadline) and clears itself when it is the last
+        runtimeSwitch = Task { [weak self, weak page] in
+            await previous?.value
+            for (method, params) in calls {
+                guard let page else { break }
+                _ = try? await page.devTools(method, params: params)
+            }
+            guard let self else { return }
+            if self.runtimeSwitches == number { self.runtimeSwitch = nil }
+            then?()
+        }
     }
 
     public func evaluate(_ script: String) {
@@ -122,6 +225,11 @@ public final class ChromiumPageHostBridge: PageHostBridge {
         return scripts.map { "try {\n\($0)\n} catch (e) { console.error(e) }" }.joined(separator: "\n")
     }
 
+    nonisolated deinit {
+        inbox?.finish()
+        reading?.cancel()
+    }
+
     public func uninstall() {
         handler = nil
         scripts.removeAll()
@@ -129,19 +237,58 @@ public final class ChromiumPageHostBridge: PageHostBridge {
 
     // MARK: Messages
 
-    /// Handles one raw DevTools message of the page: true when it was this bridge's binding call.
+    /// Handles one raw DevTools message of the page: true when it is a binding call for this
+    /// bridge. The method and binding name come from the message's bytes on the caller's actor;
+    /// the event and its payload (up to ``maximumPayloadBytes`` of JSON) are parsed off the main
+    /// actor, and the calls are answered in the order they arrived.
     @discardableResult
     public func receive(devToolsMessage json: String) -> Bool {
-        guard json.contains(Self.bindingName), let call = ChromiumPageHostWire.BindingCall(event: json),
-              call.name == Self.bindingName else { return false }
-        guard call.payload.utf8.count <= Self.maximumPayloadBytes,
-              let message = ChromiumPageHostWire.Message(payload: call.payload) else {
-            logger.error("page host binding payload refused")
-            return true
-        }
-        // task-owner: one message; its reply goes back to the context that sent it
-        Task { [weak self] in await self?.answer(message, context: call.contextID) }
+        let head = DevToolsMessageHead(json: json)
+        guard head.method == "Runtime.bindingCalled", head.contains(Self.bindingName) else { return false }
+        if inbox == nil { startReading() }
+        if case .dropped = inbox?.yield(json) { logger.error("page host binding call dropped: \(Self.maximumWaitingCalls) wait for their parse") }
         return true
+    }
+
+    /// The most binding calls that wait for their parse; a page that posts faster loses the newest.
+    nonisolated static let maximumWaitingCalls = 4096
+
+    private func startReading() {
+        let (calls, inbox) = AsyncStream<String>.makeStream(bufferingPolicy: .bufferingOldest(Self.maximumWaitingCalls))
+        self.inbox = inbox
+        // task-owner: the bridge's binding-call reader; deinit finishes its stream and cancels it
+        reading = Task { [weak self] in
+            for await json in calls {
+                let parsed = await Self.parse(json)
+                guard let self else { return }
+                switch parsed {
+                case .call(let message, let context):
+                    // task-owner: one message; its reply goes back to the context that sent it
+                    Task { [weak self] in await self?.answer(message, context: context) }
+                case .refused:
+                    logger.error("page host binding payload refused")
+                case .other:
+                    break
+                }
+            }
+        }
+    }
+
+    /// A binding call, parsed off the caller's actor.
+    private nonisolated enum ParsedCall {
+        case call(ChromiumPageHostWire.Message, context: Int)
+        case refused
+        /// Another binding's call, or no binding call at all.
+        case other
+    }
+
+    /// The parse makes its result and keeps no reference to it, so the result is `sending`.
+    @concurrent
+    private nonisolated static func parse(_ json: String) async -> sending ParsedCall {
+        guard let call = ChromiumPageHostWire.BindingCall(event: json), call.name == bindingName else { return .other }
+        guard call.payload.utf8.count <= maximumPayloadBytes,
+              let message = ChromiumPageHostWire.Message(payload: call.payload) else { return .refused }
+        return .call(message, context: call.contextID)
     }
 
     private func answer(_ message: ChromiumPageHostWire.Message, context: Int) async {
@@ -177,7 +324,10 @@ public final class ChromiumPageHostBridge: PageHostBridge {
 
     /// Installs `window.webkit.messageHandlers.<name>` for ``PageHostTrust/handlerName`` (with
     /// replies) and each of `handlers` (without) over the binding. Messages posted before the
-    /// binding exists wait in the page and go out once it appears.
+    /// binding exists wait in the page and go out once it appears (the page looks every 5 ms, for
+    /// 2 s after each send that found none). A call past
+    /// ``maximumPayloadBytes`` is never sent (``receive(devToolsMessage:)`` drops it unanswered):
+    /// it settles at once with a `cmux.protocol.too_large` error envelope.
     public static func pageScript(handlers: [String]) -> String {
         let names = ([PageHostTrust.handlerName] + handlers).map(ChromiumPageHostWire.jsonString).joined(separator: ", ")
         let replying = ChromiumPageHostWire.jsonString(PageHostTrust.handlerName)
@@ -189,19 +339,39 @@ public final class ChromiumPageHostBridge: PageHostBridge {
           const queue = [];
           let next = 1;
           let retries = 0;
+          const limit = \(maximumPayloadBytes);
+          // UTF-8 bytes, counted only when the text could be past the limit.
+          const tooLarge = (text) => {
+            if (text.length > limit) return true;
+            if (text.length * 3 <= limit) return false;
+            let bytes = 0;
+            for (let at = 0; at < text.length; at += 1) {
+              const code = text.charCodeAt(at);
+              bytes += code < 0x80 ? 1 : code < 0x800 || (code >= 0xd800 && code < 0xe000) ? 2 : 3;
+            }
+            return bytes > limit;
+          };
           const flush = () => {
             const binding = globalThis.\(bindingName);
             if (typeof binding !== "function") return false;
             while (queue.length) binding(queue.shift());
             return true;
           };
+          let retrying = false;
           const retry = () => {
-            if (flush() || ++retries > 400) return;
+            retrying = false;
+            if (flush() || ++retries >= 400) return;
+            retrying = true;
             setTimeout(retry, 5);
           };
+          // Every send that finds no binding and no retry pending starts the retries again, also
+          // after 400 ran out with messages still queued (they wait for the binding).
           const send = (text) => {
             queue.push(text);
-            if (!flush() && queue.length === 1) { retries = 0; retry(); }
+            if (flush() || retrying) return;
+            retries = 0;
+            retrying = true;
+            setTimeout(retry, 5);
           };
           Object.defineProperty(globalThis, "\(resolveName)", {
             value: (seq, reply) => { const done = pending.get(seq); if (done) { pending.delete(seq); done(reply); } },
@@ -213,8 +383,13 @@ public final class ChromiumPageHostBridge: PageHostBridge {
                 if (name !== \(replying)) { send(JSON.stringify({ name, body })); return undefined; }
                 return new Promise((resolve) => {
                   const seq = next++;
+                  const text = JSON.stringify({ name, seq, body });
+                  if (tooLarge(text)) {
+                    resolve({ t: "err", id: body?.id, code: "cmux.protocol.too_large", message: "The request is too large to send." });
+                    return;
+                  }
                   pending.set(seq, resolve);
-                  send(JSON.stringify({ name, seq, body }));
+                  send(text);
                 });
               },
             };

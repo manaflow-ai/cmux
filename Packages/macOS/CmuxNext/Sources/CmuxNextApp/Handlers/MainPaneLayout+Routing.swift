@@ -66,15 +66,11 @@ extension MainPaneLayout {
                 return nil
             }
             outbound?.hidden(whileHolding: chat.id)
-            // The chat stays where it shows; only the tab's pane comes in, from the right (as
-            // AgentBesidePlacement docks a lone chat).
-            let layout = controller.workspace?.layoutModel
-            layout?.handOffContent(of: controller.layoutPaneID)
+            // The dock is one layout change (as AgentBesidePlacement docks a lone chat).
             let docked = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                 TabMoves.toNewDockColumn(chat, anchor: anchor, edge: .left, role: .agentChat, services: services) { done.resume(returning: $0) }
             }
             guard docked else {
-                layout?.cancelContentHandoff()
                 outbound?.finish(moved: false)
                 reveal(controller, tab)
                 if focus { controller.focusContent() }
@@ -132,8 +128,9 @@ extension MainPaneLayout {
         }
         // The stand-in tab shows at once: by its id (and the store's tab that replaces it), not as any new tab.
         outbound?.made(key: pending.key)
+        let machineID = target.daemon.machineID
         let locate: TabMirror.Locate = { key in
-            services.locateTab(key).map { (pane: $0.1.handle, daemon: services.machines.daemon(forTab: $0.0)) }
+            services.locateTab(key, onMachine: machineID).map { (pane: $0.1.handle, daemon: services.machines.daemon(forTab: $0.0)) }
         }
         // task-owner: one tab creation, then one selection (or the chat's dock) for it
         Task { @MainActor [weak target] in
@@ -149,7 +146,7 @@ extension MainPaneLayout {
                 dockChat(of: target, keeping: tab.surface, focus: focus, services: services, outbound: outbound) { _ in finished?(true) }
                 return
             }
-            if focus, let model = services.locateTab(tab.key)?.0 {
+            if focus, let model = services.locateTab(tab.key, onMachine: machineID)?.0 {
                 target.select(StripTabID(model.id))
                 if let content = target.workspace { PaneHandlers.focus(target.layoutPaneID, in: content) }
             } else {
@@ -164,8 +161,9 @@ extension MainPaneLayout {
     /// The pane chat tab `id` moved into from `anchor`, once the store lists it there (nil after
     /// ``listLimit``).
     @MainActor private static func movedPane(of id: String, from anchor: PaneModel, services: AppServices) async -> PaneModel? {
+        let machineID = services.daemon(for: anchor).machineID
         let moved = Task { @MainActor () -> Bool in
-            for await moved in ObservationStream({ services.locateTab(id).map { $0.1 !== anchor } ?? false }) where moved {
+            for await moved in ObservationStream({ services.locateTab(id, onMachine: machineID).map { $0.1 !== anchor } ?? false }) where moved {
                 return true
             }
             return false
@@ -174,6 +172,6 @@ extension MainPaneLayout {
         bound.schedule(after: listLimit) { @MainActor in moved.cancel() }
         let found = await moved.value
         bound.cancel()
-        return found ? services.locateTab(id)?.1 : nil
+        return found ? services.locateTab(id, onMachine: machineID)?.1 : nil
     }
 }

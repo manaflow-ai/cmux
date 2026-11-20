@@ -16,7 +16,7 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
         .await
         .ok_or_else(|| anyhow::anyhow!("notifications already taken"))?;
     let (tx, mut rx) = mpsc::unbounded_channel::<AppMsg>();
-    let watch = client.request(method::MUX_WATCH, json!({"enabled": true})).await?;
+    let watch = client.whole_list(method::MUX_WATCH, json!({"enabled": true})).await?;
     let mut app = make_app(
         client.clone(),
         tx.clone(),
@@ -261,6 +261,8 @@ pub(super) fn make_app(
         recovery_pages: HashMap::new(),
         recovery_replayed: HashMap::new(),
         recovery_start: HashMap::new(),
+        history_in_flight: HashSet::new(),
+        history_more: HashMap::new(),
         input: Editor::default(),
         input_images: Vec::new(),
         command: Editor::default(),
@@ -353,8 +355,10 @@ async fn reconnect(app: &mut App) -> Result<tokio::sync::mpsc::Receiver<Message>
         tokio::time::sleep(delay).await;
         match crate::daemon::connect(true).await {
             Ok(c) => {
-                c.request(method::MUX_WATCH, json!({"enabled": true})).await?;
-                let sessions = c.request(method::MUX_SESSIONS, json!({})).await?;
+                // Only the watch turns on here: the list is read whole just below, so its reply
+                // is one row, not a copy of that list read to be dropped.
+                c.request(method::MUX_WATCH, json!({"enabled": true, "limit": 1})).await?;
+                let sessions = c.whole_list(method::MUX_SESSIONS, json!({})).await?;
                 let notes = c
                     .notifications()
                     .await

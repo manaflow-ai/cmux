@@ -27,6 +27,15 @@ import {
   CMUX_TUI_STATE_MAX_BYTES,
   agentPinDrift,
   devboxAgentPins,
+  devboxAgentDesktopInstallCommand,
+  devboxAgentDesktopSha256,
+  devboxAgentDesktopUrl,
+  devboxAgentDesktopVersion,
+  DEVBOX_AGENT_DESKTOP_SNAPSHOT_PROBE,
+  devboxBubblewrapInstallCommand,
+  devboxBubblewrapSha256,
+  devboxBubblewrapUrl,
+  devboxBubblewrapVersion,
   devboxCuaDriverVersion,
   devboxGhosttyVersion,
   devboxWaitForDaemonCommand,
@@ -42,6 +51,8 @@ import {
   devboxSourceDigest,
   devboxSourceManifest,
   devboxTeamKindDefaultCommand,
+  devboxClaudeTeamOnboardingCheckCommand,
+  devboxWorkUserCmuxConfigDirCommand,
   normalizedBakeScript,
   normalizedDockerfileInstructions,
   rewriteDevboxAgentPins,
@@ -158,6 +169,15 @@ const sourceAgentConfig = (home: string, coderouterOrigin: string, fetchOpenCode
   });
 
 describe("devbox image template", () => {
+  test("the bake keeps the current store ahead of user-local acpmux", () => {
+    const bake = readFileSync(path.join(scriptsDir, "cmux-vm-image/bake.ts"), "utf8");
+    expect(bake).toContain('await L.step(vm, "acpmux-current-link", cmuxTuiImageAcpmuxLinkCommand());');
+    expect(bake).toContain('await L.step(vm, "store-user-profile", storeUserProfilePathCommand());');
+    expect(bake).toContain("return `${cmuxTuiLayoutSelector()} && ${cmuxTuiAcpmuxLinkCommand(`${CURRENT_BIN}/acpmux`, true)}`;");
+    expect(bake).toContain('GITHUB_SHIM_DIR + ":" + CURRENT_BIN + \'${PATH:+:$PATH}"\'');
+    expect(bake).not.toContain('PATH="${CURRENT_BIN}${"${PATH:+:$PATH}"}"');
+  });
+
   test("template directory contains exactly the expected files", () => {
     expect(readdirSync(templateDir).sort()).toEqual([
       "Dockerfile",
@@ -585,6 +605,18 @@ describe("devbox image template", () => {
     expect(readScript("build-devbox-freestyle.ts")).toContain("blesh-cache-seed");
   });
 
+  test("publishes each ble.sh cache seed atomically", () => {
+    // Shells that start at once must never read a half-copied seed: copy into a
+    // same-directory temp file, then rename it into place (#11348).
+    expect(bashrc).toContain('__cmux_tmp="$(mktemp "${__cmux_dst}.tmp.XXXXXX" 2>/dev/null)"');
+    expect(bashrc).toContain('cp "$__cmux_seed" "$__cmux_tmp"');
+    expect(bashrc).toContain('mv -f "$__cmux_tmp" "$__cmux_dst"');
+    expect(bashrc).not.toContain('cp "$__cmux_seed" "$__cmux_dst"');
+    // A failed attempt removes only the temp file it made, never a stale value.
+    expect(bashrc.indexOf("      __cmux_tmp=\n")).toBeGreaterThan(-1);
+    expect(bashrc.indexOf("      __cmux_tmp=\n")).toBeLessThan(bashrc.indexOf('if mkdir -p "${__cmux_dst%/*}"'));
+  });
+
   test("the Dockerfile is the Ubuntu 24.04 recipe the Freestyle bake replays, desktop included", () => {
     // freestyle/ubuntu is Ubuntu 24.04; the reference recipe builds on the
     // same distro so its package names, the Ghostty .deb and the desktop
@@ -738,6 +770,34 @@ test "$daemon_pid" = fixture
     expect(devboxDaemonUnit()).toContain("Restart=always");
   });
 
+  test("the image bakes acpmux's durable user service before the daemon", () => {
+    const freestyleScript = readScript("build-devbox-freestyle.ts");
+    const vmBake = readScript("cmux-vm-image/bake.ts");
+    for (const bake of [freestyleScript, vmBake]) {
+      expect(bake).toContain("cmuxTuiServiceInstallCommand");
+    }
+    const service = readFileSync(path.join(import.meta.dirname, "../services/vms/drivers/cmuxTuiDaemon.ts"), "utf8");
+    expect(service).toContain('loginctl enable-linger');
+    expect(service).toContain('systemctl --user enable --now acpmux.service');
+    expect(service).toContain('systemctl --user is-active --quiet acpmux.service');
+    // The image contract stays explicit: the work user has the tools needed
+    // by agent turns and the locale/shims are preserved by the base recipe.
+    const dockerfile = readScript("../services/vms/images/devbox/Dockerfile");
+    expect(dockerfile).toContain("build-essential");
+    expect(dockerfile).toContain("pkg-config");
+    expect(dockerfile).toContain("locales");
+    expect(dockerfile).toContain("LANG=C.UTF-8");
+    expect(dockerfile).toContain("cmux ALL=(ALL) NOPASSWD:ALL");
+    expect(freestyleScript).toContain("pkg-config locales");
+    expect(freestyleScript).toContain("locale-gen C.UTF-8");
+    const workUser = readFileSync(path.join(import.meta.dirname, "../services/vms/images/workUser.ts"), "utf8");
+    expect(workUser).toContain("91-cmux-work-user");
+    expect(workUser).toContain("NOPASSWD:ALL");
+    // An in-place upgrade installs the service too, through its install script.
+    expect(readScript("upgrade-fleet-cmux-tui.ts")).toContain("cmuxTuiUpgradeInstallScript");
+    expect(readFileSync(path.join(import.meta.dirname, "../services/vms/drivers/cmuxTuiUpgradeInstall.ts"), "utf8")).toContain("cmuxTuiServiceInstallCommand()");
+  });
+
   test("the cmux-tui units never give up after repeated failed starts", () => {
     // Like acpmux.service: no start limit, retries back off to 60 s.
     for (const unit of [devboxDaemonUnit(), hostUnit([], "/usr/bin:/bin")]) {
@@ -847,7 +907,7 @@ test "$daemon_pid" = fixture
     // RUN, no ARG moved) and any non-blank line change in the bake script; a
     // Dockerfile comment moves nothing. Schema 1, the formula the first
     // promoted ladders were recorded with, ignores both.
-    const withStep = dockerfile.replace(/^    bubblewrap \\$/m, "    bubblewrap \\\n    cowsay \\");
+    const withStep = dockerfile.replace(/^    e2fsprogs \\$/m, "    e2fsprogs \\\n    cowsay \\");
     expect(withStep).not.toBe(dockerfile);
     expect(devboxSourceDigest("base", withStep)).not.toBe(devboxSourceDigest("base", dockerfile));
     expect(devboxSourceDigest("base", withStep, 1)).toBe(devboxSourceDigest("base", dockerfile, 1));
@@ -885,19 +945,49 @@ test "$daemon_pid" = fixture
     expect(promote).toContain("entries: added,");
   });
 
+  test("agent-desktop is the pinned release in both recipes and the verifier snapshots the desktop with it", () => {
+    // Lawrence (2026-10-31): pre-bundle vercel-labs/agent-desktop into every
+    // cmux Cloud snapshot. One pinned archive, one install command.
+    const url = devboxAgentDesktopUrl(dockerfile);
+    const sha256 = devboxAgentDesktopSha256(dockerfile);
+    const version = devboxAgentDesktopVersion(dockerfile);
+    expect(url).toBe(`https://github.com/vercel-labs/agent-desktop/releases/download/v${version}/agent-desktop-v${version}-x86_64-unknown-linux-gnu.tar.gz`);
+    expect(sha256).toMatch(/^[0-9a-f]{64}$/);
+    const instructions = dockerfile.replace(/[ \t]*\\\n[ \t]*/g, " ").split("\n");
+    const install = instructions.find((line) => line.startsWith("RUN ") && line.includes("/tmp/agent-desktop.tar.gz"))!;
+    expect(install).toBeDefined();
+    expect(install.slice(4).replaceAll("$CMUX_IMAGE_AGENT_DESKTOP_URL", url).replaceAll("$CMUX_IMAGE_AGENT_DESKTOP_SHA256", sha256)).toBe(devboxAgentDesktopInstallCommand(url, sha256, version));
+    // The archive is checked before it is unpacked, and the version printed is the pin.
+    const command = devboxAgentDesktopInstallCommand(url, sha256, version);
+    expect(command.indexOf("sha256sum -c -")).toBeLessThan(command.indexOf("tar -xzf"));
+    expect(command).toContain(`test "$(agent-desktop --version)" = "agent-desktop ${version}"`);
+    expect(readScript("build-devbox-freestyle.ts")).toContain("devboxAgentDesktopInstallCommand(devboxAgentDesktopUrl(), devboxAgentDesktopSha256(), devboxAgentDesktopVersion())");
+    // The verifier runs the probe in the desktop user's login shell, which
+    // wraps it in single quotes, so the probe carries none.
+    expect(DEVBOX_AGENT_DESKTOP_SNAPSHOT_PROBE).not.toContain("'");
+    expect(DEVBOX_AGENT_DESKTOP_SNAPSHOT_PROBE).toContain("agent-desktop snapshot --app thunar");
+    expect(DEVBOX_AGENT_DESKTOP_SNAPSHOT_PROBE).toContain("agent-desktop close-app thunar");
+    const verify = readScript("verify-devbox-image.ts");
+    expect(verify).toContain("loginAs(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, DEVBOX_AGENT_DESKTOP_SNAPSHOT_PROBE)");
+    expect(verify).toContain("agent-desktop-pinned");
+  });
+
   test("codex's Linux sandbox prerequisite is installed and the first agent launch is verified", () => {
-    // bubblewrap: without the distro bwrap, codex 0.151+ warns on every
-    // launch that it is falling back to its bundled copy (seen live on the
-    // termid ladder, 2026-09-09). Both recipes install it and prove it.
-    expect(dockerfile).toContain("    bubblewrap \\");
-    expect(dockerfile).toContain("bwrap --version");
+    // The Dockerfile and Freestyle bake select the same checksum-pinned
+    // upstream release; the Ubuntu integration test exercises the install.
+    const url = devboxBubblewrapUrl(dockerfile);
+    const sha256 = devboxBubblewrapSha256(dockerfile);
+    const version = devboxBubblewrapVersion(dockerfile);
+    const instructions = dockerfile.replace(/[ \t]*\\\n[ \t]*/g, " ").split("\n");
+    const install = instructions.find((line) => line.startsWith("RUN ") && line.includes("/tmp/bubblewrap.tar.xz"))!;
+    expect(install).toBeDefined();
+    expect(install.slice(4).replaceAll("$CMUX_IMAGE_BUBBLEWRAP_URL", url).replaceAll("$CMUX_IMAGE_BUBBLEWRAP_SHA256", sha256)).toBe(devboxBubblewrapInstallCommand(url, sha256, version));
     const bake = readScript("build-devbox-freestyle.ts");
-    expect(bake).toContain("util-linux e2fsprogs bubblewrap");
-    expect(bake).toContain("bwrap --version");
+    expect(bake).toContain("devboxBubblewrapInstallCommand(devboxBubblewrapUrl(), devboxBubblewrapSha256(), devboxBubblewrapVersion())");
     // The verifier launches the real claude (root) and codex (root and the
     // work user) TUIs and requires the ready composer with no first-run gate text.
     const verify = readScript("verify-devbox-image.ts");
-    expect(verify).toContain("bubblewrap-ok");
+    expect(verify).toContain("devboxBubblewrapCheckCommand()");
     // The work user's claude launch is the verifier's own
     // `claude-reaches-the-prompt`; these add root (the provider's exec API
     // runs as root) and codex for both accounts.
@@ -954,7 +1044,7 @@ test "$daemon_pid" = fixture
     const packageJson = JSON.parse(
       readFileSync(path.join(import.meta.dirname, "../package.json"), "utf8"),
     ) as { dependencies: Record<string, string> };
-    expect(packageJson.dependencies.freestyle).toBe("0.2.10");
+    expect(packageJson.dependencies.freestyle).toBe("0.2.21");
     expect(packageJson.dependencies["freestyle-beta"]).toBeUndefined();
   });
 
@@ -1097,6 +1187,75 @@ test "$daemon_pid" = fixture
     for (const name of ordered) expect(steps.filter((step) => step === name)).toHaveLength(1);
     for (let i = 1; i < ordered.length; i++) {
       expect(steps.indexOf(ordered[i - 1])).toBeLessThan(steps.indexOf(ordered[i]));
+    }
+  });
+
+  // Rebake 43439441654: the work user's ~/.config/cmux did not exist until the
+  // claude-onboarding seed made it, after the model-plane env; acpmux watched
+  // ~/.config for that folder (on the way to its harness sources), reloaded its
+  // catalog, and the live model probe started Claude in team mode on the fresh
+  // seed, which Claude rewrote without `theme`. The verify after the snapshot
+  // caught it; the bake now makes the folder before the daemon starts and
+  // checks the seed itself before the snapshot.
+  test("the bake makes the work user's cmux config folder before acpmux starts and checks the Claude team seed before the snapshot", () => {
+    const bake = readScript("build-devbox-freestyle.ts");
+    const steps = [...bake.matchAll(/await step\(\s*"([^"]+)"/g)].map((match) => match[1]);
+    expect(steps.filter((step) => step === "cmux-config-dir")).toHaveLength(1);
+    expect(steps.indexOf("cmux-config-dir")).toBeLessThan(steps.indexOf("acpmux-service"));
+    expect(steps.indexOf("acpmux-service")).toBeLessThan(steps.indexOf("claude-onboarding"));
+    expect(bake).toContain('await step("cmux-config-dir", devboxWorkUserCmuxConfigDirCommand());');
+    expect(devboxWorkUserCmuxConfigDirCommand()).toContain(`sudo -n -u ${DEVBOX_WORK_USER} mkdir -p ${DEVBOX_WORK_HOME}/.config/cmux`);
+    expect(bake).toContain(
+      'await step("settle-before-snapshot", `${devboxSettleBeforeSnapshotCommand()} && ${devboxClaudeTeamOnboardingCheckCommand()}`);',
+    );
+    expect(readScript("verify-devbox-image.ts")).toContain("  devboxClaudeTeamOnboardingCheckCommand(),");
+  });
+
+  test("the Claude team seed check passes on the seed and fails on the config a Claude start rewrote", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "cmux-claude-team-seed-"));
+    try {
+      const homes = [path.join(root, "root"), path.join(root, "work")];
+      const configs = homes.map((home) => path.join(home, ".config/cmux/claude-team/.claude.json"));
+      const seeded = await runChild("python3", ["-I", path.join(templateDir, "claude-onboarding.py"), ...configs], {
+        env: { ...process.env, ANTHROPIC_API_KEY: "cmux-vm-edge-placeholder" },
+      });
+      expect(seeded.status).toBe(0);
+      const check = devboxClaudeTeamOnboardingCheckCommand(homes);
+      const fresh = await runChild("/bin/sh", ["-c", check]);
+      expect(fresh.stdout).toContain("claude-team-onboarding-ok");
+      expect(fresh.status).toBe(0);
+      // The work user's file as the failing verify read it: Claude kept the
+      // seed's other keys and dropped `theme` (its default) when it wrote.
+      writeFileSync(
+        configs[1],
+        JSON.stringify({
+          customApiKeyResponses: { approved: ["-vm-edge-placeholder"], rejected: [] },
+          hasCompletedOnboarding: true,
+          projects: { "/": { hasTrustDialogAccepted: true } },
+          firstStartTime: "2026-11-13T14:19:03.206Z",
+          firstStartVersion: "2.1.299",
+          migrationVersion: 14,
+        }),
+        { mode: 0o600 },
+      );
+      const rewritten = await runChild("/bin/sh", ["-c", check]);
+      expect(rewritten.status).not.toBe(0);
+      expect(rewritten.stdout).not.toContain("claude-team-onboarding-ok");
+      // A start that kept `theme` still leaves per-install ids every clone would share.
+      writeFileSync(
+        configs[1],
+        JSON.stringify({
+          customApiKeyResponses: { approved: ["-vm-edge-placeholder"], rejected: [] },
+          hasCompletedOnboarding: true,
+          theme: "dark",
+          projects: { "/": { hasTrustDialogAccepted: true } },
+          firstStartTime: "2026-11-13T14:19:03.206Z",
+        }),
+        { mode: 0o600 },
+      );
+      expect((await runChild("/bin/sh", ["-c", check])).status).not.toBe(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 

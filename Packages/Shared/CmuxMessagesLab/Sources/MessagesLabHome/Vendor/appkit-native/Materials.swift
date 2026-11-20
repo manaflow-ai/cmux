@@ -609,13 +609,13 @@ final class InlineEditor: NSView {
 extension FieldChrome {
     /// Compose glyphs, fitted to the lossless stills: plus and emoji 15.5 pt medium.
     static let glyphConfig = NSImage.SymbolConfiguration(pointSize: 15.5, weight: .medium)
-    /// Messages' emoji button glyph: the private SF Symbol `emoji.face.grinning`
-    /// (CoreGlyphsPrivate.bundle, a named symbol image; README: Glyphs). Falls back to
-    /// the public `face.smiling.inverse`. `tinted` bakes white in (layer drawing);
-    /// the button tints it itself.
+    /// cmux: the emoji button glyph: the public SF Symbol `face.smiling.inverse`, the closest public
+    /// match to Messages' private `emoji.face.grinning`. Never a CoreGlyphsPrivate image: a
+    /// configured variant of a symbol the public catalog lacks aborts AppKit on macOS 27.3
+    /// ("NSImage requested a variant from a symbol that wasn't found in the asset catalog").
+    /// `tinted` bakes white in (layer drawing); the button tints it itself.
     static func emojiGlyph(tinted: Bool = true) -> NSImage? {
-        let base = Bundle(path: "/System/Library/CoreServices/CoreGlyphsPrivate.bundle")?.image(forResource: "emoji.face.grinning")
-            ?? NSImage(systemSymbolName: "face.smiling.inverse", accessibilityDescription: nil)
+        let base = NSImage(systemSymbolName: "face.smiling.inverse", accessibilityDescription: nil)
         guard let img = base?.withSymbolConfiguration(glyphConfig) else { return nil }
         guard tinted else { return img }
         return NSImage(size: img.size, flipped: false) { r in

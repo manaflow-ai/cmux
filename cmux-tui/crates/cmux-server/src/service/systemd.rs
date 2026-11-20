@@ -168,6 +168,15 @@ pub fn restart(s: &Services<'_>) -> Result<()> {
     s.runner.check(&systemctl(s).args(["restart", SYSTEMD_UNIT])).map(|_| ())
 }
 
+pub fn start(s: &Services<'_>) -> Result<()> {
+    s.runner.check(&systemctl(s).args(["enable", "--now", SYSTEMD_UNIT])).map(|_| ())
+}
+
+/// `KillMode=process` keeps terminal hosts after a stop, as on a restart.
+pub fn stop(s: &Services<'_>) -> Result<()> {
+    s.runner.check(&systemctl(s).args(["disable", "--now", SYSTEMD_UNIT])).map(|_| ())
+}
+
 pub fn uninstall(s: &Services<'_>) -> Result<Vec<PathBuf>> {
     let ctl = systemctl(s);
     // KillMode=process leaves terminal hosts after a stop by design;

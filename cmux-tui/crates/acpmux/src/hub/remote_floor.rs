@@ -34,6 +34,9 @@ pub(crate) struct FloorState {
     /// The last turn was a Web turn: an agent request between turns is
     /// held to the floor.
     pub(super) last_turn_web: AtomicBool,
+    /// The active Web turn was started by the native Cloud mobile relay.
+    /// Unlike an ordinary Web client, it may not use Codex's any-mode bridge.
+    pub(super) cloud_mobile_turn: AtomicBool,
     /// The Web turn the floor cancelled: every later request in it is
     /// cancelled, also after a local restore of an asking mode.
     pub(super) floor_cancelled_turn: StdMutex<Option<String>>,
@@ -52,6 +55,11 @@ pub(crate) struct FloorState {
     /// check counts it as full access until the end succeeds or a new host starts (review 51 of
     /// #23322).
     pub(super) full_access_end_pending: AtomicBool,
+    /// A host a restart left answered that it cannot speak to this build
+    /// (`Attached::Incompatible`): its replay is never read, so what it moved to while no daemon
+    /// was attached is unknown. Under MDM's off every check counts it as full access until its
+    /// host is proven gone or a new host starts (#26337).
+    pub(super) unjudged_host: AtomicBool,
     /// Full-access mode or option reports of the session's own harness that the tap logged and
     /// the inbound loop has not applied yet (`session_tap`, `on_update`). The full-access bound
     /// counts them at once (`FullAccessView::of_session`), so `child_for` never hands out an
@@ -93,7 +101,8 @@ impl Hub {
     /// cancelled this turn, its Web control ended (the sticky flag), or its
     /// current mode does not ask.
     pub(super) fn remote_floor_breach(&self, session: &Session) -> Option<&'static str> {
-        let turn = session.turn().map(|t| t.turn_id);
+        let (turn, device) = session.turn().map(|t| (t.turn_id, t.device)).unzip();
+        let device = device.flatten();
         if turn.is_some()
             && *session.floor.floor_cancelled_turn.lock().unwrap_or_else(|e| e.into_inner()) == turn
         {
@@ -101,6 +110,13 @@ impl Hub {
         }
         if session.floor.unsandboxed.load(Ordering::SeqCst) {
             return Some("remote.unsandboxed_agent");
+        }
+        // The owner's own phone with Full access on drives the chat in the mode it has
+        // (`Hub::owner_phone_full_access`), read again here, so removing the phone or turning
+        // its setting off holds the turn at its next request. The device is the turn's own,
+        // read with its id (`TurnInfo::device`).
+        if self.owner_phone_full_access(device.as_deref()) {
+            return None;
         }
         if session.web_control_ended.load(Ordering::SeqCst) {
             return Some("remote.mode_left_asking_table");
@@ -113,18 +129,22 @@ impl Hub {
     /// and a mode the harness reported without declaring any.
     pub(super) fn session_asks_now(&self, session: &Session, meta: &SessionMeta) -> bool {
         // An authenticated remote connection runs the bridge in any mode.
-        if self.any_mode_for_web(meta) {
+        if self.any_mode_for_web(meta) && !session.floor.cloud_mobile_turn.load(Ordering::SeqCst) {
             return true;
         }
+        if session.floor.cloud_mobile_turn.load(Ordering::SeqCst) {
+            return self.cloud_mobile_mode_asks(meta);
+        }
         let table = self.web_modes();
-        if !table.session_asks(meta) {
+        let modes_of = self.trusted_mode_family(meta);
+        if !table.session_asks_as(meta, &modes_of) {
             return false;
         }
         if crate::web_modes::mode_of(meta).is_some() {
             return true;
         }
         match session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()).as_deref() {
-            Some(mode) => table.modes(&crate::web_modes::family_of(meta)).iter().any(|m| m == mode),
+            Some(mode) => table.modes(&modes_of).iter().any(|m| m == mode),
             None => true,
         }
     }
@@ -255,8 +275,8 @@ pub(super) fn open_read_target(_t: &ReadTarget) -> std::io::Result<std::fs::File
 #[cfg(unix)]
 pub(super) fn write_approved(target: &Path, content: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-    let mut file = std::fs::OpenOptions::new()
+    use std::os::unix::fs::MetadataExt;
+    let mut file = crate::home_fs::OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(false)

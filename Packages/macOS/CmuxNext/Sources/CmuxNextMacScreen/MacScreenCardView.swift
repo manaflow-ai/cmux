@@ -73,7 +73,7 @@ final class MacScreenCardView: MacScreenThemedView {
 
     private func render() {
         let next = withObservationTracking {
-            Shown(card: model.card, name: model.name, failedDetail: model.card == .failed ? model.failedDetail : "")
+            Shown(card: model.card, name: model.name, failedDetail: Self.failedDetail(model.card, model))
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.render() }
         }
@@ -85,6 +85,16 @@ final class MacScreenCardView: MacScreenThemedView {
         paint(stack)
         // The pane centers the card at its new size.
         superview?.needsLayout = true
+    }
+
+    /// The failure's detail for `card`: the failed card's (``MacScreenPaneModel/failedDetail``), or
+    /// for a hub end that says the stream failed, the host's reason when it gave one; else empty.
+    static func failedDetail(_ card: MacScreenCard?, _ model: MacScreenPaneModel) -> String {
+        switch card {
+        case .failed?: model.failedDetail
+        case .hubEnded(.failed)?, .hubRevoked(.failed)?: model.hubFailureDetail ?? ""
+        default: ""
+        }
     }
 
     // MARK: Pieces
@@ -118,7 +128,7 @@ final class MacScreenCardView: MacScreenThemedView {
         stack.addArrangedSubview(spinner)
     }
 
-    private func buttons(_ buttons: [MacScreenButton]) {
+    private func buttons(_ buttons: [NSView]) {
         stack.addArrangedSubview(MacScreenStack.make(.horizontal, spacing: 8, alignment: .centerY, buttons))
     }
 
@@ -144,14 +154,16 @@ final class MacScreenCardView: MacScreenThemedView {
     // MARK: Cards
 
     private var name: String { shown?.name ?? model.name }
+    /// A hub end's host reason, when the shown card has one (``failedDetail(_:_:)``).
+    private var hostReason: String? { shown?.failedDetail.isEmpty == false ? shown?.failedDetail : nil }
 
     private func content(_ card: MacScreenCard) {
         switch card {
         case .unsupported:
             glyph("link.badge.plus", ink: \.attention)
             title(L.t("macScreen.card.linksGoneTitle", "Pairing Links Are No Longer Supported"))
-            detail(L.t("macScreen.card.linksGoneBody", "Mac Screen now connects the Macs signed in to your cmux account. Open Mac Screen to see them."))
-            buttons([closeTab(id: "macScreen.card.closeTab"), primary(L.t("macScreen.card.openHome", "Open Mac Screen")) { $0.openHome() }])
+            detail(L.t("macScreen.card.linksGoneBody", "Screen Sharing now connects the Macs signed in to your cmux account. Open Screen Sharing to see them."))
+            buttons([closeTab(id: "macScreen.card.closeTab"), primary(L.t("macScreen.card.openHome", "Open Screen Sharing")) { $0.openHome() }])
         case let .connecting(reconnecting):
             spinner()
             title(reconnecting ? L.t("macScreen.card.reconnecting", "Reconnecting…")
@@ -161,7 +173,8 @@ final class MacScreenCardView: MacScreenThemedView {
             spinner()
             title(L.t("macScreen.card.waiting", "Waiting for the screen…"))
         case .failed:
-            // The session's message can quote the signaling URL (with the room id): never shown.
+            // The session's free-form message can quote the signaling URL (with the room id): never
+            // shown. Only a cause a side named (the host's reason, the link's) is, in failedDetail.
             glyph("exclamationmark.triangle", ink: \.attention)
             title(L.t("macScreen.card.failedTitle", "Couldn’t connect"))
             detail(shown?.failedDetail ?? model.failedDetail)
@@ -205,7 +218,7 @@ final class MacScreenCardView: MacScreenThemedView {
             let removed = reason.removesAccess
             glyph(removed ? "lock" : "display", ink: removed ? \.danger : \.secondary)
             title(removed ? L.t("macScreen.hub.revokedTitle", "Access Removed") : L.t("macScreen.card.endedTitle", "Disconnected"))
-            detail(reason.text(host: name))
+            detail(hostReason ?? reason.text(host: name))
             var row = [closeTab()]
             if reason.canReconnect {
                 row.append(primary(L.t("macScreen.hub.connectAgain", "Connect Again"), id: "macScreen.hub.connectAgain") { $0.connect() })
@@ -219,7 +232,7 @@ final class MacScreenCardView: MacScreenThemedView {
         case let .hubEnded(reason):
             glyph(reason.removesAccess ? "lock" : "display", ink: reason.removesAccess ? \.danger : \.secondary)
             title(reason.removesAccess ? L.t("macScreen.hub.revokedTitle", "Access Removed") : L.t("macScreen.card.endedTitle", "Disconnected"))
-            detail(reason.text(host: name))
+            detail(hostReason ?? reason.text(host: name))
             var row = [closeTab()]
             if reason.canReconnect {
                 row.append(primary(L.t("macScreen.card.reconnect", "Reconnect"), hint: .return, id: "macScreen.card.reconnect") { $0.connect() })
@@ -246,12 +259,26 @@ final class MacScreenCardView: MacScreenThemedView {
             glyph(refusal == .hostOffline ? "wifi.slash" : "exclamationmark.triangle", ink: \.attention)
             title(refusedTitle(refusal))
             detail(refusedBody(refusal))
-            var row = [closeTab()]
-            if refusal.canRetry {
+            var row: [NSView] = [closeTab()]
+            if refusal == .notSignedIn {
+                // Not signed in: Sign In, the shared button every "sign in" place shows (msg 3790); Try Again
+                // asks once more after it.
+                row.append(MacScreenButton(L.t("macScreen.card.retry", "Try Again"), id: "macScreen.card.retry") { [weak self] in
+                    self?.actions.requestScope(requested)
+                })
+                row.append(signInButton())
+            } else if refusal.canRetry {
                 row.append(primary(L.t("macScreen.card.retry", "Try Again"), id: "macScreen.card.retry") { $0.requestScope(requested) })
             }
             buttons(row)
         }
+    }
+
+    /// The shared Sign In button (``SignInButton``): it starts the cmux sign-in.
+    private func signInButton() -> SignInButton {
+        let button = SignInButton { [weak self] in self?.actions.signIn() }
+        button.setAccessibilityIdentifier("macScreen.card.signIn")
+        return button
     }
 
     private func refusedTitle(_ refusal: MacScreenHubRefusal) -> String {

@@ -44,6 +44,22 @@ revision, a native AppKit surface, or a production bundle. An agent may read the
 index and gallery state, but automation should not steal the developer's focus.
 Open a browser tab only with an explicit `--open` or a user action.
 
+### In your own app
+
+A NIGHTLY, cmux NEXT DEV or Debug build shows a stage in itself: no separate host, no app build.
+Run **Gallery Stage** from the palette for the gallery's index, or name an entry:
+
+```sh
+cmux action run gallery.openStage --entry agent-pane.composer --variant busy
+```
+
+The stage opens as a tab of the app's window, over your own background picture or glass, in your
+theme, accent and scale, and it follows them when they change (`host=app` in the frame). **Move
+Tab to New Window** separates it out; a save shows in it through the gallery's hot reload. It loads
+from `http://127.0.0.1:4178/` (what `web-dev.sh` starts), or the `gallery` URL in `web-dev.json`.
+The rest of the app's web surfaces follow your edits through `web-dev.json` as before
+([web-overlay.sh](../scripts/cmux-next/web-overlay.sh)).
+
 ## Branch gallery and before/after review
 
 Once the branch has a pushed commit, use the repository's compare helper:
@@ -86,6 +102,53 @@ test artifact path for offscreen drawing checks when that is the appropriate
 question. For example, `WorkspaceRowCloseNotchGalleryTests` writes the
 `close-notch-gallery` PNG set and tar archive only when the fleet sets
 `CMUX_TEST_REQUIRE_GUI=1`.
+
+`cmux-ci capture --list-states <sha>` prints the scenes and tours at a commit.
+
+### A scene for a fix names its regression commit
+
+A fixture that forgives the bug it pictures shows the same thing before and after the fix,
+so its captures prove nothing. Every scene that pictures a fix must:
+
+* name its regression commit (the last commit with the bug) in its `CaptureSceneDefinition`
+  description and in this document;
+* check the fixed behavior itself and return an `error` when it is missing, so the capture
+  step fails rather than taking a still that only looks plausible;
+* be captured red at the regression commit and green at the fix, both with the scene merged
+  onto them, with the two run ids posted on the fix's PR.
+
+A fake service in a scene answers what the real one answers and nothing more. It refuses an id
+or a call the real one would refuse, rather than answering any request.
+
+## Permission and feed flow
+
+A change to agent permission prompts, the feed bridge (`AcpmuxPermissionFeedBridge`) or
+Needs you has its own scenes. They need no harness, phone or sign-in: an acpmux runs inside
+the app (`HomeNeedsYouCapture` in CmuxNextHome) with one peer session holding a prompt, and the bridge's feed
+calls go to the local daemon's feed. Chief Home's pinned Needs you section is the picture.
+That acpmux lists the session as acpmux lists a peer's (raw `sessionId`, `peer`,
+`qualifiedSessionId`). It sends notices with the raw `sessionId`. It answers `_acpmux/info`
+only for the qualified id, as acpmux reads a peer's session.
+
+* `scene:permission-feed-peer`: the bridge found the prompt at recovery and posted it; Needs
+  you lists it. acpmux then sends `_acpmux/permission_pending` for it. Regression: before
+  #41240 the bridge reads a peer's prompts by the raw id, and the scene fails with "Needs you
+  never drew the prompt".
+* `scene:permission-feed-peer-resolved`: the same, then acpmux sends
+  `_acpmux/session_changed` (`permission_resolved`, with the peer's raw `sessionId`, `peer` and
+  `qualifiedSessionId`) and lists no prompt. The bridge withdraws the item and Needs you goes.
+  The capture's result says `withdrawn: true` or `false`. With `false` the step fails ("the bridge
+  kept the answered prompt in Needs you"), and the still shows the prompt left behind.
+  Regression: `cfcd0c55d64f` (#41240's head) is red; #41295 is green.
+* `tour:permission-feed-peer`: both, light and dark, in one launch. Use it for a before and
+  after:
+
+```sh
+cmux-ci capture <sha> --state tour:permission-feed-peer --pr <number>
+```
+
+The scenes' glue is in `CaptureSceneRegistry+Home.swift`; change `HomeNeedsYouCapture.swift` to
+picture another prompt or notice.
 
 ## Sidebar close-notch example
 

@@ -2,8 +2,10 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowserHistory
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextWindowRules
 import Foundation
 
 /// Recently closed tabs, screens, and workspaces as the daemon records them
@@ -36,54 +38,28 @@ enum DaemonClosedHistory {
         id.hasPrefix("daemon:") ? String(id.dropFirst("daemon:".count)) : nil
     }
 
-    /// The page a closed item on `machine` is only, by machine and address: a closed tab of one
-    /// browser on a real address, as the daemon keys it (`closed_page`, Leo 2026-10-14). nil for a
-    /// terminal, chat, page tab, screen, workspace, window, group or close of several tabs:
-    /// nothing tells one close of those from another (two shells in one folder).
-    nonisolated static func pageKey(_ item: ClosedItem, machine: String) -> [String]? {
-        let tabs = item.tabs
-        guard item.kind == .tab, item.group == nil, tabs.count == 1, let tab = tabs.first, tab.kind == "browser",
-              !tab.empty, tab.page == nil, let url = tab.url, !url.isEmpty, url != "about:blank" else { return nil }
-        return [machine, url]
-    }
-
-    /// `closed` (newest first, each as its item and machine) with a page closed again
-    /// (``pageKey(_:machine:)``) once, at its newest close: Recently Closed and Search Tabs list a
-    /// page once.
+    /// `closed` (newest first, each as its item and machine) with a page closed again once, at its
+    /// newest close: Recently Closed and Search Tabs list a page once. The rule is Rust's
+    /// (cmux-window-rules `closed::newest_once`: a closed tab of one browser on a real address).
     nonisolated static func newestOnce<T>(_ closed: [T], _ item: (T) -> (item: ClosedItem, machine: String)) -> [T] {
-        var seen = Set<[String]>()
-        return closed.filter { value in
-            let (closedItem, machine) = item(value)
-            return pageKey(closedItem, machine: machine).map { seen.insert($0).inserted } ?? true
-        }
+        WindowRules().newestOnce(closed.map { facts(item($0)) }).filter(closed.indices.contains).map { closed[$0] }
     }
 
-    /// Every close the row of `target` stands for, among `closed`: for a page
-    /// (``pageKey(_:machine:)``) every close of it, so removing the row leaves none to take its
-    /// place; else `target` alone.
+    /// Every close the row of `target` stands for, among `closed`: for a page every close of it, so
+    /// removing the row leaves none to take its place; else `target` alone (`closed::closes`).
     nonisolated static func closes<T>(of target: T, among closed: [T], _ item: (T) -> (item: ClosedItem, machine: String)) -> [T] {
-        let own = item(target)
-        guard let page = pageKey(own.item, machine: own.machine) else { return [target] }
-        return closed.filter { value in
-            let other = item(value)
-            return pageKey(other.item, machine: other.machine) == page
-        }
+        let all = [facts(item(target))] + closed.map { facts(item($0)) }
+        let others = WindowRules().closes(of: 0, among: all).filter { $0 > 0 && $0 <= closed.count }.map { closed[$0 - 1] }
+        return others.isEmpty ? [target] : others
+    }
+
+    private nonisolated static func facts(_ pair: (item: ClosedItem, machine: String)) -> WindowRules.ClosedFacts {
+        WindowRules.ClosedFacts(pair.item, machine: pair.machine)
     }
 
     /// True when some connected daemon records closed history.
     static func isServed(in services: AppServices) -> Bool {
         services.machines.daemons.contains { $0.store.servesStateResources }
-    }
-
-    /// Whose an entry is for Cmd-Shift-T (decision 1, reopen-closed.md 4).
-    enum Owner: Equatable {
-        /// Its tab or screen left a workspace that `window` lists.
-        case window
-        /// Its workspace is listed by no window (a closed workspace, a
-        /// deleted group, a workspace no window shows).
-        case none
-        /// Another window (open or closed) lists its workspace.
-        case otherWindow
     }
 
     /// Every kind of closed item: tabs, screens, workspaces and windows.
@@ -96,43 +72,25 @@ enum DaemonClosedHistory {
         return install + "/" + windowID
     }
 
-    /// Who owns `entry` as seen from window `window` (a window id). The
-    /// daemon names the window record a group left (the app mirrors its
-    /// windows there, `WindowRecordSaver`): this window's record owns it;
-    /// another open window of this app, or another Mac's window, owns it
-    /// too; a window this app closed (also a `window` item itself) or no
-    /// longer has owns nothing. Without a recorded window (an older or a
-    /// remote daemon) the workspace's window decides.
-    static func owner(of entry: Entry, window: String?, in services: AppServices) -> Owner {
-        owner(of: entry, window: window, install: try? services.cloud.localDeviceID(), in: services)
+    /// The facts of who owns `entry` for Cmd-Shift-T (decision 1, reopen-closed.md 4): the window
+    /// record a close left names one of this app's windows (on this Mac's daemon), as the registry
+    /// knows it; else the window that lists its workspace. `installs`: this install's ids, read once.
+    private static func ownerFacts(_ entry: Entry, installs: [String], in services: AppServices) -> WindowRules.OwnerFacts {
+        let registry = services.windows.registry.value
+        let recorded = entry.daemon.isLocal ? entry.item.window.flatMap { CloudInstallIDs.windowID($0, installs: installs) } : nil
+        let workspace = entry.item.workspaceID.flatMap { entry.daemon.store.workspace(resourceID: $0) }
+        return WindowRules.OwnerFacts(kind: entry.item.kind, local: entry.daemon.isLocal, recordedWindow: recorded,
+                                      recordedOpen: recorded.flatMap { registry.window($0) }.map(\.isOpen),
+                                      workspaceWindow: workspace.flatMap { registry.owner(of: $0.id) })
     }
 
-    /// Same, with this install's id read once. The recorded window decides only
-    /// on this Mac's daemon for a window the registry has; else the workspace's
-    /// window does. A window item of an unknown window is not reopenable.
-    private static func owner(of entry: Entry, window: String?, install: String?, in services: AppServices) -> Owner {
-        if entry.daemon.isLocal, let install, let recorded = entry.item.window, recorded.hasPrefix(install + "/") {
-            let windowID = String(recorded.dropFirst(install.count + 1))
-            if let known = services.windows.registry.value.window(windowID) {
-                if windowID == window { return .window }
-                return known.isOpen ? .otherWindow : .none
-            }
-            if entry.item.kind == .window { return .otherWindow }
-        }
-        if entry.item.kind == .window { return .otherWindow }
-        guard let resource = entry.item.workspaceID, let workspace = entry.daemon.store.workspace(resourceID: resource),
-              let owner = services.windows.registry.value.owner(of: workspace.id) else { return .none }
-        return owner == window ? .window : .otherWindow
-    }
-
-    /// Cmd-Shift-T's item for window `window`: the newest group of any
-    /// level (tab, screen, workspace, window) that left this window, else
-    /// the newest one no live window owns (a closed window among them).
-    /// Never a group of another live window (decision 1).
+    /// Cmd-Shift-T's item for window `window`: the newest group of any level (tab, screen,
+    /// workspace, window) that left this window, else the newest one no live window owns (a closed
+    /// window among them); never a group of another live window (`closed::newest`).
     static func newest(for window: String?, in services: AppServices) -> Entry? {
-        let all = entries(allKinds, in: services), install = try? services.cloud.localDeviceID()
-        return all.first { owner(of: $0, window: window, install: install, in: services) == .window }
-            ?? all.first { owner(of: $0, window: window, install: install, in: services) == .none }
+        let all = entries(allKinds, in: services), installs = services.cloud.installIDs.all()
+        let index = WindowRules().newestClosed(all.map { ownerFacts($0, installs: installs, in: services) }, window: window)
+        return index.flatMap { all.indices.contains($0) ? all[$0] : nil }
     }
 
     /// The entry with id `id` on any daemon.
@@ -166,16 +124,17 @@ enum DaemonClosedHistory {
                 let reply = start.duration(to: clock.now)
                 let tabs = reopened.tabIDs
                 let undo = services.closedTabs?.undoToasts
-                undo?.noteReopen(id: item.id, tabs: tabs.map(\.rawValue), reply: reply)
+                undo?.lastReopen = ReopenTiming(id: item.id, tabs: tabs.map(\.rawValue), reply: reply)
                 // task-owner: CloseUndoToasts.reopenWatch (the next reopen cancels it); event-driven
                 undo?.reopenWatch?.cancel()
                 undo?.reopenWatch = Task { @MainActor [weak undo] in
                     await daemon.appliedThroughReply(on: connection, after: "reopen closed")
                     let inStore = { tabs.allSatisfy { id in daemon.store.workspaces.contains { $0.screens.contains { $0.panes.contains { $0.tabs.contains { $0.resourceID == id } } } } } }
-                    undo?.noteReopenApplied(start.duration(to: clock.now), tabsInStore: inStore())
+                    undo?.lastReopen?.applied = start.duration(to: clock.now)
+                    undo?.lastReopen?.tabsInStoreAtApplied = inStore()
                     // When the reopened tabs reach the store (nxdog54: the first restore only after another event).
                     for await present in ObservationStream({ inStore() }) where present {
-                        undo?.noteReopenTabsArrived(start.duration(to: clock.now))
+                        undo?.lastReopen?.tabsArrived = start.duration(to: clock.now)
                         return
                     }
                 }
@@ -225,8 +184,8 @@ enum DaemonClosedHistory {
     /// workspaces go (nothing could reopen them otherwise).
     private static func releaseWindow(of item: ClosedItem, daemon: DaemonService, services: AppServices) {
         guard item.kind == .window, daemon.isLocal, let recorded = item.window,
-              let install = try? services.cloud.localDeviceID(), recorded.hasPrefix(install + "/") else { return }
-        services.windows.releaseClosedWindow(id: String(recorded.dropFirst(install.count + 1)))
+              let windowID = CloudInstallIDs.windowID(recorded, installs: services.cloud.installIDs.all()) else { return }
+        services.windows.releaseClosedWindow(id: windowID)
     }
 
     /// Sends the agent-home folders of deleted closed workspaces (the

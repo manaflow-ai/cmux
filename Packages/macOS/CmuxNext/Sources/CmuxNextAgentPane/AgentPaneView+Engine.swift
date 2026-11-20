@@ -4,14 +4,21 @@ import WebKit
 
 // The pane's page in whichever engine shows it: on the shared page host (``PageWebView``) the page
 // may show in Chromium, and ``AgentPaneView/webView`` is then a hidden WebKit view. Focus goes
-// through ``AgentPaneView/focusChat()``, scripts through ``AgentPaneView/callPageScript(_:arguments:)``,
+// through ``AgentPaneView/focusChat()``, scripts through ``AgentPaneView/callPageScript(_:arguments:timeout:)``,
 // pictures and the Chromium page's window through these.
 extension AgentPaneView {
     /// The Chromium page that shows the chat now; nil on WebKit.
     public var chromiumPage: (any PageChromiumPage)? { page?.chromiumPage }
 
+    /// The page shows in Chromium once its browser is made (``chromiumPage`` is nil until then).
+    public var waitsForChromium: Bool {
+        guard let page else { return false }
+        return page.engineDecision.engine == .cef && !page.showsChromium
+    }
+
     /// A picture of the page as it draws now; nil when there is none.
     public func pageSnapshot() async -> NSImage? {
+        model.transport.beforePageWork?()
         if let page { return await page.snapshot() }
         return try? await webView.takeSnapshot(configuration: nil)
     }

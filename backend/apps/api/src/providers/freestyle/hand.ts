@@ -1,7 +1,10 @@
 import type { Env } from "../../env.ts"
 import type { MadeMachine, SandboxProvider } from "../../hand-providers.ts"
+import { freestyleCustomer } from "./customer.ts"
+import { freestyleIdleSeconds } from "../../auto-pause.ts"
 
 const TIMEOUT_MS = 20_000
+/** Freestyle's idle pause of a hand sandbox, only with CLOUD_IDLE_PAUSE on (auto-pause.ts); otherwise -1, never. */
 const IDLE_SECONDS = 1800
 
 const freestyleBase = (env: Env) => (env.CLOUD_FREESTYLE_API_URL || "https://api.freestyle.sh").replace(/\/+$/, "")
@@ -19,9 +22,10 @@ export const freestyleHands: SandboxProvider = {
     const res = await freestyle(env, "POST", "/v5/vms", {
       slug: input.name,
       snapshotId: env.HAND_SANDBOX_SNAPSHOT,
-      idleTimeoutSeconds: IDLE_SECONDS,
+      idleTimeoutSeconds: freestyleIdleSeconds(env, IDLE_SECONDS),
       automaticRestart: false,
       metadata: { cmux_hand: input.hand, cmux_owner: input.owner, cmux_deployment: input.deployment },
+      ...freestyleCustomer(input.owner),
       firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] }
     })
     const body = (await res?.json().catch(() => null)) as { vmId?: string; id?: string } | null

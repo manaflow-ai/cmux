@@ -72,7 +72,7 @@ enum WorkspaceStructureHandlers {
             blueprint = blueprint.withoutBrowserTabs(fallbackDirectory: WorkspaceVerbHandlers.directory(of: workspace, context))
         }
         let windows = context.services.windows
-        let target = windows.targetWindow(preferring: windows.registry.value.owner(of: workspace.id) ?? context.activeWindow?.state.id)
+        let target = windows.targetWindow(preferring: windows.actingWindow(for: workspace.id) ?? context.activeWindow?.state.id)
         build(blueprint, name: workspace.displayName, slot: .below(workspace.id), on: daemon, into: target,
               label: "duplicate workspace", services: context.services, done: done)
     }
@@ -106,7 +106,7 @@ enum WorkspaceStructureHandlers {
                 // Through the funnel: the action run waits for the layout's
                 // echo, so `created` names the tabs it made.
                 try await daemon.perform(label + " layout") { connection in
-                    try await WorkspaceBlueprintBuilder(connection: connection, key: key, browsers: withBrowsers, defaultEngine: engine)
+                    try await WorkspaceBlueprintBuilder(daemon: daemon, connection: connection, key: key, browsers: withBrowsers, defaultEngine: engine)
                         .build(blueprint)
                     if metadata, blueprint.color != nil || blueprint.icon != nil {
                         try await connection.state.setWorkspaceIdentity(key, resource: resource,
@@ -185,7 +185,7 @@ enum WorkspaceStructureHandlers {
             throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
         }
         let services = context.services, windows = services.windows
-        if newWindow, let reason = TabPromotion.refusal(tab: first.id, services: services) { throw ActionFailure.invalidTarget(reason) }
+        if newWindow, let reason = TabPromotion.refusal(tab: first, services: services) { throw ActionFailure.invalidTarget(reason) }
         let workspace = services.machines.allWorkspaces.map(\.0).first { $0.screens.contains { $0.panes.contains { $0 === pane } } }
         // Read before the await: whether this run may change the view, and where the pane came from.
         let allowed = ActionRunScope.viewChangeAllowed(), origin = windows.moveOrigin(of: workspace?.id)
@@ -202,7 +202,7 @@ enum WorkspaceStructureHandlers {
                 windows.openMovedWindow([key.rawValue], from: origin, select: allowed)
                 return nil
             }
-            guard let workspace, let state = windows.registry.value.owner(of: workspace.id).flatMap({ windows.states[$0] }) else { return nil }
+            guard let workspace, let state = windows.actingWindow(for: workspace.id).flatMap({ windows.states[$0] }) else { return nil }
             // Once the daemon reports it: below the pane's workspace, the
             // other tabs follow in order, and the window shows it (the new
             // workspace is selected).

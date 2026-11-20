@@ -21,6 +21,8 @@ package nonisolated struct FileExplorerStrings {
         String(format: text("fileExplorer.openFailed", "“%@” could not be opened."), name)
     }
     package static var noFolder: String { text("fileExplorer.noFolder", "No folder") }
+    /// The Files section's button for a privacy-protected folder it has not read (LAUNCH-NO-TCC-PROMPTS).
+    package static var showProtectedContents: String { text("fileExplorer.showProtectedContents", "Show Contents") }
     package static var noExplorer: String { text("fileExplorer.noExplorer", "Show Files in the right sidebar first.") }
     package static var openInCmux: String { text("fileExplorer.menu.openInCmux", "Open in cmux") }
     package static var revealInFinder: String { text("fileExplorer.menu.revealInFinder", "Reveal in Finder") }

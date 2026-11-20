@@ -50,8 +50,10 @@ describe("a scroll the user made", () => {
   for (const attribute of [SHOWN_SCROLLER_ATTRIBUTE, MINIMAL_SCROLLER_ATTRIBUTE]) {
     test(`${attribute}: only right after a wheel, key or button`, () => {
       expect(isUserScroll(element(attribute), undefined, 10_000)).toBe(false);
-      expect(isUserScroll(element(attribute), 10_000 - SCROLLING_HIDE_MS - 1, 10_000)).toBe(false);
-      expect(isUserScroll(element(attribute), 10_000 - 100, 10_000)).toBe(true);
+      expect(isUserScroll(element(attribute), { at: 10_000 - SCROLLING_HIDE_MS - 1, target: null }, 10_000)).toBe(
+        false,
+      );
+      expect(isUserScroll(element(attribute), { at: 10_000 - 100, target: null }, 10_000)).toBe(true);
     });
   }
 });

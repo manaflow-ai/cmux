@@ -1,0 +1,15 @@
+[package]
+name = "cmux-cloud-tasks"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The NEXT app's follower of the cloud tasks it handed off (sandboxed Runs and hand-offs): its state, every decision, the saved list and the two answer readers (pure; the macOS app asks them over the app FFI)"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

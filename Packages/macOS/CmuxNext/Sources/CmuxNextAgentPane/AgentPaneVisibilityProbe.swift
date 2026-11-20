@@ -2,9 +2,10 @@ import AppKit
 import CmuxNextCompat
 
 /// A zero-size subview of an agent pane that says when the pane may have come into sight: it
-/// moved to a window, it or an ancestor was shown, or its window's occlusion changed. The pane's
-/// ``AgentPaneFramePacer`` then delivers the frames it held while nobody could see the pane.
-/// Kept off ``AgentPaneView``, whose type is at its size limit.
+/// moved to a window, it or an ancestor was shown or hidden, or its window's occlusion changed. The pane's
+/// ``AgentPaneFramePacer`` then delivers the frames it held while nobody could see the pane, and
+/// Session Info's running-row wave starts or stops its loop. Kept off ``AgentPaneView``, whose
+/// type is at its size limit.
 @MainActor final class AgentPaneVisibilityProbe: NSView {
     var onChange: (@MainActor () -> Void)?
     private var occlusion: MainActorObservation?
@@ -24,6 +25,13 @@ import CmuxNextCompat
 
     override func viewDidUnhide() {
         super.viewDidUnhide()
+        onChange?()
+    }
+
+    /// It or an ancestor was hidden: the pane's chat rows host stops handing batches at once.
+    /// Every other owner reads visibility again on a change, and a hidden pane is a no-op for them.
+    override func viewDidHide() {
+        super.viewDidHide()
         onChange?()
     }
 }

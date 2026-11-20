@@ -3,24 +3,26 @@ public import CoreGraphics
 /// The one Liquid Glass look for floating chrome that carries text: toasts, dialogs and prompts,
 /// and the sidebar's bottom-left cards (tips, Update Ready). Neutral gray glass with a soft
 /// top-lit rim and continuous corners, like Rex and Apple's own toasts (user, 2026-10-20). Share
-/// it, never fork it: a new glass surface picks one of these styles or adds one here.
+/// it, never fork it: a new glass surface picks one of the roles (``SurfaceRole``,
+/// schemas/surface-roles/surface-roles.json) or adds one there.
 ///
 /// The material itself (Liquid Glass, vibrancy before macOS 26, opaque under Reduce Transparency)
 /// stays `OverlayMaterial`'s decision; this style only sets the tint, rim, radius and shadow.
 ///
-/// Motion is not here: it lives in `MotionTunables` only. Popups open on the `popover` spring from
-/// `Motion.popupOpenScale` and close on `popoverClose` to `Motion.popupCloseScale`; toasts rise on
+/// Motion is not here: it lives in `MotionTunables` only. Popups open at once and close on
+/// `popoverClose` to `Motion.popupCloseScale`; toasts rise on
 /// `appear` and fade with `fadeIn`/`fadeOut`. Every one of them fades the card's layer, never the
 /// window's `alphaValue` (a glass card ignores window alpha), and the rim fades with the card
 /// because it sits inside it.
 ///
 /// ```swift
-/// let look = FloatingGlassStyle.toast.look(isDark: tokens.isDark)
+/// let look = FloatingGlassStyle.dialog.look(isDark: tokens.isDark)
 /// glass.tintColor = look.veil.nsColor
 /// ```
 public nonisolated struct FloatingGlassStyle: Sendable, Equatable {
-    /// The continuous corner radius.
-    public var cornerRadius: CGFloat
+    /// How many levels inside the one corner radius its corner is (0: the outer radius, a
+    /// top-level surface); ``cornerRadius`` resolves it against `Metrics.corners`.
+    public var cornerDepth: Int
     /// The veil's opacity over the glass on a dark appearance.
     public var darkVeilAlpha: Double
     /// The veil's opacity over the glass on a light appearance.
@@ -31,44 +33,45 @@ public nonisolated struct FloatingGlassStyle: Sendable, Equatable {
     public var lightRim: (top: Double, bottom: Double)
     /// Whether it casts the popups' soft shadow (floating panels); sidebar cards do not.
     public var castsShadow: Bool
+    /// Whether the veil is the theme's glass tint (``Palette/glassTint``, the theme background the
+    /// popovers tint with) at the veil's opacity instead of the gray: the toasts' (Leo 2026-11-07:
+    /// "these toasts are still coloured unthemed"). The rim stays the neutral one.
+    public var veilTakesThemeTint: Bool
 
     /// - Parameters:
-    ///   - cornerRadius: The continuous corner radius.
+    ///   - cornerDepth: The corner's level inside the one corner radius (0: the outer radius).
     ///   - darkVeilAlpha: Veil opacity on dark.
     ///   - lightVeilAlpha: Veil opacity on light.
     ///   - darkRim: Rim top/bottom opacity on dark.
     ///   - lightRim: Rim top/bottom opacity on light.
     ///   - castsShadow: Whether it casts a shadow.
-    public init(cornerRadius: CGFloat, darkVeilAlpha: Double, lightVeilAlpha: Double,
-                darkRim: (top: Double, bottom: Double), lightRim: (top: Double, bottom: Double), castsShadow: Bool) {
-        self.cornerRadius = cornerRadius
+    ///   - veilTakesThemeTint: Whether the veil is the theme's glass tint instead of the gray.
+    public init(cornerDepth: Int, darkVeilAlpha: Double, lightVeilAlpha: Double,
+                darkRim: (top: Double, bottom: Double), lightRim: (top: Double, bottom: Double), castsShadow: Bool,
+                veilTakesThemeTint: Bool = false) {
+        self.cornerDepth = cornerDepth
         self.darkVeilAlpha = darkVeilAlpha
         self.lightVeilAlpha = lightVeilAlpha
         self.darkRim = darkRim
         self.lightRim = lightRim
         self.castsShadow = castsShadow
+        self.veilTakesThemeTint = veilTakesThemeTint
     }
 
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.cornerRadius == rhs.cornerRadius && lhs.darkVeilAlpha == rhs.darkVeilAlpha
+        lhs.cornerDepth == rhs.cornerDepth && lhs.darkVeilAlpha == rhs.darkVeilAlpha
             && lhs.lightVeilAlpha == rhs.lightVeilAlpha && lhs.darkRim == rhs.darkRim
             && lhs.lightRim == rhs.lightRim && lhs.castsShadow == rhs.castsShadow
+            && lhs.veilTakesThemeTint == rhs.veilTakesThemeTint
     }
 
-    /// Toasts: a 9 pt rounded rect (never a capsule, even on a one-line toast), with a shadow.
-    public static let toast = FloatingGlassStyle(cornerRadius: 9, darkVeilAlpha: 0.42, lightVeilAlpha: 0.55,
-                                                 darkRim: (0.30, 0.06), lightRim: (0.85, 0.10), castsShadow: true)
-    /// Dialogs, confirms and prompt bars: the panel radius, a little denser veil for longer text.
-    public static let dialog = FloatingGlassStyle(cornerRadius: 14, darkVeilAlpha: 0.48, lightVeilAlpha: 0.62,
-                                                  darkRim: (0.28, 0.05), lightRim: (0.85, 0.10), castsShadow: true)
-    /// Sidebar cards over the sidebar's own glass: a light veil and rim only (glass is never
-    /// stacked on glass), no shadow.
-    public static let card = FloatingGlassStyle(cornerRadius: 10, darkVeilAlpha: 0.22, lightVeilAlpha: 0.45,
-                                                darkRim: (0.22, 0.04), lightRim: (0.80, 0.08), castsShadow: false)
+    // The roles' looks (`toast`, `dialog`, `card`) are in SurfaceRole.swift, which follows
+    // schemas/surface-roles/surface-roles.json (scripts/cmux-next/check-surface-roles.py).
 
     /// The agent cursor's name tag and keystroke caption ("Chief · workspace"): a 22 pt capsule in
-    /// the toast's veil and rim, with a shadow, over the page the cursor floats on.
-    public static let agentTag = FloatingGlassStyle(cornerRadius: 11, darkVeilAlpha: toast.darkVeilAlpha,
+    /// the toast's veil and rim, with a shadow, over the page the cursor floats on. A capsule is a
+    /// shape, not a radius level: the cursor rounds the tag to half its height (`Metrics.capsuleRadius`).
+    public static let agentTag = FloatingGlassStyle(cornerDepth: 0, darkVeilAlpha: toast.darkVeilAlpha,
                                                     lightVeilAlpha: toast.lightVeilAlpha, darkRim: toast.darkRim,
                                                     lightRim: toast.lightRim, castsShadow: true)
 

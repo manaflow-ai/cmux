@@ -13,47 +13,11 @@ public nonisolated enum KeyboardReorder {
         case down
     }
 
+    /// The slot one step `direction` from the block `ids` (the shared rule, `sidebar_edits` `keyboard_target`).
     public static func target(moving ids: [WorkspaceID], direction: Direction, in sections: [SidebarSection]) -> DropPosition? {
-        let ordered = SidebarEdits.treeOrder(ids, in: sections)
-        guard let first = ordered.first, let anchor = SidebarEdits.locate(first, in: sections) else { return nil }
-        // Nothing precedes the anchor in tree order, so its indices already
-        // are "after removal" coordinates.
-        guard let current = SidebarEdits.position(of: first, in: sections) else { return nil }
-
-        var remaining = sections
-        _ = SidebarEdits.removeWorkspaces(Set(ordered), from: &remaining)
-        let slots = slots(in: remaining[anchor.section])
-        guard let i = slots.firstIndex(of: current) else { return nil }
-        let j = direction == .up ? i - 1 : i + 1
-        guard slots.indices.contains(j) else { return nil }
-        return slots[j]
-    }
-
-    /// Every insertion slot in a section, in visual order.
-    ///
-    /// Nested groups list flat after their parent and draw inside it, after its members: a
-    /// subgroup has no top-level slot before it (that gap is inside its parent), and a group
-    /// under a collapsed one shows no slots, so a move never lands in a row nobody can see.
-    static func slots(in section: SidebarSection) -> [DropPosition] {
-        var result: [DropPosition] = []
-        var hidden = Set<GroupID>() // collapsed groups and every group under one
-        for (index, node) in section.nodes.enumerated() {
-            guard case let .group(group) = node else {
-                result.append(DropPosition(section: section.id, index: index))
-                continue
-            }
-            if let parent = group.parent {
-                if hidden.contains(parent) { hidden.insert(group.id); continue }
-            } else {
-                result.append(DropPosition(section: section.id, index: index))
-            }
-            if group.isCollapsed { hidden.insert(group.id); continue }
-            for child in 0...group.members.count { // a group's index counts its member rows (items too)
-                result.append(DropPosition(section: section.id, group: group.id, index: child))
-            }
-        }
-        result.append(DropPosition(section: section.id, index: section.nodes.count))
-        return result
+        var request = RustEditRequest("keyboard_target", sections: RustSidebarEdits(sections).sections)
+        (request.ids, request.direction) = (ids.map(\.rawValue), direction == .up ? "up" : "down")
+        return (RustSidebarClient.call("sidebar_edits", request, as: RustEditPosition?.self) ?? nil)?.swiftValue
     }
 }
 

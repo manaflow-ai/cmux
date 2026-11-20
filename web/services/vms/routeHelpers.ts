@@ -695,7 +695,7 @@ export async function vmActiveLimitExceededResponse(input: {
   readonly activeMachines?: readonly VmActiveLimitMachine[];
 }): Promise<Response> {
   const paid = isPaidVmPlan(input.planId);
-  if (input.planId === "go") return goLimitResponse("active", input.locale ?? "en");
+  if (input.planId === "go") return goLimitResponse("saved", input.locale ?? "en");
   const plural = input.limit === 1 ? "" : "s";
   // Machine lists show paused machines beside the counted ones, so the
   // message names the counted set rather than leaving a person to guess.
@@ -705,7 +705,9 @@ export async function vmActiveLimitExceededResponse(input: {
     return vmErrorResponse({
       error: "vm_active_limit_exceeded",
       status: 402,
-      message: `This plan allows ${input.limit} active Cloud VM${plural} at a time.${counted}`,
+      // A paid plan has no machine allowance: this is the abuse guard (PAID_MACHINE_GUARD), so the
+      // message names a safety limit, not the plan, and its number stays in `details.limit`.
+      message: `This team keeps too many Cloud VMs at once (a safety limit, not your plan), including paused machines.${counted}`,
       action: input.retryAction,
       extra: { limit: input.limit },
       details: { limit: input.limit, ...countedDetails },
@@ -1278,10 +1280,10 @@ export const vmWorkflowErrorResponders = {
   VmGoShapeError: async (_error, context) => {
     const copy = await vmGoLimitCopy("shape", context.locale);
     return vmErrorResponse({
-      error: "vm_resources_require_pro", status: 402, phase: "billing",
+      error: "vm_resources_require_plan", status: 402, phase: "billing",
       message: copy.message,
       action: copy.action,
-      extra: { upgradeRequired: true, upgradePlanId: "pro", upgradeUrl: "https://cmux.com/api/billing/checkout?plan=pro" },
+      extra: { upgradeRequired: true, upgradePlanId: "max", upgradeUrl: "https://cmux.com/api/billing/checkout?plan=max" },
     });
   },
   VmCreateCreditsInsufficientError: () => null,
@@ -1570,8 +1572,7 @@ function vmNetworkFullResponse(error: VmProviderOperationError): Response {
     message,
     reason: "Every address in this account's private network is assigned to a machine or an enrolled Mac.",
     action:
-      "Delete machines you no longer use with `cmux cloud kill-machine --target machine:<id> --confirm`, or revoke Macs you no longer use on the " +
-      "Cloud Mac access page at https://cmux.com/dashboard/cloud, then try again.",
+      "Delete machines you no longer use with `cmux cloud kill-machine --target machine:<id> --confirm`, then try again.",
     phase: vmPhaseForOperation(error.operation),
     retryable: false,
     displayTitle: "Private network full",

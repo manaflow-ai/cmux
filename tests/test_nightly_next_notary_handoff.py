@@ -17,6 +17,9 @@ import tempfile
 import unittest
 
 import yaml
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,11 +29,14 @@ WORKFLOW = ROOT / ".github/workflows/nightly.yml"
 def prepare_step() -> str:
     steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["build-sign-notarize-nightly"]["steps"]
     step = next(s for s in steps if s.get("name") == "Prepare pending notarization recovery artifact")
-    return re.sub(r"\$\{\{[^}]*\}\}", "fixture", step["run"])
+    return gh_expressions.EXPRESSION.sub("fixture", step["run"])
 
 
 def run_prepare(state_extra: dict[str, str]) -> subprocess.CompletedProcess[str]:
     temp = Path(tempfile.mkdtemp())
+    # The step runs from the repository root in nightly.yml and calls
+    # ./scripts/ci/archive-recovery-app.sh; give the fixture folder the same scripts.
+    (temp / "scripts").symlink_to(ROOT / "scripts", target_is_directory=True)
     dmg = temp / "cmux-nightly-next-macos-arm64.dmg"
     dmg.write_bytes(b"signed dmg")
     app = temp / "cmux NEXT.app"

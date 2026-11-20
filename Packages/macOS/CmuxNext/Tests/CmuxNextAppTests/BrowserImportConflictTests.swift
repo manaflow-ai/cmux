@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -11,7 +12,7 @@ import Testing
 /// write's conflicts stay held for the person's Replace, each into the
 /// profile it was written to, not only the last write's. The run's toast
 /// offers Replace; without it the held passwords are zeroed.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(1)), .closesItsWindows)
 struct BrowserImportConflictTests {
     private static func login(_ username: String) -> ImportedLogin {
         ImportedLogin(url: "https://example.com/login", signonRealm: "https://example.com/", username: username,

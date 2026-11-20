@@ -20,6 +20,8 @@ import { withAuditRows } from "./team-audit-rows.ts"
 import { reduceServerEnrolled, reduceServerInstallRevoked, reduceServerNetworkConfirmed, reduceServerRevoke, type ServerRevocation } from "./team-servers.ts"
 import { reduceHostNetworkBound } from "./team-host-network.ts"
 import { GROUP_OPS, reduceGroup } from "./team-groups.ts"
+import { CLOUD_SESSION_OPS, reduceCloudSession } from "./team-cloud-sessions.ts"
+import { memberAuthorityWrites } from "./team-authority.ts"
 
 export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncState, RunSyncState, DomainState, SsoState, TeamSshState, LegacyTeamMaps {
   /** A Stack team carries its Stack id, and `deleted_at` once Stack deleted it (team-stack.ts). */
@@ -33,6 +35,8 @@ export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncS
   readonly host_count?: number
   /** Installs of removed servers whose UserDO revocation is not confirmed yet (TeamDO retries; server.md 6.5). */
   readonly server_revocations?: Readonly<Record<string, ServerRevocation>>
+  /** A paired server's install -> the cmux-platform join token its approval minted (an id, not a secret; team-servers.ts). */
+  readonly server_machine_joins?: Readonly<Record<string, string>>
   /** Removed members (user -> removal time) whose SSH certificates and hosts TeamDO still has to settle (team-member-cleanup.ts). */
   readonly member_cleanup?: Readonly<Record<string, number>>
   /** Team default monthly AI spending limit per member in USD (team-ai-limit.ts); absent or null = the cmux default. */
@@ -65,7 +69,12 @@ const HTTP_ONLY_OPS: ReadonlySet<string> = new Set([
   "team_vm.retired.delete",
   "team_vm.retired.export",
   // Removing a Stack team's member calls Stack first (team-member-admin.ts).
-  "team.members.remove"
+  "team.members.remove",
+  // Team shared agent keys: the key travels only in the HTTP request and is sealed outside the reducer (team-agent-keys.ts).
+  "team.agent_key.set",
+  "team.agent_key.remove",
+  // The members policy for model connections: a side table beside the shared agent keys (team-models-policy.ts).
+  "team.models_policy.set"
 ])
 
 /** Every audit record is also an `audit` row in the same commit (team-audit-rows.ts, team.audit.list). */
@@ -95,6 +104,8 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
     const p = ctx.principal
     // Cloud groups (cloud-groups-DESIGN.md): rows only, in team-groups.ts.
     if (GROUP_OPS.has(op)) return reduceGroup(state, op, params, ctx)
+    // Team-visible Cloud sessions (cloud multiplayer): rows only, in team-cloud-sessions.ts.
+    if (CLOUD_SESSION_OPS.has(op)) return reduceCloudSession(state, op, params, ctx)
     switch (op) {
       case "team.rows_migrate": {
         // (f) An old head's members and hosts move to rows in one commit; the maps leave the head.
@@ -109,7 +120,7 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         return {
           ok: true,
           state: { ...rest, member_count: (state.member_count ?? 0) + newMembers, host_count: (state.host_count ?? 0) + newHosts },
-          writes: [...members.map(memberUpsert), ...hosts.flatMap(hostUpsert)],
+          writes: [...members.map(memberUpsert), ...members.flatMap((m) => memberAuthorityWrites(m.user, ctx)), ...hosts.flatMap(hostUpsert)],
           ...(state.team ? { outbox: members.map((m) => teamIndexItem(state.team!, m.user, m.role, ctx.tx)) } : {}),
           value: { members: members.length, hosts: hosts.length }
         }
@@ -146,7 +157,7 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         return {
           ok: true,
           state: a?.state ?? removed,
-          writes: [{ table: TABLE_MEMBER, op: "delete", key: user }],
+          writes: [{ table: TABLE_MEMBER, op: "delete", key: user }, ...memberAuthorityWrites(user, ctx)],
           value: { user, removed: true, ...(member.role === "owner" ? { demoted_owner: true } : {}) },
           ...(state.team && a ? { outbox: [...memberLeftItems(state.team, user, ctx.tx, ctx.now), ...a.outbox] } : {})
         }
@@ -195,7 +206,7 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         return {
           ok: true,
           state: { ...state, team, member_count: (state.member_count ?? 0) + (prior ? 0 : 1) },
-          writes: [memberUpsert(member)],
+          writes: [memberUpsert(member), ...memberAuthorityWrites(member.user, ctx)],
           value: team,
           outbox: [
             { kind: "team.upsert", entity: team.id, payload: team },
@@ -313,6 +324,22 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         const what = { cert_issued_while_tainted: "SSH certificate issued while the team VM is tainted", taint_accepted: "team VM taint accepted", rebuild: "team VM rebuilt", retired_deleted: "retired team VM deleted", retired_exported: "retired team VM files exported" }[t.action ?? ""]
         if (!what || typeof t.by !== "string") return reject("validation.invalid", "action and by required")
         return withAudit({ ok: true, state, value: { audited: true }, audit: { summary: `${what} (epoch ${t.epoch}, removed: ${(t.tainted_by ?? []).join(", ") || "none"})`, detail: params } }, state.team.id, ctx, op)
+      }
+      case "team.agent_key.audit": {
+        // TeamDO's own submit after an owner or admin set, replaced or removed a shared agent key (team-agent-keys.ts): audit only, never the key.
+        if (p.kind !== "system" || p.identity !== "system:team" || !state.team) return reject("auth.forbidden", "internal op")
+        const t = params as { action?: string; agent?: string; kind?: string; generation?: number; by?: string }
+        const what = { set: "added", replaced: "replaced", removed: "removed" }[t.action ?? ""]
+        if (!what || typeof t.by !== "string" || typeof t.agent !== "string") return reject("validation.invalid", "action, agent and by required")
+        return withAudit({ ok: true, state, value: { audited: true }, audit: { summary: `Team shared ${t.agent} key ${what} by ${t.by} (generation ${t.generation})`, detail: params } }, state.team.id, ctx, op)
+      }
+      case "team.models_policy.audit": {
+        // TeamDO's own submit after an owner or admin changed the members policy for model connections (team-models-policy.ts).
+        if (p.kind !== "system" || p.identity !== "system:team" || !state.team) return reject("auth.forbidden", "internal op")
+        const t = params as { own_connections?: boolean; choose_runout?: boolean; revision?: number; by?: string }
+        if (typeof t.by !== "string" || typeof t.own_connections !== "boolean" || typeof t.choose_runout !== "boolean") return reject("validation.invalid", "own_connections, choose_runout and by required")
+        const summary = `Members policy for model connections set by ${t.by}: own connections ${t.own_connections ? "on" : "off"}, members choose the run-out ${t.choose_runout ? "on" : "off"} (revision ${t.revision})`
+        return withAudit({ ok: true, state, value: { audited: true }, audit: { summary, detail: params } }, state.team.id, ctx, op)
       }
       case "team.github.token_minted": {
         // Delivered by the team's own ConnectionDO outbox (integrations/github-tokens.ts): audit only.

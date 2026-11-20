@@ -13,6 +13,8 @@ import xml.etree.ElementTree as ET
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import nightly_workflow_text as workflow_text  # noqa: E402
 SPEC = importlib.util.spec_from_file_location(
     "nightly_release_notes", ROOT / "scripts/ci/nightly_release_notes.py"
 )
@@ -181,6 +183,10 @@ class CollectionTests(unittest.TestCase):
 
         def graphql(query):
             calls.append(query)
+            if "pullRequests(" not in query:
+                # The details query: one aliased pullRequest per picked PR.
+                known = {pr["number"]: pr for nodes, _ in pages for pr in nodes}
+                return {f"pr{n}": known[int(n)] for n in re.findall(r"pr(\d+): pullRequest\(number: \1\)", query)}
             after = re.search(r'after: "([^"]+)"', query)
             index = int(after.group(1)) if after else 0
             nodes, more = pages[index]
@@ -224,15 +230,57 @@ class CollectionTests(unittest.TestCase):
                              [([self.merged(20, "f" * 40, updated="2026-10-07T00:00:00Z")], True),
                               ([expected], False)])
         self.assertEqual(NOTES.collect_prs(github, BASE, HEAD, "main"), [expected])
-        self.assertEqual(len(github.calls), 2)
+        self.assertEqual(sum("pullRequests(" in call for call in github.calls), 2)
 
-    def test_stops_paging_a_day_before_the_base_commit(self):
+    def test_stops_paging_an_hour_before_the_base_commit(self):
         sha = "c" * 40
         github = self.github([self.compare(sha)],
-                             [([self.merged(20, "f" * 40, updated="2026-10-04T00:00:00Z")], True),
+                             [([self.merged(20, "f" * 40, updated="2026-10-05T10:59:00Z")], True),
                               ([self.merged(10, sha)], False)])
         self.assertEqual(NOTES.collect_prs(github, BASE, HEAD, "main"), [])
         self.assertEqual(len(github.calls), 1)
+
+    def test_pages_through_the_hour_of_clock_skew_slack(self):
+        sha = "c" * 40
+        expected = self.merged(10, sha)
+        github = self.github([self.compare(sha)],
+                             [([self.merged(20, "f" * 40, updated="2026-10-05T11:30:00Z")], True),
+                              ([expected], False)])
+        self.assertEqual(NOTES.collect_prs(github, BASE, HEAD, "main"), [expected])
+
+    def test_pages_pick_light_and_details_are_read_for_the_picked_prs_only(self):
+        first, second = "c" * 40, "d" * 40
+        picked = [self.merged(10, first), self.merged(11, second)]
+        github = self.github([self.compare(first, second)],
+                             [([picked[0], self.merged(12, "e" * 40)], True), ([picked[1]], False)])
+        self.assertEqual(NOTES.collect_prs(github, BASE, HEAD, "main"), picked)
+        pages, details = github.calls[:2], github.calls[2:]
+        for page in pages:
+            self.assertIn("first: 100", page)
+            self.assertNotIn("files(", page)
+            self.assertNotIn("labels(", page)
+        self.assertEqual(len(details), 1)
+        self.assertIn("pr10: pullRequest(number: 10)", details[0])
+        self.assertIn("pr11: pullRequest(number: 11)", details[0])
+        self.assertNotIn("pr12:", details[0])
+        self.assertIn("files(first: 100)", details[0])
+
+    def test_details_are_read_in_batches(self):
+        shas = [f"{n:040x}" for n in range(1, 121)]
+        picked = [self.merged(n, sha) for n, sha in enumerate(shas, start=1)]
+        github = self.github([self.compare(*shas)], [(picked, False)])
+        self.assertEqual(len(NOTES.collect_prs(github, BASE, HEAD, "main")), 120)
+        self.assertEqual(len(github.calls), 1 + 3)
+
+    def test_a_picked_pr_without_details_fails_into_the_fallback(self):
+        sha = "c" * 40
+        github = Mock(repo=REPO)
+        github.rest.side_effect = [self.compare(sha)]
+        pages = iter([{"pullRequests": {"pageInfo": {"hasNextPage": False, "endCursor": None},
+                                        "nodes": [self.merged(10, sha)]}}, {}])
+        github.graphql.side_effect = lambda query: next(pages)
+        with self.assertRaisesRegex(RuntimeError, "no details"):
+            NOTES.collect_prs(github, BASE, HEAD, "main")
 
     def test_a_branch_without_merged_prs_costs_one_query(self):
         github = self.github([self.compare(*[f"{n:040x}" for n in range(1, 1700)], total=1699)], [([], False)])
@@ -444,7 +492,7 @@ class WorkflowTests(unittest.TestCase):
         # A nightly-next run is a push to the nightly-next branch, but its PRs
         # merge into feat-cmux-next: with github.ref_name every publish listed
         # 0 PRs (run 37611677848).
-        workflow = (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
+        workflow = workflow_text.write_out_step_aliases((ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8"))
         step = workflow[workflow.index("- name: Prepare nightly release notes and appcast summaries"):]
         step = step[:step.index("\n      - name:", 1)]
         branch = re.search(r"NOTES_BRANCH: (.+)", step).group(1)
@@ -458,10 +506,12 @@ class WorkflowTests(unittest.TestCase):
         # so the job was cancelled mid-upload and left partial release assets.
         # The notes step has its own bound, well inside the job's, so a slow
         # notes run fails before any asset is uploaded.
-        workflow = (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
+        workflow = workflow_text.write_out_step_aliases((ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8"))
         job = workflow[workflow.index("\n  publish-nightly:\n"):]
         job = job[:re.search(r"\n  [A-Za-z0-9_-]+:\n", job[1:]).start() + 1]
-        job_timeout = int(re.search(r"^    timeout-minutes: (\d+)$", job, re.M).group(1))
+        # One-mini mode adds room for glaeda's capacity wait (tests/test_nightly_mini_gate_timeouts.py);
+        # the smaller limit, the mode off, is the one that must hold.
+        job_timeout = min(int(n) for n in re.findall(r"\b\d+\b", re.search(r"^    timeout-minutes: (.+)$", job, re.M).group(1)))
         step = job[job.index("- name: Prepare nightly release notes and appcast summaries"):]
         step = step[:step.index("\n      - name:", 1)]
         bound = re.search(r"^        timeout-minutes: (\d+)$", step, re.M)

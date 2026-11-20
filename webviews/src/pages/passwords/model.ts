@@ -1,4 +1,5 @@
 // Pure helpers of the Passwords page: search, sort and grouping by site. No state, no I/O.
+import { foldFind } from "../../find/fold";
 import type { PasswordException, SavedPasskey, SavedPassword } from "./types";
 
 export type SortMode = "site" | "recent" | "mostUsed";
@@ -8,14 +9,23 @@ export interface SiteGroup {
   rows: SavedPassword[];
 }
 
-/** Lowercased tokens of a query; every token must match. */
+/**
+ * The shared find fold, and a decomposed `I` + U+0307 (the letters `İ` lowercases to) folds to `i`
+ * too: a query typed either way matches both. This page has no match offsets, so the shorter
+ * string is safe.
+ */
+function fold(text: string): string {
+  return foldFind(text).replace(/i\u0307/g, "i");
+}
+
+/** Folded tokens of a query; every token must match. */
 export function tokens(text: string): string[] {
-  return text.toLowerCase().split(/\s+/).filter(Boolean);
+  return fold(text).split(/\s+/).filter(Boolean);
 }
 
 function matches(fields: string[], query: string[]): boolean {
   if (query.length === 0) return true;
-  const haystack = fields.join(" ").toLowerCase();
+  const haystack = fold(fields.join(" "));
   return query.every((token) => haystack.includes(token));
 }
 
