@@ -7,6 +7,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
+import { FolderPopover } from "./FolderPopover";
 import { openComposerControl, PLAN_TOGGLE_OPENER } from "./composerControls";
 import { translate } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
@@ -162,4 +163,34 @@ test("a chip's tooltip names the key the host bound, and its shortcut opens it",
     expect(openComposerControl("agentOptions", translate)).toBe(true);
   });
   expect(container.querySelector("[data-menu=options]")!.getAttribute("aria-expanded")).toBe("true");
+});
+
+test("the Folder chip names its key with no folder picked too", async () => {
+  // Fleet check 2026-11-20 (cmux10s, the #46990 build): a new chat's "No folder" chip carried
+  // data-tooltip-shortcut, but its only tooltip text was the folder (title={current}), so with no
+  // folder it drew no tooltip and its ⌃⌥⌘O never showed.
+  const container = installDom();
+  root = createRoot(container);
+  const draw = (current?: string) =>
+    act(async () =>
+      root!.render(
+        <ShortcutsContext.Provider value={{ "agentPane.composer.chooseFolder": "⌃⌥⌘O" }}>
+          <FolderPopover
+            label="Folder"
+            menu="Location"
+            face="No folder"
+            folders={[]}
+            current={current}
+            onPick={() => undefined}
+          />
+        </ShortcutsContext.Provider>,
+      ),
+    );
+  await draw();
+  const trigger = container.querySelector<HTMLElement>(".acpmux-location-button")!;
+  expect(trigger.getAttribute("data-tooltip-shortcut")).toBe("⌃⌥⌘O");
+  expect(trigger.getAttribute("title")).toBe("Folder");
+  // A picked folder: the tooltip still shows its whole path, which the strip may truncate.
+  await draw("/Users/me/work/atlas-web");
+  expect(container.querySelector(".acpmux-location-button")!.getAttribute("title")).toBe("/Users/me/work/atlas-web");
 });
