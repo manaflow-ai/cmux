@@ -18,7 +18,7 @@ type CallNative = <T>(method: string, params?: Record<string, unknown>) => Promi
 
 /// The pane's connection calls these pages use (AcpmuxDirectClient).
 export type HistoryPagesClient = {
-  askLedger(): Promise<unknown>;
+  askLedger?(): Promise<unknown>;
   ledger(params: Record<string, unknown>): Promise<unknown>;
   teamAudit(params: Record<string, unknown>): Promise<unknown>;
   reviewQueue(params?: Record<string, unknown>): Promise<unknown>;
@@ -174,6 +174,13 @@ export function historyPages({
     },
     // History shows it only while the `team-audit` experiment is on (newtab/HistoryScreen.tsx).
     team: { load: async (params) => connected().teamAudit(params) },
-    asks: { load: async () => connected().askLedger() },
+    asks: {
+      load: async () => {
+        const current = connected();
+        // l10n-allow: a wire failure; the page renders its localized unavailable message.
+        if (!current.askLedger) throw new Error("ask ledger unavailable");
+        return current.askLedger();
+      },
+    },
   };
 }
