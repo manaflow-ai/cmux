@@ -79,6 +79,7 @@ final class ThemeCoordinator {
     private var accentObservation: Task<Void, Never>?
     private var artAccentObservation: Task<Void, Never>?
     private var machineColorsObservation: Task<Void, Never>?
+    private var contrastObservation: Task<Void, Never>?
 
     /// Follows `appearance.appTheme`: the theme the native chrome (window, sidebar, tab strips, light/dark)
     /// and the pages (`--cmux-app-*`, `WebTheme`) take: the system appearance's variant, its file and edits only
@@ -104,11 +105,9 @@ final class ThemeCoordinator {
                 self.applyChromeTheme()
             }
         }
-        let contrastStore = store
-        Task { [weak self] in
+        contrastObservation = Task {
             for await highContrast in ObservationStream({ settings.applied.highContrastLook }) {
-                guard contrastStore.setContrastFloor(highContrast ? 7 : ThemeTokens.minimumTextContrast) else { continue }
-                self?.applyChromeTheme()
+                store.setContrastFloor(highContrast ? 7 : ThemeTokens.minimumTextContrast)
             }
         }
         chromeObservation = Task { [weak self] in

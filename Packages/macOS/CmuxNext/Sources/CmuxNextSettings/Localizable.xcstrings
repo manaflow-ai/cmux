@@ -136,6 +136,124 @@
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "更多"}}
       }
     },
+    "settings.labs.highContrastLook": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "High Contrast Look"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Darstellung mit hohem Kontrast"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apparence à contraste élevé"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مظهر عالي التباين"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aspecto de alto contraste"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高對比外觀"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高对比外观"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "고대비 외관"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ハイコントラストの外観"
+          }
+        }
+      }
+    },
+    "settings.labs.highContrastLook.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raises derived chrome text to a 7:1 contrast floor. Off, cmux keeps its normal 4.5:1 floor."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erhöht den Mindestkontrast für abgeleiteten Text der App-Oberfläche auf 7:1. Ausgeschaltet behält cmux den normalen Mindestwert von 4,5:1."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Porte le contraste minimal du texte dérivé de l’interface à 7:1. Si désactivé, cmux conserve son minimum habituel de 4,5:1."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يرفع الحد الأدنى لتباين النص المشتق في واجهة التطبيق إلى 7:1. عند إيقافه، يحتفظ cmux بالحد المعتاد البالغ 4.5:1."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eleva a 7:1 el contraste mínimo del texto derivado de la interfaz. Si se desactiva, cmux mantiene el mínimo habitual de 4,5:1."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將衍生的應用程式介面文字最低對比提高至 7:1。關閉時，cmux 維持原本的 4.5:1 下限。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将派生的应用界面文字最低对比度提高至 7:1。关闭时，cmux 保持原有的 4.5:1 下限。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱 인터페이스에서 파생된 텍스트의 최소 대비를 7:1로 높입니다. 끄면 cmux는 기본 최소 대비인 4.5:1을 유지합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリのインターフェイスから生成される文字色の最低コントラスト比を7:1に引き上げます。オフの場合、cmuxは通常の最低値4.5:1を維持します。"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.thinking.shimmer": {
       "comment": "Settings > Chat > Transcript > Thinking Shimmer: title of the setting for how the agent chat's live status line shimmers",
       "extractionState": "manual",
