@@ -68,6 +68,8 @@ import {
   type AgentToolsCardState,
   type IntegrationsState,
   type McpServersRun,
+  type AgentConfigAnswer,
+  type AgentConfigRun,
   type McpServersState,
   type ListRow,
   type ManagedInfo,
@@ -87,6 +89,8 @@ import {
   type LibraryRun,
   type ModelsRun,
   type ModelsState,
+  type AgentHooksRun,
+  type AgentHooksState,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -794,6 +798,30 @@ export class SettingsStore {
   async runMcpServers(run: McpServersRun): Promise<McpServersState | null> {
     await this.request("cmux.settings.mcp.run", run);
     return this.mcpServersState();
+  }
+
+  /** Settings > Agents > Claude Code & Codex: one `agent-config settings` verb. Answers the
+   * host's reply, or `{error}` in plain words when the call failed or the CLI refused (its own
+   * message, which never carries a secret value). */
+  async runAgentConfig(run: AgentConfigRun): Promise<AgentConfigAnswer | { error: string }> {
+    const reply = await this.request("cmux.settings.agentConfig", run);
+    if (!reply.ok) return { error: userMessage(reply.error, SETTINGS_SENTENCES) };
+    const answer = reply.value ?? { code: "agentConfig", message: "" };
+    if ("code" in answer && !("agent" in answer))
+      return { error: answer.message || t("settingsWindow.agentConfig.error.notChanged") };
+    return answer;
+  }
+
+  /** Settings > Agents > Claude Code & Codex > Hooks; null when the host has none. */
+  async agentHooksState(): Promise<AgentHooksState | null> {
+    const reply = await this.request("cmux.settings.agentHooks.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Hooks gesture; the host answers with the state after it (a refused gesture: the state as it is). */
+  async runAgentHooks(run: AgentHooksRun): Promise<AgentHooksState | null> {
+    const reply = await this.request("cmux.settings.agentHooks.run", run);
+    return reply.ok ? reply.value : this.agentHooksState();
   }
 
   /** Reads Settings > Models (a host without it rejects, and the part stays null). */
