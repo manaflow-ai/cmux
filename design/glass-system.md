@@ -152,6 +152,7 @@ surface takes after this change.
 | Context ring card (`contextCard.css`) | menu | menu | same |
 | Page row menu (`PageMenu.tsx`, `pageBase.css`) | `--ds-glass-menu-*` 78% | menu | 80% / 72% |
 | Hover cards: link preview, PR card, cmux link card, session hover, Home link (`AnchoredCard`) | menu, page blurs the chat in place | menu | 80% / 72% |
+| Chat header tool preview (`HeaderToolPreview.tsx`) | solid elevated surface, no blur (the one solid hover preview left) | menu | the shared hover card (`.ui-card.ui-glass`), 80% / 72%, 32 px; `test/hover-glass-browser.test.ts` reads every hover surface's computed backdrop-filter |
 | Feature tip (`featureTip.css`) | menu; accent look 62%, veil look 45% / 22% | menu | menu part follows; private looks stay (opt-in looks) |
 | Keybindings recorder | menu over a 92% underlay (the text floor) | 5 | none: a recorder over rows keeps its floor |
 | Tooltips, title tooltips, toolbar hints (`Tooltip.tsx`, `titleTooltips.ts`) | host contrast-fitted tint, 32 px, 1.6 | chip, 5 | none (already the rule) |
