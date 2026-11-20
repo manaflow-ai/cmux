@@ -23,6 +23,7 @@ struct ChatComposerField: UIViewRepresentable {
     static let maxLines = ComposerFieldHeight.defaultMaxLines
     static let accessibilityIdentifier = "chat.composer.field"
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.chatFaceHidden) private var faceHidden
 
     func makeUIView(context: Context) -> ChatComposerTextView {
         let view = ChatComposerTextView()
@@ -45,11 +46,13 @@ struct ChatComposerField: UIViewRepresentable {
         view.setContentHuggingPriority(.required, for: .vertical)
         view.text = text
         view.placeholder = placeholder
+        markReadyIfShown()
         return view
     }
 
     func updateUIView(_ view: ChatComposerTextView, context: Context) {
         context.coordinator.parent = self
+        markReadyIfShown()
         view.onPasteAttachments = onPasteAttachments == nil ? nil : { [weak coordinator = context.coordinator] in
             coordinator?.parent.onPasteAttachments?()
         }
@@ -79,6 +82,13 @@ struct ChatComposerField: UIViewRepresentable {
                 }
             }
         }
+    }
+
+    /// Launch to chat open: the frame that first shows a composer (LaunchMarks), not one built
+    /// on a terminal's chat face parked out of sight (`chatFaceHidden`); a face swap updates it.
+    private func markReadyIfShown() {
+        guard !faceHidden else { return }
+        LaunchMarks.shared.markNextFrame("chat_composer_ready")
     }
 
     /// A field torn down while focused (the permission bar replaced it) leaves no focus behind.
@@ -118,6 +128,12 @@ struct ChatComposerField: UIViewRepresentable {
 }
 
 /// The chat field: takes a focus asked for before it had a window once it gets one.
+extension EnvironmentValues {
+    /// The chat is built but not shown: a terminal tab's chat face parked at zero opacity
+    /// behind its terminal (`TerminalChatPair`).
+    @Entry public var chatFaceHidden = false
+}
+
 final class ChatComposerTextView: ComposerReturnTextView {
     var focusWhenInWindow = false
 
