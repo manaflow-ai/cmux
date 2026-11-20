@@ -44,6 +44,17 @@ test("a chat listed twice (a peer's copy) is one dot", () => {
   expect(dotState({ ...fixtures[0]!, indicator: undefined })).toBe("idle");
 });
 
+test("a subagent folded under its listed parent gets no dot; one that waits on the person, or an orphan, does", () => {
+  const parent = session({ sessionId: "parent", title: "Parent", indicator: "working" });
+  const child = session({ sessionId: "child", title: "Child", indicator: "working", spawnedBy: "parent" });
+  const asking = session({ sessionId: "asking", title: "Asking", indicator: "input", spawnedBy: "parent" });
+  const orphan = session({ sessionId: "orphan", title: "Orphan", indicator: "working", spawnedBy: "gone" });
+  const underArchived = session({ sessionId: "under", title: "Under", spawnedBy: "archived" });
+  const archived = session({ sessionId: "archived", title: "Archived", archived: true });
+  const ids = agentDots([parent, child, asking, orphan, archived, underArchived], () => "x").map((d) => d.sessionId);
+  expect(ids).toEqual(["parent", "asking", "orphan", "under"]);
+});
+
 test("the grid draws a named, clickable dot per chat and nothing for none", () => {
   const html = renderToStaticMarkup(<AgentDotGrid sessions={fixtures} currentId="ask" onSelect={() => {}} legend />);
   expect(html.match(/<button/g)).toHaveLength(7);

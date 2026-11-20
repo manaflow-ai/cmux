@@ -1,6 +1,6 @@
 // The agent dot grid's model: one dot per listed chat, its state from the same rule as the sidebar's
 // row mark (sessionMark, from acpmux's `indicator`, which the daemon decides). No state of its own.
-import { listed, sessionMark, sessionTitle, type AcpmuxSessionEntry } from "../sessionList";
+import { listed, sessionMark, sessionTitle, withoutChildren, type AcpmuxSessionEntry } from "../sessionList";
 import type { StringKey } from "../i18n";
 
 export type DotState = "running" | "approval" | "done" | "error" | "idle";
@@ -34,12 +34,14 @@ export function dotState(session: AcpmuxSessionEntry): DotState {
   }
 }
 
-/** The listed chats as dots, in the order the list gives them, so a dot keeps its place when its state changes. */
+/** The listed chats as dots, in the order the list gives them, so a dot keeps its place when its
+ *  state changes. A subagent chat folded under its listed parent gets no dot of its own, by the
+ *  rule the sidebar and the Home lists share (withoutChildren): one that waits on the person still does. */
 export function agentDots(sessions: readonly AcpmuxSessionEntry[], title = sessionTitle): AgentDot[] {
   const dots: AgentDot[] = [];
   const seen = new Set<string>();
-  for (const session of sessions) {
-    if (!listed(session) || seen.has(session.sessionId)) continue;
+  for (const session of withoutChildren(sessions.filter(listed))) {
+    if (seen.has(session.sessionId)) continue;
     seen.add(session.sessionId);
     dots.push({ sessionId: session.sessionId, title: title(session), state: dotState(session) });
   }

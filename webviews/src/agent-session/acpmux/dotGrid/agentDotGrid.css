@@ -1,6 +1,8 @@
-/* The agent dot grid (AgentDotGrid.tsx). State reads from fill plus outline, never color alone:
-   running and done are solid (running pulses), needs approval is a thick ring, idle a thin ring,
-   error a solid bullseye. */
+/* The agent dot grid (AgentDotGrid.tsx). Every state has its own shape, so none reads by color
+   alone and none depends on motion: running is a filled circle (it breathes), done a filled
+   rounded square, needs approval a thick ring, error a ring with a center dot, idle a thin ring.
+   Every mark is drawn inside the dot's own box with borders and fills (no page-colored shadow),
+   so it reads the same on a transparent pane. */
 .acpmux-dot-grid {
   --dot: 10px;
   --dot-gap: 6px;
@@ -10,6 +12,7 @@
   --dot-done: var(--agent-success, var(--acpmux-add, #3fb950));
   --dot-error: var(--agent-danger, #d35c5c);
   --dot-idle: color-mix(in srgb, var(--agent-muted) 70%, transparent);
+  --dot-ring: max(1px, calc(var(--dot) * 0.12));
   display: flex;
   flex-direction: column;
   gap: var(--ds-space-2);
@@ -45,10 +48,11 @@
   background: transparent;
   appearance: none;
   cursor: pointer;
+  /* A state change fades its colors over the scale's largest step. */
   transition:
-    background-color 0.3s ease,
-    border-color 0.3s ease,
-    box-shadow 0.3s ease;
+    background-color var(--cmux-motion-large) var(--cmux-ease-out),
+    border-color var(--cmux-motion-large) var(--cmux-ease-out),
+    border-radius var(--cmux-motion-large) var(--cmux-ease-out);
 }
 span.acpmux-dot-grid__dot {
   display: inline-block;
@@ -57,7 +61,6 @@ span.acpmux-dot-grid__dot {
 .acpmux-dot-grid__dot[data-state="running"] {
   border-color: var(--dot-running);
   background: var(--dot-running);
-  animation: acpmux-dot-grid-pulse 1.8s ease-in-out infinite;
 }
 .acpmux-dot-grid__dot[data-state="approval"] {
   border: max(2px, calc(var(--dot) * 0.25)) solid var(--dot-approval);
@@ -65,39 +68,31 @@ span.acpmux-dot-grid__dot {
 }
 .acpmux-dot-grid__dot[data-state="done"] {
   border-color: var(--dot-done);
+  border-radius: 22%;
   background: var(--dot-done);
 }
 .acpmux-dot-grid__dot[data-state="error"] {
-  border-color: var(--dot-error);
-  background: var(--dot-error);
-  /* A bullseye inside the dot's own box, so an error dot is the size of every other. */
-  box-shadow: inset 0 0 0 max(1px, calc(var(--dot) * 0.12)) var(--agent-page-bg, transparent);
+  border: var(--dot-ring) solid var(--dot-error);
+  /* The center dot is a fill, not a shadow in the page's color. */
+  background: radial-gradient(circle, var(--dot-error) 0 34%, transparent 36%);
 }
+/* The current chat and keyboard focus ring with box-shadow: the pane's shared reset drops outlines. */
 .acpmux-dot-grid__dot[data-current] {
-  outline: 1px solid var(--agent-text);
-  outline-offset: 2px;
+  box-shadow: 0 0 0 var(--dot-ring) var(--agent-muted);
 }
 .acpmux-dot-grid__dot:focus-visible {
-  outline: 1.5px solid var(--agent-text);
-  outline-offset: 2px;
+  box-shadow: 0 0 0 var(--cmux-focus-ring-width) var(--ds-color-focus, var(--agent-text));
 }
-@keyframes acpmux-dot-grid-pulse {
-  0%,
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.45;
-    transform: scale(0.8);
+/* Running breathes on the house working loop (desktop.css WORKING-LOOK), so every running dot and
+   every working row breathe as one. */
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-dot-grid__dot[data-state="running"] {
+    animation: cmux-breathe var(--cmux-breath-period) var(--cmux-breath-ease) infinite;
   }
 }
 @media (prefers-reduced-motion: reduce) {
   .acpmux-dot-grid__dot {
     transition: none;
-  }
-  .acpmux-dot-grid__dot[data-state="running"] {
-    animation: none;
   }
 }
 .acpmux-dot-grid__legend {
