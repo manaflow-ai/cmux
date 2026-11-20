@@ -2,7 +2,8 @@
 
 `ci-web.yml` plans pull-request test files before installing Bun or browsers. It reuses the existing
 `webviews_affected.py` import graph, conservative dynamic-test rules, and duration-based shard assignment.
-Pushes, `full-ci`, build inputs, and unreadable selection inputs run the complete suite.
+Pushes, `full-ci`, and build inputs run the complete suite. Unreadable selection inputs fail the
+planner: one shard must never silently choose a different partition from its siblings.
 
 The base-history artifact is fetched once and handed to every shard with the same duration manifest.
 Only a recorded push at the exact merge-parent SHA permits skipping setup. Every file omitted by

@@ -160,6 +160,17 @@ class ShardScopeTest(unittest.TestCase):
                                     "CMUX_WEB_TEST_FILES": files, "CMUX_WEB_TEST_JOB_MINUTES": ""})
                 self.assertEqual((run_temp / "actual-files").read_text(), files)
 
+    def test_unreadable_diff_fails_without_an_empty_result(self) -> None:
+        out = self.root / "failed-plan.json"
+        result = subprocess.run([
+            sys.executable, str(SCRIPT), "--root", str(self.root), "--base", "missing-base",
+            "--manifest", str(self.manifest), "--shard", "2", "--shard-count", "4",
+            "--pull-request", "--out", str(out),
+        ], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("cannot plan this shard", result.stderr)
+        self.assertFalse(out.exists())
+
     def test_shared_check_failure_gates_when_no_tests_are_assigned(self) -> None:
         workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
         gate = workflow.split("      - name: Fail on the gate checks\n", 1)[1].split("\n  react-apps-base-early:", 1)[0]

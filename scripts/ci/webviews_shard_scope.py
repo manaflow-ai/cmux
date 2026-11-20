@@ -4,7 +4,7 @@
 The workflow keeps a fixed matrix so push runs retain their duration history. For a pull request,
 webviews_affected selects the tests reachable from the diff, then this planner assigns those files
 with the same duration manifest and lane widths as run-webviews-tests.sh. A shard with no selected
-files skip setup only with cached green file verdicts at the exact merge parent. Missing history
+files skips setup only with cached green file verdicts at the exact merge parent. Missing history
 preserves the affected-test selection and runs setup. Shard 1 always runs shared checks.
 
 The JSON output contains ``run`` (whether this shard has tests), ``setup`` (whether it must install
@@ -115,9 +115,10 @@ def main(argv: list[str] | None = None) -> int:
         result = plan(args.root.resolve(), args.base, args.head, args.manifest, args.shard, args.shard_count,
                       args.pull_request, args.full_ci, args.history)
     except (OSError, subprocess.CalledProcessError, ValueError) as error:
-        # A missing base or an unreadable graph is unsafe to scope: run the full shard.
-        print(f"webview shard scope: {error}; running this shard fully", file=sys.stderr)
-        result = {"run": True, "setup": True, "mode": "full", "files": ""}
+        # Shards plan independently. Falling back on only one would mix two
+        # assignments and could omit a selected test. Do not emit a result.
+        print(f"webview shard scope: cannot plan this shard: {error}", file=sys.stderr)
+        return 2
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(result, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(result, sort_keys=True))
