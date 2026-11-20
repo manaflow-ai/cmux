@@ -57,8 +57,8 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// navigation such a frame starts, or that would replace its document, is cancelled
     /// (``PageNavigation``). Off by default: other pages' frames keep their navigation hook.
     public let passiveFrames: Bool
-    /// The page belongs to the Chief chat (Bring your history): Agent Chat Zoom scales it too
-    /// (``PageWebView/followsChatZoom``). Off by default: a page keeps `app.uiScale` alone.
+    /// The page belongs to the Chief chat (Bring your history): it is scaled as the native Chief chat,
+    /// by Agent Chat Zoom instead of `app.uiScale` (``PageWebView/followsChatZoom``). Off by default.
     public let followsChatZoom: Bool
     /// The router serves this page its own host ops and streams with no descriptor entry: the title
     /// bar double-click, the swipe's two, the heartbeat, popups, the context menu and the built-in
