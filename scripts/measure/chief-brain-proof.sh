@@ -98,12 +98,19 @@ if [[ "$brain" == hermes ]]; then
   # Beside acpmux, so its discovery finds it whatever login PATH it reads.
   ln -s "$work/home/.local/bin/hermes" "$work/bin/hermes"
 elif [[ "$brain" == openclaw ]]; then
-  command -v npm >/dev/null || { echo "BRAIN npm is not on this worker" >&2; exit 1; }
-  npm install --silent --prefix "$work/openclaw" "openclaw@$openclaw_version"
-  ln -s "$work/openclaw/node_modules/.bin/openclaw" "$work/home/.local/bin/openclaw"
-  echo "BRAIN-BIN openclaw $("$work/home/.local/bin/openclaw" --version 2>&1 | head -1)"
-  ln -s "$work/openclaw/node_modules/.bin/openclaw" "$work/bin/openclaw"
-  if command -v docker >/dev/null || command -v podman >/dev/null; then
+  # The fleet Macs have neither npm nor a container engine: OpenClaw then cannot run here at
+  # all, and the proof checks the Chief's fallback (state, note, every turn on the stand-in).
+  if command -v npm >/dev/null; then
+    npm install --silent --prefix "$work/openclaw" "openclaw@$openclaw_version"
+    ln -s "$work/openclaw/node_modules/.bin/openclaw" "$work/home/.local/bin/openclaw"
+    echo "BRAIN-BIN openclaw $("$work/home/.local/bin/openclaw" --version 2>&1 | head -1)"
+    ln -s "$work/openclaw/node_modules/.bin/openclaw" "$work/bin/openclaw"
+  else
+    echo "BRAIN-BIN openclaw not installed: no npm on this worker"
+  fi
+  if ! command -v npm >/dev/null; then
+    expect_fallback=1
+  elif command -v docker >/dev/null || command -v podman >/dev/null; then
     echo "BRAIN-SANDBOX engine present"
   else
     echo "BRAIN-SANDBOX no Docker or Podman: OpenClaw must fall back"
