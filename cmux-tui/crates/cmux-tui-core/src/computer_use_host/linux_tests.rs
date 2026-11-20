@@ -132,6 +132,18 @@ fn a_starter_that_fails_says_why() {
 }
 
 #[test]
+fn a_starter_whose_display_keeps_its_output_open_still_returns() {
+    // Xvfb started straight from the starter inherits its stdout and stderr.
+    let (dir, starter) =
+        script("computer-use-desktop", "#!/bin/sh\nsleep 30 &\necho DISPLAY=:99\necho up >&2\n");
+    let started = std::time::Instant::now();
+    let env = worker_env(|_| None, &starter, trusted_for_test).expect("desktop");
+    assert_eq!(get(&env, "DISPLAY"), Some(":99"));
+    assert!(started.elapsed() < Duration::from_secs(10), "{:?}", started.elapsed());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn a_starter_that_prints_no_display_gives_no_desktop() {
     let (dir, starter) = script("computer-use-desktop", "#!/bin/sh\necho CMUX_CU_HEADLESS=1\n");
     let error = worker_env(|_| None, &starter, trusted_for_test).expect_err("no display");
