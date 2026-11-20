@@ -5,12 +5,13 @@
 // up, the infinite scroll for some reason actually seems to be kinda good? ... the thumb needs to look
 // better when i do stuff"). Every painted frame is read, and the run fails when the thumb:
 //
-// - pops in or out: its drawn ink moves by more than MAX_INK_STEP points of the text colour in one
-//   frame. Before, the pointer coming near the bar (scrollers.ts NEAR_ATTRIBUTE) drew it at 55% in
+// - pops in or out: its drawn ink goes from one resting ink (none, 38, 55) to another in one frame,
+//   with no step between drawn (a slow frame may land mid-fade far along; a pop lands nowhere between).
+//   Before, the pointer coming near the bar (scrollers.ts NEAR_ATTRIBUTE) drew it at 55% in
 //   one frame from nothing at rest, and leaving took it back to nothing in one frame, as hovering
 //   the thumb did (Leo, 2026-10-29: "the scroll thumb should fade instead of disappearing instantly").
-// - snaps wider or thinner: its border (the thumb's width is the lane less twice that) moves by more
-//   than MAX_BORDER_STEP px in one frame.
+// - snaps wider or thinner: its border (the thumb's width is the lane less twice that) goes from 2 px
+//   to the near border, or back, in one frame.
 // - jumps while pages land: its top moves down while the reader goes up, or its height changes by
 //   more than a pixel in a frame (the room held above the loaded rows, conversation/olderReserve.ts).
 //
@@ -48,11 +49,13 @@ await requireBrowserLane("transcript-thumb-look.test.ts", async () => {
 
   const TURNS = 600;
   const PAGE_LATENCY_MS = 900;
-  /// The most the drawn ink may move in one painted frame, in points of the text colour: a 120 ms
-  /// fade in from nothing to the near ink (55) moves about 15 in its first 16 ms frame.
-  const MAX_INK_STEP = 20;
-  /// The most the thumb's border may move in one frame (it goes 2 px -> 1 px near the pointer).
-  const MAX_BORDER_STEP = 0.6;
+  /// The inks a thumb rests at (none under the fade, while it scrolls, near the pointer) and the
+  /// borders (scrolling, near); a frame that goes from one to another with nothing between is a pop.
+  const RESTING_INKS = [0, 38, 55];
+  const RESTING_BORDERS = [2, 1];
+  const resting = (value: number, values: number[]) => values.some((each) => Math.abs(value - each) < 0.5);
+  const pop = (from: number, to: number, values: number[]) =>
+    Math.abs(to - from) > 0.5 && resting(from, values) && resting(to, values);
 
   const log = godLog("small", { turns: TURNS, imageEvery: 25, chainEvery: 150 });
   const lead: PapercutStep[] = log.events.map((event) => [
@@ -188,16 +191,15 @@ await requireBrowserLane("transcript-thumb-look.test.ts", async () => {
         for (let index = 1; index < read.length; index++) {
           const before = read[index - 1]!;
           const frame = read[index]!;
-          const ink = Math.abs(frame.ink - before.ink);
-          if (ink > MAX_INK_STEP) {
+          if (pop(before.ink, frame.ink, RESTING_INKS)) {
             inkPops += 1;
-            inkPopMax = Math.max(inkPopMax, ink);
+            inkPopMax = Math.max(inkPopMax, Math.abs(frame.ink - before.ink));
             if (firstPops.length < 8)
               firstPops.push(
                 `${frame.phase}: ink ${before.ink.toFixed(0)}->${frame.ink.toFixed(0)}, near ${frame.near}`,
               );
           }
-          if (Math.abs(frame.border - before.border) > MAX_BORDER_STEP) borderSnaps += 1;
+          if (pop(before.border, frame.border, RESTING_BORDERS)) borderSnaps += 1;
           if (frame.phase.startsWith("wheel")) {
             if (frame.thumbTop - before.thumbTop > 1) thumbDown += 1;
             const resize = Math.abs(frame.thumbHeight - before.thumbHeight);
