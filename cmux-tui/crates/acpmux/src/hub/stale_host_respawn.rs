@@ -1,8 +1,8 @@
 //! Part of `Hub`; see `hub/mod.rs`. An agent host whose binary was moved or replaced since it
 //! started restarts on the binary installed now and resumes the same conversation (`claude
-//! --resume`, ACP `session/load`), the way an update's restart does (`route_switch.rs`
-//! `restart_harnesses`): between turns now, in a turn when the turn ends, never cancelled, and
-//! never across an open permission prompt. Checked once the daemon has adopted the agents the
+//! --resume`, ACP `session/load`) once nothing runs in it: no turn, no question, no background
+//! process or subagent, nothing under it but its MCP servers (`idle.rs` `respawn_when_quiet`).
+//! Never cancelled, never cut mid-work. Checked once the daemon has adopted the agents the
 //! previous one left (`daemon.rs`).
 //!
 //! An app update moves the bundle that every running host was started from: nightly-update swaps
@@ -30,9 +30,20 @@ use std::path::Path;
 type FileId = (u64, u64);
 
 impl Hub {
-    /// Restarts every live local agent whose host runs a binary other than the one now at the
-    /// path it was started as. A session with no running agent is left alone: it starts on the
-    /// installed binary at its next prompt.
+    /// Marks every live local agent whose host runs a binary other than the one now at the path
+    /// it was started as to restart once nothing runs in it (`Session::respawn_when_quiet`): the
+    /// idle pass ends it after a short quiet period, under every gate an idle exit has (no turn,
+    /// nothing queued, no question, no background process or subagent, the census of what runs
+    /// under it), and its next prompt starts it on the installed binary, as a hibernated chat
+    /// wakes. A session with no running agent is left alone: it starts on the installed binary at
+    /// its next prompt.
+    ///
+    /// Before, an agent at work restarted at once when no turn was open, or when its turn ended,
+    /// whatever ran in it: on cosmic-gray (2026-11-17) each cmux NIGHTLY install (every 20-30
+    /// min) restarted a coordinator 10-20 s after the new daemon adopted its host, its 10-15
+    /// background subagents and waits cut mid-task. The host it ran on was alive and adopted.
+    /// An idle one ended at once without the census, which also ended a harness's own child that
+    /// no table knew. Leo: "the dream is infinite chats of infinite length".
     pub(crate) async fn respawn_stale_hosts(self: &Arc<Self>) -> HarnessRestarts {
         let mut hosts = Vec::new();
         for session in self.sessions() {
@@ -47,58 +58,23 @@ impl Hub {
                 hosts.push((session.id.clone(), running_file(pid), launched_file(pid)));
             }
         }
-        let mut stale = stale_hosts(hosts);
+        let stale = stale_hosts(hosts);
         if stale.is_empty() {
             return HarnessRestarts::default();
         }
-        // An idle one ends and stays asleep: its next open or prompt starts it on the installed
-        // binary, as a hibernated chat wakes (`idle.rs`). Restarting it at once started an agent
-        // for every chat that was up at an update, the idle Chief sub-sessions among them: 30 at
-        // one cmux NIGHTLY relaunch (2026-11-15), each a Claude process for its two idle minutes.
-        let mut slept = 0;
-        for id in stale.clone() {
-            if let Ok(session) = self.resolve(&id)
-                && self.end_idle_stale(&session).await
-            {
-                stale.remove(&id);
-                slept += 1;
+        let mut marked = 0;
+        for id in &stale {
+            if let Ok(session) = self.resolve(id) {
+                self.respawn_when_quiet(&session);
+                marked += 1;
             }
         }
         tracing::info!(
-            count = stale.len(),
-            slept,
-            "agent hosts run a binary that was moved or replaced since they started: the idle \
-             ones ended and start on the installed one when opened or sent to; the rest restart \
-             between turns"
+            count = marked,
+            "agent hosts run a binary that was moved or replaced since they started: each ends \
+             once nothing runs in it and starts on the installed one when opened or sent to"
         );
-        if stale.is_empty() {
-            return HarnessRestarts::default();
-        }
-        self.restart_harnesses(None, Some(&stale)).await
-    }
-
-    /// Ends `session`'s agent when it is idle as the idle pass judges it (`idle.rs`
-    /// `idle_eligible`, under the same leases) and marks the chat hibernated, so a person's open
-    /// wakes it. A turn, a queued prompt, a question, a background process or subagent, or any
-    /// start under way keeps it for the restart between turns.
-    async fn end_idle_stale(&self, session: &Arc<Session>) -> bool {
-        let turn = session.turn_lock.try_lock();
-        let using = session.harness_use.try_write();
-        let spawning = session.spawn_lock.try_lock();
-        if turn.is_err() || using.is_err() || spawning.is_err() || !self.idle_eligible(session) {
-            return false;
-        }
-        session.hibernated_at.store(self.clock_now().max(1), Ordering::SeqCst);
-        self.detach_child(session).await;
-        if session.status() == SessionStatus::Closed {
-            self.clear_hibernation(session);
-            return true;
-        }
-        session.meta.lock().unwrap_or_else(|e| e.into_inner()).hibernated_ms =
-            crate::store::now_ms().max(1);
-        self.save_meta(session);
-        tracing::info!(session = %session.id, cause = "stale-binary", "hibernated: its agent ran a replaced binary and was idle; it starts on the installed one when opened or sent to");
-        true
+        HarnessRestarts { after_turn: marked, ..HarnessRestarts::default() }
     }
 
     /// Once the agents the previous daemon left are adopted, on a task of its own: an agent whose
