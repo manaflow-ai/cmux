@@ -3671,6 +3671,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }
   }
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const readInspectorHistory = useCallback(
+    (sessionId: string) => {
+      const client = directClient.current;
+      if (!client) return Promise.reject(new Error(t("inspector.unknown")));
+      return client.inspectorHistory(sessionId);
+    },
+    [t],
+  );
   // Jump to latest shows over the stage's foot (VirtualTranscript): the bottom toast deck stands above
   // it while it does (toastLayer.css), so a toast never covers the button or takes its clicks. Written
   // straight onto the pane's main element, never pane state: the button comes and goes as the reader
@@ -14454,6 +14462,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     sessionEvents={() => directClient.current?.sessionEvents() ?? []}
                     onClose={closeInspector}
                     onExport={saveLogNatively}
+                    readHistory={readInspectorHistory}
                   />
                 )}
               </div>

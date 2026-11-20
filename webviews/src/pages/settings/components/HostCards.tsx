@@ -14,6 +14,7 @@ import { ArtBrowser } from "./ArtBrowser";
 import { BackdropLink, formatBytes } from "./BackdropLink";
 import { BackdropScopePicker, FOLLOW_ID, useWorkspaceBackground, WorkspaceOpacity } from "./BackdropScope";
 import { SettingRow } from "./SettingRow";
+import { ConfigurationCheck } from "./ConfigurationCheck";
 import { WallpaperSwitch } from "./WallpaperSwitch";
 import {
   DARK_KEY,
@@ -509,7 +510,7 @@ export function TerminalInfo() {
 
 export function AdvancedInfo() {
   const store = useStore();
-  const { host, problems } = useSettingsState();
+  const { host, problems, readable } = useSettingsState();
   return (
     <>
       {host?.settings_file && (
@@ -526,20 +527,7 @@ export function AdvancedInfo() {
       )}
       <section className="group" data-card="problems">
         <h3 className="group-title">{t("settingsWindow.problems", settingsFileName(host))}</h3>
-        <div className="rows">
-          {problems.length === 0 ? (
-            <div className="row">
-              <div className="empty">{t("settingsWindow.noProblems")}</div>
-            </div>
-          ) : (
-            problems.map((problem, index) => (
-              <div className="row selectable" key={`${problem.path}-${index}`} data-problem="">
-                <div className="row-title">{problem.path || settingsFileName(host)}</div>
-                <div className="row-help">{problem.message}</div>
-              </div>
-            ))
-          )}
-        </div>
+        <ConfigurationCheck readable={readable} problems={problems} fileName={settingsFileName(host)} />
       </section>
     </>
   );
