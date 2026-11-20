@@ -663,9 +663,14 @@ def hosted_pages():
     return ((rpc("debug.cef") or {}).get("tracker") or {}).get("hosted_pages", 0)
 
 
-def hosted_grew(before):
-    """hosted_pages after a new Chromium page opened: one more (on) or still 0 (off), within 5 s; (ok, now)."""
-    want = (lambda n: n >= before + 1) if opts.mode == "on" else (lambda n: n == 0)
+def hosted_grew(before, chromium_made=False):
+    """hosted_pages after a new Chromium page opened: one more (on) or still 0 (off), within 5 s; (ok, now).
+
+    `chromium_made`: a page Chromium makes itself (a docked DevTools, a window.open popup). With in-tree pages those
+    keep layer hosting (CEFInTreeHosting.isAllowed: the fork attaches them but they draw nothing yet), so in mode
+    intree they count one more too."""
+    grows = opts.mode == "on" or (opts.mode == "intree" and chromium_made)
+    want = (lambda n: n >= before + 1) if grows else (lambda n: n == 0)
     found = wait(lambda: (lambda n: (n,) if want(n) else None)(hosted_pages()), 5)  # a tuple: 0 is an answer in mode off
     return bool(found), (found[0] if found else hosted_pages())
 
@@ -726,7 +731,7 @@ def check_popup():
     if not panel:
         row("popup.open", False, {"at": point and [round(v) for v in point], "popups": json.dumps(rpc("debug.popups"))[:300]})
         return
-    ok, now = hosted_grew(before)
+    ok, now = hosted_grew(before, chromium_made=True)
     row("popup.hosted", ok, {"hosted_pages_before": before, "hosted_pages": now, "engine": panel.get("engine")})
     time.sleep(1.5)  # test harness: the popup's first frames
     snapshots = os.path.join(opts.out, f"verify-{opts.mode}-popup")
@@ -781,7 +786,7 @@ def check_devtools():
     if not entry:
         row("devtools.open", False, {"reply": json.dumps(reply)[:200], "devtools": json.dumps((rpc("debug.cef") or {}).get("devtools"))[:300]})
         return
-    ok, now = hosted_grew(before)
+    ok, now = hosted_grew(before, chromium_made=True)
     row("devtools.hosted", ok, {"hosted_pages_before": before, "hosted_pages": now, "dock": entry.get("dock")})
     time.sleep(2.5)  # test harness: the DevTools front end loads and draws
     entry = devtools_entry() or entry
