@@ -118,20 +118,24 @@ body {
   --ds-glass-chrome-tint: 60%;
   --ds-glass-chrome-blur: blur(20px) saturate(1.4);
   --ds-glass-chrome-radius: 20px;
+  --ds-glass-chrome-secondary: light-dark(color-mix(in srgb, var(--cmux-text, CanvasText) 95%, transparent), color-mix(in srgb, var(--cmux-text, CanvasText) 90%, transparent));
   /* glass popover (level): floating surfaces over dense text: popovers, hover cards and link cards, the composer, Session Info, the running tray, viewers and sheets (artTint over art or a see-through window) */
   --ds-glass-popover-tint: 70%;
   --ds-glass-popover-art-tint: 50%;
   --ds-glass-popover-blur: blur(24px) saturate(1.25);
   --ds-glass-popover-radius: 24px;
+  --ds-glass-popover-secondary: light-dark(color-mix(in srgb, var(--cmux-text, CanvasText) 80%, transparent), color-mix(in srgb, var(--cmux-text, CanvasText) 96%, transparent));
   /* glass menu (level): every floating popup, menu, picker and card, web and native (design/surface-materials.md, One floating material); veil is the theme surface the page or the App lays on the App's own glass under it (Swift GlassMenuMaterial reads the same numbers) */
   --ds-glass-menu-tint: 78%;
   --ds-glass-menu-veil: 40%;
   --ds-glass-menu-blur: blur(32px) saturate(1.6);
   --ds-glass-menu-radius: 32px;
+  --ds-glass-menu-secondary: light-dark(color-mix(in srgb, var(--cmux-text, CanvasText) 74%, transparent), color-mix(in srgb, var(--cmux-text, CanvasText) 80%, transparent));
   /* glass chip (level): small glass on one line: tooltips, the find pill and chips; the tint is the host's --cmux-tooltip-tint (TooltipSurface.swift), this percentage of the popup surface before the host speaks */
   --ds-glass-chip-tint: 60%;
   --ds-glass-chip-blur: blur(24px) saturate(1.6);
   --ds-glass-chip-radius: 24px;
+  --ds-glass-chip-secondary: light-dark(color-mix(in srgb, var(--cmux-text, CanvasText) 95%, transparent), color-mix(in srgb, var(--cmux-text, CanvasText) 90%, transparent));
   /* glass lens (mode): a mode, not a level: while the lens draws the wallpaper behind the glass, every level takes this tint and frost */
   --ds-glass-lens-tint: 40%;
   --ds-glass-lens-blur: blur(6px) saturate(1.3);

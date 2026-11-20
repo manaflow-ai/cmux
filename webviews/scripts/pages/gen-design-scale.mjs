@@ -56,6 +56,12 @@ function load() {
     );
     assert(["level", "mode"].includes(level.kind), `glass ${level.name} is a level or a mode`);
     assert(GLASS_FILTER.test(level.blur), `glass ${level.name}'s blur is blur(<px>) saturate(<n>)`);
+    if (level.kind === "level")
+      for (const scheme of ["light", "dark"])
+        assert(
+          level.secondary?.[scheme] >= 62 && level.secondary[scheme] <= 100,
+          `glass ${level.name}'s ${scheme} secondary text is fitted, from the old 62% mix to 100% (test/glass-secondary-text.test.ts)`,
+        );
   }
   const levels = data.glass.filter((level) => level.kind === "level").map((level) => level.name);
   assert(
@@ -106,7 +112,18 @@ const glassVars = (level) => ({
   // The theme surface laid on the App's own glass under a surface of this level (host glass, and the
   // native GlassMenu's veil): one number for the page and the App.
   veil: level.veil === undefined ? null : [`--ds-glass-${level.name}-veil`, `${level.veil}%`],
+  // Secondary text fitted to the level (cmuxterm-hq docs/reading/2026-11-19-glass-field-study.md, gap 1):
+  // the primary ink at the share that keeps 4.5:1 over the level's tint on black and white, on a plain
+  // and a selected row, light and dark (test/glass-secondary-text.test.ts re-measures it).
+  secondary:
+    level.secondary === undefined
+      ? null
+      : [
+          `--ds-glass-${level.name}-secondary`,
+          `light-dark(${ink2(level.secondary.light)}, ${ink2(level.secondary.dark)})`,
+        ],
 });
+const ink2 = (percent) => `color-mix(in srgb, var(--cmux-text, CanvasText) ${percent}%, transparent)`;
 // A gray level (0 black, 1 white) as an opaque CSS color, 8 bits a channel.
 export const gray = (level) => {
   const channel = Math.round(level * 255);
@@ -146,12 +163,13 @@ function cssBlock(data) {
     out.push(`  --ds-radius-${radius.name}: ${radius.var ?? px(radius.px)};${note}`);
   }
   for (const level of data.glass) {
-    const { tint, blur, radius, artTint, veil } = glassVars(level);
+    const { tint, blur, radius, artTint, veil, secondary } = glassVars(level);
     out.push(`  /* glass ${level.name} (${level.kind}): ${level.for} */`, `  ${tint[0]}: ${tint[1]};`);
     if (artTint) out.push(`  ${artTint[0]}: ${artTint[1]};`);
     if (veil) out.push(`  ${veil[0]}: ${veil[1]};`);
     out.push(`  ${blur[0]}: ${blur[1]};`);
     if (level.kind === "level") out.push(`  ${radius[0]}: ${radius[1]};`);
+    if (secondary) out.push(`  ${secondary[0]}: ${secondary[1]};`);
   }
   out.push("  --ds-glass-edge: var(--cmux-hairline);");
   out.push(`  /* glass material: ${data.glassMaterial.for} */`);

@@ -179,6 +179,34 @@
   background: var(--glass-tint);
 }
 
+/* SECONDARY TEXT ON GLASS (cmuxterm-hq docs/reading/2026-11-19-glass-field-study.md, gap 1). Secondary
+   text drawn as a fixed 58 to 64% mix of the ink failed 4.5:1 on glass over bright art (the menu's
+   3.4:1 on a selected row, the chrome's 2.4:1): the weak link was the text, not the glass. Each level
+   carries its own secondary, fitted like the tooltip's tint (TooltipSurface.swift): the least share of
+   the ink that keeps 4.5:1 over the level's tint laid on pure black and pure white, on a plain row and
+   on a selected one (--ds-glass-<level>-secondary, design-scale.json; test/glass-secondary-text.test.ts
+   re-measures it). Reduce Transparency draws the opaque surface, where the theme's own secondary reads. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root:not([data-reduce-transparency]) .ui-glass {
+    --glass-secondary: var(--ds-glass-chrome-secondary);
+  }
+  :root:not([data-reduce-transparency]) :is(.ui-popup, .ui-card).ui-glass {
+    --glass-secondary: var(--ds-glass-menu-secondary);
+  }
+  :root:not([data-reduce-transparency]) .ui-glass.ui-glass-material {
+    --glass-secondary: var(--ds-glass-popover-secondary);
+  }
+  :root:not([data-reduce-transparency]) :is(.ui-tooltip.ui-glass:not(.ui-card), .ui-hint.ui-card.ui-glass, .ui-title-tooltip.ui-glass, .cu-tooltip.ui-glass) {
+    --glass-secondary: var(--ds-glass-chip-secondary);
+  }
+  /* Every name a page reads its secondary text by. */
+  :root:not([data-reduce-transparency]) .ui-glass {
+    --cmux-text-secondary: var(--glass-secondary);
+    --ds-color-muted: var(--glass-secondary);
+    --agent-muted: var(--glass-secondary);
+  }
+}
+
 /* GLASS MATERIAL (Leo 2026-11-05, the Dock beside our composer: "the glass is a pretty big deal ...
    Ours is not f***ing pretty"). The one look web glass takes to read as macOS's own Liquid Glass,
    which native surfaces draw with NSGlassEffectView on macOS 26 (Glass.swift): a frost that keeps
