@@ -296,6 +296,17 @@ fleet_finish_sim() {
     REPORT_SIM="BLOCKED: the fleet refused scripts/ci/cmux-next-ios-sim.sh at $SHA: its handoff mode is not on feat-cmux-next yet (the fleet runs only the reviewed script); rerun after it lands: $(retry_command)"
     return 1
   fi
+  # The controller cancels a tag's step when a newer head of the same tag sends one ("superseded by
+  # <step> (a newer head of this lane)"): nothing failed, this head is just no longer the tag's. It was
+  # reported as "the fleet iPhone build failed (exit 76)" (step f06392e4d16521e2f9762f4b, 2026-11-19).
+  if [[ $rc -ne 0 ]] && grep -q "superseded by" "$STATE/sim-step.err" 2>/dev/null; then
+    local newer
+    # A rerun of this head sends a new step instead of this superseded one again.
+    sim_step_ended "$SIM_STEP" || true
+    newer="$(sed -n 's/.*superseded by \([0-9a-f]\{24\}\).*/\1/p' "$STATE/sim-step.err" | tail -n 1)"
+    REPORT_SIM="BLOCKED: not a failure: step ${SIM_STEP:-not created} was superseded by ${newer:-a newer step}, sent for a newer head of tag $SLUG; a newer review.sh run of this tag owns it; to review ${SHA:0:12} again: $(retry_command)"
+    return 1
+  fi
   if [[ $rc -ne 0 || -z "$SIM_STEP" ]]; then
     local next=""
     # A rerun at this head sends a new step, not this one's failure again.
