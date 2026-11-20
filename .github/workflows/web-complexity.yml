@@ -25,7 +25,7 @@ jobs:
     name: Web complexity candidate
     # Pull requests execute contributor-controlled package install scripts. Keep
     # those runs on an ephemeral Blacksmith runner, never a runner variable.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'pull_request' && 'cmux-fleet-linux-x64' || vars.LINUX_RUNNER || 'cmux-fleet-linux-x64') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'pull_request' && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'cmux-fleet-linux-x64') }}
     timeout-minutes: 10
     steps:
       - name: Checkout

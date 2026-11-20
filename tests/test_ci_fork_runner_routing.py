@@ -111,11 +111,13 @@ HOSTED_LITERAL_RUNNER = re.compile(
 # other value, including a persistent mini's label, falls back to Blacksmith,
 # and a fork running its own CI gets GitHub-hosted. Either provider can then
 # carry the merge-gating checks while the other is down.
-TRUSTED_RUNNER_LABELS = ("ubuntu-24.04", "blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404")
+TRUSTED_RUNNER_LABELS = ("ubuntu-24.04", "blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404",
+                         "cmux-fleet-linux-x64")
+# The default is the owned fleet's one-job Linux VM, not Blacksmith (ask-166ab1e98a).
 TRUSTED_RUNNER_EXPRESSION = (
     "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('"
     + json.dumps(list(TRUSTED_RUNNER_LABELS), separators=(",", ":"))
-    + "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
+    + "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'cmux-fleet-linux-x64' }}"
 )
 # CLA's trusted base validator pins its older selector and runner-name guard.
 # Keep that policy valid while other trusted jobs adopt the measured BS8 size.
@@ -153,10 +155,10 @@ APP_KEY_MARKER = re.compile(r"create-github-app-token@|^\s*private-key:", re.MUL
 # So a 4 vCPU stall can move these jobs (the overflow switch or a person sets LINUX_RUNNER),
 # and no value reaches a reused machine. The bound is in the expression, not the variable.
 BOUNDED_LINUX_LABELS = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404",
-                        "blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404")
+                        "blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404", "cmux-fleet-linux-x64")
 BOUNDED_LINUX_SELECTOR = (
     "contains(fromJSON('" + json.dumps(list(BOUNDED_LINUX_LABELS), separators=(",", ":"))
-    + "'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'"
+    + "'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'cmux-fleet-linux-x64'"
 )
 # The key-holding Linux jobs that follow LINUX_RUNNER through it (#27557 pinned them to 4 vCPU,
 # so a 4 vCPU stall left them queued). Nightly jobs read no shared variable.
@@ -174,7 +176,8 @@ BOUNDED_SELECTOR_JOBS = {
 HOSTED_LITERAL_LABEL = re.compile(r"ubuntu-latest|ubuntu-\d{2}\.\d{2}(?:-arm)?|macos-\d+(?:-intel)?|windows-\d{4}")
 # Our own one-job Linux label: the fleet reconciler boots one cloud VM per queued job with a
 # JIT config, no service account, and deletes it after that job, so a key held there leaves with the VM as on a
-# Blacksmith one. Accepted only as a literal operand: no variable may name it, and no other owned label is.
+# Blacksmith one. Accepted as a literal operand and inside a bounded pick's list (ask-166ab1e98a moved the
+# same-repo Linux defaults onto it); no other owned label is.
 # The queue janitors take it first so they never queue on the hosted pools they drain (2026-11-19: about 28,700
 # queued jobs, the janitors among them).
 FLEET_EPHEMERAL_LABELS = frozenset({"cmux-fleet-linux-x64"})
@@ -333,7 +336,7 @@ def runner_label_errors(runs_on: str) -> list[str]:
                 == [("literal", "manaflow-ai"), ("ref", "github.repository_owner")]):
             continue
         picked = _bounded_pick(conditions, result) if label is None else []
-        if picked and all(blacksmith.fullmatch(item) for item in picked):
+        if picked and all(blacksmith.fullmatch(item) or item in FLEET_EPHEMERAL_LABELS for item in picked):
             continue
         errors.append(f"{runs_on!r}: operand {index + 1} can yield something other than a Blacksmith label it names")
     if not errors and _string(chain[-1]) is None:
@@ -1458,7 +1461,7 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         self.assertEqual(seen, set(BOUNDED_LINUX_LABELS))
         self.assertEqual(evaluate_runs_on(tree, {"github.repository_owner": "manaflow-ai",
                                                  "vars.LINUX_RUNNER": "glaeda-std-xcode-26.6"}),
-                         "blacksmith-4vcpu-ubuntu-2404")
+                         "cmux-fleet-linux-x64")
         # Each is a declared Blacksmith Linux label: a linux pool member, or a literal listed for
         # actionlint (32 vCPU left the pool on 2026-11-01 but stays a size jobs may name).
         declared = (ROOT / ".github/runners.json").read_text(encoding="utf-8") + \
@@ -1583,7 +1586,8 @@ class ForkRunnerRoutingTests(unittest.TestCase):
     def test_trusted_runner_selector_admits_only_ephemeral_labels(self) -> None:
         self.assertEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {TRUSTED_RUNNER_EXPRESSION}\n"), [])
         for label in TRUSTED_RUNNER_LABELS:
-            self.assertTrue(label == "ubuntu-24.04" or label.startswith("blacksmith-"), label)
+            self.assertTrue(label == "ubuntu-24.04" or label.startswith("blacksmith-")
+                            or label in FLEET_EPHEMERAL_LABELS, label)
         widened = TRUSTED_RUNNER_EXPRESSION.replace('"ubuntu-24.04",', '"ubuntu-24.04","glaeda-std-xcode-26.6",')
         renamed = TRUSTED_RUNNER_EXPRESSION.replace("vars.CI_TRUSTED_RUNNER", "vars.LINUX_RUNNER")
         unforked = TRUSTED_RUNNER_EXPRESSION.replace("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ", "")

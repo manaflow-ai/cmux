@@ -55,7 +55,7 @@ jobs:
   # this job, and the App token is not passed to the checks job.
   admit:
     if: github.repository == 'manaflow-ai/cmux'
-    runs-on: ${{ contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","cmux-fleet-linux-x64"]'), inputs.runner) && inputs.runner || 'ubuntu-24.04' }} # github-hosted-required: light read-only runner admission
+    runs-on: ${{ contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || 'ubuntu-24.04' }} # github-hosted-required: light read-only runner admission
     permissions:
       contents: read
     outputs:
@@ -112,7 +112,7 @@ jobs:
     # it avoids trusting mutable repository variables for runner selection.
     # inputs.runner is broker-controlled and limited to this allowlist so a
     # caller cannot inject an arbitrary runner label.
-    runs-on: ${{ needs.admit.outputs.runner || 'cmux-fleet-linux-x64' }}
+    runs-on: ${{ needs.admit.outputs.runner || 'blacksmith-8vcpu-ubuntu-2404' }}
     timeout-minutes: 195
     defaults:
       run:
