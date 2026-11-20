@@ -606,13 +606,12 @@ pub(crate) fn unreadable_path(path: &Path) -> PathBuf {
     path.with_extension(format!("unreadable-{now}.json"))
 }
 
+/// The ledger's file name in the start-chat state folder ([`path`]).
+pub(crate) const FILE: &str = "destinations.json";
+
 /// Where this Mac keeps the ledger; None when it has no state folder.
 pub(crate) fn path() -> Option<PathBuf> {
-    Some(
-        cmux_tui_core::platform::workspace_state_dir()?
-            .join("cloud-start-chat")
-            .join("destinations.json"),
-    )
+    Some(cmux_tui_core::platform::workspace_state_dir()?.join("cloud-start-chat").join(FILE))
 }
 
 #[cfg(test)]
