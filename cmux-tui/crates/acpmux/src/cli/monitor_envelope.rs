@@ -254,7 +254,9 @@ impl Follower {
         Step::Apply
     }
 
-    /// A gap if the daemon's current generation is not the cursor's.
+    /// A gap if the daemon's current generation is not the cursor's (tests; a live check of
+    /// `ownershipEpoch` is a follow-up).
+    #[cfg(test)]
     pub(crate) fn check_generation(&self, generation: u64) -> Option<Gap> {
         (generation != self.cursor.generation)
             .then(|| self.gap(GapReason::Generation, Some(generation)))

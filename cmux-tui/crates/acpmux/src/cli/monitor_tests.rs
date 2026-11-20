@@ -1,7 +1,7 @@
 //! Fixture tests of the monitor's envelopes and follower: round trips, unknown fields,
 //! stale generations, gaps, and redaction.
 
-use super::human;
+use super::{attach_params, human};
 use crate::cli::monitor_envelope::*;
 use serde_json::{Value, json};
 
@@ -182,4 +182,10 @@ fn event_records_are_redacted_to_kind_time_and_status() {
     let e = Event::from_record("s1", 7, &status).unwrap();
     assert_eq!((e.id.as_str(), e.state.as_deref()), ("s1:42", Some("idle")));
     assert!(Event::from_record("s1", 7, &json!({"kind": "status"})).is_none());
+}
+
+#[test]
+fn the_subscription_is_hidden_and_takes_no_history() {
+    let p = attach_params("s1");
+    assert_eq!(p, json!({"sessionId": "s1", "limit": 0, "visible": false}));
 }

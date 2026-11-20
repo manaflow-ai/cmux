@@ -2,9 +2,10 @@
 //!
 //! An experiment (hidden from help) for the personal-orchestration plan's read-only canary
 //! (manaflow-ai/cmuxterm-hq `plans/feat-personal-orchestration/README.md`, Phases 0-1). It
-//! sends the daemon only reads: `_acpmux/sessions` through [`resolve_id`], `_acpmux/info`,
-//! `_acpmux/attach` with `limit: 0` (to hear live notes) and `_acpmux/events`. It has no
-//! prompt, steer, cancel, permission or process path.
+//! sends the daemon only reads: [`resolve_id`] (`_acpmux/info`, then the session list), a
+//! hidden `_acpmux/attach` (`limit: 0, visible: false`, to hear live notes without marking the
+//! chat seen or attended) and `_acpmux/events`. It has no prompt, steer, cancel, permission or
+//! process path, and it never starts a daemon.
 //!
 //! 1. Resolve the session through the daemon (never a guessed name).
 //! 2. Print a `snapshot` envelope (`monitor_envelope`) with its `(generation, sequence)`
@@ -34,7 +35,7 @@ const RECONNECTS: u32 = 5;
 pub(crate) async fn run(key: &str, once: bool, json_out: bool) -> Result<()> {
     let key = expand_session_key(key)?;
     let mut out = Out { json: json_out, w: io::stdout() };
-    let client = crate::daemon::connect(true).await?;
+    let client = crate::daemon::connect(false).await?;
     let id = resolve_id(&client, &key).await?;
     let snap = snapshot(&client, &id, false).await?;
     out.put(&Envelope::Snapshot(snap.clone()))?;
@@ -57,13 +58,18 @@ async fn follow(mut client: Arc<Client>, id: String, snap: Snapshot, out: &mut O
             Ok(Conn::Done) => return Ok(()),
             _ if lost && failures < RECONNECTS => {
                 failures += 1;
-                out.put(&Envelope::Gap(f.gap(GapReason::Disconnect, None)))?;
+                if !out.put(&Envelope::Gap(f.gap(GapReason::Disconnect, None)))? {
+                    return Ok(());
+                }
                 tokio::time::sleep(Duration::from_millis(500 << failures)).await;
                 let Ok(c) = crate::daemon::connect(false).await else { continue };
                 client = c;
-                let snap = snapshot(&client, &id, true).await?;
+                // A failed resync snapshot counts as one more failed reconnect.
+                let Ok(snap) = snapshot(&client, &id, true).await else { continue };
                 f = Follower::new(&snap);
-                out.put(&Envelope::Snapshot(snap))?;
+                if !out.put(&Envelope::Snapshot(snap))? {
+                    return Ok(());
+                }
                 failures = 0;
             }
             Ok(Conn::Lost) => return Err(client.closed("monitoring the session")),
@@ -90,7 +96,7 @@ async fn follow_connected(
     let mut notes =
         client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
     // Subscribe before the first read, so a record written in between wakes a read.
-    client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
+    client.request(method::MUX_ATTACH, attach_params(id)).await?;
     loop {
         if !read_log(client, id, f, out).await? {
             return Ok(Conn::Done);
@@ -112,10 +118,20 @@ async fn follow_connected(
     }
 }
 
+/// The monitor's subscription: no history (`limit: 0`) and hidden (`visible: false`), so it
+/// neither marks the chat seen nor counts as someone watching it.
+pub(crate) fn attach_params(id: &str) -> Value {
+    json!({"sessionId": id, "limit": 0, "visible": false})
+}
+
 /// Reads every log record past the cursor and prints it; on a gap, re-snapshots. False once
 /// stdout is gone.
+///
+/// A daemon restart changes the receipt's generation, and it also drops this connection, so
+/// the reconnect in [`follow`] re-snapshots; no per-record generation read is needed here.
 async fn read_log(client: &Arc<Client>, id: &str, f: &mut Follower, out: &mut Out) -> Result<bool> {
     loop {
+        let before = f.cursor;
         let page = client
             .request(
                 method::MUX_EVENTS,
@@ -126,33 +142,30 @@ async fn read_log(client: &Arc<Client>, id: &str, f: &mut Follower, out: &mut Ou
         if records.is_empty() {
             return Ok(true);
         }
-        let mut status_seen = false;
         for rec in &records {
             let Some(e) = Event::from_record(id, f.cursor.generation, rec) else { continue };
             match f.accept(&e) {
                 Step::Apply => {
-                    status_seen |= e.kind == "status";
                     if !out.put(&Envelope::Event(e))? {
                         return Ok(false);
                     }
                 }
                 Step::Duplicate | Step::Stale => {}
                 Step::Gap(gap) => {
-                    out.put(&Envelope::Gap(gap))?;
-                    resync(client, id, f, out).await?;
-                    return Ok(true);
+                    if !out.put(&Envelope::Gap(gap))? {
+                        return Ok(false);
+                    }
+                    return resync(client, id, f, out).await;
                 }
             }
         }
-        // A status record may follow a restart: check the generation then, not per record.
-        if status_seen {
-            let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
-            let generation = info.pointer("/sessionReceipt/generation").and_then(Value::as_u64);
-            if let Some(gap) = generation.and_then(|g| f.check_generation(g)) {
-                out.put(&Envelope::Gap(gap))?;
-                resync(client, id, f, out).await?;
-                return Ok(true);
+        // A page that moved the cursor nowhere would be asked for again forever: resync.
+        if f.cursor == before {
+            let got = records.last().and_then(|r| r.get("seq")).and_then(Value::as_u64);
+            if !out.put(&Envelope::Gap(f.gap(GapReason::Sequence, got)))? {
+                return Ok(false);
             }
+            return resync(client, id, f, out).await;
         }
         if !more {
             return Ok(true);
@@ -160,11 +173,12 @@ async fn read_log(client: &Arc<Client>, id: &str, f: &mut Follower, out: &mut Ou
     }
 }
 
-async fn resync(client: &Arc<Client>, id: &str, f: &mut Follower, out: &mut Out) -> Result<()> {
+/// A fresh snapshot marked `resyncing`; the follower restarts from its cursor. False once
+/// stdout is gone.
+async fn resync(client: &Arc<Client>, id: &str, f: &mut Follower, out: &mut Out) -> Result<bool> {
     let snap = snapshot(client, id, true).await?;
     *f = Follower::new(&snap);
-    out.put(&Envelope::Snapshot(snap))?;
-    Ok(())
+    Ok(out.put(&Envelope::Snapshot(snap))?)
 }
 
 async fn snapshot(client: &Client, id: &str, resyncing: bool) -> Result<Snapshot> {
