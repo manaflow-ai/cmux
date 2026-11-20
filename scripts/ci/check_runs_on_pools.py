@@ -74,6 +74,19 @@ COMPARISON = re.compile(r"(?:==|!=)\s*$")
 COMPARED = re.compile(r"^\s*(?:==|!=)")
 
 
+# The CI_TRUSTED_RUNNER selector's last term: a one-job Blacksmith VM. Its jobs hold write tokens or parse untrusted
+# input (`# ephemeral-required`), so they never read RUNNER_POOLS, whose x64 pools lead with the persistent
+# cmux-fleet-linux-x64 pool (#47803); tests/test_ci_fork_runner_routing.py pins the exact selector.
+TRUSTED_FALLBACK = re.compile(r"vars\.CI_TRUSTED_RUNNER\)\s*&&\s*vars\.CI_TRUSTED_RUNNER\s*\|\|\s*$")
+TRUSTED_FALLBACK_LABELS = ("blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404")
+
+
+def is_trusted_selector_fallback(body: str, start: int, value: str) -> bool:
+    """`... vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'`: the selector's
+    ephemeral fallback, not a pool choice."""
+    return value in TRUSTED_FALLBACK_LABELS and bool(TRUSTED_FALLBACK.search(_blank_strings(body[:start])))
+
+
 def is_comparison_operand(body: str, start: int, end: int) -> bool:
     """`vars.X == 'ubuntu-24.04'` compares against a label; it does not pick one."""
     return bool(COMPARISON.search(_blank_strings(body[:start])) or COMPARED.match(body[end:]))
@@ -145,7 +158,8 @@ def literal_labels(text: str) -> list[str]:
         for m in STRING.finditer(body):
             value = m.group()[1:-1].replace("''", "'")
             if (LINUX_LABEL.match(value) and not is_comparison_operand(body, m.start(), m.end())
-                    and not literal_is_fork_only(body, m.start())):
+                    and not literal_is_fork_only(body, m.start())
+                    and not is_trusted_selector_fallback(body, m.start(), value)):
                 found.append(value)
     outside.append(text[at:])
     for chunk in outside:
