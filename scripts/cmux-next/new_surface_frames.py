@@ -59,13 +59,17 @@ after the judged key.
 An asked rate that is lower than the display's has the same fault: the frame numbers are too small and a frame
 with no row is not seen. The rows can prove that an asked rate is too LOW, and `rate_fault` does (the reason
 `display`): the smallest time of `RATE_STEPS` steps one after the other in the whole recording (`rate_share`: that
-time over as many asked frame times; each row with 9 rows or more has it, valid or not) is below `RATE_SHARE`. One
+time over as many asked frame times; a row with a frame after the key whose recording has 9 rows or more has it,
+valid or not) is below `RATE_SHARE`. One
 step alone is no proof: a row's time has a jitter of some ms, and a recording at the right rate has single steps
 of half a frame time, each next to a long one. A rule that cannot judge does not pass: a recording with too few
 rows for that sum is INVALID too, and so is one with no `RATE_STEPS` steps one after the other whose rows come at
-the asked rate (`rate_on_grid`; the reason says `not judged`): a sum of long and short steps says nothing of the
-rate. The check has a limit, and the head of a report with an asked rate says it (`rate_limit_sentence`): an
-asked rate that is wrong by `1 - RATE_SHARE` or less passes, and the rows cannot prove that an asked rate is
+the asked rate (`rate_on_grid`; the reason says `not judged`): rows that come slower than the asked rate, or at
+steps that are not even, prove no rate. So the check needs 9 rows in 9 frames of the display one after the other;
+with one frame with no row in them it judges only rows with nearly no jitter. The check has a limit, and the head
+of a report with an asked rate says it (`rate_limit_sentence`): an asked rate that is wrong by about
+`1 - RATE_SHARE` or less passes, a rate that is too low is found only when enough rows come one after the other at
+the display's own rate, and the rows cannot prove that an asked rate is
 RIGHT: a 120 Hz display whose pictures come each second frame gives the rows of a 60 Hz display. The true rate is
 the display's own, which the entry makes.
 
@@ -164,7 +168,8 @@ NO_RATE = ("display: no asked display rate (`--display-hz`; the entry gives it w
 # frame times under which the display runs faster than the asked rate, and the share under which a take's head
 # says that the margin is small. `RATE_SHARE` is the one limit: of the INVALID decision, of the frame time that
 # `refresh_of` takes, and of the rows that `rate_on_grid` takes as rows at the asked rate. So an asked rate that
-# is wrong by 15 % or less passes; what the check does not find is in `rate_limit_sentence`.
+# is wrong by about 15 % or less passes (the rows' times are whole ms, which moves the limit by about 1 %: with a
+# 120 Hz display 102 asked is INVALID and 139 asked passes); what the check does not find is in `rate_limit_sentence`.
 RATE_STEPS, RATE_SHARE, RATE_MARGIN = 8, 0.85, 0.88
 # Why the counts of frames with no row are not known, for a row or a case with a `display` reason.
 NO_RATE_SAID, RATE_NOT_PROVED_SAID = "no asked display rate", "the asked display rate is not proved"
@@ -193,10 +198,13 @@ def rate_share(timed, asked):
 
 
 def rate_on_grid(timed, asked):
-    """True when RATE_STEPS steps one after the other of the rows `timed` come at the asked rate: against a row for
-    each frame time `asked` (ms) from the first of those rows, no row of them is early or late by more than
-    `1 - RATE_SHARE` of the steps' asked time together (1.2 frame times: the room that the sum's limit gives). Only
-    such rows say something of the rate: a sum of long and short steps can pass the limit at each rate."""
+    """True when RATE_STEPS steps one after the other of the rows `timed` come at the asked rate: each of those rows
+    has an error against a row for each frame time `asked` (ms) from the first of them, and the largest error less
+    the smallest one is `1 - RATE_SHARE` of the steps' asked time together or less (1.2 frame times: the room that
+    the sum's limit gives). So one row 0.7 late and one row 0.7 early are not at the rate. Only such rows say
+    something of the rate: a sum of long and short steps can pass the limit at each rate. The rows are 9 rows in 9
+    frames of the display: one frame with no row in them takes 1.0 of the room, so only rows with nearly no jitter
+    pass with it."""
     times = [row["ms"] for row in timed]
     room = (1 - RATE_SHARE) * RATE_STEPS * asked
     for start in range(len(times) - RATE_STEPS):
@@ -225,7 +233,7 @@ def rate_fault(timed, asked, refresh):
     if not rate_on_grid(timed, asked):
         return (f"display: the asked rate is not judged: no {RATE_STEPS} steps one after the other of the recording's "
                 f"{len(timed)} rows come at the asked rate ({asked:.2f} ms each; the sum of {RATE_STEPS} steps is {share:g} of "
-                f"{RATE_STEPS} asked frame times at the least, and a sum of long and short steps proves no rate)")
+                f"{RATE_STEPS} asked frame times at the least: the rows come slower than the asked rate, or their steps are not even)")
     return None
 
 
@@ -254,12 +262,15 @@ def rate_limit_sentence(asked_hz):
     asked rate against the rows finds, and what it does not find."""
     if not asked_rate(asked_hz):
         return None
-    low = f"{round((1 - RATE_SHARE) * 100):g} %"
+    low, rows = f"{round((1 - RATE_SHARE) * 100):g} %", RATE_STEPS + 1
     return (f"the asked display rate ({asked_hz:g} Hz) against the rows: a row is INVALID by `display` when {RATE_STEPS} steps one "
-            f"after the other of its rows took less than {RATE_SHARE:g} of {RATE_STEPS} asked frame times (an asked rate that is more "
-            f"than {low} too low), and when no {RATE_STEPS} steps one after the other come at the asked rate (not judged); an error "
-            f"of {low} or less is not found (rows of a 132 Hz display with 120 asked pass with no word), and rows that come each "
-            f"second frame of a display at 2 times the asked rate pass too")
+            f"after the other of its rows took less than {RATE_SHARE:g} of {RATE_STEPS} asked frame times, and when no {rows} rows one "
+            f"after the other come at the asked rate (not judged; {rows} rows in {rows} frames of the display are what the check "
+            f"needs: with one frame with no row in them it judges only rows with nearly no jitter); an asked rate that is too low "
+            f"is found only when enough rows come one after the other at the display's own rate ({rows} are enough for an error "
+            f"above about {low}): rows that come each 2nd or 3rd frame of a faster display pass, and rows with steps of 1 and 2 "
+            f"frames by turns can pass; an error of about {low} or less is not found (rows of a 132 Hz display with 120 asked "
+            f"pass with no word)")
 
 
 def pair(row, region):

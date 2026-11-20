@@ -13,9 +13,11 @@ recording: a frame with no row directly before the page is then not seen. So eac
 is INVALID (`display`; new_surface_frames.py `NO_RATE`), and its line says `not known` for the frames with no row.
 Only a finite number above 0 is an asked rate (`asked_rate`): a given `--display-hz` that is none (0, a number below
 0, `inf`, `nan`) stops the run at its arguments (`given_rate`). An asked rate that is lower than the display's has
-the same fault, and the rows can prove it when the rate is more than 15 % too low: a row whose rows do not agree
-with the asked rate, or do not judge it, is INVALID (`display` too; `rate_fault`), and the line of each row with 9
-rows or more has the judged number (`rate_share`). With an asked rate the head says the limit of this check in one
+the same fault, and the rows can prove it when the rate is more than about 15 % too low and enough rows come one
+after the other at the display's own rate: a row whose rows do not agree
+with the asked rate, or do not judge it, is INVALID (`display` too; `rate_fault`), and the line of a row has the
+judged number (`rate_share`) when its recording has 9 rows or more and a frame after the key. With an asked rate
+the head says the limit of this check in one
 sentence (`rate_limit_sentence`), and, when a valid row's number is near the limit, that too
 (`rate_margin_sentence`). The rows cannot prove that the asked rate is right: the true rate is the display's own,
 which the entry makes.
