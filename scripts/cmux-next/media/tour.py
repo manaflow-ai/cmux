@@ -161,6 +161,9 @@ HELPER_CANDIDATES = (Path.home() / "Applications/CuaSshScreenCapture.app",
                      Path("/Applications/CuaSshScreenCapture.app"))
 # A long tour would make a GIF past the inline limit; split it instead.
 MAX_STEPS = 30
+# The CMUX_* knobs (not CMUX_NEXT_*) a tour's `env` may set: they reach the app's terminals too, so a
+# tour's own store is the one its shells and the app's pages read.
+FIXTURE_ENV = frozenset({"CMUX_AUTOMATIONS_DIR"})
 READ_ONLY_POSTCONDITION_METHODS = {
     "debug.layers", "debug.surfaces", "debug.focus", "debug.window_list", "debug.windows",
     "debug.pane_chrome", "debug.notifications", "debug.themes", "debug.dialog",
@@ -235,9 +238,10 @@ def load_tour(path: Path) -> dict[str, Any]:
     if "settings" in data and not isinstance(data["settings"], dict):
         raise TourError(f"{path}: `settings` must be an object (the cmux-next.json the app launches with)")
     env = data.get("env", {})
-    if (not isinstance(env, dict) or not all(isinstance(key, str) and key.startswith("CMUX_NEXT_") and isinstance(value, str)
-                                             for key, value in env.items())):
-        raise TourError(f"{path}: `env` maps CMUX_NEXT_* names to strings ({{repo}} is the checkout)")
+    if (not isinstance(env, dict) or not all(isinstance(key, str) and (key.startswith("CMUX_NEXT_") or key in FIXTURE_ENV)
+                                             and isinstance(value, str) for key, value in env.items())):
+        raise TourError(f"{path}: `env` maps CMUX_NEXT_* names (or {', '.join(sorted(FIXTURE_ENV))}) to strings "
+                        "({repo} is the checkout, {workdir} a private folder of the run)")
     if "customize" in data and not isinstance(data["customize"], bool):
         raise TourError(f"{path}: `customize` must be true or false")
     # The acpmux harness catalog the tour's daemon starts with (ACPMUX_HARNESS_FIXTURE, acpmux harness_fixture.rs).
@@ -1246,6 +1250,12 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
     frames = session.shareable(directory / "frames")
     workdir = Path(tempfile.mkdtemp(prefix="cmux-tour.", dir="/tmp"))
     launch_env = dict(tour.get("env") or {})
+    # `{workdir}` in an `env` value is a folder of this run the app's user can write, so state the app
+    # and its terminals keep through a CMUX_* knob (CMUX_AUTOMATIONS_DIR) starts empty and is never
+    # the runner's own.
+    if any("{workdir}" in value for value in launch_env.values()):
+        state = str(session.shareable(workdir / "env"))
+        launch_env = {key: value.replace("{workdir}", state) for key, value in launch_env.items()}
     # Every tour gets its own customize folder, named or not: with no CMUX_CUSTOMIZE_DIR the daemon
     # falls back to the runner's own ~/.config/cmux/customize, so one personal extension there would
     # draw itself into every tour's shots. The daemon reads CMUX_* from the app's environment
