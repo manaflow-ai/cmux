@@ -183,7 +183,7 @@ FLEET_EPHEMERAL_LABELS = frozenset({"cmux-fleet-linux-x64"})
 # expression (the trusted selector included), it can only ever add that one label.
 FLEET_FIRST_OPERAND = re.compile(
     r"(?:\(github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch' && !inputs\.run_id\) && )?"
-    r"vars\.CI_REPAIR_SKIP_FLEET != '1' && '(" + "|".join(map(re.escape, sorted(FLEET_EPHEMERAL_LABELS))) + r")' \|\| "
+    r"vars\.CI_REPAIR_FLEET == '1' && '(" + "|".join(map(re.escape, sorted(FLEET_EPHEMERAL_LABELS))) + r")' \|\| "
 )
 FORK_BRANCH_PREFIX = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
 
@@ -1563,7 +1563,7 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         # queue on the pools they drain. Only that literal passes; a variable, a bounded pick or a persistent
         # owned label still fails.
         fork = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-        switch = "vars.CI_REPAIR_SKIP_FLEET != '1' && "
+        switch = "vars.CI_REPAIR_FLEET == '1' && "
         self.assertEqual(runner_label_errors(f"${{{{ {fork}{switch}'cmux-fleet-linux-x64' || {BOUNDED_LINUX_SELECTOR} }}}}"), [])
         self.assertEqual(runner_label_errors("cmux-fleet-linux-x64"), ["'cmux-fleet-linux-x64' is not an ephemeral label"])
         # Ahead of the exact trusted selector, on schedule and dispatch only (the owned-pool sweeper).
@@ -1574,7 +1574,7 @@ class ForkRunnerRoutingTests(unittest.TestCase):
             fork, f"{fork}{scheduled}'cmux-gcp-lane-x64' || ", 1)), [])
         for refused in (f"${{{{ {fork}{switch}'cmux-gcp-lane-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
                         f"${{{{ {fork}{switch}'glaeda-std-xcode-26.6' || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
-                        f"${{{{ {fork}{switch}vars.CI_REPAIR_SKIP_FLEET || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
+                        f"${{{{ {fork}{switch}vars.CI_REPAIR_FLEET || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
                         f"${{{{ {fork}contains(fromJSON('[\"cmux-fleet-linux-x64\",\"cmux-gcp-lane-x64\"]'), vars.X) "
                         "&& vars.X || 'blacksmith-4vcpu-ubuntu-2404' }}"):
             with self.subTest(runs_on=refused):
