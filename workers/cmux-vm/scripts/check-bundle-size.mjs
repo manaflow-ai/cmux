@@ -15,7 +15,9 @@ import { gzipSync } from "node:zlib";
 // The staging database fault switch (src/db/fault.ts) measured 450.7 KiB; no dependency was added.
 // The vm_create and vm_start timing lines and a create that joins its mesh (meshId) measured 451.6 KiB; no dependency
 // was added.
-const BUDGET_GZIP_BYTES = 454 * 1024; // 298 KiB at S1
+// The upstream server-timing tally with its body-read timing (src/upstream/timing.ts) measured 454.1 KiB; no
+// dependency was added.
+const BUDGET_GZIP_BYTES = 455 * 1024; // 298 KiB at S1
 const dir = process.argv[2] ?? "dist";
 
 const files = readdirSync(dir, { recursive: true })
