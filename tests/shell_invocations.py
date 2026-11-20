@@ -14,7 +14,8 @@ A caller asks one of two questions and the two fail closed in opposite direction
   (tests/test_ci_release_publish_tag_gate.py: "may this publish"), and count [] as yes.
 - gh_api_request(args): the method and endpoint `gh api` sends, read the way gh reads its flags.
 - first_operand(args, options): where a tool's subcommand is, read with its option grammar, so an option's value is
-  never taken for a subcommand.
+  never taken for a subcommand. leading_options(args, options): the options before it, a cluster read letter by
+  letter (`-vf` is -v and -f) and an option's value never counted as one.
 
 What an expansion's body runs (`${..}`, `$((..))`, an array subscript, an unquoted heredoc body) is read by the
 shared parser tests/shell_tree.py, to any depth; a body it cannot read stops the lexer, so what follows may run
@@ -891,50 +892,71 @@ class Options(NamedTuple):
     `--package=X`) and those that take none. Short ones may cluster (`-vq`, `-Ro/r`)."""
     values: frozenset[str] = frozenset()
     flags: frozenset[str] = frozenset()
-    # A flag may take an explicit true or false as its next word, as npm's and pnpm's option parser (nopt) reads
-    # `--ignore-scripts true publish` (a follow-up review of #41398): that word is the flag's, never an operand.
-    boolean_values: bool = False
+    # The flags that take an explicit true or false as their next word or after `=`, as npm's and pnpm's option
+    # parser (nopt) reads a Boolean option: `--ignore-scripts true publish` (a follow-up review of #41398). Only
+    # those: a shorthand that expands to an option with a value takes none (npm's --silent is --loglevel silent, so
+    # `npm --silent false publish` runs `false`; the review of #41735), and in a cluster the last letter decides.
+    booleans: frozenset[str] = frozenset()
 
 
 def first_operand(args: list[str], options: Options) -> int | None:
     """The index in ARGS of the first operand (the subcommand), read with OPTIONS: an option's value is never an
     operand, and `--` ends the options. len(ARGS) when there is none; None when an option before it is one the
     grammar does not know, or a word bash only knows at run time, so its position cannot be read (fail closed)."""
+    return _scan_options(args, options)[0]
+
+
+def leading_options(args: list[str], options: Options) -> list[str] | None:
+    """The options in ARGS before the first operand, each by name: a short cluster letter by letter (`-vf` gives -v
+    and -f, the review of #41735), `--name=value` as --name, and an option's value never as an option (in
+    `--sdk -f` the -f is --sdk's). None when first_operand() is None."""
+    index, seen = _scan_options(args, options)
+    return None if index is None else seen
+
+
+def _scan_options(args: list[str], options: Options) -> tuple[int | None, list[str]]:
+    seen: list[str] = []
     index = 0
     while index < len(args):
         word = args[index]
         if _unreadable(word):
-            return None
+            return None, seen
         if word == "--":
-            return index + 1
+            return index + 1, seen
         if word == "-" or not word.startswith("-"):
-            return index
+            return index, seen
         if word in options.flags:
-            index += 1 + _boolean_value(args, index + 1, options)
+            seen.append(word)
+            index += 1 + _boolean_value(args, index + 1, word, options)
             continue
         if word in options.values:
+            seen.append(word)
             index += 2
             continue
         if word.startswith("--"):
-            if "=" in word and word.split("=", 1)[0] in options.values:
+            name, _, value = word.partition("=")
+            if "=" in word and (name in options.values or name in options.booleans and value in ("true", "false")):
+                seen.append(name)
                 index += 1
                 continue
-            return None
+            return None, seen
         for at in range(1, len(word)):
             option = "-" + word[at]
             if option in options.values:
+                seen.append(option)
                 index += 1 if at < len(word) - 1 else 2
                 break
             if option not in options.flags:
-                return None
+                return None, seen
+            seen.append(option)
         else:
-            index += 1 + _boolean_value(args, index + 1, options)
-    return len(args)
+            index += 1 + _boolean_value(args, index + 1, "-" + word[-1], options)
+    return len(args), seen
 
 
-def _boolean_value(args: list[str], index: int, options: Options) -> int:
-    """1 when ARGS[INDEX] is the explicit true or false a flag before it takes (Options.boolean_values), else 0."""
-    return int(options.boolean_values and index < len(args) and args[index] in ("true", "false"))
+def _boolean_value(args: list[str], index: int, flag: str, options: Options) -> int:
+    """1 when ARGS[INDEX] is the explicit true or false FLAG before it takes (FLAG in Options.booleans), else 0."""
+    return int(flag in options.booleans and index < len(args) and args[index] in ("true", "false"))
 
 
 # Past this many levels of one command running another, what it runs counts as unreadable.
