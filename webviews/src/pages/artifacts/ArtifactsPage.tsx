@@ -2,13 +2,15 @@
 // tree (ui/Tree), the chosen file's preview and its history. HTML previews draw in a scriptless,
 // sandboxed srcdoc, as the agent pane's passive artifacts do, so a saved document can never reach
 // the page, its bridge or the network. Choosing a revision shows its change against its parent.
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { memo, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { galleryArtifactDocument } from "../../agent-session/acpmux/conversation/artifactSandbox";
+import { useStableHandlers } from "../../agent-session/acpmux/stableHandlers";
 import { FileIcon } from "../../file-icons";
 import { SignInButton } from "../../ui/SignInButton";
 import { SplitEdge } from "../../ui/SplitEdge";
 import { Tree, useTreeLineCache, type TreeLine } from "../../ui/Tree";
 import type { Strings } from "../shared/i18n";
+import { DiffLines, diffModel } from "./DiffLines";
 import { lineHunks } from "./lineDiff";
 import { textOf, type ArtifactsFailure, type ArtifactsSnapshot, type ArtifactsStore } from "./store";
 import { SIGNED_OUT, type ArtifactCommit, type ArtifactFile } from "./types";
@@ -248,7 +250,11 @@ function History({
   strings: Strings;
 }) {
   const { history, historyFailure, selectedCommit, diff } = snapshot;
+  // One function for every render: a revision's row draws again only when its own props change.
+  const handlers = useStableHandlers({ onChoose: (commit: ArtifactCommit) => void store.selectCommit(commit) });
   if (!snapshot.selected || snapshot.fileLoading) return null;
+  // At most HISTORY_LIMIT revisions (store.ts), so every row mounts; each is memoized on its own
+  // revision, whether it is chosen and its change, so choosing one draws the two rows it moves between.
   return (
     <section className="artifacts-history" aria-label={strings.t("artifacts.history.title")}>
       <h2 className="artifacts-history-title">{strings.t("artifacts.history.title")}</h2>
@@ -261,27 +267,14 @@ function History({
         {history.map((commit) => {
           const active = commit.sha === selectedCommit;
           return (
-            <li key={commit.sha} className={`artifacts-commit${active ? " is-active" : ""}`}>
-              <button
-                type="button"
-                className="artifacts-commit-button"
-                aria-pressed={active}
-                onClick={() => void store.selectCommit(commit)}
-              >
-                <span className="artifacts-commit-message">{commit.message}</span>
-                <time className="artifacts-muted" dateTime={new Date(commit.time).toISOString()}>
-                  {formatTime(commit.time, strings.language)}
-                </time>
-                <span className="artifacts-trailers artifacts-muted">{trailers(commit)}</span>
-              </button>
-              {active && diff?.sha === commit.sha ? (
-                diff.unavailable ? (
-                  <p className="artifacts-note">{strings.t("artifacts.file.binary")}</p>
-                ) : (
-                  <Change before={diff.before} after={diff.after} strings={strings} />
-                )
-              ) : null}
-            </li>
+            <CommitRow
+              key={commit.sha}
+              commit={commit}
+              active={active}
+              diff={active && diff?.sha === commit.sha ? diff : undefined}
+              strings={strings}
+              onChoose={handlers.onChoose}
+            />
           );
         })}
       </ol>
@@ -289,29 +282,46 @@ function History({
   );
 }
 
-/** The revision's change to the file, as unified lines with a little context. */
-function Change({ before, after, strings }: { before?: string; after: string; strings: Strings }) {
-  const hunks = useMemo(() => lineHunks(before ?? "", after), [before, after]);
-  if (hunks.length === 0) return <p className="artifacts-note">{strings.t("artifacts.history.unchanged")}</p>;
+const CommitRow = memo(function CommitRow({
+  commit,
+  active,
+  diff,
+  strings,
+  onChoose,
+}: {
+  commit: ArtifactCommit;
+  active: boolean;
+  /** The chosen revision's change, once read; only the chosen row has one. */
+  diff: ArtifactsSnapshot["diff"];
+  strings: Strings;
+  onChoose: (commit: ArtifactCommit) => void;
+}) {
   return (
-    <div className="artifacts-diff">
-      {hunks.map((hunk, index) => (
-        <div key={index} className="artifacts-hunk">
-          {hunk.map((line, row) => (
-            <div key={row} className={`artifacts-line is-${line.type}`}>
-              <span className="artifacts-sign" aria-hidden="true">
-                {line.type === "add" ? "+" : line.type === "del" ? "-" : " "}
-              </span>
-              {line.text}
-              {line.noNewline ? (
-                <span className="artifacts-no-newline">{strings.t("artifacts.history.noNewline")}</span>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      ))}
-    </div>
+    <li className={`artifacts-commit${active ? " is-active" : ""}`}>
+      <button type="button" className="artifacts-commit-button" aria-pressed={active} onClick={() => onChoose(commit)}>
+        <span className="artifacts-commit-message">{commit.message}</span>
+        <time className="artifacts-muted" dateTime={new Date(commit.time).toISOString()}>
+          {formatTime(commit.time, strings.language)}
+        </time>
+        <span className="artifacts-trailers artifacts-muted">{trailers(commit)}</span>
+      </button>
+      {diff ? (
+        diff.unavailable ? (
+          <p className="artifacts-note">{strings.t("artifacts.file.binary")}</p>
+        ) : (
+          <Change before={diff.before} after={diff.after} strings={strings} />
+        )
+      ) : null}
+    </li>
   );
+});
+
+/** The revision's change to the file, as unified lines with a little context; only those near the
+ *  viewport mount (DiffLines.tsx). */
+function Change({ before, after, strings }: { before?: string; after: string; strings: Strings }) {
+  const model = useMemo(() => diffModel(lineHunks(before ?? "", after)), [before, after]);
+  if (model.lines.length === 0) return <p className="artifacts-note">{strings.t("artifacts.history.unchanged")}</p>;
+  return <DiffLines model={model} noNewline={strings.t("artifacts.history.noNewline")} />;
 }
 
 /** Who saved a revision: its harness, machine and session, as the saver gave them. */
