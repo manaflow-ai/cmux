@@ -203,6 +203,7 @@ pub use model_options::{
     current_effort, current_model, current_option, resolve_config_id, spawn_effort, web_url,
     web_url_for_session,
 };
+mod earned_access;
 pub mod ledger;
 mod list_order;
 mod model_alias;

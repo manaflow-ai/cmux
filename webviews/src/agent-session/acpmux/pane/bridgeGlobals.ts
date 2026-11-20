@@ -31,7 +31,7 @@ declare global {
       /// The app's shortcuts as the user bound them, keyed by action id (shortcuts.ts).
       applyShortcuts?(labels: Record<string, string>): void;
       /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
-      /// default): the session coverage label.
+      /// default): prompt surface labels and the read-only access preview.
       applyPreview?(on: boolean): void;
       /// The default-off live-tree status card (Settings > Advanced > Labs, `labs.liveTree`).
       applyLiveTree?(on: boolean): void;

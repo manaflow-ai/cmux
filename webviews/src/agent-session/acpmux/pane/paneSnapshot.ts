@@ -50,6 +50,7 @@ import { harnessProfiles } from "../harnessProfiles";
 import { setStartModeSource } from "../startMode";
 import { setStartRecoveryPreview } from "../startRecoveryPreview";
 import { setPromptSurfaces } from "../surfaces/promptSurface";
+import { setEarnedAccessLabs } from "../session-info/earnedAccessLabs";
 import { preparedMockTransport } from "../mockTransport";
 import { BridgeSocket } from "../bridgeSocket";
 import { createAcpmuxDebug } from "../debug";
@@ -684,6 +685,7 @@ export function paneSnapshotEffect({
       // Cloud's own checks stay: Cloud allowed by policy, a signed-in account, and an explicit
       // pick; nothing creates a paid VM without one.
       setPromptSurfaces(on === true);
+      setEarnedAccessLabs(on === true);
       setStartRecoveryPreview(on === true);
       // Workflows no longer follow Advanced > Labs; only applyWorkflowLabs switches them.
     },
