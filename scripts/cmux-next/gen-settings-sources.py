@@ -24,7 +24,8 @@ script writes the copies the app's Swift modules compile in. Sources so far:
 - schemas/settings/source/agent-policy.json: which keys an agent may change, and why not
   (Swift: SettingsSchema+AgentPolicy.generated.swift). Every row of a section source needs a group.
 - schemas/settings/source/row-facts.json: the keys Reset All keeps and cmux-browser shares, and each
-  row's validation domain (Swift: SettingsSchema+RowFacts.generated.swift).
+  row's validation domain (Swift: SettingsSchema+RowFacts.generated.swift), with the app id
+  pattern of the app manifest schema (cmux-app.schema.json `properties.id.pattern`) for domain:app_id.
 - schemas/settings/source/samples.json: the values per row kind and validation domain a validator
   must accept and refuse (Swift: SettingsSchema+Samples.generated.swift; the export's accepts/refuses).
 
@@ -1105,6 +1106,8 @@ POLICY_SWIFT = SCHEMA_DIR + "/SettingsSchema+AgentPolicy.generated.swift"
 REFUSALS_SWIFT = SCHEMA_DIR + "/SettingsSchema+AgentRefusals.generated.swift"
 FACTS_SOURCE = "schemas/settings/source/row-facts.json"
 FACTS_SWIFT = SCHEMA_DIR + "/SettingsSchema+RowFacts.generated.swift"
+# The app manifest schema: its `properties.id.pattern` is the one app id rule (domain:app_id rows).
+APP_MANIFEST_SCHEMA = "cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json"
 SAMPLES_SOURCE = "schemas/settings/source/samples.json"
 SAMPLES_SWIFT = SCHEMA_DIR + "/SettingsSchema+Samples.generated.swift"
 # The export's row kinds, plus choice_list (a string_list row with choices).
@@ -1267,6 +1270,13 @@ def load_row_facts():
     return data
 
 
+def app_id_pattern():
+    pattern = load_json(APP_MANIFEST_SCHEMA).get("properties", {}).get("id", {}).get("pattern")
+    if not isinstance(pattern, str) or not pattern:
+        fail(APP_MANIFEST_SCHEMA, "properties.id.pattern is the app id pattern")
+    return pattern
+
+
 def row_facts_swift(data):
     def table(mapping):
         return "\n".join(wrap(["%s: %s" % (swift_string(k), swift_string(v)) for k, v in mapping.items()], "        "))
@@ -1296,6 +1306,11 @@ extension SettingsSchema {{
     ]
     static let defaultValidation = {default}
 
+    /// The id an app manifest may have: `properties.id.pattern` of the app manifest schema
+    /// ({app_schema}), copied here by the generator
+    /// (domain:app_id rows, `NewTabAppSetting.isValidID`; the daemon reads the same schema).
+    static let appIDPattern = {app_id_pattern}
+
     /// Each key's earlier defaults that held for a day or more: the one-time launch migration
     /// (`forgetStoredDefaults`) drops a stored value equal to one, so the key follows its default again.
     static let formerDefaults: [String: [JSONValue]] = [
@@ -1306,6 +1321,7 @@ extension SettingsSchema {{
            shared="\n".join(wrap([swift_string(k) for k in data["shared_with_browser"]], "        ")),
            kept="\n".join(wrap(kept, "        ")), by_key=table(data["validation"]["keys"]),
            by_kind=table(data["validation"]["kinds"]), default=swift_string(data["validation"]["default"]),
+           app_schema=APP_MANIFEST_SCHEMA, app_id_pattern=swift_string(app_id_pattern()),
            former="\n".join(wrap(["%s: [%s]" % (swift_string(k), ", ".join(json_value_swift(v) for v in values))
                                   for k, values in data["former_defaults"].items()], "        ")))
 

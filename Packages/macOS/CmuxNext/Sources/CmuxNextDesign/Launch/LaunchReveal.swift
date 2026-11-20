@@ -40,6 +40,8 @@ public final class LaunchReveal {
     /// Regions shown by their deadline, not their data (the launch marks' `reveal.<region>.by_deadline`).
     @ObservationIgnored public private(set) var shownByDeadline: Set<LaunchRegion> = []
     @ObservationIgnored private let deadline: Duration
+    /// The pending waits of ``whenReady(_:orAfter:_:)``, by timer; each leaves at its region's ready or its fire.
+    @ObservationIgnored private var waits: [ObjectIdentifier: DemandTimer] = [:]
 
     /// - Parameter deadline: How long after the first `hold` every region
     ///   shows anyway.
@@ -82,6 +84,19 @@ public final class LaunchReveal {
         if isReady(region) { work() } else { waiters[region, default: []].append(work) }
     }
 
+    /// Runs `work` once: when `region` is ready, or `wait` from now when it is not by then. A region
+    /// nothing holds never becomes ready (Home, when every window restores another workspace: no
+    /// hold, so no deadline), so work that must run every launch waits for it with this.
+    public func whenReady(_ region: LaunchRegion, orAfter wait: Duration, _ work: @escaping @MainActor () -> Void) {
+        guard !isReady(region) else { return work() }
+        let once = RunOnce(work)
+        let timer = DemandTimer(owner: "launch.reveal-wait.\(region.rawValue)", clock: clock)
+        let id = ObjectIdentifier(timer)
+        waits[id] = timer
+        waiters[region, default: []].append { [weak self] in self?.waits.removeValue(forKey: id)?.cancel(); once.run() }
+        timer.schedule(after: wait) { @MainActor [weak self] in self?.waits.removeValue(forKey: id); once.run() }
+    }
+
     /// `region`'s data arrived: its held views fade in. Later calls do nothing.
     public func markReady(_ region: LaunchRegion) {
         guard ready.insert(region).inserted else { return }
@@ -115,5 +130,19 @@ public final class LaunchReveal {
         deadlineTimer.cancel()
         for timer in ownDeadlines.values { timer.cancel() }
         for region in LaunchRegion.allCases { markReady(region) }
+    }
+}
+
+/// Work that runs at most once, whichever of its callers comes first (``LaunchReveal/whenReady(_:orAfter:_:)``).
+@MainActor
+private final class RunOnce {
+    private var work: (@MainActor () -> Void)?
+
+    init(_ work: @escaping @MainActor () -> Void) { self.work = work }
+
+    func run() {
+        let work = self.work
+        self.work = nil
+        work?()
     }
 }

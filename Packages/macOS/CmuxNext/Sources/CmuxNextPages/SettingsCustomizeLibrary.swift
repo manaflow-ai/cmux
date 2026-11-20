@@ -28,8 +28,8 @@ public final class SettingsCustomizeLibrary: PageProvider {
     private let settingsFile: @MainActor () -> URL?
     private let runCLI: Runner
 
-    /// `settingsFile` points the CLI at the settings file the app reads (`CMUX_NEXT_CONFIG_FILE`), as
-    /// Open Theme File does; nil keeps the CLI's own default.
+    /// `settingsFile` points the CLI at the settings file the app reads (`CMUX_NEXT_CONFIG_FILE`) when
+    /// it is not the CLI's default; nil or the default keeps the CLI's own (see `environment`).
     public init(cli: @escaping @MainActor () async -> URL?, settingsFile: @escaping @MainActor () -> URL?, runCLI: @escaping Runner) {
         self.cli = cli
         self.settingsFile = settingsFile
@@ -57,8 +57,7 @@ public final class SettingsCustomizeLibrary: PageProvider {
     /// the sidebar's experiments mark runs only on the person's click.
     func answer(_ arguments: [String]) async throws -> JSONValue {
         guard let binary = await cli() else { throw PageError(code: "cmux.page.unavailable", message: "no cmux CLI") }
-        var environment = ProcessInfo.processInfo.environment
-        if let file = settingsFile() { environment["CMUX_NEXT_CONFIG_FILE"] = file.path }
+        let environment = Self.environment(ProcessInfo.processInfo.environment, settingsFile: settingsFile())
         let (status, stdout, stderr) = try await runCLI(binary, arguments, environment)
         // A change can turn a PR's pages on or off: the sidebar's experiments mark reads the library again.
         if status == 0, let verb = arguments.dropFirst(3).first, Self.changes.contains(verb) {
@@ -88,6 +87,21 @@ public final class SettingsCustomizeLibrary: PageProvider {
         default:
             throw PageError.invalidParams("verb is list, on, off, order or remove")
         }
+    }
+
+    /// The CLI's environment: the app's own, naming the app's settings file only when it is not the
+    /// CLI's default (`~/.config/cmux/cmux-next.json`). An override also moves the CLI's library
+    /// state into the config folder (cmux-customize `Roots::from`), so naming the default file would
+    /// hide every entry an ordinary `cmux customize` run kept.
+    nonisolated static func environment(_ base: [String: String], settingsFile: URL?) -> [String: String] {
+        var environment = base
+        guard let file = settingsFile else { return environment }
+        if let home = environment["HOME"], !home.isEmpty,
+           file.standardizedFileURL.path == URL(fileURLWithPath: home).appendingPathComponent(".config/cmux/cmux-next.json").standardizedFileURL.path {
+            return environment
+        }
+        environment["CMUX_NEXT_CONFIG_FILE"] = file.path
+        return environment
     }
 
     nonisolated static func isPosition(_ text: String) -> Bool {

@@ -108,7 +108,8 @@ impl State {
         if let Some(title) = title {
             self.capped(&mut row, "title", title, MAX_TITLE_BYTES);
         }
-        let options = request
+        let listed = request.options.as_array().map_or(0, Vec::len);
+        let options: Vec<(u64, u8)> = request
             .options
             .as_array()
             .map(|options| {
@@ -128,6 +129,10 @@ impl State {
                     .collect()
             })
             .unwrap_or_default();
+        // An option past the 8 kept reads as `answered`, whatever its kind: count the cut.
+        if options.len() == MAX_OPTIONS && listed > MAX_OPTIONS {
+            self.cut_fields = self.cut_fields.saturating_add(1);
+        }
         self.open_ask(hash, row, options, record.request.map(|raw| (BodyField::Request, raw)), out);
         Ok(())
     }
@@ -194,7 +199,7 @@ impl State {
         out: &mut input::Output<'_>,
     ) {
         let id = record.permission_id.as_str().unwrap_or_default();
-        let Some(Ask { mut row, options }) = self.take_ask(key("permission", id)) else {
+        let Some(Ask { mut row, options }) = self.take_ask(key("permission", id), true) else {
             return;
         };
         let outcome: Value =
@@ -216,7 +221,7 @@ impl State {
     /// its mode's id), a policy's answer by its option, or its cancel. Another auto opened no ask.
     pub(super) fn decide_auto(&mut self, record: &AskRecord<'_>, out: &mut input::Output<'_>) {
         let id = record.permission_id.as_str().unwrap_or_default();
-        let Some(Ask { mut row, options }) = self.take_ask(key("permission", id)) else {
+        let Some(Ask { mut row, options }) = self.take_ask(key("permission", id), false) else {
             return;
         };
         let decision = if let Some(mode) = record.full_access.as_str() {
@@ -238,7 +243,7 @@ impl State {
     /// approved, denied, cancelled); a secret's value is never in a record.
     pub(super) fn decide_secret(&mut self, record: &AskRecord<'_>, out: &mut input::Output<'_>) {
         let id = record.secret_id.as_str().unwrap_or_default();
-        let Some(Ask { mut row, .. }) = self.take_ask(key("secret", id)) else {
+        let Some(Ask { mut row, .. }) = self.take_ask(key("secret", id), true) else {
             return;
         };
         let word = record
@@ -300,11 +305,13 @@ impl State {
         self.asks.insert(hash, Ask { row, options });
     }
 
-    /// The open ask a decision names, or none: one the bound settled already, or one this book
-    /// never saw asked, is counted.
-    fn take_ask(&mut self, hash: u64) -> Option<Ask> {
+    /// The open ask a decision names, or none. A person's or a secret's decision for one the
+    /// bound settled already, or one this book never saw asked, is counted (`counted`). An
+    /// automatic answer is not: the hub writes a policy's answer before its request, and that
+    /// request then opens no ask.
+    fn take_ask(&mut self, hash: u64, counted: bool) -> Option<Ask> {
         let ask = self.asks.remove(&hash);
-        if ask.is_none() {
+        if ask.is_none() && counted {
             self.unplaced_decisions = self.unplaced_decisions.saturating_add(1);
         }
         ask

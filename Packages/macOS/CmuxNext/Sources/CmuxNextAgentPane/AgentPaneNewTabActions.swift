@@ -123,6 +123,6 @@ extension AgentPaneOmnibar.Action {
     /// A Commands palette row as the bar lists it.
     public init(paletteEntry entry: PaletteCommandEntry) {
         self.init(id: entry.id.rawValue, title: entry.title, detail: entry.section, keywords: entry.keywords,
-                  keycaps: entry.keycaps.isEmpty ? nil : entry.keycaps)
+                  keycaps: entry.keycaps.isEmpty ? nil : entry.keycaps, symbol: entry.symbol)
     }
 }

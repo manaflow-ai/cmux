@@ -26,6 +26,11 @@ enum PaletteLayout {
     static var cornerRadius: CGFloat { Metrics.corners.nested(in: rowCornerRadius, inset: -listInset) }
     static var height: CGFloat { searchHeight + listHeight + footerHeight + 2 * Metrics.dividerThickness }
     static var horizontalPadding: CGFloat { Metrics.space5 }
+    /// Where everything at a row's or the field's right ends (a key, a kind label, the field's
+    /// "Search Workspaces ⇥" hint), from the panel's right edge: the rows' side inset plus the room an
+    /// icon box leaves around its glyph, so the right column mirrors the icons' ink on the left
+    /// (Lawrence 2026-11-15: "search workspaces looks bad", three right edges in one panel).
+    static var trailingInset: CGFloat { listInset + Metrics.space4 + (iconBox - Metrics.iconSize) / 2 }
 
     /// Transparent margin around the panel so the shadow and the open
     /// animation are never clipped by the window.
@@ -115,6 +120,14 @@ enum PaletteText {
         let unbounded = NSRect(x: 0, y: 0, width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
         let cell = ceil(field.cell?.cellSize(forBounds: unbounded).width ?? 0)
         return max(cell, ceil(field.attributedStringValue.size().width) + Metrics.space2)
+    }
+
+    /// How far a label's cell draws its text in from the frame's side: the frame of a right-aligned
+    /// label ends that far past the text's right end.
+    static func textInset(_ field: NSTextField) -> CGFloat {
+        let unbounded = NSRect(x: 0, y: 0, width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        let cell = field.cell?.cellSize(forBounds: unbounded).width ?? 0
+        return max(0, (cell - field.attributedStringValue.size().width) / 2)
     }
 
     /// Configured SF Symbol images, made once per name and size: rows are

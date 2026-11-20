@@ -643,7 +643,7 @@ fn remove_person_master(conn: &RustConnection, master: PersonMaster) -> Res<()> 
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     impl Injector {
@@ -965,13 +965,13 @@ mod tests {
 
     /// Xvfb on a display it picks itself (-displayfd), killed when the test ends, passed
     /// or failed.
-    struct Xvfb {
+    pub(crate) struct Xvfb {
         child: std::process::Child,
-        display: String,
+        pub(crate) display: String,
     }
 
     impl Xvfb {
-        fn start() -> Self {
+        pub(crate) fn start() -> Self {
             use std::io::BufRead;
             let mut child = std::process::Command::new("Xvfb")
                 .args([
@@ -995,7 +995,7 @@ mod tests {
             xvfb
         }
 
-        fn alive(&mut self) {
+        pub(crate) fn alive(&mut self) {
             assert!(self.child.try_wait().expect("Xvfb status").is_none(), "Xvfb exited");
         }
     }

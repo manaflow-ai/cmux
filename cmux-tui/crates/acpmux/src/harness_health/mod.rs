@@ -180,6 +180,7 @@ pub(crate) fn builtin_login(family: &str) -> Option<&'static str> {
         "opencode" => "opencode auth login",
         "unii" => "unii login",
         "hermes" => "hermes model",
+        "openclaw" => "openclaw onboard",
         _ => return None,
     })
 }
@@ -276,7 +277,7 @@ fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>
         // UniiChat (the bundled `uniichat-agent`): the token `unii login`
         // keeps for the server the harness env names (UNII_URL, UNII_HOME).
         "unii" => {
-            use crate::cli::uniichat_agent::{Endpoint, Options};
+            use crate::uniichat_endpoint::{Endpoint, Options};
             let env = |key: &str| s.env.get(key).filter(|v| !v.is_empty()).cloned();
             let endpoint = Endpoint::resolve(
                 &Options::default(),
@@ -395,7 +396,7 @@ pub fn keychain_sign_in(id: &str, profile: &crate::config::HarnessProfile) -> Op
 /// when it says the provider had no capacity or the connection dropped: a transport error is
 /// never a sign-in state (`turn_errors::says_unreachable`, as `recovery::auth_kind`).
 fn auth_failure(output: &str) -> Auth {
-    if crate::hub::turn_errors::says_unreachable(output) {
+    if crate::turn_errors::says_unreachable(output) {
         Auth::Unknown
     } else if crate::claude_auth::is_expired_credential(output) {
         Auth::Expired
@@ -505,6 +506,10 @@ impl HealthService {
                 {
                     row.update = None;
                 }
+                // A copy saved before this binary's version rules (a dev build's
+                // placeholder `0.0.0-next` read as older than a release) says
+                // outdated by this binary's comparison only.
+                row.outdated = matches!((&row.latest, &row.version), (Some(l), Some(v)) if probe::is_newer(l, v));
             }
             self.replace_rows(rows);
         }

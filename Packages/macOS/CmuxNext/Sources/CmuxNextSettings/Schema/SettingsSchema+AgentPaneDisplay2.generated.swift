@@ -32,7 +32,7 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.display.vscodeMinimap", "VS Code Minimap"),
-                help: SettingsText.keyed("settings.agentPane.display.vscodeMinimap.help", "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll."),
+                help: SettingsText.keyed("settings.agentPane.display.vscodeMinimap.help", "A small picture of the whole chat at its right edge. Click or drag it to scroll."),
                 kind: .toggle,
                 default: .bool(AgentPaneDisplaySettingsSchema.vscodeMinimapDefault),
                 keywords: ["agent", "chat", "acp", "display", "reading", "minimap", "vscode", "vs code", "code", "map", "overview", "scroll", "scrollbar", "right", "toggle"]
@@ -42,7 +42,7 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.display.pinnedPlan", "Pin Task List in Chat"),
-                help: SettingsText.keyed("settings.agentPane.display.pinnedPlan.help", "While the agent works, its task list stays under the latest message instead of in the bar over the composer."),
+                help: SettingsText.keyed("settings.agentPane.display.pinnedPlan.help", "Keeps the agent's task list under the latest message, not over the composer."),
                 kind: .toggle,
                 default: .bool(AgentPaneDisplaySettingsSchema.pinnedPlanDefault),
                 keywords: ["agent", "chat", "acp", "display", "reading", "plan", "task", "tasks", "todo", "checklist", "pin", "pinned", "list", "progress"]
@@ -52,7 +52,7 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.display.finishSound", "Play Sound When Work Finishes"),
-                help: SettingsText.keyed("settings.agentPane.display.finishSound.help", "A soft sound when a long turn in the chat you're looking at ends, its checks pass or its pull request merges. Follows the Mac's Play user interface sound effects setting."),
+                help: SettingsText.keyed("settings.agentPane.display.finishSound.help", "A soft sound when a long turn ends, its checks pass or its pull request merges."),
                 kind: .toggle,
                 default: .bool(AgentPaneDisplaySettingsSchema.finishSoundDefault),
                 keywords: ["agent", "chat", "sound", "sounds", "audio", "finish", "finished", "done", "merged", "checks", "turn", "notification"]
@@ -62,7 +62,7 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.display.trayTucked", "Tuck Away Running Tray"),
-                help: SettingsText.keyed("settings.agentPane.display.trayTucked.help", "Hides the bar of running work over the composer. Hover the top middle of the composer and click its chevron to bring it back."),
+                help: SettingsText.keyed("settings.agentPane.display.trayTucked.help", "Hides the running work bar. Hover the top of the composer to bring it back."),
                 kind: .toggle,
                 default: .bool(AgentPaneDisplaySettingsSchema.trayTuckedDefault),
                 keywords: ["agent", "chat", "acp", "display", "reading", "tray", "hat", "tuck", "hide", "collapse", "running", "background", "subagents", "commands", "bar", "composer", "toggle"]
@@ -72,7 +72,7 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.display.trayHandle", "Running Tray Handle"),
-                help: SettingsText.keyed("settings.agentPane.display.trayHandle.help", "Where the handle that tucks the running tray away and brings it back sits along the top of the composer."),
+                help: SettingsText.keyed("settings.agentPane.display.trayHandle.help", "Where the running tray's handle sits on top of the composer."),
                 kind: .choice([
                     SettingChoice("left", SettingsText.keyed("settings.choice.left", "Left")),
                     SettingChoice("middle", SettingsText.keyed("settings.choice.middle", "Middle")),
@@ -86,7 +86,7 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.display.unreadBanner", "Unread Banner"),
-                help: SettingsText.keyed("settings.agentPane.display.unreadBanner.help", "When you come back to a chat that kept working, a banner at the top left says how many turns are new and jumps to them. Collapsed, it is a small pill. Right-click the banner or the New line to hide it or bring it back."),
+                help: SettingsText.keyed("settings.agentPane.display.unreadBanner.help", "A banner for new turns when you come back to a chat. Right-click it to hide it."),
                 kind: .choice([
                     SettingChoice("expanded", SettingsText.keyed("settings.choice.expanded", "Expanded")),
                     SettingChoice("collapsed", SettingsText.keyed("settings.choice.collapsed", "Collapsed")),
@@ -100,7 +100,7 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.display.senderIcon.lead", "Sender Icon Emphasis"),
-                help: SettingsText.keyed("settings.agentPane.display.senderIcon.lead.help", "Which is big in a sender's icon: the model family's mark, or the session's own colored badge."),
+                help: SettingsText.keyed("settings.agentPane.display.senderIcon.lead.help", "Which is big in a sender's icon: the model's mark or the session badge."),
                 kind: .choice([
                     SettingChoice("family", SettingsText.keyed("settings.choice.senderIconFamily", "Model Family Big")),
                     SettingChoice("session", SettingsText.keyed("settings.choice.senderIconSession", "Session Badge Big")),
@@ -197,7 +197,7 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.display.codeFont", "Chat Code Font"),
-                help: SettingsText.keyed("settings.agentPane.display.codeFont.help", "The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font."),
+                help: SettingsText.keyed("settings.agentPane.display.codeFont.help", "Empty uses the Markdown viewer's code font."),
                 kind: .fontFamily,
                 default: nil,
                 keywords: ["agent", "chat", "acp", "display", "reading", "code", "font", "monospace", "family"]
@@ -217,7 +217,7 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.display.inspector", "Session Info"),
-                help: SettingsText.keyed("settings.agentPane.display.inspector.help", "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat."),
+                help: SettingsText.keyed("settings.agentPane.display.inspector.help", "Push narrows the chat; Overlay covers it."),
                 kind: .choice([
                     SettingChoice("push", SettingsText.keyed("settings.choice.agentChatInspectorPush", "Push")),
                     SettingChoice("overlay", SettingsText.keyed("settings.choice.agentChatInspectorOverlay", "Overlay")),
@@ -230,7 +230,7 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.display.environment", "Session Info Chip"),
-                help: SettingsText.keyed("settings.agentPane.display.environment.help", "Left puts it in a row below the tab row; Right keeps it in the header (or leads the tab-row tools); Off hides it."),
+                help: SettingsText.keyed("settings.agentPane.display.environment.help", "Where the chip sits: under the tabs (Left) or in the header (Right)."),
                 kind: .choice([
                     SettingChoice("left", SettingsText.keyed("settings.choice.left", "Left")),
                     SettingChoice("right", SettingsText.keyed("settings.choice.right", "Right")),
@@ -244,7 +244,7 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.display.minimap", "Chat Minimap"),
-                help: SettingsText.keyed("settings.agentPane.display.minimap.help", "What runs down the chat's edge: the rail, one tick per prompt; the full map, every message at its place with a box for what is on screen; or nothing."),
+                help: SettingsText.keyed("settings.agentPane.display.minimap.help", "What runs down the chat's edge."),
                 kind: .choice([
                     SettingChoice("compact", SettingsText.keyed("settings.choice.agentChatMinimapRail", "Rail")),
                     SettingChoice("full", SettingsText.keyed("settings.choice.agentChatMinimapFull", "Full Map")),
@@ -258,7 +258,7 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.display.transcriptView", "Transcript View"),
-                help: SettingsText.keyed("settings.agentPane.display.transcriptView.help", "How much of each turn a chat shows. Normal folds thinking and tool output; Thinking opens thinking; Verbose also opens tool output. A chat's ··· menu changes its own view."),
+                help: SettingsText.keyed("settings.agentPane.display.transcriptView.help", "How much of each turn a chat shows. A chat's ··· menu sets its own."),
                 kind: .choice([
                     SettingChoice("normal", SettingsText.keyed("settings.choice.transcriptViewNormal", "Normal")),
                     SettingChoice("thinking", SettingsText.keyed("settings.choice.transcriptViewThinking", "Thinking")),
@@ -284,7 +284,7 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.display.promptCoach", "Prompt Coach"),
-                help: SettingsText.keyed("settings.agentPane.display.promptCoach.help", "After a chat that took several corrections, shows how its first prompt could have said it all at once."),
+                help: SettingsText.keyed("settings.agentPane.display.promptCoach.help", "After a chat with many corrections, shows a better first prompt."),
                 kind: .toggle,
                 default: .bool(AgentPaneDisplaySettingsSchema.promptCoachDefault),
                 keywords: ["agent", "chat", "acp", "prompt", "coach", "rewrite", "corrections", "tips", "one shot", "first prompt", "copy"]
@@ -332,7 +332,7 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.display.rail.side", "Prompt Rail Side"),
-                help: SettingsText.keyed("settings.agentPane.display.rail.side.help", "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it."),
+                help: SettingsText.keyed("settings.agentPane.display.rail.side.help", "Right-click the rail to move it."),
                 kind: .choice([
                     SettingChoice("left", SettingsText.keyed("settings.choice.left", "Left")),
                     SettingChoice("right", SettingsText.keyed("settings.choice.right", "Right")),
@@ -345,7 +345,7 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.display.commandLabels", "Command Labels"),
-                help: SettingsText.keyed("settings.agentPane.display.commandLabels.help", "How the chat names background commands: preset names such as cmux-fleet, and rules with a program or pattern and a label."),
+                help: SettingsText.keyed("settings.agentPane.display.commandLabels.help", "The names the chat shows for background commands."),
                 kind: .text,
                 default: .array(AgentPaneDisplaySettingsSchema.commandLabelsDefault.map { .string($0) }),
                 keywords: ["agent", "chat", "acp", "display", "reading", "command", "label", "rule", "preset", "background", "tray", "shell"]

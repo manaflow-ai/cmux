@@ -92,5 +92,24 @@ class ShadowJobTests(unittest.TestCase):
                 self.assertRegex(block, r"GHOSTTY_ZIG_SOURCE: ghostty-next\n(?:.*\n){0,4}.*ghostty-zig-version\.sh")
 
 
+class CargoGroupBinsTests(unittest.TestCase):
+    """Each cargo-groups.sh group names the binaries its command builds.
+
+    cargo-groups.sh copies only the named binaries out of the group's own target directory: a group
+    named "acpmux" whose command built `--bin acpmux-standalone` failed cold ("no binary acpmux")
+    and, warm, copied a stale acpmux (review of cmux #43832).
+    """
+
+    def test_macos_cross_all_groups_name_their_bins(self) -> None:
+        text = (ROOT / "scripts/ci/macos-cross.sh").read_text(encoding="utf-8")
+        lines = re.findall(r'^\s+"[^"]+" "cd \$\(q [^\n]*$', text, re.M)
+        self.assertGreaterEqual(len(lines), 8, "the cmd_all group list moved: update this parser")
+        for line in lines:
+            names = set(re.match(r'\s+"([^"]+)"', line).group(1).split())
+            bins = set(re.findall(r"--bin ([\w-]+)", line))
+            with self.subTest(group=" ".join(sorted(names))):
+                self.assertTrue(bins <= names, f"builds {sorted(bins - names)} but does not name them")
+
+
 if __name__ == "__main__":
     unittest.main()

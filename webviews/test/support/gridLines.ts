@@ -168,7 +168,11 @@ export function measureGridLines(scene: GridScene): GridResult[] {
     const length = (expression: string) => {
       const names = expression.match(/--(?:grid|cmux-menu)-[\w-]+/g) ?? [];
       if (!names.length) throw new Error(`expected expression must use grid/menu tokens: ${expression}`);
-      for (const name of names)
+      // Each custom property that the expression reads with no fallback must resolve, not only the
+      // grid/menu tokens. One that does not makes the probe's width invalid (0 px wide) and can make
+      // the measured property invalid in the same way: 0 would equal 0 and a wrong line would pass.
+      const bare = [...expression.matchAll(/var\(\s*(--[\w-]+)\s*\)/g)].map((match) => match[1]!);
+      for (const name of [...names, ...bare])
         if (!getComputedStyle(root).getPropertyValue(name).trim()) throw new Error(`missing token ${name}`);
       const probe = document.createElement("span");
       probe.style.cssText =

@@ -30,9 +30,10 @@ pub(in crate::cli::cloud_start_chat) fn past_deadline() -> Value {
     json!({"code": "carrier_fault.timeout", "message": PAST_DEADLINE_SAID})
 }
 
+/// The error object itself on stderr (not under `{"ok": false, "error": ...}`), as `step_result` reads a step's
+/// error: its own code reaches the answer, never `step.failed` with the JSON as its message.
 fn ran_past_deadline() -> Ran {
-    let error = json!({"ok": false, "error": past_deadline()});
-    Ran { code: PAST_DEADLINE, stdout: String::new(), stderr: error.to_string() }
+    Ran { code: PAST_DEADLINE, stdout: String::new(), stderr: past_deadline().to_string() }
 }
 
 /// The process groups of the bounded steps still running (each step's leader is unreaped while its id is here, so
@@ -70,6 +71,7 @@ pub(in crate::cli::cloud_start_chat) fn output_by(
     if Instant::now() >= until {
         return ran_past_deadline();
     }
+    keep_children();
     command
         .stdin(cmux_process::Stdio::null())
         .stdout(cmux_process::Stdio::piped())
@@ -121,19 +123,39 @@ pub(in crate::cli::cloud_start_chat) fn output_by(
     end_group(&mut child);
     // After the kill the leader is gone or going: this reap returns at once.
     let status = child.wait().ok().filter(|_| exited);
+    let ended = pipes.iter().all(|pipe| pipe.ended);
+    let mut text = pipes.into_iter().map(|pipe| String::from_utf8_lossy(&pipe.read).into_owned());
+    let (stdout, stderr) = (text.next().unwrap_or_default(), text.next().unwrap_or_default());
     match status {
         // A pipe still held at `until` (a process that left the group) is not waited for.
-        Some(status) if pipes.iter().all(|pipe| pipe.ended) => {
-            let mut text =
-                pipes.into_iter().map(|pipe| String::from_utf8_lossy(&pipe.read).into_owned());
-            Ran {
-                code: status.code().unwrap_or(1),
-                stdout: text.next().unwrap_or_default(),
-                stderr: text.next().unwrap_or_default(),
-            }
+        Some(status) if ended => Ran { code: status.code().unwrap_or(1), stdout, stderr },
+        // Only a deadline that came is a timeout. A step whose exit could not be read before it (another reaper
+        // took it) is that step's own failure, with what it printed: never "--timeout ran out" with time left.
+        _ if Instant::now() < until => {
+            let error = json!({
+                "code": UNWAITED,
+                "message": format!("the step ended but its exit could not be read: {stderr}"),
+            });
+            Ran { code: 1, stdout, stderr: error.to_string() }
         }
         _ => ran_past_deadline(),
     }
+}
+
+/// What a bounded step answers whose exit could not be read with its deadline still ahead.
+const UNWAITED: &str = "step.unwaited";
+
+/// Makes this process keep its children's exit until it reads it, once, before its first bounded step. A process
+/// started with `SIGCHLD` ignored (inherited across exec from whatever ran the drill) has the system reap every
+/// child at its exit: a step's exit can then never be read, and its group id is no longer proven its own.
+/// `carrier tunnel` takes the default back the same way (`carrier::tunnel::reap_own_children`).
+fn keep_children() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        if !cmux_tui_platform::ended_children::keep_their_ids() {
+            let _ = crate::carrier::tunnel::reap_own_children();
+        }
+    });
 }
 
 /// How long one wait on a step's pipes lasts before the step's exit is checked again.
@@ -292,6 +314,71 @@ mod tests {
         let read = read_by(&reader, began + Duration::from_secs(5));
         assert_eq!(read, Ok("count".to_owned()));
         drop(writer);
+    }
+
+    /// A bounded step that answers at once answers its own output and exit, on every Unix the drill runs on (the
+    /// production drill runs on macOS): never `--timeout ran out` with the deadline far off.
+    #[cfg(unix)]
+    #[test]
+    fn a_bounded_step_that_answers_at_once_answers_its_output() {
+        // Many short steps in a row: the window between a step's pipes ending (its exit event) and its zombie
+        // (macOS posts `NOTE_EXIT` first) is short, so one step alone may miss it.
+        let began = Instant::now();
+        for round in 0..100 {
+            let mut command = cmux_process::Command::new("sh");
+            command.arg("-c").arg("echo hi; echo there >&2; exit 3");
+            let ran = output_by(command, began + Duration::from_secs(60));
+            assert_eq!(
+                (ran.code, ran.stdout.as_str(), ran.stderr.as_str()),
+                (3, "hi\n", "there\n"),
+                "step {round}, after {:?}",
+                began.elapsed()
+            );
+        }
+        assert!(began.elapsed() < Duration::from_secs(30), "{:?}", began.elapsed());
+    }
+
+    /// The marker a re-run of this test binary reads to be the child that ignores `SIGCHLD`.
+    #[cfg(unix)]
+    const IGNORED_SIGCHLD_CHILD: &str = "CMUX_TEST_BOUNDED_IGNORED_SIGCHLD_CHILD";
+
+    /// A drill started with `SIGCHLD` ignored (inherited across exec from whatever ran it) still answers a bounded
+    /// step's own output: the system then reaps the step behind the runner's back, and a wait that cannot see its
+    /// exit is not a deadline. Run in a child process of its own (this test binary again), so the ignored `SIGCHLD`
+    /// touches no other test.
+    #[cfg(unix)]
+    #[test]
+    fn a_bounded_step_under_an_ignored_sigchld_answers_its_output() {
+        if std::env::var_os(IGNORED_SIGCHLD_CHILD).is_some() {
+            // SAFETY: `signal` with SIG_IGN installs no handler code; this process is this one test.
+            unsafe {
+                libc::signal(libc::SIGCHLD, libc::SIG_IGN);
+            }
+            let mut command = cmux_process::Command::new("sh");
+            command.arg("-c").arg("echo hi; exit 3");
+            let began = Instant::now();
+            let ran = output_by(command, began + Duration::from_secs(30));
+            assert_eq!((ran.code, ran.stdout.as_str()), (3, "hi\n"), "{}", ran.stderr);
+            assert!(began.elapsed() < Duration::from_secs(10), "{:?}", began.elapsed());
+            return;
+        }
+        let output = cmux_process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "cli::cloud_start_chat::internal::bounded::tests::a_bounded_step_under_an_ignored_sigchld_answers_its_output",
+                "--nocapture",
+            ])
+            .env(IGNORED_SIGCHLD_CHILD, "1")
+            .output()
+            .unwrap();
+        let said = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success(),
+            "the child with SIGCHLD ignored failed: {}: {said}",
+            output.status
+        );
+        // A name that matched no test would pass with 0 run.
+        assert!(said.contains("1 passed"), "the child ran no test: {said}");
     }
 
     /// Under a second left after the kill grace and the dispatch margin, no remote script is sent; otherwise the

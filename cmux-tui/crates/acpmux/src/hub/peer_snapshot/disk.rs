@@ -19,11 +19,11 @@ pub(super) type Key = (String, String);
 pub(super) type Writer = fn(&Path, &[u8]) -> Result<()>;
 
 /// An id longer than this is not kept: its hex name must fit a file name (255 bytes) with the
-/// temporary suffix `config::write_atomic` gives it, `.tmp-<u32 pid>-<u64 counter>` (36 bytes).
+/// temporary suffix `config::write_atomic` gives it, `.tmp-<u32 pid>` (15 bytes).
 const ID_BYTES: usize = 100;
 /// The longest temporary suffix `config::write_atomic` puts in place of `.json`.
 #[cfg(test)]
-const TMP_SUFFIX_BYTES: usize = ".tmp-".len() + 10 + "-".len() + 20;
+const TMP_SUFFIX_BYTES: usize = ".tmp-".len() + 10;
 const EXT: &str = "json";
 
 #[derive(Default, Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]

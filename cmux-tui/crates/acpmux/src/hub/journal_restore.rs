@@ -547,6 +547,11 @@ impl Hub {
             session.seq.store(last, Ordering::SeqCst);
             (at, failed, flushed.err())
         };
+        // The records put back dated the chat and moved its counts with no record of the hub's
+        // own: told before the next list read, so the kept list order places it again
+        // (`list_order.rs`) and the usage pass finds it among the chats of the last day
+        // (`usage_view.rs`).
+        self.events.row_changed(session);
         // Its counts and end are on disk before it answers, or it stops short (review of #37284
         // at a088585e: a failed save was logged, and the restore answered done).
         if !self.at_a088()

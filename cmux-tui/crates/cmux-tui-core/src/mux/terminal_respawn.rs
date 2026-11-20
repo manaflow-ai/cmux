@@ -545,16 +545,16 @@ impl Mux {
             }
             Err(error) => {
                 eprintln!("cmux-tui: terminal {terminal_id} was not respawned: {error:#}");
-                let lost = TerminalEnd::host_lost(format!(
-                    "{}: {error:#}",
-                    crate::terminal_end::RESPAWN_FAILED_DETAIL
-                ));
                 // No free PTY (a respawn of every terminal after a reboot or a
                 // kill of everything, more than `kern.tty.ptmx_max`): park the
                 // tabs, recorded before the end commit, as PTY reclaim parks
                 // idle shells, so the app starts each one when its workspace
-                // is shown instead of leaving it dead.
+                // is shown instead of leaving it dead. The end names that
+                // cause, so a client can say what the person can do.
                 let no_pty = pty_reclaim::is_pty_exhaustion(&error);
+                let lost = TerminalEnd::host_lost(crate::terminal_end::respawn_failed_detail(
+                    &error, no_pty,
+                ));
                 if no_pty {
                     self.note_pty_exhausted();
                     if !user_restart {

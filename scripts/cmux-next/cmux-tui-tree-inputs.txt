@@ -18,6 +18,7 @@ blob scripts/ci/acpmux-build-features.sh
 blob scripts/ci/tailnet-go.sh
 blob scripts/cmux-next/build-acpmux.sh
 blob scripts/ci/cargo-groups.sh
+blob scripts/ci/cmux-tui-mac-cargo-builds.sh
 blob scripts/ci/cmux-tui-darwin-builder
 blob scripts/ci/macos-cross.sh
 blob scripts/ci/macos_stubs.py
@@ -82,6 +83,8 @@ blob schemas/automation-lease/vectors.json
 blob schemas/deeplinks/agent-link.json
 blob schemas/chief-home/vectors.json
 blob schemas/ghostty-shell-features/vectors.json
+blob schemas/build-identity/vectors.json
+blob scripts/measure/screen-stream-eval/wifi-away-holds.json
 blob schemas/link-token/keyset-vectors.json
 blob schemas/link-token/native.json
 blob schemas/link-token/vectors.json
@@ -96,14 +99,17 @@ blob schemas/terminal-sizing/fixtures.json
 blob schemas/settings/retired-keys.json
 blob schemas/settings/source/agent-cache.json
 blob schemas/settings/source/agent-retry.json
+blob schemas/settings/source/mcp-servers.json
 blob schemas/settings/source/subsessions.json
 blob schemas/settings/source/trust.json
 blob schemas/settings/settings-schema.json
 blob schemas/settings/source/subsessions.json
 blob scripts/cmux-next/cmux-tui.pin
-# acpmux's v2 gate registry tests read the nightly's gate script: a marked row
-# needs a line in it.
+# acpmux's v2 gate registry tests read the nightly's gate script and its lines: a
+# marked row needs a line in them. A home test runs the script through its stand-in test.
 blob scripts/cmux-next/run-v2-gates.sh
+blob scripts/cmux-next/tests/run-v2-gates.test.sh
+tree scripts/cmux-next/v2-gates.d
 blob skills/cmux-acpmux/SKILL.md
 blob skills/cmux-browser/SKILL.md
 blob skills/cmux-browser/references/authentication.md
@@ -116,10 +122,22 @@ blob skills/cmux-browser/references/video-recording.md
 blob skills/cmux-browser/templates/authenticated-session.sh
 blob skills/cmux-browser/templates/capture-workflow.sh
 blob skills/cmux-browser/templates/form-automation.sh
-blob skills/cmux-cua/SKILL.md
+blob skills/cmux-computer-use/SKILL.md
 blob skills/cmux-live/SKILL.md
 blob skills/cmux-customization/SKILL.md
 blob skills/cmux-customization/references/examples.md
 blob skills/cmux-customization/references/local-app-views.md
 blob skills/cmux-customization/references/viewer-types.md
 blob skills/cmux/SKILL.md
+# cmux-customize-recipes embeds the recipes guide and the widget templates it installs.
+blob docs/cmux-next/customize-recipes.md
+blob skills/cmux-customization/templates/clock-weather/cmux-app.json
+blob skills/cmux-customization/templates/clock-weather/main.js
+blob skills/cmux-customization/templates/my-prs/cmux-app.json
+blob skills/cmux-customization/templates/my-prs/main.js
+blob schemas/build-identity/vectors.json
+blob webviews/src/agent-session/acpmux/rows/parity/seed-turn.changes.jsonl
+blob webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl
+blob webviews/src/agent-session/acpmux/rows/parity/r1-reply-2.changes.jsonl
+blob webviews/src/agent-session/acpmux/rows/parity/parity.changes.jsonl
+blob scripts/measure/screen-stream-eval/wifi-away-holds.json

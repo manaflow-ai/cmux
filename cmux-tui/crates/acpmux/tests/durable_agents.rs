@@ -17,6 +17,9 @@ mod bg_replaced_binary;
 mod caller_identity_restart;
 #[path = "durable_agents/carried_restart.rs"]
 mod carried_restart;
+#[cfg(target_os = "linux")]
+#[path = "durable_agents/credential_restart.rs"]
+mod credential_restart;
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 #[path = "durable_agents/grant_cleared.rs"]
@@ -25,6 +28,8 @@ mod grant_cleared;
 mod host_crash;
 #[path = "durable_agents/idle_adopted.rs"]
 mod idle_adopted;
+#[path = "durable_agents/idle_subsessions_restart.rs"]
+mod idle_subsessions_restart;
 #[path = "durable_agents/late_hello_adoption.rs"]
 mod late_hello_adoption;
 #[path = "durable_agents/lost_link_turn.rs"]
@@ -51,6 +56,8 @@ mod stop_if_idle_unadopted;
 mod streaming_restart_gap;
 #[path = "durable_agents/transfer_authority.rs"]
 mod transfer_authority;
+#[path = "durable_agents/translator_panic.rs"]
+mod translator_panic;
 #[path = "durable_agents/unread_store.rs"]
 mod unread_store;
 #[path = "durable_agents/update_tool_call.rs"]
@@ -65,6 +72,9 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_REATTACH_SCAN_DELAY_MS",
     "ACPMUX_REATTACH_BUDGET_MS",
     "ACPMUX_REATTACH_OPEN_BUDGET_MS",
+    "ACPMUX_IDLE_SUBS",
+    "ACPMUX_IDLE_SUBS_WINDOW_S",
+    "ACPMUX_IDLE_SUBS_OUT",
 ]);
 
 use serde_json::{Value, json};

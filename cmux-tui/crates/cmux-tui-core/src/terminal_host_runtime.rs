@@ -537,6 +537,7 @@ mod unix {
     pub(crate) use host_start::HostChild;
     pub(crate) use pty_custody::serve as serve_pty_custody;
     pub use pty_custody::{PtyCustody, request_terminal_host_pty_custody};
+    pub use pty_lock::PtyFenceWait;
     pub(crate) use pty_lock::{remove_released, sweep_released_pty_locks};
     pub(crate) use standby::StandbyTerminalHost;
 
@@ -692,6 +693,11 @@ pub use shared::records::{
 };
 #[cfg(any(unix, windows))]
 pub use shared::unadoptable::*;
+// `sys::barrier_sync`, for a file of the crate outside this module that is
+// written before a rename. The name is a new one: the files of this module
+// name the function `sys::barrier_sync`, and they see each name of this file.
+#[cfg(unix)]
+pub(crate) use sys::barrier_sync as sync_before_rename;
 #[cfg(windows)]
 pub(crate) use sys::{HostProcessStartFailed, kill_process_group};
 #[cfg(any(unix, windows))]
@@ -711,7 +717,7 @@ pub(crate) use unix::{input_ack_surface_fixture, record_fixture};
 pub(crate) use unix::host_owner_args;
 #[cfg(unix)]
 pub use unix::{
-    PtyCustody, TerminalHostAdoption, enter_terminal_host_process,
+    PtyCustody, PtyFenceWait, TerminalHostAdoption, enter_terminal_host_process,
     isolate_terminal_host_process_fds, launch_terminal_host_adopting,
     request_terminal_host_pty_custody, terminal_host_root,
 };

@@ -168,6 +168,7 @@ mod tests {
             source: super::super::mirror::Source::Local,
             dir: std::path::PathBuf::new(),
             manifest: json!({ "activation": activation }),
+            fragment: None,
         }
     }
 

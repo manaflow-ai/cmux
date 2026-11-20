@@ -20,6 +20,7 @@ import { chromium, webkit, type Browser, type Page } from "playwright";
 import { PNG } from "pngjs";
 import { papercutPane } from "./support/papercutChat";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("composer-persistent-scrollbar.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -52,7 +53,7 @@ await requireBrowserLane("composer-persistent-scrollbar.test.ts", async () => {
   });
 
   const FIELD = ".acpmux-composer-prompt";
-  const EDITABLE = ".acpmux-composer-prompt [contenteditable='true']";
+  const EDITABLE = COMPOSER_EDITOR;
   /// The thin scroller's widest lane; WebKit's and Chromium's classic bars are 15 px.
   const THIN = 10;
 

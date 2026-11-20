@@ -12,6 +12,7 @@ import { Composer } from "../Composer";
 import type { AcpmuxRow } from "../model";
 import { turnView } from "../conversation/turns";
 import { fieldGrowthMotion } from "./fieldGrowth.experiment";
+import { COMPOSER_MD } from "../composerSelectors";
 
 const paragraph = (index: number) =>
   `Answer ${index + 1}: the client waits longer before each retry, capped at eight seconds, and stops after five attempts.`;
@@ -57,7 +58,7 @@ const WRAP =
   "the client waits a little longer before each retry and adds random jitter so a crowd of clients does not retry in step";
 const PASTE = Array.from({ length: 40 }, (_, index) => `Line ${index + 1} of the pasted notes`).join("\n");
 
-const field = (ctx: Parameters<Play>[0]) => ctx.find({ selector: ".acpmux-composer-box .acpmux-md" }) as HTMLElement;
+const field = (ctx: Parameters<Play>[0]) => ctx.find({ selector: COMPOSER_MD }) as HTMLElement;
 const card = (ctx: Parameters<Play>[0]) =>
   (ctx.find({ selector: ".acpmux-composer-box" }) as HTMLElement).getBoundingClientRect().height;
 const settled = (ctx: Parameters<Play>[0]) =>
@@ -70,7 +71,7 @@ const settled = (ctx: Parameters<Play>[0]) =>
 
 /// Types onto a second line, then a third with Shift-Return, and deletes it again.
 const typeWrap: Play = async (ctx) => {
-  await ctx.focus({ selector: ".acpmux-composer-box .acpmux-md" });
+  await ctx.focus({ selector: COMPOSER_MD });
   const before = card(ctx);
   await ctx.type(WRAP);
   await ctx.press("Shift+Enter");
@@ -83,7 +84,7 @@ const typeWrap: Play = async (ctx) => {
 
 /// Pastes forty lines at once, as a dictation pasted from another app does.
 const pasteLines: Play = async (ctx) => {
-  await ctx.focus({ selector: ".acpmux-composer-box .acpmux-md" });
+  await ctx.focus({ selector: COMPOSER_MD });
   const data = new DataTransfer();
   data.setData("text/plain", PASTE);
   field(ctx).dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));

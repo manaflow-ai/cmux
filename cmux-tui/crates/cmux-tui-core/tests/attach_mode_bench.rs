@@ -22,6 +22,12 @@
 //!   Neither includes drawing, which both modes do;
 //! - the attach's first message (`vt-state` or `render-state`) in KB.
 //!
+//! A third connection attaches in bytes mode after declaring
+//! `attach-output-coalesce-v1` (mode `bytes-coalesced`): `output` at most
+//! once per 60 Hz frame, the first bytes after idle at once. The
+//! `keypress-echo` workload also reports key-to-echo latency for both bytes
+//! attaches.
+//!
 //! Workloads (`CMUX_ATTACH_BENCH_WORKLOADS=a,b` picks some): an idle shell
 //! for 60 s, `yes`, a build log at 200 lines a second, a full-screen TUI that
 //! repaints every row 30 times a second, the same TUI drawing only its changed
@@ -85,17 +91,40 @@ struct Reader {
 
 impl Reader {
     /// Connect to the daemon and attach `surface` in `mode`; a thread reads
-    /// every line from then on.
-    fn attach(sock: &std::path::Path, surface: u64, mode: &str) -> Self {
+    /// every line from then on. `coalesce` declares
+    /// `attach-output-coalesce-v1` first (the phone's opt-in).
+    fn attach(sock: &std::path::Path, surface: u64, mode: &str, coalesce: bool) -> Self {
+        let capabilities: &[&str] = if coalesce { &["attach-output-coalesce-v1"] } else { &[] };
+        Self::attach_with(sock, surface, mode, capabilities, json!({}))
+    }
+
+    /// `attach`, declaring `capabilities` first (when any) and adding the
+    /// `extra` fields to `attach-surface`.
+    fn attach_with(
+        sock: &std::path::Path,
+        surface: u64,
+        mode: &str,
+        capabilities: &[&str],
+        extra: Value,
+    ) -> Self {
         let stream = transport::connect(sock).unwrap();
         stream.set_read_timeout(Some(Duration::from_millis(50))).unwrap();
         let mut writer = stream.try_clone_box().unwrap();
-        writeln!(
-            writer,
-            "{}",
-            json!({"id": 1, "cmd": "attach-surface", "surface": surface, "mode": mode})
-        )
-        .unwrap();
+        if !capabilities.is_empty() {
+            writeln!(
+                writer,
+                "{}",
+                json!({"id": 0, "cmd": "set-client-info", "name": "attach bench",
+                       "capabilities": capabilities})
+            )
+            .unwrap();
+        }
+        let mut request =
+            json!({"id": 1, "cmd": "attach-surface", "surface": surface, "mode": mode});
+        for (key, value) in extra.as_object().into_iter().flatten() {
+            request[key] = value.clone();
+        }
+        writeln!(writer, "{request}").unwrap();
         let received = Arc::new(Mutex::new(Received::default()));
         let stop = Arc::new(AtomicBool::new(false));
         let handle = {
@@ -173,10 +202,26 @@ fn record(got: &mut Received, now: Instant, line: String) {
     }
     if !got.attached && event.is_empty() {
         let value: Value = serde_json::from_str(&line).unwrap_or(Value::Null);
-        if value.get("id").is_some() {
-            assert_eq!(value["ok"], true, "attach-surface failed: {line}");
-            got.attached = true;
-            return;
+        match value.get("id").and_then(Value::as_u64) {
+            // The `set-client-info` reply of a coalescing attach.
+            Some(0) => {
+                assert_eq!(
+                    value.get("ok"),
+                    Some(&Value::Bool(true)),
+                    "set-client-info failed: {line}"
+                );
+                return;
+            }
+            Some(_) => {
+                assert_eq!(
+                    value.get("ok"),
+                    Some(&Value::Bool(true)),
+                    "attach-surface failed: {line}"
+                );
+                got.attached = true;
+                return;
+            }
+            None => {}
         }
     }
     got.lines.push((now, line.len() + 1));
@@ -257,7 +302,60 @@ fn workloads() -> Vec<Workload> {
             seconds: None,
             drive: Drive::Writer(drive_slow_shell),
         },
+        Workload {
+            name: "keypress-echo",
+            what: "an interactive sh at its prompt, one key typed every 250 ms (echo latency)",
+            script: "PS1='$ '; export PS1; exec /bin/sh -i",
+            ready: Some("$"),
+            seconds: None,
+            drive: Drive::Writer(drive_keypresses),
+        },
     ]
+}
+
+/// When each key of `keypress-echo` was written.
+static KEYPRESSES: Mutex<Vec<Instant>> = Mutex::new(Vec::new());
+
+fn drive_keypresses(surface: &Surface, start: Instant, length: Duration) {
+    let period = Duration::from_millis(250);
+    let mut n: u64 = 0;
+    KEYPRESSES.lock().unwrap().clear();
+    while start.elapsed() < length {
+        KEYPRESSES.lock().unwrap().push(Instant::now());
+        surface.write_bytes(b"x").unwrap();
+        n += 1;
+        tick(start, n, period);
+    }
+}
+
+/// Key to the first `output` after it, per key: (p50, p95, max) ms and the
+/// keys whose echo did not arrive before the next key.
+fn echo_latency(got: &Received, keys: &[Instant]) -> (f64, f64, f64, usize) {
+    let mut latencies: Vec<f64> = Vec::new();
+    let mut missed = 0;
+    for (index, key) in keys.iter().enumerate() {
+        let next = keys.get(index + 1).copied();
+        let echo = got
+            .lines
+            .iter()
+            .zip(&got.names)
+            .find(|((at, _), name)| *at >= *key && name.as_str() == "output")
+            .map(|((at, _), _)| *at)
+            .filter(|at| next.is_none_or(|next| *at < next));
+        match echo {
+            Some(at) => latencies.push(at.duration_since(*key).as_secs_f64() * 1000.0),
+            None => missed += 1,
+        }
+    }
+    latencies.sort_by(f64::total_cmp);
+    let at = |q: f64| {
+        if latencies.is_empty() {
+            return 0.0;
+        }
+        let index = ((latencies.len() - 1) as f64 * q).round() as usize;
+        latencies[index.min(latencies.len() - 1)]
+    };
+    (at(0.5), at(0.95), latencies.last().copied().unwrap_or(0.0), missed)
 }
 
 /// Sleep until `start + n * period`.
@@ -442,7 +540,12 @@ fn deflate_ratio(got: &Received, from: Instant, to: Instant) -> f64 {
 }
 
 fn decode(value: &Value) -> Vec<u8> {
-    let data = value.get("data").and_then(Value::as_str).unwrap_or_default();
+    // `vt-state` and `output` carry `data`; a `resized` replay is `replay`.
+    let data = value
+        .get("data")
+        .or_else(|| value.get("replay"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     base64::engine::general_purpose::STANDARD.decode(data).unwrap()
 }
 
@@ -539,8 +642,11 @@ fn measure(
     to: Instant,
 ) -> Row {
     let (wire_bytes, events, by_event) = window(got, from, to);
-    let (sample_ms, sample_payload) =
-        if mode == "bytes" { apply_bytes(got, from, to) } else { apply_render(got, from, to) };
+    let (sample_ms, sample_payload) = if mode.starts_with("bytes") {
+        apply_bytes(got, from, to)
+    } else {
+        apply_render(got, from, to)
+    };
     let sampled: usize = in_window(got, from, to).map(|(_, line)| line.len() + 1).sum();
     // A flood past SAMPLE_CAP: scale the kept part's cost to every line.
     let scale = if sampled == 0 { 1.0 } else { wire_bytes as f64 / sampled as f64 };
@@ -558,7 +664,17 @@ fn measure(
     }
 }
 
-fn run_workload(workload: &Workload, default_seconds: u64) -> Vec<Row> {
+/// Echo latency of one bytes attach on `keypress-echo`.
+struct Echo {
+    mode: &'static str,
+    keys: usize,
+    p50_ms: f64,
+    p95_ms: f64,
+    max_ms: f64,
+    missed: usize,
+}
+
+fn run_workload(workload: &Workload, default_seconds: u64) -> (Vec<Row>, Vec<Echo>) {
     let seconds = workload.seconds.unwrap_or(default_seconds);
     let opts = SurfaceOptions {
         command: Some(vec!["/bin/sh".to_string(), "-c".to_string(), workload.script.to_string()]),
@@ -580,10 +696,15 @@ fn run_workload(workload: &Workload, default_seconds: u64) -> Vec<Row> {
         .unwrap_or_else(|| panic!("{}: no {ready:?} on the screen", workload.name));
     }
     let sock = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
-    let bytes = Reader::attach(&sock, surface.id, "bytes");
-    let render = Reader::attach(&sock, surface.id, "render");
-    wait_for(|| (bytes.attached() && render.attached()).then_some(()), Duration::from_secs(10))
-        .unwrap_or_else(|| panic!("{}: an attach got no state and response", workload.name));
+    let bytes = Reader::attach(&sock, surface.id, "bytes", false);
+    // The same bytes attach with `attach-output-coalesce-v1` (default interval).
+    let coalesced = Reader::attach(&sock, surface.id, "bytes", true);
+    let render = Reader::attach(&sock, surface.id, "render", false);
+    wait_for(
+        || (bytes.attached() && coalesced.attached() && render.attached()).then_some(()),
+        Duration::from_secs(10),
+    )
+    .unwrap_or_else(|| panic!("{}: an attach got no state and response", workload.name));
     // Let the attach settle, then measure exactly `seconds`.
     std::thread::sleep(Duration::from_millis(500));
     let from = Instant::now();
@@ -598,13 +719,39 @@ fn run_workload(workload: &Workload, default_seconds: u64) -> Vec<Row> {
     // Lines of the window still in flight.
     std::thread::sleep(Duration::from_millis(300));
     let bytes = bytes.finish();
+    let coalesced = coalesced.finish();
     let render = render.finish();
     let _ = mux.close_surface(surface.id);
     cmux_tui_core::server::cleanup(&sock);
-    vec![
+    let mut echoes = Vec::new();
+    if workload.name == "keypress-echo" {
+        let keys = KEYPRESSES.lock().unwrap().clone();
+        for (mode, got) in [("bytes", &bytes), ("bytes-coalesced", &coalesced)] {
+            let (p50_ms, p95_ms, max_ms, missed) = echo_latency(got, &keys);
+            echoes.push(Echo { mode, keys: keys.len(), p50_ms, p95_ms, max_ms, missed });
+        }
+    }
+    let rows = vec![
         measure(workload.name, "bytes", &bytes, from, to),
+        measure(workload.name, "bytes-coalesced", &coalesced, from, to),
         measure(workload.name, "render", &render, from, to),
-    ]
+    ];
+    (rows, echoes)
+}
+
+fn echo_table(echoes: &[Echo]) -> String {
+    let mut out = String::from(
+        "\nKeypress to echo (`keypress-echo`: first `output` after each key, as read)\n\n",
+    );
+    out.push_str("| Mode | Keys | p50 ms | p95 ms | max ms | No echo before next key |\n");
+    out.push_str("| --- | --- | --- | --- | --- | --- |\n");
+    for echo in echoes {
+        out.push_str(&format!(
+            "| {} | {} | {:.2} | {:.2} | {:.2} | {} |\n",
+            echo.mode, echo.keys, echo.p50_ms, echo.p95_ms, echo.max_ms, echo.missed
+        ));
+    }
+    out
 }
 
 fn table(rows: &[Row], workloads: &[Workload]) -> String {
@@ -659,11 +806,17 @@ fn attach_modes_bytes_against_render() {
         .collect();
     assert!(!chosen.is_empty(), "CMUX_ATTACH_BENCH_WORKLOADS names no workload");
     let mut rows = Vec::new();
+    let mut echoes = Vec::new();
     for workload in &chosen {
         eprintln!("attach-mode-bench: {} ...", workload.name);
-        rows.extend(run_workload(workload, default_seconds));
+        let (workload_rows, workload_echoes) = run_workload(workload, default_seconds);
+        rows.extend(workload_rows);
+        echoes.extend(workload_echoes);
     }
-    let text = table(&rows, &chosen);
+    let mut text = table(&rows, &chosen);
+    if !echoes.is_empty() {
+        text.push_str(&echo_table(&echoes));
+    }
     println!("{text}");
     if let Some(dir) = std::env::var_os("FAST_CHECKS_OUT") {
         let path = std::path::Path::new(&dir).join("attach-mode-bench.json");
@@ -676,6 +829,312 @@ fn attach_modes_bytes_against_render() {
             row.events > 0 || row.workload == "idle-shell",
             "{} {}: no events in the window",
             row.workload,
+            row.mode
+        );
+    }
+}
+
+/// The resizes of `attach_resize_bench`: to a phone's portrait grid, back,
+/// to a narrower Mac pane, back.
+const RESIZE_STEPS: [(u16, u16); 4] = [(54, 26), (COLS, ROWS), (120, 40), (COLS, ROWS)];
+/// How long each resize's lines are counted before the next resize.
+const RESIZE_SETTLE: Duration = Duration::from_millis(750);
+
+/// One attach's view of one resize.
+struct ResizeRow {
+    history: usize,
+    step: String,
+    mode: &'static str,
+    wire_bytes: usize,
+    events: usize,
+    by_event: Vec<(String, usize)>,
+    /// Command sent to the attach's first line after it.
+    first_ms: Option<f64>,
+    /// Command sent to the attach's last line inside the settle window.
+    last_ms: Option<f64>,
+    /// The `resize-surface` round trip on the control connection.
+    command_ms: f64,
+    /// The client's CPU ms to rebuild its screen from the step's lines.
+    apply_ms: f64,
+}
+
+impl ResizeRow {
+    fn json(&self) -> Value {
+        json!({
+            "history_lines": self.history,
+            "step": self.step,
+            "mode": self.mode,
+            "wire_bytes": self.wire_bytes,
+            "events": self.by_event.iter().map(|(name, n)| json!({"event": name, "count": n})).collect::<Vec<_>>(),
+            "first_line_ms": self.first_ms,
+            "last_line_ms": self.last_ms,
+            "command_ms": self.command_ms,
+            "apply_ms": self.apply_ms,
+        })
+    }
+}
+
+/// Send `request` (with `id`) on `stream`; its reply and round trip.
+fn control_request(
+    stream: &mut Box<dyn transport::Stream>,
+    id: u64,
+    mut request: Value,
+) -> (Value, Duration) {
+    request["id"] = json!(id);
+    let started = Instant::now();
+    writeln!(stream, "{request}").unwrap();
+    let mut pending: Vec<u8> = Vec::new();
+    let mut buf = vec![0u8; 1 << 16];
+    while started.elapsed() < Duration::from_secs(10) {
+        let n = match stream.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                continue;
+            }
+            Err(error) => panic!("control read failed: {error}"),
+        };
+        pending.extend_from_slice(&buf[..n]);
+        while let Some(offset) = memchr_newline(&pending) {
+            let line: Vec<u8> = pending.drain(..=offset).collect();
+            let value: Value = serde_json::from_slice(&line).unwrap_or(Value::Null);
+            if value.get("id").and_then(Value::as_u64) == Some(id) {
+                return (value, started.elapsed());
+            }
+        }
+    }
+    panic!("no reply to {request}");
+}
+
+/// The client's cost of one resize. Bytes: each `resized` replay into a new
+/// mirror of the new size (the spec's "replace the emulator"), the `output`
+/// after it, one render state read. Render: each `render-delta` into the row
+/// array.
+fn apply_resize(got: &Received, mode: &str, from: Instant, to: Instant) -> f64 {
+    let started = Instant::now();
+    if mode.starts_with("bytes") {
+        let mut mirror: Option<Terminal> = None;
+        for (_, line) in in_window(got, from, to) {
+            let value: Value = serde_json::from_str(line).unwrap();
+            match value.get("event").and_then(Value::as_str) {
+                Some("resized") => {
+                    let cols = value.get("cols").and_then(Value::as_u64).unwrap_or(1) as u16;
+                    let rows = value.get("rows").and_then(Value::as_u64).unwrap_or(1) as u16;
+                    let mut term =
+                        Terminal::new(cols, rows, 64 << 20, Callbacks::default()).unwrap();
+                    term.vt_write(&decode(&value));
+                    mirror = Some(term);
+                }
+                Some("output") => {
+                    if let Some(term) = mirror.as_mut() {
+                        term.vt_write(&decode(&value));
+                    }
+                }
+                _ => {}
+            }
+        }
+        if let Some(term) = mirror.as_mut() {
+            RenderState::new().unwrap().update(term).unwrap();
+        }
+    } else {
+        let mut grid: Vec<Vec<Run>> = Vec::new();
+        for (_, line) in in_window(got, from, to) {
+            let value: Value = serde_json::from_str(line).unwrap();
+            if value.get("event").and_then(Value::as_str) == Some("render-delta") {
+                apply_rows(&mut grid, &value);
+            }
+        }
+    }
+    started.elapsed().as_secs_f64() * 1000.0
+}
+
+/// A 200 x 50 surface holding `history` build-log lines behind its screen.
+fn surface_with_history(history: usize) -> (Arc<Mux>, Arc<Surface>) {
+    let opts = SurfaceOptions {
+        command: Some(vec!["/bin/sh".to_string(), "-c".to_string(), RAW_CAT.to_string()]),
+        scrollback: 256 << 20,
+        ..Default::default()
+    };
+    let mux = Mux::new(unique_session("resize-bench"), opts);
+    let surface = mux.new_workspace(None, Some((COLS, ROWS))).unwrap();
+    let on_screen = |needle: String| {
+        wait_for(
+            || {
+                surface
+                    .with_terminal(|term| {
+                        term.viewport_text().ok().filter(|text| text.contains(&needle))
+                    })
+                    .flatten()
+            },
+            Duration::from_secs(30),
+        )
+        .unwrap_or_else(|| panic!("resize bench: no {needle:?} on the screen"));
+    };
+    on_screen("ready".to_string());
+    // The history, then a screen of it, in chunks the PTY drains between.
+    let lines = history + usize::from(ROWS);
+    let mut chunk = String::new();
+    for i in 0..lines {
+        chunk.push_str(&format!(
+            "\x1b[1;32m{i:06}\x1b[0m compiling crate-{} v0.{}.{} (/home/user/src/project/crates/crate-{}) in {}ms\r\n",
+            i % 37,
+            i % 40,
+            i % 7,
+            i % 37,
+            i % 4099
+        ));
+        if chunk.len() > 32 << 10 || i + 1 == lines {
+            surface.write_bytes(chunk.as_bytes()).unwrap();
+            chunk.clear();
+            on_screen(format!("{i:06} compiling"));
+        }
+    }
+    (mux, surface)
+}
+
+/// Bench of one resize (ignored; `--ignored --nocapture`). A 200 x 50 surface
+/// of a real daemon holds a build log with N lines of history
+/// (`CMUX_RESIZE_BENCH_HISTORY=0,2000,20000`, the default). Three socket
+/// attaches watch it while a control connection resizes it to a phone's
+/// portrait grid (54 x 26), back, to 120 x 40 and back:
+///
+/// - `bytes`: no history window, as the Mac app and phones from before
+///   `attach-replay-history-window-v1` attach. Each resize sends the whole
+///   history again;
+/// - `bytes-phone`: the iPhone app today, `replay_history_rows: 0` with the
+///   window capability declared;
+/// - `render`: protocol 7 render mode.
+///
+/// Per attach and resize: wire bytes of the lines in the 750 ms after the
+/// command, time to the first and last of them, the command's round trip,
+/// and the client's CPU ms to rebuild its screen from them. With
+/// `FAST_CHECKS_OUT` set it also writes `attach-resize-bench.json` and `.md`.
+#[test]
+#[ignore = "a bench of half a minute or more; run with --ignored --nocapture"]
+fn attach_resize_bench() {
+    let histories: Vec<usize> = std::env::var("CMUX_RESIZE_BENCH_HISTORY")
+        .ok()
+        .map(|value| value.split(',').filter_map(|n| n.trim().parse().ok()).collect())
+        .unwrap_or_else(|| vec![0, 2_000, 20_000]);
+    assert!(!histories.is_empty(), "CMUX_RESIZE_BENCH_HISTORY names no history length");
+    let mut rows: Vec<ResizeRow> = Vec::new();
+    for &history in &histories {
+        eprintln!("attach-resize-bench: {history} lines of history ...");
+        let (mux, surface) = surface_with_history(history);
+        let sock = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+        let attaches = [
+            ("bytes", Reader::attach_with(&sock, surface.id, "bytes", &[], json!({}))),
+            (
+                "bytes-phone",
+                Reader::attach_with(
+                    &sock,
+                    surface.id,
+                    "bytes",
+                    &["attach-replay-history-window-v1"],
+                    json!({"replay_history_rows": 0}),
+                ),
+            ),
+            ("render", Reader::attach_with(&sock, surface.id, "render", &[], json!({}))),
+        ];
+        wait_for(
+            || attaches.iter().all(|(_, reader)| reader.attached()).then_some(()),
+            Duration::from_secs(30),
+        )
+        .unwrap_or_else(|| panic!("resize bench: an attach got no state and response"));
+        std::thread::sleep(Duration::from_millis(500));
+        let mut control = transport::connect(&sock).unwrap();
+        control.set_read_timeout(Some(Duration::from_millis(50))).unwrap();
+        let mut steps: Vec<(String, Instant, f64)> = Vec::new();
+        let mut size = (COLS, ROWS);
+        for (index, (cols, rows)) in RESIZE_STEPS.into_iter().enumerate() {
+            let sent = Instant::now();
+            let (reply, took) = control_request(
+                &mut control,
+                10 + index as u64,
+                json!({"cmd": "resize-surface", "surface": surface.id, "cols": cols, "rows": rows}),
+            );
+            assert_eq!(reply.get("ok"), Some(&Value::Bool(true)), "resize failed: {reply}");
+            steps.push((
+                format!("{}x{} -> {cols}x{rows}", size.0, size.1),
+                sent,
+                took.as_secs_f64() * 1000.0,
+            ));
+            size = (cols, rows);
+            std::thread::sleep(RESIZE_SETTLE.saturating_sub(sent.elapsed()));
+        }
+        let received: Vec<(&'static str, Received)> =
+            attaches.into_iter().map(|(mode, reader)| (mode, reader.finish())).collect();
+        drop(control);
+        let _ = mux.close_surface(surface.id);
+        cmux_tui_core::server::cleanup(&sock);
+        for (step, sent, command_ms) in &steps {
+            let to = *sent + RESIZE_SETTLE;
+            for (mode, got) in &received {
+                let (wire_bytes, events, by_event) = window(got, *sent, to);
+                let times: Vec<f64> = got
+                    .lines
+                    .iter()
+                    .filter(|(at, _)| *at >= *sent && *at < to)
+                    .map(|(at, _)| at.duration_since(*sent).as_secs_f64() * 1000.0)
+                    .collect();
+                rows.push(ResizeRow {
+                    history,
+                    step: step.clone(),
+                    mode,
+                    wire_bytes,
+                    events,
+                    by_event,
+                    first_ms: times.first().copied(),
+                    last_ms: times.last().copied(),
+                    command_ms: *command_ms,
+                    apply_ms: apply_resize(got, mode, *sent, to),
+                });
+            }
+        }
+    }
+    let ms = |value: Option<f64>| value.map_or("-".to_string(), |ms| format!("{ms:.1}"));
+    let mut text = format!(
+        "One resize, per attach, on a {COLS} x {ROWS} PTY surface of a real daemon (cmux-tui-core tests/attach_mode_bench.rs attach_resize_bench)\n\n"
+    );
+    text.push_str("| History lines | Resize | Mode | Wire KB | First line ms | Last line ms | Command ms | Client rebuild ms | Events |\n");
+    text.push_str("| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
+    for row in &rows {
+        let events: Vec<String> = row
+            .by_event
+            .iter()
+            .map(|(name, n)| format!("{} {n}", if name.is_empty() { "?" } else { name }))
+            .collect();
+        text.push_str(&format!(
+            "| {} | {} | {} | {:.1} | {} | {} | {:.1} | {:.2} | {} |\n",
+            row.history,
+            row.step,
+            row.mode,
+            row.wire_bytes as f64 / 1000.0,
+            ms(row.first_ms),
+            ms(row.last_ms),
+            row.command_ms,
+            row.apply_ms,
+            events.join(", "),
+        ));
+    }
+    println!("{text}");
+    if let Some(dir) = std::env::var_os("FAST_CHECKS_OUT") {
+        let path = std::path::Path::new(&dir).join("attach-resize-bench.json");
+        let doc = json!({"cols": COLS, "rows": ROWS, "runs": rows.iter().map(ResizeRow::json).collect::<Vec<_>>()});
+        std::fs::write(&path, serde_json::to_vec_pretty(&doc).unwrap()).unwrap();
+        std::fs::write(path.with_extension("md"), &text).unwrap();
+    }
+    for row in &rows {
+        assert!(
+            row.events > 0,
+            "{} {} {}: no lines after the resize",
+            row.history,
+            row.step,
             row.mode
         );
     }

@@ -52,7 +52,9 @@ impl TreeRevision {
 /// costs one reply, a missed change shows a stale list).
 pub(super) fn changes_tree(event: &MuxEvent) -> bool {
     match event {
-        MuxEvent::SurfaceOutput(_)
+        // Authenticated screen identity has its own subscription; list-workspaces has no such field.
+        MuxEvent::ScreenDeviceChanged(_)
+        | MuxEvent::SurfaceOutput(_)
         | MuxEvent::ScrollChanged { .. }
         | MuxEvent::SurfaceResizeFailed { .. }
         | MuxEvent::SizeStateChanged { .. }
@@ -65,6 +67,7 @@ pub(super) fn changes_tree(event: &MuxEvent) -> bool {
         | MuxEvent::HistoryChanged { .. }
         | MuxEvent::FeedViewChanged { .. }
         | MuxEvent::FeedReportsChanged { .. }
+        | MuxEvent::GitHubChanged { .. }
         | MuxEvent::KeybindingsChanged(_)
         | MuxEvent::CloudConversation(_)
         | MuxEvent::TerminalReaped { .. }
@@ -77,6 +80,9 @@ pub(super) fn changes_tree(event: &MuxEvent) -> bool {
         | MuxEvent::MachineUsageChanged(_)
         | MuxEvent::StashChanged { .. }
         | MuxEvent::TasksChanged(_)
+        // What agents do with the person's apps (computer_use_lifecycle.rs): no tree field.
+        | MuxEvent::ComputerUseActivity(_)
+        | MuxEvent::ComputerUsePreview(_)
         // `chat.list`'s own index (mux/chat_index.rs), not a list-workspaces field.
         | MuxEvent::ChatsChanged { .. } => false,
         MuxEvent::SurfaceResized { .. }
