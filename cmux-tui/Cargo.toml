@@ -153,6 +153,8 @@ members = [
     "crates/acpmux-hot",
     "crates/cmux-command-class",
     "crates/cmux-source-scan",
+    "crates/cmux-embed",
+    "crates/cmux-embed-macros",
 ]
 default-members = [
     "crates/acpmux",
@@ -267,6 +269,8 @@ default-members = [
     "crates/cmux-device-kind",
     "crates/cmux-url-input",
     "crates/cmux-view-rows",
+    "crates/cmux-embed",
+    "crates/cmux-embed-macros",
     "crates/cmux-computer-use",
     "crates/cmux-computer-use-ffi",
 ]
@@ -384,6 +388,7 @@ cmux-tui-image-paste = { path = "crates/cmux-tui-image-paste" }
 cmux-tui-hooks = { path = "crates/cmux-tui-hooks" }
 cmux-tui-util = { path = "crates/cmux-tui-util" }
 cmux-json = { path = "crates/cmux-json" }
+cmux-embed = { path = "crates/cmux-embed" }
 cmux-local-url = { path = "crates/cmux-local-url" }
 cmux-journal = { path = "crates/cmux-journal" }
 cmux-kitty-media = { path = "crates/cmux-kitty-media" }
