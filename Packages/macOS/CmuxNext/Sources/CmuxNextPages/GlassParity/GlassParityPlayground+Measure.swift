@@ -105,6 +105,12 @@ extension GlassParityPlayground {
         var probes: [String: JSONValue] = [:]
         for (column, page) in pages { probes[column.rawValue] = await Self.probe(page) }
         members["probe"] = .object(probes)
+        // The tooltip's native glass beside each column's host glass under the web tooltip (their pixels differ by
+        // backdrop: fleet steps 368e35ec, 339c069f).
+        var trees: [String: JSONValue] = [:]
+        if let native = nativeLayer?.subviews.first(where: { $0.frame == Self.surfaceRect(.tooltip) }) { trees["native"] = glassParityTree(native) }
+        for (column, host) in hosts { if let view = host.surface(Kind.tooltip.rawValue) { trees[column.rawValue] = glassParityTree(view) } }
+        members["tooltip_tree"] = .object(trees)
         return .object(members)
     }
 
@@ -120,6 +126,7 @@ extension GlassParityPlayground {
           ({ color, fontFamily: fontFamily.slice(0, 80), fontSize, fontWeight, lineHeight, smoothing: webkitFontSmoothing, box: box(e) }))(getComputedStyle(e));
         const vars = getComputedStyle(document.documentElement);
         return JSON.stringify({ root: Object.assign({}, document.documentElement.dataset), dpr: devicePixelRatio,
+          viewport: [innerWidth, innerHeight, visualViewport ? visualViewport.offsetTop : -1, visualViewport ? visualViewport.height : -1, document.documentElement.clientHeight],
           vars: Object.fromEntries(['--cmux-text', '--cmux-text-secondary', '--cmux-hover', '--cmux-pressed', '--cmux-row-focus']
             .map((name) => [name, vars.getPropertyValue(name).trim()])),
           cells: [...document.querySelectorAll('.glass-parity-surface')].map((e) => ({ kind: e.dataset.parityKind,
