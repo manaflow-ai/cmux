@@ -61,6 +61,9 @@ enum ServerHandlers {
         switch failure {
         case .notInBuild:
             ActionFailure(message: RefusalStrings.text("refusal.server.notInBuild", "This build does not include the server software yet."))
+        case .devBuild:
+            ActionFailure(message: RefusalStrings.text("refusal.server.devBuild",
+                                                       "A dev build does not keep a server running after it quits: the server's state is shared by every build."))
         case .notReady:
             ActionFailure(message: RefusalStrings.text("refusal.server.notReady", "The server software is not ready in this build yet."))
         case .requiresApproval:
