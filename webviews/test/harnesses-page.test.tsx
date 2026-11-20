@@ -9,6 +9,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { HarnessesScreen } from "../src/agent-session/acpmux/harnesses/HarnessesScreen";
 import { INSTALL_COMMANDS } from "../src/agent-session/acpmux/harnesses/harnessRows";
+import { OFFLINE_MARK } from "../src/agent-session/acpmux/harnesses/installRetry";
 import { buildPickerCatalog, BUNDLED_MODEL_CATALOG } from "../src/agent-session/acpmux/modelCatalogData";
 import { NewTabScreen } from "../src/agent-session/acpmux/newtab/NewTabScreen";
 import type { HarnessHealth } from "../src/agent-session/acpmux/harnessHealthNoticeModel";
@@ -452,7 +453,7 @@ test("unmounting the page stops an install it started", async () => {
   expect(calls.some((call) => call.params.rescan === true)).toBe(false);
 });
 
-test("an install that fails says why and offers one fix: the setup page", async () => {
+test("an install that fails says why and offers Retry and the setup page", async () => {
   const calls: Call[] = [];
   const container = await renderPage(calls, [], {
     shell: { output: ["npm error code EACCES\n", "npm error permission denied\n"], code: 243 },
@@ -463,14 +464,76 @@ test("an install that fails says why and offers one fix: the setup page", async 
   expect(failed.dataset.harnessStatus).toBe("failed");
   expect(failed.querySelector(".acpmux-harness-detail")?.textContent).toContain("npm error permission denied");
   const buttons = failed.querySelectorAll<HTMLButtonElement>("button");
-  expect(buttons.length).toBe(1);
-  await act(async () => buttons[0]!.click());
+  expect([...buttons].map((button) => button.textContent)).toEqual(["Retry", "Setup guide"]);
+  await act(async () => buttons[1]!.click());
   expect(calls.filter((call) => call.method === "tab.open")).toEqual([
     {
       method: "tab.open",
       params: { kind: "browser", text: "https://opencode.ai/docs", keep: true },
     },
   ]);
+});
+
+// First-run finding 6: the network dropped for 20 s during the Claude Code install, and the row said
+// "Failed: Try running with --force to override checks" (the CLI's words), stayed failed after the
+// network came back, and offered only the setup guide.
+test("an install the network dropped says so in plain words and offers Retry, which runs it again", async () => {
+  const calls: Call[] = [];
+  const container = await renderPage(calls, [], {
+    shell: { output: ["curl: (6) Could not resolve host: opencode.ai\n"], code: 6 },
+  });
+  await act(async () => row(container, "OpenCode")!.querySelector<HTMLButtonElement>("button")!.click());
+  await until(() => row(container, "OpenCode")!.dataset.harnessStatus === "failed", "the install to fail");
+  const failed = row(container, "OpenCode")!;
+  expect(failed.querySelector(".acpmux-harness-detail")?.textContent).toBe(
+    "The network dropped during the install. Check your connection and retry.",
+  );
+  // The installer's own words stay one hover away.
+  expect(failed.querySelector(".acpmux-harness-detail")?.getAttribute("title")).toBe(
+    "curl: (6) Could not resolve host: opencode.ai",
+  );
+  expect([...failed.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Retry", "Setup guide"]);
+  await act(async () => failed.querySelector<HTMLButtonElement>("button")!.click());
+  // Retry runs the same install again, in place.
+  const runs = calls.filter((call) => call.method === "shell.run");
+  expect(runs.length).toBe(2);
+  expect(runs[1]!.params).toEqual(runs[0]!.params);
+  expect(calls.filter((call) => call.method === "tab.open")).toEqual([]);
+});
+
+test("an installer's command-line advice never reaches the row: plain words and Retry", async () => {
+  const container = await renderPage([], [], {
+    shell: {
+      output: ["Setting up Claude Code...\n", "Failed: Try running with --force to override checks\n"],
+      code: 1,
+    },
+  });
+  await act(async () => row(container, "OpenCode")!.querySelector<HTMLButtonElement>("button")!.click());
+  await until(() => row(container, "OpenCode")!.dataset.harnessStatus === "failed", "the install to fail");
+  const failed = row(container, "OpenCode")!;
+  const detail = failed.querySelector(".acpmux-harness-detail")!;
+  expect(detail.textContent).toBe("The install didn't finish. Retry, or open the setup guide.");
+  expect(detail.textContent).not.toContain("--force");
+  expect(detail.getAttribute("title")).toBe("Failed: Try running with --force to override checks");
+  expect([...failed.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Retry", "Setup guide"]);
+});
+
+test("an install waiting for the network says so, and finishes by itself when it is back", async () => {
+  const refreshed: string[] = [];
+  let end = () => {};
+  const ends = new Promise<void>((resolve) => (end = resolve));
+  const container = await renderPage([], [], {
+    shell: { output: ["Downloading\n", `${OFFLINE_MARK}\n`], code: 0, ends },
+    refreshed,
+  });
+  await act(async () => row(container, "OpenCode")!.querySelector<HTMLButtonElement>("button")!.click());
+  await until(
+    () => status(container, "OpenCode") === "Waiting for the network. The install goes on when you're back online.",
+    "the offline wait",
+  );
+  expect(row(container, "OpenCode")!.dataset.harnessStatus).toBe("installing");
+  end();
+  await until(() => refreshed.length > 0, "the catalog read after the install");
 });
 
 test("after Sign In the row waits for the sign-in and turns ready by itself", async () => {

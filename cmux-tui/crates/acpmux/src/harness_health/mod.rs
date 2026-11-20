@@ -797,6 +797,13 @@ mod tests {
         assert_eq!(super::builtin_login("muse"), Some("muse login"));
     }
 
+    /// UniiChat signs in through the CLI cmux bundles (first-run finding 2): a clean Mac has
+    /// no `unii`, and every Sign In (picker, Harnesses page, Settings) types this line.
+    #[test]
+    fn unii_signs_in_with_the_bundled_cli() {
+        assert_eq!(super::builtin_login("unii"), Some("cmux harness login unii"));
+    }
+
     #[test]
     fn expired_login_probe_is_not_just_signed_out() {
         assert_eq!(auth_failure("OAuth token has expired"), Auth::Expired);
