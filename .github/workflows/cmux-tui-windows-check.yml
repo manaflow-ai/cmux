@@ -25,7 +25,7 @@ on:
       - "scripts/ci/git_tree.py"
       - "scripts/ci/affected_jobs_replay.py"
       - "scripts/ci/tree_result.py"
-      - ".github/actions/tree-result/action.yml"
+      - ".github/actions/tree-result/**"
       - "tests/test_ci_tree_result.py"
       - "tests/test_ci_affected_jobs.py"
       # Inputs of the jobs scripts/ci/affected_jobs.py routes by the crate graph, outside the globs above

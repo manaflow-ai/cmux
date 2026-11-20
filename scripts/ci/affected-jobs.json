@@ -16,7 +16,8 @@
     "cmux-tui/clippy.toml",
     "cmux-tui/rustfmt.toml",
     ".github/actions/setup-cmux-tui-rust/",
-    ".github/actions/runner-cargo-home/"
+    ".github/actions/runner-cargo-home/",
+    ".github/actions/tree-result/"
   ],
   "workflows": {
     ".github/workflows/cmux-tui-spec.yml": {
