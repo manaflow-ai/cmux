@@ -197,13 +197,12 @@ export function HarnessesScreen({
   }, [callNative, waiting, signInPollMs]);
   useEscapeCloses(true, onClose);
   const rows = harnessRows(catalog, acpmux, health, checking);
-  needsOf.current = Object.fromEntries(rows.flatMap((row) => (row.needs ? [[row.harness, row.needs.harness]] : [])));
   /// The harness a row's checks ask about: the one it needs, else its own.
   const target = (row: HarnessRow) => row.needs?.harness ?? row.harness;
   /// Rows whose install finished while acpmux still cannot run the harness: coming back to the page
   /// (from a terminal tab, Finder or System Settings) has acpmux look for them again.
   const stuckRows = useRef<HarnessRow[]>([]);
-  stuckRows.current = rows.filter(
+  const stuckNow = rows.filter(
     (row) => progress[row.harness]?.kind === "done" && (row.status === "notInstalled" || row.status === "unavailable"),
   );
   const inFolder = cwd ? { cwd } : {};
@@ -261,9 +260,17 @@ export function HarnessesScreen({
     mark(row.harness, { kind: "installing" });
     void rescan(row).then(() => mark(row.harness, { kind: "done" }));
   };
-  lookAgain.current = () => {
+  const lookAgainNow = () => {
     for (const row of stuckRows.current) checkAgain(row);
   };
+  // Refs are written after commit, never during render: the timers and listeners above read the
+  // newest rows, needs and look-again action from them.
+  const needsNow = Object.fromEntries(rows.flatMap((row) => (row.needs ? [[row.harness, row.needs.harness]] : [])));
+  useEffect(() => {
+    needsOf.current = needsNow;
+    stuckRows.current = stuckNow;
+    lookAgain.current = lookAgainNow;
+  });
   /// The one fix a row acpmux cannot run offers: its update when acpmux has one that needs no
   /// admin rights (through the channel it was installed with), its setup page, or another look.
   const fix = (row: HarnessRow): { label: string; run(): void } => {
