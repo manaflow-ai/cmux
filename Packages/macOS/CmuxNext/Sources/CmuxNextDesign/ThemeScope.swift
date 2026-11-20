@@ -209,6 +209,7 @@ public final class ThemeScope {
     /// This scope's own colors (its theme, else its parent's). Children
     /// inherit these.
     public private(set) var ownTokens: ThemeTokens
+    private var derivedContrastFloor = ThemeTokens.minimumTextContrast
     /// The colors the views and windows this scope roots draw in: those of
     /// the scope it shows (`show(_:)`), else its own. At any brightness: a
     /// light workspace in a dark room turns the window's chrome light, with
@@ -249,6 +250,7 @@ public final class ThemeScope {
         self.store = store
         input = store.input
         ownTokens = store.tokens
+        derivedContrastFloor = store.contrastFloor
         displayed = ownTokens
         store.root = self
     }
@@ -260,6 +262,7 @@ public final class ThemeScope {
         store = parent.store
         input = parent.input
         ownTokens = parent.ownTokens
+        derivedContrastFloor = store.contrastFloor
         displayed = ownTokens
         parent.children.add(self)
         // Art Color: the parent's input carries its own art's hue, not this scope's. A terminal
@@ -393,7 +396,7 @@ public final class ThemeScope {
     /// store repaints every window itself, so scopes only recompute.
     func storeDidChange() {
         ThemeRepaint.batch {
-            update(animated: false, repaint: false, force: true)
+            update(animated: false, repaint: false)
         }
     }
 
@@ -427,7 +430,7 @@ public final class ThemeScope {
         return parent?.input ?? store.input
     }
 
-    private func update(animated: Bool, repaint: Bool, force: Bool = false) {
+    private func update(animated: Bool, repaint: Bool) {
         var next = inheritedInput
         next.accent = store.accent
         next.selection = store.selection
@@ -443,13 +446,14 @@ public final class ThemeScope {
                 for view in self.roots.allObjects { self.applyAppearance(to: view) }
             }
         }
-        guard force || next != input else { return }
+        guard next != input || derivedContrastFloor != store.contrastFloor else { return }
+        derivedContrastFloor = store.contrastFloor
         input = next
         let derived = level == .config ? store.tokens : ThemeTokens.derive(from: next, contrastFloor: store.contrastFloor)
         ownTokens = derived
         // Each child that inherits these colors repaints its own views (this scope's pass stops
         // at their roots).
-        for child in children.allObjects { child.update(animated: animated, repaint: repaint, force: force) }
+        for child in children.allObjects { child.update(animated: animated, repaint: repaint) }
         refreshDisplay(animated: animated, repaint: repaint)
     }
 

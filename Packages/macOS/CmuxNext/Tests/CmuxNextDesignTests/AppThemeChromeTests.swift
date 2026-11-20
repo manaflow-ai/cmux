@@ -91,4 +91,21 @@ import Testing
         #expect(room.tokens == ThemeTokens.derive(from: lowContrast, contrastFloor: 7))
         #expect(room.tokens.textSecondary.contrast(with: lowContrast.background) >= 7)
     }
+
+    @Test func anOverrideUpdatesEvenWhenTheRootAlreadyMeetsTheFloor() throws {
+        let store = ThemeStore(input: ThemeInput(background: .black, foreground: .white))
+        let app = ThemeScope(root: store)
+        let room = ThemeScope(level: .room, parent: app)
+        room.setOverride(try #require(ThemeSpec("Dracula")), input: lowContrast, animated: false)
+        let before = store.tokens
+        store.setContrastFloor(7)
+        #expect(store.tokens == before)
+        #expect(room.tokens == ThemeTokens.derive(from: lowContrast, contrastFloor: 7))
+        let terminal = ThemeScope(level: .terminal, parent: room)
+        #expect(terminal.tokens == room.tokens)
+        store.setContrastFloor(ThemeTokens.minimumTextContrast)
+        #expect(room.tokens == ThemeTokens.derive(from: lowContrast))
+        #expect(terminal.tokens == room.tokens)
+    }
+
 }

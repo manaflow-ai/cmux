@@ -74,7 +74,7 @@ public final class ThemeStore {
     public init(input: ThemeInput = .ghosttyDefault) {
         self.input = input
         configInput = input
-        tokens = ThemeTokens.derive(from: input, contrastFloor: contrastFloor)
+        tokens = ThemeTokens.derive(from: input)
         publishesGlobally = false
     }
 
@@ -241,7 +241,14 @@ public final class ThemeStore {
         let floor = floor >= 7 ? 7.0 : ThemeTokens.minimumTextContrast
         guard floor != contrastFloor else { return false }
         contrastFloor = floor
-        return applyChrome()
+        // An overridden scope may change even when the root already meets this floor.
+        if !applyChrome() {
+            ThemeRepaint.batch {
+                root?.storeDidChange()
+                if publishesGlobally { repaintAll() }
+            }
+        }
+        return true
     }
 
     /// Turns Art Color on or off and re-derives every scope's tokens. Returns false when it did
