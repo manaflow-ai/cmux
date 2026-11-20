@@ -15,12 +15,14 @@ pub(super) fn decode<T: DeserializeOwned>(params: Map<String, Value>) -> Result<
     serde_json::from_value(Value::Object(params)).map_err(|error| decode_field(&error))
 }
 
-/// The field of serde's `unknown field `x`` or `missing field `x``, when it is a param name.
+/// The field of serde's `unknown field `x`, expected ...` or `missing field `x``, when it is a
+/// param name. The name's closing backtick must end the text or come before `,`: a caller's key
+/// holding a backtick would otherwise be cut at it and read as a shorter name.
 fn decode_field(error: &serde_json::Error) -> Option<String> {
     let text = error.to_string();
     ["unknown field `", "missing field `"].iter().find_map(|lead| {
-        let name = text.split_once(lead)?.1.split_once('`')?.0;
-        param_name(name).then(|| name.to_owned())
+        let (name, rest) = text.split_once(lead)?.1.split_once('`')?;
+        (param_name(name) && (rest.is_empty() || rest.starts_with(','))).then(|| name.to_owned())
     })
 }
 
