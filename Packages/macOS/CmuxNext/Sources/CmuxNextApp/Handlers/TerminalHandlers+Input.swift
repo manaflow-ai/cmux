@@ -85,11 +85,8 @@ extension TerminalHandlers {
         case .browser(let entry):
             entry.chrome?.perform(forward ? .findNext : .findPrevious)
         case .terminal(let entry):
-            // Opens the bar with the last query when it is closed.
-            let direction: TerminalFindDirection = forward ? .next : .previous
-            guard entry.session.find.navigate(direction, takeFocus: invocation.allowsViewChange) else {
-                return ctx.refuse(RefusalStrings.noActiveFind)
-            }
+            // A closed bar opens: with the last query, else as Find does (seeded with the selection).
+            entry.session.find.navigate(forward ? .next : .previous, seed: selection(of: entry), takeFocus: invocation.allowsViewChange)
         case .placeholder, .notice:
             return
         }
