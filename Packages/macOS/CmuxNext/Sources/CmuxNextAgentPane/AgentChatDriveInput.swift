@@ -45,6 +45,11 @@ public struct AgentChatDriveInput {
     /// Whether the page showed in Chromium (DevTools input and layout counters) rather than WebKit.
     public let isChromium: Bool
 
+    /// WebKit's handling of the mouse events sent so far, at most the bound: true when WebKit answered,
+    /// false when the bound passed first, nil when it can't be known (an unverified macOS, no SPI).
+    /// Tests pass their own.
+    var pendingMouseEvents: @MainActor (WKWebView, Duration) async -> Bool? = { await AgentChatDriveInput.afterPendingMouseEvents($0, bound: $1) }
+
     /// Input for a bare WebKit view (the pane's own WebKit host; tests).
     public init(webView: WKWebView) {
         self.webView = webView
@@ -129,8 +134,10 @@ public struct AgentChatDriveInput {
                 webView.mouseExited(with: exit)
             }
             // Done only once WebKit has handled it: a release reported while its move is still queued would
-            // stop the retries with `:hover` still on, if that move then came late. Bounded as a tick's wait.
-            await Self.afterPendingMouseEvents(webView, bound: Self.wheelWait)
+            // stop the retries with `:hover` still on, if that move then came late. Bounded as a tick's wait,
+            // and a wait that ran out is not handled: the release tries again. Where WebKit can't say (nil),
+            // the move was sent and counts.
+            guard await pendingMouseEvents(webView, Self.wheelWait) != false else { return .failed }
             return .wentIn
         case .chromium(let view, let page):
             let zoom = max(view.pageZoom, 0.01)
@@ -272,10 +279,12 @@ public struct AgentChatDriveInput {
         await calls.afterNextPresentationUpdate(webView)
     }
 
-    /// WebKit's handling of the mouse events sent so far, at most `bound`, the same way.
-    private static func afterPendingMouseEvents(_ webView: WKWebView, bound: Duration) async {
+    /// WebKit's handling of the mouse events sent so far, at most `bound`, the same way: true when it
+    /// answered, false when the bound passed first, nil on an unverified macOS or without the SPI.
+    @discardableResult
+    static func afterPendingMouseEvents(_ webView: WKWebView, bound: Duration) async -> Bool? {
         let calls = WebKitPrivateCalls(callbackBound: bound)
-        guard calls.isVerified else { return }
-        await calls.afterPendingMouseEvents(webView)
+        guard calls.isVerified else { return nil }
+        return await calls.afterPendingMouseEvents(webView)
     }
 }

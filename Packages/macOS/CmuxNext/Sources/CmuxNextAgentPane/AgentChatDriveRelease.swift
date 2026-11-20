@@ -88,6 +88,10 @@ final class DriveRelease {
 
     var isDone: Bool { released }
 
+    /// Whether the run may still make its hover: no release has started or finished (the person's pointer,
+    /// a trigger from outside the run). A hover made after one would have no release left to end it.
+    var mayHover: Bool { !released && triggered == nil }
+
     /// Arms the main-queue deadline `delay` from now. It holds this release until it fires or a release went in.
     func armBackstop(after delay: Duration) {
         let timer = DemandTimer(owner: "agent.chat-drive.release")

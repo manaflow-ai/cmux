@@ -30,6 +30,9 @@ struct DriveRun {
         let stop = ContinuousClock.now + .seconds(params.seconds)
         // The page types one character a frame from `begin`: the run lasts until it can have typed them all.
         typed = ContinuousClock.now + .milliseconds((params.type?.text.count ?? 0) * Self.typingFrameMilliseconds)
+        // Armed before anything awaits: the person's pointer can end the release while the counters start,
+        // and an unarmed release counts as done at once, which would leave the hover below with none.
+        if params.target != nil { release.armed = true }
         countersStart = await input.startEngineCounters()
         guard params.target != nil else { return try await hold(until: stop, watching: person, since: started, release: release) }
         guard case .number(let x)? = begun["point"]?["x"], case .number(let y)? = begun["point"]?["y"] else {
@@ -39,8 +42,13 @@ struct DriveRun {
         let point = CGPoint(x: x, y: y)
         hover["x"] = .number(x)
         hover["y"] = .number(y)
-        // Armed before the move: a release that runs while the move is in flight still gives the hover back.
-        release.armed = true
+        // Armed (above) before the move: a release that runs while the move is in flight still gives the
+        // hover back. One that already started (the person, a trigger) means no hover is made at all.
+        guard release.mayHover else {
+            hover["reason"] = "released"
+            interrupted = release.triggered ?? "person"
+            return
+        }
         guard await input.move(to: point) else {
             hover["reason"] = "move_failed"
             return try await hold(until: stop, watching: person, since: started, release: release)
