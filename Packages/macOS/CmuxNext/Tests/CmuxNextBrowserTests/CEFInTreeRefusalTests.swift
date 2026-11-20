@@ -109,4 +109,25 @@ import Testing
             #expect(fellBack == 1)
         }
     }
+
+    /// A page Chromium makes itself (a docked DevTools, a window.open popup) stays on layer hosting: the fork attaches
+    /// such a page in tree but it draws nothing (live step ff7bb179 on cmux19, devtools.pixels 2 colours and
+    /// popup.pixels blank in tree, 80 colours off). Its host never asks the fork.
+    @Test func aPageNotAllowedInTreeNeverAsksTheFork() {
+        withInTreeOn {
+            let turn = Turn()
+            let host = CEFHostView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+            let hosting = CEFInTreeHosting(schedule: { turn.add($0) })
+            hosting.view = host
+            hosting.isAllowed = false
+            let fork = FakeFork()
+            fork.takeFrom = 1
+
+            #expect(!hosting.pageWindowCreated(browser: 9, calls: fork.calls), "a DevTools or popup page went in tree")
+            turn.end()
+            turn.end()
+            #expect(fork.requests == 0)
+            #expect(!hosting.isInTree)
+        }
+    }
 }

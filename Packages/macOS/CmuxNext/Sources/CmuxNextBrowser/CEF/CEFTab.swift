@@ -18,7 +18,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// `.inTree` while in-tree pages are on (decided at launch for the process), else `.childWindow`; a page the fork
     /// refused twice went back to its own window (``CEFInTreeHosting/fellBack``) and is `.childWindow` too.
     public var presentation: BrowserPresentation {
-        InTreePages.shared.isActive && !host.hostView.inTree.fellBack ? .inTree : .childWindow
+        InTreePages.shared.isActive && host.hostView.inTree.isAllowed && !host.hostView.inTree.fellBack ? .inTree : .childWindow
     }
 
     public var state: BrowserTabState { machine.state }
