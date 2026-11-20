@@ -99,6 +99,43 @@ public final class OnboardingWindowPresenter {
         next()
     }
 
+    /// What a launch shows before the person's own work, read from the launch's environment and arguments.
+    public enum LaunchSteps: Sendable, Equatable {
+        /// Capture builds, the showcase, `CMUX_NEXT_SKIP_ONBOARDING=1` or `--skip-onboarding`: nothing.
+        case none
+        /// First-run onboarding off (Lawrence 2026-11-09): no first-run windows, card or history page.
+        case agentToolsOnly
+        /// `CMUX_NEXT_ONBOARDING=1` or `--onboarding`: the first-run steps, the cmux Tools question among them.
+        case firstRun
+
+        /// `showcase` is the DEBUG showcase profile, which never shows onboarding.
+        public init(environment: [String: String], arguments: [String], showcase: Bool = false) {
+            if showcase || environment["CMUX_NEXT_SKIP_ONBOARDING"] == "1" || arguments.contains("--skip-onboarding") {
+                self = .none
+            } else if environment["CMUX_NEXT_ONBOARDING"] == "1" || arguments.contains("--onboarding") {
+                self = .firstRun
+            } else {
+                self = .none
+            }
+        }
+
+        /// No first-run windows, card or history page this launch.
+        public var skipsFirstRun: Bool { self != .firstRun }
+    }
+
+    /// The launch's steps before the person's own work: none; only the cmux Tools question
+    /// (``askAgentToolsOnce(source:defaults:)``); or the first run, for which this returns true (the
+    /// first run asks the question among its steps).
+    public func showLaunchSteps(_ steps: LaunchSteps, agentTools: (any AgentToolsSource)?, defaults: UserDefaults = .standard) async -> Bool {
+        switch steps {
+        case .none: return false
+        case .agentToolsOnly:
+            await askAgentToolsOnce(source: agentTools, defaults: defaults)
+            return false
+        case .firstRun: return true
+        }
+    }
+
     /// Set once the cmux Tools step was shown under the launch-only rule (agents cmux starts, its
     /// terminals and agent chats, get cmux's server only with the person's yes), so a person who
     /// closes it without answering is not asked at every launch (Settings > Agents keeps the row). A
