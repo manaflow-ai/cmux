@@ -115,4 +115,8 @@ searches the whole inventory before paging. The regression detector in
 `looks/check/views.test.ts` mounts all four app looks and exercises Hosts with 100 and 3,000
 sessions, navigation, search, and a shrinking inventory. To compare scene counts and fixture
 render times before/after, set `DEMO_BEFORE_HOSTS` to a saved earlier Hosts `main.js` when running
-that test. This fixture does not replace a NIGHTLY capture.
+that test in a separate process: the old source can fail at the runtime's node limit. Run the
+regression suite without that variable; a known-broken baseline must not contaminate its verdict.
+The fake scene store removes descendants with their parent, as required by the scene protocol;
+`js/test/runtime.test.ts` detects stale subtree accounting after repeated list and dynamic-view
+replacement. This fixture does not replace a NIGHTLY capture.
