@@ -388,7 +388,7 @@ mod tests {
         assert!(
             run(&words(&format!("mcp remove fs --agent codex {project}")), &env, true)
                 .unwrap_err()
-                .contains("no user server")
+                .contains("has no MCP server named fs")
         );
     }
 }
