@@ -153,6 +153,28 @@ PARTS = [
     # A cold tagged build: 323 s on cmux20-bench, 620 s on cmux7s (2026-10-23).
     {"name": "build", "args": ["--build-only"], "artifact": "artifacts/split-spring/report.json", "kind": "build",
      "run_seconds": 1200},
+    # The two parts behind cmuxterm-hq NOW goals (memory-per-chat, ram-baseline, terminal-throughput) run first after
+    # the build: a tip's Mac parts run one at a time on a contended host, and the last ones are the ones that end
+    # no_host, yielded_out or abandoned. 2026-11-16 (83b6f50f) and 2026-11-18 (7c697af8): memory-agents and throughput,
+    # then 12th and 13th of 13, never ran, and chat_memory_vs_empty_ratio went stale. They build their own bench app,
+    # so they need nothing of the parts before them.
+    # The app's idle memory, empty and with 10 idle agent chats open (memory-agents-cron.py, bench_memory.py on the
+    # acpmux test agent): the rows behind goals ram-baseline and memory-per-chat in cmuxterm-hq's NOW (CMUX-571).
+    # It measures the bench configuration (Release optimization, split-spring.sh --config=bench), the build people
+    # run: the goal compares it with other apps' release builds and with the 2026-11-08 Release baseline (app process
+    # 243-285 MB). Rows before this were the Debug build, whose app process read 323.3 MB at 8c515cc5, so a Debug row
+    # read as growth that was the build. The bench build is the one throughput uses: one build serves both parts.
+    {"name": "memory-agents", "args": [*MEASURE, "--config=bench", "--suite=memory-agents", "--agents=10"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents",
+     "run_seconds": 2400},  # 1500 s for the bench, plus a cold bench build (800 s) when this part runs first
+    # Terminal throughput (scripts/cmux-next/terminal-throughput-bench.py): a 200 MB burst through a NEXT terminal and
+    # through standalone Ghostty on the same host, MB/s each and NEXT/Ghostty. Reporting only (REPORT_ONLY_ROW_RE): the
+    # CMUX-571 goal terminal-throughput reads terminal.throughput.ratio. One step runs both terminals. NEXT runs in the
+    # bench configuration (Release optimization, split-spring.sh --config=bench), since Ghostty is its optimized
+    # release; the default Debug build made the ratio a Debug-against-Release one. Rows before this were Debug.
+    {"name": "throughput", "args": [*MEASURE, "--config=bench", "--suite=terminal-throughput"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "terminal-throughput",
+     "run_seconds": 1800},  # a cold bench-configuration build alone took 800 s (2026-11-15)
     # STRESS: 1 round. With 2 rounds the session build and the rounds took ~900 s (cmux7s, 9e875493c37e); 1 round
     # plus the app-cache copy and the virtual display is not timed yet, so it keeps 0b05a9b73bd's 25-minute cap
     # until a cron tick records its `seconds` (each part's time is in the state's parts entries).
@@ -183,23 +205,6 @@ PARTS = [
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
     {"name": "chat-anim", "args": [*MEASURE, "--suite=budgets", "--only=acp,anim"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
-    # The app's idle memory, empty and with 10 idle agent chats open (memory-agents-cron.py, bench_memory.py on the
-    # acpmux test agent): the rows behind goals ram-baseline and memory-per-chat in cmuxterm-hq's NOW (CMUX-571).
-    # It measures the bench configuration (Release optimization, split-spring.sh --config=bench), the build people
-    # run: the goal compares it with other apps' release builds and with the 2026-11-08 Release baseline (app process
-    # 243-285 MB). Rows before this were the Debug build, whose app process read 323.3 MB at 8c515cc5, so a Debug row
-    # read as growth that was the build. The bench build is the one throughput uses: one build serves both parts.
-    {"name": "memory-agents", "args": [*MEASURE, "--config=bench", "--suite=memory-agents", "--agents=10"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents",
-     "run_seconds": 2400},  # 1500 s for the bench, plus a cold bench build (800 s) when this part runs first
-    # Terminal throughput (scripts/cmux-next/terminal-throughput-bench.py): a 200 MB burst through a NEXT terminal and
-    # through standalone Ghostty on the same host, MB/s each and NEXT/Ghostty. Reporting only (REPORT_ONLY_ROW_RE): the
-    # CMUX-571 goal terminal-throughput reads terminal.throughput.ratio. One step runs both terminals. NEXT runs in the
-    # bench configuration (Release optimization, split-spring.sh --config=bench), since Ghostty is its optimized
-    # release; the default Debug build made the ratio a Debug-against-Release one. Rows before this were Debug.
-    {"name": "throughput", "args": [*MEASURE, "--config=bench", "--suite=terminal-throughput"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "terminal-throughput",
-     "run_seconds": 1800},  # a cold bench-configuration build alone took 800 s (2026-11-15)
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
@@ -239,6 +244,7 @@ PARTS = [
     {"name": "chat-disk", "where": "linux", "kind": "webui", "needs": "chat-disk"},
 ]
 PART_BY_NAME = {p["name"]: p for p in PARTS}
+PART_ORDER = {p["name"]: i for i, p in enumerate(PARTS)}
 # Which part measures a row (bisect re-measures only the parts of the regressed rows).
 ROW_PARTS = [
     (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"), (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
@@ -1359,6 +1365,11 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
         pin = tip_pin_host(state, t)
         if pin:
             cur["host"] = pin
+    if cur:
+        # The parts run in PARTS order, also those of a measurement planned under an older order (its state keeps
+        # parts_todo): tip 7c697af8 was planned with memory-agents 10th of 11 Mac parts. The build stays first
+        # (with_build; it is first in PARTS too), and a name PARTS no longer has keeps its place at the end.
+        cur["parts_todo"].sort(key=lambda p: PART_ORDER.get(p, len(PART_ORDER)))
     if cur and mac_disabled:
         disable_mac_parts(cur, mac_disabled)
     tree_wait = wait_for_tree(cur, t, tree_ready) if cur else ""
