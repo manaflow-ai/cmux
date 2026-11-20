@@ -418,3 +418,138 @@ fn hex(text: &str) -> Vec<u8> {
         .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
         .collect()
 }
+
+#[test]
+fn sign_clone_removal_is_bound_to_the_checked_folder() {
+    let scratch = Scratch::new("bound");
+    let checked = scratch.0.join("code_sign_clone.Chk001");
+    write_exe(&checked.join("b.app.bundle/Contents/MacOS/h"), b"exe");
+    let outside = scratch.0.join("outside-file");
+    std::fs::write(&outside, b"keep").unwrap();
+    std::os::unix::fs::symlink(&outside, checked.join("b.app.bundle/link")).unwrap();
+    let identity = at::Ident::of(&std::fs::symlink_metadata(&checked).unwrap());
+
+    // The checked folder moves away and another, with saved files, takes its name.
+    let moved = scratch.0.join("moved-away");
+    std::fs::rename(&checked, &moved).unwrap();
+    std::fs::create_dir_all(checked.join("docs")).unwrap();
+    std::fs::write(checked.join("docs/saved.txt"), b"saved").unwrap();
+    assert!(at::remove_checked(&checked, identity).is_err());
+    assert_eq!(std::fs::read(checked.join("docs/saved.txt")).unwrap(), b"saved");
+
+    // The checked folder itself goes, with everything in it; a link's target stays.
+    at::remove_checked(&moved, identity).unwrap();
+    assert!(!moved.exists());
+    assert_eq!(std::fs::read(&outside).unwrap(), b"keep");
+}
+
+#[test]
+fn sign_clone_dry_run_counts_the_bytes_the_real_pass_frees() {
+    let scratch = Scratch::new("dry-bytes");
+    let x = scratch.x();
+    let id = "com.cmuxterm.app.nightly";
+    let old_main = install(&scratch, id);
+    write_exe(&old_main, &vec![7u8; 256 * 1024]);
+    let (first, _) = make_clone(&x, id, id, "Old001", Some(&old_main));
+    let (second, _) = make_clone(&x, id, id, "Old002", Some(&old_main));
+    // An update replaces the installed app: the clones hold the old executable's only names.
+    install(&scratch, id);
+    tick();
+
+    let (rows, dry) = pass(&x, SystemTime::now(), Budget::UNLIMITED, true, &mut probe(&scratch));
+    assert_eq!(dry.removed, 2, "{rows:?}");
+    assert!(first.exists() && second.exists());
+    let (_, real) = pass(&x, SystemTime::now(), Budget::UNLIMITED, false, &mut probe(&scratch));
+    assert_eq!(real.removed, 2);
+    assert!(real.reclaimed_bytes >= 256 * 1024, "{real:?}");
+    assert_eq!(dry.reclaimed_bytes, real.reclaimed_bytes);
+}
+
+#[test]
+fn sign_clone_too_new_clone_still_names_its_own_bundle() {
+    let scratch = Scratch::new("too-new");
+    let x = scratch.x();
+    let id = "com.cmuxterm.app";
+    let started = SystemTime::now() - Duration::from_secs(3600);
+    let (ours, _) = make_clone(&x, id, id, "New001", None);
+    let (mismatched, _) = make_clone(&x, id, "org.example.Browser", "New002", None);
+    let (rows, _) = pass(&x, started, Budget::UNLIMITED, false, &mut probe(&scratch));
+    assert_eq!(verdict_of(&rows, &ours), &Verdict::TooNew);
+    assert_eq!(
+        verdict_of(&rows, &mismatched),
+        &Verdict::Foreign { found: Some("org.example.Browser".into()) }
+    );
+    assert!(ours.exists() && mismatched.exists());
+}
+
+#[test]
+fn sign_clone_unreadable_folder_is_a_row_not_an_empty_folder() {
+    // SAFETY: geteuid has no preconditions.
+    if unsafe { libc::geteuid() } == 0 {
+        return; // root reads any folder: nothing to show
+    }
+    let scratch = Scratch::new("unreadable");
+    let x = scratch.x();
+    let id = "com.cmuxterm.app";
+    let (clone, _) = make_clone(&x, id, id, "Lock01", None);
+    let root = clone.parent().unwrap().to_path_buf();
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let (rows, report) =
+        pass(&x, SystemTime::now(), Budget::UNLIMITED, false, &mut probe(&scratch));
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(verdict_of(&rows, &root), &Verdict::Unknown { at: root.clone() });
+    assert_eq!(report.kept_in_use, 1);
+    assert!(clone.exists());
+}
+
+#[test]
+fn sign_clone_plist_reads_only_the_top_level_dictionary() {
+    let read = |xml: &str| plist_string(xml.as_bytes(), "CFBundleIdentifier");
+    let top = |inner: &str| {
+        format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD \
+             PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist \
+             version=\"1.0\"><dict>{inner}</dict></plist>\n"
+        )
+    };
+    // A nested dictionary, an array and a comment come first; only the top-level key answers.
+    let nested = top("<!-- <key>CFBundleIdentifier</key><string>com.cmuxterm.app</string> -->\
+         <key>CFBundleURLTypes</key><array><dict><key>CFBundleIdentifier</key>\
+         <string>com.cmuxterm.app</string></dict></array>\
+         <key>Inner</key><dict><key>CFBundleIdentifier</key><string>com.cmuxterm.app</string></dict>\
+         <key>LSUIElement</key><true/>\
+         <key>CFBundleIdentifier</key><string>org.example.Browser</string>");
+    assert_eq!(read(&nested).as_deref(), Some("org.example.Browser"));
+    // Only nested ones: no answer.
+    let only_nested = top(
+        "<key>Inner</key><dict><key>CFBundleIdentifier</key><string>com.cmuxterm.app</string></dict>",
+    );
+    assert_eq!(read(&only_nested), None);
+    // Malformed, a key given twice, an entity of a DTD, a root that is not a dictionary.
+    let bad = [
+        top("<key>CFBundleIdentifier</key><string>com.cmuxterm.app</string><key>Open</key><dict>"),
+        top("<key>CFBundleIdentifier</key><string>com.cmuxterm.app</string>\
+             <key>CFBundleIdentifier</key><string>com.cmuxterm.app</string>"),
+        top("<key>CFBundleIdentifier</key><string>&cmux;</string>"),
+        "<plist><array><string>com.cmuxterm.app</string></array></plist>".to_owned(),
+        "<!DOCTYPE plist [<!ENTITY id \"com.cmuxterm.app\">]><plist><dict>\
+         <key>CFBundleIdentifier</key><string>&id;</string></dict></plist>"
+            .to_owned(),
+    ];
+    for xml in &bad {
+        assert_eq!(read(xml), None, "{xml}");
+    }
+    assert_eq!(
+        read(&top("<key>CFBundleIdentifier</key><string>com.cmuxterm.app.debug.a&amp;b</string>"))
+            .as_deref(),
+        Some("com.cmuxterm.app.debug.a&b")
+    );
+}
+
+#[test]
+fn sign_clone_cutoff_keeps_the_last_ten_minutes() {
+    let now = SystemTime::now();
+    assert_eq!(cutoff(now, now), now - MIN_AGE);
+    let long_ago = now - Duration::from_secs(86_400);
+    assert_eq!(cutoff(long_ago, now), long_ago);
+}

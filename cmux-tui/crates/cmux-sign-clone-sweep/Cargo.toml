@@ -10,6 +10,7 @@ description = "Removes the Chromium code-sign clones that cmux apps left in the 
 [lints]
 workspace = true
 
-# confstr, statvfs, ffsctl's EBUSY and proc_pidinfo for this process (src/host.rs).
-[target.'cfg(target_os = "macos")'.dependencies]
+# openat, fstatat and unlinkat for removal bound to the checked folder (src/at.rs);
+# confstr, statvfs, ffsctl's EBUSY and proc_pidinfo for this process (src/host.rs, macOS).
+[target.'cfg(unix)'.dependencies]
 libc.workspace = true

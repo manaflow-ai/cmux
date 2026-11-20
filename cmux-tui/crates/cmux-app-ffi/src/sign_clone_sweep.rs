@@ -8,7 +8,8 @@ pub use cmux_sign_clone_sweep::Report as CmuxSignCloneSweepReport;
 /// One bounded pass on this Mac; `None` when nothing could be checked.
 #[cfg(target_os = "macos")]
 fn sweep_host(budget: cmux_sign_clone_sweep::Budget) -> Option<CmuxSignCloneSweepReport> {
-    let started = cmux_sign_clone_sweep::host::process_start()?;
+    let now = std::time::SystemTime::now();
+    let started = cmux_sign_clone_sweep::cutoff(cmux_sign_clone_sweep::host::process_start()?, now);
     cmux_sign_clone_sweep::host::run_pass(started, budget, false).map(|(_, report)| report)
 }
 

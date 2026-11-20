@@ -7,25 +7,23 @@
 //! blocks of its entries with no other name), the bundle id its cloned
 //! `Info.plist` names, its path, and the owner's liveness with the evidence
 //! (the open executable that keeps it, or why it may go: `superseded` when an
-//! update replaced its build, else `leftover`). `--dry-run` removes nothing.
-//! Clones made in the last minute are kept: an instance that is starting may
-//! not have started a helper from its clone yet.
+//! update replaced its build, else `leftover`). `--dry-run` removes nothing
+//! and counts the same bytes the real pass would. Clones made in the last
+//! `MIN_AGE` (10 minutes) are kept: an instance that is starting may not have
+//! started a helper from its clone yet. A folder that cannot be read is an
+//! `unknown` row, never taken for an empty one.
 //!
 //! Exit codes: 0 done, 1 a clone could not be removed or the temp folder could
 //! not be read, 2 usage.
 
 use std::path::Path;
-use std::time::Duration;
 
 use cmux_sign_clone_sweep::{Report, Row, Verdict};
 use serde_json::{Value, json};
 
 use super::OutputMode;
 
-const USAGE: &str = "usage: cmux sign-clones sweep [--dry-run] [--json]\n\n  Removes the copies of cmux apps that the built-in browser leaves in your temp folder\n  (its code-sign clones), once nothing runs from them. Every cmux app (release, NIGHTLY,\n  dev builds) is covered; other apps' clones are never touched.\n  --dry-run: list each clone, whether its app still runs from it and why, and its\n             bytes; remove nothing.\n  --json:    print the rows and totals as JSON.";
-
-/// Clones younger than this are kept: their instance may still be starting.
-const STARTING: Duration = Duration::from_secs(60);
+const USAGE: &str = "usage: cmux sign-clones sweep [--dry-run] [--json]\n\n  Removes the copies of cmux apps that the built-in browser leaves in your temp folder\n  (its code-sign clones), once nothing runs from them. Every cmux app (release, NIGHTLY,\n  dev builds) is covered; other apps' clones are never touched. Copies made in the\n  last 10 minutes are kept.\n  --dry-run: list each clone, whether its app still runs from it and why, and its\n             bytes; remove nothing.\n  --json:    print the rows and totals as JSON.";
 
 /// `cmux [global options] sign-clones ...`; `None` for any other command.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
@@ -59,12 +57,11 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 #[cfg(target_os = "macos")]
 fn sweep(output: OutputMode, dry_run: bool) -> i32 {
     let now = std::time::SystemTime::now();
-    let started = now.checked_sub(STARTING).unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+    let started = cmux_sign_clone_sweep::cutoff(now, now);
     let unlimited = cmux_sign_clone_sweep::Budget::UNLIMITED;
     let Some((rows, report)) = cmux_sign_clone_sweep::host::run_pass(started, unlimited, dry_run)
     else {
-        let message =
-            "cmux: cannot read this user's temp folder (confstr _CS_DARWIN_USER_TEMP_DIR)";
+        let message = "cmux: could not find your temp folder, so no copies were checked";
         return super::app::failure("sign_clones.no_temp_dir", message, output, 1);
     };
     print_pass(output, dry_run, cmux_sign_clone_sweep::host::x_dir().as_deref(), &rows, &report)
@@ -72,7 +69,6 @@ fn sweep(output: OutputMode, dry_run: bool) -> i32 {
 
 #[cfg(not(target_os = "macos"))]
 fn sweep(output: OutputMode, dry_run: bool) -> i32 {
-    let _ = STARTING;
     print_pass(output, dry_run, None, &[], &Report::default())
 }
 

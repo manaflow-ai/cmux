@@ -32,20 +32,40 @@
 //! Clones made after `started` are also kept, which closes the short window in
 //! which a launching instance has made its clone but not yet started a helper.
 //!
+//! Callers keep every clone younger than `MIN_AGE` too (`cutoff`): Chromium
+//! starts its GPU and network-service helpers from the clone at launch and
+//! starts them again when one exits, so a browser that has run that long has a
+//! helper open; one paused before its first helper for longer is the case this
+//! cannot tell, and only a positive owner-exit record would.
+//!
 //! A clone whose owner is gone is removed for one of two reasons: `superseded`
 //! when its main executable is no longer the executable of any installed copy of
-//! the app (an update replaced it), else `leftover`.
+//! the app (an update replaced it), else `leftover`. Removal is bound to the
+//! folder that was checked (`at`): a folder put in its place is never removed.
 
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
+pub mod at;
 #[cfg(target_os = "macos")]
 pub mod host;
 mod plist;
 
+use at::Ident;
 pub use plist::plist_string;
+
+/// Clones younger than this are kept whatever their helpers say.
+pub const MIN_AGE: Duration = Duration::from_secs(10 * 60);
+
+/// The start line for a pass at `now`: clones touched at or after it are kept.
+/// The earlier of `started` (this process's start, for the app's own pass) and
+/// `now - MIN_AGE`.
+pub fn cutoff(started: SystemTime, now: SystemTime) -> SystemTime {
+    started.min(now.checked_sub(MIN_AGE).unwrap_or(SystemTime::UNIX_EPOCH))
+}
 
 /// Every clone folder's name: this prefix and `SUFFIX_LEN` characters.
 const CLONE_PREFIX: &str = "code_sign_clone.";
@@ -125,7 +145,7 @@ impl Verdict {
             Self::Foreign { found: None } => "not ours: no single bundle with an Info.plist".into(),
             Self::TooNew => "made after the pass started: may still be starting".into(),
             Self::NotReached => "not checked: the pass reached its budget".into(),
-            Self::RemoveFailed { error } => format!("owner gone; remove failed: {error}"),
+            Self::RemoveFailed { error } => format!("owner gone; could not remove it: {error}"),
         }
     }
 }
@@ -137,7 +157,8 @@ pub struct Row {
     /// The family id its root is named for.
     pub root_id: String,
     pub verdict: Verdict,
-    /// `st_blocks * 512` of its single-name entries (0 when not walked).
+    /// `st_blocks * 512` of its folders and of its files with no name outside
+    /// the clones this pass removes (0 when not walked).
     pub reclaimable_bytes: u64,
 }
 
@@ -145,9 +166,10 @@ pub struct Row {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Report {
-    /// `st_blocks * 512` of the removed clones' single-name entries: what the
-    /// removal frees, short of APFS clone blocks still shared with an
-    /// installed app.
+    /// `st_blocks * 512` of the removed clones' folders and of their files with
+    /// no name left once those clones are gone: what the removal frees, short of
+    /// APFS clone blocks still shared with an installed app. A dry run counts
+    /// the same bytes the real pass would.
     pub reclaimed_bytes: u64,
     /// The volume's free space after the pass minus before it (set by the caller).
     pub free_space_delta_bytes: i64,
@@ -261,25 +283,38 @@ fn clone_bundle(clone: &Path) -> Option<(PathBuf, Vec<u8>)> {
     Some((bundle.clone(), std::fs::read(&plist).ok()?))
 }
 
+/// What a clone's walk found: the bytes its folders and single-name files hold,
+/// and its files with more than one name, which free their blocks only when
+/// their last name goes.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Scan {
+    pub bytes: u64,
+    /// Each: the file's identity, its link count and its bytes.
+    pub shared: Vec<(Ident, u64, u64)>,
+}
+
 /// Liveness of the clone at `clone`: `Err` with the verdict that keeps it (an
 /// executable with one name that `open_elsewhere` does not answer `Some(false)`
-/// for, or an entry that cannot be read), else the bytes its single-name
-/// entries hold. Links are never followed; files with more than one name (the
-/// hard-linked main executable) are neither asked nor counted.
+/// for, or an entry that cannot be read), else what it holds (`Scan`). Links are
+/// never followed; files with more than one name (the hard-linked main
+/// executable) are never asked.
 pub fn scan_clone(
     clone: &Path,
     mut open_elsewhere: impl FnMut(&Path) -> Option<bool>,
-) -> Result<u64, Verdict> {
+) -> Result<Scan, Verdict> {
     let unknown = |at: &Path| Verdict::Unknown { at: at.to_path_buf() };
-    let mut bytes = 0u64;
+    let mut scan = Scan::default();
     let mut folders = vec![clone.to_path_buf()];
     while let Some(folder) = folders.pop() {
         let entries = std::fs::read_dir(&folder).map_err(|_| unknown(&folder))?;
         for entry in entries {
             let path = entry.map_err(|_| unknown(&folder))?.path();
             let meta = std::fs::symlink_metadata(&path).map_err(|_| unknown(&path))?;
-            if meta.nlink() == 1 || meta.is_dir() {
-                bytes = bytes.saturating_add(meta.blocks().saturating_mul(512));
+            let bytes = meta.blocks().saturating_mul(512);
+            if meta.is_dir() || meta.nlink() == 1 {
+                scan.bytes = scan.bytes.saturating_add(bytes);
+            } else {
+                scan.shared.push((Ident::of(&meta), meta.nlink(), bytes));
             }
             if meta.is_dir() {
                 folders.push(path);
@@ -293,7 +328,7 @@ pub fn scan_clone(
             }
         }
     }
-    Ok(bytes)
+    Ok(scan)
 }
 
 /// Whether the clone's bundle at `bundle` (its `Info.plist` in `plist`) was
@@ -336,8 +371,24 @@ pub fn pass(
     probe: &mut dyn Probe,
 ) -> (Vec<Row>, Report) {
     let mut found = Vec::new();
+    let mut rows = Vec::new();
+    let mut report = Report::default();
+    // A folder that cannot be read is a row, not an empty folder.
+    let mut unreadable = |at: &Path, root_id: &str, report: &mut Report| {
+        report.kept_in_use += 1;
+        rows.push(Row {
+            path: at.to_path_buf(),
+            root_id: root_id.to_owned(),
+            verdict: Verdict::Unknown { at: at.to_path_buf() },
+            reclaimable_bytes: 0,
+        });
+    };
+    if std::fs::read_dir(x).is_err() {
+        unreadable(x, FAMILY, &mut report);
+    }
     for (id, root) in family_roots(x) {
         let Ok(entries) = std::fs::read_dir(&root) else {
+            unreadable(&root, &id, &mut report);
             continue;
         };
         for entry in entries.flatten() {
@@ -355,8 +406,11 @@ pub fn pass(
         }
     }
     found.sort();
-    let mut rows = Vec::with_capacity(found.len());
-    let mut report = Report::default();
+    rows.reserve(found.len());
+    // A dry run's names of multi-name files in the clones it would remove: a
+    // file's blocks count once all its names are among them, as the real pass
+    // counts them when it removes the last one.
+    let mut planned: HashMap<Ident, u64> = HashMap::new();
     for (touched, root_id, path) in found {
         let mut row = Row { path, root_id, verdict: Verdict::NotReached, reclaimable_bytes: 0 };
         if report.removed >= budget.max_clones || report.reclaimed_bytes >= budget.max_bytes {
@@ -364,24 +418,28 @@ pub fn pass(
             rows.push(row);
             continue;
         }
-        row.verdict = judge(&mut row, touched, started, dry_run, probe, &mut report);
+        let context = Pass { started, dry_run, planned: &mut planned };
+        row.verdict = judge(&mut row, touched, context, probe, &mut report);
         rows.push(row);
     }
     (rows, report)
+}
+
+/// What `judge` carries from its pass.
+struct Pass<'a> {
+    started: SystemTime,
+    dry_run: bool,
+    planned: &'a mut HashMap<Ident, u64>,
 }
 
 /// The verdict on one clone; removes it unless `dry_run`.
 fn judge(
     row: &mut Row,
     touched: SystemTime,
-    started: SystemTime,
-    dry_run: bool,
+    pass: Pass<'_>,
     probe: &mut dyn Probe,
     report: &mut Report,
 ) -> Verdict {
-    if touched >= started {
-        return Verdict::TooNew;
-    }
     let Some((bundle, plist)) = clone_bundle(&row.path) else {
         report.kept_foreign += 1;
         return Verdict::Foreign { found: None };
@@ -391,12 +449,35 @@ fn judge(
         report.kept_foreign += 1;
         return Verdict::Foreign { found: id };
     }
+    if touched >= pass.started {
+        return Verdict::TooNew;
+    }
+    // The folder the checks below read, by identity; removal is bound to it.
+    let identity = |path: &Path| std::fs::symlink_metadata(path).ok().map(|m| Ident::of(&m));
+    let Some(checked) = identity(&row.path) else {
+        report.kept_in_use += 1;
+        return Verdict::Unknown { at: row.path.clone() };
+    };
     match scan_clone(&row.path, |file| probe.open_elsewhere(file)) {
         Err(kept) => {
             report.kept_in_use += 1;
             kept
         }
-        Ok(bytes) => {
+        Ok(_) if identity(&row.path) != Some(checked) => {
+            report.kept_in_use += 1;
+            Verdict::Unknown { at: row.path.clone() }
+        }
+        Ok(scan) => {
+            let mut bytes = scan.bytes;
+            if pass.dry_run {
+                for (file, links, file_bytes) in &scan.shared {
+                    let names = pass.planned.entry(*file).or_insert(0);
+                    *names += 1;
+                    if *names == *links {
+                        bytes = bytes.saturating_add(*file_bytes);
+                    }
+                }
+            }
             row.reclaimable_bytes = bytes;
             let installed = bundle
                 .file_name()
@@ -409,9 +490,18 @@ fn judge(
             } else {
                 Reason::Leftover
             };
-            if !dry_run && let Err(error) = std::fs::remove_dir_all(&row.path) {
-                return Verdict::RemoveFailed { error: error.to_string() };
+            if !pass.dry_run
+                && let Err(error) = at::remove_checked(&row.path, checked)
+            {
+                // In words, not an OS error number: "permission denied", or why
+                // the folder was left ("the folder changed after it was checked").
+                let words = match error.kind() {
+                    std::io::ErrorKind::Other => error.to_string(),
+                    kind => kind.to_string(),
+                };
+                return Verdict::RemoveFailed { error: words };
             }
+            let dry_run = pass.dry_run;
             report.removed += 1;
             if reason == Reason::Superseded {
                 report.removed_superseded += 1;
