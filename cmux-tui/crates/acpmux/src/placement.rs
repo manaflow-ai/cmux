@@ -14,8 +14,10 @@
 //! - lanes: the lane limit − live agents, counted as leo-workspace's `lane_admission.room_for`
 //!   counts it: `max_lanes`, or `headroom_max_lanes` while the other three show room for a lane.
 //!
-//! The smallest of the four is its room. Among hosts with room, the registry's
-//! `lane_place.placement_preference` decides first, as leo-workspace's lane-place does
+//! The smallest of the four is its room. Among hosts with room, lanes against the cap decide
+//! first, in lane_admission's pick order: under `max_lanes` (or no cap configured), then past it
+//! on measured headroom, then a host with a cap whose reading has no live count, then full. Then
+//! the registry's `lane_place.placement_preference`, as leo-workspace's lane-place does
 //! (`tiers`): a list best first of providers (`freestyle`, `gcp`) and machine names, so a
 //! Freestyle lane VM with room beats a less-loaded GCP one (Leo, 2026-10-29: Freestyle is
 //! "pound for pound just cheaper than GCP"; 2026-10-31: "WHY GCP IF WE HAVE FREESTYLE???").
@@ -198,11 +200,12 @@ impl Lanes {
     /// Where `live` lanes stand against the cap, as leo-workspace's `lane_admission.room_for`
     /// counts them (the one count its picker, admission and cap watch read): under `max_lanes`;
     /// past it and under the ceiling only while `headroom` (the reading shows room for a lane);
-    /// else full. Without `max_lanes` or a live count, unknown.
+    /// else full. Without `max_lanes`, no cap; with it and no live count, no count.
     fn cap_state(&self, live: Option<u64>, headroom: bool) -> CapState {
-        let (Some(cap), Some(ceiling), Some(live)) = (self.max_lanes, self.ceiling(), live) else {
-            return CapState::Unknown;
+        let (Some(cap), Some(ceiling)) = (self.max_lanes, self.ceiling()) else {
+            return CapState::NoCap;
         };
+        let Some(live) = live else { return CapState::NoCount };
         let live = live as f64;
         if live < cap {
             CapState::Under
@@ -220,6 +223,12 @@ enum CapState {
     Under,
     Headroom,
     Full,
+    /// No `max_lanes` configured: nothing caps it, so it ranks with `Under`.
+    NoCap,
+    /// A cap, and a reading with no live count: where it stands is not known, so it ranks after
+    /// `Headroom`, still ahead of an unread host.
+    NoCount,
+    /// Not weighed against the cap: no reading, or refused before it.
     Unknown,
 }
 
@@ -576,13 +585,17 @@ struct Weighed {
     unknown: bool,
     /// Its lanes against its cap (`Lanes::cap_state`).
     cap: CapState,
+    /// Its own remote chain refused a start not long ago (`start_refusals.rs`, the line): it goes
+    /// after every host with no such record, and is still picked when none of those qualifies.
+    demoted: Option<String>,
     why: String,
 }
 
 impl Weighed {
     /// It has a reading and its lanes are not full (`CapState`): under `max_lanes`, or past it on
     /// measured headroom. A host with no cap configured, or whose reading has no live count,
-    /// counts as under it: a host we can read goes ahead of one we cannot.
+    /// is not full: a host we can read goes ahead of one we cannot (`cap_rank` still puts one
+    /// with no count after headroom).
     fn under_cap(&self) -> bool {
         !self.unknown && self.cap != CapState::Full
     }
@@ -627,6 +640,7 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
         tier: None,
         unknown: !known,
         cap: CapState::Unknown,
+        demoted: None,
         why: String::new(),
     };
     let Some(lanes) = lanes else {
@@ -660,13 +674,15 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
     }
     // Headroom, as lane_admission's `headroom_short` judges it: the reading shows room for a lane
     // in RAM, CPU and disk, within its budget and its swap limit. Past `max_lanes` only it admits
-    // lanes, up to the ceiling.
+    // lanes, up to the ceiling. A reading without RAM free, or without load and cores, shows no
+    // headroom (lane_admission: "its headroom could not be read"): a missing term is never room.
     let swap = (reading(h, "/swap/usedBytes"), reading(h, "/swap/totalBytes").filter(|t| *t > 0.0));
     let over_budget = h.pointer("/pressure/ok").and_then(Value::as_bool) == Some(false);
     let swap_full = matches!((swap.0, swap.1, lanes.max_swap_used_fraction),
         (Some(used), Some(total), Some(max)) if used / total >= max);
     let fits = rooms.iter().map(|r| r.1).min_by(f64::total_cmp).is_some_and(|r| r >= 1.0);
-    let headroom = fits && !over_budget && !swap_full;
+    let read = |term: &str| rooms.iter().any(|r| r.0 == term);
+    let headroom = fits && read("RAM") && read("CPU") && !over_budget && !swap_full;
     w.cap = lanes.cap_state(live, headroom);
     let limit = if headroom { lanes.ceiling() } else { lanes.max_lanes };
     if let (Some(max), Some(live)) = (limit, live) {
@@ -717,6 +733,20 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
 /// pick's placement_preference tier, 1 best), "hosts": [{name, local, ok, room, rank, tier,
 /// live, why, refused}]}`.
 pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> Value {
+    place_demoting(candidates, &[], registry, work)
+}
+
+/// `place`, with the hosts `demoted` names (each with its line, `start_refusals::line`) ranked
+/// after the others that stand the same against their lane cap and room: the record is one term
+/// of the pick order, after reach, budget, lane cap and room and before the tier and load. So a
+/// recorded host under its cap still goes ahead of any host at its cap, and a record never takes
+/// a host out or makes "no host has room".
+pub fn place_demoting(
+    candidates: &[Candidate],
+    demoted: &[(String, String)],
+    registry: Option<&Value>,
+    work: Work,
+) -> Value {
     let hosts = lane_hosts(registry);
     let lanes_of = |name: &str| -> Option<Lanes> {
         let Some(hosts) = &hosts else { return Some(Lanes::default()) };
@@ -724,6 +754,10 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
     };
     let mut weighed: Vec<Weighed> =
         candidates.iter().map(|c| weigh(c, lanes_of(&c.name))).collect();
+    for w in weighed.iter_mut() {
+        let name = canonical(&w.name);
+        w.demoted = demoted.iter().find(|(n, _)| canonical(n) == name).map(|(_, l)| l.clone());
+    }
     if work == Work::Build {
         // A build host counts only with a reading that shows room: one whose
         // numbers are unknown never turns a fallback host with room away.
@@ -765,9 +799,10 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
             }
         }
     }
-    // The best placement_preference tier first (a host in none after every one in one), then
-    // most room, then the registry's rank, then fewer live agents. A host with a reading and
-    // room goes first. With none, a host with no reading, unless a host passed over for room,
+    // Lanes against the cap first (`cap_rank` below: under, then headroom, then the rest), then
+    // the best placement_preference tier (a host in none after every one in one), then most
+    // room, then the registry's rank, then fewer live agents. A host with a reading and room
+    // goes first. With none, a host with no reading, unless a host passed over for room,
     // load or swap is still under its lane cap: a host with no reading never goes ahead of one
     // known to be under its cap, since its numbers may be worse. Then the hosts passed over
     // only for room, load or swap whose role takes the work.
@@ -786,18 +821,21 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
         };
     }
     // Lanes against the cap first, in lane_admission's pick order: under `max_lanes` (or no cap
-    // or count read), then past it on headroom, then full. An unread host stands between the
-    // last two (`under_cap` and the order above).
+    // configured), then past it on headroom, then a cap with no live count read, then full. An
+    // unread host stands between the last two (`under_cap` and the order above).
+    // Then a recent remote-chain refusal (`place_demoting`), then the tier, room, rank and load.
     let cap_rank = |w: &Weighed| match w.cap {
-        CapState::Under | CapState::Unknown => 0,
+        CapState::Under | CapState::NoCap | CapState::Unknown => 0,
         CapState::Headroom => 1,
-        CapState::Full => 2,
+        CapState::NoCount => 2,
+        CapState::Full => 3,
     };
     order.sort_by(|a, b| {
         let room = |w: &Weighed| w.room.unwrap_or(-1.0);
         let best = |w: &Weighed| w.tier.as_ref().map_or(usize::MAX, |t| t.0);
         cap_rank(a)
             .cmp(&cap_rank(b))
+            .then(a.demoted.is_some().cmp(&b.demoted.is_some()))
             .then(best(a).cmp(&best(b)))
             .then(room(b).total_cmp(&room(a)))
             .then(a.lanes.rank.total_cmp(&b.lanes.rank))
@@ -810,6 +848,12 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
             w.name,
             w.why,
             w.refused.as_deref().unwrap_or_default()
+        ),
+        Some(w) if w.demoted.is_some() => format!(
+            "{}: {} (picked although {}: no host without such a record stands as well against its lane cap and room)",
+            w.name,
+            w.why,
+            w.demoted.as_deref().unwrap_or_default()
         ),
         Some(w) => format!("{}: {}", w.name, w.why),
         None => "no host has room for this; `acpmux machine pick --json` says why each was refused"
@@ -841,6 +885,8 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
             "refused": w.refused,
             // Refused only for room, load or swap: it may still take work (`overloaded`).
             "load": w.load,
+            // Its remote chain's recent refusal: it goes after every other host (`place_demoting`).
+            "demoted": w.demoted,
         })).collect::<Vec<_>>(),
     })
 }

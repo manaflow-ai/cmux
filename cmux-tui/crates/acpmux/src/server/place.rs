@@ -13,25 +13,44 @@ use crate::placement::{Candidate, Work};
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
 
-/// `{"work": "agent"|"build", "offInteractive": bool}` → `placement::place`'s verdict. With
-/// `offInteractive` (a command-line `new` on a machine a person works at, `cli/place.rs`), the
-/// machines the registry marks interactive (`placement::interactive`), this one included, are
-/// not candidates.
+/// `{"work": "agent"|"build", "offInteractive": bool, "skip": [host]}` →
+/// `placement::place_demoting`'s verdict. With `offInteractive` (a command-line `new` on a
+/// machine a person works at, `cli/place.rs`), the machines the registry marks interactive
+/// (`placement::interactive`), this one included, are not candidates. `skip`: the machines whose
+/// remote chain already refused this one start (`cli/place.rs` `try_next`), out for the rest of
+/// it only.
 pub(super) async fn place(hub: &Hub, params: &Value) -> Value {
     let work = match params.get("work").and_then(Value::as_str) {
         Some("build") => Work::Build,
         _ => Work::Agent,
     };
     let off_interactive = params.get("offInteractive").and_then(Value::as_bool) == Some(true);
-    let (mut candidates, mut down) = candidates(hub).await;
+    let (candidates, mut down, demoted) = candidates(hub).await;
     let registry = crate::placement::load_registry();
+    let mut candidates = skipped(candidates, params.get("skip"), &mut down);
     if off_interactive {
         candidates = off_interactive_hosts(candidates, registry.as_ref());
         down.retain(|(name, _)| !crate::placement::interactive(registry.as_ref(), name));
     }
-    let verdict = crate::placement::place(&candidates, registry.as_ref(), work);
+    let verdict = crate::placement::place_demoting(&candidates, &demoted, registry.as_ref(), work);
     let verdict = crate::placement::with_down(verdict, &down);
     crate::shadow_admission::with_shadow("place", verdict, &candidates)
+}
+
+/// `candidates` without the ones `skip` names (`place`), each in `down` with why.
+fn skipped(
+    candidates: Vec<Candidate>,
+    skip: Option<&Value>,
+    down: &mut Vec<(String, String)>,
+) -> Vec<Candidate> {
+    let skip: Vec<String> = skip
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).map(crate::placement::canonical).collect())
+        .unwrap_or_default();
+    let (kept, out) =
+        leave_out(candidates, |name| skip.contains(&crate::placement::canonical(name)));
+    down.extend(out.into_iter().map(|n| (n, "its remote chain refused this start".to_owned())));
+    kept
 }
 
 /// `candidates` without the machines the registry marks interactive.
@@ -64,18 +83,23 @@ async fn this_machine(hub: &Hub) -> Candidate {
 /// machine and every connected peer `dispatch_hosts` keeps, weighed for `work`.
 pub(super) async fn pick(hub: &Hub, work: Work) -> Value {
     let registry = crate::placement::load_registry();
-    let (candidates, _) = candidates(hub).await;
+    let (candidates, _, demoted) = candidates(hub).await;
     // The shadow judges only the hosts the pick weighs, not the ones `dispatch_hosts` leaves out.
     let (weighed, _) = dispatch_hosts(candidates.clone(), registry.as_ref(), work);
-    let verdict = dispatch_place(candidates, registry.as_ref(), work);
+    let verdict = dispatch_place(candidates, &demoted, registry.as_ref(), work);
     crate::shadow_admission::with_shadow("pick", verdict, &weighed)
 }
 
-/// `placement::place` over the hosts `dispatch_hosts` keeps. With no pick, `why` also names
-/// the hosts it left out and why, which the verdict's `hosts` no longer lists.
-fn dispatch_place(candidates: Vec<Candidate>, registry: Option<&Value>, work: Work) -> Value {
+/// `placement::place_demoting` over the hosts `dispatch_hosts` keeps. With no pick, `why` also
+/// names the hosts it left out and why, which the verdict's `hosts` no longer lists.
+fn dispatch_place(
+    candidates: Vec<Candidate>,
+    demoted: &[(String, String)],
+    registry: Option<&Value>,
+    work: Work,
+) -> Value {
     let (kept, left_out) = dispatch_hosts(candidates, registry, work);
-    let mut v = crate::placement::place(&kept, registry, work);
+    let mut v = crate::placement::place_demoting(&kept, demoted, registry, work);
     if v.get("pick").is_some_and(Value::is_null) && !left_out.is_empty() {
         let why = v.get("why").and_then(Value::as_str).unwrap_or_default();
         let why = format!(
@@ -108,13 +132,31 @@ fn dispatch_hosts(
     })
 }
 
-/// This machine and every connected peer, with their last readings, and every other peer with
-/// why it is none (`split_peers`).
-async fn candidates(hub: &Hub) -> (Vec<Candidate>, Vec<(String, String)>) {
+/// This machine and every connected peer, with their last readings; every other peer with why
+/// it is none (`split_peers`); and the peers to demote (`refusing`).
+async fn candidates(hub: &Hub) -> (Vec<Candidate>, Vec<(String, String)>, Vec<(String, String)>) {
     let (peers, down) = split_peers(hub.peers());
+    let demoted = refusing(&peers, &hub.start_refusals, crate::store::now_ms());
     let mut candidates = vec![this_machine(hub).await];
     candidates.extend(peers);
-    (candidates, down)
+    (candidates, down, demoted)
+}
+
+/// The `peers` whose own remote chain refused a start while that record is fresh at `now_ms`
+/// (`start_refusals.rs`), each with the refusal and its time: the pick puts them after every
+/// other host but still weighs them (`placement::place_demoting`).
+fn refusing(
+    peers: &[Candidate],
+    refusals: &crate::start_refusals::StartRefusals,
+    now_ms: u64,
+) -> Vec<(String, String)> {
+    peers
+        .iter()
+        .filter_map(|peer| {
+            let r = refusals.fresh(&peer.name, now_ms)?;
+            Some((peer.name.clone(), crate::start_refusals::line(&r, now_ms)))
+        })
+        .collect()
 }
 
 /// Peer rows split into candidates and the names of the others with why
@@ -309,6 +351,62 @@ mod tests {
         );
     }
 
+    /// A peer whose own remote chain refused a start goes after the hosts that stand as well
+    /// against their cap and room while the record is fresh, listed with the refusal and its time, and is still the pick when no other
+    /// host has room; after 30 minutes, or once a start there works, it is weighed as before.
+    #[test]
+    fn a_peer_whose_chain_refused_a_start_is_demoted_while_the_refusal_is_fresh() {
+        let refusals = crate::start_refusals::StartRefusals::default();
+        let at = 1_763_464_980_000; // 2025-11-18T11:23:00Z
+        refusals.record("roomy", at, "remote chain refused: the sandbox canary shows no sandbox");
+        // roomy has more room than lean: without the record it is the pick.
+        let lean = |gb| named("lean", false, health(gb, 0));
+        let weigh = |now: u64, lean_gb: u64| {
+            let peers = vec![named("roomy", false, health(60, 0)), lean(lean_gb)];
+            let demoted = refusing(&peers, &refusals, now);
+            crate::placement::place_demoting(&peers, &demoted, None, Work::Agent)
+        };
+        let v = weigh(at + 5 * 60_000, 20);
+        assert_eq!(v["pick"], "lean", "{v:#}");
+        let roomy = v["hosts"].as_array().unwrap().iter().find(|h| h["name"] == "roomy").unwrap();
+        assert_eq!(roomy["ok"], json!(true), "demoted, never refused: {v:#}");
+        let line = roomy["demoted"].as_str().unwrap();
+        assert!(
+            line.starts_with("its remote chain refused a start at 2025-11-18T11:23:00")
+                && line.contains("(5 min ago;")
+                && line.ends_with("the sandbox canary shows no sandbox"),
+            "{line}"
+        );
+        // lean with no room: roomy is still picked, and the pick says why.
+        let v = weigh(at + 5 * 60_000, 1);
+        assert_eq!((&v["pick"], &v["overloaded"]), (&json!("roomy"), &json!(false)), "{v:#}");
+        assert!(v["why"].as_str().unwrap().contains("picked although its remote chain"), "{v:#}");
+        // Stale after 30 minutes: weighed as before, and the pick.
+        assert_eq!(weigh(at + crate::start_refusals::FRESH_MS, 20)["pick"], "roomy");
+        // A start that works there clears it at once.
+        refusals.record("roomy", at, "remote chain refused: x");
+        refusals.note("roomy", &Ok(()), at + 1);
+        assert_eq!(weigh(at + 2, 20)["pick"], "roomy");
+    }
+
+    /// The machines that refused this one start (`skip`) are out of its next pick, each listed
+    /// down with why; the others stay.
+    #[test]
+    fn a_machine_that_refused_this_start_is_out_for_the_rest_of_it() {
+        let peers =
+            vec![named("Roomy.local", false, health(60, 0)), named("lean", false, health(20, 0))];
+        let mut down = Vec::new();
+        let kept = skipped(peers, Some(&json!(["roomy"])), &mut down);
+        assert_eq!(kept.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["lean"]);
+        assert_eq!(
+            down,
+            [("Roomy.local".to_owned(), "its remote chain refused this start".to_owned())]
+        );
+        let mut none = Vec::new();
+        assert_eq!(skipped(kept, None, &mut none).len(), 1);
+        assert!(none.is_empty());
+    }
+
     /// A command-line `new` on a machine a person works at weighs only the others: this one and
     /// every interactive peer drop out, the fleet hosts stay.
     #[test]
@@ -373,7 +471,7 @@ mod tests {
                 named("lane", false, health(60, 6)),
             ]
         };
-        let v = dispatch_place(hosts(), Some(&reg), Work::Agent);
+        let v = dispatch_place(hosts(), &[], Some(&reg), Work::Agent);
         assert_eq!(v["pick"], "lane", "{v:#}");
         assert_eq!(v["overloaded"], true, "{v:#}");
         assert_eq!(v["local"], false);
@@ -383,7 +481,7 @@ mod tests {
 
         // A build may go to the last-resort host (its lanes.build "fallback"); a person's
         // machines stay out, and the lane VM takes no builds.
-        let v = dispatch_place(hosts(), Some(&reg), Work::Build);
+        let v = dispatch_place(hosts(), &[], Some(&reg), Work::Build);
         assert_eq!(v["pick"], "spare", "{v:#}");
 
         // Nothing left: no pick, and the answer names who was left out and why.
@@ -393,6 +491,7 @@ mod tests {
                 named("apps", false, health(60, 0)),
                 named("spare", false, health(60, 0)),
             ],
+            &[],
             Some(&reg),
             Work::Agent,
         );
@@ -401,7 +500,7 @@ mod tests {
         assert!(why.contains("never starts a new lane on mac, apps, spare"), "{why}");
 
         // Without a registry nothing is left out.
-        let v = dispatch_place(vec![named("mac", true, health(60, 0))], None, Work::Agent);
+        let v = dispatch_place(vec![named("mac", true, health(60, 0))], &[], None, Work::Agent);
         assert_eq!(v["pick"], "mac", "{v:#}");
     }
 
