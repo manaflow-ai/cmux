@@ -172,12 +172,23 @@ BOUNDED_SELECTOR_JOBS = {
     ("sdk-release-cut.yml", "cut-tags"), ("test-e2e.yml", "runner"), ("test-ios.yml", "runner"),
 }
 HOSTED_LITERAL_LABEL = re.compile(r"ubuntu-latest|ubuntu-\d{2}\.\d{2}(?:-arm)?|macos-\d+(?:-intel)?|windows-\d{4}")
-# Our own one-job Linux label: the fleet reconciler boots one cloud VM per queued job with a
-# JIT config, no service account, and deletes it after that job, so a key held there leaves with the VM as on a
-# Blacksmith one. Accepted only as a literal operand: no variable may name it, and no other owned label is.
+# Our own one-job Linux label for the jobs that repair the queue: the fleet reconciler boots one cloud VM per queued
+# job with a JIT config, no service account, and deletes it after that job, so a key held there leaves with the VM as
+# on a Blacksmith one. Accepted only as a literal operand: no variable may name it, and no other owned label is.
 # The queue janitors take it first so they never queue on the hosted pools they drain (2026-11-19: about 28,700
-# queued jobs, the janitors among them).
-FLEET_EPHEMERAL_LABELS = frozenset({"cmux-fleet-linux-x64"})
+# queued jobs, the janitors among them). It is the repair label, not the shared cmux-fleet-linux-x64 every x64 Linux
+# pool leads with: on 2026-11-20 ci-hosted-backlog-rescue run 44679805477 sat queued on the shared label from 05:15Z
+# behind the PR backlog, holding its concurrency group. Only the repair jobs ask for it, and the reconciler keeps its
+# own warm floor of idle runners for them (cmuxterm-hq gha_runners.py REPAIR_LABEL).
+REPAIR_LABEL = "cmux-fleet-repair-x64"
+FLEET_EPHEMERAL_LABELS = frozenset({REPAIR_LABEL})
+# The jobs that shed or rescue the queue, exactly: each leads with REPAIR_LABEL behind CI_REPAIR_SKIP_FLEET, and no
+# other job names REPAIR_LABEL or that switch. A new repair job is added here, so it cannot land on the shared label.
+REPAIR_JOBS = {
+    ("ci-cla-quota-rerun.yml", "cla-quota-rerun"), ("ci-hosted-backlog-rescue.yml", "backlog"),
+    ("ci-hosted-light-rescue.yml", "rescue"), ("ci-owned-pool-rescue.yml", "rescue"),
+    ("ci-queue-janitor.yml", "sweep"), ("ci-stale-run-janitor.yml", "janitor"),
+}
 # The janitors' fleet-first operand, exactly: a switch-off variable compared with a literal, an optional
 # schedule-or-dispatch event test, then the fleet literal. Placed after the fork branch of an otherwise accepted
 # expression (the trusted selector included), it can only ever add that one label.
@@ -1564,18 +1575,22 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         # owned label still fails.
         fork = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
         switch = "vars.CI_REPAIR_SKIP_FLEET != '1' && "
-        self.assertEqual(runner_label_errors(f"${{{{ {fork}{switch}'cmux-fleet-linux-x64' || {BOUNDED_LINUX_SELECTOR} }}}}"), [])
-        self.assertEqual(runner_label_errors("cmux-fleet-linux-x64"), ["'cmux-fleet-linux-x64' is not an ephemeral label"])
+        self.assertEqual(runner_label_errors(f"${{{{ {fork}{switch}'cmux-fleet-repair-x64' || {BOUNDED_LINUX_SELECTOR} }}}}"), [])
+        self.assertEqual(runner_label_errors("cmux-fleet-repair-x64"), ["'cmux-fleet-repair-x64' is not an ephemeral label"])
+        # The shared label every x64 Linux pool leads with is no repair route (2026-11-20, run 44679805477).
+        self.assertNotEqual(runner_label_errors(f"${{{{ {fork}{switch}'cmux-fleet-linux-x64' || {BOUNDED_LINUX_SELECTOR} }}}}"), [])
         # Ahead of the exact trusted selector, on schedule and dispatch only (the owned-pool sweeper).
         scheduled = "(github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && " + switch
         self.assertEqual(runner_label_errors(TRUSTED_RUNNER_EXPRESSION.replace(
+            fork, f"{fork}{scheduled}'cmux-fleet-repair-x64' || ", 1)), [])
+        self.assertNotEqual(runner_label_errors(TRUSTED_RUNNER_EXPRESSION.replace(
             fork, f"{fork}{scheduled}'cmux-fleet-linux-x64' || ", 1)), [])
         self.assertNotEqual(runner_label_errors(TRUSTED_RUNNER_EXPRESSION.replace(
             fork, f"{fork}{scheduled}'cmux-gcp-lane-x64' || ", 1)), [])
         for refused in (f"${{{{ {fork}{switch}'cmux-gcp-lane-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
                         f"${{{{ {fork}{switch}'glaeda-std-xcode-26.6' || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
                         f"${{{{ {fork}{switch}vars.CI_REPAIR_SKIP_FLEET || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
-                        f"${{{{ {fork}contains(fromJSON('[\"cmux-fleet-linux-x64\",\"cmux-gcp-lane-x64\"]'), vars.X) "
+                        f"${{{{ {fork}contains(fromJSON('[\"cmux-fleet-repair-x64\",\"cmux-gcp-lane-x64\"]'), vars.X) "
                         "&& vars.X || 'blacksmith-4vcpu-ubuntu-2404' }}"):
             with self.subTest(runs_on=refused):
                 self.assertNotEqual(runner_label_errors(refused), [])
@@ -1697,6 +1712,55 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         # Another repository's check is not an owner gate.
         other = "jobs:\n  e:\n    if: github.repository == 'someone/cmux'\n    runs-on: blacksmith-8vcpu-ubuntu-2404\n"
         self.assertEqual(len(ungated_blacksmith_labels("x.yml", other)), 1)
+
+
+class RepairJobsTakeTheReservedLabel(unittest.TestCase):
+    """A repair path never waits on the pool it repairs (cmuxterm-hq docs/handbook/repair-path-on-the-pool-it-repairs.md).
+
+    2026-11-20: ci-hosted-backlog-rescue run 44679805477 (job 136100207480) sat queued on cmux-fleet-linux-x64 from
+    05:15Z with no runner, behind the PR jobs that share that label, and held its concurrency group, so passes
+    44680043195, 44681168353, 44682333666 and 44683458505 were cancelled and 44684494827 waited. The repair jobs now
+    lead with REPAIR_LABEL, which only they ask for and which keeps its own idle runners.
+    """
+
+    @staticmethod
+    def jobs() -> list[tuple[str, str, object]]:
+        found = []
+        for path in sorted(WORKFLOWS.glob("*.y*ml")):
+            document = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader) or {}
+            for name, job in (document.get("jobs") or {}).items():
+                found.append((path.name, name, job.get("runs-on")))
+        return found
+
+    def test_every_repair_job_leads_with_the_reserved_label(self) -> None:
+        runs_on = {(workflow, job): value for workflow, job, value in self.jobs()}
+        for key in sorted(REPAIR_JOBS):
+            with self.subTest(job=key):
+                self.assertIn(key, runs_on)
+                value = str(runs_on[key])
+                self.assertTrue(value.startswith(FORK_BRANCH_PREFIX), value)
+                # An optional event test (the scheduled sweeps), then the switch, then the repair label.
+                matched = re.match(r"(?:\([^()]*\) && )?vars\.CI_REPAIR_SKIP_FLEET != '1' && '([a-z0-9-]+)' \|\| ",
+                                   value[len(FORK_BRANCH_PREFIX):])
+                self.assertIsNotNone(matched, f"{key} does not lead with {REPAIR_LABEL} behind CI_REPAIR_SKIP_FLEET")
+                self.assertEqual(matched.group(1), REPAIR_LABEL)
+                # The manual lever still moves it: CI_REPAIR_SKIP_FLEET=1 picks the bounded overflow selector.
+                self.assertEqual(runner_label_errors(value), [], value)
+                self.assertNotIn("cmux-fleet-linux-x64", value, "never the shared label its backlog fills")
+
+    def test_only_the_repair_jobs_name_the_reserved_label_or_its_switch(self) -> None:
+        for workflow, job, value in self.jobs():
+            text = str(value)
+            if REPAIR_LABEL in text or "CI_REPAIR_SKIP_FLEET" in text:
+                with self.subTest(job=(workflow, job)):
+                    self.assertIn((workflow, job), REPAIR_JOBS,
+                                  f"{workflow}:{job} names {REPAIR_LABEL}; a PR job there would take the repair floor")
+
+    def test_no_job_leads_with_the_shared_fleet_label_behind_the_repair_switch(self) -> None:
+        shared = "vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-fleet-linux-x64'"
+        for workflow, job, value in self.jobs():
+            with self.subTest(job=(workflow, job)):
+                self.assertNotIn(shared, str(value))
 
 
 if __name__ == "__main__":
