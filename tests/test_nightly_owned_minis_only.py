@@ -48,7 +48,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_ci_fork_runner_routing import parse_expression  # noqa: E402
-from test_nightly_trusted_routing import evaluate  # noqa: E402
+from test_nightly_trusted_routing import JIT_ARM, JIT_ARM_JOBS, JIT_LABEL, evaluate, hosted_route  # noqa: E402,F401
 import test_nightly_never_blacksmith as never_blacksmith  # noqa: E402
 from test_nightly_never_blacksmith import JOBS, ROOT  # noqa: E402
 import workflow_jobs  # noqa: E402
@@ -224,7 +224,8 @@ class EveryJobOnOurMinis(unittest.TestCase):
             resolved = workflow_jobs.resolve(job, name)
             with self.subTest(job=name):
                 self.assertEqual(resolved.runs_on_cells,
-                                 ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}"])
+                                 ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                                  + JIT_ARM + "'ubuntu-24.04' }}"])
                 self.assertIn("secrets.CMUX_RELEASE_APP_KEY", json.dumps(job))
                 self.assertIn("release-next", resolved.environments)
                 self.assertEqual(resolved.environments_unresolved, set())
