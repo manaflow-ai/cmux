@@ -556,7 +556,7 @@ import { ChatHeaderTools } from "./header/ChatHeaderTools";
 import { HEADER_ACTIONS, guardedChatMenu, menuGroups, type ChatMenuItem } from "./header/chatHeaderToolsModel";
 import { ThreadTitle } from "./header/ThreadTitle";
 import { deleteChatRow, moveMachineRow } from "./header/chatRows";
-import { moveToTerminal, terminalMoveRow } from "./header/terminalMoveRow";
+import { moveToTerminal, terminalMoveRow, TERMINAL_SWITCH_ACTION, terminalSwitchRow } from "./header/terminalMoveRow";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowRoot, useTabRowTools } from "./header/tabRow";
 import { SubagentComposer } from "./subagents/SubagentComposer";
@@ -11268,39 +11268,57 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     );
     const remove = sessionId ? guarded(deleteChatRow(requestDelete, t)) : [];
     const moveRow = guarded(moveMachine);
-    // Move to Terminal (header/terminalMoveRow.ts): this pane stops running the chat, then the
-    // harness's own resume runs it in a terminal and the tab closes; never while a turn runs.
-    const terminalMove = guarded(
-      terminalMoveRow(
-        {
-          sessionId,
-          family: summary?.family || summary?.harness,
-          agentSessionId: summary?.agentSessionId,
-          local: !onOtherMachine && !(summary?.host && summary.hostKind !== "local"),
-          native: hasNativeHost(),
-          quick,
-          watching: Boolean(summary?.watching),
-          working: snapshot.isWorking,
-        },
-        (key) =>
-          void moveToTerminal(
-            key,
-            {
-              release: () => (client && sessionId ? client.releaseToTerminal(sessionId) : Promise.reject()),
-              open: (chat) => callNative("chats.openInTerminal", { key: chat }),
-              close: () => runHeaderAction(HEADER_ACTIONS.close),
-              same: sameChat,
-              say: notices.transient,
-            },
-            t,
-          ),
+    // Switch to terminal (header/terminalMoveRow.ts): a terminal runs this chat's session, so the App's Toggle
+    // Terminal and Chat shows it, as the tab's right-click does; it leads the menu, as Switch to Chat leads the
+    // pane's "..." on the terminal.
+    const terminalSwitch = guarded(
+      terminalSwitchRow(
+        { switchable: headerState().terminalSwitch, native: hasNativeHost(), quick },
+        () =>
+          void callNative("action.run", {
+            id: TERMINAL_SWITCH_ACTION,
+            ...(sessionId ? { session: sessionId } : {}),
+          }).catch(sayActionRefusal(notices.transient)),
         t,
       ),
     );
+    // Move to Terminal (header/terminalMoveRow.ts): this pane stops running the chat, then the
+    // harness's own resume runs it in a terminal and the tab closes; never while a turn runs.
+    // Not on a chat a terminal already runs: Switch to terminal shows that one.
+    const terminalMove = terminalSwitch.length
+      ? []
+      : guarded(
+          terminalMoveRow(
+            {
+              sessionId,
+              family: summary?.family || summary?.harness,
+              agentSessionId: summary?.agentSessionId,
+              local: !onOtherMachine && !(summary?.host && summary.hostKind !== "local"),
+              native: hasNativeHost(),
+              quick,
+              watching: Boolean(summary?.watching),
+              working: snapshot.isWorking,
+            },
+            (key) =>
+              void moveToTerminal(
+                key,
+                {
+                  release: () => (client && sessionId ? client.releaseToTerminal(sessionId) : Promise.reject()),
+                  open: (chat) => callNative("chats.openInTerminal", { key: chat }),
+                  close: () => runHeaderAction(HEADER_ACTIONS.close),
+                  same: sameChat,
+                  say: notices.transient,
+                },
+                t,
+              ),
+            t,
+          ),
+        );
     // Quick Chat's panel is not a tab: only the chat's own actions.
     if (quick) return menuGroups(fork, continueIn, resend, copy ? [copy] : [], moveRow, tools, remove);
     // ChatGPT's order: the chat's name and pin, new chats from it, Copy, where it shows, then Archive.
     return menuGroups(
+      terminalSwitch,
       [
         {
           key: "rename",
