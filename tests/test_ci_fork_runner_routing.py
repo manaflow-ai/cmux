@@ -1063,6 +1063,35 @@ def ungated_blacksmith_labels(name: str, text: str) -> list[str]:
 
 
 class ForkRunnerRoutingTests(unittest.TestCase):
+    def test_fork_events_cannot_select_the_persistent_linux_pool(self) -> None:
+        from runs_on_labels import resolve_labels
+
+        documents = {p.name: workflow_jobs.document(p) for p in WORKFLOWS.glob('*.y*ml')}
+        callers = workflow_jobs.Workflows(documents)
+        for event in ('pull_request', 'pull_request_target'):
+            roots = []
+            for name, doc in documents.items():
+                triggers = doc.get('on', doc.get(True, {}))
+                if event in ([triggers] if isinstance(triggers, str) else triggers):
+                    roots.append(WORKFLOWS / name)
+            for path in fork_exercised_workflows(roots):
+                for name, job in workflow_jobs.jobs(documents[path.name]).items():
+                    cells = workflow_jobs.runs_on_label_cells(job, path.name, callers)
+                    if cells is None:
+                        self.assertNotIn('cmux-linux', str(job.get('runs-on', '')) + str(job.get('strategy', '')),
+                                         f'{path.name}#{name}: unresolved persistent-pool matrix')
+                        continue
+                    for cell in cells:
+                        for label in cell:
+                            if 'cmux-linux' not in label.casefold():
+                                continue
+                            for head in ('outside/contribution', 'manaflow-ai/fork', ''):
+                                context = {'github.event_name': event, 'github.repository': 'manaflow-ai/cmux',
+                                           'github.event.pull_request.head.repo.full_name': head}
+                                with self.subTest(workflow=path.name, job=name, event=event, head=head):
+                                    choices = resolve_labels(label, context=context)
+                                    self.assertNotIn('cmux-linux', {str(v).casefold() for v in choices})
+
     def test_pull_request_branch_must_select_the_hosted_label(self) -> None:
         selected = (
             "runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest'"

@@ -71,7 +71,7 @@ class RunnerSetTests(unittest.TestCase):
         # scripts, retries only on ephemeral Blacksmith; the rest may take the reconciled pool.
         ephemeral = "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"
         cases = {
-            ("pr-red-checks-comment.yml", "comment"): "|| 'cmux-linux' }}",
+            ("pr-red-checks-comment.yml", "comment"): "|| 'blacksmith-4vcpu-ubuntu-2404' }}",
             ("cmux-next.yml", "path_route"): ephemeral,
             ("ci-guards.yml", "guard-status"): f"|| {POOL} }}}}",
             ("pr-checks.yml", "size"): "|| 'cmux-linux' }}",
