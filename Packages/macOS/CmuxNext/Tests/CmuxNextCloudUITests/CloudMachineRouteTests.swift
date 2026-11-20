@@ -167,6 +167,37 @@ import Testing
         await #expect(throws: notRunning) { _ = try await unwrapped("acp machine-auth", 1_000) }
     }
 
+    /// A machine its one start left not running (a resume that never landed) ends the start with Retry on that machine,
+    /// with no second start (from claude-274-fork's review of the parallel fix).
+    @Test func aMachineThatStaysStoppedEndsTheStartWithRetry() async {
+        let starts = UpdateCount()
+        let route = CloudMachineRoute(machineID: "vm-stopped", exec: { _, _ in
+            throw CloudAPIError.http(status: 409, code: "vm_not_running", message: "the machine is not running; start it first")
+        }, start: { await starts.add() })
+        do {
+            try await route.verify(family: "claude")
+            Issue.record("a machine that does not run passed the route check")
+        } catch let failure as CloudMoveFailure {
+            #expect(failure.retry == .move(machineID: "vm-stopped"))
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+        #expect(await starts.count == 1)
+    }
+
+    /// A resume refused for the person's cancel, an approval still pending, a quota or a plan keeps its own error; a
+    /// refusal a Retry can lift (a busy machine, a transport failure) does not.
+    @Test func aRefusedResumeKeepsItsOwnReason() {
+        #expect(CloudMachineRoute.keepsItsError(CancellationError()))
+        for code in ["approval.pending", "cloud.quota.exceeded", "cloud.plan.required"] {
+            #expect(CloudMachineRoute.keepsItsError(CloudAPIError.http(status: 409, code: code, message: nil)), "\(code)")
+        }
+        for code in ["cloud.machine.busy", "vm_unavailable"] {
+            #expect(!CloudMachineRoute.keepsItsError(CloudAPIError.http(status: 409, code: code, message: nil)), "\(code)")
+        }
+        #expect(!CloudMachineRoute.keepsItsError(CloudAPIError.transport("offline")))
+    }
+
     /// A machine whose exec route refuses it as not running until it is started, then prints `report`.
     private actor StoppedMachine {
         let report: String

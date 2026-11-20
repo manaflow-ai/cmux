@@ -44,8 +44,28 @@ public struct CloudMachineRoute: Sendable {
     /// The route of Cloud machine `machineID`, whose commands run through the Cloud API's exec. `start` starts or resumes
     /// the machine when the exec finds it not running (``startingWhenStopped(_:start:)``); nil refuses as the route does.
     public init(api: CloudAPIClient, machineID: String, start: (@Sendable () async throws -> Void)? = nil) {
-        exec = Self.startingWhenStopped({ try await api.exec(machineID, command: $0, timeoutMs: $1) }, start: start)
+        self.init(machineID: machineID, exec: { try await api.exec(machineID, command: $0, timeoutMs: $1) }, start: start)
+    }
+
+    /// ``init(api:machineID:start:)`` with its exec given (tests): a machine its start left not running ends the start
+    /// with its reason and Retry on `machineID`, not the route's bare refusal.
+    public init(machineID: String, exec: @escaping Exec, start: (@Sendable () async throws -> Void)?) {
+        let started = Self.startingWhenStopped(exec, start: start)
+        self.exec = start == nil ? started : { command, timeoutMs in
+            do { return try await started(command, timeoutMs) } catch let refusal as CloudAPIError where refusal.isMachineNotRunning {
+                throw CloudMoveFailure(message: CloudMoveStrings.moveFailed(refusal.text()), retry: .move(machineID: machineID))
+            }
+        }
         self.machineID = machineID
+    }
+
+    /// A refused resume whose own error is the start's answer, never a generic failure with Retry: the person's cancel,
+    /// an approval still pending, a quota, or a plan's refusal (the caller checks the plan's own forms too).
+    public nonisolated static func keepsItsError(_ error: any Error) -> Bool {
+        if error is CancellationError { return true }
+        var code = (error as? CloudAppOpFailure)?.code ?? ""
+        if case .http(_, let sent?, _, _, _) = error as? CloudAPIError { code = sent }
+        return code.contains("approval") || code.contains("quota") || code.contains("plan")
     }
 
     /// `exec`, except that a refusal because the machine does not run (`vm_not_running`: the Cloud API's exec and file
