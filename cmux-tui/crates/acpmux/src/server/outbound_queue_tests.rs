@@ -164,3 +164,5 @@ async fn the_queue_gauge_counts_the_bytes_a_slow_reader_has_not_read() {
     .expect("what the reader took leaves the gauge");
     assert_eq!(after.lines, 2);
 }
+
+mod flood_bulk;

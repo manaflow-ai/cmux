@@ -205,9 +205,9 @@ struct NewTabHoldCloseKeyTests {
             secondContent.contentView.layoutSubtreeIfNeeded()
             let secondWindow = try #require(second.window)
             try #require(secondWindow !== window, "the second workspace opened in the first window")
-            // The hold table's key is the window number. A host with no window session gives a window no number: the 2
-            // windows then have ONE key, and a test of which window has the hold proves nothing.
-            try #require(secondWindow.windowNumber != window.windowNumber, "the 2 windows have the same window number (\(window.windowNumber)): this host gives a window no number, and this fixture proves nothing")
+            // The hold table tells the 2 windows apart by the window itself, not its number: a host with no window session
+            // gives every window the number 0 (fleet step fede158918751ba1954eff3b), and a key by number made them ONE window.
+            // The hold below checks that the table keeps them apart.
             let firstPanes = store.workspaces.compactMap { $0.screens.first?.panes.first }
             let secondPane = try #require(firstPanes.compactMap { secondContent.paneController(key: $0.id) }.first, "the second window has no pane controller")
             try #require(secondPane !== focused && secondPane !== pane && secondPane.view.window === secondWindow, "the second window's pane is not its own")
@@ -250,6 +250,8 @@ struct NewTabHoldCloseKeyTests {
         for event in line { try #require(router.interceptKeyDown(event, in: window), "the hold did not take a key of the line: \(input.log)") }
         try #require(input.isHolding(in: window) && probe.typed.isEmpty, "the line is not held: probe \"\(probe.typed)\", \(input.log)")
         try #require(window.firstResponder === probe, "the keyboard left the probe before the hold ended (first responder \(String(describing: window.firstResponder)))")
+        // The hold is the first window's: the table does not give it to the second (one key for 2 windows proves nothing below).
+        if let other { try #require(!input.isHolding(in: other.window), "the second window has the first window's hold (window numbers \(window.windowNumber), \(other.window.windowNumber)): the hold table does not tell the 2 windows apart (\(input.log))") }
 
         let held = Held(services: services, window: window, pane: pane, tab: tab, probe: probe, token: token, other: other)
         let end = Result { try body(held) }

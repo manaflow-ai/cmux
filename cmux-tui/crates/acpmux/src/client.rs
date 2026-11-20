@@ -532,19 +532,31 @@ pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error 
     use std::io::Read as _;
 
     let home = crate::config::home();
-    let pid_path = home.join("daemon.pid");
-    let pid = crate::config::private_state_file(&pid_path)
-        .and_then(|mut file| {
-            let mut text = String::new();
-            file.read_to_string(&mut text)?;
-            Ok(text)
-        })
-        .ok()
-        .and_then(|s| s.trim().parse::<i32>().ok());
-    #[cfg(unix)]
-    let alive = pid.map(|p| unsafe { libc::kill(p, 0) } == 0).unwrap_or(false);
-    #[cfg(not(unix))]
-    let alive = pid.is_some();
+    // The daemon's owner record names it by pid, start time and boot (`daemon/supervision.rs`):
+    // a pid that a crash or a reboot left behind and another process now holds reads dead, so
+    // the next command starts a daemon instead of waiting on a stranger (F7). An unreadable
+    // record proves nothing and reads as running. A daemon from before the record wrote only
+    // `daemon.pid`.
+    let (pid, alive) = match crate::daemon::supervision::owner(&home) {
+        Some(owner) => {
+            (i32::try_from(owner.pid).ok(), owner.liveness() != cmux_supervise_core::Liveness::Dead)
+        }
+        None => {
+            let pid = crate::config::private_state_file(&home.join("daemon.pid"))
+                .and_then(|mut file| {
+                    let mut text = String::new();
+                    file.read_to_string(&mut text)?;
+                    Ok(text)
+                })
+                .ok()
+                .and_then(|s| s.trim().parse::<i32>().ok());
+            #[cfg(unix)]
+            let alive = pid.map(|p| unsafe { libc::kill(p, 0) } == 0).unwrap_or(false);
+            #[cfg(not(unix))]
+            let alive = pid.is_some();
+            (pid, alive)
+        }
+    };
     let socket = crate::config::socket_path().exists();
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

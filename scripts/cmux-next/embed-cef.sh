@@ -89,6 +89,14 @@ if (( want_x86 )); then
   # a universal build then keeps the arm64 engine.
   x86_dir="$("$SCRIPT_DIR/ensure-cef.sh" --optional --arch x86_64)"
 fi
+# Two engine versions never merge: their resource paks differ and merge-cef-universal.sh refuses
+# them (the manifest can pin x86_64 behind arm64, cmux.48 against cmux.52 on 2026-11-17). A
+# universal build then keeps the arm64 engine and the thin x86_64 variant drops it, as with no
+# x86_64 artifact at all.
+if [[ -n "$arm_dir" && -n "$x86_dir" && "$(basename "$arm_dir")" != "$(basename "$x86_dir" | sed 's/-x86_64$//')" ]]; then
+  echo "warning: the x86_64 CEF ($(basename "$x86_dir")) is not the arm64 engine ($(basename "$arm_dir")); embedding arm64 only, Intel ships without the Chromium engine"
+  x86_dir=""
+fi
 cache_root="$("$SCRIPT_DIR/cef-cache-root.sh")"
 shim_archs=()
 if [[ -n "$arm_dir" && -n "$x86_dir" ]]; then

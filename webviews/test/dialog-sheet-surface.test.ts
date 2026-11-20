@@ -13,13 +13,15 @@ import { join, relative } from "node:path";
 const SRC = join(import.meta.dir, "../src");
 const read = (path: string) => readFileSync(join(SRC, path), "utf8");
 
-/** The decision and form dialogs (not media lightboxes or pickers): each one's popup class. */
+/** The decision and form dialogs and the pasted text sheet (not media lightboxes or pickers): each one's popup
+ * class. */
 const SHEETS: Record<string, string> = {
   "share-dialog-popup": "agent-session/acpmux/share/ShareControl.tsx",
   "acpmux-delete-dialog": "agent-session/acpmux/header/DeleteChatDialog.tsx",
   "acpmux-add-account": "agent-session/acpmux/AddAccountDialog.tsx",
   "acpmux-add-project-dialog": "agent-session/acpmux/AddProjectPanel.tsx",
   "acpmux-pdf-viewer": "agent-session/acpmux/composer/attachmentIntake.tsx",
+  "acpmux-paste-view": "agent-session/acpmux/composer/ContentChip.tsx",
   "activity-viewer-dialog": "agent-activity/viewer.tsx",
   "machines-dialog": "pages/machines/MachinesSection.tsx",
   "cloud-environment-sheet": "pages/cloud/EnvironmentSheet.tsx",
@@ -51,7 +53,10 @@ const subjectIs = (selector: string, cls: string) =>
 test("the sheet role is one rule: veil, radius, depth and the Reduce Transparency fill", () => {
   const sheet = rules(read("ui/popupSurface.css")).find((rule) => rule.selectors.includes(".ui-dialog.ui-glass"));
   expect(sheet).toBeDefined();
-  expect(sheet!.body).toContain("--glass-tint: var(--surface-sheet-veil)");
+  expect(sheet!.body).toContain("--glass-tint: var(--transient-surface-veil)");
+  expect(sheet!.body).toContain(
+    "--glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation))",
+  );
   // The corner is the button corner plus --ui-dialog-padding (the padding that a dialog must pad with).
   // It is concentric with the buttons only of a dialog that pads with that token.
   expect(sheet!.body).toContain("--ui-dialog-padding: var(--ds-space-5)");

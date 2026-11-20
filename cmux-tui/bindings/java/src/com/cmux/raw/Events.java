@@ -49,6 +49,7 @@ public final class Events {
     public static final EventMetadata CONVERSATION_TYPING = new EventMetadata("conversation-typing", 12, "local-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata DAEMON_SHUTDOWN = new EventMetadata("daemon-shutdown", 12, null, List.of("control"), true);
     public static final EventMetadata DETACHED = new EventMetadata("detached", 5, null, List.of("attach-byte", "attach-render", "attach-browser"), true);
+    public static final EventMetadata DEVICE_SETUP_STEP = new EventMetadata("device-setup-step", 12, null, List.of("control"), true);
     public static final EventMetadata EMPTY = new EventMetadata("empty", 5, null, List.of("subscribe"), true);
     public static final EventMetadata FEED_REPORTS_CHANGED = new EventMetadata("feed-reports-changed", 12, "feed-client-v1", List.of("subscribe"), true);
     public static final EventMetadata FEED_VIEW_CHANGED = new EventMetadata("feed-view-changed", 12, "feed-client-v1", List.of("subscribe"), true);
@@ -149,6 +150,7 @@ public final class Events {
         values.put("conversation-typing", CONVERSATION_TYPING);
         values.put("daemon-shutdown", DAEMON_SHUTDOWN);
         values.put("detached", DETACHED);
+        values.put("device-setup-step", DEVICE_SETUP_STEP);
         values.put("empty", EMPTY);
         values.put("feed-reports-changed", FEED_REPORTS_CHANGED);
         values.put("feed-view-changed", FEED_VIEW_CHANGED);

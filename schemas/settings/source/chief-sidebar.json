@@ -19,7 +19,7 @@
           },
           "help": {
             "key": "settings.chief.subagentSidebar.help",
-            "text": "Every subagent gets a workspace. Chief Decides puts work you will watch or join in the sidebar and errands in the collapsed Chief's workspaces group, which search still finds. Sidebar or Chief's Workspaces puts every subagent there."
+            "text": "Where subagent workspaces go: the sidebar or the collapsed Chief's group."
           },
           "kind": "choice",
           "choices": [
@@ -67,7 +67,7 @@
           },
           "help": {
             "key": "settings.chief.subagentSidebarShowWords.help",
-            "text": "Words or phrases that put a subagent in the sidebar when the Chief leaves it to these rules. They add to the built-in ones, such as UI, design, screenshots and needs you."
+            "text": "Words that put a subagent in the sidebar, added to the built-in ones."
           },
           "kind": "string_list",
           "default": [],
@@ -98,7 +98,7 @@
           },
           "help": {
             "key": "settings.chief.subagentSidebarHideWords.help",
-            "text": "Words or phrases that put a subagent in the collapsed Chief's workspaces group when the Chief leaves it to these rules. They add to the built-in ones, such as lookup, cleanup and land queue. A sidebar word wins."
+            "text": "Words that put a subagent in Chief's workspaces, added to the built-in ones."
           },
           "kind": "string_list",
           "default": [],
@@ -129,7 +129,7 @@
           },
           "help": {
             "key": "settings.chief.subagentSidebarMinWords.help",
-            "text": "A task with neither kind of word goes in the sidebar when it has at least this many words, and in Chief's workspaces when it is shorter."
+            "text": "Tasks with at least this many words go in the sidebar."
           },
           "kind": "number",
           "range": {

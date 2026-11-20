@@ -43,6 +43,10 @@ on:
         description: "Staging only: measure the shipped spare-ready preclaim login path"
         type: boolean
         default: false
+      ensure_bench:
+        description: "With preclaim: time acp ensure on one fresh staging machine (5 each right after boot, settled, both cores loaded) instead of the burst"
+        type: boolean
+        default: false
       claims:
         description: "Preclaim burst size (1-20)"
         type: string
@@ -141,6 +145,9 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ matrix.model == 'real' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
           MODEL: ${{ matrix.model }}
           CMUX_TUI: ${{ steps.build-cmux-tui.outputs.path }}
+          # The dedicated private sandbox repository (OWNER/REPO) the test team's GitHub connection lists: the live
+          # GitHub cells and, with the real model, the agent's. Unset (the repository variable is not set): skipped.
+          CMUX_JOURNEY_GITHUB_REPO: ${{ vars.CMUX_JOURNEY_GITHUB_REPO }}
         run: |
           set -uo pipefail
           out="$RUNNER_TEMP/cloud-journey"
@@ -159,7 +166,7 @@ jobs:
           name: cloud-journey-prod-${{ matrix.model }}
           path: ${{ runner.temp }}/cloud-journey
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3
       # One issue per model: opened on the first red, its body rewritten on later reds (no comment per hour), closed
       # by the next green. A timed-out or cancelled journey counts as red. Only main's own runs touch it.
       - name: Open, update or close the red-journey issue
@@ -286,6 +293,7 @@ jobs:
           CMUX_STAGING_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           HQ_GH_TOKEN: ${{ steps.hq-preclaim-token.outputs.token }}
+          PRECLAIM_ENSURE_BENCH: ${{ inputs.ensure_bench && '5' || '' }}
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/cloud-preclaim"

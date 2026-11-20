@@ -26,6 +26,7 @@ frames). Exit 1 with --gate-p95-ms when any measured surface's p95 is over it.
 
   typing-frame-bench.py --app APP --tag TAG --out DIR [--json FILE] [--surfaces terminal,home,dock,omnibar]
       [--phases idle,load] [--samples 80] [--busy 20] [--chats 2] [--sample] [--gate-p95-ms 8]
+      [--backdrops opaque,opacity85,picture]
 
 Fleet (an owned mini with a console; the step builds the app):
   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh --ref SHA \\
@@ -47,6 +48,14 @@ parser.add_argument("--samples", type=int, default=80)
 parser.add_argument("--interval", type=float, default=0.1, help="seconds between keys (one key in flight)")
 parser.add_argument("--busy", type=int, default=20, help="busy terminals in the load phase")
 parser.add_argument("--chats", type=int, default=2, help="streaming mock agent chats in the load phase")
+parser.add_argument("--title-churn", action="store_true",
+                    help="the busy terminals rename their tab ten times a second (an agent's spinner title) instead of printing")
+parser.add_argument("--dock-load", action="store_true", help="measure the docked Home in the load phase too")
+parser.add_argument("--words", action="store_true", help="type words with spaces (a sentence), not the alphabet as one word")
+parser.add_argument("--fresh-draft", action="store_true",
+                    help="empty the Home draft (Cmd-A, Delete) before each measure, so every round types the same draft")
+parser.add_argument("--prefill", type=int, default=0,
+                    help="with --fresh-draft: the Home draft holds this many characters of words before the measured keys")
 parser.add_argument("--stress", action="store_true",
                     help="build the STRESS session first (perf-lead brief: 60 workspaces, the typed workspace a 4x3 grid with "
                          "6 tabs per pane, 10 workspaces with Chromium pages, 10 printing terminals); every phase runs in it. "
@@ -54,7 +63,13 @@ parser.add_argument("--stress", action="store_true",
 parser.add_argument("--sessions", help="comma list of light,stress: one app launch each (default: light, or stress with --stress)")
 parser.add_argument("--rounds", type=int, default=3, help="every phase this many times per launch (the noise shows)")
 parser.add_argument("--sample", action="store_true", help="/usr/bin/sample the app over each load phase")
+parser.add_argument("--sample-idle", action="store_true", help="with --sample: the idle phases too")
 parser.add_argument("--gate-p95-ms", type=float)
+parser.add_argument("--backdrops", default="default",
+                    help="comma list of window backdrops, one launch each: default (the bench's config), opaque "
+                         "(Opacity 1), opacity85 (Opacity 0.85, no picture), picture (van-gogh-starry-night at Opacity "
+                         "0.85). Each run's session is SESSION/BACKDROP; every measure records the app's and "
+                         "WindowServer's CPU over its keys, which is where a see-through terminal's compositing costs")
 opts = parser.parse_args()
 OUT = os.path.abspath(opts.out)
 os.makedirs(OUT, exist_ok=True)
@@ -66,6 +81,9 @@ PROBE = os.path.join(OUT, "typing.csv")
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 WINDOW = (40, 40, 1400, 900)
 BUSY = "while :; do printf '%s busy line %s %s\\n' $RANDOM $RANDOM $RANDOM; done"
+# An agent's spinner title: the tab renames ten times a second, as a working agent's terminal does (one process, no
+# fork per frame: a shell loop around `sleep` would spawn ten processes a second per terminal).
+TITLE_CHURN = r'''perl -e '$|=1; for(;;){ for $s (qw(a b c d e f g h i j)){ print "\e]0;$s Working on the task\a"; select(undef,undef,undef,0.1) } }' '''.strip()
 results = {"tag": TAG, "host": os.uname().nodename, "opts": vars(opts), "log": [], "runs": []}
 app = None
 SESSION = "light"
@@ -175,6 +193,11 @@ class Streamer(threading.Thread):
 LOAD = {"made": False, "workspaces": [], "chat_panes": []}
 
 
+def busy_command():
+    """What each busy terminal runs: printed lines, or with --title-churn a spinner title."""
+    return TITLE_CHURN if opts.title_churn else BUSY
+
+
 def make_load(surface_ws):
     """Busy terminals (three split beside the typed surface, the rest in other workspaces) and mock agent chats."""
     if LOAD["made"]:
@@ -189,17 +212,17 @@ def make_load(surface_ws):
     visible = min(3, opts.busy)
     for _ in range(visible):
         action("splitRight", settle=0.6)
-        action("terminal.sendText", {"text": BUSY + "\r"})
+        action("terminal.sendText", {"text": busy_command() + "\r"})
     rest = opts.busy - visible
     per = 4
     for index in range((rest + per - 1) // per):
         count = min(per, rest - index * per)
-        ref = cli("workspace", "create", "--name", f"busy {index}", "--shell", BUSY).stdout.strip()
+        ref = cli("workspace", "create", "--name", f"busy {index}", "--shell", busy_command()).stdout.strip()
         LOAD["workspaces"].append(ref)
         for _ in range(count - 1):
             cli("workspace", ref, "focus")
             action("splitDown", settle=0.4)
-            action("terminal.sendText", {"text": BUSY + "\r"})
+            action("terminal.sendText", {"text": busy_command() + "\r"})
     for _ in range(opts.chats):
         reply = action("palette.newAgentChat", settle=1.0)
         # The action answers after ~2 s while the chat still opens: wait for its page, then its composer.
@@ -273,13 +296,17 @@ def workspaces():
 
 
 # ---------------------------------------------------------------- typing
+SENTENCE = "the chief reads your note and starts on the work in a new workspace "
+
+
 def type_keys(count, params, column):
-    keys = "abcdefghijklmnopqrstuvwxyz"
+    keys = SENTENCE if opts.words else "abcdefghijklmnopqrstuvwxyz"
     rows_before = len(probe_rows())
     trips = []
     for index in range(count):
         t0 = time.perf_counter()
-        reply = rpc("debug.key", dict(params, key=keys[index % len(keys)], timestamp=time.clock_gettime(time.CLOCK_UPTIME_RAW)),
+        key = keys[index % len(keys)]
+        reply = rpc("debug.key", dict(params, key="space" if key == " " else key, timestamp=time.clock_gettime(time.CLOCK_UPTIME_RAW)),
                     timeout=10)
         trips.append((time.perf_counter() - t0) * 1000)
         if isinstance(reply, dict) and reply.get("error"):
@@ -341,7 +368,33 @@ def digest_sample(text):
     return {"samples": total, "busy_pct": pct_of(total - idle), "top": top(inclusive, 60), "ours": top(ours, 40), "leaves": top(leaf, 25)}
 
 
+BACKDROPS = {"default": {}, "opaque": {"backgroundOpacity": 1}, "opacity85": {"backgroundOpacity": 0.85},
+             "picture": {"background": "van-gogh-starry-night", "backgroundOpacity": 0.85}}
+WINDOW_SERVER = None
+
+
+def cpu_seconds(pid):
+    """A process's user+system CPU time in seconds (`ps -o cputime`, any user's process), or None."""
+    if not pid:
+        return None
+    out = subprocess.run(["ps", "-o", "cputime=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    if not out:
+        return None
+    parts = [float(x) for x in out.replace("-", ":").split(":")]
+    total = 0.0
+    for x in parts:
+        total = total * 60 + x
+    return total
+
+
+def window_server_pid():
+    out = subprocess.run(["pgrep", "-x", "WindowServer"], capture_output=True, text=True).stdout.split()
+    return int(out[0]) if out else None
+
+
 def measure(surface, phase, params, column, pid, streams=()):
+    global WINDOW_SERVER
+    WINDOW_SERVER = WINDOW_SERVER or window_server_pid()
     rpc("debug.hangs", {"clear": True})
     rpc("debug.timings", {"clear": True})
     rows_before = len(probe_rows())
@@ -349,7 +402,7 @@ def measure(surface, phase, params, column, pid, streams=()):
     for s in streams:
         s.start()
     sampler = None
-    if opts.sample and phase == "load":
+    if opts.sample and (phase == "load" or opts.sample_idle):
         path = os.path.join(OUT, f"sample-{SESSION}-{surface}-{phase}.txt")
         seconds = max(3, int(opts.samples * opts.interval))
         sampler = (subprocess.Popen(["/usr/bin/sample", str(pid), str(seconds), "1", "-file", path],
@@ -359,7 +412,12 @@ def measure(surface, phase, params, column, pid, streams=()):
     # debug.view_churn (which views ask for display or layout while the keys are typed) exists only in a probe
     # build (scratch branch pl-typing-view-churn, never landed: a DEBUG swizzle of NSView); elsewhere this records the error.
     rpc("debug.view_churn", {"action": "start"})
+    cpu_start = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
     rows, trips = type_keys(opts.samples, params, column)
+    cpu_end = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
+    wall = cpu_end[0] - cpu_start[0]
+    share = lambda i: (round(100.0 * (cpu_end[i] - cpu_start[i]) / wall, 1)
+                       if wall > 0 and cpu_end[i] is not None and cpu_start[i] is not None else None)
     churn = rpc("debug.view_churn", {"action": "stop", "limit": 15}, timeout=20)
     for s in streams:
         s.stop()
@@ -388,6 +446,7 @@ def measure(surface, phase, params, column, pid, streams=()):
         "probe_rows": {"all": len(every), "complete": sum(r.get("complete") == "1" for r in every),
                        "marks": {m: sum(bool(r.get(m)) for r in every) for m in marks}},
         "stream_replies": LOAD.get("stream_replies", [])[:4],
+        "cpu_pct": {"app": share(1), "window_server": share(2), "seconds": round(wall, 2)},
     }
     if sampler:
         try:
@@ -402,7 +461,9 @@ def measure(surface, phase, params, column, pid, streams=()):
             pass
     k = entry["key_to_frame_ms"] or {}
     note(f"{SESSION} {surface}.{phase}: key-to-frame p50 {k.get('p50')} p95 {k.get('p95')} p99 {k.get('p99')} max {k.get('max')} ms "
-         f"(n={k.get('n')}/{len(trips)}); hangs {(entry['hangs'] or {}).get('count') if isinstance(entry['hangs'], dict) else '?'}")
+         f"(n={k.get('n')}/{len(trips)}); hangs {(entry['hangs'] or {}).get('count') if isinstance(entry['hangs'], dict) else '?'}; "
+         f"cpu app {entry['cpu_pct']['app']}% WindowServer {entry['cpu_pct']['window_server']}%; "
+         f"frames {json.dumps({x: (frames or {}).get(x) for x in ('missed', 'max_ms', 'p99_ms')} if isinstance(frames, dict) else frames)}")
     results["runs"].append(entry)
     if opts.json:
         json.dump(results, open(opts.json, "w"), indent=1)
@@ -418,14 +479,29 @@ def named_workspace(name):
     return None, []
 
 
-def focus_terminal():
-    """Shows the typed terminal's workspace and gives its pane the keyboard; returns what has it (debug.focus)."""
+def focus_terminal(tries=5):
+    """Shows the typed terminal's workspace and gives its pane the keyboard; returns what has it (debug.focus).
+
+    Tries again while no terminal is the first responder (an agent chat the load just opened can keep the window's
+    keyboard): a measure with the keys going nowhere records no probe rows, which read as a missing number, not a slow
+    one. The report keeps `tries` and `terminal_focused`."""
     ws, pane = LOAD["terminal_ws"], LOAD.get("stress_pane") or LOAD.get("terminal_pane")
-    rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": ws}, "focus": True, "origin": "script"})
-    if pane:
-        rpc("action.run", {"action": "pane.focus", "target": f"pane:{pane}", "focus": True, "origin": "script"})
-    time.sleep(0.5)  # focus settles
-    return focus_report()
+    report = {}
+    for attempt in range(1, tries + 1):
+        went = rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": ws}, "focus": True, "origin": "script"})
+        focus = rpc("action.run", {"action": "pane.focus", "target": f"pane:{pane}", "focus": True, "origin": "script"}) if pane else None
+        time.sleep(0.5)  # focus settles
+        report = focus_report()
+        focused = any("TerminalSurfaceView" in str(r) for r in report["first_responders"])
+        if focused:
+            break
+        note(f"{SESSION}: focus try {attempt}: no terminal has the keyboard ({report['first_responders']})")
+        if attempt == 1:
+            # What the app says it did and has: the whole debug.focus report, the two replies, the shown workspace.
+            results.setdefault("focus_failures", []).append({
+                "session": SESSION, "round": ROUND, "workspace": ws, "pane": pane,
+                "goToWorkspace": went, "pane_focus": focus, "debug_focus": rpc("debug.focus")})
+    return dict(report, tries=attempt, terminal_focused=focused)
 
 
 def focus_report():
@@ -471,6 +547,7 @@ def surface_home(phase, pid):
     if not (isinstance(focused, dict) and focused.get("ok")):
         note(f"home: no composer to focus ({json.dumps(focused)[:160]})")
         return None
+    empty_draft()
     streams = [home_stream()] if phase == "load" else []
     if phase == "load":
         s = chat_streams()
@@ -482,14 +559,28 @@ def surface_home(phase, pid):
     return entry
 
 
+def empty_draft():
+    """With --fresh-draft: the focused Home composer's draft is emptied through its own keys (Cmd-A, Delete)."""
+    if opts.fresh_draft:
+        rpc("debug.key", {"key": "a", "modifiers": ["cmd"]})
+        rpc("debug.key", {"key": "delete"})
+        if opts.prefill:
+            text = (SENTENCE * (opts.prefill // len(SENTENCE) + 1))[: opts.prefill]
+            rpc("debug.home.drive", {"action": "type", "text": text})
+        time.sleep(0.3)  # the emptied (or filled) field lays out before the first measured key
+
+
 def surface_dock(phase, pid):
     # The docked Home the app opened at launch: the home workspace's page.
     homes = rpc("debug.home") or {}
+    if phase == "load":
+        make_load(None)
     action("home.show", settle=1.5)
     focused = rpc("debug.home.drive", {"action": "focus"})
     if not (isinstance(focused, dict) and focused.get("ok")):
         note(f"dock: no Home composer to focus ({json.dumps(focused)[:160]}; debug.home {json.dumps(homes)[:200]})")
         return None
+    empty_draft()
     return measure("dock", phase, {"probe": "commit"}, "commit_ms", pid, [])
 
 
@@ -517,15 +608,18 @@ def surface_omnibar(phase, pid):
 SURFACES = {"terminal": surface_terminal, "home": surface_home, "dock": surface_dock, "omnibar": surface_omnibar}
 
 
-def run_session(session):
+def run_session(session, backdrop="default"):
     """One launch of the app (scripts/cmux-next/bench_launch.py): the light session, or STRESS (built first); every
-    surface and phase in it, --rounds times."""
+    surface and phase in it, --rounds times, with the window's `backdrop` (BACKDROPS)."""
     global app, SESSION, SOCKET, CONFIG
-    SESSION = session
+    SESSION = session if backdrop == "default" else f"{session}/{backdrop}"
     LOAD.clear()
     LOAD.update({"made": False, "workspaces": [], "chat_panes": []})
-    bench = BenchApp(APP, out=OUT, config={"browser": {"defaultEngine": "chromium"}}, window=WINDOW,
-                     log_name=f"app-{session}.log",
+    config = {"browser": {"defaultEngine": "chromium"}}
+    if BACKDROPS[backdrop]:
+        config["appearance"] = BACKDROPS[backdrop]
+    bench = BenchApp(APP, out=OUT, config=config, window=WINDOW,
+                     log_name=f"app-{SESSION.replace('/', '-')}.log",
                      env={"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"})
     try:
         try:
@@ -541,10 +635,12 @@ def run_session(session):
             time.sleep(5)  # the grid settles
         surfaces = opts.surfaces.split(",")
         global ROUND
-        for ROUND in range(opts.rounds):
-            for phase in opts.phases.split(","):
+        # Every idle round before the first load round: the load (busy terminals, chats) runs until the app quits,
+        # so an idle round after a load round would measure under load.
+        for phase in opts.phases.split(","):
+            for ROUND in range(opts.rounds):
                 for surface in surfaces:
-                    if surface == "dock" and phase != "idle":
+                    if surface == "dock" and phase != "idle" and not opts.dock_load:
                         continue
                     try:
                         SURFACES[surface](phase, app.pid)
@@ -560,7 +656,8 @@ def main():
     sessions = opts.sessions.split(",") if opts.sessions else (["stress"] if opts.stress else ["light"])
     try:
         for session in sessions:
-            run_session(session)
+            for backdrop in opts.backdrops.split(","):
+                run_session(session, backdrop)
     finally:
         summary = {}
         for r in results["runs"]:
