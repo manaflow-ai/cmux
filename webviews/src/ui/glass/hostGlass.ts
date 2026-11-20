@@ -110,9 +110,8 @@ const round = (value: number) => Math.round(value * 100) / 100;
 
 /** Whether the App's glass can show under this page now: a see-through Chromium page (WebKit's own
  * backdrop already takes in the window glass; a page that sets HOST_GLASS_ENGINES_ATTRIBUTE `all` gets
- * it in WebKit too), outside the lens and the live background (whose
- * canvases cover what is under the page), Reduce Transparency and Liquid Glass off (every glass is
- * opaque there). */
+ * it in WebKit too), outside the lens and the live background (whose canvases cover what is under
+ * the page), Reduce Transparency and Liquid Glass off (every glass is opaque there). */
 export function hostGlassApplies(doc: Document): boolean {
   const root = doc.documentElement;
   if (!root.hasAttribute(SEE_THROUGH_ATTRIBUTE) || root.hasAttribute(LENS_ATTRIBUTE)) return false;

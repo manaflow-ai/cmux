@@ -151,7 +151,7 @@
   pointer-events: none;
 }
 :root:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-since-jump {
-  --glass-tint: color-mix(in srgb, var(--agent-page-bg) 72%, transparent);
+  --glass-tint: color-mix(in srgb, var(--agent-page-bg) var(--ds-glass-popover-tint), transparent);
 }
 :root[data-borders="none"] .acpmux-since-jump {
   --glass-edge: transparent;
