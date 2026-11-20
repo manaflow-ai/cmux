@@ -3,8 +3,8 @@ import { type Artifact } from "./artifactPreview";
 import { toolArtifacts } from "./artifactWrites";
 import { PrefixFold } from "./prefixFlatMap";
 
-/// A file cmux's Markdown page shows, by the names its own links read as Markdown (pages/markdown/links.ts).
-const MARKDOWN_FILE = /\.(?:md|markdown|mdx)$/i;
+/// A file the app opens in its Markdown page (.md and .markdown; .mdx opens as source, so it gets no preview).
+const MARKDOWN_FILE = /\.(?:md|markdown)$/i;
 export const isMarkdownPath = (path: string) => MARKDOWN_FILE.test(path.trim());
 
 export function writtenArtifacts(rows: readonly AcpmuxRow[]): Artifact[] {

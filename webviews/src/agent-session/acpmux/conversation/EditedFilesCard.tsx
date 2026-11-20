@@ -1,7 +1,7 @@
 // The card that closes a turn which edited files: a small diff glyph, "Edited 2 files" with the
 // totals, then Undo and View changes; under it one row per file in the chat's font (the dimmed folder,
 // the name, its counts). A card for one file has no rows: its header opens that file's changes
-// beside the chat. A Markdown file (.md, .markdown, .mdx) also has Open at the end of its row, or
+// beside the chat. A Markdown file (.md, .markdown) also has Open at the end of its row, or
 // beside View changes on a card for one file: it shows the file in cmux's Markdown page beside the
 // chat (writtenArtifacts.tsx `OpenWrittenMarkdown`), once per file however often the turn wrote it.
 // The data is turnChanges/model.ts; this file is only its view.

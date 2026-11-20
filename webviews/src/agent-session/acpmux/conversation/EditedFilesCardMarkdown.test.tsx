@@ -78,9 +78,9 @@ const opens = (container: HTMLElement) => [...container.querySelectorAll<HTMLBut
 const card = (row: AcpmuxRow) => <EditedFilesCard row={row} onOpenDiff={() => {}} />;
 
 test("Markdown paths are the ones cmux's Markdown page reads", () => {
-  for (const path of ["notes.md", "/a/b/README.MD", "doc.markdown", "page.mdx", " plan.md "])
+  for (const path of ["notes.md", "/a/b/README.MD", "doc.markdown", " plan.md "])
     expect(isMarkdownPath(path)).toBe(true);
-  for (const path of ["page.html", "md", "notes.md.bak", "src/md/index.ts", "notes.mdown.txt"])
+  for (const path of ["page.html", "page.mdx", "md", "notes.md.bak", "src/md/index.ts", "notes.mdown.txt"])
     expect(isMarkdownPath(path)).toBe(false);
 });
 
