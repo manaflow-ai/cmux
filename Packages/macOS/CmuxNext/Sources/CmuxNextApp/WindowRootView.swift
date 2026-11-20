@@ -114,7 +114,7 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
          reduceTransparency: @escaping @MainActor () -> Bool = { ReduceTransparency.shared.isEnabled },
          applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { $0.setBackgroundBlurRadius($1) },
          revealClock: any Clock<Duration> = ContinuousClock()) {
-        (self.sidebar, backdropView) = (sidebar, WindowMaterialView(frame: .zero, images: .shared, activeLook: activeLook))
+        (self.sidebar, backdropView) = (sidebar, WindowMaterialView(frame: .zero, images: .shared, activeLook: activeLook, fillsWindow: true))
         collapsedBand = CollapsedBandReveal(clock: revealClock)
         sidebarFloat = SidebarFloat(container: sidebar, clock: revealClock)
         self.reduceTransparency = reduceTransparency
