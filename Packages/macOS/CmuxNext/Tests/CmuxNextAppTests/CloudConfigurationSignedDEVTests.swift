@@ -1,5 +1,7 @@
+import CMUXAuthCore
+import CmuxAuthRuntime
+@testable import CmuxNextCloud
 import Foundation
-import CmuxNextCloud
 import Testing
 
 struct CloudConfigurationSignedDEVTests {
@@ -38,19 +40,23 @@ struct CloudConfigurationSignedDEVTests {
         let config = CloudConfiguration.resolve(bundleID: "com.cmuxterm.app.debug.next", bundled: ["CMUX_VM_API_BASE_URL": "https://debug.fixture.invalid"], process: [:], isDebugBuild: true)
         #expect(config.ownerAPIBaseURL() == URL(string: "https://debug.fixture.invalid"))
     }
-    /// Signed DEV on a production selection adopts NIGHTLY's session; no other build does (Rust's `adopts_nightly_session`).
-    @Test func onlySignedDEVOnProductionAdoptsNightlysSession() throws {
+    /// Signed NEXT DEV is a DEV build like any other: on production as on staging it has its own build space and
+    /// its own Keychain session (seeded by `scripts/cmux-next/dev-signin-token.py`), and never takes a running
+    /// NIGHTLY's (no `ImportingTokenStore`, no memory-only store fed from NIGHTLY).
+    @Test func signedDEVOnProductionKeepsItsOwnSessionAndSpace() throws {
         let staging = CloudConfiguration.resolve(bundleID: "com.cmuxterm.app.debug.next", bundled: [:], process: [:], isDebugBuild: false)
-        #expect(!staging.adoptsNightlySession)
         var selection = try #require(staging.runtimeSelection)
         selection.name = "prod"
         let production = CloudConfiguration.from(selection: selection, bundleID: "com.cmuxterm.app.debug.next",
                                                  bundled: [:], process: [:], isDebugBuild: false)
-        #expect(production.adoptsNightlySession)
         #expect(production.isProductionAuth)
         #expect(production.callbackURL.absoluteString == "cmux-next-dev://auth-callback")
-        let nightly = CloudConfiguration.from(selection: selection, bundleID: "com.cmuxterm.app.nightly",
-                                              bundled: [:], process: [:], isDebugBuild: false)
-        #expect(!nightly.adoptsNightlySession)
+        for configuration in [staging, production] {
+            #expect(configuration.buildSpace.space?.headerValue == "dev:next")
+            #expect(configuration.keychainService.hasPrefix("com.cmuxterm.app.debug.next.auth."))
+            let store = CloudAuth.tokenStore(configuration: configuration)
+            #expect(!(store is ImportingTokenStore))
+            #expect(!(store is MemoryStackTokenStore))
+        }
     }
 }

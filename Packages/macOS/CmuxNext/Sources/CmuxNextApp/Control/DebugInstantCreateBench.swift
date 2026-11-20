@@ -22,7 +22,7 @@ private typealias JSON = CmuxNextSettings.JSONValue
 ///   another workspace; Cmd-T, Ctrl-`: the focused pane shows another tab; Cmd-D / Cmd-Shift-D: the
 ///   window's focused pane is a new pane);
 /// - `confirmed_ms`: the first frame at which the daemon's object replaced the provisional one
-///   (no `pending_tab_` id, no provisional pane handle), or null within 5 s;
+///   (no `pending_tab_` id, no provisional pane handle), or null within 5 s of the waits before it;
 /// - `committed_ms`: a lower bound for key-to-pixels, null when the result first held in the visible tick's own pass (``BenchFrames/lastCommitted``);
 /// - `key_changes`: the cmux windows' key-window gains and losses (`key.become`, `key.resign`) up to the daemon's confirm,
 ///   and `spans_full` true when the 512-span ring filled (the count may then be short);
@@ -125,11 +125,11 @@ enum DebugInstantCreateBench {
                 if diff { return diffShown.withLock { $0 != nil } }
                 if github != nil { return githubShown.withLock { $0.contains("content") } }
                 return opensRight ? Probe.anyPagePainted(controller, services, besides: shownBrowsers) : Probe(controller).pagePainted(services)
-            }, start: start, window: 0, deadline: diff ? 20_000 : 5_000)
+            }, start: start, window: 0, deadline: BenchSpans.ms(.now - start) + (diff ? 20_000 : 5_000)) // its own window: a typed wait that ran to its deadline (keys lost) left later waits none, and they read as never
         let opensNewTab = visible != nil && (command == .newWorkspace || command == .newTab), shownAt = OSAllocatedUnfairLock<Double?>(initialState: nil) // Cmd-N, Cmd-T: `shown_ms`, the first frame showing the page's empty state (its pixels or its picture) with nothing kept over it; `ready_ms` also counts a page held away or under the ground
         let ready = !opensNewTab ? nil : await frames.settled(until: { if shownAt.withLock({ $0 == nil }), Probe.newTabShown(controller) { shownAt.withLock { $0 = BenchSpans.ms(.now - start) } }; return Probe(controller).newTabReady(services) }, start: start, window: 0, deadline: 5_000)
         var shown = opensNewTab ? shownAt.withLock({ $0 }) : nil; if opensNewTab, shown == nil { shown = await frames.settled(until: { Probe.newTabShown(controller) }, start: start, window: 0, deadline: 5_000) }
-        let confirmed = visible == nil ? nil : await frames.settled(until: { Probe(controller).confirmed(command) }, start: start, window: 0, deadline: 5_000)
+        let confirmed = visible == nil ? nil : await frames.settled(until: { Probe(controller).confirmed(command) }, start: start, window: 0, deadline: BenchSpans.ms(.now - start) + 5_000) // its own window, as the page's
         let spans = BenchSpans.end(), stats = frames.stop()
         let refresh = { if case .object(let fields) = stats, let value = fields["refresh_ms"]?.doubleValue, value > 0 { return value }; return 1_000.0 / 60 }()
         return .object([
