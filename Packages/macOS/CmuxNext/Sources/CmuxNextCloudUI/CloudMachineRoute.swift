@@ -43,10 +43,11 @@ public struct CloudMachineRoute: Sendable {
     /// One resume per route (one start's check): a machine still refused after it ends the start (``notRunning``).
     private let resumes = ResumeOnce()
 
-    public init(exec: @escaping Exec, resume: Resume? = nil) {
+    /// `machineID`: the machine a refusal's Retry names (``init(api:machineID:resume:)`` always has one).
+    public init(exec: @escaping Exec, resume: Resume? = nil, machineID: String? = nil) {
         self.exec = exec
         self.resume = resume
-        machineID = nil
+        self.machineID = machineID
     }
 
     /// The route of Cloud machine `machineID`, whose commands run through the Cloud API's exec. `resume` starts the
@@ -277,6 +278,19 @@ public struct CloudMachineRoute: Sendable {
             do { try await resume() } catch { throw NotStarted(error: error) }
             return try await runningExec(command)
         }
+    }
+
+    /// The platform's answers to a start (`cloud.machine.start`) that leave the machine on its way up: it already runs
+    /// or starts (`not_paused`, `machine_busy`), or the call's outcome is not known yet (`indeterminate`). The start then
+    /// waits for the link; any other refusal (a plan, a quota, an approval) is the start's own failure, with its reason.
+    public nonisolated static let resumeGoesOnCodes: Set<String> = ["cmux.cloud.not_paused", "cmux.cloud.machine_busy", CloudMachinePower.indeterminate]
+
+    /// Whether a start that answered `error` still waits for the machine's link: a refusal in ``resumeGoesOnCodes``, or a
+    /// transport failure whose start may have landed. A cancelled start and any other refusal end the start.
+    public nonisolated static func resumeGoesOn(after error: any Error) -> Bool {
+        if error is CancellationError { return false }
+        if let refusal = error as? CloudAppOpFailure { return resumeGoesOnCodes.contains(refusal.code) }
+        return true
     }
 
     /// The single resume a route may make (``runningExec(_:)``).

@@ -132,14 +132,17 @@ extension CloudStartChat {
 
     /// Starts `session`'s machine, which the Cloud API's exec route refused as not running, and waits for its link
     /// (``CloudMove/connected(_:_:)``). The route is the platform's word, so the start goes out whatever the app's record
-    /// says (it can still read running); a start the platform refuses because the machine already runs or starts is
-    /// left to the link's wait, which says why when it never comes up.
+    /// says (it can still read running); a start the platform answers with the machine already running or starting
+    /// is left to the link's wait (``CloudMachineRoute/resumeGoesOn(after:)``), any other refusal ends the start with its reason.
     static func resumeForStart(_ session: CloudMachineSession, invocation: ActionInvocation, cloud: CloudService) async throws {
         do {
             try await cloud.resumeMachine(session.machineID, origin: .user)
-        } catch {
+        } catch where CloudMachineRoute.resumeGoesOn(after: error) {
             cloud.logger.info("cloud start chat: resuming \(session.machineID, privacy: .public) answered \(String(describing: error), privacy: .public); waiting for its link")
         }
+        // The record reads "starting" until the platform's running record lands: wait that out, as start-session does,
+        // instead of refusing with "This machine is resuming" (CloudHandlers.requireAttachableState).
+        try await CloudHandlers.requireAttachableState(session, waitingOutResume: CloudStartSession.connectWait)
         _ = try await CloudMove.connected(session, invocation)
     }
 

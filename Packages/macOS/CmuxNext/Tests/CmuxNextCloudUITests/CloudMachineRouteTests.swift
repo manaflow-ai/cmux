@@ -156,13 +156,13 @@ import Testing
         for resumable in [true, false] {
             let exec = ExecScript([.failure(Self.notRunning), .failure(Self.notRunning), .failure(Self.notRunning)])
             let resumed = UpdateCount(), updated = UpdateCount()
-            let route = CloudMachineRoute(exec: { _, _ in try await exec.next() }, resume: resumable ? { await resumed.add() } : nil)
+            let route = CloudMachineRoute(exec: { _, _ in try await exec.next() }, resume: resumable ? { await resumed.add() } : nil, machineID: "vm_test")
             do {
                 try await route.prepare(family: "claude") { await updated.add() }
                 Issue.record("the start went on with a machine that does not run")
             } catch let failure as CloudMoveFailure {
                 #expect(failure.message == CloudMachineRoute.notRunning)
-                #expect(failure.retry != nil)
+                #expect(failure.retry == .move(machineID: "vm_test"))
             }
             #expect(await resumed.count == (resumable ? 1 : 0))
             #expect(await updated.count == 0)
@@ -184,6 +184,19 @@ import Testing
         #expect(CloudMachineRoute.isNotRunning(CloudAPIError.http(status: 409, code: "cloud.machine.paused", message: nil)))
         #expect(!CloudMachineRoute.isNotRunning(CloudAPIError.http(status: 409, code: "vm_busy", message: nil)))
         #expect(!CloudMachineRoute.isNotRunning(CloudAPIError.timedOut("/exec")))
+    }
+
+    /// A start the platform answers with the machine already up, or with no outcome yet, waits for the link; a plan,
+    /// an approval or a cancelled start ends the start with its own reason, never the generic "didn't start".
+    @Test func onlyAStartThatLeftTheMachineComingUpWaitsForItsLink() {
+        for code in ["cmux.cloud.not_paused", "cmux.cloud.machine_busy", CloudMachinePower.indeterminate] {
+            #expect(CloudMachineRoute.resumeGoesOn(after: CloudAppOpFailure(code: code, message: "")))
+        }
+        for code in [CloudAppOpFailure.planRequired, CloudAppOpFailure.approvalPending, "cmux.cloud.quota_exceeded"] {
+            #expect(!CloudMachineRoute.resumeGoesOn(after: CloudAppOpFailure(code: code, message: "")))
+        }
+        #expect(!CloudMachineRoute.resumeGoesOn(after: CancellationError()))
+        #expect(CloudMachineRoute.resumeGoesOn(after: CloudAPIError.transport("reset")))
     }
 
     private static let notRunning = CloudAPIError.http(status: 409, code: "vm_not_running", message: "the machine is not running; start it first")
