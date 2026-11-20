@@ -162,11 +162,12 @@ TRUSTED_RUNNER_JOBS = (
 # GLAEDA_ROUTE_APP_KEY; LINUX_RUNNER moved a dozen more such jobs (#27540, #27557).
 APP_KEY_MARKER = re.compile(r"create-github-app-token@|^\s*private-key:", re.MULTILINE)
 # The one selector a key-holding Linux job may read a variable through: LINUX_RUNNER only
-# when it names one of these Blacksmith Linux sizes (.github/runners.json), else 4 vCPU.
+# when it names one of these Blacksmith Linux sizes (.github/runners.json) or the hosted
+# label, else 4 vCPU. A hosted machine runs one job and is destroyed, like the sizes.
 # So a 4 vCPU stall can move these jobs (the overflow switch or a person sets LINUX_RUNNER),
 # and no value reaches a reused machine. The bound is in the expression, not the variable.
 BOUNDED_LINUX_LABELS = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404",
-                        "blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404")
+                        "blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404", "ubuntu-24.04")
 BOUNDED_LINUX_SELECTOR = (
     "contains(fromJSON('" + json.dumps(list(BOUNDED_LINUX_LABELS), separators=(",", ":"))
     + "'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'"
@@ -319,7 +320,8 @@ def runner_label_errors(runs_on: str) -> list[str]:
     Structural, so complete without enumerating values: the runs-on is a || chain whose every
     operand yields a Blacksmith label the expression writes out, whatever its conditions are:
     a string literal, `conditions && 'literal'` (a false condition only passes on to the next
-    operand), or a bounded pick `conditions && contains(fromJSON('[labels]'), R) && R`. The chain
+    operand), or a bounded pick `conditions && contains(fromJSON('[labels]'), R) && R` whose
+    labels are Blacksmith or GitHub-hosted ones (each runs one job, then is destroyed). The chain
     ends with a literal, so it never yields a falsy value. The one exception is the fork branch
     `github.repository_owner != 'manaflow-ai' && '<hosted label>'`, first, which never runs in
     manaflow-ai. The exact CI_TRUSTED_RUNNER selector is accepted too: its list is ephemeral.
@@ -343,6 +345,10 @@ def runner_label_errors(runs_on: str) -> list[str]:
     for index, operand in enumerate(chain):
         conditions, result = (operand[1][:-1], operand[1][-1]) if operand[0] == "and" else ([], operand)
         label = _string(result)
+        # The gate switch passes only in the exact gate expressions above, ahead of the trusted selector.
+        if any("vars.CI_GATE_SKIP_FLEET" in _refs(condition) for condition in conditions):
+            errors.append(f"{runs_on!r}: operand {index + 1} reads CI_GATE_SKIP_FLEET outside the gate expression")
+            continue
         if label is not None and (blacksmith.fullmatch(label) or label in FLEET_EPHEMERAL_LABELS
                                   or label in OWNED_EPHEMERAL_LABELS):
             continue
@@ -357,7 +363,8 @@ def runner_label_errors(runs_on: str) -> list[str]:
                 == [("literal", "manaflow-ai"), ("ref", "github.repository_owner")]):
             continue
         picked = _bounded_pick(conditions, result) if label is None else []
-        if picked and all(blacksmith.fullmatch(item) for item in picked):
+        # A listed hosted label is as ephemeral as a Blacksmith size: one job, then destroyed.
+        if picked and all(blacksmith.fullmatch(item) or HOSTED_LITERAL_LABEL.fullmatch(item) for item in picked):
             continue
         errors.append(f"{runs_on!r}: operand {index + 1} can yield something other than a Blacksmith label it names")
     if not errors and _string(chain[-1]) is None:
@@ -1691,6 +1698,9 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 if key == ("sdk-release-cut.yml", "cut-tags"):
                     # The SDK release security contract pins the pre-BS8 selector.
                     expected = expected.replace(',"blacksmith-8vcpu-ubuntu-2404"', '')
+                if key[0] in WATCHERS_OF_THE_HOSTED_QUEUE:
+                    # A watcher never follows the pool onto the hosted queue it watches.
+                    expected = expected.replace(f',"{HOSTED_POOL_LABEL}"', '')
                 self.assertIn(expected + " }}", runs_on[key])
 
     def test_the_bounded_selector_yields_only_its_labels_for_any_value(self) -> None:
@@ -1945,6 +1955,112 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         # Another repository's check is not an owner gate.
         other = "jobs:\n  e:\n    if: github.repository == 'someone/cmux'\n    runs-on: blacksmith-8vcpu-ubuntu-2404\n"
         self.assertEqual(len(ungated_blacksmith_labels("x.yml", other)), 1)
+
+
+# 2026-11-19: the runner pool variables moved to the hosted label, and a size-bounded list that
+# did not name it could not follow them. Every bounded list in a job's runs-on that names a
+# third-party Linux label and reads a repository variable also names the hosted label. Every
+# workflow file is read, so a new one copied from an old one is caught too.
+#
+# A watcher or rescue never runs on the queue it watches. The jobs below watch, sweep or re-run
+# the runs that queue on the pool LINUX_RUNNER, RUNNER_POOLS and CI_TRUSTED_RUNNER select; when
+# that pool is the hosted label and its queue backs up, a watcher routed there would wait behind
+# the very backlog it exists to report or drain. So their bounded lists never name the hosted
+# label, and a variable pointed at it leaves them on their vendor fallback.
+WATCHERS_OF_THE_HOSTED_QUEUE = frozenset({
+    # Reads the hosted backlog and flips the overflow switch.
+    "ci-cloud-overflow-probe.yml",
+    # Re-run hosted jobs that queued with no runner.
+    "ci-hosted-queue-rescue.yml",
+    "ci-hosted-backlog-rescue.yml",
+    # Cancels and re-runs lost queued runs on every pool; the watchdog alerts when its sweep stops.
+    "ci-queue-janitor.yml",
+    "ci-queue-janitor-watchdog.yml",
+    # Re-runs the CLA checks, which run on the CI_TRUSTED_RUNNER pool.
+    "ci-cla-quota-rerun.yml",
+})
+HOSTED_POOL_LABEL = "ubuntu-24.04"
+# Whitespace, newlines included, may sit anywhere a folded or multi-line YAML scalar breaks it.
+BOUNDED_RUNNER_LIST = re.compile(r"contains\(\s*fromJSON\(\s*'(\[[^'\]]*\])'\s*\)\s*,\s*(?:fromJSON\(\s*)?vars\.")
+
+
+def bounded_runner_lists(text: str) -> list[tuple[str, list[str]]]:
+    """(job, labels) for every bounded list reading a variable in a job's runs-on that names a
+    third-party Linux label. YAML parses the file, so a runs-on folded over lines or written as a
+    list is read whole."""
+    workflow = yaml.safe_load(text) or {}
+    found = []
+    for job_name, job in (workflow.get("jobs") or {}).items():
+        if not isinstance(job, dict) or "runs-on" not in job:
+            continue
+        runs_on = job["runs-on"]
+        values = runs_on if isinstance(runs_on, list) else [runs_on]
+        for value in values:
+            if not isinstance(value, str):
+                continue
+            for match in BOUNDED_RUNNER_LIST.finditer(value):
+                labels = json.loads(match.group(1))
+                if any(label.startswith("blacksmith-") and "ubuntu" in label for label in labels):
+                    found.append((str(job_name), labels))
+    return found
+
+
+def bounded_list_errors(name: str, text: str) -> list[str]:
+    watcher = name in WATCHERS_OF_THE_HOSTED_QUEUE
+    errors = []
+    for job, labels in bounded_runner_lists(text):
+        if watcher and HOSTED_POOL_LABEL in labels:
+            errors.append(f"{name}:{job}: a watcher of the hosted queue names {HOSTED_POOL_LABEL}")
+        elif not watcher and HOSTED_POOL_LABEL not in labels:
+            errors.append(f"{name}:{job}: bounded runner list without {HOSTED_POOL_LABEL}")
+    return errors
+
+
+class BoundedListsFollowTheHostedPool(unittest.TestCase):
+    def test_every_bounded_runner_list_reading_a_variable_follows_the_rule(self):
+        errors = []
+        for path in sorted(WORKFLOWS.glob("*.y*ml")):
+            errors.extend(bounded_list_errors(path.name, path.read_text()))
+        self.assertEqual(errors, [])
+
+    def test_every_watcher_exists_and_has_a_bounded_list(self):
+        # A renamed or rerouted watcher would leave its name here guarding nothing.
+        for name in sorted(WATCHERS_OF_THE_HOSTED_QUEUE):
+            with self.subTest(name=name):
+                path = WORKFLOWS / name
+                self.assertTrue(path.is_file())
+                self.assertNotEqual(bounded_runner_lists(path.read_text()), [])
+
+    def test_a_folded_or_list_runs_on_is_read(self):
+        # The physical-line scan this replaced missed both: the list and `vars.` sit on different lines.
+        folded = (
+            "jobs:\n"
+            "  a:\n"
+            "    runs-on: >-\n"
+            "      ${{ contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\"]'),\n"
+            "      vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}\n"
+            "  b:\n"
+            "    runs-on:\n"
+            "      - ${{ contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\"]'),\n"
+            "        vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}\n"
+        )
+        self.assertEqual(bounded_list_errors("x.yml", folded), [
+            f"x.yml:a: bounded runner list without {HOSTED_POOL_LABEL}",
+            f"x.yml:b: bounded runner list without {HOSTED_POOL_LABEL}",
+        ])
+        named = folded.replace('ubuntu-2404\"]', 'ubuntu-2404\",\"ubuntu-24.04\"]')
+        self.assertEqual(bounded_list_errors("x.yml", named), [])
+
+    def test_a_watcher_never_names_the_hosted_label(self):
+        text = (
+            "jobs:\n"
+            "  a:\n"
+            "    runs-on: ${{ contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\",\"ubuntu-24.04\"]'),"
+            " vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}\n"
+        )
+        self.assertEqual(bounded_list_errors("ci-hosted-queue-rescue.yml", text),
+                         [f"ci-hosted-queue-rescue.yml:a: a watcher of the hosted queue names {HOSTED_POOL_LABEL}"])
+        self.assertEqual(bounded_list_errors("x.yml", text), [])
 
 
 if __name__ == "__main__":
