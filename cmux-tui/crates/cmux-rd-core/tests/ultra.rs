@@ -195,3 +195,21 @@ fn unmeasured_ultra_moves_like_standard_until_a_train_counts() {
     assert!(unmeasured.on_probe_capacity(unmeasured.probe_generation(), 100_000_000));
     assert_eq!(unmeasured.wire_budget_bps(), 80_000_000);
 }
+
+/// Ultra's encoder targets the held rate; its strict pacer releases at the probed capacity
+/// (2.5x the held rate until one is measured), so a frame burst drains instead of queueing
+/// for good. Standard paces at its target.
+#[test]
+fn ultra_paces_at_the_probed_capacity_over_the_held_rate() {
+    let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
+    assert_eq!(cc.pacing_bps(), cc.target_bps(), "standard");
+    cc.set_profile(EncodeProfile::Ultra);
+    let start = CcConfig::default().start_bps;
+    assert_eq!(cc.pacing_bps(), start * 5 / 2, "unmeasured: 2.5x the start rate");
+    cc.on_probe_capacity(cc.probe_generation(), 100_000_000);
+    assert_eq!(cc.wire_budget_bps(), 80_000_000);
+    assert_eq!(cc.pacing_bps(), 100_000_000, "paced at the capacity");
+    cc.on_probe_capacity(cc.probe_generation(), 1_000_000_000);
+    assert_eq!(cc.wire_budget_bps(), 150_000_000, "held under the ceiling");
+    assert_eq!(cc.pacing_bps(), 1_000_000_000);
+}

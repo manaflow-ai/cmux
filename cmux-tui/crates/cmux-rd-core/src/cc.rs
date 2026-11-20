@@ -13,6 +13,7 @@
 
 use std::collections::{HashMap, VecDeque};
 
+use crate::pacer::PACING_FACTOR;
 use crate::profile::EncodeProfile;
 use cmux_rd_proto::Arrival;
 
@@ -502,6 +503,22 @@ impl CongestionController {
     /// are charged by the pacer; parity is owned by the FEC lane.
     pub fn wire_budget_bps(&self) -> u64 {
         if self.profile == EncodeProfile::Ultra { self.ultra.wire_bps } else { self.target_bps }
+    }
+
+    /// How fast the strict Ultra pacer lets datagrams leave: the probed capacity (never
+    /// under the held rate), else [`PACING_FACTOR`] times it until a train measures one.
+    /// Pacing at the held rate itself left no slack: the encoder fills that rate, so a
+    /// burst queued for good and whole frames were dropped (netem at 30 Mbit/s: 1.5 fps,
+    /// key to frame p50 490 ms). The held rate stays the encoder's target.
+    pub fn pacing_bps(&self) -> u64 {
+        let held = self.wire_budget_bps();
+        if self.profile != EncodeProfile::Ultra {
+            return held;
+        }
+        match self.ultra.capacity_bps {
+            Some(capacity) => capacity.max(held),
+            None => (held as f64 * PACING_FACTOR) as u64,
+        }
     }
 
     fn ultra_path_ceiling(&self) -> u64 {

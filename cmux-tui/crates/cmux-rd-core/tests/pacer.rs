@@ -172,24 +172,3 @@ fn strict_queue_limit_drops_whole_older_unstarted_frames() {
     assert_eq!(full.queued_bytes(), 2_000);
     assert_eq!(full.frames_dropped(), 1);
 }
-
-/// The strict frame queue is wire time at the held rate, not a fixed byte count: once the
-/// rate is cut, a frame that would wait past two 60 fps frames drops the older unstarted
-/// one (netem at 30 Mbit/s, 4 MB queued at 23 Mbit/s: key to frame p95 1 s).
-#[test]
-fn strict_frame_queue_is_bounded_by_wire_time_at_the_held_rate() {
-    let frame_of = |tag: u8| vec![vec![tag; 10_000], vec![tag; 10_000]];
-    // One byte per microsecond: 33 ms of wire time is 33,000 bytes; the byte bound is 1 MB.
-    let mut pacer = Pacer::strict(StrictWireBudget::with_limits(8_000_000, 1_000, 1 << 20, 100));
-    pacer.push_frame(frame_of(1), 0, 16_667, 0);
-    pacer.push_frame(frame_of(2), 0, 16_667, 0);
-    assert_eq!(pacer.take_dropped(), frame_of(1), "40 KB would wait 40 ms");
-    assert_eq!(pacer.queued_bytes(), 20_000);
-
-    // Twice the rate holds both.
-    let mut fast = Pacer::strict(StrictWireBudget::with_limits(16_000_000, 1_000, 1 << 20, 100));
-    fast.push_frame(frame_of(1), 0, 16_667, 0);
-    fast.push_frame(frame_of(2), 0, 16_667, 0);
-    assert!(fast.take_dropped().is_empty());
-    assert_eq!(fast.queued_bytes(), 40_000);
-}

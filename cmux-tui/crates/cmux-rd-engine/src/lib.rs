@@ -516,6 +516,12 @@ impl MediaEngine {
         self.cc.wire_budget_bps()
     }
 
+    /// The rate the strict Ultra pacer releases datagrams at (the probed capacity; see
+    /// `CongestionController::pacing_bps`). Standard: [`Self::target_bps`].
+    pub fn pacing_bps(&self) -> u64 {
+        self.cc.pacing_bps()
+    }
+
     /// Adds a lossless tile stream (rd change C3) for surface stream `of`:
     /// the source encodes tile top-offs of static regions into its requests'
     /// access units; every frame carries `flags::TILE` and the surface

@@ -117,8 +117,9 @@ fn is_probe(datagram: &[u8]) -> bool {
 }
 
 /// Ultra charges every budgeted byte it sends (media, FEC, repairs, probes) to one strict
-/// wire budget at the engine's held rate (D10); standard keeps the balanced pacer, which
-/// paces at a multiple of the target.
+/// wire budget (D10), released at the engine's pacing rate (the probed capacity, over the
+/// held rate the encoder targets); standard keeps the balanced pacer, which paces at a
+/// multiple of the target.
 fn new_pacer(profile: EncodeProfile, wire_bps: u64) -> Pacer {
     if profile.is_ultra() {
         Pacer::strict(StrictWireBudget::new(wire_bps))
@@ -291,7 +292,7 @@ impl MediaSession {
             now_us(),
         );
         engine.set_profile(cfg.encode_profile);
-        let pacer = pacing_enabled().then(|| new_pacer(cfg.encode_profile, engine.target_bps()));
+        let pacer = pacing_enabled().then(|| new_pacer(cfg.encode_profile, engine.pacing_bps()));
         Ok(Self {
             desktop,
             encoder: EncodeThread::spawn(frames)?,
@@ -584,9 +585,9 @@ impl MediaSession {
     /// Sends the paced datagrams that are due, telling the engine when each left.
     fn send_paced(&mut self, carrier: &mut dyn Carrier) -> std::io::Result<()> {
         let Some(pacer) = self.pacer.as_mut() else { return Ok(()) };
-        // Ultra: the strict budget follows the engine's held rate (a probe result, a
+        // Ultra: the strict budget follows the engine's pacing rate (a probe result, a
         // standing-queue cut). Balanced pacing ignores it.
-        pacer.set_rate_bps(self.engine.target_bps());
+        pacer.set_rate_bps(self.engine.pacing_bps());
         let now = now_us();
         let due = pacer.due(now);
         // Repairs left first; only the frame datagrams count toward a frame's send time.
@@ -687,7 +688,7 @@ impl MediaSession {
             if is_probe(datagram) {
                 let now = now_us();
                 self.engine.datagram_sent(datagram, now);
-                pacer.set_rate_bps(self.engine.target_bps());
+                pacer.set_rate_bps(self.engine.pacing_bps());
                 pacer.charge(datagram.len(), now);
             }
         }
