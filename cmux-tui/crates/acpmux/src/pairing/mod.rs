@@ -191,7 +191,16 @@ pub struct Pairing {
     /// its connection, end it (`Pairing::unvouch`), so a turn the phone started is held at its
     /// next tool as one of this daemon's own phones is.
     vouched: StdMutex<HashMap<String, bool>>,
+    /// Each vouched-for device's last narrowing (its vouching daemon's clock, the setting it
+    /// left: `Some(false)` off, None removed), against which a late claim is read
+    /// ([`Pairing::vouch`]).
+    narrowed: StdMutex<HashMap<String, (u64, Option<bool>)>>,
 }
+
+/// How many narrowings [`Pairing::unvouch`] keeps before it drops those over
+/// [`NARROWED_KEPT_MS`] older than the newest.
+const MAX_NARROWED: usize = 4096;
+const NARROWED_KEPT_MS: u64 = 60 * 60 * 1000;
 
 struct Inner {
     store: Store,
@@ -211,6 +220,7 @@ impl Default for Pairing {
             revoked_ids: Arc::default(),
             revoked: tokio::sync::watch::channel(0).0,
             vouched: StdMutex::default(),
+            narrowed: StdMutex::default(),
         }
     }
 }
@@ -242,20 +252,53 @@ impl Pairing {
         self.vouched.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    fn narrowed(&self) -> std::sync::MutexGuard<'_, HashMap<String, (u64, Option<bool>)>> {
+        self.narrowed.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// The owner's peer daemon on connection `conn` vouches, for this request, that `device` is
-    /// the owner's own phone there, with its Full-access setting `full` (its id: [`vouched_phone_id`]).
-    pub fn vouch(&self, conn: &str, device: &str, full: bool) -> String {
+    /// the owner's own phone there, with its Full-access setting `full`, as it read them at
+    /// `epoch` (its clock, read before the setting). A claim read no later than that daemon's
+    /// last narrowing of the phone ([`Self::unvouch`]: requests run concurrently, so a claim
+    /// read before it may arrive after it) gets no more than the narrowing left: no Full access
+    /// after a turn-off, nothing after a removal. The id: [`vouched_phone_id`].
+    pub fn vouch(&self, conn: &str, device: &str, full: bool, epoch: u64) -> String {
         let id = vouched_phone_id(conn, device);
+        let since = self.narrowed().get(device).copied();
+        let full = match since {
+            Some((at, None)) if epoch <= at => return id,
+            Some((at, Some(left))) if epoch <= at => full && left,
+            _ => full,
+        };
         self.vouched().insert(id.clone(), full);
         id
     }
 
     /// A vouching daemon says `device` is no longer the owner's phone with Full access (`full`
-    /// its setting now, None when the phone was removed): on every link, since a daemon may
-    /// forward on one link and tell on another. Or connection `conn` ended (`device` None: every
-    /// phone vouched for on it). Whether an entry with Full access changed: the caller then holds
-    /// every chat out of its policy again (`Hub::hold_policies_again`).
-    pub fn unvouch(&self, conn: &str, device: Option<&str>, full: Option<bool>) -> bool {
+    /// its setting now, None when the phone was removed, `epoch` its clock at the change): on
+    /// every link, since a daemon may forward on one link and tell on another. Or connection
+    /// `conn` ended (`device` None: every phone vouched for on it). Whether an entry with Full
+    /// access changed: the caller then holds every chat out of its policy again
+    /// (`Hub::hold_policies_again`).
+    pub fn unvouch(
+        &self,
+        conn: &str,
+        device: Option<&str>,
+        full: Option<bool>,
+        epoch: u64,
+    ) -> bool {
+        if let Some(d) = device {
+            let mut narrowed = self.narrowed();
+            let newer = narrowed.get(d).is_none_or(|(at, _)| *at <= epoch);
+            if newer {
+                narrowed.insert(d.to_owned(), (epoch, full));
+            }
+            // Bounded: a claim an hour older than the newest narrowing never arrives.
+            if narrowed.len() > MAX_NARROWED {
+                let newest = narrowed.values().map(|(at, _)| *at).max().unwrap_or(0);
+                narrowed.retain(|_, (at, _)| at.saturating_add(NARROWED_KEPT_MS) >= newest);
+            }
+        }
         let mut vouched = self.vouched();
         let on_conn = format!("{VOUCHED_PHONE_PREFIX}{conn}/");
         let mut narrowed = false;

@@ -192,7 +192,7 @@ async fn the_phones_full_access_off_on_its_mac_puts_the_asking_rule_back_on_the_
 #[tokio::test]
 async fn others_through_the_mac_and_forged_phone_claims_stay_refused() {
     let (a, b, _id, dirs) = two_daemons("others").await;
-    let forged = json!({"ownerPhone": {"device": "dv_forged", "fullAccess": true}});
+    let forged = json!({"ownerPhone": {"device": "dv_forged", "fullAccess": true, "epoch": 1}});
     let laptop = a.pairing.issue("laptop", Role::Client).unwrap().1;
     for (who, mut c, meta) in [
         ("dashboard", Client::new(&a, Origin::Web, ConnAuth::ListenerToken), json!({})),
@@ -200,7 +200,7 @@ async fn others_through_the_mac_and_forged_phone_claims_stay_refused() {
         (
             "client machine",
             Client::device(&a, &laptop),
-            json!({"via": "web", "ownerPhone": {"device": "dv_forged", "fullAccess": true}}),
+            json!({"via": "web", "ownerPhone": {"device": "dv_forged", "fullAccess": true, "epoch": 1}}),
         ),
     ] {
         let r = c.prompt("b/coord", "hi", meta).await;
@@ -223,7 +223,7 @@ async fn a_peer_daemons_claim_counts_only_on_its_own_link() {
     let p =
         json!({"cwd": d.join("work"), "mcpServers": [], "_meta": {"acpmux": {"name": "coord"}}});
     let id = local.call("session/new", p).await["result"]["sessionId"].as_str().unwrap().to_owned();
-    let claim = json!({"via": "web", "ownerPhone": {"device": "dv_forged", "fullAccess": true}});
+    let claim = json!({"via": "web", "ownerPhone": {"device": "dv_forged", "fullAccess": true, "epoch": 1}});
     let mut peer = Client::new(&b, Origin::Peer, ConnAuth::PeerToken);
     let r = peer.prompt(&id, "from the owner's phone", claim.clone()).await;
     assert_eq!(r["result"]["stopReason"], "end_turn", "{r}");
@@ -274,20 +274,36 @@ async fn only_the_peer_daemon_takes_a_phone_back_and_its_link_end_takes_back_all
     let p =
         json!({"cwd": d.join("work"), "mcpServers": [], "_meta": {"acpmux": {"name": "coord"}}});
     let id = local.call("session/new", p).await["result"]["sessionId"].as_str().unwrap().to_owned();
-    let claim = json!({"via": "web", "ownerPhone": {"device": "dv_phone", "fullAccess": true}});
+    let claim = |epoch: u64| json!({"via": "web", "ownerPhone": {"device": "dv_phone", "fullAccess": true, "epoch": epoch}});
     let mut peer = Client::new(&b, Origin::Peer, ConnAuth::PeerToken);
-    let r = peer.prompt(&id, "from the owner's phone", claim).await;
+    let r = peer.prompt(&id, "from the owner's phone", claim(100)).await;
     assert_eq!(r["result"]["stopReason"], "end_turn", "{r}");
-    let changed = json!({"device": "dv_phone", "fullAccess": null});
+    let changed = json!({"device": "dv_phone", "fullAccess": null, "epoch": 200});
     let mut web = Client::new(&b, Origin::Web, ConnAuth::ListenerToken);
     let r = web.call("_acpmux/owner_phone_changed", changed.clone()).await;
     assert!(r.get("error").is_some(), "{r}");
     assert_eq!(b.pairing.vouched_for_tests().len(), 1);
-    let r = peer
-        .call("_acpmux/owner_phone_changed", json!({"device": "dv_phone", "fullAccess": false}))
-        .await;
+    let off = json!({"device": "dv_phone", "fullAccess": false, "epoch": 200});
+    let r = peer.call("_acpmux/owner_phone_changed", off).await;
     assert!(r.get("error").is_none(), "{r}");
     assert!(!b.pairing.vouched_for_tests()[0].1);
+    // Review F1 (follow-up): a claim the Mac read before it turned the phone off, arriving after
+    // the notice, does not put Full access back; one it read after (the person turned it on
+    // again) does.
+    peer.prompt(&id, "a late claim", claim(150)).await;
+    assert!(!b.pairing.vouched_for_tests()[0].1, "a stale claim restored Full access");
+    peer.prompt(&id, "on again", claim(300)).await;
+    assert!(b.pairing.vouched_for_tests()[0].1);
+    // After a removal, a late claim vouches for nothing.
+    let removed = json!({"device": "dv_phone", "fullAccess": null, "epoch": 400});
+    let r = peer.call("_acpmux/owner_phone_changed", removed).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert!(b.pairing.vouched_for_tests().is_empty());
+    let r = peer.prompt(&id, "a late claim", claim(350)).await;
+    assert_eq!(reason(&r), "remote.local_claude_session", "{r}");
+    assert!(b.pairing.vouched_for_tests().is_empty());
+    peer.prompt(&id, "a new phone record", claim(500)).await;
+    assert_eq!(b.pairing.vouched_for_tests().len(), 1);
     drop(peer);
     let gone = async {
         while !b.pairing.vouched_for_tests().is_empty() {

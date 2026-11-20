@@ -192,13 +192,13 @@ pub(super) fn sending_device(conn: &super::Conn, params: &Value) -> Option<Strin
     if conn.auth == super::ConnAuth::Device {
         return conn.device.clone();
     }
-    let (device, _) = vouched_claim(conn, params)?;
+    let (device, ..) = vouched_claim(conn, params)?;
     Some(crate::pairing::vouched_phone_id(&conn.id, device))
 }
 
 /// The owner's peer daemon's claim on this request (`ownerPhone {device, fullAccess}`), read only
 /// from a link that presented this daemon's peer token, forwarding for its Web client.
-fn vouched_claim<'a>(conn: &super::Conn, params: &'a Value) -> Option<(&'a str, bool)> {
+fn vouched_claim<'a>(conn: &super::Conn, params: &'a Value) -> Option<(&'a str, bool, u64)> {
     if conn.origin != super::Origin::Peer || !conn.auth.peer_daemon() {
         return None;
     }
@@ -207,14 +207,15 @@ fn vouched_claim<'a>(conn: &super::Conn, params: &'a Value) -> Option<(&'a str, 
     }
     let claim = params.pointer("/_meta/acpmux/ownerPhone")?;
     let device = claim.get("device")?.as_str().filter(|d| !d.is_empty() && d.len() <= 128)?;
-    Some((device, claim.get("fullAccess")?.as_bool()?))
+    let epoch = claim.get("epoch").and_then(Value::as_u64).unwrap_or(0);
+    Some((device, claim.get("fullAccess")?.as_bool()?, epoch))
 }
 
 /// Records, before any rule reads it, the phone the owner's peer daemon vouches for on this
 /// request ([`sending_device`]), with the Full-access setting it read for this very request.
 pub(super) fn note_vouched_phone(hub: &crate::hub::Hub, conn: &super::Conn, params: &Value) {
-    if let Some((device, full)) = vouched_claim(conn, params) {
-        hub.pairing.vouch(&conn.id, device, full);
+    if let Some((device, full, epoch)) = vouched_claim(conn, params) {
+        hub.pairing.vouch(&conn.id, device, full, epoch);
     }
 }
 
@@ -238,31 +239,81 @@ pub(super) async fn owner_phone_changed(
         .and_then(Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("device is required"))?;
     let full = params.get("fullAccess").and_then(Value::as_bool);
-    let narrowed = hub.pairing.unvouch(&conn.id, Some(device), full);
+    let epoch = params
+        .get("epoch")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| RpcError::invalid_params("epoch is required"))?;
+    let narrowed = hub.pairing.unvouch(&conn.id, Some(device), full, epoch);
     let held_again = if narrowed { hub.hold_policies_again().await } else { 0 };
     Ok(serde_json::json!({"held_again": held_again}))
 }
 
 /// Tells every peer this daemon reaches that its phone `device` had its Full-access setting
 /// turned off or was removed (`full` None), so a turn the phone started there through this
-/// daemon is held at its next tool ([`owner_phone_changed`]). A peer it cannot reach now drops
-/// the phone with this link (`Pairing::unvouch` at the connection's end).
+/// daemon is held at its next tool ([`owner_phone_changed`]). Each peer is told once here; one
+/// that does not acknowledge it (busy, a lost reply) is told again in the background until it
+/// does ([`retell_owner_phone_changed`]). A peer whose link ends drops every phone vouched for
+/// on it (`Pairing::unvouch` at the connection's end), and an older peer that does not know the
+/// method never took the claim.
 pub(crate) async fn tell_peers_owner_phone_changed(
     hub: &std::sync::Arc<crate::hub::Hub>,
     device: &str,
     full: Option<bool>,
 ) {
-    let params = serde_json::json!({"device": device, "fullAccess": full});
+    let params =
+        serde_json::json!({"device": device, "fullAccess": full, "epoch": crate::store::now_ms()});
     let peers = hub.connected_peers();
+    let links: Vec<u64> = peers.iter().map(|p| p.link_epoch()).collect();
     let sent = futures::future::join_all(
         peers
             .iter()
             .map(|peer| peer.request(crate::rpc::method::MUX_OWNER_PHONE_CHANGED, params.clone())),
     )
     .await;
-    for (peer, result) in peers.iter().zip(sent) {
-        if let Err(e) = result {
-            tracing::info!(peer = %peer.name, device, "owner phone change not delivered: {}", e.message);
+    for ((peer, link), result) in peers.into_iter().zip(links).zip(sent) {
+        if let Err(e) = result
+            && !settled_without_ack(&e)
+        {
+            tracing::info!(peer = %peer.name, device, "owner phone change not acknowledged ({}); retrying", e.message);
+            let params = params.clone();
+            let retell = retell_owner_phone_changed(peer, link, params);
+            drop(hub.scope.spawn_named("owner-phone-retell", retell));
+        }
+    }
+}
+
+/// A refusal that needs no retry: the peer does not know the method (an older acpmux, which never
+/// read the claim either).
+fn settled_without_ack(e: &RpcError) -> bool {
+    e.code == -32601
+}
+
+/// How long [`retell_owner_phone_changed`] keeps telling one peer.
+const RETELL_FOR: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+/// Tells `peer` the change again, backing off to 10 s, until it acknowledges it, its link ends
+/// (link `link` is gone: the peer dropped what it was told on it), or [`RETELL_FOR`] passes (then
+/// a warning: the peer may still hold the phone's Full access until that link ends).
+async fn retell_owner_phone_changed(
+    peer: std::sync::Arc<crate::peer::Peer>,
+    link: u64,
+    params: Value,
+) {
+    let started = std::time::Instant::now();
+    let mut wait = std::time::Duration::from_millis(250);
+    loop {
+        tokio::time::sleep(wait).await;
+        if peer.link_epoch() != link {
+            return;
+        }
+        match peer.request(crate::rpc::method::MUX_OWNER_PHONE_CHANGED, params.clone()).await {
+            Ok(_) => return,
+            Err(e) if settled_without_ack(&e) => return,
+            Err(e) if started.elapsed() > RETELL_FOR => {
+                tracing::warn!(peer = %peer.name, "owner phone change never acknowledged: {}", e.message);
+                return;
+            }
+            Err(_) => wait = (wait * 2).min(std::time::Duration::from_secs(10)),
         }
     }
 }
@@ -287,10 +338,12 @@ pub(super) fn attest_owner_phone(
     let Some(device) = sending_device(conn, params).filter(|d| hub.pairing.own_phone(d)) else {
         return;
     };
+    // The clock before the setting: a claim read before a narrowing is older than it.
+    let epoch = crate::store::now_ms();
     let full = hub.pairing.full_access(&device);
     crate::hub::merge_mux_meta(
         forwarded,
-        serde_json::json!({OWNER_PHONE: {"device": device, "fullAccess": full}}),
+        serde_json::json!({OWNER_PHONE: {"device": device, "fullAccess": full, "epoch": epoch}}),
     );
 }
 

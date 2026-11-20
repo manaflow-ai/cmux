@@ -2091,7 +2091,7 @@ async fn serve_connection_from(
     // process could bind (`hub/peer_lease.rs`).
     conn.end_peer_leases(&hub);
     // The phones the owner's peer daemon vouched for on this link end with it (fail closed).
-    if hub.pairing.unvouch(&conn.id, None, None) {
+    if hub.pairing.unvouch(&conn.id, None, None, 0) {
         hub.hold_policies_again().await;
     }
     ephemeral::release_all(&hub, &conn).await;
