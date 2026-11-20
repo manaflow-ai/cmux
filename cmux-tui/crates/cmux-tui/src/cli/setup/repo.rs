@@ -921,6 +921,7 @@ fn parse_source(text: &str) -> Result<SetupSource, Failure> {
     Ok(SetupSource::Folder { path: dir })
 }
 
+#[cfg(test)]
 pub(super) fn install(
     customize: &Customize,
     apps: &dyn Apps,
@@ -1183,6 +1184,9 @@ pub(super) fn gallery(customize: &Customize) -> Result<Value, Failure> {
     serde_json::to_value(gallery).map_err(|error| refused("setup.gallery", error.to_string()))
 }
 
+/// Fetches a URL's body: `None` on a 404.
+pub(super) type FetchBody<'a> = dyn FnMut(&str) -> Result<Option<Vec<u8>>, String> + 'a;
+
 /// `cmux setup preview ID|REPO`: the first preview file the look has, as a
 /// data URL. An installed folder is read in place; a repo's file is fetched
 /// with `get` (the URL's body, `None` on a 404) and kept under the state dir
@@ -1192,7 +1196,7 @@ pub(super) fn preview(
     customize: &Customize,
     which: &str,
     scheme: Scheme,
-    get: &mut dyn FnMut(&str) -> Result<Option<Vec<u8>>, String>,
+    get: &mut FetchBody<'_>,
     now_ms: u64,
 ) -> Result<Value, Failure> {
     let catalog = looks::catalog()?;
