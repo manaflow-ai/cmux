@@ -35,7 +35,7 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Require GitHub-hosted or one-job runner
-        if: (runner.environment != 'github-hosted' && !startsWith(runner.name, 'cmux-gcp-pr-control-jit-x64-')) || contains(runner.name, 'glaeda')
+        if: (runner.environment != 'github-hosted' && !startsWith(runner.name, 'cmux-gha-runner-pc-')) || contains(runner.name, 'glaeda')
         run: |
           set -euo pipefail
           echo "::error::CLA policy requires a GitHub-hosted or one-job runner"

@@ -78,12 +78,9 @@ check_cla_guard_runner() {
   # needs the guard step that admits only its one-job name prefix.
   local hosted_guard ephemeral_guard
   hosted_guard="        if: runner.environment != 'github-hosted'"
-  ephemeral_guard="        if: (runner.environment != 'github-hosted' && !startsWith(runner.name, 'cmux-gcp-pr-control-jit-x64-')) || contains(runner.name, 'glaeda')"
+  ephemeral_guard="        if: (runner.environment != 'github-hosted' && !startsWith(runner.name, 'cmux-gha-runner-pc-')) || contains(runner.name, 'glaeda')"
 
-  # Blacksmith names a VM '<label>-<id>' (blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc;
-  # before October 2026 '<label>-Runner-<hex>'). Read the prefixes and the
-  # owned-host marker back out of the guard and check that it admits those
-  # names and refuses owned glaeda hosts.
+  # Exercise the registration name separately from the routing label.
   local prefixes marker case_line expected name admitted prefix
   prefixes="$(grep -oE "startsWith\(runner\.name, '[^']+'\)" <<<"$ephemeral_guard" | sed -E "s/.*'([^']+)'.*/\1/")"
   marker="$(sed -nE "s/.*contains\(runner\.name, '([^']+)'\).*/\1/p" <<<"$ephemeral_guard")"
@@ -92,9 +89,11 @@ check_cla_guard_runner() {
     exit 1
   fi
   for case_line in \
-    'admit cmux-gcp-pr-control-jit-x64-56ere4cqq7ryjqvc' \
+    'admit cmux-gha-runner-pc-1120-054815-8145f3' \
+    'refuse cmux-runner-pool-e1bx-0019' \
+    'refuse cmux-gha-runner-nj-1120-054815-8145f3' \
     'refuse cmuxs-mac-mini-5-glaeda-1' \
-    'refuse cmux-gcp-pr-control-jit-x64-glaeda' \
+    'refuse cmux-gha-runner-pc-glaeda' \
     'refuse blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc' \
     'refuse cmux-gcp-pr-control-jit-x64'; do
     expected="${case_line%% *}"

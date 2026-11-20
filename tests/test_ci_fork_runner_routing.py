@@ -74,7 +74,7 @@ BLACKSMITH_RUNNER_NAME_CHECK = re.compile(
 # fail on an owned glaeda host.
 CLA_EPHEMERAL_RUNNER_GUARD_IF = (
     "(runner.environment != 'github-hosted'"
-    " && !startsWith(runner.name, 'cmux-gcp-pr-control-jit-x64-'))"
+    " && !startsWith(runner.name, 'cmux-gha-runner-pc-'))"
     " || contains(runner.name, 'glaeda')"
 )
 FORK_BRANCHES = (
@@ -1824,15 +1824,18 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         # (runner.environment, runner.name) -> whether the guard step fails the job.
         cases = {
             # Dedicated one-job JIT VM names.
-            ("self-hosted", "cmux-gcp-pr-control-jit-x64-56ere4cqq7ryjqvc"): False,
+            ("self-hosted", "cmux-gha-runner-pc-1120-054815-8145f3"): False,
             ("github-hosted", "GitHub Actions 12"): False,
             # Owned glaeda hosts, even under a Blacksmith-looking name.
             ("self-hosted", "cmuxs-mac-mini-5-glaeda-1"): True,
-            ("self-hosted", "cmux-gcp-pr-control-jit-x64-glaeda"): True,
+            ("self-hosted", "cmux-gha-runner-pc-glaeda"): True,
             ("github-hosted", "x-glaeda-1"): True,
             # Labels outside the runs-on allowlist, and the bare label.
             ("self-hosted", "blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc"): True,
             ("self-hosted", "cmux-gcp-pr-control-jit-x64"): True,
+            ("self-hosted", "cmux-gcp-pr-control-jit-x64-1120-054815-8145f3"): True,
+            ("self-hosted", "cmux-runner-pool-e1bx-0019"): True,
+            ("self-hosted", "cmux-gha-runner-nj-1120-054815-8145f3"): True,
         }
         for (environment, name), fails in cases.items():
             with self.subTest(name=name, environment=environment):
