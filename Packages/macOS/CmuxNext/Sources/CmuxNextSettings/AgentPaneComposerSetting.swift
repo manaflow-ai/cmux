@@ -48,6 +48,7 @@ import CmuxNextDesign
 /// `reasoningSliderStyle` carries the Debug Settings visual comparison choice, defaulting to
 /// `accent` so the slider's current treatment remains unchanged.
 public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
+    public var chatInstantUnderLoad = Self.chatInstantUnderLoadDefault
     public var showContextUsage = Self.showContextUsageDefault
     public var composerRing = Self.composerRingDefault
     public var showDictation = Self.showDictationDefault
@@ -70,6 +71,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     /// The page's value (the `composer` host event): `{showContextUsage, composerRing, showDictation, dictationSource, dictationShortcut, spellChecking, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, newChatsIn, reasoningSlider, reasoningSliderStyle}`.
     public var pageValue: JSONValue {
         [
+            "chatInstantUnderLoad": .bool(chatInstantUnderLoad),
             "showContextUsage": .bool(showContextUsage),
             "composerRing": .string(composerRing.rawValue),
             "showDictation": .bool(showDictation),
@@ -139,6 +141,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
                 continue
             }
+            if descriptor.path == chatInstantUnderLoadPath { setting.chatInstantUnderLoad = flag }
             if descriptor.path == showContextUsagePath { setting.showContextUsage = flag }
             if descriptor.path == showDictationPath { setting.showDictation = flag }
             if descriptor.path == spellCheckingPath { setting.spellChecking = flag }

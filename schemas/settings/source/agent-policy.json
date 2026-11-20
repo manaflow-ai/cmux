@@ -853,6 +853,11 @@
     },
     {
       "agent": "settable",
+      "why": "Opt-in scheduling for the shared chat list.",
+      "keys": ["experiments.chat_instant_under_load"]
+    },
+    {
+      "agent": "settable",
       "why": "The composer's context ring and mic (looks only).",
       "keys": [
         "agentPane.showContextUsage",

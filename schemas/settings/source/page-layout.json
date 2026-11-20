@@ -549,7 +549,7 @@
           "title": {"key": "settings.category.experimental", "text": "Experimental"},
           "symbol": "flask",
           "groups": [
-            {"group": "settings.group.labs", "keys": ["appearance.experimentalControls"]},
+            {"group": "settings.group.labs", "keys": ["appearance.experimentalControls", "experiments.chat_instant_under_load"]},
             {"group": "settings.group.appearanceTuning"}
           ]
         },

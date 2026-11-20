@@ -56,6 +56,7 @@ export type ComposerRing = "context" | "planUsage";
 export const DICTATION_SOURCES = ["cmux", "macos", "chatgpt", "claude", "gemini", "wisprFlow", "superwhisper"] as const;
 export type DictationSource = (typeof DICTATION_SOURCES)[number];
 export type ComposerSettings = {
+  chatInstantUnderLoad: boolean;
   showContextUsage: boolean;
   showDictation: boolean;
   dictationSource: DictationSource;
@@ -75,6 +76,7 @@ export type ComposerSettings = {
 };
 
 export const DEFAULT_COMPOSER: ComposerSettings = {
+  chatInstantUnderLoad: false,
   showContextUsage: true,
   showDictation: true,
   dictationSource: "cmux",
@@ -94,6 +96,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
 type ComposerFlag =
+  | "chatInstantUnderLoad"
   | "showContextUsage"
   | "showDictation"
   | "spellChecking"
@@ -112,6 +115,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
   const attachmentView: AttachmentView =
     raw.attachmentView === "strip" || raw.attachmentView === "both" ? raw.attachmentView : "inline";
   return {
+    chatInstantUnderLoad: flag("chatInstantUnderLoad"),
     showContextUsage: flag("showContextUsage"),
     showDictation: flag("showDictation"),
     dictationSource: DICTATION_SOURCES.includes(raw.dictationSource as DictationSource)

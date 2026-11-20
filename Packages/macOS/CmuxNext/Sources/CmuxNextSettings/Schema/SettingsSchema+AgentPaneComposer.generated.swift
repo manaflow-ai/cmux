@@ -32,6 +32,9 @@ extension AgentPaneComposerSetting {
     /// `agentPane.newChatsIn`: Where a new chat runs when its composer picks nothing (agentPane.newChatsIn); the page decides (runLocationDefault.ts). Leo, 2026-10-31: "whenever i start a chat it should be able to send me to cloud autommatically".
     public nonisolated static let newChatsInPath = ["agentPane", "newChatsIn"]
     public nonisolated static let newChatsInDefault: AgentPaneNewChatPlace = .local
+    /// `experiments.chat_instant_under_load`.
+    public nonisolated static let chatInstantUnderLoadPath = ["experiments", "chat_instant_under_load"]
+    public nonisolated static let chatInstantUnderLoadDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -156,6 +159,16 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                 ]),
                 default: .string(AgentPaneComposerSetting.newChatsInDefault.rawValue),
                 keywords: ["cloud", "new chat", "start", "machine", "vm", "remote", "this mac", "local", "run"]
+            ),
+            SettingDescriptor(
+                AgentPaneComposerSetting.chatInstantUnderLoadPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.chatInstantUnderLoad", "Prioritize Chat Input"),
+                help: SettingsText.keyed("settings.experiments.chatInstantUnderLoad.help", "Wait for a pause in typing before saving an updated chat list for new tabs."),
+                kind: .toggle,
+                default: .bool(AgentPaneComposerSetting.chatInstantUnderLoadDefault),
+                keywords: ["experiment", "chat", "typing", "streaming", "performance"]
             ),
         ]
     }

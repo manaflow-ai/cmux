@@ -9,6 +9,10 @@
 // store leaves each page its own list, as before. With `agent.pageHost` on each page has its own
 // store, so this is each page's own list again.
 import { useSyncExternalStore } from "react";
+import { experimentArm } from "../../../experiments/experiment";
+import { composerSettingsSnapshot } from "../composerSettings";
+import { pageLanes } from "../schedule";
+import { chatInstantUnderLoad } from "./chatInstantUnderLoad.experiment";
 import type { AcpmuxSnapshot } from "../model";
 import type { AcpmuxSessionEntry } from "../sessionList";
 
@@ -175,12 +179,29 @@ export function publishSessions(
   pending = { sessions: snapshot.sessions, at };
   // A write went out less than `PUBLISH_MS` ago: this list goes when the window ends.
   if (windowTimer !== undefined) return;
-  writePending();
+  scheduleWrite();
 }
 
 function endWindow(): void {
   windowTimer = undefined;
-  flushPending();
+  if (pending && current && pending.at < current.at) pending = undefined;
+  if (pending) scheduleWrite();
+}
+
+// Publish the first usable list immediately so a newly opened tab can draw it. Once the
+// store is warm, the idle lane coalesces updates while a key or a transcript frame is pending.
+// The existing pagehide and visibility handlers still flush the newest list synchronously.
+function scheduleWrite(): void {
+  if (
+    current?.sessions.length &&
+    (composerSettingsSnapshot().chatInstantUnderLoad || experimentArm(chatInstantUnderLoad) === "on")
+  ) {
+    pageLanes().idle("new-tab-chat-list", () => {
+      if (windowTimer === undefined) flushPending();
+    });
+    return;
+  }
+  writePending();
 }
 
 /// Writes the list held back from the last window, unless another page wrote a newer one meanwhile:

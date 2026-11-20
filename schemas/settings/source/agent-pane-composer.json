@@ -381,6 +381,27 @@
           "swift_enum": {
             "name": "AgentPaneNewChatPlace"
           }
+        },
+        {
+          "key": "experiments.chat_instant_under_load",
+          "name": "chatInstantUnderLoad",
+          "title": {
+            "key": "settings.experiments.chatInstantUnderLoad",
+            "text": "Prioritize Chat Input"
+          },
+          "help": {
+            "key": "settings.experiments.chatInstantUnderLoad.help",
+            "text": "Wait for a pause in typing before saving an updated chat list for new tabs."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiment",
+            "chat",
+            "typing",
+            "streaming",
+            "performance"
+          ]
         }
       ]
     }

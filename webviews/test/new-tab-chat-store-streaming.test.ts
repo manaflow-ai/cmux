@@ -158,3 +158,26 @@ test("a held-back list never replaces a newer list another page wrote in its win
   expect(JSON.parse(window.localStorage.getItem(store.CHAT_STORE_KEY_FOR_TESTS)!).at).toBe(T0 + 1_200);
   expect(store.sharedSessions([])[0]?.sessionId).toBe("s-0005");
 });
+
+test("the input-priority arm keeps the first list and flushes the latest change after input", async () => {
+  const { composerSettingsSnapshot, setComposerSettings } =
+    await import("../src/agent-session/acpmux/composerSettings");
+  const { pageLanes } = await import("../src/agent-session/acpmux/schedule");
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  const savedSettings = composerSettingsSnapshot();
+  jest.useFakeTimers();
+  try {
+    setComposerSettings({ chatInstantUnderLoad: true });
+    store.publishSessions(connected([chat(0, T0)]), T0);
+    expect(store.sharedSessions([])[0]?.updatedAt).toBe(T0);
+    store.publishSessions(connected([chat(0, T0 + 1)]), T0 + 1);
+    jest.advanceTimersByTime(500);
+    store.publishSessions(connected([chat(0, T0 + 2)]), T0 + 2);
+    expect(store.sharedSessions([])[0]?.updatedAt).toBe(T0);
+    pageLanes().flush("new-tab-chat-list");
+    expect(store.sharedSessions([])[0]?.updatedAt).toBe(T0 + 2);
+  } finally {
+    setComposerSettings(savedSettings);
+    store.reloadChatStoreForTests();
+  }
+});
