@@ -100,7 +100,7 @@ async fn rows(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcE
         let read = hub.refresh_usage_stats();
         let _ = tokio::time::timeout(crate::hub::USAGE_READ_WAIT, read).await;
     }
-    rows_reply(&keys, hub.rows_by_key(&keys, tools), ROWS_REPLY_BYTES)
+    rows_reply(&keys, hub.rows_by_key(&keys, tools)?, ROWS_REPLY_BYTES)
 }
 
 /// The `{rows, missing, rest}` reply of `keys` whose row texts are `texts` (`None` for a key
