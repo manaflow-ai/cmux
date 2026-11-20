@@ -39,7 +39,13 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         Ok(outcome) => outcome,
         Err(code) => return Some(code),
     };
-    let (out, err, mut code) = apps_run::report(&outcome, global.output);
+    let (mut out, err, mut code) = apps_run::report(&outcome, global.output);
+    if global.output == OutputMode::Human
+        && let Outcome::Answer(answer) = &outcome
+        && answer["ok"] == true
+    {
+        out = Some(human_result(answer));
+    }
     if let Some(out) = out {
         println!("{out}");
     }
@@ -52,6 +58,26 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         code = 1;
     }
     Some(code)
+}
+
+fn human_result(answer: &Value) -> String {
+    let Some(rows) = answer.pointer("/data/machines").and_then(Value::as_array) else {
+        return "No machine outcomes returned.".to_owned();
+    };
+    if rows.is_empty() {
+        return "No Cloud machines to pause.".to_owned();
+    }
+    rows.iter()
+        .map(|row| {
+            let machine = row["machine"].as_str().unwrap_or("unknown");
+            let status = row["status"].as_str().unwrap_or("unknown");
+            match row.pointer("/error/message").and_then(Value::as_str) {
+                Some(message) => format!("{machine}: {status} — {message}"),
+                None => format!("{machine}: {status}"),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn partial_failure(answer: &Value) -> bool {

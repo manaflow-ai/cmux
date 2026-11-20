@@ -11,8 +11,8 @@ pub(crate) struct Ctx<'a, C> {
     control_plane: &'a mut C,
     pub(crate) projection: &'a mut Projection,
     /// The caller's idempotency key: `Some` exactly for mutations. Every
-    /// wire call of the op carries it unchanged, so a retry with the same
-    /// key reaches the backend's ledger row (contract 1.1).
+    /// ordinary mutation carries it unchanged. Composed operations derive stable
+    /// child keys, so retrying each target reaches the backend's ledger row.
     key: Option<&'a str>,
     /// The request's origin, sent with each mutation.
     origin: Option<&'static str>,
