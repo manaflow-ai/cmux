@@ -13,7 +13,7 @@ source "$here/launch-ready.sh"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 # guest_args_ok DMG COPY LATE ENGINES PROFILE
-ok() { LR_GUEST="$1" LR_CASE="$2" guest_args_ok "$3" "$4" "$5" "$6" "$7" 2>/dev/null; }
+ok() { LR_GUEST="$1" LR_CASE="$2" LR_STATE="${LR_STATE:-kept}" guest_args_ok "$3" "$4" "$5" "$6" "$7" 2>/dev/null; }
 ok 1 "" nightly same 0 "" 0 || fail "guest=1 dmg=nightly refused"
 ok 1 "" https://example.invalid/a.dmg same 0 "" 0 || fail "guest=1 dmg=URL refused"
 ok 0 "" build fresh 50 chromium 1 || fail "guest=0 checked the guest rules"
@@ -24,6 +24,7 @@ ok 0 "" build fresh 50 chromium 1 || fail "guest=0 checked the guest rules"
 ! ok 1 "" nightly same 100 "" 0 || fail "guest=1 late= accepted"
 ! ok 1 "" nightly same 0 chromium 0 || fail "guest=1 engines= accepted"
 ! ok 1 "" nightly same 0 "" 1 || fail "guest=1 profile=1 accepted"
+! LR_STATE=bare ok 1 "" nightly same 0 "" 0 || fail "guest=1 state=bare accepted"
 echo 'launch-ready guest: the arguments guest=1 takes and refuses'
 
 # guest_copy: the bundle id gets .launch-ready (once), the link claims go, the copy is re-signed ad hoc.

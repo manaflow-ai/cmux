@@ -63,7 +63,7 @@
 #                are the guest's domain, never the NIGHTLY's; every launch opens without activating and with
 #                CMUX_NEXT_NO_ACTIVATE=1 (the app drops every activation and opens its windows behind; no focus taken,
 #                `active` stays null); and wait_load is skipped (the caller gates load and idle itself). Takes a DMG
-#                (not dmg=build or dmg=swap) and no case=update, copy=fresh, late=, engines= or profile=1.
+#                (not dmg=build or dmg=swap) and no case=update, copy=fresh, late=, engines=, profile=1 or state=bare.
 #                An ad hoc copy's time before main is not a Developer ID copy's: compare guest runs with guest runs.
 # Each side gets one copy of the app and one home. The priming launch makes the home's state (a person's second
 # launch on), then every measured launch is a relaunch through LaunchServices, activated, as a Dock click is.
@@ -571,6 +571,7 @@ guest_args_ok() {
   if [[ "$LR_CASE" == update || "$2" == fresh ]]; then echo "guest=1 takes no case=update or copy=fresh: each copy from the DMG would keep the NIGHTLY's bundle id" >&2; return 1; fi
   if [[ "$3" != 0 || -n "$4" ]]; then echo "guest=1 takes no late= or engines=: one side, one renamed copy" >&2; return 1; fi
   if [[ "$5" == 1 ]]; then echo "guest=1 takes no profile=1: an all-processes recording of a person's Mac" >&2; return 1; fi
+  if [[ "$LR_STATE" == bare ]]; then echo "guest=1 takes no state=bare or state=fresh: a window that never takes focus never becomes key, so Home never marks window_usable and no terminal opens" >&2; return 1; fi
   return 0
 }
 
