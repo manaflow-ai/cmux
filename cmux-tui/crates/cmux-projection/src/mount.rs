@@ -52,6 +52,16 @@ impl Drop for Mounted {
 
 /// Mounts `overlay` at `at` (an existing, empty folder).
 pub fn mount(overlay: Arc<Overlay>, at: &Path) -> anyhow::Result<Mounted> {
+    mount_as(overlay, at, MountOption::RW)
+}
+
+/// Mounts only `overlay`'s read-only view at `at`: every write answers `EROFS` from the kernel.
+/// The lower a kernel overlay can stack an upper on, and what the conformance suites check alone.
+pub fn mount_lower(overlay: Arc<Overlay>, at: &Path) -> anyhow::Result<Mounted> {
+    mount_as(overlay, at, MountOption::RO)
+}
+
+fn mount_as(overlay: Arc<Overlay>, at: &Path, access: MountOption) -> anyhow::Result<Mounted> {
     let (sender, receiver) = channel::<Job>();
     let receiver = Arc::new(Mutex::new(receiver));
     for index in 0..WORKERS {
@@ -72,7 +82,7 @@ pub fn mount(overlay: Arc<Overlay>, at: &Path) -> anyhow::Result<Mounted> {
         MountOption::Subtype("cmux".into()),
         MountOption::DefaultPermissions,
         MountOption::NoAtime,
-        MountOption::RW,
+        access,
     ];
     let session = fuser::spawn_mount2(fs, at, &options)?;
     Ok(Mounted { session: Some(session) })
