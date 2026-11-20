@@ -21,7 +21,7 @@ public final class CustomizeExperimentsMarkView: NSView {
     /// The line drawn, nil while hidden.
     public private(set) var line: String?
 
-    private let glass = CardSurfaceView()
+    private let glass = CardSurfaceView() // concentric-allow: a chip, not a card: it rounds as app health's chip it stacks with (`layout()`)
     private let glyph = NSImageView()
     private let label = ChromeLabel(labelWithString: "")
     private let button = QuietTextButton()
@@ -77,7 +77,7 @@ public final class CustomizeExperimentsMarkView: NSView {
     override public func layout() {
         super.layout()
         glass.frame = bounds
-        glass.cornerRadius = Metrics.chipCornerRadius(height: bounds.height) // radius-allow: the chip's glass, app health's chip shape; Turn Off rounds as a tab
+        glass.cornerRadius = Metrics.chipCornerRadius(height: bounds.height) // radius-allow: the chip's glass, app health's chip shape; Turn Off rounds as a tab // concentric-allow: matches app health's chip beside it
         let side = Self.glyphSide
         glyph.frame = NSRect(x: inset, y: (bounds.height - side) / 2, width: side, height: side)
         let width = button.fittingWidth, height = QuietTextButton.height

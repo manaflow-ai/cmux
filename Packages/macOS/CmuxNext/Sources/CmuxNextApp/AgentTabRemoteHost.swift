@@ -148,5 +148,4 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         return try await AgentRemoteStartCoordinator(approvals: approvals, servesKeyedReason: servesKeyedReason, updateMachine: updateMachine)
             .keyedStart(cwd, harness, model, proceed: proceed, start: start)
     }
-
 }

@@ -84,7 +84,6 @@ final class BrowserDownloadHistory {
     func waitForPendingWrites() async {
         await lastWrite?.value
     }
-
 }
 
 extension BrowserDownloadHistory.Row {
