@@ -2062,6 +2062,17 @@
       "title" : "Theme File",
       "type" : "string"
     },
+    "appearance.themeFileExceptions" : {
+      "default" : [
+
+      ],
+      "description" : "Settings you changed while a theme file sets them. Your value applies over the file's; resetting the row returns to the file's. Choosing another theme file clears the list.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Changed Over Theme File",
+      "type" : "array"
+    },
     "appearance.titleAreaContrast" : {
       "default" : 1,
       "description" : "How much darker the title bar, tab bar and sidebar are. 1 is the default.",
@@ -3325,6 +3336,12 @@
       "description" : "Team enrollment token from the cmux dashboard. Signed-in users in a verified domain of the team join it; the token alone never grants membership.",
       "title" : "EnrollmentToken",
       "type" : "string"
+    },
+    "experiments.glassSidebarExtension" : {
+      "default" : false,
+      "description" : "The sidebar floats as glass and the open pane shows through under it.",
+      "title" : "Glass Sidebar",
+      "type" : "boolean"
     },
     "feed.agentPermissionPrompts" : {
       "default" : false,
