@@ -135,7 +135,7 @@ public final class KeptParts<Owner: AnyObject, Model: AnyObject, Part> {
             let part = tracking.track(shape: [], { () -> Part in
                 mark.observe()
                 return make(model, now)
-            }, onChange: { mark.fire() }, fileID: site.fileID, line: site.line)
+            }, onChange: { [weak mark] in mark?.fire() }, fileID: site.fileID, line: site.line)
             store.entries[id] = Entry(model: model, part: part, input: Given(value: now), mark: mark, tracking: tracking)
             made += 1
             parts.append(part)
