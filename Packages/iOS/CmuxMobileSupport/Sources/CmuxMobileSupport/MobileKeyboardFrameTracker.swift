@@ -44,7 +44,7 @@ public final class MobileKeyboardFrameTracker {
     private let hasKeyInputFocus: @MainActor () -> Bool
 
     /// Which keyboard notification a subscriber hears.
-    public enum Change: Sendable {
+    public enum Change: Sendable, Equatable {
         case willChangeFrame, didChangeFrame
         /// No keyboard notification came, yet the keyboard the record holds
         /// as shown cannot be up: nothing takes typed keys
