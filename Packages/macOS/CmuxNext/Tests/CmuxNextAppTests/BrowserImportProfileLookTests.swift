@@ -63,7 +63,7 @@ import Testing
         let provisioning = Provisioning()
         let plan = ImportPlan(items: [ImportPlan.Item(profile: personal, kinds: [.bookmarks], target: "existing"),
                                       ImportPlan.Item(profile: work, kinds: [.bookmarks])])
-        let summary = try await BrowserImporter(provisioning: provisioning).run(plan, into: Discard()) { _ in }
+        let summary = try await BrowserImporter(reader: .empty, provisioning: provisioning).run(plan, into: Discard()) { _ in }
 
         let made = await provisioning.made
         #expect(made.map(\.name) == ["Google Chrome · Work"])
