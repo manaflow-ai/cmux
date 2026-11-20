@@ -709,7 +709,8 @@ class Wiring(unittest.TestCase):
                     for runs_on in routes(job, name):
                         linux = runs_on.index(f"contains(needs.portable-placement.outputs.linux_jobs, ' {name} ')")
                         mini = runs_on.index(f"contains(needs.portable-placement.outputs.mini_jobs, ' {name} ')")
-                        blacksmith = runs_on.rindex(f"fromJSON(vars.RUNNER_POOLS).{pool}")
+                        # The overflow after the placement is the one Linux label (one_linux_label.py), no size.
+                        blacksmith = runs_on.rindex("'cmux-linux'")
                         self.assertLess(linux, mini)
                         self.assertLess(mini, blacksmith)
                         self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)",
@@ -726,7 +727,7 @@ class Wiring(unittest.TestCase):
             linux = runs_on.index("contains(needs.portable-placement.outputs.linux_jobs, ' release-notary ')")
             self.assertNotIn("mini_jobs", runs_on)
             self.assertNotIn("mini_runner", runs_on)
-            self.assertLess(linux, runs_on.rindex("fromJSON(vars.RUNNER_POOLS).linux"))
+            self.assertLess(linux, runs_on.rindex("'cmux-linux'"))
         # ci-guards.yml's matrix still takes a caller's placement (ci.yml's routes).
         for tests in routes(jobs("ci-guards.yml")["workflow-guard-tests"], "workflow-guard-tests"):
             self.assertIn("inputs.guard_tests_runner != '' && inputs.guard_tests_runner", tests)
@@ -753,7 +754,7 @@ class Wiring(unittest.TestCase):
         self.assertEqual(picker["env"]["REQUIRE_LIVE_CAPACITY"], "1")
         daemon = single_runs_on(workflow["cmux-next-daemon-tests"])
         live = daemon.index("needs.tree-preflight.outputs.linux_runner")
-        fallback = daemon.index("fromJSON(vars.RUNNER_POOLS).linux_8")
+        fallback = daemon.index("'cmux-linux'")  # the one Linux label, no measured size
         self.assertLess(live, fallback)
         self.assertEqual(workflow["tree-preflight"]["outputs"]["linux_runner"],
                          "${{ steps.linux-placement.outputs.linux_runner }}")
@@ -821,8 +822,8 @@ class Wiring(unittest.TestCase):
         legs = next(step for step in package["plan-build"]["steps"] if step.get("id") == "targets")
         route = legs["env"]["LINUX_BUILD_RUNNER"]
         owned = route.index("inputs.linux_build_runner != '' && inputs.linux_build_runner")
-        for overflow in ("fromJSON(vars.RUNNER_POOLS).linux_16", "fromJSON(vars.RUNNER_POOLS).linux_8",
-                         "'blacksmith-16vcpu-ubuntu-2404'"):
+        # The overflow is the one Linux label, cmux-linux (scripts/ci/one_linux_label.py), no size.
+        for overflow in ("'cmux-linux'",):
             with self.subTest(overflow=overflow):
                 self.assertLess(owned, route.index(overflow))
         # Only the musl legs take it: plan-build and packaging keep their own runners.
@@ -944,7 +945,7 @@ class Wiring(unittest.TestCase):
 
     def test_new_light_workflows_place_status_jobs_before_hosted_overflow(self):
         expected = {
-            "cmux-next-fast-gates.yml": {"jobs": ("resolve", "receipt", "post"), "fallback": "fromJSON(vars.RUNNER_POOLS).linux"},
+            "cmux-next-fast-gates.yml": {"jobs": ("resolve", "receipt", "post"), "fallback": "|| 'cmux-linux' }}"},
         }
         for workflow, spec in expected.items():
             with self.subTest(workflow=workflow):
@@ -992,7 +993,7 @@ class Wiring(unittest.TestCase):
         live_linux = route.index("contains(needs.portable-placement.outputs.linux_jobs, ' path_route ')")
         live_mini = route.index("contains(needs.portable-placement.outputs.mini_jobs, ' path_route ')")
         self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", route)
-        paid = route.rindex("fromJSON(vars.RUNNER_POOLS).linux_8")
+        paid = route.rindex("'cmux-linux'")
         self.assertLess(live_linux, live_mini)
         self.assertLess(live_mini, paid)
 
@@ -1009,7 +1010,7 @@ class Wiring(unittest.TestCase):
                 route = "\n".join(routes(placement_job, "portable-placement"))
                 # Blacksmith on every attempt: GitHub-hosted Ubuntu left these queued for hours (cmux#45735).
                 self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", route)
-                self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_2", route)
+                self.assertTrue(route.rstrip().endswith("'cmux-linux' }}"), route)
                 self.assertNotIn("vars.CI_LIGHT_LANE_RUNNER", route)
                 self.assertNotIn("vars.CI_SIDE_LANE_RUNNER", route)
                 # Owned labels remain inputs to capacity validation, never the

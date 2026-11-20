@@ -100,7 +100,7 @@ jobs:
   base-only:
     name: base-only update
     if: github.event.action == 'synchronize'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 6
     # contents: read only. The repository is public, so the one run read below needs
     # no Actions scope; a refused read answers false.
@@ -345,7 +345,7 @@ jobs:
     if: ${{ always() && !cancelled() && contains(fromJSON('["opened","synchronize","reopened","edited","ready_for_review"]'), github.event.action) && (github.event.action != 'edited' || (github.event.changes.body && (contains(github.event.pull_request.body, 'Size:') || contains(github.event.changes.body.from, 'Size:')))) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft }}
     # A light job: one GraphQL read, 4 s of work. The reconciled Linux pool on every attempt (no
     # secret), never GitHub-hosted Ubuntu (it left light jobs queued for hours, cmux#45735).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -429,7 +429,7 @@ jobs:
     if: ${{ always() && !cancelled() && needs.base-only.outputs.base_only != 'true' && contains(fromJSON('["opened","synchronize","reopened","edited","ready_for_review"]'), github.event.action) && (github.event.action != 'edited' || (github.event.changes.body && (contains(github.event.pull_request.body, 'UI review') || contains(github.event.changes.body.from, 'UI review') || contains(github.event.pull_request.body, 'Verdict:') || contains(github.event.changes.body.from, 'Verdict:')))) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft }}
     # A light job: one file list read, 4 s of work. The reconciled Linux pool on every attempt (no
     # secret), never GitHub-hosted Ubuntu (it left light jobs queued for hours, cmux#45735).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -500,7 +500,7 @@ jobs:
     name: split-plan advisory
     needs: base-only
     if: ${{ always() && !cancelled() && needs.base-only.outputs.base_only != 'true' && github.event.action != 'edited' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read

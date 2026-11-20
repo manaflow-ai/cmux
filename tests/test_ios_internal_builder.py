@@ -7,6 +7,7 @@ runner. Design: plans/cmux-next/ios-testflight-builder-DESIGN.md.
 """
 from __future__ import annotations
 
+import re
 import contextlib
 import datetime as dt
 import importlib.util
@@ -624,19 +625,17 @@ class PackagesLiveInTheAppTests(unittest.TestCase):
 
 
 class TriggerRunnerTests(unittest.TestCase):
-    def test_push_decision_reads_the_linux_pool(self):
+    def test_push_decision_takes_the_one_linux_label(self):
         workflow = (ROOT / ".github/workflows/ios-internal-nightly-trigger.yml").read_text()
         runs_on = next(line.strip() for line in workflow.splitlines()
                        if line.strip().startswith("runs-on:"))
         self.assertIn("'ubuntu-24.04'", runs_on)
-        # The reconciled Linux pool, never a fixed Blacksmith size that can stall
-        # (tests/test_ci_linux_single_size.py).
+        # The one Linux label (scripts/ci/one_linux_label.py), an owned pool sized by load, never a fixed
+        # Blacksmith size that can stall (tests/test_ci_linux_single_size.py).
         self.assertNotIn("32vcpu", runs_on)
-        self.assertNotIn("vars.LINUX_RUNNER", runs_on)
-        # Only a member of the Linux pool, so the nightly runner label policy can read it (HQ
-        # tests/test_runner_label_policy.py); a stale or unset pool takes the 4 vCPU member.
-        self.assertIn("contains(fromJSON('[\"cmux-fleet-linux-x64\",\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\"]'), fromJSON(vars.RUNNER_POOLS).linux) && fromJSON(vars.RUNNER_POOLS).linux", runs_on)
-        self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}"), runs_on)
+        self.assertIsNone(re.search(r"vars\.LINUX_RUNNER(?![A-Z_])", runs_on))
+        self.assertNotIn("RUNNER_POOLS).linux", runs_on)
+        self.assertTrue(runs_on.endswith("|| 'cmux-linux' }}"), runs_on)
 
     def test_a_persons_dispatch_is_not_replaced_by_the_next_push(self):
         """Run 44328490608: a person's dispatch waited behind a running decide and the next push replaced it."""

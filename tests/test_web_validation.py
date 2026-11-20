@@ -13,6 +13,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import web_validation as gate
+import one_linux_label  # noqa: E402
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
@@ -35,7 +36,9 @@ class CmuxNextBaseWebVerdict(unittest.TestCase):
 
     def test_every_feat_cmux_next_push_runs_it(self):
         self.assertRegex(self.text, r"\non:\n  push:\n    branches: \[feat-cmux-next\]\n")
-        self.assertNotIn("pull_request", self.text)
+        # The one Linux label's fork branch (scripts/ci/one_linux_label.py) names pull_request in every runs-on;
+        # it never matches here, since no pull_request event starts this workflow.
+        self.assertNotIn("pull_request", self.text.replace(one_linux_label.FORK_PR, ""))
         self.assertNotIn("paths:", self.text)
 
     def test_it_calls_ci_web_as_the_web_job_with_every_web_lane(self):
@@ -229,9 +232,10 @@ class WebValidationTests(unittest.TestCase):
         block = workflow[start:] if match is None else workflow[start : start + 3 + match.start()]
         runs_on = re.search(r"^    runs-on: (.+)$", block, re.MULTILINE).group(1)
         self.assertIn("scripts/ci/run-webviews-tests.sh", block)
-        self.assertNotIn("vars.LINUX_RUNNER", runs_on)
+        self.assertIsNone(re.search(r"vars\.LINUX_RUNNER(?![A-Z_])", runs_on), runs_on)
         self.assertNotIn("linux_16", runs_on)
-        self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}"), runs_on)
+        # The one Linux label (Leo, 2026-11-20): the pool sizes itself; no workflow names a size.
+        self.assertEqual(runs_on, one_linux_label.CANONICAL)
         sized_for = int(re.search(r'^          CMUX_WEB_TEST_SIZED_FOR_VCPU: "(\d+)"$', block, re.MULTILINE).group(1))
         sizes = re.findall(r"'blacksmith-(\d+)vcpu-ubuntu-2404'|RUNNER_POOLS\)\.linux_(\d+)", runs_on)
         for vcpu in (int(a or b) for a, b in sizes):
@@ -256,7 +260,7 @@ class WebValidationTests(unittest.TestCase):
         shards = [int(n) for n in re.findall(r"^          - shard: (\d+)$", block, re.MULTILINE)]
         counts = set(re.findall(r"^            shard_count: (\d+)$", block, re.MULTILINE))
         self.assertEqual(len(shards), 12)
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_4 }}", block)
+        self.assertIn(f"runs-on: {one_linux_label.CANONICAL}", block)
         self.assertEqual(shards, list(range(1, len(shards) + 1)))
         self.assertEqual(counts, {str(len(shards))})
         base_start = workflow.index("  react-apps-base-check:")
