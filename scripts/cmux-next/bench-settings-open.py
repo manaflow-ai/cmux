@@ -88,7 +88,10 @@ def summary(values):
     values = [v for v in values if isinstance(v, (int, float))]
     if not values:
         return "n/a"
-    return f"median {statistics.median(values):7.1f}  min {min(values):7.1f}  max {max(values):7.1f}  (n={len(values)})"
+    ordered = sorted(values)
+    p90 = ordered[min(len(ordered) - 1, round(0.9 * (len(ordered) - 1)))]
+    return (f"median {statistics.median(values):7.1f}  p90 {p90:7.1f}  min {min(values):7.1f}  max {max(values):7.1f}"
+            f"  (n={len(values)})")
 
 
 def main():

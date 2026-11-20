@@ -87,10 +87,29 @@ if "--bench=cmdn-typing" in sys.argv:
 if "--bench=settings-open" in sys.argv:
     other = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-settings-open.py")
     kept, args = [], sys.argv[1:]
+    compare, out = None, tempfile.mkdtemp(prefix="settings-open-")
     for index, arg in enumerate(args):
-        name = arg.split("=", 1)[0]
+        name, _, value = arg.partition("=")
         if name in ("--app", "--runs", "--opens", "--settle", "--json"):
             kept += [arg] if "=" in arg else [arg, args[index + 1]]
+        elif name == "--compare-at":
+            # A second arm in the same step: built here at that commit (scripts/measure/app-at-commit.sh, bench
+            # configuration) and launched interleaved with --app, so both arms share the host and its state.
+            compare = value
+        elif name == "--out":
+            out = value if "=" in arg else args[index + 1]
+    if compare:
+        if not re.fullmatch(r"[0-9a-f]{40}", compare):
+            raise SystemExit(f"--compare-at={compare}: want a 40-hex commit")
+        root = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True).stdout.strip()
+        built = subprocess.run(["bash", "-c", '. scripts/measure/app-at-commit.sh && measure_app_at_commit "$@"', "build",
+                                compare, "instantnewb", os.path.join(out, "compare-at"), "--config", "bench"],
+                               cwd=root, stdout=subprocess.PIPE, text=True)
+        app = built.stdout.strip().splitlines()[-1] if built.stdout.strip() else ""
+        if built.returncode or not os.path.isdir(app):
+            raise SystemExit(f"--compare-at={compare}: the build printed no app (exit {built.returncode})")
+        print(f"settings-open: compare arm {compare}: {app}", flush=True)
+        kept += ["--app", app]
     os.execv(sys.executable, [sys.executable, other, *kept])
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
