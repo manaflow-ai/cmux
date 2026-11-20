@@ -510,8 +510,11 @@ fn sort_rows(rows: &mut [Unbuilt]) {
 }
 
 /// The members a row keeps whatever `fields` names: what a page's cursor, its filters and a
-/// client's row key read.
-const KEPT_FIELDS: [&str; 5] = ["sessionId", "qualifiedSessionId", "peer", "updatedAt", "status"];
+/// client's row key read, and the keys a peer's masking pass knows a summary by
+/// (`server/peer_text.rs` `SUMMARY_KEYS`): a row cut without `harness` and `lastSeq` would reach
+/// a peer with its prompt and preview unmasked.
+const KEPT_FIELDS: [&str; 7] =
+    ["sessionId", "qualifiedSessionId", "peer", "updatedAt", "status", "harness", "lastSeq"];
 
 /// A page's `fields` (`_acpmux/sessions {limit, fields: [..]}`): the top-level members each row
 /// keeps (a dotted path keeps its first segment's member whole), with [`KEPT_FIELDS`]. None when
