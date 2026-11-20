@@ -1899,6 +1899,9 @@ export function ContextRing({
         onPointerEnter={hover.card.onPointerEnter}
         onPointerLeave={hover.card.onPointerLeave}
       >
+        {/* Known usage shows this card in place of the ring's tooltip, so the card names the key
+            (Show Context Usage) where the tooltip would: top right, in the secondary ink. */}
+        {ringShortcut && <span className="ui-tooltip-hint acpmux-context-card-hint">{ringShortcut}</span>}
         {planShown && (
           <div onFocusCapture={hover.card.onFocusCapture} onBlurCapture={hover.card.onBlurCapture}>
             <PlanUsageCardBody limits={plan?.limits} family={plan?.family} now={now} />
