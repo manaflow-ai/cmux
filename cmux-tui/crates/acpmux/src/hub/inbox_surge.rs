@@ -35,12 +35,13 @@ impl Counts {
 pub(super) struct SurgeRate {
     last_arrival: Option<u64>,
     excess_ms: u64,
+    restored_period_ms: Option<u64>,
 }
 
 impl SurgeRate {
     pub(super) fn arrival(&mut self, now: u64, reply_period: Option<u64>) -> bool {
         let previous = self.last_arrival;
-        self.restore(now);
+        self.last_arrival = Some(previous.map_or(now, |at| at.max(now)));
         let Some((at, period)) = previous.zip(reply_period) else {
             self.excess_ms = 0;
             return false;
@@ -53,8 +54,11 @@ impl SurgeRate {
         self.excess_ms > 0
     }
 
-    pub(super) fn restore(&mut self, at: u64) {
-        self.last_arrival = Some(self.last_arrival.map_or(at, |later| later.max(at)));
+    pub(super) fn restore_held(&mut self, at: u64, period_ms: Option<u64>) {
+        if self.last_arrival.is_none_or(|later| at >= later) {
+            self.last_arrival = Some(at);
+            self.restored_period_ms = period_ms.filter(|p| *p > 0);
+        }
     }
 }
 
@@ -173,11 +177,18 @@ impl Hub {
         self.start_time_breakdown_backfill(session);
         let measured =
             session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner()).reply_period_ms(now);
-        let period =
-            measured.or_else(|| session.turn().map(|turn| now.saturating_sub(turn.started_at)));
-        if !session.inbox().surge_rate.arrival(now, period) {
-            return Ok(None);
-        }
+        let elapsed = session.turn().map(|turn| now.saturating_sub(turn.started_at));
+        let period = {
+            let mut inbox = session.inbox();
+            let rate = &mut inbox.surge_rate;
+            // The previous hold records this receiver's measured service time. Reuse it while
+            // the full timing reducer loads, even before a headless session starts another turn.
+            let period = measured.or(rate.restored_period_ms).or(elapsed);
+            if !rate.arrival(now, period) {
+                return Ok(None);
+            }
+            period
+        };
         if super::super::queue::closing(session) {
             return Err(super::super::queue::closing_error());
         }
@@ -260,7 +271,7 @@ mod tests {
         assert!(slow.arrival(249, Some(100)));
         assert!(slow.arrival(349, Some(100)));
         assert!(!slow.arrival(500, Some(100)));
-        slow.restore(500);
+        slow.restore_held(500, Some(100));
         assert!(slow.arrival(520, Some(100)));
     }
 
