@@ -146,8 +146,8 @@ ATTEMPT_OUTPUT = "${{ github.run_attempt }}"
 # step; signed_ok (true only when every step passed) says, unless the old feed already had the build (skip) or Apple
 # already holds its submission (pending: a second signer would submit it again). On
 # 2026-10-29 it failed codesign on a mini after its claim (errSecInternalComponent) and, its twin skipped, the run
-# published nothing to the old feed. The other twins sign only after a refused claim: release and the v0.64.25 repair
-# publish from inside the signing job, so a second signer after a failed one could publish twice.
+# published nothing to the old feed. The other twins sign only after a refused claim: release publishes
+# from inside the signing job, so a second signer after a failed one could publish twice.
 FALLBACK_ON_FAILURE: dict[tuple[str, str], str] = {}
 # Nightly workflows have no Blacksmith twin at all (twin_failures).
 NIGHTLY_WORKFLOW = re.compile(r"nightly|notarization")
@@ -171,6 +171,7 @@ DYNAMIC_INDEX = re.compile(r"\b(?:secrets|needs|outputs)\s*\[")
 REF_CONDITION = re.compile(r"\bgithub\.ref(?:_name)?\b")
 AFTER_STEP = re.compile(r"^\s*steps\.([\w-]+)\.outcome\s*==\s*'failure'\s*$")
 RUNS_AFTER_FAILURE = keychain_guard.runs_after_failure
+AFTER_STEP_RAN = re.compile(r"always\(\)\s*&&\s*steps\.([\w-]+)\.outcome\s*!=\s*'skipped'")
 # A Sparkle EdDSA private key (SPARKLE_PRIVATE_KEY, NIGHTLY_SPARKLE_PRIVATE_KEY, SPARKLE_NEXT_PRIVATE_KEY, ...),
 # as a secret name tests/workflow_jobs.py reads in any form.
 SPARKLE_KEY = re.compile(r"\w*SPARKLE\w*PRIVATE_KEY")
@@ -447,7 +448,14 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                 # source artifact); the unconditional first-step gate is what fails the job without the claim.
                 if str(steps[claim].get("continue-on-error", "false")) != "false":
                     failures.append(f"{label}: the claim step must fail the job (no continue-on-error)")
+                # `always() && steps.X.outcome != 'skipped'` runs only when step X ran: an X after the claim whose own
+                # `if` cannot run after a failure (nightly-next-one's publish lease) never ran after a failed claim.
+                ran_after_claim = {str(step.get("id")) for step in steps[claim + 1:]
+                                   if step.get("id") and not RUNS_AFTER_FAILURE(step.get("if"))}
                 for index, step in enumerate(steps, 0):
+                    after = AFTER_STEP_RAN.fullmatch(str(step.get("if", "")).strip())
+                    if after and after.group(1) in ran_after_claim:
+                        continue
                     if reads_any_secret(step) and RUNS_AFTER_FAILURE(step.get("if")):
                         failures.append(f"{label}: step {index} names a secret and runs after a failed claim "
                                         f"(if: {step.get('if')})")
@@ -474,10 +482,10 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
 EXCLUSIVE_EXEMPT: dict[tuple[str, str], str] = {
     ("cmux-next-dev-daily.yml", "sign-blacksmith"):
         "sign's Blacksmith twin (rule 3): the same steps, so the same gate, on Blacksmith labels only",
+    ("cmux-tui-team-signed.yml", "sign"):
+        "signs the Team-signed tree on a literal Blacksmith label only (keychain rule 7); no route reaches an owned Mac",
     ("release.yml", "build-sign-notarize-blacksmith"):
         "build-sign-notarize's Blacksmith twin (rule 3): the same steps, so the same gate, on Blacksmith labels only",
-    ("repair-v0-64-25-helper-rpaths.yml", "repair-blacksmith"):
-        "repair's Blacksmith twin (rule 3): the same steps, so the same gate, on Blacksmith labels only",
     # The one entry that may keep an owned route: the keychain guard's rule 7b proves it (GATED_SECRET_JOBS).
     ("stable-next.yml", "sign"):
         "rule 7b (keychain guard GATED_SECRET_JOBS): it reads its signing secrets only when SIGN is developer-id, "

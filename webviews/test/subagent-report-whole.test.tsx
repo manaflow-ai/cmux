@@ -103,7 +103,7 @@ function render(
   views: Record<string, AcpmuxRow[]> = {},
   readReply?: (id: string) => Promise<string | undefined>,
   opened: string[] = [],
-  arm?: "preview",
+  arm: "preview" | "disclosure" = "disclosure",
 ): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>");
   for (const key of GLOBALS) saved.set(key, scope[key]);

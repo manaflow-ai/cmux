@@ -58,6 +58,33 @@ await requireBrowserLane("newtab-chip-scale.test.ts", async () => {
             await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
             const chips: ChipMeasure[] = await page.evaluate(measureNewTabChips);
             const where = `${state} ${width}px ${look}: ${JSON.stringify(chips)}`;
+            // A project's picture drops 0.08 of its name's font size under the line box, where a lowercase name's ink
+            // sits (newtab/screen.css --acpmux-location-mark-drop, Lucas 2026-11-14); every other mark centers on it.
+            const pictureDrop = (chip: ChipMeasure) =>
+              state === "project" && chip.chip === "location 1" ? (chip.label?.size ?? 0) * 0.08 : 0;
+            const locationCenters = chips
+              .filter((chip) => chip.chip === "location 1" || chip.chip === "location 2")
+              .map((chip) => (chip.glyphCenterY === null ? null : chip.glyphCenterY - pictureDrop(chip)));
+            expect(locationCenters, where).toHaveLength(2);
+            expect(
+              locationCenters.every((center) => typeof center === "number"),
+              where,
+            ).toBe(true);
+            expect(Math.abs(Number(locationCenters[0]) - Number(locationCenters[1])), where).toBeLessThanOrEqual(0.5);
+            if (state === "no-project") {
+              const folder = chips.find((chip) => chip.chip === "location 1")?.glyphInk;
+              const mac = chips.find((chip) => chip.chip === "location 2")?.glyphInk;
+              expect(folder, where).toBeTruthy();
+              expect(mac, where).toBeTruthy();
+              const folderHeight = folder!.bottom - folder!.top;
+              const macHeight = mac!.bottom - mac!.top;
+              const centerDifference = (folder!.top + folder!.bottom - mac!.top - mac!.bottom) / 2;
+              expect(Math.abs(centerDifference), where).toBeLessThanOrEqual(0.5);
+              // The laptop is wider and shorter; equal height gave it too much visual weight.
+              const footprintRatio = (mac!.width * macHeight) / (folder!.width * folderHeight);
+              expect(footprintRatio, where).toBeGreaterThanOrEqual(0.9);
+              expect(footprintRatio, where).toBeLessThanOrEqual(1.1);
+            }
             // The two chips above the box and the permission and model chips under it.
             expect(chips.filter((chip) => chip.chip.startsWith("location")).length, where).toBeGreaterThanOrEqual(1);
             expect(
@@ -76,7 +103,7 @@ await requireBrowserLane("newtab-chip-scale.test.ts", async () => {
               if (chip.chevron !== null) expect(chip.chevron, `${chip.chip} chevron; ${where}`).toBe(CHEVRON);
               if (chip.glyphOffset !== null)
                 expect(
-                  Math.abs(chip.glyphOffset),
+                  Math.abs(chip.glyphOffset + pictureDrop(chip)),
                   `${chip.chip} label off its glyph's line; ${where}`,
                 ).toBeLessThanOrEqual(0.5);
             }

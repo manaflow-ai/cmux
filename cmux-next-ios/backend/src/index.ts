@@ -1,14 +1,16 @@
 import { authenticate, bearerOf, primaryProject, stackProjects, type Caller } from "./auth.ts"
 import type { Env } from "./env.ts"
 import { iceServers } from "./ice.ts"
-import { createTeam, sendTeamInvite, userTeams } from "./stack.ts"
-import { apnsConfig, apnsTopics, clean, isSealedText, MAX_MAILBOX_SEALED, notifyFailures, notifyLimitKey, parseNotify, pushTargets, sendApns, TURN_PUSH_WINDOW_MS, turnPushKey, wantedKinds } from "./push.ts"
+import { createTeam, sendTeamInvite, userEmail, userTeams } from "./stack.ts"
+import { audienceOf, judgedAt, parseReport, ReportError } from "./connectivity-alerts.ts"
+import { apnsConfig, apnsTopics, clean, isSealedText, MAX_MAILBOX_SEALED, notifyFailures, notifyLimitKey, notifyTargets, parseNotify, pushTargets, sendApns, TURN_PUSH_WINDOW_MS, turnPushKey, wantedKinds } from "./push.ts"
 import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
 import { userHubName, type Attachment } from "./team-hub.ts"
 import { Timing, timingFor } from "./timing.ts"
 import { WorkerEntrypoint } from "cloudflare:workers"
 
 export { TeamHub } from "./team-hub.ts"
+export { ConnectivityAlertDesk } from "./connectivity-alerts.ts"
 
 const CLOUD_MACHINE = /^vm_[a-z0-9]{20}$/
 const CLOUD_ID = /^[A-Za-z0-9._:-]{1,128}$/
@@ -367,6 +369,44 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     return json({ devices, macs, myMacs, ice })
   }
 
+  if (path === "/v1/diagnostics/connectivity-incidents" && method === "POST") {
+    // A team member's phone reports a major connectivity incident (PROTOCOL.md "Connectivity incidents").
+    // Who it is comes from Stack, not the body: only a verified team email is heard, and agent accounts and
+    // simulators go to the test route.
+    await limit(env.INCIDENT_LIMIT, me, "connectivity reports")
+    let report
+    try {
+      report = parseReport(await readJson(req))
+    } catch (e) {
+      if (e instanceof ReportError) throw new HttpError(400, "bad_request", e.message)
+      throw e
+    }
+    let who
+    try {
+      who = await t.span("stack_user", userEmail(env, caller))
+    } catch (e) {
+      console.log(JSON.stringify({ msg: "connectivity report: user lookup failed", error: String(e) }))
+      throw new HttpError(502, "user_unavailable", "could not look up the account; retry later")
+    }
+    const audience = audienceOf(who.email, who.verified, { ...report.app, ...(report.simulations ? { simulations: report.simulations } : {}) }, env.CONNECTIVITY_ALERT_EXCLUDED_EMAILS)
+    if (audience.route === "refuse") return fail(403, audience.why === "unverified" ? "email_unverified" : "not_team", "connectivity reports are for the cmux team")
+    // Whether the Mac is awake: its socket lives in the caller's own hub (v1 links only reach the caller's
+    // own Macs), so another user's Mac id finds nothing there.
+    const liveness = await t
+      .span("hub", userHub(env, caller).macLiveness(me, report.mac.id.toLowerCase(), judgedAt(report, Date.now())))
+      .catch((e) => {
+        console.log(JSON.stringify({ msg: "connectivity report: liveness unavailable", error: String(e) }))
+        return null
+      })
+    const desk = env.CONNECTIVITY_ALERT_DESK.get(env.CONNECTIVITY_ALERT_DESK.idFromName("desk"))
+    const r = await t.span(
+      "desk",
+      desk.report(report, { key: me, email: who.email! }, audience.route === "test" ? { route: "test", why: audience.why } : { route: "team" }, { liveness })
+    )
+    if (!r.accepted) return fail(409, "conflict", "this incident id belongs to another account")
+    return json({ accepted: true, route: audience.route, ...(r.note ? { note: r.note } : {}) }, 202)
+  }
+
   if (path === "/v1/me/devices" && method === "GET") {
     const [rows, presence] = await Promise.all([withStore(env, ctx, (s) => s.listOwnerDevices(me)), t.span("hub", userHub(env, caller).macs(me))])
     // Presence for Macs from the caller's own hub.
@@ -476,19 +516,26 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       const device = await withStore(env, ctx, (s) => s.getDevice(deviceId))
       if (!device) throw new HttpError(404, "not_found", "no such device")
       if (device.ownerUserId !== me || device.kind !== "mac") throw new HttpError(403, "not_owner", "notify from your own Mac")
-      await limit(env.NOTIFY_LIMIT, notifyLimitKey(deviceId, parsed.kind), "notifications")
+      await limit(env.NOTIFY_LIMIT, notifyLimitKey(deviceId, parsed.kind, parsed.batch), "notifications")
       const config = apnsConfig(env)
       const kind = parsed.kind
       const regs = await withStore(env, ctx, (s) => s.listOwnerPush(me))
       // The kinds some phone that has not muted this Mac wants: the Mac skips the rest (terminal, say).
       const wants = wantedKinds(regs, deviceId)
-      const targets = config ? pushTargets(regs, deviceId, kind).slice(0, 20) : []
-      if (!config || targets.length === 0) return json({ configured: !!config, sent: 0, failed: 0, dropped: 0, wants })
+      // Every phone that wants it, however many: a Mac with more than MAX_SEALED_PHONES boxes splits one
+      // event into a lead and batches, and each phone is a target of exactly one of them.
+      const wanting = config ? pushTargets(regs, deviceId, kind) : []
+      if (!config || wanting.length === 0) return json({ configured: !!config, sent: 0, failed: 0, dropped: 0, wants })
       // A burst of turn ends from one session is one notification (a Mac on an older host sends every one).
-      // Checked only once some phone wants this kind, so an unwanted kind never uses up the window.
-      const key = turnPushKey(deviceId, parsed)
+      // Checked only once some phone wants this kind, so an unwanted kind never uses up the window; a batch
+      // follows a lead that passed it (the Mac sends no batch after a coalesced lead).
+      const key = parsed.batch ? undefined : turnPushKey(deviceId, parsed)
       if (key && !(await userHub(env, caller).turnPushAllowed(me, key, TURN_PUSH_WINDOW_MS)))
         return json({ configured: true, sent: 0, failed: 0, dropped: 0, coalesced: true, wants })
+      const targets = notifyTargets(wanting, parsed)
+      // `batches`: this Worker sends each phone one push across a lead and its batches (API 0.16.0), so the Mac
+      // may send the batches; an older Worker ignores `batch` and would push them to everyone again.
+      if (targets.length === 0) return json({ configured: true, sent: 0, failed: 0, dropped: 0, wants, batches: true })
       const results = await sendApns(config, targets, { ...parsed, macId: deviceId, macName: clean(device.name, 40) }, Date.now())
       const drop = results.filter((r) => r.outcome === "drop_target").map((r) => r.token)
       if (drop.length) await withStore(env, ctx, (s) => s.dropPushTokens(drop))
@@ -502,6 +549,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
         failed: failed.length,
         dropped: drop.length,
         wants,
+        batches: true,
         ...(failures.length ? { failures } : {})
       })
     }

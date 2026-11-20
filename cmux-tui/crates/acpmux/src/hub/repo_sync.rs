@@ -47,10 +47,16 @@ pub(super) fn gates_its_tools(kind: crate::config::HarnessKind) -> bool {
 }
 
 /// [`gates_its_tools`] for a running agent, from what it speaks rather than the profile: a
-/// reload may change the profile's harness without replacing the agent. Only a stream it
-/// translates itself registers the callback; a hosted agent's is not known here, so it waits.
+/// reload may change the profile's harness without replacing the agent. Only Claude Code's
+/// translator registers the callback: the daemon's own for a direct child, or the one in its
+/// `__agent-host` (the same `Translator`, `agent_host/host.rs`), which its host record names.
+/// A host that does not say (an older build) waits.
+///
+/// Before, a hosted Claude counted as an agent that does not gate its tools: every Cloud start
+/// (agents run under hosts) waited for the whole copy in its first `child_for` (`set_model`,
+/// `set_mode` of `session/new`), though `ensure_child` had started it at the head.
 pub(super) fn child_gates_its_tools(child: &crate::agent::ChildAgent) -> bool {
-    cfg!(unix) && child.translator.is_some()
+    cfg!(unix) && child.runs_claude_translator()
 }
 
 async fn wait_until(

@@ -120,6 +120,7 @@ enum AppActions {
         AgentConfigurationHandlers.bind(into: registry, context: context)
         AgentChatKeyHandlers.bind(into: registry, context: context)
         CloudHandlers.bind(into: registry, context: context)
+        DaemonStartupWait(daemon: services.daemon).bind(into: registry)
         AccountsHandlers.bind(into: registry, context: context)
         ProfileMenuHandlers.bind(into: registry, context: context)
         RemoteHandlers.bind(into: registry, context: context)
@@ -131,6 +132,9 @@ enum AppActions {
         RemoteBrowserPages.bind(into: registry, context: context)
         ResourceHandlers.bind(into: registry, context: context)
         LinkHandlers.bind(into: registry, context: context)
+        // Last: a catalog row with a daemon request and no handler above sends it (cmux-action-catalog `Action::request`).
+        CatalogRequestHandlers(host: services).bind(into: registry)
+        HandlerPlaceholders.bind(into: registry)
         IconMenuVisibility.install(registry, context: context)
         TabSelectionTitles(context: context).install(in: registry)
         TopPages.installActionRules(services)
@@ -142,10 +146,10 @@ enum AppActions {
         ActionRouting.install(services)
         ActionRouting.installUserIntentObservers(services)
         WindowKeyTable.install(services)
-        // One owner per action: a second binding silently replaces the first. The check is a test
-        // (noActionIsBoundTwice); at runtime a Debug dogfood build must not crash, so only a fault.
-        if !registry.duplicateBindings.isEmpty {
-            Logger(subsystem: "com.cmuxterm.app.next", category: "actions").fault("actions bound twice: \(registry.duplicateBindings.map(\.rawValue).joined(separator: ", "), privacy: .public)")
+        // One owner per action, and every bound id in the catalog: tests check both (noActionIsBoundTwice,
+        // everyBoundActionIsInTheCatalog); at runtime a Debug dogfood build must not crash, so only a fault.
+        for (problem, ids) in [("bound twice", registry.duplicateBindings), ("not in the catalog, left unbound", registry.uncataloguedBindings)] where !ids.isEmpty {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "actions").fault("actions \(problem, privacy: .public): \(ids.map(\.rawValue).joined(separator: ", "), privacy: .public)")
         }
     }
 

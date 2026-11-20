@@ -62,7 +62,11 @@ if "inputs.nightly_next_sign_stage != '' && 'sign'" not in group:
 if DOC.get("concurrency", {}).get("cancel-in-progress") is not False:
     failures.append("the workflow-level group never cancels a started run")
 # The push group is unchanged: push and the loop's retry.
-if "(github.event_name == 'push' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry != '') && 'push'" not in group:
+# With the one job on, the push slot is nightly-next-one's own group (tests/test_nightly_next_push_slot_at_build.py).
+# A paused one job (decide's one_job false) keeps the push group too.
+if ("(github.event_name == 'push' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry != '') "
+        "&& (vars.NIGHTLY_NEXT_ONE_JOB != 'on' || vars.NIGHTLY_NEXT_SUBMISSIONS_PAUSED == '1' "
+        "|| vars.NIGHTLY_NEXT_NOTARY_PAUSED == '1') && 'push'") not in group:
     failures.append("the push group still takes pushes and the loop's retry")
 
 run_name = str(DOC.get("run-name", ""))
@@ -390,7 +394,7 @@ PUSH = {"github.event_name": "push", "github.ref": "refs/heads/nightly-next", "g
 # What decide outputs for a pipelined push (const pipeline: a publishing nightly-next push, no pause, no notary
 # test; a push takes no dispatch input), and resolve's outputs for a build the run goes on to dispatch.
 PIPELINED = {
-    "decide": {"pipeline": "true", "track": "nightly-next", "should_build": "true", "should_publish": "true",
+    "decide": {"pipeline": "true", "one_job": "false", "track": "nightly-next", "should_build": "true", "should_publish": "true",
                "no_publish": "false", "notary_test": "false", "notary_paused": "false", "continue_only": "false",
                "republish_run": "", "fast_build": "false", "build_only": "false"},
     "resolve-nightly-cmux-tui-client": {"already_published": "false", "superseded": "", "build_sha": SHA},

@@ -19,6 +19,10 @@ export type ErrorCode =
   | "rate_limited"
   | "host_scope"
   | "not_anchored"
+  | "machine_scope"
+  | "machine_auth_unavailable"
+  | "machine_no_person"
+  | "account_not_on_hub"
   | "internal";
 
 export class ApiError extends Error {

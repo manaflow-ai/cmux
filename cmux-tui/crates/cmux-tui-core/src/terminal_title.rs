@@ -13,6 +13,7 @@
 //! [`TabTitle::terminal`] is the one rule for what a tab shows of it: the
 //! text without the leading status glyphs, and their [`TitleActivity`].
 
+#[cfg(test)]
 use std::borrow::Cow;
 use std::sync::Arc;
 
@@ -235,7 +236,9 @@ pub(crate) struct TitleTracker {
 
 impl TitleTracker {
     /// `data` with the title sequences libghostty-vt cannot apply rewritten
-    /// into the `OSC 2` that applies them; borrowed when nothing changed.
+    /// into the `OSC 2` that applies them; borrowed when nothing changed. The
+    /// output paths run it inside `terminal_metadata`'s one shared scan.
+    #[cfg(test)]
     // perf-hot: 0.1ns/byte terminal-output-scan (every output byte, host and daemon)
     pub(crate) fn rewrite<'a>(&mut self, data: &'a [u8]) -> Cow<'a, [u8]> {
         let mut out: Option<Vec<u8>> = None;
@@ -246,6 +249,13 @@ impl TitleTracker {
             if self.state == ScanState::Ground {
                 let Some(offset) = memchr::memchr(0x1b, rest) else { break };
                 index = index.saturating_add(offset);
+                // A whole CSI that is no window op (an SGR color, a cursor
+                // move) leaves the scan as it was: jump over it at once.
+                let skip = csi_not_window_op_len(data.get(index..).unwrap_or_default());
+                if skip > 0 {
+                    index = index.saturating_add(skip);
+                    continue;
+                }
             }
             let Some(&byte) = data.get(index) else { break };
             index = index.saturating_add(1);
@@ -266,6 +276,17 @@ impl TitleTracker {
                 Cow::Owned(out)
             }
         }
+    }
+
+    /// Whether the tracker is outside every sequence: only an ESC moves it.
+    pub(crate) fn on_ground(&self) -> bool {
+        self.state == ScanState::Ground
+    }
+
+    /// One byte of the shared output scan (`terminal_metadata`); `Some(title)`
+    /// when the sequence it ends needs an `OSC 2 ; title` right after it.
+    pub(crate) fn step_byte(&mut self, byte: u8) -> Option<Vec<u8>> {
+        self.step(byte)
     }
 
     /// Advances over one byte; `Some(title)` when the sequence it ends needs
@@ -297,13 +318,19 @@ impl TitleTracker {
                 0x40..=0x7e => {
                     let ignored = self.state == ScanState::CsiIgnore;
                     self.state = ScanState::Ground;
-                    (!ignored && byte == b't').then(|| self.window_op()).flatten()
+                    let title = (!ignored && byte == b't').then(|| self.window_op()).flatten();
+                    // The parameters live only inside a CSI, so a CSI the
+                    // scan jumps (`csi_not_window_op_len`) leaves the same state.
+                    self.csi.clear();
+                    title
                 }
                 0x1b => {
+                    self.csi.clear();
                     self.state = ScanState::Escape;
                     None
                 }
                 0x18 | 0x1a => {
+                    self.csi.clear();
                     self.state = ScanState::Ground;
                     None
                 }
@@ -397,6 +424,24 @@ impl TitleTracker {
     }
 }
 
+/// Length of the complete CSI at the start of `data` (`ESC [`, parameter
+/// and intermediate bytes, then a final byte other than `t`), or 0 when
+/// `data` does not start with one. Such a CSI is no title op: stepping over
+/// it ends on the ground with nothing to rewrite, so the scan jumps it.
+pub(crate) fn csi_not_window_op_len(data: &[u8]) -> usize {
+    if data.get(..2) != Some(b"\x1b[".as_slice()) {
+        return 0;
+    }
+    let rest = data.get(2..).unwrap_or_default();
+    let Some(end) = rest.iter().position(|byte| !(0x20..=0x3f).contains(byte)) else {
+        return 0;
+    };
+    match rest.get(end) {
+        Some(&fin) if (0x40..=0x7e).contains(&fin) && fin != b't' => end.saturating_add(3),
+        _ => 0,
+    }
+}
+
 /// At most `max` bytes of `bytes`, never ending inside a UTF-8 sequence.
 fn clip_utf8(bytes: &[u8], max: usize) -> &[u8] {
     if bytes.len() <= max {
@@ -486,7 +531,9 @@ mod tests {
             let chunks: [&[u8]; 3] = [&stream[..at], b"", &stream[at..]];
             assert_eq!(rewritten(&chunks, false), rewritten(&chunks, true), "split at {at}");
         }
-        let alphabet = b"\x1b\x07\x18\x1a\\[]t;0123\n\xff";
+        // `m`, `?` and ` ` make whole CSIs the scan jumps (an SGR, a
+        // private mode, an intermediate) next to the window ops it steps.
+        let alphabet = b"\x1b\x07\x18\x1a\\[]t;0123\n\xffm? ";
         let mut seed = 0x9e37_79b9_7f4a_7c15u64;
         for _ in 0..2_000 {
             let mut soup = Vec::new();

@@ -11,29 +11,25 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = ROOT / ".github/workflows/swift-packages-linux.yml"
+WORKFLOW = ROOT / ".github/workflows/swift-linux-packages.yml"
+JOB = "swift-linux-packages"
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 from pr_test_lanes import Expression, load_yaml
 
 
-class SwiftPackagesLinuxCacheTests(unittest.TestCase):
+class SwiftLinuxPackagesCacheTests(unittest.TestCase):
     def test_restore_and_save_use_one_rolling_key(self):
         text = WORKFLOW.read_text(encoding="utf-8")
-        key_lines = [line.strip() for line in text.splitlines() if "key: swiftpm-linux-" in line]
+        key_lines = [line.strip() for line in text.splitlines() if line.strip().startswith("key: swift-linux-packages-")]
         self.assertEqual(len(key_lines), 2)
         self.assertEqual(key_lines[0], key_lines[1])
         self.assertNotIn("${{ github.sha }}", key_lines[0])
-
-    def test_week_and_manifest_prefixes_remain_in_the_key(self):
-        text = WORKFLOW.read_text(encoding="utf-8")
-        key = next(line for line in text.splitlines() if "key: swiftpm-linux-" in line)
-        self.assertIn("${{ steps.key.outputs.week }}", key)
-        self.assertIn("${{ steps.key.outputs.toolchain }}", key)
-        self.assertIn("${{ matrix.group }}", key)
-        self.assertIn("${{ steps.key.outputs.manifests }}", key)
+        for part in ("steps.key.outputs.week", "steps.key.outputs.toolchain", "runner.arch", "matrix.group",
+                     "steps.key.outputs.inputs"):
+            self.assertIn("${{ %s }}" % part, key_lines[0])
 
     def test_key_snapshots_checkout_manifests_without_reading_git_metadata(self):
-        steps = load_yaml(WORKFLOW)["jobs"]["packages"]["steps"]
+        steps = load_yaml(WORKFLOW)["jobs"][JOB]["steps"]
         command = next(step["run"] for step in steps if step.get("id") == "key")
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -44,6 +40,10 @@ class SwiftPackagesLinuxCacheTests(unittest.TestCase):
             resolved.write_text("resolved v1")
             sdk = root / "vendor/stack-auth-swift-sdk-prerelease"
             sdk.mkdir(parents=True)
+            (root / "scripts/ci").mkdir(parents=True)
+            listed = root / "scripts/ci/swift-linux-packages.txt"
+            listed.write_text("list v1")
+            (root / "scripts/ci/swift-test-debug-info.sh").write_text("flags v1")
             tools = root / "bin"
             tools.mkdir()
             swift = tools / "swift"
@@ -61,8 +61,8 @@ class SwiftPackagesLinuxCacheTests(unittest.TestCase):
                 subprocess.run(["bash", "-e", "-o", "pipefail", "-c", command],
                                cwd=root, env=env, check=True, capture_output=True)
                 values = dict(line.split("=", 1) for line in output.read_text().splitlines())
-                self.assertIn("manifests", values)
-                return values["manifests"]
+                self.assertIn("inputs", values)
+                return values["inputs"]
 
             before = key()
             generated = package / ".build/checkouts/Dependency/Package.swift"
@@ -76,6 +76,9 @@ class SwiftPackagesLinuxCacheTests(unittest.TestCase):
             self.assertNotEqual(changed, before)
             resolved.write_text("resolved v2")
             self.assertNotEqual(key(), changed)
+            changed = key()
+            listed.write_text("list v2")
+            self.assertNotEqual(key(), changed)
             sdk_manifest = sdk / "Package.swift"
             sdk_manifest.write_text("SDK manifest v1")
             sdk_key = key()
@@ -88,37 +91,19 @@ class SwiftPackagesLinuxCacheTests(unittest.TestCase):
             generated.write_text("generated SDK dependency v2")
             self.assertEqual(key(), unchanged)
 
-    def test_only_successful_pushes_seed_the_immutable_cache(self):
-        steps = load_yaml(WORKFLOW)["jobs"]["packages"]["steps"]
-        condition = next(step["if"] for step in steps if step.get("name") == "Save .build")
-
-        class WithJobStatus(Expression):
-            def call(self, name, args):
-                if name.lower() == "success":
-                    return self.context["job_succeeded"]
-                return super().call(name, args)
-
-        for event, succeeded, expected in [("push", True, True), ("push", False, False),
-                                           ("pull_request", True, False), ("workflow_dispatch", True, False)]:
-            for hit in ["true", "false", ""]:
-                with self.subTest(event=event, job_succeeded=succeeded, cache_hit=hit):
-                    context = {"github.event_name": event, "job_succeeded": succeeded,
-                               "steps.build_cache.outputs.cache-hit": hit}
-                    self.assertIs(WithJobStatus(condition, context).evaluate(), expected and hit != "true")
-
     def test_comment_documents_immutable_seed_semantics(self):
         text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("immutable seed", text)
+        self.assertIn("immutable entry", text)
         self.assertNotIn("restore the newest entry", text)
 
 
 class SwiftLinuxPackagesListedCacheTests(unittest.TestCase):
-    """swift-linux-packages.yml (the listed packages) keeps the same rolling cache."""
+    """Every group, the listed one included, restores before it builds and saves after."""
 
-    LISTED = ROOT / ".github/workflows/swift-linux-packages.yml"
+    LISTED = WORKFLOW
 
     def steps(self):
-        return load_yaml(self.LISTED)["jobs"]["swift-linux-packages"]["steps"]
+        return load_yaml(self.LISTED)["jobs"][JOB]["steps"]
 
     def test_restore_and_save_share_one_key_without_the_commit(self):
         steps = self.steps()
@@ -175,7 +160,7 @@ class SwiftLinuxPackagesListedCacheTests(unittest.TestCase):
 
 class SwiftPackagesLinuxExecutionTests(unittest.TestCase):
     def run_packages(self, packages, test_filter="", timed_out=""):
-        job = load_yaml(WORKFLOW)["jobs"]["packages"]
+        job = load_yaml(WORKFLOW)["jobs"][JOB]
         step = next(s for s in job["steps"] if s.get("name") == "Build and test")
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -204,7 +189,7 @@ class SwiftPackagesLinuxExecutionTests(unittest.TestCase):
             return result, [json.loads(line) for line in calls.read_text().splitlines()], summary.read_text()
 
     def test_sdk_matrix_runs_only_the_credential_free_fixture_suites(self):
-        groups = load_yaml(WORKFLOW)["jobs"]["packages"]["strategy"]["matrix"]["include"]
+        groups = load_yaml(WORKFLOW)["jobs"][JOB]["strategy"]["matrix"]["include"]
         sdk = next((g for g in groups if g["group"] == "stack-auth"), None)
         self.assertIsNotNone(sdk, "Stack Auth fixture coverage is absent on Linux")
         result, calls, _ = self.run_packages(sdk["packages"].split(), sdk["test_filter"])

@@ -105,11 +105,12 @@ extension UpdaterService {
     }
 
     /// Why the update flow failed, as Sparkle reported it (a failed check, download or install
-    /// preflight), else the read-only probe's failure on a build without Sparkle; nil otherwise.
+    /// preflight) in plain words (``UpdateFailureText``), else the read-only probe's failure on a
+    /// build without Sparkle; nil otherwise.
     public var failureReason: String? {
         if let controller, disabledReason == nil {
             guard case .error(let failure) = controller.model.effectiveState else { return nil }
-            return failure.error.localizedDescription
+            return UpdateFailureText.plain(failure.error)
         }
         return lastProbeError
     }
@@ -137,8 +138,14 @@ extension UpdaterService {
             stagedRefresh.installStarted()
             automaticInstallInFlight = false
             automaticInstallFrontmost = nil
-            // The newest build of the ring, not a stale staged one (one click, one relaunch).
-            stagedRefresh.beforeInstall(updater: self) { [weak self] in self?.installStagedNow() }
+            // The staged build's pre-warm, if it still runs, goes at the click's priority from now on.
+            if let run = prewarmRun, run.line == nil { run.urgency.raise() }
+            // The newest build of the ring, not a stale staged one (one click, one relaunch); then the
+            // staged build's pre-warm, bounded, so its first launch is pre-warmed for a click that came
+            // right after the update staged (Leo's NIGHTLY: 3 s).
+            stagedRefresh.beforeInstall(updater: self) { [weak self] in
+                self?.installAfterPrewarm { [weak self] in self?.installStagedNow() }
+            }
         case .download:
             log.append("gate: downloading the available update")
             acceptAvailable()
@@ -270,6 +277,8 @@ extension UpdaterService {
         if let idleInstall {
             idleInstallQuiet = .seconds(idleInstall.quiet)
             controller?.idleInstallWaitCap = .seconds(idleInstall.maxWait)
+            // The longest an automatic install waits silently on a modal, sheet, menu or composition.
+            relaunchMomentHold.surfaceAfter = .seconds(idleInstall.maxWait)
         }
         downloadSetting = (downloadAutomatically, metered)
         settingsApplied = true

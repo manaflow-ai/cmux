@@ -44,7 +44,12 @@ import Testing
         return harness
     }
 
-    @Test func theFooterShowsASearchButtonAfterTheAvatar() async throws {
+    @Test(arguments: DensityPreset.allCases)
+    func theFooterShowsASearchButtonAfterTheAvatar(_ density: DensityPreset) async throws {
+        let design = DesignSettings.shared
+        let saved = design.densityTokens
+        defer { design.densityTokens = saved }
+        design.densityTokens = density.tokens
         let h = await make()
         defer { h.window.close() }
         let button = h.sidebar.searchButton

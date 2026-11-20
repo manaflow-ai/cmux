@@ -621,7 +621,7 @@ pub(super) fn same_session(aliases: &[Vec<String>]) -> Vec<Vec<usize>> {
 /// Every name each target may go by, so a session named two ways (its name, its id,
 /// `host/name`, a tag's `peer/id`) is one chain: its key and name, and for a named target its
 /// session id, resolved (each distinct name once, side by side, within [`RESOLVE_WAIT`]) to the
-/// form a tag's target has (`peer/id` on a peer, as [`crate::cli::resolve::routed_id`] gives).
+/// form a tag's target has (`peer/id` on a peer, as [`crate::session_identity::routed_id`] gives).
 /// A name that resolves to nothing cannot be told apart from any session it might be: all such
 /// names are one chain, and one on a peer (`host/...`) also joins every target on that host.
 pub(super) async fn aliases(daemon: &Arc<Client>, targets: &[Target]) -> Vec<Vec<String>> {
@@ -764,7 +764,9 @@ pub(super) async fn relay(
         std::env::var(SESSION_ENV).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
     });
     // The subagent that made the call (`subagent_call.rs`), named to the relay as a label.
-    let from = crate::cli::send_relay::RelaySender::new(from, sub);
+    // parse_item already validated the explicit class; aliases use the canonical wire value.
+    let class = target.item.class.as_deref().and_then(crate::prompt_class::PromptClass::parse);
+    let from = crate::cli::send_relay::RelayMetadata::new(from, sub, class);
     let (session, text) = (target.key.clone(), target.text.clone());
     let deadline = tokio::time::Instant::now() + RELAY_WAIT;
     let done = tokio::task::spawn_blocking(move || {

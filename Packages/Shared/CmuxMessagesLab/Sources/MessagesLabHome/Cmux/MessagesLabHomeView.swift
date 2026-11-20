@@ -20,6 +20,9 @@ public final class MessagesLabHomeView: NSView {
         get { projection.approvals }
         set { projection.approvals = newValue }
     }
+    /// A message field took the keyboard (its `becomeFirstResponder` succeeded), with the field: the host app's
+    /// launch mark for "the window takes keys" (cmux NEXT's `window_usable`). Nil: nothing is told.
+    public var onComposerFocused: ((NSView) -> Void)?
     private var warmed = false
     private var appliedComposerSpellChecking: Bool?
     /// The palette generation this view's rows were last refreshed for (applyTheme).
@@ -589,6 +592,21 @@ public final class MessagesLabHomeView: NSView {
         NSApp.sendAction(action, to: item.target, from: item)
         return true
     }
+
+    /// Chooses `title` in the menu of the red "!" beside my Not Delivered bubble showing `text`
+    /// (the click's own path, `failedMarkMenu(at:)`); false when there is no mark or no such row.
+    public func debugChooseFailedMarkItem(_ title: String, onBubble text: String) -> Bool {
+        guard let hit = debugBubble(text: text),
+              let menu = controller.failedMarkMenu(at: CGPoint(x: hit.body.minX - 14, y: hit.body.midY)),
+              let item = menu.items.first(where: { ($0 as? MenuAction)?.label == title || $0.title == title }),
+              let action = item.action else { return false }
+        NSApp.sendAction(action, to: item.target, from: item)
+        return true
+    }
+
+    /// The localized titles of a failed send's Try Again and Delete rows.
+    public static var tryAgainMenuTitle: String { CmuxStrings.tryAgain }
+    public static var deleteFailedMenuTitle: String { CmuxStrings.deleteFailed }
 
     /// The localized title of a bubble's Forward… row.
     public static var forwardMenuTitle: String { CmuxStrings.forward }

@@ -61,6 +61,28 @@ import Testing
         #expect(MacRoster(store.activeTeam?.macs ?? []).visible.map(\.id) == ["m1", "m2"])
     }
 
+    /// The phone remembers the build it paired by that build's code (steerToInvite writes the pick):
+    /// the focus goes to that build, and the other build of the computer stays listed (2026-11-18,
+    /// review.sh on a real iPhone focused the other build).
+    @Test func theRememberedBuildIsFocusedAndBothAreListed() async {
+        let machine = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        let macs = [
+            MacDevice(id: "m1", name: "cmux mini", isOnline: true, ownerUserID: userID, machineID: machine),
+            MacDevice(id: "m2", name: "cmux mini (NIGHTLY)", isOnline: true, ownerUserID: userID, machineID: machine),
+        ]
+        let pick = "cmuxMobile.live.mac.\(teamID)"
+        UserDefaults.standard.set("m2", forKey: pick)
+        defer { UserDefaults.standard.removeObject(forKey: pick) }
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        let dialer = PerMacDialer()
+        let live = coordinator(store: store, dialer: dialer, macs: macs)
+        defer { live.stop() }
+        live.showing(macIDs: nil)
+        await settle { store.macConnection["m2"] == .connected }
+        #expect(live.focusedMacID == "m2")
+        #expect(store.activeTeam?.listedMacs.map(\.id) == ["m1", "m2"])
+    }
+
     @Test func sameNamedMacsOnTwoComputersAreBothLinked() async {
         let macs = [
             MacDevice(id: "m1", name: "cmux mini", isOnline: true, ownerUserID: userID, machineID: "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"),

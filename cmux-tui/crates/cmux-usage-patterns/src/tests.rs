@@ -404,6 +404,76 @@ fn a_writer_without_a_watch_that_waits_for_its_write_stops_counting_at_that_writ
     );
 }
 
+/// Waits until the writer thread has taken the pending wake (it clears the
+/// flag when it wakes), at most 5 s.
+fn the_writer_takes_the_wake(recorder: &Recorder, what: &str) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while *recorder.wake.pending.lock().unwrap() {
+        assert!(Instant::now() < deadline, "{what}: the writer thread did not take the wake");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
+/// Wakes the writer two more times and sees it take each wake. A writer that
+/// went into a timed wait at the first wake clears the flag again only when
+/// that wait ends, and takes the last wake only after the write that follows
+/// it. So after this the write of a timed wait has happened, if there was
+/// one: the tests below read that, and no sleep of theirs decides the order.
+fn the_writer_takes_two_more_wakes(recorder: &Recorder) {
+    for wake in ["the second wake", "the third wake"] {
+        recorder.wake_writer();
+        the_writer_takes_the_wake(recorder, wake);
+    }
+}
+
+/// A recorder that opens with the setting on wakes its writer one time (the
+/// setting changed from its off default). Nothing is counted, so no write is
+/// due: the writer goes back to its wait with no timeout. It does not wait
+/// out its interval and write nothing (in a daemon: one wake 30 s after each
+/// start). `last_flush` is set by every write the writer makes, also by one
+/// that finds nothing to write.
+#[test]
+fn a_writer_that_starts_with_counting_on_makes_no_timed_write_while_nothing_is_counted() {
+    let dir = scratch("open-wake");
+    let recorder = Arc::new(Recorder::open(&dir.join("out"), "session-a", config(&dir, true)));
+    assert!(recorder.enabled());
+    assert!(
+        *recorder.wake.pending.lock().unwrap(),
+        "`open` with the setting on left no wake: this test needs one before the writer starts"
+    );
+    let (stop, writer) = start_writer(&recorder, Duration::from_millis(20));
+    the_writer_takes_the_wake(&recorder, "the wake that `open` left");
+    the_writer_takes_two_more_wakes(&recorder);
+    assert!(
+        recorder.state.lock().unwrap().last_flush.is_none(),
+        "the writer made a timed wait and a write with nothing counted, after a start with \
+         counting on"
+    );
+    stop_writer(&recorder, &stop, writer);
+}
+
+/// The same for a setting that goes on while the daemon runs: the change
+/// wakes the writer, and with nothing counted it makes no timed wait.
+#[test]
+fn a_writer_whose_setting_goes_on_makes_no_timed_write_while_nothing_is_counted() {
+    let dir = scratch("on-wake");
+    let recorder = Arc::new(Recorder::open(&dir.join("out"), "session-a", config(&dir, false)));
+    assert!(!recorder.enabled());
+    let (stop, writer) = start_writer(&recorder, Duration::from_millis(20));
+    // One byte shorter than the off file, so the file's stamp differs. The
+    // reread is the one the watch's thread makes.
+    config(&dir, true);
+    assert!(recorder.refresh_gate());
+    the_writer_takes_the_wake(&recorder, "the wake of the setting that went on");
+    the_writer_takes_two_more_wakes(&recorder);
+    assert!(
+        recorder.state.lock().unwrap().last_flush.is_none(),
+        "the writer made a timed wait and a write with nothing counted, after the setting \
+         went on"
+    );
+    stop_writer(&recorder, &stop, writer);
+}
+
 /// A recorder counting into `dir/out` and its writer thread, which writes
 /// only an hour after a count: what a stop finds is unwritten.
 fn recorder_with_writer(

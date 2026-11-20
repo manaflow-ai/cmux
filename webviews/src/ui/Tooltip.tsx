@@ -9,6 +9,7 @@ import {
   useCallback,
   useLayoutEffect,
   useState,
+  type KeyboardEvent,
   type PointerEventHandler,
   type ReactElement,
   type ReactNode,
@@ -20,9 +21,11 @@ import { useEscapingPopup } from "./popupHost";
 import { virtualAnchor, type UiAnchor } from "./Popover";
 import { cx } from "./cx";
 import { attachSeeThroughBlur, type CoveredCandidates, type SeeThroughOptions } from "./glass/seeThroughBlur";
+import { hoverCardGlass, hoverCardUnder } from "./glass/hoverCardGlass";
 import { HOVER_INTENT } from "./hoverIntent";
-import { UI_TOOLTIP_GAP, tooltipGap, tooltipScale } from "./tooltipTokens";
+import { UI_TOOLTIP_EDGE, UI_TOOLTIP_GAP, UI_TOOLTIP_MAX_WIDTH, tooltipGap, tooltipScale } from "./tooltipTokens";
 import { usePopupPadding } from "./popupInset";
+import { fitTooltipWidth } from "./tooltipFit";
 
 /**
  * A page's tooltips wait the hover delay before the first shows, then show at once while the group
@@ -35,6 +38,9 @@ export function TooltipProvider({ children }: { children: ReactNode }) {
     </BaseTooltip.Provider>
   );
 }
+
+/** A hover card flips between above and below only, then shifts along its row. */
+const CARD_COLLISION = { side: "flip", align: "shift", fallbackAxisSide: "none" } as const;
 
 export interface TooltipProps {
   label: ReactNode;
@@ -86,9 +92,40 @@ export function Tooltip({
     kind: "tooltip",
     wraps,
   });
+  // As narrow as its lines (ui/tooltipFit.ts), once as it opens and when its text changes, before
+  // paint: it shows at its final size. A hover card keeps its own width.
+  useLayoutEffect(() => {
+    if (!popup || wraps) return;
+    const doc = popup.ownerDocument;
+    const scale = tooltipScale(doc);
+    const view = doc.documentElement.clientWidth;
+    fitTooltipWidth(popup, Math.min(UI_TOOLTIP_MAX_WIDTH * scale, Math.max(0, view - 2 * UI_TOOLTIP_EDGE * scale)));
+  }, [popup, wraps, label, detail, shortcut]);
+  // A hover card is the one hover card material (glass/hoverCardGlass.ts), as AnchoredCard's link
+  // cards are: the App's popover glass under the page, and what it covers blurred in place, so
+  // Chromium's see-through page draws no underlay under it. Before, a Tooltip card kept that
+  // underlay and read solid (Leo, 2026-11-14: "this has no transparency at all + is not
+  // scrollable"). The popup mounts only while it shows.
+  useLayoutEffect(() => {
+    if (!popup || !wraps) return;
+    return attachSeeThroughBlur(popup, hoverCardUnder, hoverCardGlass);
+  }, [popup, wraps]);
+  // A card taller than the window scrolls (desktop.css .ui-tooltip.ui-card); from the keyboard, its
+  // trigger focused, Page Down and Page Up scroll it, and the transcript under it stays.
+  const scrollCard = (event: KeyboardEvent<HTMLElement>) => {
+    if (!wraps || !popup || (event.key !== "PageDown" && event.key !== "PageUp")) return;
+    if (popup.scrollHeight <= popup.clientHeight) return;
+    event.preventDefault();
+    const page = Math.max(1, popup.clientHeight - UI_TOOLTIP_EDGE * 2 * tooltipScale(popup.ownerDocument));
+    popup.scrollBy({ top: event.key === "PageDown" ? page : -page });
+  };
   return (
     <BaseTooltip.Root disabled={disabled}>
-      <BaseTooltip.Trigger ref={host || anchor ? setTrigger : undefined} render={children} />
+      <BaseTooltip.Trigger
+        ref={host || anchor ? setTrigger : undefined}
+        render={children}
+        {...(wraps && { onKeyDown: scrollCard })}
+      />
       {/* Disabled while it shows (the control changed under the pointer), it goes at once. */}
       {!disabled && (
         <BaseTooltip.Portal container={container}>
@@ -97,9 +134,16 @@ export function Tooltip({
             side={side}
             sideOffset={tooltipGap}
             collisionPadding={padding}
+            // A card taller than the room above and below stays on that axis and scrolls in what
+            // the roomier side has (desktop.css --available-height), never flipped beside its row.
+            {...(wraps && { collisionAvoidance: CARD_COLLISION })}
             {...(anchor && { anchor: () => placed() })}
           >
-            <BaseTooltip.Popup ref={setPopup} className={cx("ui-tooltip ui-glass", className)}>
+            <BaseTooltip.Popup
+              ref={setPopup}
+              className={cx("ui-tooltip ui-glass", className)}
+              {...(wraps && { "data-host-glass": "popover", "data-tooltip-card": "" })}
+            >
               {shortcut && <span className="ui-tooltip-hint">{shortcut}</span>}
               {typeof label === "string" || typeof label === "number" ? (
                 <span className="ui-tooltip-text">{label}</span>

@@ -136,7 +136,7 @@ html[data-cmux-page="github"],
 .gh-button {
   padding: var(--ds-space-1) var(--ds-space-3);
   border: 1px solid var(--page-separator);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   color: var(--page-text);
   background: var(--page-elevated);
   font: inherit;

@@ -25,6 +25,7 @@ base64.workspace = true
 bytes.workspace = true
 cmux-pty.workspace = true
 cmux-link.workspace = true
+cmux-netwatch.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-tui-core.workspace = true
 cmux-unix-socket.workspace = true

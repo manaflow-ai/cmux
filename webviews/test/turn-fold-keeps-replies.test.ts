@@ -229,9 +229,9 @@ test("a closed fold's line around a reply never shows a draft call as a finished
   }
 });
 
-test("the runs arm splits the work after a reply where the open fold does, a draft call between them", () => {
-  // A short note joins the runs on either side of it (mergeShortNotes); a draft-only row beside it still
-  // ends a run there, as the opened fold draws it, so closing the fold never redraws its runs.
+test("the runs arm groups adjacent work after hiding its short note and draft call", () => {
+  // The closed runs arm hides short narration and draft-only calls. Its remaining adjacent calls
+  // join one run; the opened fold keeps the note between its groups.
   const draft = row("t-draft", "activity", 27, {
     items: [{ kind: "tool", text: "", tool: { id: "draft-0", title: "Bash", kind: "execute", status: "in_progress" } }],
   });
@@ -249,18 +249,18 @@ test("the runs arm splits the work after a reply where the open fold does, a dra
   globalThis.cmuxExperiments = { "turn-fold-replies": "runs" };
   const opened = turnView(rows, new Set([`${WORKED}-u-0`]), { agentFamily: "claude", now: START + 60_000 });
   const after = (view: AcpmuxRow[]) => outline(view).slice(outline(view).indexOf("a-middle") + 1, -1);
-  expect(after(closed("claude", rows))).toEqual(after(opened));
+  expect(after(closed("claude", rows))).toEqual(["run:5"]);
+  expect(after(opened)).toEqual(["run:2", "note", "run:3"]);
 });
 
-test("by default a closed fold keeps only the final answer in sight, as Codex does", () => {
-  // Lawrence, 2026-11-11 standup: the closed "Worked for" "does not hide enough stuff".
+test("by default a closed fold keeps substantive answers in sight", () => {
   delete (globalThis as { cmuxExperiments?: unknown }).cmuxExperiments;
   for (const family of FAMILIES) {
     const view = closed(family);
     const worked = view.find((shown) => shown.kind === WORKED);
     expect(worked?.foldOpen).toBe(false);
-    expect(outline(view)).toEqual(["a-final"]);
-    // Opened, every earlier reply reads in order among the work, each still marked as a reply.
+    expect(outline(view)).toEqual(REPLY_IDS);
+    // Opened, every substantive reply remains in order among the work.
     const opened = turnView(turn, new Set([`${WORKED}-u-0`]), { agentFamily: family, now: START + 200_000 });
     const order = outline(opened).filter((entry) => REPLY_IDS.includes(entry));
     expect(order).toEqual(REPLY_IDS);

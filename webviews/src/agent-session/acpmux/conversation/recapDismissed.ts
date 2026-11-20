@@ -4,13 +4,25 @@
 const DISMISSED = "cmux.agentPane.recapDismissed";
 const MAX_DISMISSED = 200;
 
+/// The last list read, by the text it was read from: a transcript reads it on each change.
+let cache: { raw: string; keys: string[] } | undefined;
+
 function read(): string[] {
   try {
-    const value: unknown = JSON.parse(globalThis.localStorage?.getItem(DISMISSED) ?? "[]");
-    return Array.isArray(value) ? value.filter((key): key is string => typeof key === "string") : [];
+    const raw = globalThis.localStorage?.getItem(DISMISSED) ?? "[]";
+    if (cache?.raw === raw) return cache.keys;
+    const value: unknown = JSON.parse(raw);
+    const keys = Array.isArray(value) ? value.filter((key): key is string => typeof key === "string") : [];
+    cache = { raw, keys };
+    return keys;
   } catch {
     return [];
   }
+}
+
+/// Every recap key dismissed on this device (`chat:seq`), oldest first.
+export function dismissedRecapKeys(): readonly string[] {
+  return read();
 }
 
 export function recapDismissed(key: string): boolean {

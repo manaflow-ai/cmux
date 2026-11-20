@@ -18,6 +18,7 @@ import { agentCall, type AgentCall } from "./agentCalls";
 import { isThought, mergeThoughts } from "./thoughts";
 import { finishedBackgroundPhrase, isFoldedRun } from "./toolRunSummary";
 import { commandGroupSaid } from "./commandActions";
+import { readPath } from "./readPath";
 
 /// The kinds of call that group with their neighbors.
 export type ToolGroupKind = "commands" | "reads" | "edits" | "searches";
@@ -74,7 +75,8 @@ export function toolGroupKind(tool: Tool): ToolGroupKind | undefined {
   // By what the call did, whichever harness named it (toolNames.ts): a Claude Code Grep searches.
   switch (toolKind(tool)) {
     case "execute":
-      return tool.command ? "commands" : undefined;
+      // A finished shell read of one file is a read (readPath.ts), as every harness's read is.
+      return tool.command ? (readPath(tool) ? "reads" : "commands") : undefined;
     case "read":
       return "reads";
     case "edit":
@@ -138,7 +140,10 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     mcp = undefined;
     if (run) {
       const lone = run.items[run.lead]!.tool!;
-      if (run.items.length - run.lead >= 2 || (run.kind === "edits" && lone.diffs?.length))
+      // Reads never gather under a "Read N files" line: each stays its own row, as the Codex app
+      // lists them (Lucas, 2026-11-14: "we shouldn't nest reading files").
+      if (run.kind === "reads") for (const item of run.items) groups.push({ type: "item", item });
+      else if (run.items.length - run.lead >= 2 || (run.kind === "edits" && lone.diffs?.length))
         groups.push({ type: "group", kind: run.kind, items: run.items });
       else for (const item of run.items) groups.push({ type: "item", item });
       run = undefined;

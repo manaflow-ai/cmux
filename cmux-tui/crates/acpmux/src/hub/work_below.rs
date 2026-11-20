@@ -65,7 +65,7 @@ impl Hub {
             // so its summary already says so. Every new turn drops the note.
             let unread = !works
                 && session.unread_after_work.swap(false, Ordering::SeqCst)
-                && !self.shown(session)
+                && !self.attended(session)
                 && {
                     let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
                     !std::mem::replace(&mut meta.unread, true)

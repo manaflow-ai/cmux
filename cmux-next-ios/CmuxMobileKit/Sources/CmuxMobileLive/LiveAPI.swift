@@ -1,6 +1,7 @@
 import Foundation
 import struct CmuxMobileModel.ServiceFailureMessage
 import struct CmuxMobileModel.TeamAppearance
+import enum CmuxMobileModel.UserFacingError
 
 /// The `cmux-mobile-api` HTTP surface the app uses (PROTOCOL.md "HTTP").
 public struct LiveAPI: Sendable {
@@ -109,6 +110,41 @@ public struct LiveAPI: Sendable {
         public var message: String
         /// The service's id for the request (support quotes it), when it sent one.
         public var requestID: String? = nil
+    }
+
+    /// `POST /v1/diagnostics/connectivity-incidents` (PROTOCOL.md "Connectivity incidents"): one state
+    /// of a major connectivity incident, for the cmux team's Slack. The service checks the account.
+    /// Returns the service's `note` (why it was not posted: `mac_restarted`, `mac_asleep`, …), nil when posted.
+    @discardableResult
+    public func reportConnectivityIncident(_ incident: ConnectivityIncidentDetector.Incident, simulations: [String], app: ConnectivityIncidentApp) async throws -> String? {
+        struct Reply: Decodable { var note: String? }
+        let data = try await call("POST", "v1/diagnostics/connectivity-incidents", body: Self.incidentBody(incident, simulations: simulations, app: app))
+        return (try? JSONDecoder().decode(Reply.self, from: data))?.note
+    }
+
+    /// The JSON body of a connectivity incident report.
+    static func incidentBody(_ incident: ConnectivityIncidentDetector.Incident, simulations: [String], app: ConnectivityIncidentApp) -> [String: Any] {
+        let iso = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+        var body: [String: Any] = [
+            "id": incident.id,
+            "kind": incident.kind.rawValue,
+            "state": incident.state.rawValue,
+            "startedAt": incident.startedAt.formatted(iso),
+            "observedAt": incident.observedAt.formatted(iso),
+            "durationMs": Int((incident.duration * 1000).rounded()),
+            "mac": ["id": incident.macID, "name": incident.macName],
+            "app": ["version": app.version, "build": app.build, "config": app.config, "simulator": app.simulator],
+            "device": ["model": app.model, "os": app.os],
+        ]
+        if let endReason = incident.endReason { body["endReason"] = endReason.rawValue }
+        if let attempts = incident.attempts { body["attempts"] = attempts }
+        if let drops = incident.drops { body["drops"] = drops }
+        if let lastError = incident.lastError, !lastError.isEmpty { body["lastError"] = String(lastError.prefix(300)) }
+        if let transport = incident.transport { body["transport"] = transport.lowercased() }
+        if let reachable = incident.serviceReachable { body["serviceReachable"] = reachable }
+        if let network = incident.network { body["network"] = network }
+        if !simulations.isEmpty { body["simulations"] = simulations }
+        return body
     }
 
     /// `POST /v1/devices` (upsert).
@@ -362,9 +398,11 @@ extension LiveAPI {
             case (429, _):
                 text = "Too many requests. Wait a moment and try again."
             case (500..., _), (0, _):
-                text = "The Cloud service couldn't remove it (\(failure.code)). Try again in a moment."
+                text = "The Cloud service couldn't remove it. Try again in a moment."
             default:
-                text = "The Cloud service refused: \(failure.message.isEmpty ? failure.code : failure.message)"
+                text = UserFacingError.isProse(failure.message)
+                    ? "The Cloud service refused: \(failure.message)"
+                    : "The Cloud service couldn't remove it. Try again in a moment."
             }
             return ServiceFailureMessage(text: text, requestID: failure.requestID)
         }
@@ -375,9 +413,28 @@ extension LiveAPI {
             case .timedOut:
                 return ServiceFailureMessage(text: "The Cloud service didn't answer in time. Try again.")
             default:
-                return ServiceFailureMessage(text: "Couldn't reach the Cloud service (\(urlError.localizedDescription)).")
+                return ServiceFailureMessage(text: "Couldn't reach the Cloud service. Try again in a moment.")
             }
         }
-        return ServiceFailureMessage(text: "Couldn't remove it: \(error.localizedDescription)")
+        return ServiceFailureMessage(text: UserFacingError.message(error, fallback: "Couldn't remove it. Try again."))
+    }
+}
+
+/// What a person reads for a failed service call: never the HTTP status, the code
+/// or the type. The service's own message shows when it reads as a sentence.
+extension LiveAPI.Failure: LocalizedError {
+    public var errorDescription: String? {
+        switch status {
+        case 401: return "Your session expired. Sign in again."
+        case 429: return "Too many requests. Wait a moment and try again."
+        case 500...: return "The Cloud service isn't available right now. Try again in a moment."
+        default: break
+        }
+        if UserFacingError.isProse(message) { return message.trimmingCharacters(in: .whitespacesAndNewlines) }
+        switch status {
+        case 403: return "You don't have access to that."
+        case 404: return "That isn't available anymore."
+        default: return "The Cloud service couldn't do that. Try again in a moment."
+        }
     }
 }

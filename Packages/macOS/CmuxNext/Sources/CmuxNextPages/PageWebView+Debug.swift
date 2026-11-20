@@ -399,16 +399,11 @@ extension PageWebView {
         return .object(result)
     }
 
-    /// Every element matching `selector` in document order: its `data-*` attributes, classes and
-    /// first 120 characters of text (a list's order and row state as the page draws it).
+    /// Every element matching `selector` in document order: its `data-*` attributes, classes, first
+    /// 120 characters of text (a list's order and row state as the page draws it), and its `role` and
+    /// accessible `label` when it has them (PageDebugQuery).
     public func debugQuery(_ selector: String) async -> JSONValue {
-        let script = """
-        return JSON.stringify([...document.querySelectorAll(selector)].map((el) => ({
-          data: Object.assign({}, el.dataset), classes: [...el.classList], text: (el.innerText || '').slice(0, 120) })));
-        """
-        guard let text = await callPageFunction(script, arguments: ["selector": selector]) as? String,
-              let value = try? JSONValue.parse(Data(text.utf8)) else { return ["error": "query failed"] }
-        return ["elements": value]
+        PageDebugQuery.answer(await callPageFunction(PageDebugQuery.script, arguments: ["selector": selector]))
     }
 
     /// Focuses the first element matching `selector` (or keeps the focused one) and inserts `text`

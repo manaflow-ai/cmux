@@ -224,17 +224,12 @@ pub fn keys_to_unset_in_child(env: &[(String, String)]) -> Vec<&'static str> {
 }
 
 /// [`keys_to_unset_in_child`] over the daemon's own environment `inherited`:
-/// [`cmux_pty::UNSET_IN_TERMINAL_CHILDREN`] and the incognito markers a
-/// launch with environment `env` must not inherit.
+/// the incognito markers a launch with environment `env` must not inherit.
 fn keys_to_unset_in_child_from(
     env: &[(String, String)],
     inherited: &dyn Fn(&str) -> Option<String>,
 ) -> Vec<&'static str> {
-    cmux_pty::UNSET_IN_TERMINAL_CHILDREN
-        .iter()
-        .copied()
-        .chain(inherited_keys_to_unset_from(env, inherited))
-        .collect()
+    inherited_keys_to_unset_from(env, inherited)
 }
 
 fn inherited_keys_to_unset_from(

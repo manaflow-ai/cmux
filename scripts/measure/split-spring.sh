@@ -89,6 +89,41 @@ unfollow_log() {
   fi
   follow_pid=""
 }
+# The controller stops a measurement that prints nothing for CMUX_CI_MEASURE_SILENT_MAX (45 min) as a
+# hung one. xcodebuild prints nothing while it compiles, so a slow build and a wedged build look the
+# same from outside, and two steps at one ref were killed mid-build on two hosts (cmux20-bench step
+# 3844a9ea8e9d6bafaf6e9ff2, cmux23 step 8dcc5985a8b0aedb25014cf9) while `compile-check --app` at that
+# same ref passed in 148 s. A heartbeat says the build is alive.
+#
+# Bounded on purpose: after BUILD_HEARTBEAT_MAX it stops, so a build that really is wedged still goes
+# silent and the controller still frees the host. The heartbeat buys a slow build its time; it does
+# not turn the hang detector off.
+BUILD_HEARTBEAT_EVERY=${BUILD_HEARTBEAT_EVERY:-120}
+BUILD_HEARTBEAT_MAX=${BUILD_HEARTBEAT_MAX:-5400}
+# heartbeat_start: prints one line every BUILD_HEARTBEAT_EVERY seconds while the build runs.
+heartbeat_start() {
+  (
+    started=$SECONDS
+    while :; do
+      sleep "$BUILD_HEARTBEAT_EVERY"
+      elapsed=$((SECONDS - started))
+      if (( elapsed > BUILD_HEARTBEAT_MAX )); then
+        echo "split-spring: building, ${elapsed} s elapsed: past ${BUILD_HEARTBEAT_MAX} s, no more heartbeats (a build this long is a hang; the controller's silent limit takes it from here)"
+        break
+      fi
+      echo "split-spring: building, ${elapsed} s elapsed"
+    done
+  ) &
+  heartbeat_pid=$!
+}
+# heartbeat_stop: ends the heartbeat by its own PID.
+heartbeat_stop() {
+  if [[ -n "${heartbeat_pid:-}" ]]; then
+    kill "$heartbeat_pid" 2>/dev/null || true
+    wait "$heartbeat_pid" 2>/dev/null || true
+  fi
+  heartbeat_pid=""
+}
 # <<< follow-log
 if [[ -z "$app" ]]; then
   for sub in ghostty ghostty-next; do
@@ -110,8 +145,10 @@ if [[ -z "$app" ]]; then
   # Only an EXIT trap while reload.sh runs: bash runs a TERM/INT/HUP trap only after the foreground pipeline ends (a
   # hung reload never does), while an EXIT trap alone runs at once when such a signal ends the script.
   follow_log "/tmp/cmux-reload-$tag.log"
-  trap 'unfollow_log' EXIT
+  heartbeat_start
+  trap 'unfollow_log; heartbeat_stop' EXIT
   CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log"
+  heartbeat_stop
   unfollow_log
   trap - EXIT
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"

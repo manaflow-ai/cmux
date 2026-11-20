@@ -61,14 +61,13 @@ export function PullRequestChip({
         data-checks={checks.state}
         data-finish={finish}
         aria-label={label}
-        aria-haspopup="dialog"
-        aria-expanded={open}
         {...trigger}
       >
         <Icon name="git.pullrequest" size={14} />#{number}
         {finish === "merged" && <FinishBurst />}
       </button>
       <Popover
+        id={trigger["aria-controls"]}
         fade
         open={open}
         // The chip owns opening; Base UI only reports dismissals (Escape and outside press).

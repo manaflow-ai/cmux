@@ -91,7 +91,9 @@ await requireBrowserLane("tool-fold-bottom-browser.test.ts", async () => {
 
   async function open(variant: string): Promise<Page> {
     const port = (vite!.httpServer!.address() as { port: number }).port;
-    const page = await browser!.newPage({ viewport: { width: 900, height: 640 } });
+    // Tall enough that the command's line is in sight at the very bottom: the finished turn's
+    // edited-files card (#42247) sits between it and the composer.
+    const page = await browser!.newPage({ viewport: { width: 900, height: 900 } });
     await installPaintedFrames(page);
     await page.addInitScript(() => localStorage.clear());
     if (variant !== "idle") await pinLiveTurnRuns(page);
@@ -140,7 +142,14 @@ await requireBrowserLane("tool-fold-bottom-browser.test.ts", async () => {
       // Its upper part: the next row's box may start a few pixels over the line's foot.
       const y = box.top + Math.min(7, box.height / 2);
       const hit = document.elementFromPoint(x, y);
-      return { x, y, own: line.contains(hit), hit: hit?.closest(".acpmux-row")?.getAttribute("data-row-id") };
+      return {
+        x,
+        y,
+        own: line.contains(hit),
+        hit:
+          hit?.closest(".acpmux-row")?.getAttribute("data-row-id") ??
+          `${hit?.tagName.toLowerCase()}.${String(hit?.className).replace(/\s+/g, ".")} (line ${Math.round(box.top)}-${Math.round(box.bottom)}, view ${innerHeight})`,
+      };
     }, toggleOf(row));
     expect({ row, own: point.own, hit: point.hit }).toEqual({ row, own: true, hit: point.hit });
     await page.evaluate(() => {

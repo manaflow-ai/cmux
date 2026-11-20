@@ -178,3 +178,42 @@ async fn a_closed_session_with_a_live_agent_reopens_for_a_request() {
     let later = kinds_after(&hub, &session, seq);
     assert!(later.iter().any(|k| k == "reopened"), "{later:?}");
 }
+
+/// A request that reads the stop count after a delete counted it (a prompt sent just before the
+/// delete, still being taken): the chat is being deleted, so it starts no agent. It started one
+/// once the delete had taken the old agent, and that agent's host, record and temporary folder
+/// outlived the chat (`tests/session_delete_disk.rs`).
+#[tokio::test]
+async fn a_request_during_a_delete_starts_no_agent() {
+    let (hub, session) = chat().await;
+    let (arrived, at_cleanup) = tokio::sync::oneshot::channel();
+    let (release, released) = tokio::sync::oneshot::channel();
+    *hub.purge_seam.lock().unwrap() = Some((arrived, released));
+    let purge = {
+        let (hub, session) = (hub.clone(), session.clone());
+        tokio::spawn(async move { hub.kill(&session, true).await })
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(20), at_cleanup).await.unwrap().unwrap();
+    // Still registered, closed, its stop counted: a request now reads that count.
+    let started = hub.child_for(&session).await;
+    assert!(started.is_err(), "a request during the delete started an agent");
+    assert!(!has_live_child(&session).await, "the delete left an agent running");
+    release.send(()).unwrap();
+    purge.await.unwrap().unwrap();
+    assert!(!has_live_child(&session).await);
+}
+
+/// A closed chat stays closed while a delete of it runs, and reopens for a request once that
+/// delete failed and cleared its mark.
+#[tokio::test]
+async fn a_chat_being_deleted_stays_closed_until_the_delete_fails() {
+    let (hub, session) = chat().await;
+    hub.kill(&session, false).await.unwrap();
+    session.purging.store(true, Ordering::SeqCst);
+    assert!(hub.child_for(&session).await.is_err(), "a chat being deleted started an agent");
+    assert_eq!(session.status(), SessionStatus::Closed);
+    assert!(!has_live_child(&session).await);
+    session.purging.store(false, Ordering::SeqCst);
+    hub.child_for(&session).await.unwrap();
+    assert!(has_live_child(&session).await);
+}

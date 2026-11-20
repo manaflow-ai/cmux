@@ -5,9 +5,12 @@ from __future__ import annotations
 
 import json
 import os
+import plistlib
+import struct
 import subprocess
 import sys
 import tempfile
+import zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -221,6 +224,117 @@ def test_tree_counts_fat_headers_and_padding(tmp: Path) -> None:
         assert b["parts"]["code and data"] == 2000 and b["parts"]["unwind tables"] == 400, b
         assert sum(b["parts"].values()) == b["bytes"], b  # the fat header and padding are counted
     assert not any(x["path"].endswith("Thing.class") for x in data["binaries"]), data["binaries"]
+
+
+def symbol_map(functions: list[tuple[str, int]]) -> bytes:
+    """A cmux-symbols.bin (write-app-symbol-map.py's format) of (name, size) functions, in order."""
+    def leb(n: int) -> bytes:
+        out = bytearray()
+        while True:
+            byte, n = n & 0x7F, n >> 7
+            out.append(byte | (0x80 if n else 0))
+            if not n:
+                return bytes(out)
+    names = [name for name, _ in functions] + [""]
+    deltas, previous, at = [], 0, 0x1000
+    for _, size in functions + [("", 0)]:
+        deltas.append(leb(at - previous))
+        previous, at = at, at + size
+    payload = struct.pack("<I", len(names)) + b"".join(deltas) + b"\0".join(n.encode() for n in names)
+    raw = zlib.compressobj(9, zlib.DEFLATED, -15)
+    body = raw.compress(payload) + raw.flush()
+    return b"CMXSYM1\0" + struct.pack("<I", 1) + b"\x11" * 16 + struct.pack("<I", len(body)) + body
+
+
+def test_tree_splits_the_app_code_by_language(tmp: Path) -> None:
+    app = make_app(tmp)
+    (app / "Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleExecutable": "cmux"}))
+    # Names as write-app-symbol-map.py stores them: Mach-O's leading underscore dropped, so
+    # `__ZN...` (C++ and legacy Rust) and `__RN...` (Rust v0) read `_ZN...` and `_RN...`, and
+    # `_$s...` (Swift) reads `$s...`. These are the forms in nightly 4328833946401's map.
+    (app / "Contents/Resources/cmux-symbols.bin").write_bytes(symbol_map([
+        ("$s10CmuxNextApp4mainyyF", 700),
+        ("_ZN4core3fmt5write17h0123456789abcdefE", 200),
+        ("_RNvCsfLfy6EI15iL_7___rustc12___rust_alloc", 50),
+        ("cmux_layout_reducer_apply", 30),
+        ("ghostty_surface_new", 40),
+        ("_ZN11spirv_cross8Compiler4compileEv", 25),
+        ("sqlite3_prepare_v2", 15),
+        ("objectdestroyTm", 10),
+    ]))
+    out = tmp / "t.json"
+    r = run("tree", str(app), "--json", str(out), "--jobs", "1")
+    assert r.returncode == 0, r.stderr
+    lang = json.loads(out.read_text())["code_by_language"]
+    # No CmuxNextApp.framework: a live code build links the code into the executable.
+    assert lang["binary"] == "Contents/MacOS/cmux", lang
+    assert lang["bytes"] == {"Swift": 710, "Rust": 280, "Zig": 40, "C++": 25, "C and other": 15}, lang["bytes"]
+    assert "| Swift | 0.0 | 66.4% |" in r.stdout, r.stdout
+
+
+def test_tree_names_the_framework_that_holds_the_app_code(tmp: Path) -> None:
+    # The release app's code is CmuxNextApp.framework behind a stub executable (CMUX-629).
+    app = make_app(tmp)
+    fw = "Contents/Frameworks/CmuxNextApp.framework"
+    write(app, f"{fw}/Versions/A/CmuxNextApp", 900)
+    os.symlink("A", app / fw / "Versions/Current")
+    os.symlink("Versions/Current/CmuxNextApp", app / fw / "CmuxNextApp")
+    (app / "Contents/Resources/cmux-symbols.bin").write_bytes(symbol_map([("$s10CmuxNextApp4mainyyF", 700)]))
+    out = tmp / "t.json"
+    r = run("tree", str(app), "--json", str(out), "--jobs", "1")
+    assert r.returncode == 0, r.stderr
+    t = json.loads(out.read_text())
+    assert t["code_by_language"]["binary"] == f"{fw}/Versions/A/CmuxNextApp", t["code_by_language"]
+    sizes = {c["component"]: c["bytes"] for c in t["components"]}
+    assert sizes[fw] == 900 and sizes["Contents/MacOS/cmux"] == 1000, sizes
+
+
+def test_real_budget_caps_the_stub_executable_and_the_framework(tmp: Path) -> None:
+    # The code moved into the framework: an executable that grows back to the app's size fails.
+    for variant in ("arm64", "arm64-cef-on-demand"):
+        caps = json.loads(REAL_BUDGET.read_text())["variants"][variant]["components"]
+        assert caps["Contents/MacOS/cmux"] <= 1_000_000, (variant, caps)
+        assert caps["Contents/Frameworks/CmuxNextApp.framework"] >= 100_000_000, (variant, caps)
+
+
+def test_tree_without_a_symbol_map_has_no_language_split(tmp: Path) -> None:
+    app = make_app(tmp)
+    (app / "Contents/Resources/cmux-symbols.bin").write_bytes(b"CMXSYM1\0garbage")
+    out = tmp / "t.json"
+    r = run("tree", str(app), "--json", str(out), "--jobs", "1")
+    assert r.returncode == 0, r.stderr
+    assert "code_by_language" not in json.loads(out.read_text())
+
+
+def test_breakdown_puts_every_file_in_one_category(tmp: Path) -> None:
+    app = make_app(tmp)
+    (app / "Contents/Resources/bin/cmux").write_bytes(macho(text=4000, unwind=1000, symbols=10, strsize=40))
+    (app / "Contents/Resources/bin/cmux-mobile-host").write_bytes(macho(text=900, unwind=100, symbols=1, strsize=4))
+    write(app, "Contents/Frameworks/cmux Helper (GPU).app/Contents/MacOS/cmux Helper (GPU)", 70)
+    write(app, "Contents/Frameworks/WebRTC.framework/Versions/A/WebRTC", 80)
+    write(app, "Contents/Frameworks/CmuxNextApp.framework/Versions/A/CmuxNextApp", 600)
+    write(app, "Contents/Helpers/cmux-remote-browser-host.app/Contents/Info.plist", 5)
+    write(app, "Contents/Resources/CmuxNext_CmuxNextPages.bundle/home.html", 2048)
+    write(app, "Contents/Resources/markdown-viewer/index.js", 2048)  # identical to home.html
+    write(app, "Contents/Resources/fr.lproj/Localizable.strings", 300)
+    write(app, "Contents/Resources/Extensions/ublock/js/a.js", 30)
+    out = tmp / "b.json"
+    r = run("breakdown", str(app), "--json", str(out), "--jobs", "2")
+    assert r.returncode == 0, r.stderr
+    b = json.loads(out.read_text())
+    cats = {c["key"]: c["bytes"] for c in b["categories"]}
+    assert cats["cef"] == 3100 + 70, cats
+    assert cats["cmux_tui"] == len((app / "Contents/Resources/bin/cmux").read_bytes()), cats
+    assert cats["swift_app"] == 1000 + 600, cats
+    assert cats["other_executables"] == len((app / "Contents/Resources/bin/cmux-mobile-host").read_bytes()) + 5, cats
+    assert cats["other_frameworks"] == 80, cats
+    assert cats["webviews"] == 4096, cats
+    assert cats["assets"] == 330, cats
+    assert sum(cats.values()) == b["app_bytes"], (cats, b["app_bytes"])
+    assert b["symbols_bytes"] == 10 * 16 + 40 + 16 + 4, b
+    assert b["unwind_bytes"] == 1100, b
+    assert b["duplicate_extra_bytes"] == 2048, b
+    assert "| CEF (Chromium framework and its helper apps) |" in r.stdout, r.stdout
 
 
 def main() -> int:

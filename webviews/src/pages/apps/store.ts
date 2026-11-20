@@ -4,6 +4,7 @@
 // answers, and install, uninstall, update and grant changes go through the host's native
 // confirmation (coordinator Q4), so the page shows the owner's result, never its own guess.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { userMessage } from "../shared/userMessage";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
 import { fromDetail, listCatalog, listInstalled, listUpdates, type WireDetail } from "./wire";
 import {
@@ -581,9 +582,8 @@ function newKey(): string {
   return `pg_${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+/** The plain sentence of a failure; the owner's own text stays in the error, for logs. */
+const message = (error: unknown): string => userMessage(error);
 
 function updateFromInstalled(app: InstalledApp): AppUpdate[] {
   return app.update
@@ -600,6 +600,6 @@ function updateFromInstalled(app: InstalledApp): AppUpdate[] {
 }
 
 function failure(error: unknown): Partial<AppsSnapshot> {
-  if (isPageError(error) && error.code === LINK_CLOSED) return { connection: "disconnected", error: error.message };
+  if (isPageError(error) && error.code === LINK_CLOSED) return { connection: "disconnected", error: message(error) };
   return { error: message(error) };
 }

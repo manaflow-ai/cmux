@@ -55,7 +55,14 @@ OPTIONAL = {"sign_stage"}
 SHA = re.compile(r"[0-9a-f]{40}")
 
 
+# nightly-next-one (vars.NIGHTLY_NEXT_ONE_JOB) builds and publishes in one job, with the outputs both name.
+ONE_JOB = "nightly-next-one"
+
+
 def record(needs: dict, run_id: str, attempt: str, sha: str, sign_stage: str = "") -> dict[str, str]:
+    one = needs.get(ONE_JOB) or {}
+    if one.get("result") not in (None, "", "skipped"):
+        needs = {**needs, "publish-nightly": one, "build-nightly-app": one}
     out = {"source_run": run_id, "source_attempt": attempt, "source_sha": sha,
            "sign_stage": "true" if sign_stage == "true" else "",
            "publish_result": str((needs.get("publish-nightly") or {}).get("result") or ""),
@@ -65,6 +72,11 @@ def record(needs: dict, run_id: str, attempt: str, sha: str, sign_stage: str = "
         outputs = (needs.get(job) or {}).get("outputs") or {}
         for name in names:
             out[prefix + name] = str(outputs.get(name) or "")
+    # nightly-next-one's notes start from the live feed's published commit (publish-prepare-release-notes.sh):
+    # the next run's decide can read the release body before the previous run's tail rewrote it.
+    from_feed = str(((needs.get("publish-nightly") or {}).get("outputs") or {}).get("published_sha") or "")
+    if SHA.fullmatch(from_feed):
+        out["published_sha"] = from_feed
     return out
 
 

@@ -16,7 +16,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { chromium, type Page } from "playwright";
+import { chromium } from "./browsers";
+import type { Page } from "playwright";
 import { MOTION_SEND_MS } from "../src/motion/scale.generated";
 
 const ROUNDS = Number(process.argv[2] ?? 8);

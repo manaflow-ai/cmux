@@ -115,7 +115,10 @@ mod tests {
     fn row(peer: &str, mux: &str) -> (String, RemoteSession) {
         let receipt = SessionReceipt::new(peer, mux, None, 0);
         let summary = json!({"sessionId": mux, "peer": peer, "status": "running"});
-        (receipt.qualified_id(), RemoteSession { peer: peer.into(), summary, receipt })
+        (
+            receipt.qualified_id(),
+            RemoteSession { peer: peer.into(), summary: summary.into(), receipt },
+        )
     }
 
     fn table_of(peers: usize, per_peer: usize) -> RemoteTable {

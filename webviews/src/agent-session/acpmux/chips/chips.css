@@ -211,8 +211,8 @@
   justify-content: center;
   padding: 8px 12px;
   border-radius: var(--cv-media-radius, 8px);
-  background: var(--cv-card-fill);
-  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  background: var(--ds-surface-card);
+  box-shadow: inset 0 0 0 1px var(--ds-surface-card-line);
 }
 .cv-media__name {
   font-size: 12px;
@@ -284,6 +284,8 @@
   font-variant-numeric: tabular-nums;
   line-height: 1.4;
   letter-spacing: var(--text-detail--letter-spacing);
+  /* One line, as every video tile's length (composer/videoLengthFit.ts). */
+  white-space: nowrap;
 }
 /* Every control on a playing video shows the arrow too (WebKit's own controls). */
 .cv-media__frame.is-playing video,
@@ -408,7 +410,7 @@
   vertical-align: top;
   border: 0;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--cv-fg) 4%, transparent);
+  background: var(--ds-surface-card);
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--cv-fg) 10%, transparent),
     inset 0 1px 0 color-mix(in srgb, #fff 6%, transparent);

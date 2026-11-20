@@ -1,12 +1,5 @@
-// The running turn's token count is secondary to its words (Leo, 2026-10-21: "the token font
-// shouldnt be this same color"). "Thinking 35s" keeps the line's muted color and "Working for 35s"
-// the background activity tone (#27074, `--cv-activity-text`); "· 679.9K out" after either takes
-// the tool rows' quieter one, the theme's tertiary text
-// (`--cv-text-dim`, `--agent-soft`, the host's textTertiary), never a literal color, in tabular
-// numerals so the count ticks in place. Both lines that say it, the Codex layout's live line at the
-// bottom (Thinking.tsx) and the line under the work with that layout off (WorkingFor.tsx), draw the
-// count in the same span, so one rule covers both. agent-pane-turn-tokens-muted-browser.test.tsx
-// resolves the real stylesheets in Chromium.
+// Live lines retain their elapsed time and text tone without rendering token amounts.
+// The retained standalone token styles remain theme-based.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -24,15 +17,12 @@ const rule = (selector: string) => {
 };
 
 for (const [name, line] of Object.entries(tokenLines))
-  test(`${name}: the count is its own span, which the quieter rule keys on`, () => {
+  test(`${name}: usage data adds no token span or dangling separator`, () => {
     const html = tokenLineMarkup(line);
-    // The live line says one count as Claude Code's does, "679.9K tokens" (claude-code-tool-rows.test.tsx).
-    const count = name.includes("Thinking.tsx") ? "679.9K tokens" : "679.9K out";
-    expect(html).toContain(
-      `<span class="cv-worked__count"><span class="cv-worked__sep" aria-hidden="true">·</span><span class="cv-worked__tokens">${count}</span></span>`,
-    );
-    // The line's words come before the count's span, outside it.
-    expect(html.indexOf("cv-worked__count")).toBeGreaterThan(html.search(/Working for|Thinking/));
+    expect(html).not.toContain("cv-worked__tokens");
+    expect(html).not.toContain("cv-worked__sep");
+    expect(html).not.toContain("679.9K");
+    expect(html).toMatch(/<span class="cv-worked__(label-)?time">35s<\/span>/);
   });
 
 test("the count takes the theme's tertiary text token, in tabular numerals, never a literal color", () => {
@@ -46,13 +36,12 @@ test("the count takes the theme's tertiary text token, in tabular numerals, neve
   expect(conversationCss).toContain("--cv-text-dim: var(--agent-soft);");
 });
 
-// The coordinator, relaying Leo's capture of "Thinking 7m 34s · ↓ 4.5K out ↑ 1.4M in": the split
-// counts on the live line are "debug noise in the main transcript". It says one count, as Claude
-// Code's does, and keeps the split in that count's hover.
-test("the live line at the bottom says one count, the split on hover", () => {
-  const line = Object.entries(tokenLines).find(([name]) => name.includes("Thinking.tsx"))![1];
-  const html = tokenLineMarkup(line, SPLIT);
-  expect(html).toContain('<span class="cv-worked__tokens" title="');
-  expect(html).toMatch(/cv-worked__tokens" title="[^"]*12\.4K/);
-  expect(html.replace(/title="[^"]*"/g, "")).not.toMatch(/↓|↑| in</);
-});
+for (const [name, line] of Object.entries(tokenLines))
+  test(`${name}: complete usage splits do not add visible amounts or a token tooltip`, () => {
+    const html = tokenLineMarkup(line, SPLIT);
+    expect(html).not.toContain("cv-worked__tokens");
+    expect(html).not.toContain("cv-worked__sep");
+    expect(html).not.toContain('title="Output');
+    expect(html).not.toMatch(/↓|↑|12\.4K|60K/);
+    expect(html).toMatch(/<span class="cv-worked__(label-)?time">35s<\/span>/);
+  });

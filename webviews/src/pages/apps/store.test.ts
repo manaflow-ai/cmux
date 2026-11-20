@@ -3,6 +3,10 @@ import { pageError } from "../shared/pageClient";
 import { AppsOps } from "./types";
 import { MockAppsProvider } from "./mockProvider";
 import { AppsStore } from "./store";
+import { userMessage } from "../shared/userMessage";
+
+/** What a failure without its own sentence says (the owner's text stays in the error). */
+const GENERIC = userMessage(undefined);
 
 describe("AppsStore update center", () => {
   test("projects supervisor updates into installed state", async () => {
@@ -33,7 +37,7 @@ describe("AppsStore update center", () => {
 
     expect(store.getSnapshot().updates).toHaveLength(1);
     expect(store.getSnapshot().updatesStale).toBe(true);
-    expect(store.getSnapshot().updatesError).toBe("update service unavailable");
+    expect(store.getSnapshot().updatesError).toBe(GENERIC);
     store.stop();
   });
 
@@ -46,7 +50,7 @@ describe("AppsStore update center", () => {
 
     expect(store.getSnapshot().updates.map((update) => update.app)).toEqual(["cmux.github-prs"]);
     expect(store.getSnapshot().updatesStale).toBe(true);
-    expect(store.getSnapshot().updatesError).toContain(AppsOps.updatesList);
+    expect(store.getSnapshot().updatesError).toBe(userMessage(pageError("cmux.protocol.unknown_op", "")));
     store.stop();
   });
 

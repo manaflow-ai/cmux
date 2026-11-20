@@ -63,6 +63,8 @@ export type TurnActions = {
   /// with whether the send went (never rejecting): a failed turn's card says Retry could not run
   /// only for `false` (errorRecovery.ts); any other answer counts as sent.
   retry?: (rowId: string, prompt: string) => unknown;
+  /// A successful footer can expose Send prompt again through its native More menu.
+  canSendPromptAgain?: boolean;
   /// A failed last turn's Retry (turnRetry.ts): acpmux's turn retry of the chat the row was drawn
   /// for, else `retry` where the turn has a prompt to send (`rowId`, `prompt`). Settles with the
   /// note a refusal leaves on the failure's card.
@@ -79,8 +81,8 @@ export type TurnActions = {
     top?: readonly string[];
     retry: (rowId: string, prompt: string, model: string) => void;
   };
-  /// Continue a turn the reader stopped (the last turn's footer, when `resumable`): sends
-  /// `CONTINUE_PROMPT` through the composer's send path, so it queues and shows as a prompt.
+  /// A failed turn's text-based recovery. Interrupted turns resume from the composer's
+  /// dedicated action; Codex uses an empty-input continuation there.
   resume?: () => Promise<void>;
   /// Answer a tagged ask (NextStepCard.tsx): sends the answer's words through the composer's send
   /// path, so it shows as the reader's prompt and starts the next turn. Absent where the pane cannot
@@ -154,13 +156,12 @@ export const TurnActionsContext = createContext<TurnActions>({});
 /// that offers Retry draws it, and a prompt draws none outside the Messages view.
 export const RetryTargetContext = createContext<{ promptId?: string; footerId?: string } | undefined>(undefined);
 
-/// The prompt Continue sends after a stopped turn. Claude Code and Codex both resume on a plain
-/// "continue"; it goes to the agent, never shown as UI. l10n-allow: a prompt to the agent, not UI
+/// Text continuation for harnesses without empty-input resume and for failed-turn recovery.
+/// l10n-allow: a prompt to the agent, not UI
 export const CONTINUE_PROMPT = "Continue";
 
-/// The footer's Continue: `CONTINUE_PROMPT` through the composer's send (`chat.send`), so it shows as
-/// the reader's prompt and starts the next turn, or queues behind a prompt already sent. A send that
-/// fails says so on its own row. Settles once the send does (when that turn ends, or it failed).
+/// Failed-turn recovery through the normal send path. The composer uses resumeInterrupted for
+/// a stopped Codex turn, which starts a continuation without a new user message.
 export const resumeThrough =
   (callNative: (method: string, params: Record<string, unknown>) => Promise<unknown>) => (): Promise<void> =>
     callNative("chat.send", { text: CONTINUE_PROMPT }).then(

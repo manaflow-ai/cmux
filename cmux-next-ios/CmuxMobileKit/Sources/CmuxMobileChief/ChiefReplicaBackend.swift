@@ -1,4 +1,5 @@
 import CmuxConversationCore
+import enum CmuxMobileModel.UserFacingError
 import Foundation
 
 /// The Mac Chief while the Mac is offline or asleep: its cloud copy
@@ -164,7 +165,7 @@ public final class ChiefReplicaBackend: ConversationBackend, @unchecked Sendable
             do {
                 try await socket.send(.string(try ChiefCloudBackend.Core.text(frame)))
             } catch {
-                throw ConversationBackendError(code: -1, message: error.localizedDescription)
+                throw ConversationBackendError(code: -1, message: UserFacingError.message(error, fallback: "Couldn't send. Try again."))
             }
             let outcome: Outcome
             if let known = early.removeValue(forKey: key) {

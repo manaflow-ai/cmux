@@ -102,7 +102,9 @@ test("a refused history removal announces the error and keeps the timeline", asy
   )!;
   await act(async () => remove.click());
 
-  expect(host.querySelector('[role="alert"].history-error')?.textContent).toBe("history cannot be changed");
+  // The alert says it in a plain sentence; the owner's own text stays in the log.
+  expect(host.querySelector('[role="alert"].history-error')?.textContent).toBe("Something went wrong. Try again.");
+  expect(host.textContent).not.toContain("history cannot be changed");
   expect(host.querySelectorAll(".history-row").length).toBeGreaterThan(0);
 });
 

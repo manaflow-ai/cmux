@@ -27,9 +27,27 @@ const USAGE: &str = "usage: cmux machine NAME doctor
 /// name never collides with the Cloud verbs).
 const VERBS: &[&str] = &["doctor"];
 
-/// `Some(exit code)` when `args` is `machine NAME doctor`.
+const TRAFFIC_USAGE: &str = "usage: cmux device traffic [--json]
+  this Mac's bytes in and out per service through its iPhone and machine link host (cmux-mobile-host):
+  totals since it started, and per second over the last 10 s and 60 s";
+
+/// `Some(exit code)` when `args` is `machine NAME doctor` or `device traffic`.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, words) = super::parse_globals(args).ok()?;
+    if let [noun, verb, rest @ ..] = words.as_slice()
+        && matches!(noun.as_str(), "device" | "machine")
+        && verb == "traffic"
+    {
+        if !rest.is_empty() {
+            return Some(super::app::failure(
+                "usage.invalid",
+                &format!("cmux: {TRAFFIC_USAGE}"),
+                global.output,
+                2,
+            ));
+        }
+        return Some(traffic(&global));
+    }
     let [noun, name, verb, rest @ ..] = words.as_slice() else { return None };
     if noun != "machine"
         || !VERBS.contains(&verb.as_str())
@@ -156,6 +174,84 @@ fn pick<'a>(machines: &'a [Value], name: &str) -> Result<&'a Value, String> {
     }
 }
 
+/// `cmux device traffic`: the link host's `{"op":"traffic"}` answer, as JSON or a table.
+fn traffic(global: &GlobalArgs) -> i32 {
+    let output = global.output;
+    let fail = |(code, message): (String, String)| {
+        super::app::failure(&code, &format!("cmux: {message}"), output, 1)
+    };
+    let daemon = match super::wire::resolve_socket_or_report(global) {
+        Ok((socket, _)) => socket,
+        Err(code) => return code,
+    };
+    let answer = Conversation::start(&link_socket(&daemon), &json!({"op": "traffic"}))
+        .and_then(|mut c| c.next());
+    let answer = match answer {
+        Ok(answer) => answer,
+        Err(error) => return fail(error),
+    };
+    if let Some(error) = refused(&answer) {
+        return fail(error);
+    }
+    match output {
+        OutputMode::Human => print!("{}", traffic_table(&answer)),
+        OutputMode::Json | OutputMode::JsonLines => println!("{answer}"),
+        OutputMode::Quiet => {}
+    }
+    0
+}
+
+/// Bytes as B, KB, MB or GB (powers of 1000, one decimal past B).
+fn human_bytes(bytes: u64) -> String {
+    let units = ["KB", "MB", "GB", "TB"];
+    if bytes < 1000 {
+        return format!("{bytes} B");
+    }
+    let mut value = bytes as f64 / 1000.0;
+    let mut unit = 0;
+    while value >= 1000.0 && unit + 1 < units.len() {
+        value /= 1000.0;
+        unit += 1;
+    }
+    format!("{value:.1} {}", units.get(unit).copied().unwrap_or("TB"))
+}
+
+/// One row per service that moved a byte, busiest first, then the total.
+fn traffic_table(answer: &Value) -> String {
+    let number = |row: &Value, key: &str| row.get(key).and_then(Value::as_u64).unwrap_or(0);
+    let mut rows: Vec<&Value> = answer
+        .get("services")
+        .and_then(Value::as_array)
+        .map(|rows| {
+            rows.iter().filter(|r| number(r, "in_bytes") + number(r, "out_bytes") > 0).collect()
+        })
+        .unwrap_or_default();
+    rows.sort_by_key(|r| std::cmp::Reverse(number(r, "in_per_s_60s") + number(r, "out_per_s_60s")));
+    let mut text = format!(
+        "{:<16} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}\n",
+        "service", "in/s 10s", "out/s 10s", "in/s 60s", "out/s 60s", "in total", "out total"
+    );
+    let total = answer.get("total").cloned().unwrap_or(Value::Null);
+    for row in rows.into_iter().chain(std::iter::once(&total)) {
+        let rate = |key: &str| format!("{}/s", human_bytes(number(row, key)));
+        text.push_str(&format!(
+            "{:<16} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}\n",
+            row.get("service").and_then(Value::as_str).unwrap_or("?"),
+            rate("in_per_s_10s"),
+            rate("out_per_s_10s"),
+            rate("in_per_s_60s"),
+            rate("out_per_s_60s"),
+            human_bytes(number(row, "in_bytes")),
+            human_bytes(number(row, "out_bytes")),
+        ));
+    }
+    let uptime = answer.get("uptime_s").and_then(Value::as_u64).unwrap_or(0);
+    text.push_str(&format!(
+        "since the host started {uptime} s ago; payload bytes, without link framing or encryption\n"
+    ));
+    text
+}
+
 fn doctor(global: &GlobalArgs, name: &str) -> i32 {
     let output = global.output;
     let fail = |(code, message): (String, String)| {
@@ -253,6 +349,38 @@ mod tests {
 
     fn mac(name: &str, id: &str, machine: &str, online: bool, this: bool) -> Value {
         json!({"name": name, "device_id": id, "machine_id": machine, "online": online, "this": this})
+    }
+
+    #[test]
+    fn traffic_lists_busy_services_first_and_the_total() {
+        let answer = json!({
+            "ok": true, "uptime_s": 42,
+            "total": {"service": "total", "in_bytes": 1_260_000, "out_bytes": 5_000,
+                      "in_per_s_10s": 126_000, "out_per_s_10s": 500, "in_per_s_60s": 21_000, "out_per_s_60s": 83},
+            "services": [
+                {"service": "terminal", "in_bytes": 0, "out_bytes": 5_000,
+                 "in_per_s_10s": 0, "out_per_s_10s": 500, "in_per_s_60s": 0, "out_per_s_60s": 83},
+                {"service": "chat", "in_bytes": 0, "out_bytes": 0,
+                 "in_per_s_10s": 0, "out_per_s_10s": 0, "in_per_s_60s": 0, "out_per_s_60s": 0},
+                {"service": "remote", "in_bytes": 1_260_000, "out_bytes": 0,
+                 "in_per_s_10s": 126_000, "out_per_s_10s": 0, "in_per_s_60s": 21_000, "out_per_s_60s": 0},
+            ],
+        });
+        let table = traffic_table(&answer);
+        let lines: Vec<&str> = table.lines().collect();
+        assert!(lines.first().is_some_and(|l| l.starts_with("service")), "{table}");
+        assert!(
+            lines.get(1).is_some_and(|l| l.starts_with("remote") && l.contains("126.0 KB/s")),
+            "{table}"
+        );
+        assert!(lines.get(2).is_some_and(|l| l.starts_with("terminal")), "{table}");
+        assert!(
+            lines.get(3).is_some_and(|l| l.starts_with("total") && l.contains("1.3 MB")),
+            "{table}"
+        );
+        assert!(!table.contains("chat"), "{table}");
+        assert_eq!(human_bytes(999), "999 B");
+        assert_eq!(human_bytes(1_500_000_000), "1.5 GB");
     }
 
     #[test]

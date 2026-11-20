@@ -28,7 +28,7 @@ Why this order:
   rules, because its paths are that machine's.
 
 An explicit folder (`--cwd`, a config command) always wins, and Ghostty's
-`window-`, `tab-` and `split-inherit-working-directory = false` still start at home.
+`window-`, `tab-` and `split-inherit-working-directory = false` still start in Ghostty's `working-directory`, else at home (docs/cmux-next/new-terminal-folder.md).
 
 ## Agent settings
 

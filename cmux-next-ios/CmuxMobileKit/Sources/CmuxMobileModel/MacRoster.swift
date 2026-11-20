@@ -18,7 +18,9 @@ public struct MacRoster: Equatable, Sendable {
     /// Listed: each Mac record once, in the given order.
     public let visible: [MacDevice]
 
-    public init(_ macs: [MacDevice]) {
+    /// `preferring` is kept for callers that name the picked build (``Team/pickedMacID``); with
+    /// every build listed on its own there is nothing to prefer it over.
+    public init(_ macs: [MacDevice], preferring _: String? = nil) {
         var seen = Set<String>()
         visible = macs.filter { seen.insert($0.id).inserted }
     }
@@ -31,6 +33,12 @@ public struct MacRoster: Equatable, Sendable {
             listed.macs = MacRoster(team.macs).visible
             return listed
         })
+    }
+
+    /// Every team's Macs as one list, each build once across the teams (Settings → Terminal →
+    /// Terminal Size When Shared).
+    public static func acrossTeams(_ teams: [Team], activeTeamID _: String) -> [MacDevice] {
+        MacRoster(teams.flatMap(\.macs)).visible
     }
 }
 

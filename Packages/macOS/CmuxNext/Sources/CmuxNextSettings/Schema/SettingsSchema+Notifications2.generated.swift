@@ -13,7 +13,7 @@ extension NotificationSettingsSchema {
                 section: .notifications,
                 group: group,
                 title: SettingsText.keyed("settings.feed.mirrorAgents", "Copy Agent Notifications to the Feed"),
-                help: SettingsText.keyed("settings.feed.mirrorAgents.help", "Notifications from agents and cmux notify go to your cmux account's feed and can reach your iPhone."),
+                help: SettingsText.keyed("settings.feed.mirrorAgents.help", "Agent and cmux notify notifications go to your feed and can reach your iPhone."),
                 kind: .toggle,
                 default: .bool(FeedMirrorPreferences.agentsDefault),
                 keywords: ["cloud", "iphone", "push"]
@@ -23,7 +23,7 @@ extension NotificationSettingsSchema {
                 section: .notifications,
                 group: group,
                 title: SettingsText.keyed("settings.feed.mirrorTerminal", "Copy Terminal Notifications to the Feed"),
-                help: SettingsText.keyed("settings.feed.mirrorTerminal.help", "Notifications that programs send through the terminal can contain secrets. Off sends nothing to your cmux account."),
+                help: SettingsText.keyed("settings.feed.mirrorTerminal.help", "Terminal notifications can contain secrets. Off sends nothing."),
                 summary: SettingsText.keyed("settings.feed.mirrorTerminal.summary", "Terminal output can contain secrets"),
                 kind: .choice([
                     SettingChoice(FeedTerminalMirror.off.rawValue, SettingsText.keyed("settings.choice.feedMirror.off", "Off")),
@@ -48,7 +48,7 @@ extension NotificationSettingsSchema {
                 section: .notifications,
                 group: group,
                 title: SettingsText.keyed("settings.feed.needsYouInChief", "Pin Needs You in Chief"),
-                help: SettingsText.keyed("settings.feed.needsYouInChief.help", "Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them."),
+                help: SettingsText.keyed("settings.feed.needsYouInChief.help", "Pins open requests and questions at the top of the Chief's chat."),
                 kind: .toggle,
                 default: .bool(HomeNeedsYouSetting.fallback),
                 keywords: ["chief", "home", "needs you", "requests", "permissions", "approve", "pinned"]
@@ -199,7 +199,7 @@ extension NotificationSettingsSchema {
                 section: .notifications,
                 group: group,
                 title: SettingsText.keyed("settings.attention.moveToTop", "Move the Workspace to the Top"),
-                help: SettingsText.keyed("settings.attention.moveToTop.help", "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane."),
+                help: SettingsText.keyed("settings.attention.moveToTop.help", "A notification moves its workspace to the top, unless you are looking at it."),
                 kind: .toggle,
                 default: .bool(AttentionSettings.moveToTopDefault),
                 keywords: ["reorder", "sort", "bump"]
@@ -209,7 +209,7 @@ extension NotificationSettingsSchema {
                 section: .notifications,
                 group: group,
                 title: SettingsText.keyed("settings.attention.moveToTopOnAgentFinish", "Move the Workspace to the Top When Its Agent Finishes"),
-                help: SettingsText.keyed("settings.attention.moveToTopOnAgentFinish.help", "An agent that finishes its turn moves its workspace to the top of the unpinned rows, unless you are looking at its pane."),
+                help: SettingsText.keyed("settings.attention.moveToTopOnAgentFinish.help", "Unless you are looking at its pane."),
                 kind: .toggle,
                 default: .bool(AttentionSettings.moveToTopOnAgentFinishDefault),
                 keywords: ["reorder", "sort", "bump", "agent", "done", "finished"]
@@ -318,7 +318,7 @@ extension NotificationSettingsSchema {
                 section: .notifications,
                 group: group,
                 title: SettingsText.keyed("settings.notifications.sounds.cooldown", "Burst Cooldown"),
-                help: SettingsText.keyed("settings.notifications.sounds.cooldown.help", "Many notifications at once sound once. An agent asking for input still sounds. 0 turns it off."),
+                help: SettingsText.keyed("settings.notifications.sounds.cooldown.help", "Many notifications at once sound once. 0 turns it off."),
                 kind: .number(SettingNumber(NotificationSoundPreferences.cooldownRange, step: 0.5, unit: .seconds)),
                 default: .number(NotificationSoundPreferences.cooldownDefault),
                 keywords: ["sound", "rate limit", "throttle", "burst"]

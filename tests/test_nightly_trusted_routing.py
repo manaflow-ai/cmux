@@ -55,9 +55,9 @@ OUR_LABELS = {NIGHTLY_ONLY, NIGHTLY_SLOT, SIGNING_SLOT, HOSTED}
 # override): an upload with the release App key that held the whole signing Mac.
 HOSTED_SECRET_JOBS = ('sentry-dsyms-nightly', 'sign-release-notes', 'publish-release-notes', 'publish-nightly-reel',
                       'publish-nightly-next-github')
-# The secret-free runner preflight ahead of decide: it judges the routing labels, so it never waits on one of them
-# (test_nightly_owned_minis_only.HOSTED_PREFLIGHT_JOBS has its reason).
-HOSTED_PREFLIGHT_JOBS = ('runner-preflight',)
+# No hosted preflight: runner-preflight runs on the nightly-only pool since 2026-11-18
+# (test_nightly_owned_minis_only.HOSTED_PREFLIGHT_JOBS has the reason).
+HOSTED_PREFLIGHT_JOBS: tuple[str, ...] = ()
 # On our minis for nightly-next only; classic and RC keep GitHub-hosted Ubuntu, as their release uploads may wait out
 # the rate limit for 360 min (test_nightly_owned_minis_only.NIGHTLY_NEXT_ONLY_OWNED).
 NIGHTLY_NEXT_ONLY_OWNED = ('republish-nightly-deltas',)
@@ -65,6 +65,7 @@ NIGHTLY_NEXT_ONLY_OWNED = ('republish-nightly-deltas',)
 # route choice, so it stays a hand list; this is the other half of it: job -> why it is not hosted. A new secret job
 # must be named in one of the two (test_every_secret_job_is_hosted_or_named_owned), so none escapes the route check.
 OWNED_SECRET_JOBS = {
+    'nightly-next-one': "builds, signs and publishes nightly-next in one job on cmux15's signer label (NIGHTLY_NEXT_ONE_JOB)",
     'decide': 'reads the routing App key (ci-routing-agent) to place early controls; a credentialed control',
     'pick-nightly-build-runner': 'reads the routing App key (ci-routing-agent) to pick the build mini; a credentialed control',
     'pick-nightly-sign-runner': 'reads the routing App key (ci-routing-agent) to pick the signer; a credentialed control',
@@ -680,7 +681,9 @@ class NightlyTrustedRouting(unittest.TestCase):
         group = DOC["concurrency"]["group"]
         self.assertIn(
             "github.ref == 'refs/heads/nightly-next' && ((github.event_name == 'push' || "
-            "github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry != '') && 'push' || "
+            "github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry != '') && "
+            "(vars.NIGHTLY_NEXT_ONE_JOB != 'on' || vars.NIGHTLY_NEXT_SUBMISSIONS_PAUSED == '1' || "
+            "vars.NIGHTLY_NEXT_NOTARY_PAUSED == '1') && 'push' || "
             "github.event_name == 'workflow_dispatch' && inputs.nightly_next_sign_stage != '' && 'sign' || "
             "format('run-{0}', github.run_id))",
             group,

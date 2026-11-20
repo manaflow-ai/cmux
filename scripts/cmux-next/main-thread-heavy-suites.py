@@ -48,6 +48,12 @@ OWN_PROCESS |= {("CmuxNextAppTests", "IconPickerMotionTests"),  # the picker is 
                 ("CmuxNextAppTests", "SidebarHoverCardDwellTests"),  # the card fades out in 0.51 s of 0.33 s
                 ("CmuxNextAppTests", "TabHoverCardTimingTests"),
                 ("CmuxNextAppTests", "SpaceSwitchCostTests")}  # p50 at 500 workspaces 133 ms of 124 ms
+# A suite that reads exact values of a process counter after it lets the main actor run: each test of
+# RestoredWindowSidebarRowsPassTests sets the sidebar's counters to zero and reads `rebuilds` at 0 or 1 after its
+# hops. In a shard's shared process a sidebar that an earlier suite left open can run its own rows pass in those
+# hops and add to the count. No run showed that failure (2026-11-16): the entry gives the suite the process that
+# its counts are written for, before a shard's order makes one.
+OWN_PROCESS |= {("CmuxNextAppTests", "RestoredWindowSidebarRowsPassTests")}
 ALWAYS |= OWN_PROCESS
 # Suites the frame scan finds that stay in the shared pass. WindowScreenshotTests commits one frame of its own two
 # small windows per test (5 s in all), so it never held the main thread. In the shared pass it passes on CI

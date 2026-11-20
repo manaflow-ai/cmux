@@ -479,7 +479,7 @@ impl EndpointKey<'static> {
 /// pass the check, a later key never lands under another profile, and a remove
 /// never deletes the key of an add that came between. Released when the file
 /// closes.
-fn lock_endpoint_adds(dir: &Path) -> Result<std::fs::File, AdminError> {
+fn lock_endpoint_adds(dir: &Path) -> Result<cmux_file_lock::FileLock, AdminError> {
     ensure_dir(dir)?;
     let file = crate::home_fs::OpenOptions::new()
         .create(true)
@@ -487,8 +487,8 @@ fn lock_endpoint_adds(dir: &Path) -> Result<std::fs::File, AdminError> {
         .write(true)
         .open(dir.join(".endpoint-add.lock"))
         .map_err(failed)?;
-    file.lock().map_err(failed)?;
-    Ok(file)
+    // Unlocked before it closes, so a child another daemon thread forks meanwhile keeps no lock.
+    cmux_file_lock::FileLock::take(file, cmux_file_lock::Kind::Exclusive).map_err(failed)
 }
 
 /// `add` for an endpoint example with its key (the daemon's add with `apiKey`,
@@ -1127,4 +1127,22 @@ pub fn registry_value(reg: &Registry, which: &dyn Fn(&str) -> Option<String>) ->
         })
         .collect();
     json!({"agents": agents})
+}
+
+#[cfg(all(test, unix))]
+mod endpoint_lock_tests {
+    use super::*;
+
+    /// An endpoint add lets go of its lock, also while a child the daemon forked meanwhile has
+    /// the descriptor: else the next add or remove waits until that child execs.
+    #[test]
+    fn a_dropped_endpoint_lock_is_free_while_a_forked_child_keeps_its_descriptor() {
+        let dir = tempfile::tempdir().unwrap();
+        let held = lock_endpoint_adds(dir.path()).unwrap();
+        let keeper = crate::fork_tests::Keeper::fork();
+        drop(held);
+        let free = crate::fork_tests::free(&dir.path().join(".endpoint-add.lock"));
+        drop(keeper);
+        assert!(free, "a dropped endpoint lock stayed held through a forked child's copy");
+    }
 }
