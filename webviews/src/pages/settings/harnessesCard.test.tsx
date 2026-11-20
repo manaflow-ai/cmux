@@ -188,7 +188,7 @@ test("a channel the update owner cannot run (a Homebrew cask) offers no Update o
   expect(manualCard.querySelector('[data-harness-action="updateCard"]')).toBeNull();
   expect(manualCard.querySelector("[data-harness-update-command]")!.textContent).toBe(cask.update.command);
   // Its auto-update choice stays: acpmux runs that itself.
-  expect(element.querySelector('[data-harness="claude"] input[data-harness-auto]')).not.toBeNull();
+  expect(element.querySelector('[data-harness="claude"] [role="switch"][data-harness-auto]')).not.toBeNull();
   page.unmount();
 });
 
@@ -329,8 +329,9 @@ test("Update Automatically turns auto-update on for one harness; a failed auto-u
   const element = card(page.container)!;
   // Only a harness whose update needs no sudo offers it.
   expect(element.querySelector('[data-harness="claude"] [data-harness-auto]')).toBeNull();
-  const box = element.querySelector<HTMLInputElement>('[data-harness="codex"] input[data-harness-auto]')!;
-  expect(box.checked).toBe(false);
+  // A switch, not a checkbox (Leo: "a toggle is nicer than a checkbox").
+  const box = element.querySelector<HTMLElement>('[data-harness="codex"] [role="switch"][data-harness-auto]')!;
+  expect(box.getAttribute("aria-checked")).toBe("false");
   await act(async () => box.click());
   await settle();
   expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "autoUpdate", id: "codex", on: true });
@@ -358,7 +359,7 @@ test("Update Automatically turns auto-update on for one harness; a failed auto-u
   );
   await settle();
   const row = card(page.container)!.querySelector<HTMLElement>('[data-harness="codex"]')!;
-  expect(row.querySelector<HTMLInputElement>("input[data-harness-auto]")!.checked).toBe(true);
+  expect(row.querySelector('[role="switch"][data-harness-auto]')!.getAttribute("aria-checked")).toBe("true");
   expect(row.querySelector("[data-harness-auto-failed]")!.textContent).toContain("npm ERR! network timeout");
   page.unmount();
 });

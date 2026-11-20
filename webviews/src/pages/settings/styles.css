@@ -296,6 +296,13 @@ mark {
   overflow-wrap: anywhere;
 }
 
+/* Update Automatically: the shared switch before its words (HarnessesCard). */
+.harness-auto {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
 /* A provider's accounts under its harness row (ProviderAccounts). */
 .harness-accounts {
   gap: var(--ds-space-2);

@@ -20,6 +20,7 @@ import {
   type PreparedPicture,
 } from "./picture";
 import { PictureCrop } from "./PictureCrop";
+import { Switch } from "../../ui/Switch";
 import {
   CHIEF_HARNESSES,
   CHIEF_TOOLS,
@@ -428,14 +429,13 @@ export function ChiefPage({ service, strings, chief: given, picture, chiefName }
               <span className="ce-switch-title">{t("chief.lock.title")}</span>
               <span className="ce-note">{t("chief.lock.note")}</span>
             </span>
-            <input
-              type="checkbox"
+            <Switch
               className="ce-switch"
               data-chief-lock=""
               aria-label={t("chief.lock.title")}
               checked={locked}
               disabled={readOnly}
-              onChange={(event) => setLocked(event.target.checked)}
+              onCheckedChange={setLocked}
             />
           </label>
           {chief && (
