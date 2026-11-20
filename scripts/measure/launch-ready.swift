@@ -500,7 +500,9 @@ if typesKeys {
     row["keys_front"] = keysFront // keys posted while the app was frontmost
     row["keys_access"] = keysAccess // CGPreflightPostEventAccess; false: postToPid dropped every key
     row["keys_return"] = rel(returnSent)
-    row["keys_read"] = (keysRead ?? ["read_error": "not read"]).filter { $0.key != "text" }
+    var keysReadRow: [String: Any] = keysRead ?? ["read_error": "not read"] // a dictionary, never filter's tuples
+    keysReadRow["text"] = nil
+    row["keys_read"] = keysReadRow
 }
 if samplesLayout, window != nil {
     let finished = layoutDone.wait(timeout: .now() + 5) == .success
