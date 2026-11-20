@@ -1287,11 +1287,12 @@ export interface RetryParams {
 
 /**
  * Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no
- * capacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, the
- * agent process died mid-turn, or the chat outgrew its model's context window (`context`: it
- * is compacted, then continued at once).
+ * capacity (HTTP 503 or 529, overloaded, no account free), the account hit its usage or rate
+ * limit (`rate_limit`, HTTP 429: the chat holds every turn until the reset, `hub/rate_hold.rs`),
+ * the connection dropped, the agent process died mid-turn, or the chat outgrew its model's
+ * context window (`context`: it is compacted, then continued at once).
  */
-export type RetryReason = "capacity" | "transport" | "agent_exited" | "context";
+export type RetryReason = "capacity" | "rate_limit" | "transport" | "agent_exited" | "context";
 
 /**
  * What `_acpmux/retry` sent: the prompt `promptId` (for the chat's turn `P~resume-n`, the next
@@ -1512,6 +1513,12 @@ export type SessionDetail = {
    * harness process ends it (`hub/harness_sandbox.rs`). Omitted for peers.
    */
   harnessSandboxFailing?: boolean;
+  /**
+   * Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update
+   * that installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from
+   * a peer on an older acpmux.
+   */
+  hasDraft?: boolean;
   /** The status dot every client draws (`status_indicator`); null for none. */
   indicator?: (Indicator | null);
   /** Since when it waits on the person (`lane`); null while it does not. */
@@ -1594,6 +1601,19 @@ export type SessionDetail = {
   /** A turn failed: the prompts behind it wait for a client to resume them. */
   queuePaused: boolean;
   queued: number;
+  /**
+   * Since when (Unix ms) this chat is parked on the rate limit: six turns in a row failed on
+   * it, or Stop came while the limit had it, so it starts nothing by itself until `acpmux
+   * retry` or the person's own prompt (`hub/rate_hold.rs`). Absent otherwise, and from a peer
+   * on an older acpmux.
+   */
+  rateLimitParked?: (number | null);
+  /**
+   * The account's rate limit holds every turn of this chat until this time (Unix ms): what
+   * comes in queues and goes in as one turn at the reset (`hub/rate_hold.rs`). `acpmux ls` shows
+   * "rate-limited until HH:MMZ". Absent otherwise, and from a peer on an older acpmux.
+   */
+  rateLimitedUntil?: (number | null);
   /**
    * The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):
    * a Codex chat's earlier roots, which its older records still name, so a client folding
@@ -1725,6 +1745,13 @@ export type SessionDetail = {
   waitsForSlot?: boolean;
   /** The family of a conversation another app runs that this chat only shows; null otherwise. */
   watching?: (string | null);
+  /**
+   * Work runs below it with no turn open: a background subagent, a harness background process,
+   * or a sub-session at work (what keeps the idle pass from ending it, `hub/idle.rs`). An app
+   * update that installs when idle waits for it. Absent otherwise, and from a peer on an older
+   * acpmux.
+   */
+  workingBelow?: boolean;
 } & Record<string, unknown>;
 
 /** One record of a session's log (`server::event_value`). */
@@ -1839,6 +1866,12 @@ export type SessionSummary = {
    * harness process ends it (`hub/harness_sandbox.rs`). Omitted for peers.
    */
   harnessSandboxFailing?: boolean;
+  /**
+   * Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update
+   * that installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from
+   * a peer on an older acpmux.
+   */
+  hasDraft?: boolean;
   /** The status dot every client draws (`status_indicator`); null for none. */
   indicator?: (Indicator | null);
   /** Since when it waits on the person (`lane`); null while it does not. */
@@ -1916,6 +1949,19 @@ export type SessionSummary = {
   /** A turn failed: the prompts behind it wait for a client to resume them. */
   queuePaused: boolean;
   queued: number;
+  /**
+   * Since when (Unix ms) this chat is parked on the rate limit: six turns in a row failed on
+   * it, or Stop came while the limit had it, so it starts nothing by itself until `acpmux
+   * retry` or the person's own prompt (`hub/rate_hold.rs`). Absent otherwise, and from a peer
+   * on an older acpmux.
+   */
+  rateLimitParked?: (number | null);
+  /**
+   * The account's rate limit holds every turn of this chat until this time (Unix ms): what
+   * comes in queues and goes in as one turn at the reset (`hub/rate_hold.rs`). `acpmux ls` shows
+   * "rate-limited until HH:MMZ". Absent otherwise, and from a peer on an older acpmux.
+   */
+  rateLimitedUntil?: (number | null);
   /**
    * The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):
    * a Codex chat's earlier roots, which its older records still name, so a client folding
@@ -2044,6 +2090,13 @@ export type SessionSummary = {
   waitsForSlot?: boolean;
   /** The family of a conversation another app runs that this chat only shows; null otherwise. */
   watching?: (string | null);
+  /**
+   * Work runs below it with no turn open: a background subagent, a harness background process,
+   * or a sub-session at work (what keeps the idle pass from ending it, `hub/idle.rs`). An app
+   * update that installs when idle waits for it. Absent otherwise, and from a peer on an older
+   * acpmux.
+   */
+  workingBelow?: boolean;
 } & Record<string, unknown>;
 
 /** Also the page fields of `_acpmux/watch` (`hub::session_pages`). */
