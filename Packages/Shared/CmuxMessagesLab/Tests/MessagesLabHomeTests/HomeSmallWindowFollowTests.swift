@@ -99,9 +99,21 @@ import Testing
         var log: [String] = []
         func note(_ step: String) {
             let s = demo.store.state.ui.scroll
-            log.append("\(step): pinned \(s.pinnedToBottom) back \(s.offset) offset \(demo.collection.contentOffset.y) bottom \(demo.pinnedOffset)")
+            log.append("\(step): pinned \(s.pinnedToBottom) back \(s.offset) offset \(demo.collection.contentOffset.y) bottom \(demo.pinnedOffset)"
+                + " clip syncs \(TranscriptScrollView.clipSyncs)")
         }
         note("large")
+        // Each clip move in the shrink, with AppKit's caller: the evidence for which path moves the clip.
+        let scroll = rig.view.controller.host.scrollView
+        let watch = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scroll.clip, queue: nil) { _ in
+            MainActor.assumeIsolated {
+                let frames = Thread.callStackSymbols.dropFirst(2).prefix(18).map { line in
+                    line.split(separator: " ", omittingEmptySubsequences: true).dropFirst(3).prefix(1).joined()
+                }
+                print("clip move: origin \(scroll.clip.bounds.origin.y) clip h \(scroll.clip.bounds.height) doc \(scroll.document.frame) list \(demo.collection.contentOffset.y) bottom \(demo.pinnedOffset) pinned \(demo.store.state.ui.scroll.pinnedToBottom) <- \(frames.joined(separator: " < "))")
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(watch) }
         #expect(demo.store.state.ui.scroll.pinnedToBottom, "pinned before the shrink")
         rig.view.frame = NSRect(origin: .zero, size: Self.small)
         note("view frame")
