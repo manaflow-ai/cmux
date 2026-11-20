@@ -13,6 +13,15 @@ pub(in crate::hub) fn topic(
     let title = notice.and_then(|n| n["title"].as_str()).unwrap_or("");
     let first = relay_body(text).lines().next().unwrap_or("");
     for line in [title, first] {
+        // A disk recovery is about the disk of the named host. The host carrying the
+        // notice can be a relay, and can carry a different host's recovery next.
+        if let Some((host, condition)) =
+            line.strip_prefix("disk-hygiene on ").and_then(|s| s.split_once(": healthy again ("))
+            && component(host)
+            && condition.strip_suffix(" cleared)").is_some_and(component)
+        {
+            return format!("topic:ops/disk-hygiene/{host}");
+        }
         if let Some((_, rest)) = line.split_once(" on runner label ")
             && let Some((label, _)) = rest.split_once(" queued with no runner")
             && !label.is_empty()
@@ -81,6 +90,18 @@ mod tests {
                 "WARN glaeda-gh on {name}: 7 job(s) on runner label ubuntu-24 queued with no runner past 8m"
             );
             assert_eq!(topic(None, &text, None, name), "topic:ops/runner-capacity/ubuntu-24");
+        }
+    }
+
+    #[test]
+    fn surge_topics_keep_disk_recoveries_with_the_affected_host() {
+        for host in ["vm-a", "vm-b"] {
+            let notice = json!({"host":"relay", "sender":"disk-hygiene",
+                "title": format!("disk-hygiene on {host}: healthy again (disk-full cleared)")});
+            assert_eq!(
+                topic(None, "", Some(&notice), "relay"),
+                format!("topic:ops/disk-hygiene/{host}")
+            );
         }
     }
 
