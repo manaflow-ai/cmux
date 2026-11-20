@@ -91,8 +91,11 @@ extension AgentHibernationController {
                 return .exited
             }
         }
+        // A refreshed epoch can hold only cmux helpers once the agent has
+        // exited; each still has to match its own scope below.
         guard terminations.count <= maximumScopedProcessTerminationCount,
-              commonTTYDevice(in: terminations) != nil else {
+              terminations.allSatisfy(\.isCmuxHelper) ||
+                commonTTYDevice(in: terminations) != nil else {
             return .rejected
         }
 

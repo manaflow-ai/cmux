@@ -71,6 +71,7 @@ extension AppDelegate {
             return AgentHibernationController.ProcessTerminationScope(
                 key: key, processIDs: entry.terminationProcessIDs,
                 processIdentities: entry.terminationProcessIdentities,
+                cmuxHelperProcessIDs: entry.cmuxHelperProcessIDs,
                 knownSurvivorProcessIDs: entry.hibernationPanelProcessIDs
                     .subtracting(entry.terminationProcessIDs)
             )

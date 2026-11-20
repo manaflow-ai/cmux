@@ -112,10 +112,12 @@ extension AgentHibernationController {
         })
     }
 
-    /// The exact process generations of a scope's known survivors, read
-    /// while the agent they lead to still runs, before any signal. A refreshed
-    /// exit epoch accepts only these generations, so a reused PID is never
-    /// mistaken for one.
+    /// The exact process generations of a scope's known survivors, read at
+    /// the commit boundary while the agent they lead to still runs, before any
+    /// signal. From then on a refreshed exit epoch accepts only these
+    /// generations, so a PID reused after the signal is not taken for one.
+    /// The census records survivors by PID only; the pre-signal revalidation
+    /// requires the same panel PIDs.
     nonisolated static func knownSurvivorIdentities(
         for processIDs: Set<Int>
     ) -> Set<AgentPIDProcessIdentity> {
@@ -546,12 +548,17 @@ extension AgentHibernationController {
         requestID: UUID,
         terminalPanel: TerminalPanel
     ) async -> Bool {
-        guard trigger == .manual,
-              let observation = committedTerminationObservationsByPanelID[panelID],
-              observation.requestID == requestID else {
-            return false
+        guard trigger == .manual else { return false }
+        // A failed exit observation hands the same request over to a recovery
+        // task, which may still hibernate the pane; wait for that one too.
+        var awaitedTask: Task<Void, Never>?
+        while let observation = committedTerminationObservationsByPanelID[panelID],
+              observation.requestID == requestID,
+              let task = observation.task,
+              task != awaitedTask {
+            awaitedTask = task
+            await task.value
         }
-        await observation.task?.value
         return terminalPanel.isAgentHibernated &&
             !terminalPanel.isAgentHibernationCommitPending
     }
