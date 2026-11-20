@@ -189,11 +189,7 @@ pub(super) fn drill_source(
 /// The team `machine` is in, as the app's `cloud.machines` row for it says (`team`, the machine record's own);
 /// `None` when the app has no row for it or the row names no team (an app from before the row had it), and the
 /// credential is then the app's own team's, as before.
-fn machine_team(
-    runner: &mut dyn Runner,
-    machine: &str,
-    timeout: std::time::Duration,
-) -> Option<String> {
+fn machine_team(runner: &mut dyn Runner, machine: &str, timeout: Duration) -> Option<String> {
     if machine.is_empty() {
         return None;
     }
