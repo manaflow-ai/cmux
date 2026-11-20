@@ -119,6 +119,11 @@ pub struct Session {
     /// A retry task may outlive an imported replacement with the same durable id. Its mark
     /// belongs to this instance, so its wake and cleanup cannot consume the replacement's.
     pub(super) auto_resume: auto_resume::Pending,
+    /// The account's rate limit holds every turn until its reset (`rate_hold.rs`).
+    pub(super) rate_hold: rate_hold::RateHold,
+    /// A continuation folded into the queue's next turn at a reset leaves its words here
+    /// (`rate_hold.rs` `rate_hold_due`); that turn takes them.
+    pub(super) rate_note: StdMutex<Option<String>>,
     pub(super) turn_lock: Mutex<()>,
     /// Set while `_acpmux/release_to_watch` waits to hand the chat to a terminal: a new prompt
     /// is refused (`watch.releasing`, `release_to_watch.rs`) rather than lost.
@@ -160,6 +165,10 @@ pub struct Session {
     /// was none: until it is, the chat is not caught up and its log not read (review of #37284 at
     /// 23e76b07, F2). Taken under `append_lock`.
     pub(super) kept_read: AtomicBool,
+    /// The held tool output bodies an earlier run left beside the log are read back
+    /// (`Hub::take_back_held`), or there were none: until they are, the chat is not caught up.
+    /// Taken under `append_lock`.
+    pub(super) held_read: AtomicBool,
     /// The restore try whose thread writes this chat meanwhile (0: none).
     pub(super) restore_token: AtomicU64,
     /// Serializes the handoff of a turn's prompt and a session-wide cancel. A compacting Stop
