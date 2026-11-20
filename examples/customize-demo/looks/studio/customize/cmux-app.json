@@ -1,0 +1,34 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": "Studio",
+  "version": "1.0.0",
+  "description": "Studio's thread list by project with status chips and a Settled shelf, its start page with one button per agent and every account's usage, a thread details card in Session Info, and a work-log hover card.",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.newtab/1": { "export": "renderStart", "title": "Studio", "symbol": "square.stack.3d.up" },
+    "cmux.section/1": {
+      "export": "renderThreads",
+      "title": "Threads",
+      "symbol": "list.bullet.rectangle",
+      "options": { "defaultRegion": "top", "maxRows": 50 }
+    },
+    "cmux.session.info.section/1": {
+      "export": "renderDetails",
+      "title": "Thread details",
+      "symbol": "info.square",
+      "options": { "maxRows": 8 }
+    },
+    "cmux.hovercard/1": { "export": "renderCard" }
+  },
+  "scopes": {
+    "agent_chat:read": "Read your agent chats, to list threads by project with their status.",
+    "workspace:read": "Know which workspace is open, to mark its thread; read the hovered workspace's facts.",
+    "usage_app:read": "Read the usage left on your Claude and Codex accounts from cmux's Usage app.",
+    "storage:local": "Remember which threads you settled.",
+    "workspace:write": "Show a thread's workspace when you click it.",
+    "actions:run": "Start a thread with the agent you pick, or open a thread in a tab."
+  }
+}
