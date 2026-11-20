@@ -203,6 +203,10 @@ extension AgentTabStore {
         tabs.localSessionHost = chief.localRouter(tabs.host)
         // A chat that home keeps opens on its own page, never the spare connected to this Mac's acpmux.
         tabs.chiefKeepsSession = { session in AcpmuxChiefSessionRouter.keeps(session: session, home: home.acpmuxHome) }
+        tabs.offersTerminalSwitch = { [weak services] key in
+            guard let services, let (tab, _) = services.locateTab(key.key, onMachine: key.machine) else { return false }
+            return TerminalChatHandler.offersToggle(on: tab, services: services)
+        }
         // This Mac's stable install id (the Cloud device id): only this host attaches to its acpmux.
         tabs.blankChatHandler = { [weak services, weak tabs] key in
             guard let services, let (tab, pane) = services.locateTab(key.key, onMachine: key.machine), let controller = services.paneController(for: pane) else { return nil }
