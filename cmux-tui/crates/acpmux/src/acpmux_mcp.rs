@@ -420,6 +420,17 @@ pub(crate) async fn call(daemon: &Arc<Client>, params: &Value) -> Value {
     call_as(daemon, params, None).await
 }
 
+/// Run one background-task tool from a command-line alias while keeping the
+/// MCP implementation as the single owner of task semantics.
+pub(crate) async fn call_bg(
+    daemon: &Arc<Client>,
+    session: &str,
+    name: &str,
+    args: &Value,
+) -> Value {
+    bg::call(daemon, session, name, args).await
+}
+
 /// A tool call of the acpmux tools below; `sub` is the subagent that makes it
 /// (`subagent_call.rs`), which its `send` names.
 async fn call_as(daemon: &Arc<Client>, params: &Value, sub: Option<&Value>) -> Value {

@@ -621,7 +621,7 @@ pub(crate) fn early_usage_error(args: &[String], message: &str) -> i32 {
 /// Scopes `main` routes by their first word, before the cmux global options
 /// are read, whose own parser takes `--json` right after the scope word:
 /// acpmux's (`--json` is a global clap option there).
-const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats"];
+const JSON_AFTER_SCOPE: &[&str] = &["acp", "agent", "harness", "chats"];
 
 /// `cmux --json <scope> …` for a scope `main` routes by its first word: the
 /// leading `--json` moves to just after the scope word (to the end for `host`
@@ -681,16 +681,42 @@ pub(crate) fn acp_scope_args(raw_args: &[String]) -> Vec<std::ffi::OsString> {
 /// without duplicating its command logic in the app CLI.
 #[cfg(unix)]
 pub(crate) fn agent_acp_scope_args(raw_args: &[String]) -> Option<Vec<std::ffi::OsString>> {
-    let [head, verb, rest @ ..] = raw_args else { return None };
-    if head != "agent"
-        || !matches!(
-            verb.as_str(),
-            "ls" | "send" | "history" | "search" | "resolve" | "register" | "bg" | "notices"
-        )
-    {
+    let Some((head, words)) = raw_args.split_first() else { return None };
+    if head != "agent" {
         return None;
     }
-    Some(std::iter::once(verb).chain(rest.iter()).map(std::ffi::OsString::from).collect())
+    let mut prefix = Vec::new();
+    let mut at = 0;
+    while words
+        .get(at)
+        .is_some_and(|word| matches!(word.as_str(), "--json" | "--jsonl" | "--suppress-reads"))
+    {
+        prefix.push(words[at].clone());
+        at += 1;
+    }
+    let verb = words.get(at)?.as_str();
+    at += 1;
+    let mapped: Vec<String> = match verb {
+        "ls" | "list" => {
+            std::iter::once("ls".to_owned()).chain(words[at..].iter().cloned()).collect()
+        }
+        "send" | "history" | "search" | "grep" | "resolve" | "register" => {
+            let canonical = if verb == "grep" { "search" } else { verb };
+            std::iter::once(canonical.to_owned()).chain(words[at..].iter().cloned()).collect()
+        }
+        "bg" => {
+            let subcommand = words.get(at)?.as_str();
+            if !matches!(subcommand, "start" | "list") {
+                return None;
+            }
+            std::iter::once("bg".to_owned()).chain(words[at..].iter().cloned()).collect()
+        }
+        "notices" => {
+            std::iter::once("notices".to_owned()).chain(words[at..].iter().cloned()).collect()
+        }
+        _ => return None,
+    };
+    Some(prefix.into_iter().chain(mapped).map(std::ffi::OsString::from).collect())
 }
 
 /// The agent-caller refusal of a plan that writes a Chief by the raw or

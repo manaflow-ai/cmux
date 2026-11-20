@@ -28,6 +28,8 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Last { .. }
             | Command::Pending
             | Command::Ls(..)
+            | Command::Bg(..)
+            | Command::Notices { .. }
             | Command::New(..)
             | Command::Send { .. }
             | Command::Inbox(..)
@@ -120,6 +122,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::SessionSearch(args) => {
             crate::cli::session_search::run(connect(true).await?, args, json_out).await
+        }
+        Command::Bg(args) => crate::cli::bg::run(connect(true).await?, args, json_out).await,
+        Command::Notices { thread, unread } => {
+            let client = connect(true).await?;
+            crate::cli::session_inbox::run(&client, "@", thread.as_deref(), unread, json_out).await
         }
         Command::TagCmd { session, assignments, remove, ttl } => {
             orchestrate::tag(connect(true).await?, &session, assignments, remove, ttl, json_out)

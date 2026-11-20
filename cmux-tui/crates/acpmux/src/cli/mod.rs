@@ -5,6 +5,7 @@
 //! is `continue`; `errors` maps every failure to one exit code and envelope.
 
 pub mod beads;
+pub mod bg;
 pub(crate) use crate::bounded_child;
 pub mod bridge;
 pub mod chats;

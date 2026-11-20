@@ -331,6 +331,15 @@ pub enum Command {
     /// `--json` with no filter is every session's full record.
     #[command(alias = "list", alias = "list-sessions", after_help = crate::cli::ls_table::HELP)]
     Ls(crate::cli::run::LsArgs),
+    /// Run or list a background task through acpmux's background-task implementation.
+    Bg(crate::cli::bg::BgArgs),
+    /// Read this session's agent notices and inbox threads.
+    Notices {
+        #[arg(long)]
+        thread: Option<String>,
+        #[arg(long)]
+        unread: bool,
+    },
     /// Open the TUI on a session, or on the session list.
     #[command(alias = "a")]
     Attach {
