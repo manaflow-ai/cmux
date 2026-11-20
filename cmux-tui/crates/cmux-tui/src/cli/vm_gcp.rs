@@ -25,8 +25,8 @@
 #[cfg(test)]
 mod tests;
 
+use cmux_process::Command;
 use std::collections::BTreeMap;
-use std::process::Command;
 use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
@@ -1124,7 +1124,6 @@ fn freestyle_list(before: &[String]) -> Result<Value, String> {
         .args(before)
         .args(["vm", "ls", "--json"])
         .env(INNER_ENV, "1")
-        .stdin(std::process::Stdio::null())
         .output()
         .map_err(|error| format!("cannot run `cmux vm ls`: {error}"))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
