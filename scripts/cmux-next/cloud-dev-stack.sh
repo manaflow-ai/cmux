@@ -5,6 +5,7 @@
 #   scripts/cmux-next/cloud-dev-stack.sh up --tag T [--platform-checkout DIR] [--db auto|shared|branch]
 #                                           [--idle-min N] [--journey [-- JOURNEY ARGS]]
 #   scripts/cmux-next/cloud-dev-stack.sh status [--tag T]
+#   scripts/cmux-next/cloud-dev-stack.sh url --tag T          # print the running stack's https origin (exit 3: none)
 #   scripts/cmux-next/cloud-dev-stack.sh journey --tag T [-- JOURNEY ARGS]
 #   scripts/cmux-next/cloud-dev-stack.sh logs --tag T [-n LINES]
 #   scripts/cmux-next/cloud-dev-stack.sh touch --tag T        # count as activity (keeps an idle stack up)
@@ -68,7 +69,7 @@ while [ $# -gt 0 ]; do
     *) die "unknown argument $1 (journey arguments go after --)" ;;
   esac
 done
-case "$cmd" in up|down|journey|logs|touch) [ -n "$tag" ] || die "--tag NAME is required" ;; esac
+case "$cmd" in up|down|journey|logs|touch|url) [ -n "$tag" ] || die "--tag NAME is required" ;; esac
 case "$tag" in *[!a-z0-9-]*|-*) die "--tag NAME: lowercase letters, digits and -" ;; esac
 case "$lines" in ""|*[!0-9]*) die "-n LINES: a number" ;; esac
 case "$idle_min" in ""|*[!0-9]*) die "--idle-min N: minutes" ;; esac
@@ -278,6 +279,11 @@ for s in d['stacks']:
     url="$(stack_url)"; [ -n "$url" ] || die "no stack $tag (up first)"
     vm touch --tag "$tag" >/dev/null
     run_journey "$url" "${journey_args[@]+"${journey_args[@]}"}"
+    ;;
+  url)
+    url="$(stack_entry | json "print(d['url'] if d.get('state') == 'running' and d.get('url') else '')")"
+    [ -n "$url" ] || { echo "no running stack $tag (cloud-dev-stack.sh up --tag $tag first)" >&2; exit 3; }
+    echo "$url"
     ;;
   logs) vm logs --tag "$tag" -n "$lines" ;;
   touch) vm touch --tag "$tag" ;;

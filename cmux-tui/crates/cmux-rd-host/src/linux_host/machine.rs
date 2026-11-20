@@ -27,6 +27,12 @@ pub struct MachineCredential {
     /// Copied here from the box that joined it: never used here (acpmux's `cloned`).
     #[serde(default)]
     pub cloned: bool,
+    /// Which join this credential is (acpmux's `mark_of`): a new join line gives another
+    /// machine id or generation, even for the same account.
+    #[serde(default)]
+    pub machine_id: String,
+    #[serde(default)]
+    pub credential_generation: u64,
 }
 
 impl std::fmt::Debug for MachineCredential {
@@ -40,10 +46,11 @@ impl std::fmt::Debug for MachineCredential {
     }
 }
 
-/// The acpmux home that runs this command: acpmux sets `ACPMUX_HOME` to its own (its resolver
-/// names it per build) when its daemon runs `enable --non-interactive`, and the sign-in records
-/// it in [`JOINED_FILE`] for the host unit. This never guesses a default home: a build's state
-/// is only ever its own.
+/// The acpmux home that runs this command: acpmux's daemon sets `ACPMUX_HOME` to its own (its
+/// resolver names it per build) when it runs `enable --non-interactive --hub <the join's device
+/// hub>` at its start on a joined Linux machine (acpmux's `share_host/linux.rs`), and the sign-in
+/// records it in [`JOINED_FILE`] for the host unit. This never guesses a default home: a build's
+/// state is only ever its own.
 pub fn acpmux_home() -> Option<PathBuf> {
     std::env::var_os("ACPMUX_HOME").filter(|v| !v.is_empty()).map(PathBuf::from)
 }
@@ -72,12 +79,39 @@ pub const JOINED_FILE: &str = "joined.json";
 
 /// What [`JOINED_FILE`] keeps: the acpmux home whose credential signs this host in, so every
 /// session comes from `POST /v1/auth/machine` and nothing is anchored.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct Joined {
     pub acpmux_home: PathBuf,
+    /// The join it was signed in for ([`MachineCredential::machine_id`] and generation): a
+    /// record written before these existed names no join, so it is never the current one until
+    /// the hub says it is ([`Joined::unmarked_from`]).
+    #[serde(default)]
+    pub machine_id: String,
+    #[serde(default)]
+    pub credential_generation: u64,
 }
 
 impl Joined {
+    /// The record of a sign-in with `credential` from `acpmux_home`.
+    pub fn of(acpmux_home: &Path, credential: &MachineCredential) -> Self {
+        Self {
+            acpmux_home: acpmux_home.to_owned(),
+            machine_id: credential.machine_id.clone(),
+            credential_generation: credential.credential_generation,
+        }
+    }
+
+    /// Whether this record is the join `credential` from `acpmux_home` is now.
+    pub fn is(&self, acpmux_home: &Path, credential: &MachineCredential) -> bool {
+        !self.machine_id.is_empty() && *self == Self::of(acpmux_home, credential)
+    }
+
+    /// Whether this record was written from `acpmux_home` before joins were marked (#45369): it
+    /// names no join, so only the hub can say whether its account is the current join's.
+    pub fn unmarked_from(&self, acpmux_home: &Path) -> bool {
+        self.machine_id.is_empty() && self.acpmux_home == acpmux_home
+    }
+
     pub fn load(dir: &Path) -> Res<Option<Self>> {
         match identity::read_private(&dir.join(JOINED_FILE))? {
             Some(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),

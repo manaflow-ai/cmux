@@ -110,6 +110,20 @@ public final class TerminalHostView: NSView {
         }
     }
 
+    /// Computer Use's live preview card (``TerminalComputerUsePreview``) for the agent running in
+    /// this terminal, at the top-trailing corner, under the find bar while that shows.
+    public var computerUsePreview: TerminalComputerUsePreview? {
+        didSet {
+            guard oldValue !== computerUsePreview else { return }
+            oldValue?.removeFromSuperview()
+            if let computerUsePreview {
+                computerUsePreview.translatesAutoresizingMaskIntoConstraints = true
+                addChrome(computerUsePreview, .overlay)
+            }
+            needsLayout = true
+        }
+    }
+
     /// The accessory's height, 0 while there is none or it is hidden.
     private var accessoryHeight: CGFloat { accessoryHeight(forHostHeight: bounds.height) }
 
@@ -192,7 +206,7 @@ public final class TerminalHostView: NSView {
         if view === scroller { return .scroller }
         if view === bottomAccessory { return .accessory }
         if view === statusLabel.banner { return .statusLabel }
-        if view === topOverlay || view === restartButton || view === retryButton || view === sizedForChip
+        if view === topOverlay || view === computerUsePreview || view === restartButton || view === retryButton || view === sizedForChip
             || view is TerminalFindBarView { return .overlay }
         return nil
     }
@@ -562,9 +576,18 @@ public final class TerminalHostView: NSView {
         // Framed hidden too: the bar shows itself when find opens.
         // The shared find pill sits where every pane's does (FindPillMetrics.inset from top and trailing).
         let findInset = FindPillMetrics.inset
+        var findBottom = bounds.height
         for case let bar as TerminalFindBarView in subviews {
-            _ = place(bar, maxWidth: bounds.width - findInset * 2, evenHidden: true) { size in
+            let frame = place(bar, maxWidth: bounds.width - findInset * 2, evenHidden: true) { size in
                 CGPoint(x: self.bounds.width - findInset - size.width, y: self.bounds.height - findInset - size.height)
+            }
+            if !bar.isHidden { findBottom = min(findBottom, frame.minY) }
+        }
+        if let computerUsePreview, !computerUsePreview.isHidden {
+            computerUsePreview.paneWidth = bounds.width
+            let top = findBottom < bounds.height ? findBottom - inset : bounds.height - inset
+            _ = place(computerUsePreview, maxWidth: bounds.width - inset * 2) { size in
+                CGPoint(x: self.bounds.width - self.scrollerWidth - inset - size.width, y: top - size.height)
             }
         }
     }

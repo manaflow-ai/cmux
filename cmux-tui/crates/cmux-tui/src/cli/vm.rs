@@ -934,11 +934,10 @@ pub(super) fn has_own_credential(env: &dyn Fn(&str) -> Option<String>) -> bool {
     if set("CMUX_VM_API_KEY") || set("CMUX_VM_CONFIG") {
         return true;
     }
-    let base = env("XDG_CONFIG_HOME")
-        .filter(|value| !value.is_empty())
-        .map(std::path::PathBuf::from)
-        .or_else(|| env("HOME").map(|home| std::path::PathBuf::from(home).join(".config")));
-    let Some(text) = base.and_then(|base| std::fs::read(base.join("cmux").join("vm.json")).ok())
+    // cmux-vm's own default (a DEV build's `CMUX_VM_DEFAULT_CONFIG`, else `vm.json` in the config folder).
+    let empty_is_unset = |name: &str| env(name).filter(|value| !value.is_empty());
+    let Some(text) =
+        cmux_vm::default_config_path(&empty_is_unset).and_then(|path| std::fs::read(path).ok())
     else {
         return false;
     };
