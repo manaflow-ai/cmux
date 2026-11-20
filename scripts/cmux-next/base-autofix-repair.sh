@@ -4,7 +4,7 @@
 # commit and never sees the push token.
 #
 # The workflow's Changed areas step decides the repairs (GRAPH, STRINGS, SDK, CAPABILITIES, SHORTCUTS, APPHOST,
-# ACTIONS, SETTINGS, RATCHETS, CLOUD, LOCKS, FMT: true or false); the Mac job hands on its verdicts
+# ACTIONS, SETTINGS, RATCHETS, CLOUD, LOCKS, FMT, CLIPPY: true or false; CLIPPY_CHANGED: the changed paths); the Mac job hands on its verdicts
 # (EXPORTS_VERIFIED, SETTINGS_VERIFIED) and its exports (EXPORTS_DIR, when it made any); the
 # webviews-fmt job hands on WEBVIEWS_PATCH. The CI target graph is dumped from REPO's own manifest
 # in the pinned Swift 6.2 Linux container (ci-target-graph.py).
@@ -27,6 +27,7 @@
 # Usage: scripts/cmux-next/base-autofix-repair.sh REPO
 # CMUX_BASE_AUTOFIX_SCRIPT: the repair (default: base-autofix.sh beside this one).
 # CMUX_BASE_AUTOFIX_DUMP: a command that prints REPO's package dump (default: the Swift container).
+# CMUX_BASE_AUTOFIX_CLIPPY: the clippy fixer (default: autofix-clippy.sh beside this one).
 set -euo pipefail
 repo="$(cd "${1:?usage: $0 REPO}" && pwd)"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -79,4 +80,18 @@ fi
 [[ "${CLOUD:-}" == true ]] && args+=(--cloud-clients)
 [[ "${LOCKS:-}" == true ]] && args+=(--locks)
 [[ "${FMT:-}" == true ]] || args+=(--no-fmt)
+# cargo clippy --fix (autofix-clippy.sh, as the pull-request autofix runs it): clippy's machine-applicable
+# fixes in the cmux-tui crates owning the changed .rs files listed in CLIPPY_CHANGED, before
+# base-autofix.sh's cargo fmt sees them. A lint on feat-cmux-next is a bot commit, not a red every
+# pull request carries (two base lints held the required clippy check red on every pull request,
+# 2026-11-20). Before the other repairs: a crate that does not build is reported ("left:") and
+# autofix-clippy.sh restores cmux-tui, which must not undo them. It never stops the other repairs.
+if [[ "${CLIPPY:-}" == true && -n "${CLIPPY_CHANGED:-}" && -s "$CLIPPY_CHANGED" ]]; then
+  if command -v cargo >/dev/null 2>&1; then
+    "${CMUX_BASE_AUTOFIX_CLIPPY:-$here/autofix-clippy.sh}" "$repo" <"$CLIPPY_CHANGED" \
+      || echo "left: cargo clippy --fix did not run (see the job log)"
+  else
+    echo "left: cargo clippy --fix not run (no cargo on PATH)"
+  fi
+fi
 "$autofix" ${args[@]+"${args[@]}"} "$repo"
