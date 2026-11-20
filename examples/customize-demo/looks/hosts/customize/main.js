@@ -17,7 +17,7 @@ const run = (id, args) => cmux.actions.run(id, args).catch(refused("Run actions"
 // Folded hosts are remembered with storage:local; without it they unfold on a reload.
 cmux.storage
   .get("folded")
-  .then((saved) => saved && setFolded(saved))
+  .then((saved) => saved && setFolded((s) => ({ ...saved, ...s })))
   .catch(() => undefined)
 const saveFolded = () => cmux.storage.set("folded", folded()).catch(() => undefined)
 
@@ -56,6 +56,8 @@ const LOCAL = "This Mac"
 const hostOf = (c) => c.machine || LOCAL
 const lastActivity = (c) => Math.max(c.updated_ms || 0, c.since_ms || 0, c.created_ms || 0)
 const isOpen = (c) => c.workspace != null && c.workspace === openWorkspace()
+// A peer's session opens as this Mac mirrors it: agent.openSessionTab takes the peer as `host`.
+const tabArgs = (c) => (c.machine ? { session: c.id, host: c.machine } : { session: c.id })
 
 function age(ms) {
   if (!ms) return ""
@@ -94,7 +96,7 @@ const hosts = computed(() => {
 
 function show(chat) {
   if (chat.workspace) cmux.workspace.focus({ workspace: chat.workspace }).then(loadChats, refused("Change workspaces"))
-  else run("agent.openSessionTab", { session: chat.id })
+  else run("agent.openSessionTab", tabArgs(chat))
 }
 
 function fold(name) {
@@ -130,7 +132,7 @@ function session(c) {
     .help(() => [c().title, hostOf(c()), c().cwd, c().harness].filter(Boolean).join("\n"))
     .cursor("pointer")
     .onTap(() => show(c()))
-    .contextMenu(() => [Button("Open in New Tab", () => run("agent.openSessionTab", { session: c().id }))])
+    .contextMenu(() => [Button("Open in New Tab", () => run("agent.openSessionTab", tabArgs(c())))])
 }
 
 function hostHeader(h) {
@@ -185,14 +187,14 @@ function renderPicker() {
   follow()
   const counts = computed(() => {
     const words = chats().map((c) => statusOf(c).word)
-    return { working: words.filter((w) => w === "working").length, blocked: words.filter((w) => w === "blocked").length, hosts: hosts().length }
+    return { working: words.filter((w) => w === "working").length, blocked: words.filter((w) => w === "blocked").length, hosts: hosts().filter((h) => h.sessions.length).length }
   })
   return VStack({ spacing: 14 }, [
     Spacer(),
     HStack({ spacing: 8 }, [
       Text("Sessions").font("title").weight("semibold"),
       Spacer(),
-      Text(() => `${counts().hosts} hosts · ${counts().working} working · ${counts().blocked} blocked`).font("caption").monospaced().color(cmux.theme.text.secondary)
+      Text(() => `${counts().hosts} ${counts().hosts === 1 ? "host" : "hosts"} ·${counts().working} working · ${counts().blocked} blocked`).font("caption").monospaced().color(cmux.theme.text.secondary)
     ]),
     Panel({ style: "card" }, [
       TextField(query, { placeholder: "Find a session on any host", onEdit: setQuery, onSubmit: () => {
