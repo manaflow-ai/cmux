@@ -25,9 +25,11 @@ type Props = {
   rows: HarnessHealth[];
   /// How the host's `harness.update` answers: done, failed, or still running.
   updater?: "ok" | "fails" | "pending";
+  /// The harnesses the menus offer (default: every one).
+  offered?: (id: string) => boolean;
 };
 
-function GalleryHarnessUpdates({ own = false, rows, updater = "ok" }: Props) {
+function GalleryHarnessUpdates({ own = false, rows, updater = "ok", offered }: Props) {
   const [calls, setCalls] = useState<string[]>([]);
   const offer: UpdateOffer | undefined = own
     ? {
@@ -52,6 +54,7 @@ function GalleryHarnessUpdates({ own = false, rows, updater = "ok" }: Props) {
       );
     },
     onUpdated: () => undefined,
+    ...(offered ? { offered } : {}),
   });
   return (
     // A menu panel's frame: the footer sits under the model list it belongs to.
@@ -79,6 +82,19 @@ export default componentEntry<Props>({
     "reference-pair": {
       note: "The reference's pair, Codex and OpenCode, in a chat whose own agent is current.",
       props: { rows: [codex, opencode] },
+    },
+    // Lawrence 2026-11-19 (clip 3.37.01 PM): the list read "Cmux" (Claude Code's hidden router
+    // fallback) and "OpenCode" twice.
+    "hidden-fallback-and-twin": {
+      note: "The cmux router fallback the menus never offer is left out; opencode-v2 reads OpenCode (v2).",
+      props: {
+        rows: [
+          row("cmux", "2.1.325", "2.1.329", "npm install -g @anthropic-ai/claude-code@latest"),
+          opencode,
+          row("opencode-v2", "0.0.0-next", "1.19.6", "npm install -g opencode-ai@latest"),
+        ],
+        offered: (id) => id !== "cmux",
+      },
     },
     "one-harness": {
       note: "One outdated agent: no Update all, the row's Update is the whole action.",
