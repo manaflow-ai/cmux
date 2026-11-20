@@ -22,9 +22,10 @@ import UIKit
         let window: UIWindow
         let list: UICollectionView
         let seen: Seen
-        /// A plain view holding the list's host: nothing places it but the test, so moving it moves
-        /// the list on screen with no layout pass of the list (SwiftUI and the window put back a
-        /// transform set on the collection or on the root view: steps 797372f0, 93049c31).
+        /// A plain view holding the list's host. A transform on it moves the list on screen with no
+        /// layout pass and no safe-area change (SwiftUI and the window put back a transform on the
+        /// collection or the root view, steps 797372f0 and 93049c31; moving its frame moves the
+        /// list's bottom edge, which the list explains as a keyboard's, step 69902ff8).
         let container: UIView
     }
 
@@ -66,7 +67,7 @@ import UIKit
     @Test func aJumpThatDrawsCountsInFull() throws {
         let hosted = try host()
         defer { hosted.window.isHidden = true }
-        hosted.container.frame.origin.y += 10
+        hosted.container.transform = CGAffineTransform(translationX: 0, y: 10)
         settle()
         #expect(abs(hosted.seen.worst - 10) < 0.5, "a drawn 10 pt jump measured \(hosted.seen.shifts)")
     }
@@ -75,9 +76,9 @@ import UIKit
     @Test func aOneFrameJumpCountsThereAndBack() throws {
         let hosted = try host()
         defer { hosted.window.isHidden = true }
-        hosted.container.frame.origin.y += 10
+        hosted.container.transform = CGAffineTransform(translationX: 0, y: 10)
         turn()
-        hosted.container.frame.origin.y -= 10
+        hosted.container.transform = .identity
         settle()
         let big = hosted.seen.shifts.filter { abs($0) > 0.5 }
         #expect(big.count == 2 && abs(abs(big[0]) - 10) < 0.5 && abs(abs(big[1]) - 10) < 0.5,
