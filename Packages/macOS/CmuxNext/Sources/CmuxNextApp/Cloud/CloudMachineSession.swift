@@ -1,5 +1,4 @@
 import CmuxNextCloud
-import CmuxNextCloudCredentials
 import CmuxNextDaemon
 import CmuxNextSidebar
 import CmuxNextWorkspaceRepair
@@ -20,8 +19,6 @@ final class CloudMachineSession {
     var sizePick: CloudSizePick?
     let daemon: DaemonService
     @ObservationIgnored let appLink: CloudLinkSession
-    /// The last Cloud start's harness login decision here: its summary for `cloud.machines`, its team skip for the chat's card.
-    @ObservationIgnored var harnessLogin: CloudHarnessLoginDecision?
     /// A workspace close already said this machine is kept (it says so once, not on every close).
     @ObservationIgnored var toldKeptOnClose = false
     /// This Mac's own daemon identity: an app link socket that leads back to
@@ -34,6 +31,8 @@ final class CloudMachineSession {
     @ObservationIgnored private(set) var linkEndedDetail: String?
     /// The ended link went down or was revoked, not refused (``CloudLinkError/isDrop(_:)``).
     private(set) var linkDropped = false
+    /// The last connect failed for good, and why (``CloudLinkRefusal``): a start's or a move's wait ends on it.
+    let linkRefusal = CloudLinkRefusal()
     /// The list read an ended app link starts; its ``CloudLinkEndRead/confirming`` is
     /// ``CloudMachineStageInput/linkEndConfirming``, false once it answers or a connect starts.
     @ObservationIgnored let linkEndRead = CloudLinkEndRead()
@@ -134,6 +133,7 @@ final class CloudMachineSession {
         connects += 1
         // A resume that failed earlier says nothing about this connect.
         resumeFailure = nil
+        linkRefusal.connecting()
         let previous = linkTransition
         // task-owner: one lifecycle hop; each later hop waits for this one
         linkTransition = Task {
@@ -301,6 +301,7 @@ final class CloudMachineSession {
         daemon.store.markFailed(message)
         linkEnded = message
         linkDropped = CloudLinkError.isDrop(error)
+        linkRefusal.ended(error)
         linkPhase = .failed(message)
         guard let refresher else { return }
         linkEndRead.ended(dropped: linkDropped, paused: machine.status == .paused, connects: connects,
@@ -381,13 +382,15 @@ final class CloudMachineSession {
         }
     }
 
-    /// A start's or a move's wait: true once the daemon answers or a resume failed; a paused machine resumes once, an ended link redials.
+    /// A start's or a move's wait: true once the daemon answers, a resume failed or the link is refused for good; a paused machine resumes once, an ended link redials.
     func linkUp(within limit: Duration) async -> Bool {
         let beats = CloudWait.StartRedials() // what each beat does is Rust's (`start_redial`)
+        linkRefusal.waitBegins(connecting: appConnecting)
         return await CloudWait.holds(within: limit, redialing: CloudWait.startRedial, redial: {
+            guard !linkRefusal.refused else { return }
             beats.beat(ended: linkEnded != nil && !appConnecting, status: machine.status, resume: { attach(origin: .script) }, connect: { connect() })
         }) { [daemon] in
-            self.resumeFailure != nil || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
+            self.resumeFailure != nil || self.linkRefusal.refused || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
         }
     }
 

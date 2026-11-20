@@ -39,9 +39,16 @@ final class TabHoverCardController: HoverCardSource {
     /// How the card's first show plays; nil reads `TabTunables.hoverCardEntrance` on each show
     /// (the tab bar playground's Hover Card page pins one per strip).
     var entrance: HoverCardEntrance?
+    /// How the card moves to the next tab or chip while it shows; nil reads `TabTunables.hoverCardRetarget` on
+    /// each show (the tab bar playground's Hover Card page pins one per strip). Switched in place by default
+    /// (Leo 2026-11-18: "the hover preview bounces for some reason").
+    var retarget: HoverCardRetarget?
     /// Like a browser's tab preview (Leo 2026-10-14): leaving the tab hides its card at once,
     /// and another tab reached within the reshow window shows its card at once.
     var leave: HoverCardLeave { .hides(reshow: HoverCardTiming.reshowWindow) }
+    /// A tab's card is a preview the pointer never enters (user 2026-11-16): moving off the tab onto
+    /// the card hides it, as in Chrome. A sidebar row's card stays enterable.
+    var enterable: Bool { false }
     /// The app's one coordinator; the App injects it, a demo strip uses its own.
     var coordinator: HoverCardCoordinator {
         didSet {
@@ -130,7 +137,8 @@ final class TabHoverCardController: HoverCardSource {
         else { return nil }
         return HoverCardHit(
             target: HoverTarget(id: Self.targetID(target.id), window: window.windowNumber,
-                                delay: target.id.isGroupChip ? DesignSettings.shared.groupHoverCard.delay : delay, leave: leave),
+                                delay: target.id.isGroupChip ? DesignSettings.shared.groupHoverCard.delay : delay, leave: leave,
+                                enterable: enterable),
             anchor: target.anchor
         )
     }
@@ -139,7 +147,10 @@ final class TabHoverCardController: HoverCardSource {
     /// there for the next tab.
     func hoverCardBridges(at screenPoint: CGPoint) -> Bool {
         guard let strip, let window = strip.window, !strip.isHiddenOrHasHiddenAncestor else { return false }
-        return strip.visibleRect.contains(strip.convert(window.convertPoint(fromScreen: screenPoint), from: nil))
+        // Within the strip's bounds too: its visible rect can pass them (`geometryDidChange`, cx-3wu5), and a
+        // point past the strip (on its tab's card, which is not enterable) is off the strip, not between tabs.
+        let point = strip.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
+        return strip.bounds.intersection(strip.visibleRect).contains(point)
     }
 
     func hoverCardAnchor(for id: HoverTargetID) -> CGRect? {
@@ -154,7 +165,8 @@ final class TabHoverCardController: HoverCardSource {
             groupBody = body
             body.configure(strip.groupHoverSummary(item, options: DesignSettings.shared.groupHoverCard, now: now()))
             bodyID = id
-            return HoverCardBody(view: body, placement: Self.placement(for: DesignSettings.shared.tabBarPosition), themeAnchor: strip) { [weak body] in
+            return HoverCardBody(view: body, placement: Self.placement(for: DesignSettings.shared.tabBarPosition), themeAnchor: strip,
+                                 retarget: retarget ?? TabTunables.hoverCardRetarget.value) { [weak body] in
                 body?.applyColors()
             }
         }
@@ -200,7 +212,8 @@ final class TabHoverCardController: HoverCardSource {
         if newCard, case .tab = content { startSampling(tab, card: id) }
         // The card hangs from its tab with no gap: it takes the tab's corners.
         return HoverCardBody(view: body, placement: Self.placement(for: DesignSettings.shared.tabBarPosition), themeAnchor: strip,
-                             cornerRadius: strip.metrics.cornerRadius, entrance: entrance ?? TabTunables.hoverCardEntrance.value) { [weak body] in
+                             cornerRadius: strip.metrics.cornerRadius, entrance: entrance ?? TabTunables.hoverCardEntrance.value,
+                             retarget: retarget ?? TabTunables.hoverCardRetarget.value) { [weak body] in
             body?.applyColors()
         }
     }
