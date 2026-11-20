@@ -248,3 +248,16 @@ success-output = "final"
 [[profile.ci.overrides]]
 filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::disk_usage_read_cost::/)'
 success-output = "final"
+
+# The live automation journey (tests/automation_live_journey.rs) runs a real runner on the real
+# clock: up to 100 s for a minute slot, 150 s with the runner off, then the catch-up and a failed
+# run, about 5 minutes in all. Outside a fleet step keyed automation-live it returns at once. Its
+# eprintln lines are the proof, so a passing run keeps its output.
+[[profile.default.overrides]]
+filter = 'binary_id(cmux-tui::automation_live_journey)'
+slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
+
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui::automation_live_journey)'
+success-output = "final"
+slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
