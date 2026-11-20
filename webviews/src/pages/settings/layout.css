@@ -1291,7 +1291,7 @@
   margin-inline-start: var(--page-size-6);
   padding: 0 var(--page-size-6);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--ds-color-accent) 16%, transparent);
+  background: var(--accent-soft);
   color: var(--ds-color-accent);
   font-size: var(--text-caption);
   font-weight: var(--weight-emphasis);
