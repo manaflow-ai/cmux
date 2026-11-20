@@ -72,8 +72,9 @@ pub const ALLOWED_COMMANDS: &[(&str, &[&str])] = &[
     // Home: the Mac's Home list (the local owner's rows only, narrowed to the
     // scope) and the person's own pin and unread mark of a conversation in it.
     // `offset`/`limit` and `ids` window it here, after the narrowing
-    // (``InboxWindow``); the owner never sees them.
-    ("home-inbox", &["owners", "offset", "limit", "ids"]),
+    // (``InboxWindow``); the owner never sees them. `since` (a revision) goes
+    // to the owner, which answers the rows changed since (`home-inbox-since-v1`).
+    ("home-inbox", &["owners", "offset", "limit", "ids", "since"]),
     ("conversation-inbox-op", &["conversation", "op"]),
 ];
 
@@ -123,7 +124,8 @@ const ALLOWED_RESOURCE_OPERATIONS: &[(&str, &[&str])] = &[
 const RESOURCE_FIELDS: &[&str] = &["protocol", "type", "id", "operation", "params", "idempotency_key"];
 
 /// Events a phone receives, for conversations in scope only.
-const FORWARDED_EVENTS: &[&str] = &["conversation-changed", "conversation-typing", "conversation-inbox-changed"];
+const FORWARDED_EVENTS: &[&str] =
+    &["conversation-changed", "conversation-typing", "conversation-inbox-changed"];
 
 /// Requests a phone may have waiting for a reply at once.
 pub const MAXIMUM_IN_FLIGHT: usize = 256;
@@ -421,7 +423,9 @@ impl ChiefPolicy {
                         kept.into_iter()
                             .enumerate()
                             .filter(|(_, row)| {
-                                row.get("id").and_then(Value::as_str).is_some_and(|id| ids.iter().any(|asked| asked == id))
+                                row.get("id")
+                                    .and_then(Value::as_str)
+                                    .is_some_and(|id| ids.iter().any(|asked| asked == id))
                             })
                             .map(|(index, mut row)| {
                                 if let Value::Object(fields) = &mut row {
@@ -431,6 +435,29 @@ impl ChiefPolicy {
                             })
                             .collect()
                     }
+                };
+                // A `since` delta (`full: false`): `rows` are the changed rows,
+                // narrowed above. The owner's `index` and `total` count rows the
+                // phone never sees, so they go; removed ids keep only the scope's.
+                let rows = if data.get("full").and_then(Value::as_bool) == Some(false) {
+                    data.remove("total");
+                    if let Some(Value::Array(removed)) = data.remove("removed") {
+                        let removed: Vec<Value> = removed
+                            .into_iter()
+                            .filter(|id| id.as_str().is_some_and(|c| allowed.contains(c)))
+                            .collect();
+                        data.insert("removed".into(), Value::Array(removed));
+                    }
+                    rows.into_iter()
+                        .map(|mut row| {
+                            if let Value::Object(fields) = &mut row {
+                                fields.remove("index");
+                            }
+                            row
+                        })
+                        .collect()
+                } else {
+                    rows
                 };
                 data.insert("rows".into(), Value::Array(rows));
             }
@@ -451,7 +478,9 @@ impl ChiefPolicy {
         }
         let Some(conversation) = object.get("conversation").and_then(Value::as_str) else { return false };
         // The person's own list state, never an agent's.
-        if event == "conversation-inbox-changed" && object.get("participant").and_then(Value::as_str) != Some(OWNER) {
+        if event == "conversation-inbox-changed"
+            && object.get("participant").and_then(Value::as_str) != Some(OWNER)
+        {
             return false;
         }
         let change = object.get("change");
@@ -573,16 +602,26 @@ fn check_home_inbox(object: &Map<String, Value>) -> Result<Option<InboxWindow>, 
     let number = |key: &str| -> Result<Option<u64>, String> {
         match object.get(key) {
             None => Ok(None),
-            Some(value) => value.as_u64().map(Some).ok_or_else(|| format!("{key} is not an unsigned integer")),
+            Some(value) => {
+                value.as_u64().map(Some).ok_or_else(|| format!("{key} is not an unsigned integer"))
+            }
         }
     };
     let offset = number("offset")?;
     let limit = number("limit")?;
+    if number("since")?.is_some() {
+        // A delta is the owner's, over its whole list; no window is cut from it.
+        if offset.is_some() || limit.is_some() || object.contains_key("ids") {
+            return Err("since takes no offset, limit or ids".into());
+        }
+        return Ok(None);
+    }
     if let Some(ids) = object.get("ids") {
         if offset.is_some() || limit.is_some() {
             return Err("ids takes no offset or limit".into());
         }
-        let Some(ids) = ids.as_array().filter(|ids| !ids.is_empty() && ids.len() <= HOME_INBOX_IDS_MAX) else {
+        let Some(ids) = ids.as_array().filter(|ids| !ids.is_empty() && ids.len() <= HOME_INBOX_IDS_MAX)
+        else {
             return Err(format!("ids must be 1-{HOME_INBOX_IDS_MAX} conversation ids"));
         };
         let ids = ids
@@ -623,7 +662,9 @@ fn check_inbox_op(value: Option<&Value>) -> Result<(), String> {
     if op.get("position").is_some_and(|v| !v.is_u64()) {
         return Err("position is not an unsigned integer".into());
     }
-    if kind == "inbox.pin" && !op.contains_key("pinned") || kind == "inbox.mark_unread" && !op.contains_key("unread") {
+    if kind == "inbox.pin" && !op.contains_key("pinned")
+        || kind == "inbox.mark_unread" && !op.contains_key("unread")
+    {
         return Err(format!("op {kind} is missing its value"));
     }
     Ok(())
@@ -994,8 +1035,10 @@ mod tests {
             }
         };
         let reply = |id: &str| {
-            let reply = serde_json::json!({"id": id, "ok": true, "data": {"me": "user_local", "rows": rows()}});
-            serde_json::from_slice::<Value>(&policy.filter_reply(reply.to_string().as_bytes()).unwrap()).unwrap()
+            let reply =
+                serde_json::json!({"id": id, "ok": true, "data": {"me": "user_local", "rows": rows()}});
+            serde_json::from_slice::<Value>(&policy.filter_reply(reply.to_string().as_bytes()).unwrap())
+                .unwrap()
         };
         let ids = |data: &Value| -> Vec<String> {
             data["rows"].as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap().to_owned()).collect()
@@ -1058,6 +1101,69 @@ mod tests {
         }
     }
 
+    /// `since` (`home-inbox-since-v1`) goes to the owner untouched; a delta
+    /// reply's changed rows and removed ids are narrowed to the scope, and the
+    /// owner's positions (which count rows outside it) go. A `since` that is
+    /// not an unsigned integer, or with a window, is refused.
+    #[test]
+    fn home_inbox_since_forwards_and_narrows_the_delta() {
+        let policy = listed();
+        assert_eq!(
+            policy.evaluate(&line(
+                serde_json::json!({"cmd": "home-inbox", "id": "s1", "owners": ["local"], "since": 1_790_000_000_005_u64})
+            )),
+            Verdict::Forward
+        );
+        let reply = serde_json::json!({"id": "s1", "ok": true, "data": {"me": "user_local", "cloud": "not_asked",
+            "revision": 1_790_000_000_007_u64, "full": false, "total": 3,
+            "rows": [
+                {"id": REMOTE, "owner": "local", "kind": "direct", "name": "Phone", "unread": 3,
+                 "activity_at": "2026-10-21T09:00:00.000Z", "pinned": false, "marked_unread": false, "muted": false, "index": 0},
+                {"id": CHIEF, "owner": "local", "kind": "chief", "name": "Chief", "unread": 1,
+                 "activity_at": "2026-10-21T08:00:00.000Z", "pinned": false, "marked_unread": false, "muted": false, "index": 1},
+            ],
+            "removed": [OTHER, REMOTE]}});
+        let narrowed: Value =
+            serde_json::from_slice(&policy.filter_reply(reply.to_string().as_bytes()).unwrap()).unwrap();
+        let data = &narrowed["data"];
+        let changed = data["rows"].as_array().unwrap();
+        assert_eq!(changed.len(), 1, "{data}");
+        assert_eq!(changed[0]["id"], CHIEF);
+        assert!(changed[0].get("index").is_none(), "{data}");
+        assert_eq!(data["removed"], serde_json::json!([OTHER]));
+        assert!(data.get("total").is_none(), "{data}");
+        assert_eq!(data["revision"], 1_790_000_000_007_u64);
+
+        // A full reply is narrowed like a plain one.
+        assert_eq!(
+            policy.evaluate(&line(
+                serde_json::json!({"cmd": "home-inbox", "id": "s2", "owners": ["local"], "since": 0})
+            )),
+            Verdict::Forward
+        );
+        let full = serde_json::json!({"id": "s2", "ok": true, "data": {"me": "user_local", "cloud": "not_asked",
+            "revision": 9, "full": true, "rows": [
+                {"id": REMOTE, "owner": "local", "kind": "direct", "name": "Phone", "unread": 3,
+                 "activity_at": "2026-10-21T09:00:00.000Z", "pinned": false, "marked_unread": false, "muted": false},
+                {"id": CHIEF, "owner": "local", "kind": "chief", "name": "Chief", "unread": 1,
+                 "activity_at": "2026-10-21T08:00:00.000Z", "pinned": false, "marked_unread": false, "muted": false}]}});
+        let narrowed: Value =
+            serde_json::from_slice(&policy.filter_reply(full.to_string().as_bytes()).unwrap()).unwrap();
+        let ids: Vec<&str> =
+            narrowed["data"]["rows"].as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, [CHIEF]);
+
+        for bad in [
+            serde_json::json!({"cmd": "home-inbox", "id": "x1", "owners": ["local"], "since": -1}),
+            serde_json::json!({"cmd": "home-inbox", "id": "x2", "owners": ["local"], "since": "5"}),
+            serde_json::json!({"cmd": "home-inbox", "id": "x3", "owners": ["local"], "since": 1.5}),
+            serde_json::json!({"cmd": "home-inbox", "id": "x4", "owners": ["local"], "since": 5, "limit": 20}),
+            serde_json::json!({"cmd": "home-inbox", "id": "x5", "owners": ["local"], "since": 5, "ids": [CHIEF]}),
+        ] {
+            refused(&policy, bad);
+        }
+    }
+
     /// Home on the phone shows the Mac's Home list (`home-inbox`, local
     /// owner only) narrowed to the scope, and the person's own pin and
     /// unread mark of a Chief conversation in scope (`conversation-inbox-op`).
@@ -1097,8 +1203,10 @@ mod tests {
             serde_json::json!({"kind": "inbox.mark_unread", "unread": true}),
         ] {
             assert_eq!(
-                policy.evaluate(&line(serde_json::json!({"cmd": "conversation-inbox-op", "id": format!("p{op}"),
-                    "conversation": CHIEF, "op": op}))),
+                policy.evaluate(&line(
+                    serde_json::json!({"cmd": "conversation-inbox-op", "id": format!("p{op}"),
+                    "conversation": CHIEF, "op": op})
+                )),
                 Verdict::Forward,
                 "{op}"
             );
@@ -1135,7 +1243,10 @@ mod tests {
         assert!(policy.filter_reply(&unnamed).is_none());
 
         // A row with no owner (an owner before Cloud rows) is local; it still needs the scope.
-        assert_eq!(policy.evaluate(br#"{"cmd":"home-inbox","id":"h6","owners":["local"]}"#), Verdict::Forward);
+        assert_eq!(
+            policy.evaluate(br#"{"cmd":"home-inbox","id":"h6","owners":["local"]}"#),
+            Verdict::Forward
+        );
         let reply = serde_json::json!({"id": "h6", "ok": true, "data": {"me": "user_local", "rows": [
             {"id": CHIEF, "kind": "chief", "name": "Chief", "unread": 0, "activity_at": "x", "pinned": false, "marked_unread": false},
             {"id": REMOTE, "kind": "direct", "name": "P", "unread": 0, "activity_at": "x", "pinned": false, "marked_unread": false},
@@ -1146,11 +1257,15 @@ mod tests {
 
         // A new owner-and-agents conversation the owner announces joins the rows too.
         let new = "conv_01JNEWHOME0000000000000000";
-        let announce = line(serde_json::json!({"event": "conversation-changed", "conversation": new, "rev": 1,
+        let announce =
+            line(serde_json::json!({"event": "conversation-changed", "conversation": new, "rev": 1,
             "change": {"kind": "conversation", "conversation": {"id": new, "participants": [
                 {"id": "user_local", "kind": "human"}, {"id": "agent_mux", "kind": "agent"}]}}}));
         assert!(policy.filter_reply(&announce).is_some());
-        assert_eq!(policy.evaluate(br#"{"cmd":"home-inbox","id":"h7","owners":["local"]}"#), Verdict::Forward);
+        assert_eq!(
+            policy.evaluate(br#"{"cmd":"home-inbox","id":"h7","owners":["local"]}"#),
+            Verdict::Forward
+        );
         let reply = serde_json::json!({"id": "h7", "ok": true, "data": {"me": "user_local", "rows": [
             {"id": new, "owner": "local", "kind": "chief", "name": "Chief 2", "unread": 1, "activity_at": "x",
              "pinned": false, "marked_unread": false}]}});
