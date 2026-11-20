@@ -76,17 +76,22 @@ extension TabStripView {
         func pixel(_ value: CGFloat) -> CGFloat { (value * basis.scale).rounded() / basis.scale }
         var moved = false
         var trailing: CGFloat
+        // A narrower view (or a reveal) leaves tabs behind and a wider one reveals some: those go, these get their cells.
+        dropHiddenCells()
+        mountVisibleCells()
         if let framed = framedCells, !slotsMoved, framed.basis == basis, framed.count == cells.count {
             trailing = framed.trailing
         } else {
             let clipMoved = framedCells?.basis.clipOrigin != basis.clipOrigin
-            trailing = 0
+            trailing = unmountedTrailing()
+            listWork.walked(cells.count)
             for (id, cell) in cells {
                 guard let place = placed[id] else { continue }
                 let frame = cellFrame(place, isPinned: cell.item.isPinned, mapping: mapping)
                 let opacity = Float(min(max(place.alpha, 0), 1))
                 let changed = frame != cell.frame
                 if changed {
+                    listWork.laidOut()
                     cell.frame = frame
                     moved = true
                 }
@@ -94,6 +99,7 @@ extension TabStripView {
                 if changed || clipMoved { cell.accessibility.setAccessibilityFrameInParentSpace(tabsClip.convert(cell.frame, to: self)) }
                 trailing = max(trailing, place.maxX)
             }
+            dropHiddenCells()
             updateOcclusion()
             layoutPinnedDivider(mapping: mapping, tabY: basis.tabTop, tabHeight: basis.tabHeight, pixel: pixel)
             for group in groups.chips.keys {

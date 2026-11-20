@@ -33,8 +33,8 @@ struct TabSeparatorVisibility {
         for id in ids { if let i = at(id) { lines.formUnion([i - 1, i]) } }
         for line in lines where line >= 0 && line < row.count {
             let shows = strip.metrics.showsSeparators && !emphasized.contains(line) && !emphasized.contains(line + 1)
-                && !endsPinnedGroup(strip.cells[row[line]]?.item.isPinned,
-                                    before: line + 1 < row.count ? strip.cells[row[line + 1]]?.item.isPinned : nil, metrics: strip.metrics)
+                && !endsPinnedGroup(index.slots[row[line]]?.isPinned,
+                                    before: line + 1 < row.count ? index.slots[row[line + 1]]?.isPinned : nil, metrics: strip.metrics)
             strip.cells[row[line]]?.showsSeparator = shows
         }
     }
@@ -57,8 +57,10 @@ struct TabSeparatorVisibility {
             ? Set(visible.filter { !endsPinnedGroup(row[$0].isPinned, before: $0 + 1 < row.count ? row[$0 + 1].isPinned : nil,
                                                     metrics: strip.metrics) }.map { row[$0].id })
             : []
-        for slot in strip.result.slots {
-            strip.cells[slot.id]?.showsSeparator = shown.contains(slot.id)
+        // The cells there are (`TabStripView+VisibleCells`); one made later takes its line then (`apply(to:around:)`).
+        let slots = strip.slotIndex.slots
+        for (id, cell) in strip.cells where slots[id] != nil {
+            cell.showsSeparator = shown.contains(id)
         }
     }
 

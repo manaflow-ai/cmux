@@ -10,15 +10,17 @@ extension TabStripView {
         guard local.x >= 0, local.x <= tabsClip.bounds.width else { return nil }
         // An unpinned tab scrolled under the fixed pinned band is hidden there: only pinned tabs hit.
         let showsUnpinned = scrollMapping.showsUnpinned(at: local.x)
-        for item in displayed where item.isPinned || showsUnpinned {
-            guard let cell = cells[item.id], cell.frame.width > 0.5 else { continue }
-            let frame = cell.frame
+        guard local.y >= 0, local.y <= tabsClip.bounds.height else { return nil }
+        // The cells there are (the tabs in view, `TabStripView+VisibleCells`), not every tab; where two overlap (a move),
+        // the first in display order wins.
+        var hit: (id: TabID, index: Int)?
+        for (id, cell) in cells where cell.frame.width > 0.5 {
+            guard let index = displayedIndex[id], cell.item.isPinned || showsUnpinned else { continue }
             // The full strip height is the hit area, not just the tab body.
-            if local.x >= frame.minX, local.x < frame.maxX, local.y >= 0, local.y <= tabsClip.bounds.height {
-                return item.id
-            }
+            let frame = cell.frame
+            if local.x >= frame.minX, local.x < frame.maxX, index < (hit?.index ?? .max) { hit = (id, index) }
         }
-        return nil
+        return hit?.id
     }
 
     func isInCloseButton(_ id: TabID, _ point: CGPoint) -> Bool {

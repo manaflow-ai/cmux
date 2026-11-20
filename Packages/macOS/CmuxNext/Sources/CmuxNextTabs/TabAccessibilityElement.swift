@@ -16,13 +16,17 @@ nonisolated final class TabAccessibilityElement: NSAccessibilityElement, @unchec
     nonisolated(unsafe) var badgeActions: [(name: String, run: @MainActor () -> Void)] = [] // crash-allow: set in updateAccessibility and read in accessibilityCustomActions, both on the main thread only (onMain guard), as onClose
     /// VoiceOver moved its focus onto (true) or off (false) this element.
     nonisolated(unsafe) var onFocus: (@MainActor (Bool) -> Void)?
+    /// Where the element is in its parent's (unflipped) space, read when asked: a scroll then touches no element (the
+    /// vertical tab list's rows). Nil: the frame last set.
+    let frameInParent: (@MainActor @Sendable () -> CGRect)?
     /// The tab's x as a pressable child: its press runs ``onClose``. It is a child while the tab
     /// can close and has room for it (the cell's layout gives it a nonzero frame). The x draws
     /// only on hover, but it is exposed while hidden too: an agent presses it with AXPress, and a
     /// pointer moving to its frame hovers the tab, which shows it there.
     let closeButton = TabCloseAccessibilityElement()
 
-    override init() {
+    init(frameInParent: (@MainActor @Sendable () -> CGRect)? = nil) {
+        self.frameInParent = frameInParent
         super.init()
         setAccessibilityRole(.radioButton)
         setAccessibilitySubrole(NSAccessibility.Subrole(rawValue: "AXTabButton"))
@@ -31,6 +35,11 @@ nonisolated final class TabAccessibilityElement: NSAccessibilityElement, @unchec
 
     override func accessibilityChildren() -> [Any]? {
         onClose != nil && closeButton.accessibilityFrameInParentSpace() != .zero ? [closeButton] : nil
+    }
+
+    override func accessibilityFrameInParentSpace() -> NSRect {
+        guard let frameInParent, Self.onMain("frame") else { return super.accessibilityFrameInParentSpace() }
+        return MainActor.assumeIsolated { frameInParent() } // main-proof: guarded by Self.onMain (Thread.isMainThread) above
     }
 
     /// Closes the tab for its x's AXPress.
@@ -83,7 +92,22 @@ nonisolated final class TabAccessibilityElement: NSAccessibilityElement, @unchec
 // VoiceOver label and selected value of a tab.
 extension TabCell {
     func updateAccessibility() {
-        var parts = [displayTitle]
+        accessibility.setAccessibilityLabel(Self.accessibilityLabel(item, showsZoom: showsZoom))
+        accessibility.setAccessibilityIdentifier("cmux.tabs.tab.\(item.id.rawValue)")
+        accessibility.closeButton.setAccessibilityLabel(Strings.axClose)
+        accessibility.closeButton.setAccessibilityIdentifier("cmux.tabs.tab.\(item.id.rawValue).close")
+        let audioAction = item.audio.flatMap { audio in
+            accessibilityToggleAudio.map { (name: audio == .muted ? Strings.unmuteTab : Strings.muteTab, run: $0) }
+        }
+        let zoomAction = showsZoom ? accessibilityToggleZoom.map { (name: Strings.exitZoom, run: $0) } : nil
+        accessibility.badgeActions = [audioAction, zoomAction].compactMap(\.self)
+        accessibility.setAccessibilityValue(isSelected ? 1 : 0)
+        accessibility.setAccessibilityHelp(Self.accessibilityHelp(item))
+    }
+
+    /// What VoiceOver reads for `item`'s tab, with a cell or without one (`TabStripView+VisibleCells`).
+    static func accessibilityLabel(_ item: TabItem, showsZoom: Bool) -> String {
+        var parts = [item.title.isEmpty ? Strings.untitled : item.title]
         if item.isPinned { parts.append(Strings.axPinned) }
         if item.indicator.isWorking { parts.append(Strings.axWorking) } else if item.isBusy { parts.append(Strings.axBusy) }
         if item.isDormant { parts.append(Strings.axHibernated) }
@@ -99,17 +123,11 @@ extension TabCell {
         case .failure: parts.append(Strings.axFailure)
         case .none: if item.isUnread { parts.append(Strings.axUnread) }
         }
-        accessibility.setAccessibilityLabel(parts.joined(separator: ", "))
-        accessibility.setAccessibilityIdentifier("cmux.tabs.tab.\(item.id.rawValue)")
-        accessibility.closeButton.setAccessibilityLabel(Strings.axClose)
-        accessibility.closeButton.setAccessibilityIdentifier("cmux.tabs.tab.\(item.id.rawValue).close")
-        let audioAction = item.audio.flatMap { audio in
-            accessibilityToggleAudio.map { (name: audio == .muted ? Strings.unmuteTab : Strings.muteTab, run: $0) }
-        }
-        let zoomAction = showsZoom ? accessibilityToggleZoom.map { (name: Strings.exitZoom, run: $0) } : nil
-        accessibility.badgeActions = [audioAction, zoomAction].compactMap(\.self)
-        accessibility.setAccessibilityValue(isSelected ? 1 : 0)
-        accessibility.setAccessibilityHelp([item.machineBadgeHelp, item.subtitle].compactMap(\.self).joined(separator: ", "))
+        return parts.joined(separator: ", ")
+    }
+
+    static func accessibilityHelp(_ item: TabItem) -> String {
+        [item.machineBadgeHelp, item.subtitle].compactMap(\.self).joined(separator: ", ")
     }
 
     /// Records where the x draws (`drawn`, nil when hidden) and exposes it to accessibility
