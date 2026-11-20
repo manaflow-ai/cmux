@@ -3,6 +3,5 @@ category: new
 docs: https://cmux.com/docs/next/settings
 action: openSettings | Open Settings
 
-Settings › Keyboard › Key Style moves through lists with Vim (j, k, gg, G, /) or Emacs (Control-N, P)
-keys, and Keyboard Layout keeps shortcuts on their US keys on Dvorak, Colemak, AZERTY or QWERTZ. Vim
-Keys in the Editor turns on Normal, Insert and Visual modes in the code editor.
+Settings › Keyboard picks Vim or Emacs keys for lists and keeps shortcuts on their US keys on Dvorak or
+AZERTY. Vim Keys in the Editor turns on Vim modes in the code editor.
