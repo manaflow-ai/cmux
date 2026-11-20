@@ -121,9 +121,7 @@ extension CloudStartChat {
             timeline?.mark("machine.connect")
             let machineID = session.machineID
             // The chat's agent reaches a model: the machine's edge, its own sign-in there (a `claude setup-token` token), or the chat's own connection with its launch.
-            // The route check is the start's first exec on the machine: one that finds it not running starts or resumes it, then reads again (cmux#47638).
-            let start: @Sendable () async throws -> Void = { @MainActor [invocation] in try await CloudMove.started(session, invocation) }
-            try await CloudMachineRoute(api: cloud.machineAPI, machineID: machineID, start: start).prepare(serves: { services.agentTabs.holdsTabs(session.daemon) && session.daemon.supports(AgentSessionAttachClient.credentialsCapability(harness: start.harness)) }, carriesConnection: connection != nil, family: CloudSetup.family(of: start.harness)) { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(machineID, services: services) } // checked first: updated only when it lacks what a start uses
+            try await CloudMachineRoute(api: cloud.machineAPI, machineID: machineID, start: { @MainActor [invocation] in try await CloudWait.startStopped(status: { session.machine.shownStatus }, within: CloudStartSession.connectWait, read: { await session.refresher?($0) }) { try await session.resumer?(machineID, .user) }; _ = try await CloudMove.connected(session, invocation) }).prepare(serves: { services.agentTabs.holdsTabs(session.daemon) && session.daemon.supports(AgentSessionAttachClient.credentialsCapability(harness: start.harness)) }, carriesConnection: connection != nil, family: CloudSetup.family(of: start.harness)) { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(machineID, services: services) } // checked first: updated only when it lacks what a start uses; its first exec starts a machine that does not run (cmux#47638)
             timeline?.mark("machine.route")
             return (session, plan)
         }

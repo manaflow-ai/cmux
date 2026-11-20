@@ -355,21 +355,6 @@ struct CloudMove {
         return session
     }
 
-    /// Starts or resumes `session`'s machine once its exec route found it not running, then connects it (cmux#47638). The
-    /// link can be up while the record does not run, so the record is read again first: a pause in flight is waited out, a
-    /// paused machine resumes as an attach does, and a start in flight is waited out, each within the start's connect wait.
-    static func started(_ session: CloudMachineSession, _ invocation: ActionInvocation) async throws {
-        await session.refresher?(true)
-        await CloudWait.outwaitPause(of: { session.machine.shownStatus }, within: CloudStartSession.connectWait) { await session.refresher?(false) }
-        if session.machine.shownStatus == .paused, let resume = session.resumer {
-            do { try await resume(session.machineID, CloudHandlers.connectOrigin(for: invocation)) } catch {
-                throw Failure(message: CloudMoveStrings.moveFailed(CloudStrings.errorText(error)), retry: .move(machineID: session.machineID))
-            }
-        }
-        try await CloudHandlers.requireAttachableState(session, waitingOutResume: CloudStartSession.connectWait)
-        _ = try await connected(session, invocation)
-    }
-
     /// Opens a moved chat (Move to Cloud's, Bring Back Local's) on `daemon`, bound to `shown.session` through `host`: a workspace placed
     /// like Cmd-N whose only tab is the chat's (made once: `mutation` + `shown.key`), selected. No terminal first: as the first tab it took
     /// the window and `--focus` (capture baf4f76ab502); a new terminal beside the chat starts in its folder. Each window that
