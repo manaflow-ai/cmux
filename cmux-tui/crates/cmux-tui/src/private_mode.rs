@@ -44,6 +44,11 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
         Some(cmux_tui_core::computer_use_host::WORKER_MODE) => {
             Some(crate::computer_use_worker::run(args.get(1..).unwrap_or_default()))
         }
+        // The terminal scroll-integrity probe (scroll_probe.rs) against any
+        // daemon socket: local, SSH or Cloud
+        // (scripts/measure/terminal-scroll-stress-linux.sh).
+        #[cfg(unix)]
+        Some(crate::scroll_probe::MODE) => Some(crate::scroll_probe::run(&args[1..])),
         _ => None,
     }
 }
