@@ -74,8 +74,7 @@ fn only_the_customize_folder_provides_the_customize_app() {
 /// customize app staying theirs beside them.
 #[test]
 fn setup_layers_load_from_the_index_in_its_order_only() {
-    let root =
-        std::env::temp_dir().join(format!("cmux-apps-setup-layers-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("cmux-apps-setup-layers-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let write = |dir: &Path, id: &str| {
         std::fs::create_dir_all(dir).unwrap();
@@ -110,8 +109,7 @@ fn setup_layers_load_from_the_index_in_its_order_only() {
     });
     let dusk = catalog.packages.get("local/setup-leo-dusk").map(|p| p.dir.clone());
     let impostor_refused = catalog.rejected.iter().any(|(dir, _)| dir == &impostor);
-    let escape_refused =
-        catalog.rejected.iter().any(|(_, why)| why.contains("not a setup layer"));
+    let escape_refused = catalog.rejected.iter().any(|(_, why)| why.contains("not a setup layer"));
     std::fs::remove_dir_all(&root).unwrap();
     assert_eq!(catalog.setup_layers, ["local/setup-leo-dawn", "local/setup-leo-dusk"]);
     assert_eq!(dusk, Some(setups.join("setup-leo-dusk")));

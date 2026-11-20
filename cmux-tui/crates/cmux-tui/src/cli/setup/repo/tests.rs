@@ -12,8 +12,8 @@ use serde_json::{Value, json};
 
 use super::super::super::OutputMode;
 use super::{
-    Apps, Checkout, Failure, Request, card_text, fetch_from, inert, install, install_as, order, parse,
-    remove, set_on, update,
+    Apps, Checkout, Failure, Request, card_text, fetch_from, inert, install, install_as, order,
+    parse, remove, set_on, update,
 };
 
 fn words(text: &[&str]) -> Vec<String> {
