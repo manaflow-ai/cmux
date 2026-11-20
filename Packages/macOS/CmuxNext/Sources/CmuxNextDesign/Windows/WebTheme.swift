@@ -201,6 +201,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             .merging(SidebarRowTokens.current.rowCSSVariables(pageZoom: DesignSettings.shared.uiScale)) { own, _ in own }
             // Every button's corner, the tab's (Metrics.buttonCornerRadius): `--ds-radius-control` reads it.
             .merging(["--cmux-button-radius": SidebarCardMetrics.px(Metrics.buttonCornerRadius / max(DesignSettings.shared.uiScale, 0.01))]) { own, _ in own }
+            // The popup corner and the dialog padding (`--ds-radius-popup`, `--ds-dialog-padding` read them): the
+            // native popup's and dialog's, so the Debug variants (PopupCornerLook, DialogCornerLook) move both.
+            .merging(SurfaceCornerLooks.current.cssVariables(pageZoom: DesignSettings.shared.uiScale)) { own, _ in own }
         colorScheme = tokens.isDark ? "dark" : "light"
         let colors = ColorTransition.current
         transition = ["duration": colors.cssDuration, "easing": colors.cssEasing, "space": colors.space.rawValue]
@@ -471,14 +474,15 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     }
 
     /// The inputs of the page theme that no theme change pushes: `appearance.borders`, `appearance.fontSmoothing`, the divider
-    /// strength (`--cmux-chrome-divider`), the title area's tone and contrast and the chrome shade they
+    /// strength (`--cmux-chrome-divider`), the popup corner and dialog padding Debug variants, the title area's tone and contrast and the chrome shade they
     /// make (`--cmux-sidebar-surface`, `--cmux-chrome-tone`, `--cmux-folder-fill`). The app repaints
     /// every page when one changes (`AppServices.observeBorders`).
     @MainActor
     public static var pushInputs: [String] {
         let design = DesignSettings.shared
         return [Borders.current.mode.rawValue, design.fontSmoothing.rawValue, "\(ChromeTunables.dividerStrength.value)", design.titleAreaTone.rawValue,
-                "\(design.titleAreaContrast)", "\(Metrics.mainPaneChromeShade(isDark: false))", "\(Metrics.mainPaneChromeShade(isDark: true))"]
+                "\(design.titleAreaContrast)", "\(Metrics.mainPaneChromeShade(isDark: false))", "\(Metrics.mainPaneChromeShade(isDark: true))",
+                PopupCornerLook.current.rawValue, DialogCornerLook.current.rawValue]
     }
 
     /// `rgba(r, g, b, a)` with 0-255 channels.

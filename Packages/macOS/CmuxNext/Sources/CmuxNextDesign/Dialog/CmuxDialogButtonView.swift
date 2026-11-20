@@ -291,7 +291,9 @@ enum CmuxDialogMetrics {
     /// The dialog card (``CmuxDialogView``): its width, wider with an icon so the text column keeps its width.
     static var width: CGFloat { 380 * Typography.userScale }
     static var widthWithIcon: CGFloat { 432 * Typography.userScale }
-    static var cardPadding: CGFloat { 16 * Typography.userScale }
+    /// The card's padding: design-scale.json `dialog.padding` (12, the web dialog's `--ds-dialog-padding` too), or
+    /// the Debug variant's (``DialogCornerLook``). It was 16 (a 24 corner) while the web padded 24 (a 32 corner).
+    static var cardPadding: CGFloat { DialogCornerLook.current.nativePadding * Typography.userScale }
     /// The card's concentric geometry (Lawrence 2026-11-15: "all dialogs needs concentric padding with buttons
     /// inside"): the buttons on its bottom row sit ``cardPadding`` from the bottom and the sides, so the card
     /// rounds by the button corner plus that padding.

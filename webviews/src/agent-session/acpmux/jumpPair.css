@@ -53,7 +53,7 @@
   gap: var(--ds-space-1);
   width: auto;
   padding: 0 var(--ds-space-3) 0 var(--ds-space-2);
-  border-radius: var(--ds-radius-popup);
+  border-radius: var(--ds-radius-lg);
   font-family: var(--font-ui);
   font-size: var(--text-control);
   font-weight: var(--weight-regular);
@@ -61,7 +61,7 @@
   white-space: nowrap;
 }
 .acpmux-jump-latest[data-look="stacked"] {
-  border-radius: var(--ds-radius-popup);
+  border-radius: var(--ds-radius-lg);
 }
 .acpmux-jump-latest.acpmux-jump-up[data-look="stacked"] {
   bottom: calc(

@@ -35,7 +35,7 @@ export default componentEntry<Props>({
       <div className="acpmux-shell" style={{ padding: "var(--ds-space-3)" }}>
         <div
           className="ui-glass ui-glass-floats"
-          style={{ borderRadius: "var(--ds-radius-popup)", padding: "var(--ds-space-1)", maxWidth: 380 }}
+          style={{ borderRadius: "var(--ds-radius-lg)", padding: "var(--ds-space-1)", maxWidth: 380 }}
         >
           {children}
           {MODELS.map((model) => (

@@ -211,7 +211,7 @@
 .cv-held[data-held]:focus-visible {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: 2px;
-  border-radius: var(--ds-radius-popup);
+  border-radius: var(--ds-radius-lg);
 }
 /* Its Approve and Decline (or its ⋯, the `menu` look) are how the owner answers: always shown in
    the line's action slot (IncomingMessageCard.tsx, DisclosureRow `actions`), never only on hover. */

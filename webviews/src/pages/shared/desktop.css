@@ -106,14 +106,15 @@ body {
   --ds-icon-20: 20px; /* primary rows */
   --ds-radius-sm: 4px; /* a row highlight inside a 4 px inset */
   --ds-radius-md: 6px; /* controls: buttons, fields, chips */
-  --ds-radius-lg: 8px; /* popups and small cards */
+  --ds-radius-lg: 8px; /* small cards, chips and tiles in a page (a popup takes the popup radius) */
   --ds-radius-xl: 12px; /* cards and the composer (grid.md's decided 12) */
   --ds-radius-2xl: 16px; /* code blocks (named exception) */
   --ds-radius-control: var(--cmux-button-radius, 8px); /* every button: the tab's corner (Metrics.buttonCornerRadius; Lawrence 2026-11-12, buttons round as tabs) */
-  --ds-radius-popup: 8px;
+  --ds-radius-popup: var(--cmux-popup-radius, 18px); /* every popup, menu, popover and hover card, web and native (PopupStyle, GlassMenuMaterial; DesignTokens.radiusPopup): 18, the corner of a popular macOS launcher's popovers (Leo 2026-11-20: "the little curvature, border radius. I don't even know how you guys came up with it"; it was 8, the pane radius, since #24589). The host sets --cmux-popup-radius to the Debug variant (PopupCornerLook: 8, 12 or 18). A row inside is concentric: this less the popup's padding */
   --ds-radius-card: 14px; /* today's card radius; grid.md moves it to 12 after a gallery comparison */
   --ds-radius-composer: 18px; /* today's composer radius; grid.md moves it to 12 after a gallery comparison */
   --ds-radius-menu: var(--cmux-menu-highlight-radius); /* AppKit's menu highlight (menu-metrics) */
+  --ds-dialog-padding: var(--cmux-dialog-padding, 12px); /* a dialog's padding, the same on every side, native (CmuxDialogMetrics.cardPadding, DesignTokens.dialogPadding) and web (--ds-dialog-padding, .ui-dialog.ui-glass): its corner is the button corner plus this (Lawrence 2026-11-15: "all dialogs needs concentric padding with buttons inside"), 8 + 12 = 20 at the default density, a popular macOS launcher's dialog corner. It was 16 native (a 24 corner) and 24 web (a 32 corner). The host sets --cmux-dialog-padding to the Debug variant (DialogCornerLook: 20, 24 or the old split) */
   /* glass chrome (level): chrome docked on the window: panes, the sidebar, bars, rails, side tabs, sticky headers and the minimap */
   --ds-glass-chrome-tint: 60%;
   --ds-glass-chrome-blur: blur(20px) saturate(1.4);

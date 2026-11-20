@@ -177,7 +177,7 @@
   gap: var(--ds-space-2);
   min-height: var(--ds-control-row);
   padding-right: var(--ds-space-1);
-  border-radius: var(--ds-radius-popup);
+  border-radius: var(--ds-radius-lg);
 }
 .acpmux-bg__agent {
   min-height: var(--ds-control-primary);
@@ -434,7 +434,7 @@
   padding: var(--ds-space-2) var(--ds-space-3);
   max-height: 240px;
   overflow: auto;
-  border-radius: var(--ds-radius-popup);
+  border-radius: var(--ds-radius-lg);
   background: var(--ds-color-hover);
   font-family: var(--cv-mono, ui-monospace, monospace);
   font-size: var(--text-detail);

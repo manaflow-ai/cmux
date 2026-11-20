@@ -32,7 +32,8 @@
   --ds-radius-xl: calc(12px * var(--page-density));
   --ds-radius-2xl: calc(16px * var(--page-density));
   --ds-radius-control: var(--cmux-button-radius, calc(8px * var(--page-density)));
-  --ds-radius-popup: calc(8px * var(--page-density));
+  --ds-radius-popup: calc(var(--cmux-popup-radius, 18px) * var(--page-density));
+  --ds-dialog-padding: calc(var(--cmux-dialog-padding, 12px) * var(--page-density));
   --ds-radius-card: calc(14px * var(--page-density));
   --ds-radius-composer: calc(18px * var(--page-density));
   --text-caption: calc(11px * var(--page-density-text));

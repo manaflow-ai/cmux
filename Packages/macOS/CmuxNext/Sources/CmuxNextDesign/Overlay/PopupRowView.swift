@@ -25,6 +25,9 @@ open class PopupRowView: NSView {
         public var minHeight: CGFloat = PopupStyle.standard.rowHeight
         /// The highlight's inset from the row's bounds.
         public var fillInset = NSSize.zero
+        /// The highlight's corner; nil is the popup row's (``PopupStyle/rowCornerRadius``). A menu on AppKit's grid
+        /// sets ``PopupStyle/menuRowCornerRadius``, concentric with its own inset.
+        public var cornerRadius: CGFloat?
         /// The pointer over the row draws the highlight. Off when the owner drives the one
         /// highlight itself (a menu that the keyboard and the pointer share): ``onHover`` reports
         /// the pointer.
@@ -167,15 +170,15 @@ open class PopupRowView: NSView {
     open override func draw(_ dirtyRect: NSRect) {
         let pressed = isPressed && isEnabled && isInteractive
         guard pressed || drawsHighlight else { return }
-        let style = PopupStyle.standard
+        let radius = rowLayout.cornerRadius ?? PopupStyle.standard.rowCornerRadius
         let rect = bounds.insetBy(dx: rowLayout.fillInset.width, dy: rowLayout.fillInset.height)
-        let path = NSBezierPath(roundedRect: rect, xRadius: style.rowCornerRadius, yRadius: style.rowCornerRadius)
+        let path = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
         performWithTheme {
             (pressed ? Palette.pressedFill : Palette.hoverFill).setFill()
             path.fill()
             guard showsFocus else { return }
-            let ring = NSBezierPath(roundedRect: rect.insetBy(dx: 0.75, dy: 0.75), xRadius: style.rowCornerRadius,
-                                    yRadius: style.rowCornerRadius)
+            let ring = NSBezierPath(roundedRect: rect.insetBy(dx: 0.75, dy: 0.75), xRadius: radius,
+                                    yRadius: radius)
             ring.lineWidth = Metrics.lineWidth(1.5)
             Palette.focusRing.setStroke()
             ring.stroke()

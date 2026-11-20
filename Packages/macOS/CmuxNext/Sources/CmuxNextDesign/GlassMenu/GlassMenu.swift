@@ -393,6 +393,7 @@ final class GlassMenuListView: NSView {
         layout.trailingGap = MenuMetrics.shortcutGap
         layout.minHeight = GlassMenuMaterial.rowHeight
         layout.hoverFills = false
+        layout.cornerRadius = PopupStyle.standard.menuRowCornerRadius
         var subtitle: String?
         if #available(macOS 14.4, *) { subtitle = item.subtitle }
         let row = PopupRowView(leading: iconColumn ? icon(item.image) : nil, title: item.title, subtitle: subtitle,

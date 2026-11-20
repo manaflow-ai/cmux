@@ -1,7 +1,7 @@
 .dialog-gallery-popup {
   box-sizing: border-box;
   padding: 16px 20px;
-  border-radius: var(--ui-popup-radius, 8px);
+  border-radius: var(--ui-popup-radius, 18px);
   background: var(--surface-popup);
   box-shadow: var(--ui-popup-shadow);
   color: var(--cmux-text, CanvasText);

@@ -5,19 +5,31 @@ public import CmuxNextDesignTokens
 /// the icon picker, page info, the palette's actions menu): the web's popup
 /// surface (webviews/src/ui/popupSurface.css, #18729) in AppKit. Rounded rects,
 /// compact rows and one subtle shadow (`elevation`); each surface keeps its own
-/// material and theme colors. A popover is a top-level surface, so its corner is the
-/// one corner radius (`Metrics.surfaceCornerRadius`) and a row's corner is concentric
-/// with it: the card's radius less the row's inset (`padding`).
+/// material and theme colors. A popover's corner is the popup radius (``cornerRadius(for:)``:
+/// design-scale.json `namedRadii.popup`, 18, the web's `--ds-radius-popup`) and a row's corner is
+/// concentric with it: the card's radius less the row's inset (`padding`).
 public struct PopupStyle: Sendable {
     /// The style every native popover uses.
     public static let standard = PopupStyle()
 
-    /// The card's corner: the one corner radius.
-    public var cornerRadius: CGFloat { Metrics.surfaceCornerRadius }
+    /// The card's corner: the popup radius of the Debug variant in effect (``PopupCornerLook``).
+    public var cornerRadius: CGFloat { Self.cornerRadius(for: .current) }
     public let padding: CGFloat = DesignTokens.space1
     public let rowHeight: CGFloat = DesignTokens.controlRow
     /// A row's highlight, `padding` inside the card: concentric with the card's corner.
     public var rowCornerRadius: CGFloat { Metrics.cornerRadius(nestedIn: cornerRadius, inset: padding) }
+    /// A menu row's highlight on AppKit's grid, ``MenuMetrics/highlightInset`` inside the card: concentric
+    /// with the card's corner, never less than the grid's own ``MenuMetrics/highlightRadius``.
+    public var menuRowCornerRadius: CGFloat {
+        max(MenuMetrics.highlightRadius, Metrics.cornerRadius(nestedIn: cornerRadius, inset: MenuMetrics.highlightInset))
+    }
+
+    /// The popup radius of `look` at the interface scale (Leo 2026-11-20: "the little curvature, border
+    /// radius"; it was the pane radius, 8). A corner radius the person set (`layout.paneCornerRadius`)
+    /// still rounds every surface, popups included, as it did.
+    public static func cornerRadius(for look: PopupCornerLook) -> CGFloat {
+        Metrics.cornerRadiusIsSet ? Metrics.surfaceCornerRadius : Metrics.scale(look.points)
+    }
     public let openDuration: TimeInterval = 0.12
 
     /// The one popover shadow: the raised step of the elevation scale.

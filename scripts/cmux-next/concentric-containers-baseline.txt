@@ -47,7 +47,6 @@ webviews/src/agent-session/acpmux/conversation/conversation.css: .cv-tool-error-
 webviews/src/agent-session/acpmux/harnessStatus.css: .acpmux-harness-status__close { border-radius: 6px }
 webviews/src/agent-session/acpmux/harnesses/harnesses.css: .acpmux-harnesses-close { border-radius: 6px }
 webviews/src/agent-session/acpmux/newtab/screen.css: .nt-card { border-radius: 16px }
-webviews/src/agent-session/acpmux/newtab/screen.css: .nt-cards[data-variant="list"] .nt-card { border-radius: var(--ds-radius-popup) }
 webviews/src/agent-session/acpmux/newtab/screen.css: .nt-hovercard { border-radius: var(--ds-radius-popup) }
 webviews/src/agent-session/acpmux/newtab/screen.css: .nt-row-action kbd { border-radius: 4px }
 webviews/src/agent-session/acpmux/newtab/screen.css: .nt-screen[data-template="cards"] .nt-card { border-radius: 14px }
@@ -98,7 +97,6 @@ webviews/src/pages/feed/styles.css: .feed-needs .feed-card { border-radius: var(
 webviews/src/pages/github/styles.css: .gh-md kbd { border-radius: 4px }
 webviews/src/pages/history/styles.css: .history-sheet { border-radius: 12px }
 webviews/src/pages/home-channels/chiefWork.css: .hc-chief-work__refresh, .hc-chief-work__close { border-radius: 6px }
-webviews/src/pages/home-channels/ledger.css: .lg-goal-strip { border-radius: var(--ds-radius-popup) }
 webviews/src/pages/home-channels/ledger.css: .lg-kbd { border-radius: 4px }
 webviews/src/pages/home-channels/ledger.css: .lg-palette.ui-dialog, .lg-palette { border-radius: 12px }
 webviews/src/pages/home-messages/list/list.css: .hm-draft-close { border-radius: 50% }
