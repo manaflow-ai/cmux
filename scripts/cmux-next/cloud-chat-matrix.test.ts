@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { CELLS, PICKER_HARNESSES, appStartDetail, judge, table } from "./cloud-chat-matrix";
+import { CELLS, PICKER_HARNESSES, appStartDetail, judge, matrixVerdict, table } from "./cloud-chat-matrix";
 
 const cell = (id: string) => CELLS.find((c) => c.id === id)!;
 const pass = (step: string, ms = 1000, detail = "") => ({ step, status: "pass" as const, ms, detail });
@@ -13,6 +13,21 @@ test("a cell passes only when every step did, and reports its timings", () => {
   expect(judge(cell("codex-chatgpt-stub"), [...steps, fail("delete", 10, "gone?")], 1).verdict).toBe("fail");
   // The journey's own summary line is not a step failure.
   expect(judge(cell("codex-chatgpt-stub"), [...steps, fail("prod: 6 passed, 0 failed", 0, "")], 0).verdict).toBe("pass");
+});
+
+test("a run needs evidence for its selected proof", () => {
+  const c = cell("codex-chatgpt-stub");
+  const skipped = { cell: c, verdict: "skip" as const, why: "unavailable", ms: {} };
+  const missingReply = judge(c, [pass("create machine")], 0);
+  const bench = cell("start-bench");
+  const measured = judge(bench, [pass("start bench")], 0);
+  expect(judge(bench, [], 0).verdict).toBe("fail");
+  expect(measured.verdict).toBe("pass");
+  expect(missingReply.verdict).toBe("fail");
+  expect(matrixVerdict([])).toBe("skip");
+  expect(matrixVerdict([skipped])).toBe("skip");
+  expect(matrixVerdict([skipped, measured])).toBe("pass");
+  expect(matrixVerdict([missingReply, measured])).toBe("fail");
 });
 
 test("a hung Codex reply is a failure that names the step", () => {

@@ -21,7 +21,7 @@
  *
  * Other lanes add their cells to CELLS (the Claude cells: lane cloud-claude-matrix). --out DIR gets one
  * folder per cell (journey.json, summary.md) and matrix.md, the table for the results issue. Exit 0 only
- * when no cell failed.
+ * when at least one cell passed and none failed. A run with no judged cells exits 2.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -184,7 +184,16 @@ export function judge(cell: Cell, steps: Step[], exit: number): Row {
   }
   if (failed.length) return { cell, verdict: "fail", why: `${failed[0]!.step}: ${(failed[0]!.detail ?? "").slice(0, 200)}`, ms, reply };
   if (exit !== 0) return { cell, verdict: "fail", why: `journey exit ${exit}`, ms, reply };
+  const proofStep = cell.proof === "bench" ? "start bench" : "reply";
+  if (!steps.some((s) => s.step === proofStep && s.status === "pass")) {
+    return { cell, verdict: "fail", why: `no successful ${proofStep} step`, ms, reply };
+  }
   return { cell, verdict: "pass", why: "every step passed", ms, reply };
+}
+
+export function matrixVerdict(rows: Row[]): Row["verdict"] {
+  if (rows.some((row) => row.verdict === "fail")) return "fail";
+  return rows.some((row) => row.verdict === "pass") ? "pass" : "skip";
 }
 
 export function table(rows: Row[]): string {
@@ -255,10 +264,11 @@ export function main(argv: string[]): number {
     if (existsSync(bench)) extra.push(readFileSync(bench, "utf8"));
     console.log(`${row.verdict.toUpperCase()} ${cell.id} ${((Date.now() - t0) / 1000).toFixed(0)} s :: ${row.why}`);
   }
-  const md = `${table(rows)}\n${extra.map((e) => `\n${e}`).join("")}`;
+  const verdict = matrixVerdict(rows);
+  const md = `${verdict.toUpperCase()}: Cloud chat matrix\n\n${table(rows)}\n${extra.map((e) => `\n${e}`).join("")}`;
   writeFileSync(path.join(out, "matrix.md"), md);
   console.log(`\n${md}\nmatrix: ${path.join(out, "matrix.md")}`);
-  return rows.some((r) => r.verdict === "fail") ? 1 : 0;
+  return { fail: 1, pass: 0, skip: 2 }[verdict];
 }
 
 if (import.meta.main) process.exit(main(process.argv.slice(2)));
