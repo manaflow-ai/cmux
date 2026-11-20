@@ -115,6 +115,9 @@ extension AttentionSettings {
     /// `notifications.attention.showOnSidebar`.
     public nonisolated static let showOnSidebarPath = ["notifications", "attention", "showOnSidebar"]
     public nonisolated static let showOnSidebarDefault = true
+    /// `notifications.attention.mark`: Leo 2026-11-19: "needs you" as motion, a look customization, off by default (the badge stays the default).
+    public nonisolated static let markPath = ["notifications", "attention", "mark"]
+    public nonisolated static let markDefault: AttentionMarkLook = .badge
     /// `notifications.attention.moveToTop`.
     public nonisolated static let moveToTopPath = ["notifications", "attention", "moveToTop"]
     public nonisolated static let moveToTopDefault = true

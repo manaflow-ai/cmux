@@ -85,6 +85,8 @@ pub struct MediaSession {
     /// The cursor as metadata, when the viewer draws it (cap `cursor`) and the desktop
     /// reports it: the pictures leave it out.
     cursor: Option<CursorChannel>,
+    /// Clipboard text both ways (cap `clipboard.text`), only while the viewer holds control.
+    clipboard: Option<crate::clipboard::ClipboardChannel>,
     /// Spreads each frame's datagrams over part of its frame interval (`None` with
     /// `CMUX_RD_PACE=0`, for comparison): a keyframe written as one burst of hundreds of
     /// datagrams is queued or dropped by a Wi-Fi radio or the kernel.
@@ -284,6 +286,7 @@ impl MediaSession {
             settle_ns: cfg.settle_us * 1000,
             timing: Timing::from_env(),
             cursor: wants_cursor(negotiated_caps).then(CursorChannel::new),
+            clipboard: crate::clipboard::open(negotiated_caps, now_us()),
             pacer: pacing_enabled().then(Pacer::new),
             frame_interval_us: 1_000_000 / u64::from(cfg.max_fps.max(1)),
             paced_logs: VecDeque::new(),
@@ -346,6 +349,13 @@ impl MediaSession {
             let timeout = self.cursor.as_ref().map_or(timeout, |c| {
                 timeout.min(c.next_deadline_us().saturating_sub(now_us()).saturating_mul(1000))
             });
+            // The next clipboard check or part (only while the viewer holds control).
+            let may_control = table.may_inject_input(session, viewer);
+            let timeout =
+                match self.clipboard.as_ref().and_then(|c| c.next_deadline_us(may_control)) {
+                    Some(due) => timeout.min(due.saturating_sub(now_us()).saturating_mul(1000)),
+                    None => timeout,
+                };
             // Timed input work: a press waiting behind the agent's held button, the person
             // master going idle.
             let wake = if table.may_inject_input(session, viewer) {
@@ -373,6 +383,19 @@ impl MediaSession {
             for item in incoming.drain(..) {
                 match item {
                     Incoming::Control(Control::Stop) => return "stopped by viewer".into(),
+                    Incoming::Control(Control::Clipboard { seq, text, offset, total }) => {
+                        // Applied only in a control session; without the cap, ignored.
+                        let may_control = table.may_inject_input(session, viewer);
+                        if let Some(clipboard) = self.clipboard.as_mut() {
+                            let part = cmux_rd_proto::clipboard::ClipboardPart {
+                                seq,
+                                text,
+                                offset,
+                                total,
+                            };
+                            clipboard.on_part(part, may_control);
+                        }
+                    }
                     Incoming::Control(control) => {
                         let may_control = table.may_inject_input(session, viewer);
                         if let Some(answer) =
@@ -440,6 +463,13 @@ impl MediaSession {
             }
             if let Err(e) = self.send_cursor(carrier) {
                 return format!("control write failed: {e}");
+            }
+            if let Some(clipboard) = self.clipboard.as_mut() {
+                if let Some(part) = clipboard.poll(now_us(), may_inject) {
+                    if let Err(e) = carrier.send_control(&part) {
+                        return format!("control write failed: {e}");
+                    }
+                }
             }
             if now_ns() >= self.next_stats_ns {
                 self.send_stats(carrier);
