@@ -143,7 +143,6 @@ extension PaneCommitMotion {
         }
         for host in bare.isEmpty ? [] : hosts where !host.isHidden && !changes.contains(where: { $0.host === host }) {
             guard let layer = host.layer else { continue }
-            if inFlight { endOwnMove(of: host) }
             let frame = layer.frame
             var across = Span(), down = Span()
             for change in bare where Self.area(frame.intersection(change.old.union(change.new))) >= 1 {
