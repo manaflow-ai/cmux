@@ -109,6 +109,39 @@ extension NewTabCommandListKeptTests {
         }
     }
 
+    /// A web page's run of a command row gives the title that the app's copy of the page's list has. A row with the title
+    /// of now runs. That run changes the state and no member of the registry, so the copy's title is old then: a second
+    /// run of the row runs nothing, the actions are read again, and the copy's row has the title of now.
+    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+    func aWebPagesRunOfARowRunsItOnlyUnderTheTitleOfNow() async throws {
+        try await Self.web("cn-list-kept-web-title") { web in
+            let services = web.services, lister = services.newTabActions, view = web.first
+            let (store, id) = try Self.collapseRow(services)
+            // The bind is a write of the registry: the app reads the actions again for its pages.
+            NewTabPage.fillPaletteActions(services, again: true)
+            _ = await Self.listed(services)
+            let row = view.model.newTab?.omnibar.actions.first { $0.id == id }
+            let shown = try #require(row, "the row did not make its case: the page's list of \(view.model.newTab?.omnibar.actions.count ?? 0) rows has no row \(id)")
+            _ = await view.model.respond(to: .appAction(id))
+            let first = store.isCollapsed
+            // The second half starts from the collapsed state in each case.
+            store.setCollapsed(true)
+            try #require(view.model.newTab?.omnibar.actions.first { $0.id == id } == shown, "the row did not make its case: the first run changed the page's row")
+            let before = lister.counts
+            _ = await view.model.respond(to: .appAction(id))
+            let ran = !store.isCollapsed
+            let read = await Self.listed(services)
+            let end = lister.counts
+            let now = view.model.newTab?.omnibar.actions.first { $0.id == id }
+            print("new-tab-list: a web page's run of a row: under '\(shown.title)', the title of now, the run \(first ? "ran it" : "ran nothing"); the second run "
+                + "\(ran ? "ran it" : "ran nothing"), \(end.started - before.started) listings started after it, the row has '\(now?.title ?? "no row")' after the hand-over")
+            #expect(first, "the row showed '\(shown.title)', the title of now, and its run did not collapse the tabs")
+            #expect(!ran, "the row showed '\(shown.title)' with the tabs collapsed, and its run expanded them")
+            #expect(read.list != nil && end.started == before.started + 1, "the refused run started \(end.started - before.started) listings where 1 is wanted")
+            #expect(now != nil && now?.title != shown.title, "after the refused run the row has '\(now?.title ?? "no row")', and it had '\(shown.title)' before")
+        }
+    }
+
     /// The reads of the pages by a row's fills, as a count.
     @MainActor private final class PageReads { var count = 0 }
 

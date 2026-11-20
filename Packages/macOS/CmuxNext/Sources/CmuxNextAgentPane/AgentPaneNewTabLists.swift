@@ -49,9 +49,19 @@ public final class NativeNewTabList {
         }
     }
 
-    /// The palette refused a row of the page's list (it cannot run now): the actions are read again, and the row
-    /// leaves the list, as the palette's own list dims it.
-    public func refused() { model?.listPaletteActions(by: read) }
+    /// The page's run of an action row (``NativeNewTabActions/action``). A row that the palette refuses now (it
+    /// cannot run, or its title is not the shown one any more) makes the actions be read again: the row leaves the
+    /// list or changes, as the palette's own list dims it.
+    ///
+    /// - Parameter run: Runs the palette's row of an id when its title is still the shown one; false when the
+    ///   palette refused it.
+    public func action(_ run: @escaping @MainActor (_ id: String, _ shown: String) -> Bool) -> @MainActor (String, String) -> Void {
+        { [self] id, shown in
+            if !run(id, shown) { refused() }
+        }
+    }
+
+    private func refused() { model?.listPaletteActions(by: read) }
 
     private func read(_ wanted: @escaping @MainActor () -> Bool, _ deliver: @escaping @MainActor ([AgentPaneOmnibar.Action]) -> Void) {
         lister.read(wanted: wanted) { deliver($0.actions) }

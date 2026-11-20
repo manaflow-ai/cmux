@@ -70,6 +70,36 @@ extension NewTabCommandListKeptTests {
         return (queued, started)
     }
 
+    /// Binds the app's Collapse Tabs row on a store of the row's own. The row's title is made from the store's state,
+    /// which is no member of the registry. Returns the store and the row's id.
+    static func collapseRow(_ services: AppServices) throws -> (store: WorkspaceVerticalTabs, id: String) {
+        var context = AppActionContext(services: services)
+        let design = DesignSettings()
+        design.verticalTabs = true
+        context.design = design
+        let store = WorkspaceVerticalTabs(defaults: try #require(UserDefaults(testSuiteName: "NewTabCommandListKeptTests.\(UUID().uuidString)")))
+        VerticalTabsActions(host: context, store: store).bind(into: services.registry)
+        try #require(!store.isCollapsed, "setup: the row's own store starts collapsed")
+        return (store, VerticalTabsActions.collapse.rawValue)
+    }
+
+    private static func host(in view: NSView) -> NativeNewTabHostingView? {
+        if let host = view as? NativeNewTabHostingView { return host }
+        return view.subviews.lazy.compactMap { host(in: $0) }.first
+    }
+
+    /// Cmd-T with no page prepared: the view of the page's tab makes the page's model. Returns that model. The view can
+    /// come in a later presentation turn; that wait is the fixture's (a bound of time), not a row's.
+    private static func openColdPage(_ app: App) async throws -> NativeNewTabModel {
+        let services = app.services
+        services.newTabSpares.dropAll()
+        try #require(services.newTabSpares.nativeSpare == nil, "setup: a native New Tab page is still prepared")
+        let key = try #require(NewTabPage.openNative(in: app.pane, reusingShown: false), "the native New Tab page is off")
+        try await PinnedPageTests.until({ app.pane.currentTabKey == key && services.pages.existingView(key).flatMap { host(in: $0) } != nil },
+                                        report: { "the page that Cmd-T made with no prepared page never had its view" })
+        return try #require(services.pages.existingView(key).flatMap { host(in: $0) }?.model, "the page of tab \(key) has no model")
+    }
+
     // MARK: - A state that is no part of the key
 
     /// A page that shows with the kept list has the rows of the last listing. The title of a toggle is made from a state
@@ -80,14 +110,7 @@ extension NewTabCommandListKeptTests {
         let app = try await Self.shown()
         defer { app.close() }
         let services = app.services, lister = services.newTabActions
-        var context = AppActionContext(services: services)
-        let design = DesignSettings()
-        design.verticalTabs = true
-        context.design = design
-        let store = WorkspaceVerticalTabs(defaults: try #require(UserDefaults(testSuiteName: "NewTabCommandListKeptTests.\(UUID().uuidString)")))
-        VerticalTabsActions(host: context, store: store).bind(into: services.registry)
-        try #require(!store.isCollapsed, "setup: the row's own store starts collapsed")
-        let id = VerticalTabsActions.collapse.rawValue
+        let (store, id) = try Self.collapseRow(services)
 
         let first = try Self.openPage(app)
         first.loadPaletteActions()
@@ -113,6 +136,62 @@ extension NewTabCommandListKeptTests {
         #expect(!ran, "the row showed '\(shown.title)' with the tabs collapsed, and its run expanded them")
         #expect(read.list != nil && end.started == before.started + 1, "the run started \(end.started - before.started) listings where 1 is wanted")
         #expect(now != nil && now?.title != shown.title, "after the run the row shows '\(now?.title ?? "no row")', and it showed '\(shown.title)' before")
+    }
+
+    /// The other half of the title's compare: the state did not change since the listing, so the page's row shows the
+    /// title of now, and Return on it runs the row.
+    @Test func aRunOfARowWithTheTitleOfNowRunsIt() async throws {
+        let app = try await Self.shown()
+        defer { app.close() }
+        let services = app.services
+        let (store, id) = try Self.collapseRow(services)
+        let page = try Self.openPage(app)
+        page.loadPaletteActions()
+        let list = try #require(await Self.listed(services).list, "the page's listing never handed its list over")
+        let row = page.page.omnibar.actions.first { $0.id == id }
+        let shown = try #require(row, "the row did not make its case: the page has \(page.page.omnibar.actions.count) of \(list.actions.count) rows and no row \(id)")
+
+        page.activate(.action(shown))
+        print("new-tab-list: a run of a row with the title of now: the row showed '\(shown.title)', the run \(store.isCollapsed ? "ran it" : "ran nothing")")
+        #expect(store.isCollapsed, "the row showed '\(shown.title)', the title of now, and its run did not collapse the tabs")
+    }
+
+    /// A page whose own listing read its list asks for nothing at its first use. So after a run that the palette
+    /// refuses, only the page's list itself asks for the read. Both kinds of page: the prepared one that Cmd-T adopts,
+    /// and the one that Cmd-T makes when no page is prepared.
+    @Test(arguments: [true, false])
+    func aRefusedRunInAPageWithItsOwnListReadsTheActionsAgain(prepared: Bool) async throws {
+        let app = try await Self.shown()
+        defer { app.close() }
+        let services = app.services, lister = services.newTabActions
+        let (store, id) = try Self.collapseRow(services)
+        try #require(lister.kept == nil, "the row did not make its case: a list is kept before the page's open")
+        let before = lister.counts
+        let page = try await prepared ? Self.openPage(app) : Self.openColdPage(app)
+        page.loadPaletteActions()
+        let handed = try #require(await Self.listed(services).list, "the page's listing never handed its list over")
+        let own = lister.counts
+        // One listing since the open, with a key, and the page has its list: the page counts the list as its own.
+        let has = page.page.omnibar.actions.count, keeps = lister.kept == nil ? "no list is kept" : "a list is kept"
+        try #require(own.started == before.started + 1 && lister.kept?.actions == handed.actions && page.page.omnibar.actions == handed.actions,
+                     "the row did not make its case: \(own.started - before.started) listings started, \(keeps), the page has \(has) of \(handed.actions.count) actions")
+        let row = page.page.omnibar.actions.first { $0.id == id }
+        let shown = try #require(row, "the row did not make its case: the list of \(handed.actions.count) rows has no row \(id)")
+        store.setCollapsed(true)
+        try #require(lister.kept?.actions == handed.actions, "the row did not make its case: the change of the state dropped the kept list")
+
+        page.activate(.action(shown))
+        let ran = !store.isCollapsed
+        // The row's own ask takes the kept list with no read, when the run asked for none.
+        let read = await Self.listed(services)
+        let end = lister.counts
+        let now = page.page.omnibar.actions.first { $0.id == id }
+        print("new-tab-list: a refused run in a page with its own list (\(prepared ? "a prepared page" : "no prepared page")): the row showed "
+            + "'\(shown.title)', the run \(ran ? "ran it" : "ran nothing"), \(end.started - own.started) listings started after it, "
+            + "the row shows '\(now?.title ?? "no row")' after the hand-over")
+        #expect(!ran, "the row showed '\(shown.title)' with the tabs collapsed, and its run expanded them")
+        #expect(read.list != nil && end.started == own.started + 1, "the refused run started \(end.started - own.started) listings where 1 is wanted")
+        #expect(now != nil && now?.title != shown.title, "after the refused run the row shows '\(now?.title ?? "no row")', and it showed '\(shown.title)' before")
     }
 
     // MARK: - A listing that has no key
@@ -212,6 +291,79 @@ extension NewTabCommandListKeptTests {
             + "of the lister, \(letter.started) listings started")
         #expect(letter.queued, "the first letter queued no task of the lister")
         #expect(letter.started == 1, "the first letter in a page whose listing saw a change of the registry started \(letter.started) listings where 1 is wanted")
+    }
+
+    /// A change after a listing's last slice, while its list waits for the hand-over: the list's key holds no more
+    /// when the page takes it, and the page reads the actions again at its first letter. Both parts of the key: a write
+    /// of the registry, and another focus context.
+    @Test(arguments: [true, false])
+    func aPageWhoseListWaitedForItsHandOverAtAChangeReadsAgainAtItsFirstLetter(ofTheRegistry: Bool) async throws {
+        let app = try await Self.shown()
+        defer { app.close() }
+        let services = app.services, lister = services.newTabActions, limit = Self.frameLimit(services)
+        // The late turns of the window's first content are over after one listing. A write drops that listing's list.
+        _ = await Self.listed(services)
+        services.registry.setShortcutOverride(CmuxNextActions.Shortcut("t", modifiers: [.control]), for: "newTab.default")
+        let page = try Self.openPage(app)
+        try #require(page.page.omnibar.actions.isEmpty, "the row did not make its case: the page showed with \(page.page.omnibar.actions.count) actions")
+        let before = lister.counts
+        page.loadPaletteActions()
+        try Self.slices(services, after: before)
+        var fired = 0
+        while lister.counts.actionsRead == before.actionsRead, fired < limit {
+            services.mainWork.frameDidFire()
+            fired += 1
+        }
+        let ended = lister.counts.actionsRead - before.actionsRead
+        try #require(ended > 0 && page.page.omnibar.actions.isEmpty,
+                     "the row did not make its case: after \(fired) frames the listing read \(ended) actions to its end, and the page has \(page.page.omnibar.actions.count) actions")
+        // The listing is at its end and its list is not handed over yet: the change comes now.
+        let home = services.registry.context, away = Self.terminal(home), what = ofTheRegistry ? "a key binding" : "the focus context"
+        if ofTheRegistry {
+            services.registry.setShortcutOverride(CmuxNextActions.Shortcut("y", modifiers: [.control]), for: "newTab.default")
+        } else {
+            services.registry.context = away
+        }
+        let handed = try #require(await Self.listed(services).list, "the listing never handed its list over")
+        let read = lister.counts, held = ofTheRegistry || services.registry.context == away, has = page.page.omnibar.actions.count
+        try #require(read.started == before.started + 1 && page.page.omnibar.actions == handed.actions && !handed.actions.isEmpty && held,
+                     "the row did not make its case: \(read.started - before.started) listings started, the page has \(has) actions, the focus context is \(services.registry.context.rawValue)")
+        #expect(lister.kept == nil, "a list that waited for its hand-over at a change of \(what) is kept after that change")
+        // The next letter comes with the focus in the page again.
+        services.registry.context = home
+
+        let letter = await Self.firstLetter(in: page, services)
+        print("new-tab-list: a page whose list waited for its hand-over at a change of \(what): the listing's end after \(fired) more frames; "
+            + "its first letter \(letter.queued ? "queued" : "did not queue") a task of the lister, \(letter.started) listings started")
+        #expect(letter.queued, "the first letter queued no task of the lister")
+        #expect(letter.started == 1, "the first letter in a page whose list waited at a change of \(what) started \(letter.started) listings where 1 is wanted")
+    }
+
+    // MARK: - A page that Cmd-T makes with no prepared page
+
+    /// No page is prepared, so the view of the new tab makes the page's model. As a prepared page, it shows with the
+    /// kept list and starts no listing, and its first letter reads the actions again.
+    @Test func aPageWithNoPreparedPageShowsWithTheKeptListAndReadsAgainAtItsFirstLetter() async throws {
+        let app = try await Self.shown()
+        defer { app.close() }
+        let services = app.services, lister = services.newTabActions
+        let first = try Self.openPage(app)
+        first.loadPaletteActions()
+        let list = try #require(await Self.listed(services).list, "the first page's listing never handed its list over")
+        try #require(lister.kept?.actions == list.actions, "the row did not make its case: no list is kept before the second page")
+        let before = lister.counts
+
+        let page = try await Self.openColdPage(app)
+        try #require(page !== first, "the row did not make its case: the second key showed the first page's model")
+        let has = page.page.omnibar.actions.count, same = page.page.omnibar.actions == list.actions
+        let shown = lister.counts
+        let letter = await Self.firstLetter(in: page, services)
+        print("new-tab-list: a page with no prepared page: it shows with \(has) of \(list.actions.count) actions, \(shown.started - before.started) "
+            + "listings started at its show; its first letter \(letter.queued ? "queued" : "did not queue") a task of the lister, \(letter.started) listings started")
+        #expect(same && has == list.actions.count, "the page showed with \(has) of the \(list.actions.count) actions of the kept list")
+        #expect(shown.started == before.started, "the show of the page started \(shown.started - before.started) listings")
+        #expect(letter.queued, "the first letter queued no task of the lister")
+        #expect(letter.started == 1, "the first letter in a page that showed with the kept list started \(letter.started) listings where 1 is wanted")
     }
 
     // MARK: - The key's two parts
