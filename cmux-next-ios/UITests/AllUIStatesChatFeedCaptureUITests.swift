@@ -126,14 +126,16 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
         ])
     }
 
+    /// The toolbar's Mark All as Read: it asks first, so this opens the confirmation alert.
     @MainActor
-    private static func feedMore(_ app: XCUIApplication) -> String? {
-        tap(app.buttons["feed.more"].firstMatch, "Feed More", timeout: 30)
+    private static func markAllAlert(_ app: XCUIApplication) -> String? {
+        steps([{ tap(app.buttons["feed.markAllRead"].firstMatch, "Mark All as Read", timeout: 30) }, { wait(app.alerts.firstMatch, "Mark All as Read alert", timeout: 10) }])
     }
 
+    /// The toolbar's Filter button opens the Filter sheet.
     @MainActor
     private static func openWorkspaces(_ app: XCUIApplication) -> String? {
-        steps([{ feedMore(app) }, { tap(app.buttons["feed.chooseWorkspaces"].firstMatch, "Workspaces") }, { wait(app.switches.firstMatch, "workspace switch", timeout: 10) }])
+        steps([{ tap(app.buttons["feed.filter"].firstMatch, "Filter", timeout: 30) }, { wait(app.switches.firstMatch, "workspace switch", timeout: 10) }])
     }
 
     /// Turns the sheet's first workspace switch off. A SwiftUI Toggle's element is the whole row,
@@ -170,14 +172,20 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "chip-needs-you", args: Self.feed) { app in C.tap(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Needs you'")).firstMatch, "Needs you chip") },
             Scene(group: g, id: "chip-finished", args: Self.feed) { app in C.tap(app.buttons["Finished"].firstMatch, "Finished chip") },
             Scene(group: g, id: "chip-errors", args: Self.feed) { app in C.tap(app.buttons["Errors"].firstMatch, "Errors chip") },
-            Scene(group: g, id: "more-menu", args: Self.feed) { app in Self.feedMore(app) },
+            Scene(group: g, id: "mark-all-alert", args: Self.feed) { app in Self.markAllAlert(app) },
+            Scene(group: g, id: "mark-all-confirmed", args: Self.feed) { app in
+                C.steps([{ Self.markAllAlert(app) }, { C.tap(app.alerts.buttons["feed.markAllRead.confirm"].firstMatch, "confirm Mark All as Read") }])
+            },
+            Scene(group: g, id: "mark-all-cancelled", args: Self.feed) { app in
+                C.steps([{ Self.markAllAlert(app) }, { C.tap(app.alerts.buttons["feed.markAllRead.cancel"].firstMatch, "Cancel") }])
+            },
             Scene(group: g, id: "workspaces-sheet", args: Self.feed) { app in Self.openWorkspaces(app) },
             Scene(group: g, id: "workspaces-sheet-one-hidden", args: Self.feed) { app in
                 C.steps([{ Self.openWorkspaces(app) }, { Self.turnOffFirstWorkspace(app) }])
             },
             Scene(group: g, id: "workspaces-sheet-large", args: Self.feed) { app in
                 C.steps([{ Self.openWorkspaces(app) }, {
-                    app.navigationBars["Workspaces"].firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                    app.navigationBars["Filter"].firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
                         .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.05)))
                     return nil
                 }])
@@ -186,8 +194,8 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
                 C.steps([{ Self.openWorkspaces(app) }, { C.tap(app.searchFields.firstMatch, "search field") }, { app.typeText("zzzz"); return nil }])
             },
             Scene(group: g, id: "hidden-workspaces-line", args: Self.feed) { app in Self.hideFirstWorkspace(app) },
-            Scene(group: g, id: "hidden-workspaces-more-menu", args: Self.feed) { app in
-                C.steps([{ Self.hideFirstWorkspace(app) }, { Self.feedMore(app) }])
+            Scene(group: g, id: "hidden-workspaces-filter-reopened", args: Self.feed) { app in
+                C.steps([{ Self.hideFirstWorkspace(app) }, { Self.openWorkspaces(app) }])
             },
             Scene(group: g, id: "hidden-workspaces-show-all", args: Self.feed) { app in
                 C.steps([{ Self.hideFirstWorkspace(app) }, { C.tap(app.buttons["feed.hiddenWorkspaces.showAll"], "Show All") }])

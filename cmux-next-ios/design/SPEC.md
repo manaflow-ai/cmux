@@ -965,14 +965,17 @@ permission requests, errors, PR events.
 
 ### 8.1 Screen
 
-- Toolbar: leading drawer circle, principal "Feed", trailing `ellipsis` More menu (HIG pull-down
-  buttons: short, grouped, nothing that repeats a control on screen): Mark All as Read and
-  Workspaces (subtitle "All shown" / "N hidden"), then destructive Clear All Notifications when a
-  Mac can clear. The chips are the only event-kind filter; the menu does not repeat them.
-- Workspaces sheet (medium and large detents, `Done`, leading `Show All`): one switch per
-  workspace in the Mac's order, the Mac's name under it when more than one Mac is linked,
-  searchable; footer "Events from hidden workspaces stay out of the Feed until you turn them back
-  on." Empty: "No Workspaces"; a search with no match: the system search empty state.
+- Toolbar: leading drawer circle, principal "Feed", and two neighboring trailing buttons in one
+  glass group, no More menu: Filter (`line.3.horizontal.decrease`; `.circle.fill` while a
+  workspace is hidden) opens the Filter sheet, and Mark All as Read (`checkmark.circle`) asks
+  first with an alert "Mark All as Read?" (message: every Feed event and every unread tab on the
+  Mac), buttons Mark All as Read (default), Clear All Notifications (destructive, only when a Mac
+  can clear) and Cancel. The chips are the only event-kind filter; the sheet does not repeat them.
+- Filter sheet (title "Filter", medium and large detents, `Done`, leading `Show All`): a
+  "Workspaces" section with one switch per workspace in the Mac's order, the Mac's name under it
+  when more than one Mac is linked, searchable; footer "Events from hidden workspaces stay out of
+  the Feed until you turn them back on." Empty: "No Workspaces"; a search with no match: the
+  system search empty state.
 - Hidden line under the chips while a hidden workspace has open events (Mail's "Filtered by"):
   `eye.slash`, "N workspaces hidden", trailing `Show All`.
 - Chip row under the toolbar (scrolls with content): All, Needs you (with count), Finished,

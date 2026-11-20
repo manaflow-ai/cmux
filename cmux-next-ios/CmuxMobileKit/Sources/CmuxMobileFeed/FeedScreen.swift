@@ -20,7 +20,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     @State private var clearFailure: String?
     /// Why Mark All Notifications as Read failed on a Mac, shown once.
     @State private var markFailure: String?
-    /// The Workspaces sheet (More > Workspaces): which workspaces the Feed shows.
+    /// The Filter sheet (the toolbar's Filter button): which workspaces the Feed shows.
     @State private var choosingWorkspaces = false
     @State private var rowContext = FeedRowContext(store: FeedStore.shared)
     @Environment(AppStore.self) private var appStore
@@ -59,8 +59,10 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 sidebarItem
-                ToolbarItem(placement: .topBarTrailing) {
-                    FeedMoreMenu(store: store, clearFailure: $clearFailure, markFailure: $markFailure, choosingWorkspaces: $choosingWorkspaces)
+                // Two neighboring buttons in one glass group: Filter, then Mark All as Read.
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    FeedFilterButton(store: store, choosingWorkspaces: $choosingWorkspaces)
+                    FeedMarkAllReadButton(store: store, clearFailure: $clearFailure, markFailure: $markFailure)
                 }
             }
             .agentChatDestinations()
@@ -318,77 +320,86 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     }
     #endif
 }
-/// The Feed's More menu (HIG pull-down buttons: short, grouped, no item that repeats a control on
-/// screen). What it replaced repeated the filter chips as a "Show" picker and listed one toggle per
-/// workspace, so a busy Mac made it scroll. Now: the two Mac-wide actions and one Workspaces item
-/// that opens a sheet for choosing what the Feed shows. Its own view, so the Mac's workspace list
-/// (which changes with every tree update while an agent works: titles, status) re-renders this menu
-/// only, never the Feed's list and its layout.
-private struct FeedMoreMenu: View {
+
+/// The Feed's Filter button: opens the Filter sheet (which workspaces the Feed shows). Its icon
+/// fills while any of the Mac's workspaces is hidden, so a filtered Feed reads as filtered from the
+/// toolbar too. Its own view, so the Mac's workspace list (which changes with every tree update
+/// while an agent works: titles, status) re-renders this button only, never the Feed's list.
+private struct FeedFilterButton: View {
+    let store: FeedStore
+    @Binding var choosingWorkspaces: Bool
+    @Environment(AppStore.self) private var appStore
+
+    var body: some View {
+        let hidden = appStore.workspaces.lazy.filter { store.mutedWorkspaces.contains($0.id) }.count
+        Button {
+            choosingWorkspaces = true
+        } label: {
+            Label("Filter", systemImage: hidden == 0 ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
+        }
+        .accessibilityValue(hidden == 0 ? "All workspaces shown" : (hidden == 1 ? "1 workspace hidden" : "\(hidden) workspaces hidden"))
+        .accessibilityIdentifier("feed.filter")
+    }
+}
+
+/// The Feed's Mark All as Read button. It touches every linked Mac, so it asks first (HIG alerts:
+/// confirm an action people can't take back). The same alert offers the Mac's Clear All
+/// Notifications when a Mac can clear, as a destructive choice, so both Mac-wide actions are
+/// confirmed and the toolbar keeps two buttons.
+private struct FeedMarkAllReadButton: View {
     let store: FeedStore
     /// Why Clear All Notifications failed (the screen's alert).
     @Binding var clearFailure: String?
     /// Why Mark All Notifications as Read failed (the screen's alert).
     @Binding var markFailure: String?
-    @Binding var choosingWorkspaces: Bool
-    @Environment(AppStore.self) private var appStore
+    @State private var confirming = false
 
     var body: some View {
-        Menu {
-            Section {
-                // The Mac's Mark All Notifications as Read (NotificationActionCatalog): every Feed
-                // event here, and every tab each linked Mac shows unread (`ack-tab-notifications`).
-                Button("Mark All as Read", systemImage: "checkmark.circle") {
-                    store.markAllRead()
-                    guard let mark = FeedRouting.shared.markAllNotificationsRead else { return }
-                    Task {
-                        do { _ = try await mark() } catch {
-                            markFailure = UserFacingError.message(error)
-                        }
-                    }
-                }
-                .disabled(store.items.allSatisfy(\.isRead) && FeedRouting.shared.markAllNotificationsRead == nil)
-                .accessibilityIdentifier("feed.markAllRead")
-                Button {
-                    choosingWorkspaces = true
-                } label: {
-                    // A menu item reads its title, subtitle and icon from the label's views in this
-                    // order; a second Text inside a Label is dropped (fleet capture, iOS 26).
-                    Text("Workspaces")
-                    Text(workspacesSubtitle)
-                    Image(systemName: "square.stack")
-                }
-                .accessibilityIdentifier("feed.chooseWorkspaces")
-            }
+        Button {
+            confirming = true
+        } label: {
+            Label("Mark All as Read", systemImage: "checkmark.circle")
+        }
+        .disabled(store.items.allSatisfy(\.isRead) && FeedRouting.shared.markAllNotificationsRead == nil)
+        .accessibilityIdentifier("feed.markAllRead")
+        .alert("Mark All as Read?", isPresented: $confirming) {
+            // The Mac's Mark All Notifications as Read (NotificationActionCatalog): every Feed
+            // event here, and every tab each linked Mac shows unread (`ack-tab-notifications`).
+            Button("Mark All as Read") { markAllRead() }
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier("feed.markAllRead.confirm")
             if let clear = FeedRouting.shared.clearAllNotifications {
                 // The Mac's Clear All Notifications: its notification ledger, as its panel's Clear All.
-                Section {
-                    Button("Clear All Notifications", systemImage: "xmark.circle", role: .destructive) {
-                        Task {
-                            do { try await clear() } catch {
-                                clearFailure = UserFacingError.message(error)
-                            }
+                Button("Clear All Notifications", role: .destructive) {
+                    Task {
+                        do { try await clear() } catch {
+                            clearFailure = UserFacingError.message(error)
                         }
                     }
-                    .accessibilityIdentifier("feed.clearAllNotifications")
                 }
+                .accessibilityIdentifier("feed.clearAllNotifications")
             }
-        } label: {
-            Label("More", systemImage: "ellipsis")
+            Button("Cancel", role: .cancel) {}
+                .accessibilityIdentifier("feed.markAllRead.cancel")
+        } message: {
+            Text("Every event in the Feed, and every unread tab on your Mac, will be marked as read.")
         }
-        .accessibilityIdentifier("feed.more")
     }
 
-    /// "All shown", or how many of the Mac's workspaces the Feed leaves out.
-    private var workspacesSubtitle: String {
-        let hidden = appStore.workspaces.lazy.filter { store.mutedWorkspaces.contains($0.id) }.count
-        return hidden == 0 ? "All shown" : "\(hidden) hidden"
+    private func markAllRead() {
+        store.markAllRead()
+        guard let mark = FeedRouting.shared.markAllNotificationsRead else { return }
+        Task {
+            do { _ = try await mark() } catch {
+                markFailure = UserFacingError.message(error)
+            }
+        }
     }
 }
 
-/// Which workspaces the Feed shows: a sheet with one switch per workspace (Settings' list of
+/// The Filter sheet: which workspaces the Feed shows, one switch per workspace (Settings' list of
 /// switches), searchable when the list is long. Replaces the Workspaces section that sat at the
-/// bottom of the filter menu, where each switch closed the menu and a long list scrolled.
+/// bottom of the old filter menu, where each switch closed the menu and a long list scrolled.
 private struct FeedWorkspacesSheet: View {
     let store: FeedStore
     @Environment(AppStore.self) private var appStore
@@ -413,6 +424,8 @@ private struct FeedWorkspacesSheet: View {
                             }
                             .accessibilityIdentifier("feed.workspace.\(workspace.id)")
                         }
+                    } header: {
+                        Text("Workspaces")
                     } footer: {
                         Text("Events from hidden workspaces stay out of the Feed until you turn them back on.")
                     }
@@ -426,7 +439,7 @@ private struct FeedWorkspacesSheet: View {
                 }
             }
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search Workspaces")
-            .navigationTitle("Workspaces")
+            .navigationTitle("Filter")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
