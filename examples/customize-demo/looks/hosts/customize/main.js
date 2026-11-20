@@ -115,7 +115,8 @@ const hosts = computed(() => {
     if (!groups.has(name)) groups.set(name, { name, sessions: [] })
     groups.get(name).sessions.push(c)
   }
-  return [...groups.values()]
+  // Activity still sorts sessions within a host, but must not move hosts between pages.
+  return [...groups.values()].sort((a, b) => a.name === b.name ? 0 : a.name === LOCAL ? -1 : b.name === LOCAL ? 1 : a.name < b.name ? -1 : 1)
 })
 
 function show(chat) {
