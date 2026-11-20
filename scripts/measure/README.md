@@ -18,6 +18,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 |---|---|---|
 | bundle | `bundle-size.sh` (DMG on a fleet Mac), an .app tree, or `--compare-zip URL` | Bundle size by component, against other apps. |
 | launch | `launch-ready.sh` | Dock launch: bounce end, first window, main, first frame, every launch mark. |
+| launch-background | `background-ready.sh` | Show from the background (Cmd-H, windows closed to a menu bar app, quit) against a cold relaunch, and each state's idle cost. |
 | launch-premain | `launch-premain.sh` (also launch's mode=premain) | Time to main after a 60 s full run vs a short launch, and what it pays: pageins, residency, the code checkers' CPU, per arm. |
 | post-update | `update-click-ab.sh` (default), `relaunch-shift.sh` (mode=shift), `nightly-fresh-launch.sh` (mode=fresh-copy) | First launch after an update and its hitches. |
 | screen-share | `screen-stream-eval.sh` (default), `screen-share-vs.py` (mode=vs, once on base) | Screen share kbps, fps under motion, input-to-frame latency. |
@@ -26,6 +27,8 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | xbench | `perf-bench.sh` (`scripts/perf-bench/xbench.py`); `--import` reads `results.json` and `scripts/perf-bench/baseline/*.json` | Against other browsers, and the resource budget rows. |
 | idle | `perf-10x-idle.sh` | Idle CPU, wakeups and footprint per process kind. |
 | tui-idle | `tui-idle-ram.sh` (`tui-idle-ram.py`, `dhat-top.py`) on Linux CI | The idle cmux-tui daemon's anonymous PSS, PSS, threads, binary sections and (dhat=1) Rust heap at commits. |
+| acpmux-watch-bytes | acpmux `hub/stream_tell_tests.rs` (cargo, Linux CI) | Bytes one acpmux watcher is sent while 20 chats stream and the list is read 60 times. |
+| typing | `webviews/bench/composer-typing.bench.ts` (load modes L0-L3, Chromium and WebKit) on Linux CI | Composer keydown-to-paint p95/p99 and key integrity under idle, stream, ten streaming documents and a 100k-row stream. |
 | mcp-fanout | `mcp-fanout.sh` (`mcp-fanout.py`) on a fleet Mac, any published app (`app=`) | MCP tool-server processes, RSS, idle CPU per kind at N open chats; first cmux tool call latency. |
 | workspace-factory | `workspace-factory.sh` (`workspace-factory/`, the `wsfactory` Rust factory) on a fleet Mac | A per-job throwaway workspace (APFS clone of a read-only seed) against today's cold and warm-slot step workspaces: start, build, cache hit, disk left behind. |
 
@@ -41,15 +44,19 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `launch-reboot.sh` | The first launch after a reboot, with and without a post-login pre-read of the app's binaries (row F, background-ready-copy): one phase per step, before (shutdown -r) and after (noread, read, residency). | row F | 2026-11-18 | active |
 | `launch-capture-probe.sh` | Launch image sources with no Screen Recording grant: TCC rows and prompts, the window composite and Chromium page image against the screen, ms and main-thread stall per source. | ask-b2b0f899c1 | 2026-11-17 | active |
 | `launch-capture-probe.py` | Python driver for launch-capture-probe.sh. | ask-b2b0f899c1 | 2026-11-17 | active |
+| `background-ready.sh` | Open request to window on screen from the background (hide, close, quit) against a cold relaunch; idle CPU, wakeups, energy, memory, files and sleep assertions per state. | ask-b2b0f899c1 | 2026-11-17 | active |
+| `background-ready.swift` | Driver for background-ready.sh: one arm per process, holding the marks FIFO across shows. | ask-b2b0f899c1 | 2026-11-17 | active |
+| `background-ready-idle.py` | Idle cost of a running or quit copy (procs.py) and its stop by pid, for background-ready.sh. | ask-b2b0f899c1 | 2026-11-17 | active |
 | `launch-ready-profile.py` | Main-thread Time Profiler summary of one launch-ready launch. | - | 2026-11-15 | active |
 | `fresh-home-launch.sh` | Fresh-home launch of any commit's app on a fleet Mac. | - | 2026-11-14 | active |
 | `nightly-fresh-launch.sh` | Where a published nightly's fresh-home launch spends its time. | CMUX-571 | 2026-11-15 | active |
 | `nightly-fresh-launch.py` | Python driver for nightly-fresh-launch.sh. | CMUX-571 | 2026-11-15 | active |
-| `relaunch-restore.sh` | Quit to usable time after Quit and Keep Sessions, on a published build. | hq#7149 L5 | 2026-11-05 | active |
+| `relaunch-restore.sh` | Quit to usable time after Quit and Keep Sessions, on a published build; `base=SHA head=SHA` runs two builds as interleaved pairs with the load (`relaunch-restore-pairs.py`). | hq#7149 L5 | 2026-11-05 | active |
 | `relaunch-shift.sh` | Layout shift when the app relaunches after an update. | - | 2026-11-04 | active |
 | `first-load-after-restart.sh` | A chat's first load after a restart, frame by frame, at commits (shift and blank frames, settle time). | - | 2026-11-16 | active |
 | `update-click-ab.sh` | Real Sparkle update, Restart to Update clicked soon after staging, base vs head. | CMUX-571 | 2026-11-15 | active |
 | `update-click-ab.py` | Summarizes update-click-ab.sh runs into medians. | CMUX-571 | 2026-11-15 | active |
+| `update-idle-e2e.sh` | Update When Idle end to end: a staged update installs by itself only after the running turn ended, the draft was cleared and the idle time passed; agent host counts and pids before and after; base as the control (`update-harness/idle_e2e.py`). | update-when-idle | 2026-11-19 | active |
 | `update-e2e.sh` | End to end auto-update of a real nightly (correctness, not a timing). | R114 | 2026-10-04 | stale |
 | `stable-next-smoke.sh` | Fresh-home launch smoke of the NEXT Stable build on a console worker. | - | 2026-10-30 | active |
 | `daemon-registry-start.sh` | Start time of the cmux-tui daemon on a large registry. | - | 2026-11-13 | active |
@@ -65,6 +72,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `held-new-tab.sh` | Held Cmd-T with Cmd-W now and then, in a session of many workspaces. | - | 2026-11-15 | active |
 | `held-new-tab.py` | Python driver for held-new-tab.sh. | - | 2026-11-16 | active |
 | `recent-pages.py` | Recent pages with site icons for a bench session (`held-new-tab.py --recent-sites N --recent-pages M`): loopback sites with one 64 x 64 icon each, the visits through one Chromium tab of the app, and the read of the app's own list of recent pages. Not a step's script: held-new-tab.py loads it. | - | 2026-11-18 | active |
+| `new-tab-letters.py` | The letter cases of the held New Tab measure (`held-new-tab.py --letter-cases N`): a letter typed directly after a New Tab key, as key sequences of the app in a page's window, in 7 forms; each form's word from the key hold's log and the first new tab's field. Not a step's script: held-new-tab.py loads it. | - | 2026-11-20 | active |
 | `build-flags.py` | The form of a tagged reload's build, from the reload's own log: its `bench configuration` line, the optimization settings, the count of Swift compile lines with each -O level (held-new-tab.sh and pane-motion-films.sh call it). | - | 2026-11-17 | active |
 | `burst-bench.sh` | Bursts of Cmd-W, Cmd-D and Cmd-Shift-D: per-press input to next commit. | PL-burst | 2026-10-27 | active |
 | `palette-open.sh` | Command palette open time, per stage, from several page types. | - | 2026-10-27 | active |
@@ -90,6 +98,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `action-signposts.sh` | Action perform, commit and gate signposts, light and STRESS. | perf-lead row 23 | 2026-10-27 | active |
 | `sidebar-stress.sh` | Sidebar scroll, switch, theme switch during a scroll and custom sidebar sections (install, save to render) at 20 and 500 workspaces. | - | 2026-11-17 | active |
 | `main-thread-large-session.sh` | Main thread under the LARGE session (60 workspaces x 6 tabs). | MTS-0 | 2026-11-10 | active |
+| `mobile-bench-mac-capture.sh` | Reference clips for the mobile bench: an iPhone app the App Store offers on the Mac, recorded at 120 fps (ScreenCaptureKit, every frame's own time) on a 120 Hz virtual display through the bench's flows, one `clip.mp4` + `meta.json` per flow (driver `scripts/mobile-bench/mac/`). | Leo 2026-11-19, mobile reference bench | 2026-11-19 | active |
 
 ## Rendering and frames
 
@@ -98,6 +107,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `pane-perf.sh` | Pane layout motion (split, close, zoom, drag) at 2, 8 and 30 terminals. | panes-perf | 2026-10-27 | active |
 | `pane-zoom.sh` | Cmd-Shift-Enter zoom and unzoom frames in 1x2, 2x2, 2x4 layouts. | pane-zoom | 2026-10-27 | active |
 | `split-spring.sh` | Rapid Cmd-D and Cmd-Shift-D frames, plus the perf cron budgets suite. | - | 2026-11-08 | active |
+| `diff-page-frames.sh` | A large diff tab at two commits: code view open, Plain English first paint, rAF scroll frame times, a clip (`diff-page-frames.py`). | cmux#46299 | 2026-11-20 | active |
 | `perf-10x-drag.sh` | Pane and divider drags at 120 Hz, plus daemon cost per drag value. | perf-10x | 2026-10-22 | active |
 | `perf-10x-drag-daemon.py` | Daemon-side cost of one drag value. | perf-10x | 2026-11-13 | active |
 | `pane-motion-films.sh` | One movie per pane act, for a person to look at (judges nothing). | - | 2026-11-15 | active |
@@ -118,7 +128,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `idle-cpu.sh` | Idle CPU and wakeups of the app, acpmux and cmux-tui after N minutes. | - | 2026-11-04 | active |
 | `mcp-fanout.sh` | MCP tool-server processes, RSS and idle CPU per kind at N open chats (Claude, Codex) on any build (`app=`). | nightly-mcp-fanout | 2026-11-17 | active |
 | `mcp-fanout.py` | Python driver for mcp-fanout.sh. | nightly-mcp-fanout | 2026-11-17 | active |
-| `perf-10x-idle.sh` | Idle CPU, wakeups and RSS at 1, 10 and 50 workspaces. | perf-10x | 2026-11-14 | active |
+| `perf-10x-idle.sh` | Idle CPU, wakeups and RSS at 1, 10 and 50 workspaces; with `axes=`, the marginal idle cost (CPU, footprint, wakeups, disk bytes per hour, GPU utilization) of one more chat or terminal, hidden or visible, per process. | perf-10x, CMUX-672 | 2026-11-19 | active |
 | `perf-idle-ab.sh` | Interleaved base vs head idle A/B in one step. | - | 2026-11-14 | active |
 | `perf-idle-power.sh` | Idle power and wakeups in the scenarios of a browser comparison. | msg 2654 | 2026-11-15 | active |
 | `perf-bench.sh` | xbench: cmux NEXT against other browsers (power, scroll, video, tab switch, launch). | msg 2654 | 2026-11-15 | active |
@@ -139,6 +149,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `tui-idle-ram.py` | One idle headless daemon: smaps, threads, mappings, children. | CMUX-571 | 2026-11-16 | active |
 | `chat-disk-growth.py` | One live chat's history bytes per simulated hour. | - | 2026-11-15 | active |
 | `chat-disk-growth-linux.sh` | Linux entry for chat-disk-growth.py at 100,000 rows. | - | 2026-11-15 | active |
+| `daemon-restart-linux.sh` | Daemon restart to a non-empty chat attach (god_daemon.rs small and god homes), median of up to 3 runs; the perf cron's daemon-restart part. | - | 2026-11-18 | active |
 | `journal-writes.py` | Bytes the acpmux journal writes per hour and write amplification. | hq#11322 | 2026-11-15 | active |
 | `qos-load-bench.sh` | Effect of agent load on foreground work, with and without the QoS tier. | cmux#27587 | 2026-10-29 | active |
 | `qos-load-bench` | C probes (probe.c, spin.c) for qos-load-bench.sh. | cmux#27587 | 2026-10-29 | active |
@@ -230,7 +241,8 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | name | what it measures | ticket / owner | last touched | status |
 |---|---|---|---|---|
 | `app-ffi-size.sh` | Size the app FFI Rust library adds per LTO mode. | #42471 | 2026-11-13 | active |
-| `cli-size.sh` | CLI size per compiler optimization mode. | CMUX-570 | 2026-11-14 | active |
+| `cli-size.sh` | CLI size per compiler optimization mode; `toolchain BASE [HEAD]` builds two commits and HEAD with acpmux + cmux-tui-core at opt-level s and z, with speed. | CMUX-570 | 2026-11-18 | active |
+| `cli-size-speed.py` | Bytes plus interleaved CLI and headless-daemon p50 for the builds `cli-size.sh toolchain` makes. | CMUX-570 | 2026-11-18 | active |
 | `panic-abort-size.sh` | Size saved by panic=abort on the shipped Rust helpers. | CMUX-570 | 2026-11-15 | active |
 | `macos-floor.sh` | How much CmuxNext code needs a newer macOS than a given floor. | - | 2026-11-07 | active |
 | `macho-filter-parity.sh` | Thin-bundle Mach-O filter: old file scan vs new list, with timings. | - | 2026-10-20 | active |

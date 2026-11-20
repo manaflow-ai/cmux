@@ -55,12 +55,12 @@ fn bundled(folder: &Path) -> Profile {
 }
 
 #[test]
-fn the_showcase_has_its_five_setups() {
+fn the_showcase_has_its_six_setups() {
     let names: Vec<String> = folders()
         .iter()
         .map(|folder| folder.file_name().unwrap().to_str().unwrap().to_owned())
         .collect();
-    assert_eq!(names, ["cockpit", "focus", "ide", "right-handed", "tiling"]);
+    assert_eq!(names, ["cockpit", "collection", "focus", "ide", "right-handed", "tiling"]);
 }
 
 #[test]

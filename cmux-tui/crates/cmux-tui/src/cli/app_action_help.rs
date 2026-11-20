@@ -9,10 +9,8 @@
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
+use cmux_tui_core::packed_catalogs::ACTION_SURFACES;
 use serde_json::Value;
-
-pub(super) const ACTIONS_JSON: &str =
-    include_str!("../../../../../plans/cmux-next/action-surfaces.json");
 
 /// Scopes whose help lists their app verbs another way.
 const OWN_HELP: &[&str] = &["cloud"];
@@ -25,7 +23,7 @@ const VERB_COLUMN: usize = 30;
 fn offered() -> &'static BTreeMap<String, Vec<(String, String)>> {
     static OFFERED: OnceLock<BTreeMap<String, Vec<(String, String)>>> = OnceLock::new();
     OFFERED.get_or_init(|| {
-        let doc: Value = serde_json::from_str(ACTIONS_JSON).unwrap_or(Value::Null);
+        let doc: Value = serde_json::from_str(&ACTION_SURFACES.inflate()).unwrap_or(Value::Null);
         let mut scopes: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
         for action in doc.get("actions").and_then(Value::as_array).into_iter().flatten() {
             if action.get("cli").and_then(Value::as_str) != Some("offered") {
