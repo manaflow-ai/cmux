@@ -31,6 +31,15 @@ impl Env {
             keys: true,
         };
         std::fs::write(env.exe(), b"#!/bin/sh\necho cmux build A\n").unwrap();
+        // systemd knows no cmux-server.service here (tests answer otherwise).
+        env.runner.answer_always(
+            "--property=LoadState",
+            Output {
+                code: Some(0),
+                stdout: b"LoadState=not-found\nFragmentPath=\nTransient=no\n".to_vec(),
+                ..Output::default()
+            },
+        );
         env
     }
 
@@ -299,10 +308,13 @@ fn a_unit_systemd_loads_from_elsewhere_is_left_alone() {
         return;
     }
     let env = Env::new();
-    let elsewhere = || Output {
+    let elsewhere = || {
+        Output {
         code: Some(0),
-        stdout: b"/usr/lib/systemd/user/cmux-server.service\n".to_vec(),
+        stdout: b"LoadState=loaded\nFragmentPath=/usr/lib/systemd/user/cmux-server.service\nTransient=no\n"
+            .to_vec(),
         ..Output::default()
+    }
     };
     env.runner.answer("FragmentPath", elsewhere());
     let err = env.run("install --binary --json").unwrap_err();
