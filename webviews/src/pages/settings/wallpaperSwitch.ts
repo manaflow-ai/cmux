@@ -144,7 +144,8 @@ export function writesFor(
   const dynamicOff: WallpaperWrite[] = values.dynamic === "time" ? [[DYNAMIC_KEY, null]] : [];
   switch (mode) {
     case "off":
-      return [...(values.background === fixed ? [] : [[BACKGROUND_KEY, fixed] as const]), ...dynamicOff];
+      // Time off first: Sun's picture is still on screen then, so the app keeps it as Sun's, not Off's.
+      return [...dynamicOff, ...(values.background === fixed ? [] : [[BACKGROUND_KEY, fixed] as const])];
     case "appearance":
       return [
         ...(values.light === null && values.dark === null ? [[LIGHT_KEY, seed] as const] : []),
@@ -162,11 +163,13 @@ export function writesFor(
     case "sun": {
       const dynamic = dynamicChoices(context.choices);
       const kept = values.modes?.sun;
-      const picture = isDynamicPicture(values.background, context.choices)
-        ? values.background
-        : kept !== undefined && dynamic.some((choice) => choice.id === kept)
+      // Sun's own picture first, then the dynamic one on screen, then the first.
+      const picture =
+        kept !== undefined && dynamic.some((choice) => choice.id === kept)
           ? kept
-          : dynamic[0]?.id;
+          : isDynamicPicture(values.background, context.choices)
+            ? values.background
+            : dynamic[0]?.id;
       if (!picture) return [];
       // Time first: Off's picture is still on screen then, so the app keeps it as Off's, not Sun's.
       return [[DYNAMIC_KEY, "time"], ...(picture === values.background ? [] : [[BACKGROUND_KEY, picture] as const])];
