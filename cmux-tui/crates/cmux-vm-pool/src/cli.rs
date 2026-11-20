@@ -43,6 +43,10 @@ Options:
             --keep-idle K (4) --tick SECS (5) [--once]
   GitHub:   --org ORG (manaflow-ai) --group GROUP (cmux-fleet-linux)
   GCP:      --project P (manaflow-437420)
+  Pool:     --label L (the jobs runs-on label, cmux-linux)
+            --freestyle-purpose P (metadata purpose, freestyle-pool)
+            --gce-label V (label purpose=V, cmux-runner-pool)
+            --prefix P (runner-name prefix, repeatable)
 
 Credentials: FREESTYLE_API_KEY; CLOUDSDK_AUTH_ACCESS_TOKEN, the GCE metadata
 server or gcloud; GH_TOKEN.
@@ -74,6 +78,9 @@ struct Args {
     tick_s: u64,
     once: bool,
     interval_ms: u64,
+    label: String,
+    freestyle_purpose: Option<String>,
+    gce_label: Option<String>,
 }
 
 fn parse(words: &[String]) -> Result<Args, String> {
@@ -85,6 +92,7 @@ fn parse(words: &[String]) -> Result<Args, String> {
         keep_idle: 4,
         tick_s: 5,
         interval_ms: 500,
+        label: Policy::default().label,
         ..Args::default()
     };
     let mut it = words.iter().peekable();
@@ -152,6 +160,9 @@ fn parse(words: &[String]) -> Result<Args, String> {
             }
             "--tick" => args.tick_s = number(flag, value(flag)?)?.max(1),
             "--interval-ms" => args.interval_ms = number(flag, value(flag)?)?.max(100),
+            "--label" => args.label = value(flag)?,
+            "--freestyle-purpose" => args.freestyle_purpose = Some(value(flag)?),
+            "--gce-label" => args.gce_label = Some(value(flag)?),
             "-h" | "--help" => args.verb = "help".to_owned(),
             other if other.starts_with('-') => return Err(format!("unknown option {other}")),
             other => positional.push(other.to_owned()),
@@ -186,12 +197,20 @@ impl Pool {
     ) -> Result<Self, String> {
         let client = http::client().map_err(|e| e.0)?;
         let wants = |p: Provider| args.providers.as_ref().is_none_or(|ps| ps.contains(&p));
-        let freestyle = if wants(Provider::Freestyle) { Freestyle::from_env(env) } else { None };
-        let gce = if wants(Provider::Gcp) {
+        let mut freestyle =
+            if wants(Provider::Freestyle) { Freestyle::from_env(env) } else { None };
+        let mut gce = if wants(Provider::Gcp) {
             Gce::from_env(&client, env, args.project.clone()).await
         } else {
             None
         };
+        // Another org's pool: its own Freestyle metadata purpose and GCE label.
+        if let (Some(f), Some(purpose)) = (freestyle.as_mut(), &args.freestyle_purpose) {
+            f.purpose.clone_from(purpose);
+        }
+        if let (Some(g), Some(label)) = (gce.as_mut(), &args.gce_label) {
+            g.label.clone_from(label);
+        }
         if let Some(asked) = &args.providers {
             for p in asked {
                 let missing = match p {
@@ -582,7 +601,7 @@ async fn schedule(
         idle_ms: args.idle_minutes.saturating_mul(60_000),
         keep_idle: args.keep_idle,
         prefixes: args.prefixes.clone(),
-        ..Policy::default()
+        label: args.label.clone(),
     });
     loop {
         let tick_started = Instant::now();
