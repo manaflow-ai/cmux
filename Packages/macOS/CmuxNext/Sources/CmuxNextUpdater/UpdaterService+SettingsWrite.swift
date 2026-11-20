@@ -18,12 +18,15 @@ extension UpdaterService {
             // task-owner: finite settings writes, retained until the next write.
             self?.settingsWriteTask = Task {
                 await previous?.value
-                do {
-                    for path in paths {
+                for path in paths {
+                    do {
                         try await settings.setSetting(at: path, to: .bool(on), by: .user)
+                    } catch {
+                        log?.append("\(path.joined(separator: ".")) not written: \(error)")
+                        // Enabling installs requires a successful download write. Disabling keeps
+                        // going so a managed install policy cannot prevent the download opt-out.
+                        if on { break }
                     }
-                } catch {
-                    log?.append("update card settings not written: \(error)")
                 }
             }
         }

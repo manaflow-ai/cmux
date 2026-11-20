@@ -34,4 +34,28 @@ import Testing
         updater.apply(settings.snapshot.updates)
         #expect(!updater.automaticUpdates)
     }
+
+    @Test(arguments: [false, true])
+    func managedFirstSettingDoesNotChangeTheOtherStepUnsafely(enabling: Bool) async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "update-card-managed-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "cmux-next.json")
+        // Enabling: managed download=false must not enable install. Disabling: managed
+        // install=true must not prevent an otherwise permitted download opt-out.
+        try Data(#"{"updates":{"downloadAutomatically":false,"installWhenIdle":false}}"#.utf8).write(to: url)
+        let managedKey = enabling ? "updates.downloadAutomatically" : "updates.installWhenIdle"
+        let forced = ManagedPreferences(forced: [managedKey: .bool(!enabling)])
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(),
+                                          fileURL: url, managedReader: FixedManagedPreferenceReader(forced), managedWatchFiles: [])
+        await settings.reload()
+        if !enabling { try await settings.setSetting(at: UpdatesSettings.downloadAutomaticallyPath, to: .bool(true), by: .user) }
+        let updater = UpdaterService(enableSparkle: false, recordsUpdates: false)
+        updater.writesSettings(to: settings)
+        updater.setAutomaticUpdates(enabling)
+        await updater.settingsWriteTask?.value
+        #expect(!settings.snapshot.updates.downloadAutomatically)
+        #expect(settings.snapshot.updates.installWhenIdle == !enabling)
+    }
+
 }
