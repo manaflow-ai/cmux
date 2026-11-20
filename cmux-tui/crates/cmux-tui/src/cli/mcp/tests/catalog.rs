@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn every_catalog_operation_is_a_tool_or_excluded_with_a_reason() {
     let catalog: Value =
-        serde_json::from_str(cmux_tui_core::packed_catalogs::RESOURCE_OPERATIONS_V2.get())
+        serde_json::from_str(cmux_tui_core::packed_catalogs::RESOURCE_OPERATIONS_V2)
             .expect("the checked-in catalog");
     let operations = catalog["operations"].as_object().expect("operations");
     let tools = v2_tools::tools().iter().map(|tool| tool.wire).collect::<BTreeSet<_>>();

@@ -340,8 +340,8 @@ const AGENT_FOLDER_REASON: &str = "Where a workspace's agents run: only the user
 const AGENT_START_REASON: &str = "Where a new chat starts: the app's agent pane asks it when a \
      chat opens; an agent already runs in its folder (cx-9aps).";
 
-/// The v2 catalog as an index of raw JSON slices of the catalog text (inflated once from
-/// the binary and kept, 1.3 MB): parsed into one tree, its ~1 MB took ~17 MB of heap,
+/// The v2 catalog as an index of raw JSON slices of the catalog text (plain in the binary,
+/// 1.3 MB, shared by every server): parsed into one tree, its ~1 MB took ~17 MB of heap,
 /// held by every agent's `cmux mcp serve` for its whole life. An operation's
 /// descriptor or a type definition is parsed only while a tool is listed or
 /// called, and dropped after.
@@ -361,7 +361,7 @@ pub(super) fn catalog() -> &'static Catalog {
     static CATALOG: OnceLock<Catalog> = OnceLock::new();
     CATALOG.get_or_init(|| {
         let index: Index<'static> =
-            serde_json::from_str(cmux_tui_core::packed_catalogs::RESOURCE_OPERATIONS_V2.get())
+            serde_json::from_str(cmux_tui_core::packed_catalogs::RESOURCE_OPERATIONS_V2)
                 .expect("the checked-in catalog");
         Catalog { types: index.types, operations: index.operations }
     })

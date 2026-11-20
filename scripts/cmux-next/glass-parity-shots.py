@@ -333,6 +333,15 @@ try:
                         if gated and not ok:
                             failures.append(f"{reply['stem']} {kind} {engine}: glass mean {material.get('mean')} "
                                             f"p99 {material.get('p99')} max {material.get('max')}")
+                        # Text is gated where the two sides rasterize alike: WebKit with the same font smoothing as
+                        # the native text (the text axis), which run c2c44e1f measured exact (mean 0.005, p99 0).
+                        # Chromium shapes with HarfBuzz and rasterizes with Skia (other subpixel glyph positions,
+                        # about 16% less ink) and the shipped `auto` pairing smooths only the native side, so
+                        # those stay reported, not gated.
+                        if gated and engine == "webkit" and scenario.get("text") in ("flat", "smooth") \
+                                and not passes(full, TEXT_TOLERANCE):
+                            failures.append(f"{reply['stem']} {kind} {engine}: text mean {full.get('mean')} "
+                                            f"p99 {full.get('p99')} (same smoothing on both sides)")
                 print(f"{reply['stem']}: worst glass mean {worst:.3f} rt={status.get('reduce_transparency')} "
                       f"key={status.get('key')} host_glass={status.get('host_glass')}", flush=True)
             if opts.frames:
