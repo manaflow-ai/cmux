@@ -5544,8 +5544,9 @@ export class AcpmuxDirectClient {
         // The daemon's count and this page's drifted: the request goes again later, never at once.
         request.busy += 1;
         this.markWaiting(request);
-        // The refusal is the daemon's own answer: it is alive, only busy, and the line stays off.
-        this.daemonProvedAt = Date.now();
+        // The daemon's own refusal proves it alive, even if an earlier probe is still held.
+        // Clear that probe's deadline and waiting state just as its own answer would.
+        this.probeAnswered(message);
         this.armDaemonLiveness();
         this.emit("waiting: daemon");
         this.wire.lifecycle("busy retry", { id: message.id, tries: request.busy });
