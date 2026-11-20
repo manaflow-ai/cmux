@@ -1,7 +1,11 @@
 // l10n-allow-file: transcript fixtures, not shipped UI.
 // Leo-Ask-Trace: ask-e1768ff161
 import { expect, test } from "bun:test";
+import { JSDOM } from "jsdom";
+import { act, type ReactNode } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
+import { teardownDom } from "./support/domTeardown";
 import { MessageRow } from "../src/pages/home-channels/MessageRow";
 import { RunSteps } from "../src/pages/home-channels/RunSteps";
 import { TranscriptRowView } from "../src/pages/home-messages/transcript/TranscriptRows";
@@ -44,8 +48,29 @@ const step: HomeRunStep = {
   links: [{ label: "Reference", url: "https://example.com/reference" }],
 };
 
-test("channel transcript timestamps retain their message date", () => {
-  const html = renderToStaticMarkup(
+// The channel's action menu subscribes to a client-only store: mount the real row
+// instead of asking React's server renderer for a nonexistent server snapshot.
+async function mountedMarkup(node: ReactNode): Promise<string> {
+  const dom = new JSDOM("<!doctype html><html><body><main></main></body></html>", { url: "http://localhost/" });
+  const scope = globalThis as Record<string, unknown>;
+  const values: Record<string, unknown> = { IS_REACT_ACT_ENVIRONMENT: true };
+  for (const key of ["window", "document", "navigator", "HTMLElement", "Element", "Node", "getComputedStyle"])
+    values[key] = (dom.window as unknown as Record<string, unknown>)[key];
+  const saved = Object.keys(values).map((key) => [key, key in scope, scope[key]] as const);
+  Object.assign(scope, values);
+  const host = dom.window.document.querySelector("main")!;
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(node));
+    return host.innerHTML;
+  } finally {
+    await act(async () => root.unmount());
+    await teardownDom(saved, { window: dom.window });
+  }
+}
+
+test("channel transcript timestamps retain their message date", async () => {
+  const html = await mountedMarkup(
     <MessageRow
       message={message}
       head
@@ -57,7 +82,7 @@ test("channel transcript timestamps retain their message date", () => {
     />,
   );
   expect(html).toContain('class="cv-time-hover"');
-  expect(html).toContain('dateTime="2026-11-19T10:20:00.000Z"');
+  expect(html).toContain('datetime="2026-11-19T10:20:00.000Z"');
 });
 
 test("message transcript timestamps retain their message date", () => {
