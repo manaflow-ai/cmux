@@ -236,3 +236,157 @@ fn inner_spec_placeholder() -> optchat_chief::acpmux::SessionSpec {
         ..Default::default()
     }
 }
+
+/// Runs `f` on its own thread while the brain takes its inputs.
+fn run_beside<T: Send + 'static>(h: &mut Harness, f: impl FnOnce() -> T + Send + 'static) -> T {
+    let worker = std::thread::spawn(f);
+    while !worker.is_finished() {
+        if let Ok(input) = h.rx.recv_timeout(std::time::Duration::from_millis(10)) {
+            h.brain.step(input);
+        }
+    }
+    worker.join().unwrap()
+}
+
+fn tools(h: &Harness) -> Arc<optchat_chief::subagents::Spawner> {
+    Arc::new(optchat_chief::subagents::Spawner::new(
+        h.chat.clone(),
+        h.agents.clone(),
+        optchat_chief::subagents::SubagentSettings {
+            harness: "claude".into(),
+            policy: "approve-all".into(),
+            model: None,
+            effort: None,
+            preset: Some("optchat-sub-h0me".into()),
+            cwd: h.dir.path().join("subagent"),
+            prefix: "optchat-sub-h0me".into(),
+            parent: optchat_chief::brain::PARENT.into(),
+            claude_md: None,
+        },
+        h.tx.clone(),
+        Arc::new(|_: &str| {}),
+    ))
+}
+
+/// The Chief ends almost every turn itself: on Lawrence's Chief, Nov 15-18, 1,500 of 1,533 turns
+/// ended with its own `stop` or `sleep`, which cancels the session, and only a clean end kept it.
+/// So no session was ever kept, and every turn wrote its whole prefix (about 64k tokens) to the
+/// prompt cache again (first request: 26.7k read, 64k written). A turn the Chief ended with its
+/// own tool is a clean end: its session serves the next turn, which sends only its new messages.
+#[test]
+fn a_turn_the_chief_ends_with_its_own_stop_keeps_its_session_for_the_next_turn() {
+    use optchat_chief::tools::{Orchestrator, SendCall, SleepCall};
+    for how in ["stop", "sleep"] {
+        let dir = tempfile::tempdir().unwrap();
+        let s = kept(dir.path());
+        let owner = Arc::new(Mutex::new(Owner {
+            summary: Some(summary()),
+            ..Owner::default()
+        }));
+        // The first turn runs until the Chief ends it.
+        let base = default_script();
+        let script: Script = Box::new(move |turn, blocks| {
+            let mut events = base(turn, blocks);
+            if turn == 0 {
+                events.pop();
+            }
+            events
+        });
+        let mut h = Harness::configured(dir, script, owner, s, Arc::new(|_: &str| {}));
+        h.agents.inner.lock().unwrap().system_prompts = true;
+        fill(&h.chat, 120);
+        h.agents.hold(true);
+        h.connect();
+        h.say("user_local", "one");
+        while h.agents.inner.lock().unwrap().prompts.is_empty() {
+            h.step();
+        }
+        let sp = tools(&h);
+        run_beside(&mut h, move || {
+            sp.send(SendCall {
+                text: Some("On it.".into()),
+                ..SendCall::default()
+            })
+        })
+        .expect("send answers");
+        let sp = tools(&h);
+        let answer = if how == "stop" {
+            run_beside(&mut h, move || sp.stop_turn())
+        } else {
+            run_beside(&mut h, move || {
+                sp.sleep(SleepCall {
+                    seconds: 600,
+                    note: Some("check the build".into()),
+                    until: None,
+                })
+            })
+        }
+        .expect("the tool answers");
+        assert!(answer.starts_with("outcome: done"), "{how}: {answer}");
+        h.agents.hold(false);
+        h.settle_posts();
+        assert!(
+            !h.agents.inner.lock().unwrap().cancels.is_empty(),
+            "{how}: the session was cancelled"
+        );
+        h.say("user_local", "two");
+        h.settle();
+        let two = logged(&h, "user", "two")[0];
+        let inner = h.agents.inner.lock().unwrap();
+        assert_eq!(
+            inner.prompt_sessions,
+            vec!["s1", "s1"],
+            "{how}: the next turn reuses the session"
+        );
+        assert!(!inner.ended.contains(&"s1".to_owned()), "{how}: it stays");
+        let tb = texts(inner.prompts.last().unwrap());
+        assert!(
+            tb.iter().all(|t| !t.contains("<chat>")),
+            "{how}: no view again: {tb:?}"
+        );
+        assert_eq!(tb[0], format!("{two}+1|user: two\n"), "{how}");
+    }
+}
+
+/// The owner's stop still ends the session: it may cut a step half done.
+#[test]
+fn a_turn_the_owner_stops_does_not_keep_its_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = kept(dir.path());
+    let owner = Arc::new(Mutex::new(Owner {
+        summary: Some(summary()),
+        ..Owner::default()
+    }));
+    let base = default_script();
+    let script: Script = Box::new(move |turn, blocks| {
+        let mut events = base(turn, blocks);
+        if turn == 0 {
+            events.pop();
+        }
+        events
+    });
+    let mut h = Harness::configured(dir, script, owner, s, Arc::new(|_: &str| {}));
+    h.agents.inner.lock().unwrap().system_prompts = true;
+    fill(&h.chat, 120);
+    h.agents.hold(true);
+    h.connect();
+    h.say("user_local", "one");
+    while h.agents.inner.lock().unwrap().prompts.is_empty() {
+        h.step();
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    h.brain
+        .step(optchat_chief::brain::Input::Stop { reply: tx });
+    let _ = rx.recv_timeout(std::time::Duration::from_secs(5));
+    h.agents.hold(false);
+    h.settle_posts();
+    h.say("user_local", "two");
+    h.settle();
+    let inner = h.agents.inner.lock().unwrap();
+    assert_eq!(
+        inner.specs.len(),
+        2,
+        "a fresh session after the owner's stop"
+    );
+    assert!(inner.ended.contains(&"s1".to_owned()));
+}
