@@ -183,20 +183,25 @@ struct TransientMaterialGallery {
             // glass-opaque-allow: the fixture page behind the glass, not a floating surface.
             layer?.backgroundColor = scope.perform { Palette.windowBackground.withAlphaComponent(1) }.cgColor
 
+            // On the menu grid (MenuMetrics, check-menu-metrics.py): the surface at the highlight inset from the
+            // cell's edges, its text and the cell's own lines on the text column, the trailing margin past them.
+            let cellWidth: CGFloat = 260
+            let surfaceWidth = cellWidth - MenuMetrics.highlightInset * 2
+            let column = MenuMetrics.textX(iconColumn: false)
             let backdrop = ThemedLabel(wrappingLabelWithString: "Document text behind the material\nArtwork and color remain visible")
             backdrop.font = Typography.caption
             backdrop.ink = .tertiary
-            backdrop.frame = NSRect(x: 12, y: 8, width: 236, height: 86)
+            backdrop.frame = NSRect(x: column, y: 8, width: cellWidth - column - MenuMetrics.trailing, height: 86)
             addSubview(backdrop)
 
-            surface.frame = NSRect(x: 8, y: 25, width: 244, height: 58)
+            surface.frame = NSRect(x: MenuMetrics.highlightInset, y: 25, width: surfaceWidth, height: 58)
             surface.translatesAutoresizingMaskIntoConstraints = true
             addSubview(surface)
 
             if kind == .tooltip {
                 // The real TooltipPanel adds this contrast-fitted tint between
                 // its glass and text. Preserve it in the before comparison.
-                let tint = NSView(frame: NSRect(x: 0, y: 0, width: 244, height: 58))
+                let tint = NSView(frame: NSRect(x: 0, y: 0, width: surfaceWidth, height: 58))
                 tint.wantsLayer = true
                 tint.autoresizingMask = [.width, .height]
                 let tooltip = TooltipSurface(scope.tokens, lift: ChromeTunables.opaqueOverlayLift.value)
@@ -206,7 +211,7 @@ struct TransientMaterialGallery {
 
             let text = ThemedLabel(labelWithString: kind.sample)
             text.font = kind == .tooltip ? Typography.caption : Typography.body
-            text.frame = NSRect(x: 12, y: 17, width: 220, height: 24)
+            text.frame = NSRect(x: column, y: 17, width: surfaceWidth - column - MenuMetrics.trailing, height: 24)
             if kind == .tooltip {
                 let tooltip = TooltipSurface(scope.tokens, lift: ChromeTunables.opaqueOverlayLift.value)
                 text.themeColor = { tooltip.ink.nsColor }
@@ -217,7 +222,7 @@ struct TransientMaterialGallery {
                 let note = ThemedLabel(labelWithString: "Custom menu body; system NSMenu unchanged")
                 note.font = Typography.caption
                 note.ink = .secondary
-                note.frame = NSRect(x: 12, y: 85, width: 236, height: 16)
+                note.frame = NSRect(x: column, y: 85, width: cellWidth - column - MenuMetrics.trailing, height: 16)
                 addSubview(note)
             }
             surface.applyTheme()

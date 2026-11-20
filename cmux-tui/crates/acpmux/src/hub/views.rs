@@ -768,6 +768,10 @@ impl Hub {
             queue_paused: session.queue_paused(),
             // A daemon start holds its queue until a person opens it (`protected_hold.rs`).
             person_hold: self.person_hold(session),
+            // The account's rate limit holds every turn until the reset (`rate_hold.rs`).
+            rate_limited_until: session.rate_hold.until(),
+            // Parked after six failed turns in a row: goes on at `acpmux retry` (`rate_hold.rs`).
+            rate_limit_parked: session.rate_hold.parked(),
             // Its queued prompt waits for a run slot of its parent (`subsession_runs.rs`).
             waits_for_slot: self.waits_for_slot(&m),
             // An agent start under way (`lifecycle.rs` holds `spawn_lock` until the agent answered
@@ -978,7 +982,8 @@ impl Hub {
         self.start_time_breakdown_seed(session);
         let m = session.meta();
         let mut v = self.session_summary(session);
-        v.set("modes", m.modes.clone().unwrap_or(Value::Null));
+        // Its permission modes (`permission_modes.rs`): the phone's Mode picker reads them.
+        v.set("modes", super::permission_modes::of_session(&m).unwrap_or(Value::Null));
         v.set("configOptions", m.config_options.as_deref().cloned().unwrap_or(Value::Null));
         v.set("models", m.models.clone().unwrap_or(Value::Null));
         v.set("agentInfo", m.agent_info.clone().unwrap_or(Value::Null));
