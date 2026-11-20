@@ -447,7 +447,7 @@ restore_worktree() {
   # Compare raw bytes, not filtered Git diffs. Any ambiguous file leaves the whole
   # worktree untouched and the original archive available for explicit recovery.
   mkdir "$s/before" || { retain_recovery; return 1; }
-  tar -xpf "$s/worktree-before.tar" -C "$s/before" || { retain_recovery; return 1; }
+  tar --xattrs --acls -xpf "$s/worktree-before.tar" -C "$s/before" || { retain_recovery; return 1; }
   if ! xargs -0 sh -c 's=$1; . "$s/path-guards.sh"; shift; failed=0; for p do
     safe_parents "$p" || continue
     if [ -L "$p" ] || [ -f "$p" ]; then
@@ -460,6 +460,17 @@ restore_worktree() {
     retain_recovery
     return 1
   fi
+  # Extract only originals that need restoring. Replacing an untouched inode
+  # would discard metadata that Git never touched (and race with annotations).
+  : >"$s/restore"
+  xargs -0 sh -c 's=$1; . "$s/path-guards.sh"; shift; for p do
+    if ! safe_parents "$p" || ! matches_before "$p" ||
+      { [ -x "$p" ] && [ ! -x "$s/before/$p" ]; } ||
+      { [ ! -x "$p" ] && [ -x "$s/before/$p" ]; }; then
+      printf "%s\000" "$p" >>"$s/restore"
+    fi
+  done' sh "$s" <"$s/present" || { retain_recovery; return 1; }
+  cat "$s/directories" >>"$s/restore" || { retain_recovery; return 1; }
   restored=0
   # A carried file may replace a directory. Remove that file before restoring
   # the directory's original children; never remove an existing directory tree.
@@ -501,7 +512,9 @@ restore_worktree() {
   if xargs -0 sh -c '. "$1/path-guards.sh"; shift; for p do
     safe_parents "$p" || exit 1
   done' sh "$s" <"$s/present"; then
-    tar -xpf "$s/worktree-before.tar" -C "$top" || restored=1
+    if [ -s "$s/restore" ]; then
+      tar --xattrs --acls --no-recursion -xpf "$s/worktree-before.tar" -C "$top" --null -T "$s/restore" || restored=1
+    fi
   else restored=1; fi
   if [ "$restored" != 0 ]; then
     retain_recovery
@@ -520,7 +533,7 @@ if [ -s "$s/patch" ]; then
     else exit 1; fi
   done' sh "$s" <"$s/recovery-paths" || exit 5
   # Directory headers preserve permissions without traversing their contents.
-  tar -cpf "$s/worktree-before.tar" --no-recursion --null -T "$s/present" -T "$s/directories" || exit 5
+  tar --xattrs --acls -cpf "$s/worktree-before.tar" --no-recursion --null -T "$s/present" -T "$s/directories" || exit 5
   if ! git -c core.fsmonitor=false -c core.symlinks=true -C "$top" apply --binary --whitespace=nowarn "$s/patch"; then
     restore_worktree || exit 6
     exit 5

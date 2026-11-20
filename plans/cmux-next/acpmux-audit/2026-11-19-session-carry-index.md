@@ -133,3 +133,17 @@ An initialized target submodule must already be at the carried candidate commit.
 Carry never changes a nested checkout or reports a staged-pointer carry as success
 while leaving that checkout at another commit. The submodule regression covers
 refusal with target index/checkout preservation, then explicit checkout and retry.
+
+Rollback preserves extended attributes and ACLs in the recovery archive. It
+selects only original files whose bytes, type or executable mode need restoring,
+and extracts directory headers without recursively selecting untouched children.
+An unchanged staged-only target file retains its inode and annotations.
+`rollback_preserves_annotations_and_leaves_untouched_inodes_alone` checks a nested
+untouched inode and xattrs on both untouched and restored files, with failures
+before writes and after writes/before publication. Unsupported archive metadata
+options fail before worktree mutation.
+
+Explicit carry always reads the snapshot after freezing and pushing, even when
+Git display status says clean. A hidden-only submodule modification with
+`submodule.module.ignore=all` must reach the forced raw-diff refusal, as covered
+by `submodule_patch_format_and_paths_ignore_display_preferences`.

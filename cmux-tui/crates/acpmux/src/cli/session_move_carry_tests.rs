@@ -460,7 +460,7 @@ fn recover_owned_fixture(dir: &Path, out: &RemoteOut) {
     sh(dir, "git reset --hard -q HEAD && git clean -fdq");
     assert!(
         Command::new("tar")
-            .arg("-xpf")
+            .args(["--xattrs", "--acls", "-xpf"])
             .arg(&archive)
             .arg("-C")
             .arg(dir)
@@ -550,6 +550,73 @@ fn an_unlink_warning_cannot_publish_a_deletion_that_did_not_happen() {
     assert_eq!(std::fs::read(dst.path().join(".git/index")).unwrap(), index);
     assert!(apply(dst.path(), &carry).ok);
     assert!(!dst.path().join("protected/file").exists());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn rollback_preserves_annotations_and_leaves_untouched_inodes_alone() {
+    use std::ffi::CString;
+    use std::os::unix::{ffi::OsStrExt as _, fs::MetadataExt as _};
+    let annotation = CString::new("user.carry-proof").unwrap();
+    for after_apply in [false, true] {
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        repo(src.path());
+        sh(src.path(), "mkdir notes && git mv kept.txt notes/kept.txt && git commit -qm nested");
+        // kept.txt is staged-only; gone.txt changes in the working tree too.
+        sh(
+            src.path(),
+            "printf staged > notes/kept.txt && git add notes/kept.txt && git show HEAD:notes/kept.txt > notes/kept.txt && printf changed > gone.txt",
+        );
+        let carry = snapshot(&here, src.path(), true).unwrap();
+        sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
+        let kept_inode = std::fs::metadata(dst.path().join("notes/kept.txt")).unwrap().ino();
+        for name in ["notes/kept.txt", "gone.txt"] {
+            let path = CString::new(dst.path().join(name).as_os_str().as_bytes()).unwrap();
+            // SAFETY: both C strings and the value buffer live through the call.
+            assert_eq!(
+                unsafe {
+                    libc::setxattr(
+                        path.as_ptr(),
+                        annotation.as_ptr(),
+                        b"saved".as_ptr().cast(),
+                        5,
+                        0,
+                    )
+                },
+                0
+            );
+        }
+        let index = std::fs::read(dst.path().join(".git/index")).unwrap();
+        let failing = if after_apply {
+            APPLY_SCRIPT.replace("if ! mv -- \"$real.lock\" \"$real\"; then", "if ! false; then")
+        } else {
+            APPLY_SCRIPT.replace("if ! git -c core.fsmonitor=false -c core.symlinks=true -C \"$top\" apply --binary --whitespace=nowarn \"$s/patch\"; then", "if ! false; then")
+        };
+        assert_ne!(failing, APPLY_SCRIPT);
+        let out =
+            here(&failing, &apply_input(&dst.path().to_string_lossy(), &carry).unwrap()).unwrap();
+        assert!(!out.ok);
+        assert!(!out.stderr.contains("worktree recovery needs attention"), "{}", out.stderr);
+        assert_eq!(std::fs::metadata(dst.path().join("notes/kept.txt")).unwrap().ino(), kept_inode);
+        assert_eq!(std::fs::read(dst.path().join(".git/index")).unwrap(), index);
+        assert_eq!(std::fs::read(dst.path().join("gone.txt")).unwrap(), b"bye\n");
+        for name in ["notes/kept.txt", "gone.txt"] {
+            let path = CString::new(dst.path().join(name).as_os_str().as_bytes()).unwrap();
+            let mut value = [0u8; 16];
+            // SAFETY: the C strings and writable buffer live through the call.
+            let len = unsafe {
+                libc::getxattr(
+                    path.as_ptr(),
+                    annotation.as_ptr(),
+                    value.as_mut_ptr().cast(),
+                    value.len(),
+                )
+            };
+            assert_eq!(len, 5, "{name}: {}", std::io::Error::last_os_error());
+            assert_eq!(&value[..5], b"saved");
+        }
+    }
 }
 
 #[test]
@@ -855,6 +922,14 @@ fn submodule_patch_format_and_paths_ignore_display_preferences() {
             "git -c protocol.file.allow=always submodule add -q {} module && git commit -qm module",
             module.path().display()
         ),
+    );
+    sh(src.path(), "git config submodule.module.ignore all && printf hidden >> module/kept.txt");
+    assert_eq!(sh(src.path(), "git --no-optional-locks status --porcelain"), "");
+    let error = snapshot(&here, src.path(), true).unwrap_err().to_string();
+    assert!(error.contains("unstaged submodule changes cannot be carried"), "{error}");
+    sh(
+        src.path(),
+        "git -C module checkout -- kept.txt && git config --unset submodule.module.ignore",
     );
     sh(module.path(), "printf 'next\\n' >> kept.txt && git commit -qam next");
     let next = sh(module.path(), "git rev-parse HEAD");

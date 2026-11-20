@@ -459,8 +459,9 @@ async fn prepare(
         .await??;
         record.set("branch", json!(branch));
         record.set("commit", json!(commit));
-        if *dirty && args.carry_changes {
-            // Read after the freeze and the push: what the agent left, against what was pushed.
+        if args.carry_changes {
+            // Read after the freeze and push even when display status looks clean:
+            // submodule.<name>.ignore can hide work the carry must refuse.
             let read = tokio::task::spawn_blocking({
                 let (top, ssh) = (c.top.clone(), source.ssh().map(str::to_owned));
                 move || match ssh {
