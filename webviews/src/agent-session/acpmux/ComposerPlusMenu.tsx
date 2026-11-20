@@ -17,9 +17,10 @@ import { composerPlusCommands } from "./composerPlusCommands.experiment";
 import { composerPlusMenuSections } from "./composerPlusMenuModel";
 import { acpmuxPerf } from "./perf";
 import { useStableHandlers } from "./stableHandlers";
-import { memo, useEffect, useEffectEvent } from "react";
+import { memo, useEffect } from "react";
 import { PLAN_TOGGLE_OPENER } from "./composerControls";
 import { registerPicker } from "./pickerOpeners";
+import { useCommittedEvent } from "./useCommittedEvent";
 
 export type ComposerPlusMenuProps = {
   /** The rows, from composerPlusRegistry, already narrowed to what this composer can run. */
@@ -62,11 +63,12 @@ const MemoPlusMenu = memo(function PlusMenu({
   // Toggle Plan Mode (composerControls.ts) runs the Plan/Build row's own action, the path a click
   // on the row takes: the app draws no Plan toggle chip, so this row owns the key.
   const planEntry = entries.find((entry) => entry.id.startsWith("add.mode."));
-  const runPlan = useEffectEvent(() => {
+  // A memo component: useEffectEvent would keep its first render's row here (useCommittedEvent.ts).
+  const runPlan = useCommittedEvent(() => {
     if (planEntry) runComposerPlusAction(planEntry.action, { command: onCommand, slash: onSlash });
   });
   const hasPlan = planEntry !== undefined;
-  useEffect(() => (hasPlan ? registerPicker(PLAN_TOGGLE_OPENER, () => runPlan()) : undefined), [hasPlan]);
+  useEffect(() => (hasPlan ? registerPicker(PLAN_TOGGLE_OPENER, () => runPlan()) : undefined), [hasPlan, runPlan]);
   // Untitled groups: a hairline splits them (styles.css), with no header band between.
   const sections: Section[] = composerPlusMenuSections(
     entries,
