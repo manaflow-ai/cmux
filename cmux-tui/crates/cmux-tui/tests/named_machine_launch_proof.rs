@@ -1,5 +1,6 @@
 //! Run against a deployed build with `CMUX_PROOF_BIN`, its release receipt's full
-//! `CMUX_PROOF_COMMIT`, the registry's `CMUX_PROOF_MACHINE` and `CMUX_PROOF_HOSTNAME`
+//! `CMUX_PROOF_COMMIT`, `CMUX_PROOF_MACHINE` (the selector), `CMUX_PROOF_ROUTE` (its host in the registry),
+//! and `CMUX_PROOF_HOSTNAME`
 //! (the output of `hostname` read independently on the test VM). The two harnesses must
 //! be signed in on that VM and allowed to run `hostname`. Only startup is timed.
 #![cfg(unix)]
@@ -41,6 +42,8 @@ fn invoke(binary: &str, args: &[&str], limit: Duration) -> (Duration, Value) {
 #[ignore = "creates ten real sessions on CMUX_PROOF_MACHINE using the installed CMUX_PROOF_BIN"]
 fn ten_consecutive_named_machine_launches() {
     let machine = std::env::var("CMUX_PROOF_MACHINE").expect("name one joined lane machine");
+    let route = std::env::var("CMUX_PROOF_ROUTE").expect("expected canonical host in the registry");
+    assert!(!route.trim().is_empty());
     let binary = std::env::var("CMUX_PROOF_BIN").expect("path to the deployed cmux CLI");
     let commit = std::env::var("CMUX_PROOF_COMMIT").expect("full commit from the build receipt");
     let hostname = std::env::var("CMUX_PROOF_HOSTNAME").expect("hostname read on the test VM");
@@ -53,6 +56,7 @@ fn ten_consecutive_named_machine_launches() {
     let run = dir.path().file_name().unwrap().to_str().unwrap();
     println!("cmux={build} machine={machine}");
     let mut ids = HashSet::new();
+    let mut links = HashSet::new();
     for attempt in 1..=10 {
         let harness = if attempt % 2 == 1 { "codex" } else { "claude" };
         let suffix = format!("{run}-{attempt}");
@@ -83,7 +87,9 @@ fn ten_consecutive_named_machine_launches() {
         let url = result["link"].as_str().expect("no session link");
         let link = acpmux::agent_link::find(url).expect("not a session link").unwrap();
         assert_eq!(link.harness, harness);
-        assert_eq!(link.host.as_deref(), Some(machine.as_str()));
+        assert_eq!(result["machine"]["host"].as_str(), Some(route.as_str()));
+        assert_eq!(link.host.as_deref(), Some(route.as_str()));
+        assert!(links.insert((link.harness.clone(), link.session.clone())), "reused chat: {url}");
         assert!(ids.insert(id.to_owned()), "reused session: {id}");
         println!("{attempt}/10 {harness} launch={}ms {url}", elapsed.as_millis());
         // The first turn can take longer than the launch. Wait once for this attempt's
