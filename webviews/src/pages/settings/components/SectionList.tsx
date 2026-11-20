@@ -1,7 +1,8 @@
-import { useSyncExternalStore } from "react";
-import { Link, type AnyRouter } from "@tanstack/react-router";
+import { useSyncExternalStore, type ComponentProps } from "react";
+import { createLink, type AnyRouter } from "@tanstack/react-router";
 import { useSettingsState } from "../context";
 import { categoryRows, shownSidebarSections, type Category } from "../categories";
+import { PERSONALIZATION_PARTS, type PartID } from "../personalizationParts";
 import { settingsFileName } from "../format";
 import { Icon } from "../icons";
 import type { SettingsState } from "../store";
@@ -79,27 +80,54 @@ const BADGE_TEXT = {
   update: "settingsWindow.harnesses.attention",
 } as const;
 
+// The shown panel selects the row. A router path match can also match the Personalization parent.
+const SectionLink = createLink(function SectionAnchor({
+  currentPage,
+  children,
+  ...props
+}: ComponentProps<"a"> & { currentPage: boolean }) {
+  return (
+    <a {...props} aria-current={currentPage ? "page" : undefined}>
+      <span className="section-link-content">{children}</span>
+    </a>
+  );
+});
+
 /** The category list: icon, name, and a badge for problems (warning), managed keys (lock) or an
  * agent CLI that is outdated or signed out (update). Each entry is a router link: hover or keyboard
  * focus preloads its section (the router's `defaultPreload: "intent"`), a click navigates.
  * `current` marks the shown category (null while searching); the link's own active match is exact,
  * so it never marks a section the page is not showing. */
-export function SectionList({ current, onSelect }: { current: string | null; onSelect: (section: string) => void }) {
+export function SectionList({
+  current,
+  currentPart,
+  workspace,
+  onSelect,
+}: {
+  current: string | null;
+  currentPart: PartID | null;
+  workspace: string | null;
+  onSelect: (section: string, part?: PartID) => void;
+}) {
   const state = useSettingsState();
+  const expanded = currentPart !== null;
   const link = (category: Category) => {
+    const parent = category.id === "personalization";
     const mark = badge(state, category.id);
-    return (
-      <Link<AnyRouter, string, string>
+    const row = (
+      <SectionLink<AnyRouter, string, string>
         key={category.id}
         to="/settings/$section"
         params={{ section: category.id }}
-        search={{}}
+        search={parent && workspace ? { workspace } : {}}
         activeOptions={{ exact: true }}
         activeProps={{}}
         className="section-link"
         draggable={false}
         data-section-link={category.id}
-        aria-current={category.id === current ? "page" : undefined}
+        currentPage={!parent && category.id === current}
+        aria-expanded={parent ? expanded : undefined}
+        aria-controls={parent ? "personalization-links" : undefined}
         onClick={() => onSelect(category.id)}
       >
         <span className="section-icon" data-category={category.id}>
@@ -114,7 +142,42 @@ export function SectionList({ current, onSelect }: { current: string | null; onS
             </span>
           </span>
         )}
-      </Link>
+      </SectionLink>
+    );
+    if (!parent) return row;
+    return (
+      <div key={category.id} className="section-branch">
+        {row}
+        <div
+          className="section-children"
+          id="personalization-links"
+          data-open={expanded ? "" : undefined}
+          inert={!expanded}
+        >
+          <div className="section-children-rows">
+            {PERSONALIZATION_PARTS.map(({ id, symbol }) => (
+              <SectionLink<AnyRouter, string, string>
+                key={id}
+                to="/settings/$section"
+                params={{ section: category.id }}
+                search={{ part: id, workspace: workspace ?? undefined }}
+                activeOptions={{ exact: true, includeSearch: true }}
+                activeProps={{}}
+                className="section-link"
+                draggable={false}
+                data-part-link={id}
+                currentPage={current === "personalization" && currentPart === id}
+                onClick={() => onSelect(category.id, id)}
+              >
+                <span className="section-icon">
+                  <Icon name={symbol} />
+                </span>
+                <span className="section-name">{t(`settingsPage.personalization.${id}`)}</span>
+              </SectionLink>
+            ))}
+          </div>
+        </div>
+      </div>
     );
   };
   // Each run of categories sits under its small header (Look and Feel, AI, ...), the layout the
