@@ -94,3 +94,19 @@ div.acpmux-edited {
   outline: var(--cmux-hairline) solid var(--ds-color-focus);
   outline-offset: var(--ds-space-1);
 }
+
+/* A Markdown file's row: the row's own button (its diff) and, at its end, Open (its Markdown page),
+   inside the row's 36px so editedCardHeight holds. A row without a diff keeps Open inside itself. */
+.acpmux-edited-line {
+  display: flex;
+  align-items: center;
+  padding-inline-end: var(--ds-space-3);
+}
+.acpmux-edited-line > .acpmux-edited-file {
+  flex: 1;
+  min-width: 0;
+}
+.acpmux-edited .acpmux-edited-open {
+  flex: none;
+  margin-inline-start: var(--ds-space-2);
+}
