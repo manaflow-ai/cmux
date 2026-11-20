@@ -178,8 +178,9 @@ body {
   --ds-surface-card: color-mix(in srgb, var(--ds-surface-ink) 4%, transparent); /* a container of content in the page: the transcript's tool, edit, error and permission cards, plans, code blocks, tool output, the subagent card */
   --ds-surface-card-line: color-mix(in srgb, var(--ds-surface-ink) 10%, transparent); /* a container of content in the page: the transcript's tool, edit, error and permission cards, plans, code blocks, tool output, the subagent card */
   --ds-surface-inset: color-mix(in srgb, var(--ds-surface-ink) 8%, transparent); /* a piece inside a card or inline in text: an icon tile, inline code, a chip, a key cap, a filled secondary control */
+  --ds-surface-hover: color-mix(in srgb, var(--ds-surface-ink) 6%, transparent); /* a control in the page under the pointer: half way from clear to pressed, so it shows over glass and a picture as over an opaque page (the host's chrome hover, ink 4% in light, read ΔL* 2 over a wallpaper) */
   --ds-surface-control-line: color-mix(in srgb, var(--ds-surface-ink) 16%, transparent); /* the outline of a secondary button at rest; its hover and press take the hover and pressed roles */
-  --ds-surface-hover-layer: linear-gradient(var(--ds-color-hover), var(--ds-color-hover)); /* hover over a filled rest */
+  --ds-surface-hover-layer: linear-gradient(var(--ds-surface-hover), var(--ds-surface-hover)); /* hover over a filled rest */
   --ds-surface-pressed-layer: linear-gradient(var(--ds-color-pressed), var(--ds-color-pressed)); /* pressed over a filled rest */
 }
 :root[data-borders="none"] {
