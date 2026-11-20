@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import Foundation
 
 /// The home of one build's Chief (plans/cmux-next/home-state-ownership.md):
@@ -30,7 +31,10 @@ public import Foundation
 ///    `CMUX_NEXT_NO_ACTIVATE=1`, test window placement, showcase):
 ///    `~/.cmux/chief/isolated/<tag>`, so automation never reads or writes the
 ///    user's real Chief.
-/// 4. Every build but NIGHTLY: `~/.cmux/chief/<bundle id>`, with
+/// 4. Every build but NIGHTLY: `~/.cmux/chief/<bundle id>` (a DEV build's
+///    build key, ``folderName(of:appBuild:bundleID:tag:)``: the same name
+///    for a tagged or the untagged DEV build, `<bundle id>--<tag>` for a copy
+///    of one bundle id that ships its own `CMUX_TAG`), with
 ///    `.<account>` appended for an account other than `default`. NIGHTLY
 ///    (and a process without a bundle id): `~/.cmux/chief/<account>` (the
 ///    account from `CMUX_NEXT_CHIEF_ACCOUNT`, else `default`). A DEBUG build may name
@@ -114,6 +118,7 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
     public static func resolve(tag: String?, environment: [String: String] = ProcessInfo.processInfo.environment,
                                userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
                                bundleID: String? = Bundle.main.bundleIdentifier,
+                               build appBuild: BuildIdentity? = nil,
                                isDebugBuild: Bool = ChiefHome.isDebugBuild) -> ChiefHome {
         let value = { (key: String) in environment[key].flatMap { $0.isEmpty ? nil : $0 } }
         if let explicit = value("CMUX_NEXT_CHIEF_HOME") ?? value("CMUX_NEXT_MUX_HOME") {
@@ -130,11 +135,22 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
         }
         let account = value("CMUX_NEXT_CHIEF_ACCOUNT").flatMap(component(of:)) ?? "default"
         let build = (isDebugBuild ? value("CMUX_NEXT_CHIEF_BUILD_ID") : nil) ?? bundleID
-        guard hasOwnHome(bundleID: build), let build, let name = component(of: build) else {
+        guard hasOwnHome(bundleID: build), let build, let name = folderName(of: build, appBuild: appBuild, bundleID: bundleID, tag: tag) else {
             return ChiefHome(root: base.appendingPathComponent(account, isDirectory: true), isolated: false, buildID: build)
         }
         let root = base.appendingPathComponent(account == "default" ? name : "\(name).\(account)", isDirectory: true)
         return ChiefHome(root: root, isolated: false, buildID: build)
+    }
+
+    /// The home's folder name for `build` (rule 4): the build key for a DEV build, so two copies of one bundle id
+    /// with their own tags (`CMUX_TAG`) keep apart (``BuildIdentity/stateFolderName(for:)``), else the bundle id as a
+    /// path component. `appBuild` is the app's build (this process's when `bundleID` is the main bundle's; else
+    /// `bundleID` with `tag`).
+    static func folderName(of build: String, appBuild: BuildIdentity?, bundleID: String?, tag: String?) -> String? {
+        let identity = appBuild ?? (bundleID == Bundle.main.bundleIdentifier ? BuildStatePaths.current.build
+            : BuildIdentity(bundleID: bundleID, bundledTag: tag))
+        if let folder = identity.stateFolderName(for: build), folder != build { return folder }
+        return component(of: build)
     }
 
     /// The directory that holds every Chief home of this user (rules 2 and 4):
