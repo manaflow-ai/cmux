@@ -80,6 +80,7 @@ import { galleryHost, galleryModules } from "./galleryHost";
 import { perfLintOnSave } from "./perfLint";
 import { devEntrySrc } from "./devEntrySrc";
 import { liveRecoveryScript } from "./liveRecovery";
+import { devFavicons } from "./faviconHost";
 import { viteCacheDir } from "./viteCacheDir.mjs";
 
 const webviewsRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -494,6 +495,18 @@ export function agentPaneHost(): Plugin {
           };
         }
         send(response, 200, "application/json", JSON.stringify(reply));
+      });
+      // The `?mock` page's `link.favicons` (src/agent-session/acpmux/dev.tsx, faviconHost.ts).
+      server.middlewares.use(async (request, response, next) => {
+        if (request.url !== "/__dev-host/favicons") return next();
+        const refused = rpcRequestStatus(request, server.config.server.port ?? DEV_SERVER_PORT);
+        if (refused) return send(response, refused, "text/plain", "");
+        try {
+          const { hosts } = JSON.parse((await readBody(request)).toString("utf8")) as { hosts?: unknown };
+          send(response, 200, "application/json", JSON.stringify(await devFavicons(hosts)));
+        } catch {
+          send(response, 400, "application/json", JSON.stringify({ icons: {} }));
+        }
       });
       server.middlewares.use(async (request, response, next) => {
         const url = new URL(request.url ?? "/", "http://localhost");

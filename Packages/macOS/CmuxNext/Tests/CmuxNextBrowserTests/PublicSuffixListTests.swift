@@ -50,4 +50,28 @@ extension PublicSuffixListTests {
     @Test func anEmptyListDecidesNothing() {
         #expect(PublicSuffixList(listText: "").registrableDomain(of: "www.bbc.co.uk") == nil)
     }
+
+    /// A suffix from a wildcard rule (`*.zerops.app`) leaves the label after it to whoever runs that
+    /// name, so the agent pane's site icons never ask about such a host.
+    @Test func aWildcardSuffixIsKnown() {
+        let small = PublicSuffixList(listText: "com\n*.ck\n!www.ck\napp\n*.zerops.app\n")
+        #expect(small.hasWildcardSuffix("x.y.ck"))
+        #expect(small.hasWildcardSuffix("secret.project.zerops.app"))
+        #expect(!small.hasWildcardSuffix("www.ck"))
+        #expect(!small.hasWildcardSuffix("a.b.com"))
+        #expect(!small.hasWildcardSuffix("zerops.app"))
+        #expect(!small.hasWildcardSuffix("bücher.de"))
+    }
+
+    /// The agent chat's site icons ask the favicon service only a site's registrable domain, never a
+    /// subdomain agent text could fill with data, and never a host under a wildcard rule.
+    @Test func siteIconsAskOnlyTheRegistrableDomainAndNoWildcardSuffix() throws {
+        let domain = try #require(PublicSuffixList.siteIconDomains())
+        #expect(domain("docs.python.org") == "python.org")
+        #expect(domain("c2vjcmv0.evil.com") == "evil.com")
+        #expect(domain("www.bbc.co.uk") == "bbc.co.uk")
+        #expect(domain("someone.github.io") == "someone.github.io")
+        #expect(domain("c2vjcmv0.project.zerops.app") == nil)
+        #expect(domain("c2vjcmv0.site.webhare.dev") == nil)
+    }
 }

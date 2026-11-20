@@ -68,6 +68,30 @@ public nonisolated struct PublicSuffixList: Sendable {
         return labels.suffix(suffixLength + 1).joined(separator: ".")
     }
 
+    /// Whether `host`'s public suffix comes from a wildcard rule (`*.zerops.app`): the label after
+    /// such a suffix belongs to whoever runs that name, not to a registry. False for a host it
+    /// cannot read (see ``registrableDomain(of:)``).
+    /// - Parameter host: A host name, any case, with or without a trailing dot.
+    public func hasWildcardSuffix(_ host: String) -> Bool {
+        guard let labels = Self.labels(of: host) else { return false }
+        for start in labels.indices {
+            let candidate = labels[start...].joined(separator: ".")
+            if exception.contains(candidate) || exact.contains(candidate) { return false }
+            if start + 1 < labels.count, wildcard.contains(labels[(start + 1)...].joined(separator: ".")) { return true }
+        }
+        return false
+    }
+
+    /// The agent chat's site icons (`link.favicons`, CmuxNextAgentPane `AgentPaneSiteIcons`): the
+    /// bundled list's registrable domain of a host, the only name the favicon service is asked.
+    /// A host under a wildcard rule (`*.zerops.app`) has none: the label after such a suffix is
+    /// whoever runs that name's, so agent text could still send data to them through it. Nil when
+    /// the list is missing. Reads the bundled file: call it off the main actor, once.
+    public static func siteIconDomains() -> (@Sendable (String) -> String?)? {
+        guard let list = bundled() else { return nil }
+        return { @Sendable (host: String) -> String? in list.hasWildcardSuffix(host) ? nil : list.registrableDomain(of: host) }
+    }
+
     /// The number of trailing labels that form the public suffix: the
     /// longest matching rule, an exception removing its leftmost label, and
     /// the default rule `*` (one label) when nothing matches.

@@ -225,7 +225,8 @@ test("rules c, d and 3: the App's cache decides among the candidates, asked in o
 test("rule c: the repositories linked last are the candidates, in a message's order too", async () => {
   const links = ["o/a", "o/b", "o/c"].map((repo) => pr(repo, 1)).join(" ");
   const view = await render([user(`See ${links}`), assistant("#9 is the fix.")], [pr("o/c", 9)]);
-  expect(view.chips()).toEqual([["#9", pr("o/c", 9)]]);
+  // The prompt's own pull request links are chips too (its pasted addresses); the reply's bare #9 is the one under test.
+  expect(view.chips().filter(([label]) => label?.startsWith("#"))).toEqual([["#9", pr("o/c", 9)]]);
 });
 
 test("with no folder repository, a bare #N links only when the transcript names its repository", async () => {

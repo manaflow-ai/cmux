@@ -5,7 +5,9 @@
 // chevron or a gap inside the bubble (ask-14d16a6247; Leo, 2026-11-07: "Like just don't separate
 // these out."). The choice is kept by the row's id (transcriptDisclosure.tsx), so a prompt scrolled
 // out and back, or drawn again from history, stays as the reader left it. Find opens a collapsed
-// prompt that holds its current match. The bubble keeps the whole text; Copy copies all of it.
+// prompt that holds its current match. The bubble keeps the whole text; Copy copies all of it. A web
+// address the person typed or pasted is a link with its site's mark, as in a reply: literal text
+// (LiteralText) and Markdown both draw web links as chips/LinkChips.tsx's UrlChip.
 import { type ReactNode, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { FindReveal, foldFind } from "./chatFind";

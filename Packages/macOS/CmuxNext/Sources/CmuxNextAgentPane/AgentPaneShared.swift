@@ -15,6 +15,8 @@ public import CmuxNextDesign
 /// - `focusLoss`: the app's focus log for a page's `focus-lost` events (``AgentPaneView/onPageFocusLost``); nil (tests) records none.
 /// - `newTabText`: the app's one maker and keeper of the JSON text of a New Tab context's shared part
 ///   (``AgentPaneNewTabText``): each page's model gets it, so the pages of a held New Tab key cost one make.
+/// - `siteIcons`: the site favicons before web links (`link.favicons`), so a site is fetched once per app run,
+///   over `siteDomains` (the app's Public Suffix List); none (tests) fetches nothing.
 public struct AgentPaneShared {
     public let openPanel: MadeAheadOpenPanel?
     public let eventSources: EventSourceProcesses
@@ -23,12 +25,14 @@ public struct AgentPaneShared {
     public let flickerLog: AgentPageFlickerLog?
     public let focusLoss: AgentPaneView.PageFocusLoss?
     public let newTabText: AgentPaneNewTabText
+    let siteIcons: AgentPaneSiteIcons
 
     /// The defaults (tests): no open panel, a posting-process table of the pane's own, no apps, no grant, no flicker log, no focus log
     /// and a New Tab text of this value's own.
     public init(openPanel: MadeAheadOpenPanel? = nil, eventSources: EventSourceProcesses = EventSourceProcesses(), apps: AppsClient? = nil,
                 actAsMe: AgentPaneActAsMe? = nil, flickerLog: AgentPageFlickerLog? = nil, focusLoss: AgentPaneView.PageFocusLoss? = nil,
-                newTabText: AgentPaneNewTabText = AgentPaneNewTabText()) {
+                newTabText: AgentPaneNewTabText = AgentPaneNewTabText(),
+                siteDomains: AgentPaneSiteDomains = AgentPaneSiteDomains { nil }) {
         self.openPanel = openPanel
         self.eventSources = eventSources
         self.apps = apps
@@ -36,6 +40,7 @@ public struct AgentPaneShared {
         self.flickerLog = flickerLog
         self.focusLoss = focusLoss
         self.newTabText = newTabText
+        siteIcons = AgentPaneSiteIcons(domains: siteDomains)
     }
 }
 
@@ -43,6 +48,7 @@ extension AgentPaneView {
     /// A pane over the app's shared objects (``AgentPaneShared``); the other parameters are as in the designated init.
     public convenience init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
                              pageHost: Bool = false, shared: AgentPaneShared) {
+        model.replyLinks.siteIcons = shared.siteIcons
         self.init(model: model, source: source, renderRate: renderRate, pageHost: pageHost, panelProvider: shared.apps.map(AppsPanelsPageProvider.init(client:)),
                   openPanel: shared.openPanel, eventSources: shared.eventSources, flickerLog: shared.flickerLog)
         model.transport.gestures.actAsMe = shared.actAsMe

@@ -79,7 +79,7 @@
           },
           "help": {
             "key": "settings.agentPane.remoteImages.help",
-            "text": "A web image loads from its site, which then sees that you read the reply."
+            "text": "A web image loads from its site, which then sees that you read the reply. Site icons before web links load without a click from an icon service, which sees only each site's domain. Never turns both off."
           },
           "summary": {
             "key": "settings.agentPane.remoteImages.summary",

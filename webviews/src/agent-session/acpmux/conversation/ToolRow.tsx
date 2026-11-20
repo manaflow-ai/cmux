@@ -53,6 +53,7 @@ import { failureWord, useInStep } from "./toolFailureCauseModel";
 import { ChevronRight } from "./icons";
 import { toolIcon } from "./toolRowModel";
 import { repoRecoveryFor } from "./repoRecoveryCardModel";
+import { fetchedUrl } from "./toolSiteIconModel";
 
 /// One tool call. A call with output opens it below; a
 /// shell call opens to its Shell block, with the command line even before any output, and an
@@ -191,9 +192,10 @@ export const ToolRow = memo(function ToolRow({
   ) : (
     <ToolLabel text={label} />
   );
+  const kind = toolKind(tool);
   const content = (
     <>
-      <span className="cv-tool__icon">{toolIcon(toolKind(tool))}</span>
+      <span className="cv-tool__icon">{toolIcon(kind, fetchedUrl({ ...tool, kind }))}</span>
       <span ref={labelRef} className="cv-tool__text" data-find-skip={(shell && (open || !drawsCommand)) || undefined}>
         {words}
         {/* While it runs, a light band crosses these words (ShimmerText.tsx RowShimmer). */}

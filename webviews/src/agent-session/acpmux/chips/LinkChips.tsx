@@ -7,22 +7,34 @@
 // private address never dressed as a site, and a secret-looking query value as `•••`
 // (linkDisplay.ts). A chip's text and icon are fixed when it first draws: a site's or a pull
 // request's title arriving later never widens it and reflows the paragraph under the reader (Leo
-// 2026-10-21, #22896 grew into "#22896 · cmux-next updates: …" after a hover). Titles and favicons
-// live in the shared link card (LinkHoverCard.tsx) that hovering opens: Open and Open in, and a
-// pull request's title, state, author and checks.
-import { useContext, useLayoutEffect, useState, type FocusEvent, type PointerEvent, type ReactNode } from "react";
+// 2026-10-21, #22896 grew into "#22896 · cmux-next updates: …" after a hover). Titles live in the
+// shared link card (LinkHoverCard.tsx) that hovering opens: Open and Open in, and a pull request's
+// title, state, author and checks. A web link starts with its site's mark (SiteIcon.tsx, as T3 Code
+// draws links): a fixed square, the globe until the site's favicon arrives in its place.
+import {
+  Children,
+  cloneElement,
+  isValidElement,
+  useContext,
+  useLayoutEffect,
+  useState,
+  type FocusEvent,
+  type PointerEvent,
+  type ReactNode,
+} from "react";
 import { useT } from "../i18n";
 import { callChipHost } from "./host";
 import { useMessageScope } from "./messageScope";
-import { Folder, GitHubMark, Globe, Lock } from "../conversation/icons";
+import { Folder, GitHubMark, Lock } from "../conversation/icons";
 import { FileKindIcon } from "./FileKindIcon";
 import { usePathInfo, useSiteInfo } from "./linkStore";
 import { isPrivateUrl, redactUrlText } from "./linkDisplay";
 import { isDeniedPath, pathName } from "./paths";
-import { useReplyFolders } from "./replyFolders";
+import { ReplyFoldersContext, useReplyFolders } from "./replyFolders";
 import { LinkHoverCard } from "./LinkHoverCard";
 import { githubItemRef } from "./pullRequestCardModel";
 import { useHoverCard } from "./useHoverCard";
+import { SiteIcon } from "./SiteIcon";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { useAgentLinkClick } from "../conversation/sessionRefModel";
 import { githubRefLabel, githubRefTitle } from "./linkChipsModel";
@@ -130,9 +142,10 @@ export function ElsewhereChip({ path, host, label }: { path: string; host: strin
   );
 }
 
-/// A web link: its text and `icon` (GitHub, arXiv) when given, both known before any lookup. The
-/// hover card names the site, shows its favicon and title, and offers Open and Open in. The anchor
-/// keeps the host's link-click path. `reference`: it draws as a reference chip (whole on one line,
+/// A web link: its site's mark and its text. `icon` (a citation's arXiv mark) replaces the mark when
+/// given; else the mark is the site's (SiteIcon.tsx). The hover card names the site, shows the same
+/// mark and the page's title, and offers Open and Open in. The anchor keeps the host's link-click
+/// path. `reference`: it draws as a reference chip (whole on one line,
 /// its mark centred) though its address is no pull request's, as a nightly build's or a run's does.
 export function UrlChip({
   href,
@@ -155,12 +168,11 @@ export function UrlChip({
   // A pull request or issue is a reference chip (Leo 2026-10-19, as Claude desktop draws them): a
   // link with the GitHub mark and its text. Its title goes to the hover card only.
   const ref = githubRefLabel(href);
-  const mark = ref ? <GitHubMark size={14} className="cv-chip__icon cv-chip__icon--gh" /> : icon;
-  // The hover card always has an icon to show; a favicon cmux has fits there, not in the line.
-  const favicon = site?.icon ? (
-    <img className="cv-chip__icon cv-chip__favicon" src={site.icon} alt="" width={14} height={14} />
-  ) : undefined;
-  const cardMark = mark ?? favicon ?? <Globe size={16} className="cv-chip__icon" />;
+  const mark = ref ? (
+    <GitHubMark size={14} className="cv-chip__icon cv-chip__icon--gh" />
+  ) : (
+    (icon ?? <SiteIcon href={href} known={site?.icon} />)
+  );
   const hover = useHoverCard();
   const [anchor, setAnchor] = useState<HTMLAnchorElement | null>(null);
   // A pull request or an issue gets the card (Leo 2026-11-08). Its mark keeps the link's colour,
@@ -234,8 +246,14 @@ export function UrlChip({
         }}
         onClick={agent.onClick}
       >
-        {mark}
-        <span className="cv-chip__label">{label}</span>
+        {ref || reference ? (
+          <>
+            {mark}
+            <span className="cv-chip__label">{label}</span>
+          </>
+        ) : (
+          withLead(mark, label)
+        )}
       </a>
       {chat ? (
         session.card
@@ -244,7 +262,7 @@ export function UrlChip({
           href={href}
           anchor={anchor}
           hover={hover}
-          mark={cardMark}
+          mark={mark}
           siteTitle={site?.title}
           pullRequest={
             pullRequest && {
@@ -255,6 +273,35 @@ export function UrlChip({
           }
         />
       )}
+    </>
+  );
+}
+
+/// A web link's mark and the first characters of its text on one line (`https://`, else the first
+/// character), so the mark never stays at the end of a line while its text wraps to the next. The
+/// rest of the text wraps as before.
+function withLead(mark: ReactNode, label: ReactNode): ReactNode {
+  const parts = Children.toArray(label);
+  const first = parts[0];
+  // A Markdown link's label comes in one folders provider (inlineMarkdown.tsx `linkLabel`): the lead
+  // is cut from the text inside it, else the whole label would sit in the lead and never wrap.
+  if (parts.length === 1 && isValidElement<{ children?: ReactNode }>(first) && first.type === ReplyFoldersContext) {
+    return cloneElement(first, undefined, withLead(mark, first.props.children));
+  }
+  let lead: ReactNode = first;
+  let rest: ReactNode[] = parts.slice(1);
+  if (typeof first === "string") {
+    const cut = /^https?:\/\//i.exec(first)?.[0].length ?? (Array.from(first)[0]?.length || 0);
+    lead = first.slice(0, cut);
+    rest = [first.slice(cut), ...rest].filter((part) => part !== "");
+  }
+  return (
+    <>
+      <span className="cv-chip__lead">
+        {mark}
+        {lead !== undefined && lead !== "" && <span className="cv-chip__label">{lead}</span>}
+      </span>
+      {rest.length > 0 && <span className="cv-chip__label">{rest}</span>}
     </>
   );
 }
