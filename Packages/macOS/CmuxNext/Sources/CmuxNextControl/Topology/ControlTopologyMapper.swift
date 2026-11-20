@@ -286,7 +286,8 @@ enum ControlTopologyMapper {
     /// each tab opened beside it made one more pane.
     static func columns(of screen: ScreenModel) -> [(panes: Set<PaneID>, dock: String?)] {
         // A floating pane (`floating-panes-v1`, the quick terminal) is shown above the layout. The daemon keeps
-        // it a leaf, on the right of the pane it came from: it is in that pane's column, never one of its own.
+        // it a leaf, on the right of the pane it came from: it is no column of its own. It counts with the first
+        // column of its tree (its scrolling column's), which is that pane's column in the usual two-pane case.
         let floating = Set(screen.floating.map(\.pane))
         let groups: (LayoutNode) -> [Set<PaneID>] = { layout in
             var columns = sideBySide(layout, without: floating)
