@@ -6451,7 +6451,7 @@ class NightlySigningStall(unittest.TestCase):
         code, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
         self.assertEqual(code, 0)
         self.assertEqual(mutations(api), [])
-        self.assertIn("past the 600s Blacksmith stall time, and every other job of the run has finished", summary)
+        self.assertIn("past the 600s Blacksmith wait time, and every other job of the run has finished", summary)
         self.assertIn("started delivery work", summary)
 
     def test_another_job_in_progress_holds_the_rescue_until_it_finishes(self):
@@ -7418,10 +7418,12 @@ class Workflow(unittest.TestCase):
 
     def test_polls_from_an_ephemeral_runner(self):
         # Never from an owned pool it may rescue, and never only from
-        # GitHub-hosted: a GitHub billing block must not stop the rescue.
+        # GitHub-hosted: a GitHub billing block must not stop the rescue. The
+        # scheduled sweeper leads with the fleet's one-job label, off the pools
+        # it rescues from; per-run watches keep the ephemeral selector.
         self.assertEqual(
             self.doc["jobs"]["rescue"]["runs-on"],
-            '${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || contains(fromJSON(\'["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}',
+            '${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || (github.event_name == \'schedule\' || github.event_name == \'workflow_dispatch\' && !inputs.run_id) && vars.CI_REPAIR_SKIP_FLEET != \'1\' && \'cmux-fleet-linux-x64\' || contains(fromJSON(\'["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}',
         )
 
     def test_marker_steps_never_fail_the_changes_job(self):
