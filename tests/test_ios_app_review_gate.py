@@ -86,6 +86,36 @@ class AppReviewGateTests(unittest.TestCase):
               json.dumps({"description": "cmux for iPhone"}))
         self.assertIn("metadata.support-url", self.rules(self.run_lint()))
 
+    def screenshot_findings(self, families: str | None) -> set[str]:
+        """The screenshot blockers with only an iphone folder, for an app
+        target built for `families` (None: project.yml never sets it)."""
+        shutil.rmtree(self.root / "cmux-next-ios/AppStoreReview/screenshots/en-US/ipad")
+        project = self.root / "cmux-next-ios/project.yml"
+        if families is not None:
+            project.write_text(project.read_text().replace(
+                "        CMUX_MOBILE_APPLE_SIGN_IN: \"NO\"\n",
+                f"        CMUX_MOBILE_APPLE_SIGN_IN: \"NO\"\n        TARGETED_DEVICE_FAMILY: \"{families}\"\n"))
+        return {f.message for f in self.run_lint().findings if f.rule == "metadata.screenshots"}
+
+    def test_an_iphone_only_app_needs_no_ipad_screenshots(self) -> None:
+        # App Store Connect: iPad screenshots are "Required if app runs on iPad".
+        self.assertEqual(self.screenshot_findings("1"), set())
+
+    def test_an_app_that_runs_on_ipad_needs_ipad_screenshots(self) -> None:
+        self.assertEqual(self.screenshot_findings("1,2"), {"no ipad screenshots"})
+
+    def test_an_app_with_no_device_family_runs_on_ipad_too(self) -> None:
+        # xcodegen's and Xcode's iOS default is "1,2".
+        self.assertEqual(self.screenshot_findings(None), {"no ipad screenshots"})
+
+    def test_an_iphone_only_app_still_needs_iphone_screenshots(self) -> None:
+        shutil.rmtree(self.root / "cmux-next-ios/AppStoreReview/screenshots/en-US/iphone")
+        self.assertEqual(self.screenshot_findings("1"), {"no iphone screenshots"})
+
+    def test_the_real_app_is_iphone_only(self) -> None:
+        # Every target in the real project.yml is TARGETED_DEVICE_FAMILY "1".
+        self.assertEqual(gate.app_device_families(ROOT), frozenset({"1"}))
+
     def test_missing_account_deletion_blocks(self) -> None:
         write(self.root, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileSettings/SettingsPages.swift", 'Text("Account")\n')
         self.assertIn("account.deletion", self.rules(self.run_lint()))
@@ -652,15 +682,11 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertEqual(gate.blocker_key({"rule": "r", "where": "a/B.swift:90"}),
                          gate.blocker_key({"rule": "r", "where": "a/B.swift:91"}))
 
-    def test_missing_results_and_the_agent_pass_are_judged_apart_from_the_baseline(self) -> None:
+    def test_missing_results_are_judged_apart_from_the_baseline(self) -> None:
         # Fail closed: a suite that never reported is new, whatever is known.
         _, known = self.ratchet_inputs([])
-        agent = self.root / "agent-findings.json"
-        agent.write_text(json.dumps([{"rule": "agent", "guideline": "2.1(a)", "severity": "blocker",
-                                      "source": "agent reviewer pass", "message": "m", "where": "s.png"}]))
         out = self.root / "report.md"
-        self.assertEqual(gate.main(["report", "--asc-skipped", "--extra", str(agent),
-                                    "--known-blockers", str(known), "--out", str(out)]), 0)
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--known-blockers", str(known), "--out", str(out)]), 0)
         self.assertEqual(gate.main(["report", "--asc-skipped", "--expect-device", "ipad",
                                     "--known-blockers", str(known), "--out", str(out)]), 1)
         known.write_text("not json")
@@ -708,7 +734,7 @@ class RealTreeTests(unittest.TestCase):
                 self.assertIn(where, ("iphone", "ipad", "duo"), entry["key"])
                 name = rest[0].split("/")[-1].removesuffix("()")
                 self.assertIn(f"func {name}(", tests, entry["key"])
-            self.assertNotIn("agent", rule, "the agent pass is never pinned")
+            self.assertNotIn("agent", rule, "no agent rule is pinned")
 
     def test_pushes_and_pull_requests_fail_on_a_new_blocker(self) -> None:
         workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
@@ -719,318 +745,28 @@ class RealTreeTests(unittest.TestCase):
         self.assertIn('"cmux-next-ios/**"', pull_request)
 
 
-AGENT_SPEC = importlib.util.spec_from_file_location(
-    "app_review_agent_pass", ROOT / "cmux-next-ios/scripts/app_review_agent_pass.py")
-agent_pass = importlib.util.module_from_spec(AGENT_SPEC)
-assert AGENT_SPEC.loader
-sys.modules[AGENT_SPEC.name] = agent_pass
-AGENT_SPEC.loader.exec_module(agent_pass)
-
-# A stand-in `claude`: writes what the real agent would (a findings array to
-# the path the prompt names, one screenshot per step in its folder), or
-# nothing, as STUB_CLAUDE says.
-STUB_CLAUDE = """#!/usr/bin/env python3
-import os, re, sys
-prompt = sys.argv[sys.argv.index("-p") + 1]
-mode = os.environ.get("STUB_CLAUDE", "verdict")
-if mode in ("verdict", "no-screens", "verdict-then-crash"):
-    path = re.search(r"write ONLY a JSON array to (\\S+) where", prompt).group(1)
-    open(path, "w").write('[{"severity": "warning", "guideline": "4.0", "message": "m", "where": "step-01-launch.png"}]')
-if mode in ("verdict", "verdict-then-crash"):
-    open("step-01-launch.png", "wb").write(b"png")
-print('{"result": "done"}')
-sys.exit(1 if mode in ("crash", "verdict-then-crash") else 0)
-"""
-
-# The CLI's final result object (`--output-format json`) for each call, one
-# STUB_CLAUDE_SCRIPT entry per call (the last repeats), counted in
-# STUB_CLAUDE_CALLS. "zero-usage" is what gate run 43621274696 (job
-# 132527403700) got from a rate-limited account: about 2 s, no API time, no
-# tokens. "429" carries the API's status; "crash" spent real tokens and then
-# failed; "verdict" writes findings and a screenshot like STUB_CLAUDE does.
-STUB_CLAUDE_SCRIPTED = """#!/usr/bin/env python3
-import json, os, re, sys
-prompt = sys.argv[sys.argv.index("-p") + 1]
-calls = os.environ["STUB_CLAUDE_CALLS"]
-with open(calls, "a") as fh:
-    fh.write("call\\n")
-n = len(open(calls).read().splitlines())
-script = os.environ["STUB_CLAUDE_SCRIPT"].split(",")
-mode = script[min(n, len(script)) - 1]
-base = {"type": "result", "session_id": "s", "num_turns": 1, "duration_ms": 2000}
-if mode == "zero-usage":
-    result = dict(base, subtype="success", is_error=False, duration_api_ms=0, stop_reason="stop_sequence",
-                  total_cost_usd=0, result="", usage={"input_tokens": 0, "output_tokens": 0})
-elif mode in ("429", "429-after-walk"):
-    if mode == "429-after-walk":
-        open("step-01-launch.png", "wb").write(b"png")
-    result = dict(base, subtype="error_during_execution", is_error=True, api_error_status=429, duration_api_ms=812,
-                  api_error_type="rate_limit_error", total_cost_usd=0, result="API Error: 429",
-                  usage={"input_tokens": 0, "output_tokens": 0})
-elif mode == "weekly":
-    # The CLI's own result in gate run 43637095919 (job 132576237860), trimmed.
-    result = dict(base, subtype="success", is_error=True, duration_api_ms=0, stop_reason="stop_sequence",
-                  total_cost_usd=0, terminal_reason="api_error", api_error_status=429,
-                  api_error_type="rate_limit_error", api_error_origin="first_party", api_error="usage_limit_reached",
-                  result="You've hit your weekly limit \\u00b7 resets Nov 18 at 3am (UTC)",
-                  usage={"input_tokens": 0, "output_tokens": 0, "cache_read_input_tokens": 0})
-elif mode == "crash":
-    # Real API work, then a failure whose free text names a rate limit:
-    # text never classifies, only the result's fields do.
-    result = dict(base, subtype="error_during_execution", is_error=True, duration_api_ms=41000, total_cost_usd=0.31,
-                  result="Settings shows: rate limit exceeded (429), try again later. Notes: " + prompt[-300:],
-                  usage={"input_tokens": 5200, "output_tokens": 900})
-else:
-    path = re.search(r"write ONLY a JSON array to (\\S+) where", prompt).group(1)
-    open(path, "w").write('[{"severity": "info", "guideline": "4.0", "message": "m", "where": "step-01-launch.png"}]')
-    if mode != "verdict-no-screens":
-        open("step-01-launch.png", "wb").write(b"png")
-    result = dict(base, subtype="success", is_error=False, duration_api_ms=90000, total_cost_usd=1.2, result="done",
-                  usage={"input_tokens": 9000, "output_tokens": 2000})
-print(json.dumps(result))
-sys.exit(0 if mode in ("verdict", "verdict-no-screens") else 1)
-"""
-
-
-class AgentReviewerPassTests(unittest.TestCase):
-    """The agent pass is a check: one that judged nothing is red, never a pass."""
+class GateWorkflowTests(unittest.TestCase):
+    """The report's inputs and the workflow's wiring."""
 
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
-        self.bin = self.root / "bin"
-        self.bin.mkdir()
-        self.app = self.root / "CmuxMobileApp.app"
-        self.app.mkdir()
-        self.out = self.root / "agent-pass"
-        self.findings = self.root / "agent-findings.json"
-        self.saved = {k: os.environ.get(k) for k in ("PATH", "STUB_CLAUDE", "STUB_CLAUDE_SCRIPT", "STUB_CLAUDE_CALLS",
-                                                     "APP_REVIEW_AGENT_RETRY_BACKOFF_S")}
-        self.bundle_id = agent_pass.bundle_id
-        agent_pass.bundle_id = lambda app: "com.cmux.app"
 
     def tearDown(self) -> None:
-        agent_pass.bundle_id = self.bundle_id
-        for key, value in self.saved.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
         self.tmp.cleanup()
 
-    def tool(self, name: str, body: str = "#!/bin/sh\nexit 0\n") -> None:
-        path = self.bin / name
-        path.write_text(body)
-        path.chmod(0o755)
-
-    def run_pass(self, mode: str = "verdict") -> tuple[int, list[dict]]:
-        os.environ["PATH"] = f"{self.bin}{os.pathsep}/usr/bin{os.pathsep}/bin"
-        os.environ["STUB_CLAUDE"] = mode
-        argv = sys.argv
-        sys.argv = ["app_review_agent_pass.py", "--udid", "UDID", "--app", str(self.app),
-                    "--setup", str(self.root / "none.md"), "--out", str(self.out), "--findings", str(self.findings)]
-        try:
-            code = agent_pass.main()
-        finally:
-            sys.argv = argv
-        return code, json.loads(self.findings.read_text())
-
-    def test_a_pass_with_no_agent_tools_is_red(self) -> None:
-        # Job 132387096997 and every run since: axe never installed, and the
-        # pass wrote one warning and exited 0 in about two seconds.
-        self.tool("xcrun")
-        code, findings = self.run_pass()
-        self.assertNotEqual(code, 0)
-        self.assertEqual([(f["rule"], f["severity"]) for f in findings], [("agent.unavailable", "blocker")])
-
-    def test_an_agent_that_left_no_verdict_is_red(self) -> None:
-        for name in ("xcrun", "axe"):
-            self.tool(name)
-        self.tool("claude", STUB_CLAUDE)
-        for mode in ("silent", "crash"):
-            code, findings = self.run_pass(mode)
-            self.assertNotEqual(code, 0, mode)
-            self.assertIn(("agent.no-verdict", "blocker"), [(f["rule"], f["severity"]) for f in findings], mode)
-
-    def test_an_agent_that_never_looked_at_the_app_is_red(self) -> None:
-        for name in ("xcrun", "axe"):
-            self.tool(name)
-        self.tool("claude", STUB_CLAUDE)
-        code, findings = self.run_pass("no-screens")
-        self.assertNotEqual(code, 0)
-        self.assertIn(("agent.no-walk", "blocker"), [(f["rule"], f["severity"]) for f in findings])
-
-    def test_an_agent_verdict_passes_and_keeps_its_findings(self) -> None:
-        for name in ("xcrun", "axe"):
-            self.tool(name)
-        self.tool("claude", STUB_CLAUDE)
-        code, findings = self.run_pass("verdict")
-        self.assertEqual(code, 0)
-        self.assertEqual([(f["rule"], f["severity"], f["guideline"]) for f in findings],
-                         [("agent.reviewer", "warning", "4.0")])
-
-    def test_a_verdict_written_before_the_agent_stopped_still_counts(self) -> None:
-        # Out of turns after writing its findings: the verdict stands, with
-        # a warning that the walk may be partial (#43045 review).
-        for name in ("xcrun", "axe"):
-            self.tool(name)
-        self.tool("claude", STUB_CLAUDE)
-        code, findings = self.run_pass("verdict-then-crash")
-        self.assertEqual(code, 0)
-        self.assertEqual([f["severity"] for f in findings], ["warning", "warning"])
-        self.assertIn("may be incomplete", findings[1]["message"])
-
-    def run_scripted(self, *script: str, setup: str = "") -> tuple[int, list[dict], int]:
-        """The pass against STUB_CLAUDE_SCRIPTED: its exit, its findings and
-        how many times it called `claude`. The backoff is 0 so no test sleeps."""
-        for name in ("xcrun", "axe"):
-            self.tool(name)
-        self.tool("claude", STUB_CLAUDE_SCRIPTED)
-        calls = self.root / "claude-calls"
-        calls.unlink(missing_ok=True)
-        os.environ["STUB_CLAUDE_SCRIPT"] = ",".join(script)
-        os.environ["STUB_CLAUDE_CALLS"] = str(calls)
-        os.environ["APP_REVIEW_AGENT_RETRY_BACKOFF_S"] = "0"
-        if setup:
-            (self.root / "none.md").write_text(setup)
-        stderr = io.StringIO()
-        with contextlib.redirect_stderr(stderr):
-            code, findings = self.run_pass("scripted")
-        self.stderr = stderr.getvalue()
-        return code, findings, len(calls.read_text().splitlines()) if calls.exists() else 0
-
-    def marker(self) -> dict | None:
-        """The one `::error::agent.api-unavailable {json}` line the pass printed, parsed, or None."""
-        lines = [line for line in self.stderr.splitlines() if line.startswith("::error::")]
-        found = [line for line in lines if line.startswith("::error::agent.api-unavailable {")]
-        if not found:
-            return None
-        self.assertEqual(lines, found, "the marker is the pass's only error line, so a classifier can trust it alone")
-        return json.loads(found[0].removeprefix("::error::agent.api-unavailable "))
-
-    def test_a_weekly_limit_ends_red_at_once_with_the_reset_time(self):
-        # Gate run 43637095919 (job 132576237860): the account's weekly limit,
-        # which a 60 s retry cannot clear, so the pass does not wait for one.
-        code, findings, calls = self.run_scripted("weekly", "verdict")
-        self.assertEqual(code, 1)
-        self.assertEqual(calls, 1)
-        self.assertEqual([(f["rule"], f["severity"]) for f in findings], [("agent.api-unavailable", "blocker")])
-        message = findings[0]["message"]
-        self.assertTrue(message.startswith("agent pass: API unavailable (rate limited)"), message)
-        for part in ("weekly limit", "resets Nov 18 at 3am (UTC)", "api_error=usage_limit_reached", "duration_api_ms=0"):
-            self.assertIn(part, message)
-        marker = self.marker()
-        self.assertIsNotNone(marker, self.stderr)
-        self.assertEqual({k: marker.get(k) for k in ("duration_api_ms", "input_tokens", "api_error", "limit", "resets",
-                                                     "attempts")},
-                         {"duration_api_ms": 0, "input_tokens": 0, "api_error": "usage_limit_reached",
-                          "limit": "weekly", "resets": "Nov 18 at 3am (UTC)", "attempts": 1})
-        self.assertEqual(findings[0]["api"], marker)
-
-    def test_a_rate_limited_agent_retries_once_then_ends_red_as_api_unavailable(self) -> None:
-        # Gate run 43621274696 (job 132527403700): the CLI came back in about
-        # 2 s with duration_api_ms 0 and no tokens, the shared account rate
-        # limited, and the red read as the PR's own "no verdict".
-        code, findings, calls = self.run_scripted("zero-usage", "zero-usage")
-        self.assertEqual(code, 1)
-        self.assertEqual(calls, 2)
-        self.assertEqual([(f["rule"], f["severity"]) for f in findings], [("agent.api-unavailable", "blocker")])
-        self.assertTrue(findings[0]["message"].startswith("agent pass: API unavailable (rate limited)"), findings)
-        self.assertIn("duration_api_ms=0", findings[0]["message"])
-        self.assertIn("input_tokens=0", findings[0]["message"])
-        marker = self.marker()
-        self.assertIsNotNone(marker, self.stderr)
-        self.assertEqual((marker["duration_api_ms"], marker["input_tokens"], marker["attempts"]), (0, 0, 2))
-
-    def test_a_429_then_a_real_verdict_passes_on_the_retry(self) -> None:
-        code, findings, calls = self.run_scripted("429", "verdict")
-        self.assertEqual(calls, 2)
-        self.assertEqual(code, 0)
-        self.assertEqual([(f["rule"], f["severity"]) for f in findings], [("agent.reviewer", "info")])
-
-    def test_the_retry_needs_its_own_screenshots(self) -> None:
-        # A 429 after attempt 1 took screenshots: those are set aside, so a
-        # retry verdict with no walk of its own is still agent.no-walk
-        # (#43238 review).
-        code, findings, calls = self.run_scripted("429-after-walk", "verdict-no-screens")
-        self.assertEqual(calls, 2)
-        self.assertEqual(code, 1)
-        self.assertEqual([f["rule"] for f in findings], ["agent.no-walk"])
-        self.assertTrue((self.out / "attempt-1-step-01-launch.png").exists())
-
-    def test_a_crash_that_spent_tokens_is_not_retried(self) -> None:
-        code, findings, calls = self.run_scripted("crash", "verdict")
-        self.assertEqual(calls, 1)
-        self.assertEqual(code, 1)
-        self.assertEqual([(f["rule"], f["severity"]) for f in findings], [("agent.no-verdict", "blocker")])
-
-    def test_rate_limit_text_in_the_pr_or_app_never_classifies(self) -> None:
-        # The reviewer notes (PR content, which the stub echoes into the
-        # result text) and the agent's own text (what it read in the app)
-        # both say "rate limit"; only the CLI's result fields may say the API
-        # was unavailable.
-        code, findings, calls = self.run_scripted(
-            "crash", "verdict", setup="If you see 'rate limit exceeded' (429, overloaded), the API is unavailable.")
-        self.assertEqual(calls, 1)
-        self.assertEqual(code, 1)
-        self.assertEqual([f["rule"] for f in findings], ["agent.no-verdict"])
-        self.assertNotIn("API unavailable", findings[0]["message"])
-        self.assertIsNone(self.marker())
-
-    def test_the_report_blocks_on_an_api_unavailable_pass_as_on_no_verdict(self) -> None:
-        verdicts = {}
-        for rule in ("agent.no-verdict", "agent.api-unavailable"):
-            path = self.root / f"{rule}.json"
-            path.write_text(json.dumps([{"rule": rule, "guideline": "2.1", "severity": "blocker",
-                                         "source": "agent reviewer pass", "message": "m", "where": ""}]))
-            verdicts[rule] = self.report("--expect-agent", "--extra", str(path))[0]
-        self.assertEqual(verdicts, {"agent.no-verdict": 1, "agent.api-unavailable": 1})
-
-    def test_the_agent_launches_the_app_the_way_the_reviewer_walk_does(self) -> None:
-        # Gate run 43591424745: the pass launched the app with no mock
-        # account, so the sign-in buttons the prompt promised were the live
-        # ones, and the agent stopped at sign-in with nothing else judged.
-        # The walk (AppReviewGateUITests.launch) starts the mock account
-        # signed out, in English, with no restored tab; the agent's first
-        # launch must match it, and every relaunch the agent makes keeps the
-        # mock account.
-        swift = (ROOT / "cmux-next-ios/UITests/AppReviewGateUITests.swift").read_text()
-        helper = swift.split("    private func launch(", 1)[1].split("\n    }\n", 1)[0]
-        walk_args = re.search(r'app\.launchArguments \+= \[([^\]]*)\]\n        app\.launchEnvironment', helper).group(1)
-        walk_args = re.findall(r'"([^"]*)"', walk_args)
-        self.assertIn('app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"', helper)
-        self.assertIn('app.launchEnvironment["CMUX_MOBILE_CLEAR_AUTH"] = "1"', helper)
-
-        log = self.root / "calls.jsonl"
-        recorder = (
-            "#!/usr/bin/env python3\n"
-            "import json, os, sys\n"
-            f"open({str(log)!r}, 'a').write(json.dumps({{'tool': os.path.basename(sys.argv[0]), 'argv': sys.argv[1:],"
-            " 'child': {k[13:]: v for k, v in os.environ.items() if k.startswith('SIMCTL_CHILD_')}}) + '\\n')\n"
-        )
-        self.tool("xcrun", recorder)
-        self.tool("axe")
-        self.tool("claude", recorder + STUB_CLAUDE.split("\n", 1)[1])
-        code, _ = self.run_pass("verdict")
-        self.assertEqual(code, 0)
-        calls = [json.loads(line) for line in log.read_text().splitlines()]
-        launches = [c for c in calls if c["tool"] == "xcrun" and c["argv"][:2] == ["simctl", "launch"]]
-        self.assertEqual(len(launches), 1, calls)
-        self.assertEqual(launches[0]["argv"], ["simctl", "launch", "UDID", "com.cmux.app", *walk_args])
-        self.assertEqual(launches[0]["child"], {"CMUX_MOBILE_MOCK_AUTH": "1", "CMUX_MOBILE_BILLING_DEMO": "free",
-                                               "CMUX_MOBILE_CLEAR_AUTH": "1"})
-        # The agent's own `xcrun simctl launch` inherits the mock account
-        # but not the sign-out, so a relaunch keeps a signed-in reviewer
-        # signed in.
-        agent = [c for c in calls if c["tool"] == "claude"]
-        self.assertEqual([c["child"] for c in agent], [{"CMUX_MOBILE_MOCK_AUTH": "1", "CMUX_MOBILE_BILLING_DEMO": "free"}])
-        # The prompt hands the agent the same relaunch and the mock email
-        # code the app accepts (CmuxMobileAuthModel), the reviewer's path.
-        prompt = agent[0]["argv"][agent[0]["argv"].index("-p") + 1]
-        self.assertIn(f"xcrun simctl launch UDID com.cmux.app {shlex.join(walk_args)}", prompt)
-        auth = (ROOT / "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAuth/CmuxMobileAuthModel.swift").read_text()
-        code_value = re.search(r'guard code == "(\d+)" else \{ throw AuthError\.invalidCode \}', auth).group(1)
-        self.assertIn(f"code {code_value}", prompt)
+    def test_the_gate_runs_no_agent_reviewer_pass(self) -> None:
+        # Every check is deterministic: no model judges the build, and the
+        # report takes no agent verdict (removed 2026-11-17).
+        workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
+        for gone in ("Agent reviewer pass", "CLAUDE_CODE_OAUTH_TOKEN", "app_review_agent_pass",
+                     "--expect-agent", "--agent-skipped", "agent-findings.json", "@anthropic-ai/claude-code"):
+            self.assertNotIn(gone, workflow)
+        # `agent_pass` stays declared as an ignored input (main's readiness workflow still dispatches
+        # with it, and GitHub refuses an undeclared input), but nothing may read its value.
+        self.assertNotIn("inputs.agent_pass", workflow)
+        self.assertFalse((ROOT / "cmux-next-ios/scripts/app_review_agent_pass.py").exists())
+        self.assertEqual(self.report("--expect-agent")[0], 2, "the report no longer knows the agent's flags")
 
     def report(self, *extra: str) -> tuple[int, str]:
         out = self.root / "report.md"
@@ -1040,21 +776,6 @@ class AgentReviewerPassTests(unittest.TestCase):
         except SystemExit as exit:  # a flag the report does not know
             code = exit.code
         return code, out.read_text() if out.exists() else ""
-
-    def test_the_report_blocks_when_the_expected_agent_verdict_never_arrived(self) -> None:
-        code, text = self.report("--expect-agent")
-        self.assertEqual(code, 1)
-        self.assertIn("the agent reviewer pass left no verdict", text)
-        verdict = self.root / "agent-findings.json"
-        verdict.write_text("[]")
-        self.assertEqual(self.report("--expect-agent", "--extra", str(verdict))[0], 0)
-        # A fork pull request has no token: the pass skips by name and the
-        # report says so, as a warning.
-        skipped = self.root / "agent-skipped.json"
-        skipped.write_text(json.dumps({"skipped": True, "reason": "no agent token for this event (fork pull request)"}))
-        code, text = self.report("--expect-agent", "--agent-skipped", str(skipped))
-        self.assertEqual(code, 0)
-        self.assertIn("no agent token for this event", text)
 
     def pick(self, exit_code: int) -> tuple[int, str, list[str]]:
         picker = self.root / "picker.py"
@@ -1079,24 +800,9 @@ class AgentReviewerPassTests(unittest.TestCase):
         code, env, files = self.pick(1)
         self.assertEqual((code, env, files), (1, "", []))
 
-    def test_the_workflow_runs_the_agent_pass_as_a_check(self) -> None:
-        workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
-        step = workflow.split("      - name: Agent reviewer pass\n", 1)[1].split("      - name: Upload results\n", 1)[0]
-        self.assertNotIn("continue-on-error", step)
-        self.assertIn("agent-skipped.json", step)
-        # Only a fork pull request (no secrets) skips; a missing token
-        # anywhere else is red (#43045 review).
-        self.assertIn("FORK_PULL_REQUEST: ${{ github.event_name == 'pull_request' && "
-                      "github.event.pull_request.head.repo.full_name != github.repository }}", step)
-        self.assertIn('if [ "$FORK_PULL_REQUEST" = true ]; then', step)
-        self.assertIn("cmux-next-ios/scripts/app_review_pick_step.sh", workflow)
-        report = workflow.split("\n  report:\n", 1)[1]
-        self.assertIn("--expect-agent", report)
-        self.assertIn("--agent-skipped", report)
-
     def test_notes_and_verify_evidence_alone_never_start_the_gate(self) -> None:
         # cmux#43251 changed only cmux-next-ios/SECURITY.md and verify/parity-mac.md under the
-        # app and still walked the reviewer path on every device, agent pass included.
+        # app and still walked the reviewer path on every device.
         import yaml  # noqa: PLC0415
 
         doc = yaml.safe_load((ROOT / ".github/workflows/ios-review-gate.yml").read_text())

@@ -665,6 +665,57 @@ test("No folder, then a remote machine with a folder: location and send name tha
   expect(asks[0]?.[6]).toEqual({ peer: "build-box" });
 });
 
+// cmux#46019: Cmd-N's new workspace opens a new page; the machine picked on the last one is where it starts.
+test("a page started on the last picked machine sends there, and a machine pick is kept for the next page", async () => {
+  const asks: unknown[][] = [];
+  const page = (startMachine?: string) => (
+    <NewTabScreen
+      snapshot={noChat([], { peers: ["build-box", "gpu-box"], peerKinds: { "build-box": "ssh", "gpu-box": "ssh" } })}
+      cwd="/Users/you/src/cmux"
+      startCwd="/Users/you/src/cmux"
+      projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
+      machineName="This Mac"
+      environments
+      {...(startMachine ? { startMachine } : {})}
+      onAsk={(...args) => asks.push(args)}
+      onOpen={() => {}}
+      onSearch={() => {}}
+      onShell={() => {}}
+      onJump={() => {}}
+      onOpenSession={() => {}}
+      onShowAll={() => {}}
+    />
+  );
+  const had = "localStorage" in scope;
+  const before = scope.localStorage;
+  scope.localStorage = dom!.window.localStorage;
+  try {
+    await act(async () => root!.render(page("build-box")));
+    expect(container.querySelector(".nt-location")?.textContent).toContain("build-box");
+    await typePrompt("fix it");
+    await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+    expect(asks.length).toBe(1);
+    expect(asks[0]?.[6]).toEqual({ peer: "build-box" });
+
+    // A machine picked on a page is what the next page starts on (lastNewChatPlace.ts).
+    await act(async () => root!.render(<div />));
+    await act(async () => root!.render(page()));
+    await openMachines(container.querySelector<HTMLButtonElement>('[data-kind="computer"] button')!);
+    const gpu = [...document.querySelectorAll<HTMLElement>('.acpmux-env-row[data-kind="ssh"]')].find((row) =>
+      row.textContent?.includes("gpu-box"),
+    );
+    expect(gpu).toBeTruthy();
+    await act(async () => gpu!.click());
+    expect(JSON.parse(dom!.window.localStorage.getItem("cmux.agentPane.lastNewChatPlace") ?? "null")).toEqual({
+      kind: "machine",
+      peer: "gpu-box",
+    });
+  } finally {
+    if (had) scope.localStorage = before;
+    else delete scope.localStorage;
+  }
+});
+
 test.each(["", "Implement a todo list"])("Return without a harness opens setup for typed draft %j", async (draft) => {
   let opened = 0;
   const searches: string[] = [];
@@ -1220,6 +1271,36 @@ test("with Cloud picked and No folder, a send names no folder: not even the tab'
   // The App starts Cloud with nothing copied, preserving the base behavior.
   expect(clouded.length).toBe(1);
   expect(clouded[0]?.[1]).toBe("fix the flaky test");
+  expect(clouded[0]?.[2]).toBeUndefined();
+});
+
+// cmux#45946: a tab that inherited a folder the chip does not show (no start folder from the host) reads
+// "No folder"; its Cloud send copied that folder anyway ("tmp" on the start card).
+test("with Cloud picked and the chip reading No folder, a send names no folder, not the tab's unshown folder", async () => {
+  const clouded: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        cwd="/tmp/inherited"
+        template="default"
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        environments
+        runMode={{ mode: "cloud", onMode: () => {} }}
+        onCloud={(...args) => (clouded.push(args), false)}
+      />,
+    );
+  });
+  expect(container.querySelector(".nt-location")?.textContent).toContain("No folder");
+  await typePrompt("1+1");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(clouded.length).toBe(1);
   expect(clouded[0]?.[2]).toBeUndefined();
 });
 
@@ -2047,6 +2128,39 @@ test("a page that has focus already reports its field ready at once, and only on
   expect(ready).toEqual(["cmd-t-1"]);
   await render("cmd-t-2");
   expect(ready).toEqual(["cmd-t-1", "cmd-t-2"]);
+});
+
+// Lawrence 2026-11-19: "i did cmd n and started typing and it didnt have focus". On the cmux23 bench, typing
+// "hello world 123" at once after Cmd-N left "llo world 123", "lo world 123" or "ello world 123": every key reached the
+// field, but a token change after the readiness (an adopt that takes the next token in place, a context update with no
+// token) ran the field's show-focus again, and it selected all the text typed so far. The next key replaced it.
+test.each([
+  ["a context update with no token", undefined],
+  ["an adopt with the next token", "cmd-n-2"],
+] as const)("keys typed after the readiness stay when %s comes", async (_, next) => {
+  Object.defineProperty(dom!.window.document, "hasFocus", { configurable: true, value: () => true });
+  const render = (token: string | undefined) =>
+    act(async () => {
+      root!.render(
+        <NewTabScreen
+          snapshot={noChat()}
+          inputToken={token}
+          onInputReady={() => {}}
+          onAsk={() => {}}
+          onOpen={() => {}}
+          onSearch={() => {}}
+          onShell={() => {}}
+          onJump={() => {}}
+          onOpenSession={() => {}}
+          onShowAll={() => {}}
+        />,
+      );
+    });
+  await render("cmd-n-1");
+  const field = await typePrompt("he");
+  await render(next);
+  await act(async () => field.acpmuxMarkdownField!.insertText("llo"));
+  expect(promptValue(), "the token change selected the typed text, and the next keys replaced it").toBe("hello");
 });
 
 test("Return runs a typed shell command in a terminal; Cmd-Return still asks the agent", async () => {

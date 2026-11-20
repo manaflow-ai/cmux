@@ -26,9 +26,9 @@ extension SettingsSchema {
     /// Keys an agent may set and reset.
     public static let agentSettableKeys: Set<String> = [
         "window.titlebar",
-        // Whether a chat shows the live view of the app its agent uses: looks only.
-        "computerUse.livePreview",
         "shortcuts.showModifierHoldHints",
+        // Whether the window offers the Customize Inspector and right-click Customize…: looks only, and off is the default.
+        "customize.fromTheApp",
         // Whether right-click menus end with Customize Menu… (looks only; the layouts stay the person's).
         "contextMenus.showCustomizeItem",
         "window.titlebarButtons", "tabs.plusButton", "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons",
@@ -133,7 +133,7 @@ extension SettingsSchema {
         "notifications.attention.agentChats", "notifications.attention.agentChatBlinkCount",
         "notifications.attention.width", "notifications.attention.blinkCount", "notifications.attention.duration",
         "notifications.attention.persist", "notifications.attention.flash", "notifications.attention.flashOnTyping",
-        "notifications.attention.showOnTab", "notifications.attention.showOnSidebar",
+        "notifications.attention.showOnTab", "notifications.attention.showOnSidebar", "notifications.attention.mark",
         "notifications.attention.moveToTop", "notifications.attention.moveToTopOnAgentFinish",
         // cmux-browser mutes a workspace through settings.set as `script` (cmux-browser #614).
         "notifications.mutedWorkspaces",

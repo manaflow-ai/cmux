@@ -8,6 +8,17 @@ public import Foundation
 /// (`cmux-rd linux-host`); it is viewed like a Mac and never views.
 public enum DevicePlatform: String, Codable, Sendable, Equatable {
     case macos, ios, linux
+
+    /// Whether a device of this platform hosts a screen another device views: a Mac or a Linux
+    /// desktop, never an iPhone. The iPhone's Screen Sharing list asks this (the Mac app's own
+    /// models say the same in `hostsScreenThisMacViews`), and the switch is exhaustive, so a new
+    /// platform says here whether it hosts.
+    public var hostsScreen: Bool {
+        switch self {
+        case .macos, .linux: true
+        case .ios: false
+        }
+    }
 }
 
 /// What a viewer may do on a host's screen.
