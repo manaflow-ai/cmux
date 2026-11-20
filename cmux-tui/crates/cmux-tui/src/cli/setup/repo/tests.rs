@@ -537,7 +537,7 @@ fn an_empty_machine_gets_every_look_and_no_stack() {
     let customize = Customize::open(Roots::under(root.path()));
     let answer = gallery(&customize).unwrap();
     let looks = answer["looks"].as_array().unwrap();
-    assert_eq!(looks.len(), 4);
+    assert_eq!(looks.len(), cmux_customize::setup::looks::catalog().unwrap().looks.len());
     assert_eq!(
         looks[0],
         json!({

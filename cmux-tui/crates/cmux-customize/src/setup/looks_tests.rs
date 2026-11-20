@@ -116,8 +116,9 @@ fn a_catalog_that_breaks_a_rule_is_refused() {
 
 #[test]
 fn an_empty_machine_lists_every_look_not_installed_and_no_stack() {
-    let gallery = gallery(&catalog().unwrap(), &[]);
-    assert_eq!(gallery.looks.len(), 4);
+    let catalog = catalog().unwrap();
+    let gallery = gallery(&catalog, &[]);
+    assert_eq!(gallery.looks.len(), catalog.looks.len());
     assert!(gallery.looks.iter().all(|look| look.installed.is_none()));
     assert!(gallery.stack.is_empty());
     let value = serde_json::to_value(&gallery).unwrap();
