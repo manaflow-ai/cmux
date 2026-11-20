@@ -527,6 +527,7 @@ fn own_tree_a_setup_starts_in_no_folder_outside_the_worktrees_folder_of_this_rep
         common.clone(),
         common.join("worktrees"),
         admin.join("below"),
+        // affected-reads: none
         admin.join("../../.."),
     ];
     std::fs::create_dir_all(&root).unwrap();

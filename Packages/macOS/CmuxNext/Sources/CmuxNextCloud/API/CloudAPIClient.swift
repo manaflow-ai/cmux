@@ -1,3 +1,4 @@
+public import CMUXAuthCore
 public import Foundation
 import CmuxNextCompat
 
@@ -18,6 +19,8 @@ public struct CloudAPIClient: Sendable {
     private(set) var teamID: TeamID
     let session: URLSession
     let appVersion: String
+    /// A tagged dev build's cloud data space, sent on every request (``CloudConfiguration/buildSpace``); none for nightly; a misconfigured dev build's requests throw.
+    let buildSpace: CMUXBuildSpaceState
     /// cmux-platform's machine routes (CloudAPIClient+MachineRoutes.swift, which says what each sends).
     let machinePath = "/v1/cloud/machines"
     /// The sign-in client: Stack refresh token and `X-Cmux-Team-Id`, sandboxed Runs only.
@@ -82,17 +85,20 @@ public struct CloudAPIClient: Sendable {
         self.teamID = teamID
         self.session = session
         self.appVersion = appVersion
+        buildSpace = configuration.buildSpace
         sendsStackSession = true
     }
 
     /// A Worker machines client (CloudAPIClient+MachineRoutes.swift).
-    init(baseURL: URL, tokens: @escaping Tokens, teamID: @escaping TeamID, session: URLSession, appVersion: String) {
+    init(baseURL: URL, tokens: @escaping Tokens, teamID: @escaping TeamID, session: URLSession, appVersion: String,
+         buildSpace: CMUXBuildSpaceState = .nightly) {
         self.baseURL = baseURL
         backendIsLocalOnly = false
         self.tokens = tokens
         self.teamID = teamID
         self.session = session
         self.appVersion = appVersion
+        self.buildSpace = buildSpace
         sendsStackSession = false
     }
 
@@ -349,6 +355,7 @@ public struct CloudAPIClient: Sendable {
         request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
         request.setValue("cmux-mac", forHTTPHeaderField: "X-Cmux-Client")
         request.setValue(appVersion, forHTTPHeaderField: "X-Cmux-App-Version")
+        try buildSpace.apply(to: &request)
         if sendsStackSession {
             request.setValue(refresh, forHTTPHeaderField: "X-Stack-Refresh-Token")
             if let team = await teamID() { request.setValue(team, forHTTPHeaderField: "X-Cmux-Team-Id") }
