@@ -219,7 +219,12 @@ pub fn scan_text(
             continue;
         }
         let mut body = BodyScan {
-            sc: Scope { env: HashMap::new(), consts: &items.consts, clock_fns: &items.clock_fns },
+            sc: Scope {
+                env: HashMap::new(),
+                frames: Vec::new(),
+                consts: &items.consts,
+                clock_fns: &items.clock_fns,
+            },
             lines: &lines,
             found: Vec::new(),
         };
@@ -374,12 +379,8 @@ impl<'ast> Visit<'ast> for SpreadScan<'_> {
         };
         for cond in &conds {
             for cmp in comparisons(cond) {
-                let bounded = match cmp.op {
-                    BinOp::Lt(_) | BinOp::Le(_) => &cmp.left,
-                    _ => &cmp.right,
-                };
-                if self.spread_name(bounded) {
-                    self.found.push(cmp.span());
+                if self.spread_name(cmp.bounded()) {
+                    self.found.push(cmp.bin.span());
                 }
             }
         }
@@ -603,11 +604,29 @@ fn compact(e: &Expr) -> String {
 
 struct Scope<'a> {
     env: HashMap<String, Kind>,
+    /// The lexical scopes open around the statement being read, innermost last: each holds the
+    /// names a `let` in it bound, with what each held before, put back when the scope ends
+    /// (review of cmux#41523 F3). An assignment to an outer name is not recorded, so it lasts.
+    frames: Vec<Vec<(String, Option<Kind>)>>,
     consts: &'a HashSet<String>,
     clock_fns: &'a HashMap<String, Option<Vec<bool>>>,
 }
 
 impl Scope<'_> {
+    fn open(&mut self) {
+        self.frames.push(Vec::new());
+    }
+
+    /// End the innermost scope: every name it bound holds again what it held before.
+    fn close(&mut self) {
+        for (name, before) in self.frames.pop().unwrap_or_default().into_iter().rev() {
+            match before {
+                Some(kind) => self.env.insert(name, kind),
+                None => self.env.remove(&name),
+            };
+        }
+    }
+
     fn kind_of(&self, e: &Expr) -> Kind {
         match e {
             Expr::Lit(_) => Kind::of(Base::Const),
@@ -878,13 +897,18 @@ impl Scope<'_> {
             if k.measured() && names_pct(&name) {
                 k.base = Base::Pct;
             }
+            if let Some(frame) = self.frames.last_mut()
+                && !frame.iter().any(|(n, _)| *n == name)
+            {
+                frame.push((name.clone(), self.env.get(&name).cloned()));
+            }
             self.env.insert(name, k);
         }
     }
 
-    fn judge(&self, cmp: &ExprBinary) -> Option<&'static str> {
+    fn judge(&self, cmp: Cmp<'_>) -> Option<&'static str> {
         const RATIO: &str = "ratio of two timings";
-        let (lk, rk) = (self.kind_of(&cmp.left), self.kind_of(&cmp.right));
+        let (lk, rk) = (self.kind_of(&cmp.bin.left), self.kind_of(&cmp.bin.right));
         if lk.base == Base::Ratio || rk.base == Base::Ratio {
             return Some(RATIO);
         }
@@ -901,7 +925,7 @@ impl Scope<'_> {
             }
             return None; // a name read by its words (`since_ms`) may be a timestamp
         }
-        let upper = if matches!(cmp.op, BinOp::Lt(_) | BinOp::Le(_)) { &lk } else { &rk };
+        let upper = if cmp.left_is_upper_bounded() { &lk } else { &rk };
         (upper.base == Base::Pct).then_some("percentile bound")
     }
 }
@@ -956,24 +980,50 @@ fn pattern_names(pat: &Pat, path: &mut Vec<i64>, out: &mut Vec<(String, Vec<i64>
     }
 }
 
-/// The comparisons a condition asserts, through `( )`, `!`, `&&` and `||`.
-fn comparisons(e: &Expr) -> Vec<&ExprBinary> {
-    match e {
-        Expr::Paren(x) => comparisons(&x.expr),
-        Expr::Group(x) => comparisons(&x.expr),
-        Expr::Unary(x) if matches!(x.op, UnOp::Not(_)) => comparisons(&x.expr),
-        Expr::Binary(b) if matches!(b.op, BinOp::And(_) | BinOp::Or(_)) => {
-            let mut out = comparisons(&b.left);
-            out.extend(comparisons(&b.right));
-            out
-        }
-        Expr::Binary(b)
-            if matches!(b.op, BinOp::Lt(_) | BinOp::Le(_) | BinOp::Gt(_) | BinOp::Ge(_)) =>
-        {
-            vec![b]
-        }
-        _ => Vec::new(),
+/// A comparison a condition asserts, and whether an odd number of `!`s stand over it.
+#[derive(Clone, Copy)]
+struct Cmp<'e> {
+    bin: &'e ExprBinary,
+    negated: bool,
+}
+
+impl<'e> Cmp<'e> {
+    /// Whether the assert holds the left side below the right: `a < b`, `a <= b`, and
+    /// `!(a >= b)`, `!(a > b)`, which are the same bounds (review of cmux#41523 F4).
+    fn left_is_upper_bounded(&self) -> bool {
+        matches!(self.bin.op, BinOp::Lt(_) | BinOp::Le(_)) != self.negated
     }
+
+    /// The side the assert holds below the other.
+    fn bounded(&self) -> &'e Expr {
+        if self.left_is_upper_bounded() { self.bin.left.as_ref() } else { self.bin.right.as_ref() }
+    }
+}
+
+/// The comparisons a condition asserts, through `( )`, `!`, `&&` and `||`, each with its
+/// polarity: a `!` over a comparison turns `<` into `>=` (and `!(a && b)` into `!a || !b`), so
+/// which side is bounded above comes from the comparison as asserted, not as written.
+fn comparisons(e: &Expr) -> Vec<Cmp<'_>> {
+    fn walk<'e>(e: &'e Expr, negated: bool, out: &mut Vec<Cmp<'e>>) {
+        match e {
+            Expr::Paren(x) => walk(&x.expr, negated, out),
+            Expr::Group(x) => walk(&x.expr, negated, out),
+            Expr::Unary(x) if matches!(x.op, UnOp::Not(_)) => walk(&x.expr, !negated, out),
+            Expr::Binary(b) if matches!(b.op, BinOp::And(_) | BinOp::Or(_)) => {
+                walk(&b.left, negated, out);
+                walk(&b.right, negated, out);
+            }
+            Expr::Binary(bin)
+                if matches!(bin.op, BinOp::Lt(_) | BinOp::Le(_) | BinOp::Gt(_) | BinOp::Ge(_)) =>
+            {
+                out.push(Cmp { bin, negated });
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    walk(e, false, &mut out);
+    out
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1200,10 +1250,32 @@ impl<'ast> Visit<'ast> for BodyScan<'_> {
         self.sc.bind(&e.pat, Some(&e.expr), &k);
         visit::visit_expr_let(self, e);
     }
+    fn visit_block(&mut self, b: &'ast Block) {
+        self.sc.open();
+        visit::visit_block(self, b);
+        self.sc.close();
+    }
     fn visit_expr_for_loop(&mut self, f: &'ast syn::ExprForLoop) {
         let k = self.sc.kind_of(&f.expr);
+        self.sc.open();
         self.sc.bind(&f.pat, None, &k);
         visit::visit_expr_for_loop(self, f);
+        self.sc.close();
+    }
+    fn visit_expr_if(&mut self, e: &'ast syn::ExprIf) {
+        // An `if let`'s names hold in its own branch, not in the `else`.
+        self.sc.open();
+        self.visit_expr(&e.cond);
+        self.visit_block(&e.then_branch);
+        self.sc.close();
+        if let Some((_, other)) = &e.else_branch {
+            self.visit_expr(other);
+        }
+    }
+    fn visit_expr_while(&mut self, e: &'ast syn::ExprWhile) {
+        self.sc.open();
+        visit::visit_expr_while(self, e);
+        self.sc.close();
     }
     fn visit_expr_assign(&mut self, a: &'ast syn::ExprAssign) {
         let target = match &*a.left {
@@ -1249,7 +1321,7 @@ impl<'ast> Visit<'ast> for BodyScan<'_> {
         for cond in &conds {
             for cmp in comparisons(cond) {
                 if let Some(kind) = self.sc.judge(cmp) {
-                    self.found.push((cmp.span(), kind));
+                    self.found.push((cmp.bin.span(), kind));
                 }
             }
         }

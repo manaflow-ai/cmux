@@ -396,14 +396,12 @@ impl Profiles {
     }
 
     /// False when every profile CI uses (`ci` and `default`) runs `t` alone or leaves it out.
+    /// The default profile is judged whether or not the file names it: nextest always has one
+    /// (review of cmux#41523 F5).
     pub fn runs_beside_others(&self, t: &TestId) -> bool {
         let empty = Profile::default();
         let default = self.0.get("default").unwrap_or(&empty);
-        let mut names: Vec<&str> =
-            ["default", "ci"].into_iter().filter(|p| self.0.contains_key(*p)).collect();
-        if names.is_empty() {
-            names.push("default");
-        }
+        let names = std::iter::once("default").chain(self.0.contains_key("ci").then_some("ci"));
         for name in names {
             let profile = self.0.get(name).unwrap_or(default);
             let inherited = if name == "default" { &[][..] } else { &default.overrides[..] };
