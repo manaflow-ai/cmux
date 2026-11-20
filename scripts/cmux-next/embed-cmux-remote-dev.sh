@@ -1,94 +1,77 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Embeds the pinned, team-signed "cmux Remote (dev).app"
-# (cmux-remote-dev.pin.json; docs/cmux-remote.md) at
-#   Contents/Library/cmux Remote (dev).app
-# of a DEV build, where its cmux-tui daemon finds it, copies it outside the app
-# and starts it; its Computer Use worker hosts libcmux_computer_use.dylib from
-# its Frameworks. Run from the cmux-next target's "Embed cmux Remote (dev)"
-# phase. The bytes are never re-signed (cmux Remote's code
-# identity, and so its macOS grants, must stay the same across builds).
-# A Release build embeds it only with CMUX_NEXT_EMBED_CMUX_REMOTE_IN_RELEASE=1 (decision of
-# 2026-11-16: the third-party notices and the load-command check of a published build do not cover
-# the embedded bundle yet). Without the variable a Release build prints one note line and embeds
-# nothing, and with CMUX_NEXT_REQUIRE_CMUX_REMOTE=1 and not the variable it fails: a build that
-# requires the asset does not go out with none. With the variable, Release requires the asset.
-# CMUX_NEXT_ALLOW_NO_CMUX_REMOTE=1 is the opt-in of such a Release build that may go out with no cmux
-# Remote (decision of 2026-11-16): on a Mac with no source for the asset (no cached zip, a store
-# that gives no URL for it, no read credentials) that build prints one NOT EMBEDDED warning line and
-# embeds nothing (docs/cmux-remote.md). With the opt-in a missing pin file, a failed download and a
-# sha256 mismatch still fail the build, and CMUX_NEXT_REQUIRE_CMUX_REMOTE=1 is stronger than it.
-# DEV warns and embeds nothing unless CMUX_NEXT_REQUIRE_CMUX_REMOTE=1; a sha256 mismatch fails.
-# A bench build (reload.sh --config bench: a Release configuration with -DCMUX_BENCH_HOOKS in
-# OTHER_SWIFT_FLAGS, lib/bench-swift-defines.sh) is never published (check-no-bench-hooks.sh), so
-# the asset is optional there as in DEV. A dogfood `reload.sh --release` build with a tag of
-# release_bench_tags (cmux-next.dogfood.conf) is a bench build too: on a Mac with no asset it has no
-# cmux Remote, and the only sign is the warning line in the build log.
-# CMUX_NEXT_SKIP_CMUX_REMOTE=1 embeds nothing.
+# DEV and bench builds embed a team-signed arm64 helper from the asset store.
+# Release builds assemble their own helper with the Release bundle ID and architectures.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
-name="cmux Remote (dev).app"
-dest="$app/Contents/Library/$name"
+library="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}/Contents/Library"
+name="cmux Computer Use (dev).app"
+dest="$library/$name"
 stamp="${TARGET_TEMP_DIR:-$TARGET_BUILD_DIR}/embed-cmux-remote-dev.stamp"
+# An incremental Xcode build may still have the old product at its former output path.
+rm -rf "$library/cmux Remote (dev).app"
+
 skip() {
-  echo "note: not embedding cmux Remote (dev): $1"
+  echo "note: not embedding $name: $1"
   rm -rf "$dest"
   rm -f "$stamp"
   exit 0
 }
-[[ "${CMUX_NEXT_SKIP_CMUX_REMOTE:-0}" == "1" ]] && skip "CMUX_NEXT_SKIP_CMUX_REMOTE=1"
+if [[ "${CONFIGURATION:-}" == Release && " ${OTHER_SWIFT_FLAGS:-} " != *" -DCMUX_BENCH_HOOKS "* ]]; then
+  skip "the release assembles cmux Computer Use.app separately"
+fi
+[[ "${CMUX_NEXT_SKIP_CMUX_REMOTE:-0}" == 1 ]] && skip "CMUX_NEXT_SKIP_CMUX_REMOTE=1"
 [[ " ${ARCHS:-arm64} " == *" arm64 "* ]] || skip "ARCHS=${ARCHS:-} has no arm64"
 pin="${CMUX_NEXT_CMUX_REMOTE_PIN:-$SCRIPT_DIR/cmux-remote-dev.pin.json}"
 required="${CMUX_NEXT_REQUIRE_CMUX_REMOTE:-0}"
-bench=0
-[[ " ${OTHER_SWIFT_FLAGS:-} " == *" -DCMUX_BENCH_HOOKS "* ]] && bench=1
-allow_no_source=0
-if [[ "${CONFIGURATION:-}" == "Release" && "$bench" == "0" ]]; then
-  if [[ "${CMUX_NEXT_EMBED_CMUX_REMOTE_IN_RELEASE:-0}" != "1" ]]; then
-    [[ "$required" == "1" ]] && { echo "error: CMUX_NEXT_REQUIRE_CMUX_REMOTE=1 in a Release build needs CMUX_NEXT_EMBED_CMUX_REMOTE_IN_RELEASE=1 (a Release build embeds cmux Remote only when asked)" >&2; exit 1; }
-    skip "Release configuration (embedded only with CMUX_NEXT_EMBED_CMUX_REMOTE_IN_RELEASE=1)"
-  fi
-  [[ "$required" != "1" && "${CMUX_NEXT_ALLOW_NO_CMUX_REMOTE:-0}" == "1" ]] && allow_no_source=1
-  required=1
-fi
 if [[ ! -f "$pin" ]]; then
-  [[ "$required" == "1" ]] && { echo "error: cmux Remote requires pin file $pin" >&2; exit 1; }
+  [[ "$required" == 1 ]] && { echo "error: $name requires pin file $pin" >&2; exit 1; }
   skip "no pin file $pin"
 fi
+# The old pin authenticates a different signed app. Never unpack it into the new bundle location.
+pin_id="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["bundle_id"])' "$pin")"
+if [[ "$pin_id" == com.cmuxterm.remote.dev && "$required" != 1 ]]; then
+  echo "warning: $pin still identifies the old DEV helper" >&2
+  skip "waiting for the signed com.cmuxterm.cua.dev artifact"
+fi
+[[ "$pin_id" == com.cmuxterm.cua.dev ]] || { echo "error: $pin identifies $pin_id; expected com.cmuxterm.cua.dev" >&2; exit 1; }
 args=(--optional)
-[[ "$required" == "1" ]] && args=()
-[[ "$allow_no_source" == "1" ]] && args=(--allow-no-source)
-fetch=0
-zip="$("$SCRIPT_DIR/ensure-signed-pinned-asset.sh" "$pin" ${args[@]+"${args[@]}"})" || fetch=$?
-if [[ "$fetch" == "3" && "$allow_no_source" == "1" ]]; then
-  echo "warning: cmux-remote-dev: NOT EMBEDDED (this Mac has no cached zip and no read credentials)" >&2
-  rm -rf "$dest"
-  rm -f "$stamp"
+[[ "$required" == 1 ]] && args=()
+zip="$("$SCRIPT_DIR/ensure-signed-pinned-asset.sh" "$pin" ${args[@]+"${args[@]}"})"
+[[ -n "$zip" ]] || skip "the pinned helper is unavailable"
+want="$(shasum -a 256 "$zip" | awk '{print $1}')"
+requirement='identifier "com.cmuxterm.cua.dev" and anchor apple generic and certificate leaf[subject.OU] = "7WLXT3NR37"'
+if [[ -f "$stamp" && "$(cat "$stamp")" == "$want" ]] && codesign --verify --strict --deep -R="$requirement" "$dest" 2>/dev/null; then
+  echo "note: $name already embedded ($want)"
   exit 0
 fi
-[[ "$fetch" == "0" ]] || exit "$fetch"
-[[ -n "$zip" ]] || skip "the pinned cmux Remote is unavailable"
-want="$(shasum -a 256 "$zip" | awk '{print $1}')"
-if [[ -f "$stamp" && "$(cat "$stamp")" == "$want" ]] && codesign --verify --strict "$dest" 2>/dev/null; then
-  echo "note: cmux Remote (dev) already embedded ($want)"
-  exit 0
+
+mkdir -p "$library"
+work="$(mktemp -d "$library/.computer-use.XXXXXX")"
+trap 'rm -rf "$work"' EXIT
+ditto -x -k "$zip" "$work"
+helper="$work/$name"
+[[ -d "$helper" && ! -L "$helper" ]] || { echo "error: $zip has no $name" >&2; exit 1; }
+codesign --verify --strict --deep -R="$requirement" "$helper"
+codesign --verify --strict -R="$requirement" "$helper/Contents/MacOS/cmux-screen-sharing"
+python3 -I - "$helper/Contents/Info.plist" <<'PYPLIST'
+import plistlib
+import sys
+
+with open(sys.argv[1], "rb") as file:
+    info = plistlib.load(file)
+if (info.get("CFBundleIdentifier"), info.get("CFBundleExecutable")) != ("com.cmuxterm.cua.dev", "cmux-remote"):
+    sys.exit("error: unexpected DEV helper bundle identifier or executable")
+PYPLIST
+for file in MacOS/cmux-remote MacOS/cmux-screen-sharing Frameworks/libcmux_computer_use.dylib Frameworks/libWebRTC.dylib; do
+  [[ -f "$helper/Contents/$file" ]] || { echo "error: $name is missing $file" >&2; exit 1; }
+done
+python3 -I "$SCRIPT_DIR/../ci/macho_minos.py" scan "$helper" --floor "${MACOSX_DEPLOYMENT_TARGET:-14.0}"
+if [[ -n "$(find "$helper" -name '*.framework' -type d -print)" ]]; then
+  echo "error: $name contains a nested framework" >&2; exit 1
 fi
 rm -rf "$dest"
-mkdir -p "$app/Contents/Library"
-ditto -x -k "$zip" "$app/Contents/Library"
-[[ -d "$dest" ]] || { echo "error: $zip has no $name" >&2; exit 1; }
-codesign --verify --strict --deep "$dest" || { echo "error: the embedded cmux Remote's signature does not verify" >&2; exit 1; }
-[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$dest/Contents/Info.plist")" == com.cmuxterm.remote.dev ]] ||
-  { echo "error: the embedded cmux Remote is not com.cmuxterm.remote.dev" >&2; exit 1; }
-python3 -I "$SCRIPT_DIR/../ci/macho_minos.py" scan "$dest" --floor "${MACOSX_DEPLOYMENT_TARGET:-14.0}" ||
-  { rm -rf "$dest"; echo "error: the pinned cmux Remote cannot load on macOS ${MACOSX_DEPLOYMENT_TARGET:-14.0}" >&2; exit 1; }
+mv "$helper" "$dest"
 mkdir -p "$(dirname "$stamp")"
-# Nothing in it may be a .framework: a fleet cross build re-signs nested frameworks ad hoc.
-if find "$dest" -name "*.framework" -type d | grep -q .; then
-  rm -rf "$dest"; echo "error: cmux Remote must ship no nested .framework (build-cmux-remote-dev.sh)" >&2; exit 1
-fi
-[[ -f "$dest/Contents/Frameworks/libcmux_computer_use.dylib" ]] ||
-  { rm -rf "$dest"; echo "error: the pinned cmux Remote has no libcmux_computer_use.dylib (built before the Computer Use engine; rebuild it with build-cmux-remote-dev.sh)" >&2; exit 1; }
 echo "$want" > "$stamp"
-echo "note: embedded cmux Remote (dev) sha256 $want"
+echo "note: embedded $name sha256 $want"

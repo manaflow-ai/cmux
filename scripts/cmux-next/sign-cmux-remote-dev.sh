@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Signs the unsigned "cmux Remote (dev).app" (build-cmux-remote-dev.sh) with an
+# Signs the unsigned "cmux Computer Use (dev).app" (build-cmux-remote-dev.sh) with an
 # Apple Development identity from this Mac's keychain (hardened runtime;
 # libcmux_computer_use.dylib and libWebRTC.dylib get the same team signature, so library
 # validation holds), verifies it against the designated requirement the
-# cmux-tui daemon checks (identifier com.cmuxterm.remote.dev, cmux's team), and
+# cmux-tui daemon checks (identifier com.cmuxterm.cua.dev, cmux's team), and
 # writes the signed zip and its pin cmux-remote-dev.pin.json. Every DEV build
-# embeds these exact bytes, so cmux Remote's code identity, and the person's
+# embeds these exact bytes, so the helper's code identity, and the person's
 # Accessibility and Screen Recording grants, stay the same until the pin
 # changes. Codesign only; nothing is built here; the key never leaves this Mac.
 #
@@ -41,16 +41,17 @@ fi
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 ditto -x -k "$zip" "$work"
-app="$work/cmux Remote (dev).app"
-[[ -d "$app" ]] || { echo "error: $zip has no cmux Remote (dev).app" >&2; exit 1; }
-[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" == com.cmuxterm.remote.dev ]] ||
+app="$work/cmux Computer Use (dev).app"
+[[ -d "$app" ]] || { echo "error: $zip has no cmux Computer Use (dev).app" >&2; exit 1; }
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" == com.cmuxterm.cua.dev ]] ||
   { echo "error: unexpected bundle id" >&2; exit 1; }
 sign() { codesign --force --options runtime "$timestamp" ${keychain[@]+"${keychain[@]}"} --sign "$identity" "$@"; }
 sign "$app/Contents/Frameworks/libcmux_computer_use.dylib"
 sign "$app/Contents/Frameworks/libWebRTC.dylib"
+sign --identifier com.cmuxterm.cua.dev "$app/Contents/MacOS/cmux-screen-sharing"
 sign "$app"
 team="$(codesign -dv "$app" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
-codesign --verify --strict --deep -R="identifier \"com.cmuxterm.remote.dev\" and anchor apple generic and certificate leaf[subject.OU] = \"$team\"" "$app"
+codesign --verify --strict --deep -R="identifier \"com.cmuxterm.cua.dev\" and anchor apple generic and certificate leaf[subject.OU] = \"$team\"" "$app"
 [[ "$team" == 7WLXT3NR37 ]] || { echo "error: signed by team $team, not cmux's" >&2; exit 1; }
 signing="$(codesign -dvv "$app" 2>&1 | sed -nE 's/^Authority=(Developer ID Application|Apple Development):.*/\1/p' | head -1)"
 [[ -n "$signing" ]] || { echo "error: the leaf certificate is neither Developer ID Application nor Apple Development" >&2; exit 1; }
@@ -69,7 +70,7 @@ json.dump({
     "sha256": sha,
     "r2_bucket": "cmux-cef",
     "r2_key": f"cua-helper-dev/{sha}/cmux-remote-dev-macos-arm64.zip",
-    "bundle_id": "com.cmuxterm.remote.dev",
+    "bundle_id": "com.cmuxterm.cua.dev",
     "remote_source_tree": tree,
     "signing": signing,
     "team_id": team,
