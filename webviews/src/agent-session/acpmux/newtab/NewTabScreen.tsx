@@ -956,7 +956,11 @@ export function NewTabScreen(props: Props) {
           },
         }
       : undefined;
-  const { auth: targetAuth, recheck: recheckTarget } = useSessionAuth(
+  const {
+    auth: targetAuth,
+    drawn: drawnAuth,
+    recheck: recheckTarget,
+  } = useSessionAuth(
     authQuery,
     parentSignIn?.readSessionAuth,
     parentSignIn?.authEpoch,
@@ -1098,7 +1102,9 @@ export function NewTabScreen(props: Props) {
   const t = useT();
   // A send held while acpmux starts or reconnects stays in the prompt, and this says so (sendWhenReady.ts).
   const heldForHost = useSyncExternalStore(sendsHeldForHost.subscribe, sendsHeldForHost.get);
-  const targetAuthText = authText(targetAuth, t);
+  // What the page draws: while the start folder's check runs, the last verdict for this harness (sessionAuth.ts
+  // `drawn`), so an adopted spare's first frame has its sign-in line. Only `targetAuth` holds a send.
+  const targetAuthText = authText(drawnAuth, t);
   const chrome = useComposerChrome();
   // The chat composer's footer look (composerSettings.ts plainFooter): the New Tab row draws the
   // same plain chips, so the two composers never disagree (composerLocation.css).
@@ -2226,7 +2232,7 @@ export function NewTabScreen(props: Props) {
         data-icon-column={iconColumn}
         data-attachment-view={attachmentView}
       >
-        {authBlocksSend(targetAuth) ? (
+        {authBlocksSend(drawnAuth) ? (
           <p className="acpmux-composer-remote-note" role="alert">
             {targetAuthText}
           </p>
@@ -2653,9 +2659,9 @@ export function NewTabScreen(props: Props) {
         parentSignIn && {
           ...parentSignIn,
           signedOut: offMachine || remoteTarget ? {} : parentSignIn.signedOut,
-          sessionAuth: targetAuth,
+          sessionAuth: drawnAuth,
           recheckSession: recheckTarget,
-          loginSession: () => parentSignIn.loginSession?.(targetAuth),
+          loginSession: () => parentSignIn.loginSession?.(drawnAuth),
         }
       }
     >
