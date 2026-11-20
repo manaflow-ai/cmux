@@ -1226,11 +1226,16 @@ jobs:
           persist-credentials: false
           # The rollback reads production's source tags as commits (prod-promote.ts), so the whole history.
           fetch-depth: 0
+          # backend's bun install needs its workspaces outside backend/ (clients/ts, workers/cmux-vm/sdk):
+          # without them the rollback stopped at "listed in bun.lock but not on disk" (run 44764045780).
+          # scripts/cmux-next/release/test/backend-sparse-checkout.test.ts keeps this list complete.
           sparse-checkout: |
             scripts/cmux-next
             Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials
             tests/fixtures/model-stub
             backend
+            clients/ts
+            workers/cmux-vm/sdk
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -1288,7 +1293,9 @@ jobs:
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # The journey's own Claude login first: the repository's is shared by claude.yml, cloud-chat-proof and
+          # every journey, and its weekly limit turned run 44764045780's after-promote reply red.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
           TARGET: prod
         run: bash scripts/cmux-next/cloud-journey-ci.sh
