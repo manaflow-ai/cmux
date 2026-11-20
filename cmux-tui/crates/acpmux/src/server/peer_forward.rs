@@ -658,6 +658,15 @@ async fn forward_inner(
             &mut p,
             super::requests::person_admitted(conn, params),
         );
+        // Only this daemon's validated outbox can carry surge provenance. Ordinary callers'
+        // provenance remains stripped; the receiver checks peer proof and its subscription.
+        if m == method::SESSION_PROMPT
+            && matches!(conn.socket_peer, crate::sender_harness::SocketPeer::Outbox)
+            && let Some(provenance) = params.pointer("/_meta/acpmux/provenance")
+            && provenance["kind"] == "surge_digest"
+        {
+            crate::hub::merge_mux_meta(&mut p, json!({"provenance": provenance}));
+        }
         // A held prompt names its hold to the peer: a link guest's waits with `approval` left
         // off here, which a peer that reads only `approval` would run unapproved.
         if held

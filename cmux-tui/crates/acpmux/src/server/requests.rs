@@ -1944,8 +1944,17 @@ async fn dispatch_request_with_identity(
                 crate::prompt_uploads::owned(&s.id, &blocks).await
             });
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
-            let provenance =
-                crate::hub::Hub::prompt_provenance(&params, conn.origin, conn.is_trigger())?;
+            let provenance = if conn.origin == Origin::Peer
+                && conn.auth.peer_daemon()
+                && params.pointer("/_meta/acpmux/provenance/kind") == Some(&json!("surge_digest"))
+                && params.pointer("/_meta/acpmux/provenance/threadIds").is_some()
+            {
+                // The peer/outbox seam above has checked this daemon-originated digest's
+                // receiver consent. Never broaden the general client provenance parser.
+                params.pointer("/_meta/acpmux/provenance").cloned()
+            } else {
+                crate::hub::Hub::prompt_provenance(&params, conn.origin, conn.is_trigger())?
+            };
             // The caller's own provenance: a `cmux agent message`, never an inbox item.
             let given_provenance = provenance.is_some();
             // A person's prompt (`author.rs`): the hub stamps who sent it, also for a peer's.
