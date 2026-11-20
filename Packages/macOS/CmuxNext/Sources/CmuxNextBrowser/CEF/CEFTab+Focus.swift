@@ -88,6 +88,9 @@ extension CEFTab {
             AfterFrameCommit().run { [weak self] in self?.grantPendingFocusIfShown() }
             return
         }
+        // A page with the focus and the keys from its last grant needs none: each SetFocus(true) dropped the keys typed
+        // in the next 20 to 50 ms (Cmd-N's drain asked again for the page that had them; cmdn-typing bench, cmux21).
+        if pageWindowHasTheKeys { return host.lifecycleTrace.record(id, "grant skipped: has the focus and the keys") }
         isGrantingFocus = true
         defer { isGrantingFocus = false }
         runtime.shim?.setFocus(browser, 1)
@@ -100,7 +103,8 @@ extension CEFTab {
         keyWindows.makeKey(window)
     }
 
-    /// Whether this page's window still has the keys its last grant gave it: that window is in the cmux window and key.
+    /// Whether this page has the focus of its last grant and its window still has the keys that grant gave it: no blur
+    /// since, and that window is in the cmux window and key.
     var pageWindowHasTheKeys: Bool {
         guard let window = keyedPageWindow, window.parent != nil, window.parent === container.window else { return false }
         return keyWindows.keyWindow() === window
