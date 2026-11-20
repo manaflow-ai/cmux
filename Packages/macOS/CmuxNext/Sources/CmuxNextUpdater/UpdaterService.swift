@@ -15,8 +15,8 @@ import Observation
 /// ``installAvailableUpdate()`` and ``switchChannel(to:)``. No Sparkle window opens; Sparkle's
 /// user-driver steps are the sidebar's cards. Signed release tracks download and install updates
 /// in the background; the automatic install waits for a quiet relaunch moment and keeps drafts,
-/// terminals and agents intact. A user can turn automatic downloads off, which returns to the
-/// update-found and Update Ready cards that ask before each step.
+/// terminals and agents intact. The Automatic Updates card switch turns both downloads and idle installation off,
+/// returning to cards that ask before each step. Settings can control those steps independently.
 /// A check's progress and result show on the notice card (``card``). The update sheet
 /// (``UpdateSheetModel``) opens only for a failure's details.
 @MainActor
@@ -158,6 +158,7 @@ public final class UpdaterService {
     public internal(set) var automaticUpdates = true
     /// Writes a setting the updater's cards change (set by the App).
     @ObservationIgnored public var writeSetting: ((UpdaterSetting, Bool) -> Void)?
+    @ObservationIgnored var settingsWriteTask: Task<Void, Never>?
     /// BOTTOM-LEFT-CARDS K1: today's "Did you know" tip (nil: none, or
     /// `sidebar.cards.tips` off) and what the tips remember on this Mac.
     public internal(set) var tip: Tip?

@@ -81,6 +81,7 @@ import Testing
         updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: true,
                           idleInstall: (600, 60), installWhenIdleMinutes: nil)
         #expect(updater.downloadsFoundUpdates)
+        #expect(!updater.automaticUpdates)
         #expect(updater.relaunchMomentHold.idleGate == nil)
     }
     @Test func managedDisableNeverArmsTheIdleGate() {

@@ -7,13 +7,23 @@ extension UpdaterService {
     public func writesSettings(to settings: SettingsController) {
         writeSetting = { [weak self, weak settings] setting, on in
             guard let settings else { return }
-            let log = self?.log, path = setting == .tips ? SidebarSectionsSetting.tipsPath : UpdatesSettings.downloadAutomaticallyPath
-            // task-owner: one settings write that ends by itself; nothing to cancel.
-            Task { @MainActor in
+            let log = self?.log
+            // Disable installation first. Enable it last, after downloads were successfully enabled.
+            // Each write uses the validated user settings path, including managed-policy checks.
+            let paths = setting == .tips ? [SidebarSectionsSetting.tipsPath] :
+                (on ? [UpdatesSettings.downloadAutomaticallyPath, UpdatesSettings.installWhenIdlePath] :
+                    [UpdatesSettings.installWhenIdlePath, UpdatesSettings.downloadAutomaticallyPath])
+            // Serialize rapid clicks so the two preferences finish in click order.
+            let previous = self?.settingsWriteTask
+            // task-owner: finite settings writes, retained until the next write.
+            self?.settingsWriteTask = Task { @MainActor in
+                await previous?.value
                 do {
-                    try await settings.setSetting(at: path, to: .bool(on), by: .user)
+                    for path in paths {
+                        try await settings.setSetting(at: path, to: .bool(on), by: .user)
+                    }
                 } catch {
-                    log?.append("\(path.joined(separator: ".")) not written: \(error)")
+                    log?.append("update card settings not written: \(error)")
                 }
             }
         }

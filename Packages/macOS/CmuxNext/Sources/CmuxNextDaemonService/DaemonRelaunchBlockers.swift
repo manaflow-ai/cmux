@@ -48,11 +48,15 @@ public extension DaemonService {
     nonisolated static func secondsSinceInput() -> Double {
         let inputTimes = [
             CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyDown),
+            CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .flagsChanged),
             CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .mouseMoved),
             CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .scrollWheel),
             CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .leftMouseDown),
             CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .rightMouseDown),
             CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .otherMouseDown),
+            CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .leftMouseDragged),
+            CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .rightMouseDragged),
+            CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .otherMouseDragged),
         ]
         return inputTimes.min() ?? .infinity
     }

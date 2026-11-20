@@ -52,7 +52,7 @@ import Testing
         for identity in Self.channels {
             let (updater, _) = Self.make(identity, optIn: nil)
             let signed = identity.track != .development
-            #expect(updater.automaticUpdates == signed && updater.downloadsFoundUpdates == signed,
+            #expect(!updater.automaticUpdates && updater.downloadsFoundUpdates == signed,
                     "\(identity.track) (tip \(identity.isTipBuild)) downloads found updates by default: \(updater.downloadsFoundUpdates)")
         }
     }
@@ -149,7 +149,7 @@ import Testing
     @Test(arguments: UpdateAsksBeforeInstallTests.channels)
     func automaticDownloadsWithIdleInstallOffWaitForTheRelaunchClick(identity: UpdateBuildIdentity) async throws {
         let (updater, effects) = Self.make(identity, optIn: true)
-        #expect(updater.downloadsFoundUpdates && updater.automaticUpdates, "\(identity.track): the opt-in does not download by itself")
+        #expect(updater.downloadsFoundUpdates && !updater.automaticUpdates, "\(identity.track): the opt-in does not download by itself")
         updater.debugIndicatorPhase = .available(version: "2.0.0")
         updater.downloadClicked()
         #expect(!updater.flow.installRequested, "\(identity.track): a click on a deferred download skipped the relaunch's ask")

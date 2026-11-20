@@ -17,7 +17,7 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
     /// What's New's Versions list offers Install on each build (off until a nightly proves it).
     public var whatsNewInstall = UpdatesSettings.whatsNewInstallDefault
     public var installOnQuit = UpdatesSettings.installOnQuitDefault
-    /// Opt-in: a downloaded update installs by itself once cmux has been idle
+    /// On by default: a downloaded update installs by itself once cmux has been idle
     /// `installWhenIdleMinutes`, never while an agent works or a message is unsent.
     public var installWhenIdle = UpdatesSettings.installWhenIdleDefault
     /// Minutes cmux must be idle before `installWhenIdle` installs.

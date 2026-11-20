@@ -67,11 +67,6 @@ impl Hub {
         session.last_active.store(self.clock_now(), Ordering::SeqCst);
     }
 
-    /// Unused right now, read while the caller holds its `turn_lock`, `harness_use` and
-    /// `spawn_lock` leases (so no prompt, mode change or start begins until the harness is gone).
-    /// A turn or permission an adopted host's recovery rebuilt (`hosts.rs` `recover_work`) counts
-    /// like a live one: it sets `session.turn` (and holds `turn_lock` until the answer), registers
-    /// the permission as pending, and moves the status off ready.
     /// Work runs below `session` that its harness's exit would end, with or without a turn open
     /// (the summary's `workingBelow`, which an app update that installs when idle waits for).
     pub(super) fn holds_work_below(&self, session: &Session) -> bool {
@@ -85,6 +80,11 @@ impl Hub {
             || session.work_below_since.lock().is_ok_and(|v| *v != 0)
     }
 
+    /// Unused right now, read while the caller holds its `turn_lock`, `harness_use` and
+    /// `spawn_lock` leases (so no prompt, mode change or start begins until the harness is gone).
+    /// A turn or permission an adopted host's recovery rebuilt (`hosts.rs` `recover_work`) counts
+    /// like a live one: it sets `session.turn` (and holds `turn_lock` until the answer), registers
+    /// the permission as pending, and moves the status off ready.
     pub(super) fn idle_eligible(&self, session: &Session) -> bool {
         !self.stopping.load(Ordering::SeqCst)
             && matches!(session.status(), SessionStatus::Ready | SessionStatus::Idle)
