@@ -8,6 +8,7 @@ import Testing
 /// at e67776ff on cmux19: `asked 1, in_tree off`), and only the `in-tree-pages` tag prefix ever turned them on.
 struct InTreePagesLaunchSwitchTests {
     @Test func theSwitchSurvivesTheLaunchStrip() {
+        #expect(LaunchIdentity.inTreePagesKey == InTreePages.environmentKey)
         for value in ["1", "0"] {
             let launch = [InTreePages.environmentKey: value]
             #expect(!LaunchIdentity.inheritedKeys(processEnvironment: launch, bundledEnvironment: [:])
