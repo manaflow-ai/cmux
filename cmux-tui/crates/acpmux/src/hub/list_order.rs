@@ -94,6 +94,15 @@ impl Hub {
                 order.rebuilds += 1;
             }
         }
+        // A row only its agent's stream changed takes its list position when it is told, at
+        // most once per `STREAM_TELL_EVERY` (#47984); until then it is placed by its `updatedAt`
+        // as it is now, as a sort of every chat would place it.
+        for id in self.events.stream_waiting() {
+            let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+            let session = sessions.get(&id).cloned();
+            drop(sessions);
+            order.place(&id, session);
+        }
         order
     }
 

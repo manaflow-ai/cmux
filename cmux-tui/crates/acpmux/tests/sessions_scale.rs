@@ -737,9 +737,9 @@ async fn daemon_cost_per_attached_remote_session() {
         println!("SCALE-RESULT {result}");
         results.push(result);
     }
-    let mut lines = vec![];
+    let mut lines: Vec<Value> = vec![];
     for r in &results {
-        let base = lines.first().map(|l: &Value| l.clone());
+        let base = lines.first().cloned();
         let line = row_line(r, base.as_ref());
         println!("SCALE-ROW {line}");
         lines.push(line);
