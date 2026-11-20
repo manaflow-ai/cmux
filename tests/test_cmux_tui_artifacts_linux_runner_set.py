@@ -85,6 +85,11 @@ OWNED = "cmux-gcp-lane-build-x64"
 # The nightly-only runners: a nightly-next push and a tree request (dispatch) take these first, so the
 # nightly's tree never queues behind lane builds on OWNED (tree request 44427450458 sat 2 h there, 2026-11-19).
 NIGHTLY = "cmux-gcp-nightly-x64"
+# The JIT-only nightly label (#47764, #47905): one job per VM; a feat-cmux-next push's control jobs start there on
+# attempt 1, ahead of PR CI (tests/test_cmux_next_push_roots_on_nightly_jit.py).
+NIGHTLY_JIT = "cmux-gcp-nightly-jit-x64"
+# Every x64 pool leads with our own one-job fleet label (#47803); its Blacksmith members follow in size order.
+FLEET = "cmux-fleet-linux-x64"
 # Jobs that keep their own route on the nightly path: the daemon tests (linux-placement's fleet label when the
 # census saw one idle, else the owned label on attempt 1, never Blacksmith from one census reading:
 # tests/test_ci_owned_first_not_census_frozen.py) and the shadow (its override).
@@ -169,7 +174,8 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
             # A non-Blacksmith LINUX_RUNNER wins; a job that does not read it (the daemon
             # tests) never takes it. The nightly path's attempt 1 takes the owned pool.
             allowed = (blacksmith_set(name) | ({linux_runner} if linux_runner in (POOL, HOSTED) else set())
-                       | ({OWNED, NIGHTLY} if name in NIGHTLY_TREE_JOBS + OWNED_FIRST_OWN_ROUTE_JOBS else set()))
+                       | ({OWNED, NIGHTLY} if name in NIGHTLY_TREE_JOBS + OWNED_FIRST_OWN_ROUTE_JOBS else set())
+                       | {NIGHTLY_JIT})
             with self.subTest(job=name, linux_runner=linux_runner, overflow=bool(overflow), trusted=trusted):
                 self.assertTrue(labels <= allowed, labels - allowed)
 
@@ -185,8 +191,8 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
                     self.assertIn(f"fromJSON(vars.RUNNER_POOLS).{failover_pool}", runs_on)
                     self.assertIn(size, resolved(runs_on, "manaflow-ai", linux_runner, "", ""))
                     self.assertIn(failover, resolved(runs_on, "manaflow-ai", linux_runner, OVERFLOW_RECORD, ""))
-                    self.assertEqual(pool_members(size_pool)[0], size)
-                    self.assertEqual(pool_members(failover_pool)[0], failover)
+                    self.assertEqual([m for m in pool_members(size_pool) if m != FLEET][0], size)
+                    self.assertEqual([m for m in pool_members(failover_pool) if m != FLEET][0], failover)
 
     def test_only_the_darwin_cross_shadow_reads_its_override(self) -> None:
         for name, runs_on in linux_routes():
