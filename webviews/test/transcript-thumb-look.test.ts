@@ -121,7 +121,11 @@ await requireBrowserLane("transcript-thumb-look.test.ts", async () => {
             const share = style.getPropertyValue("--cmux-shown-scroller-near").trim();
             const legacyNear = near && !share;
             const ink = legacyNear ? 55 : Number.parseFloat(style.getPropertyValue("--cmux-shown-scroller-ink")) || 0;
-            const nearBorder = Number.parseFloat(style.getPropertyValue("--cmux-scroller-near-border")) || 1;
+            const nearBorder =
+              Number.parseFloat(
+                style.getPropertyValue("--cmux-shown-scroller-near-border") ||
+                  style.getPropertyValue("--cmux-scroller-near-border"),
+              ) || 1;
             const border = legacyNear ? nearBorder : 2 - (2 - nearBorder) * (Number.parseFloat(share) || 0);
             const lane = scroller.clientHeight;
             frames.push({

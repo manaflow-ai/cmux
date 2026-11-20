@@ -131,13 +131,14 @@ export function followShownScrollerFade(
   )
     return () => {};
   const root = element.ownerDocument.documentElement;
-  // The thin look keeps the scrolling border near the pointer too.
-  if (nearMotion === "thin") element.style.setProperty("--cmux-scroller-near-border", "2px");
+  // The thin look keeps the scrolling border near the pointer too: on the shown thumb's own
+  // property, since the shared one is inherited by every scroller inside (sideways blocks, cards).
+  if (nearMotion === "thin") element.style.setProperty("--cmux-shown-scroller-near-border", "2px");
   type Look = { ink: number; near: number };
   /// The look the stylesheet gives `element` now: none at rest under the fade, else full, and the
-  /// near look while the pointer is near (`instant` leaves that to the stylesheet alone).
+  /// near look while the pointer is near.
   const resting = (): Look => {
-    if (nearMotion !== "instant" && element.hasAttribute(NEAR_ATTRIBUTE)) return { ink: ink.near, near: 1 };
+    if (element.hasAttribute(NEAR_ATTRIBUTE)) return { ink: ink.near, near: 1 };
     return {
       ink: root.hasAttribute(SCROLLER_FADE_ATTRIBUTE) && !element.hasAttribute(SCROLLING_ATTRIBUTE) ? 0 : full,
       near: 0,
@@ -157,6 +158,9 @@ export function followShownScrollerFade(
     const to = resting();
     // Every scroll step marks the element again: a fade already headed there runs on.
     if (to.ink === target.ink && to.near === target.near) return;
+    // `instant` takes the near look and leaves it at once, as before; inline ink from a scroll
+    // fade would beat the stylesheet's near look.
+    if (nearMotion === "instant" && (to.near === 1 || target.near === 1)) return settle();
     target = to;
     const from = drawn;
     // In when the ink rises (at the same ink, when the thumb widens), else out.
@@ -190,7 +194,7 @@ export function followShownScrollerFade(
     marks.disconnect();
     fadeSetting.disconnect();
     settle();
-    if (nearMotion === "thin") element.style.removeProperty("--cmux-scroller-near-border");
+    if (nearMotion === "thin") element.style.removeProperty("--cmux-shown-scroller-near-border");
   };
 }
 
@@ -722,7 +726,10 @@ html[data-scrollers="legacy"][${NEAR_ATTRIBUTE}] > body::-webkit-scrollbar-thumb
   border: solid transparent;
   /* 2 px at rest and while it scrolls, the near border near the pointer, and between the two while
      followShownScrollerFade steps --cmux-shown-scroller-near (0 to 1). */
-  border-width: calc(2px - (2px - var(--cmux-scroller-near-border, 1px)) * var(--cmux-shown-scroller-near, 0));
+  border-width: calc(
+    2px - (2px - var(--cmux-shown-scroller-near-border, var(--cmux-scroller-near-border, 1px))) *
+      var(--cmux-shown-scroller-near, 0)
+  );
   border-radius: var(--cmux-scroller-size);
   background: color-mix(in srgb, currentColor var(--cmux-shown-scroller-ink), transparent) padding-box;
 }
