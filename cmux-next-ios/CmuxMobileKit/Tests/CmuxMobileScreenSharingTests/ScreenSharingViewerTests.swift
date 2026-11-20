@@ -338,7 +338,19 @@ import Testing
         #expect(viewer.phase == .refused(.hostOffline, requested: .full))
         viewer.request(.full)
         viewer.requestAnswered(.failure(.transport("offline")), scope: .full)
-        #expect(viewer.phase == .refused(.other, requested: .full))
+        #expect(viewer.phase == .refused(.other(reason: "offline"), requested: .full))
+        // A code this build has no card for keeps the hub's words.
+        viewer.request(.full)
+        viewer.requestAnswered(.failure(.server(status: 429, code: .rateLimited, message: "too many requests; wait a minute")), scope: .full)
+        #expect(viewer.phase == .refused(.other(reason: "too many requests; wait a minute"), requested: .full))
+    }
+
+    @Test func anUnknownRefusalKeepsTheHubsReason() {
+        #expect(ScreenSharingRefusal(.server(status: 403, code: .other("new_code"), message: " ")) == .other(reason: "new_code"))
+        #expect(ScreenSharingRefusal(.http(status: 502)) == .other(reason: "HTTP 502"))
+        #expect(ScreenSharingRefusal(.transport("")) == .other(reason: nil))
+        #expect(ScreenSharingRefusal(.server(status: 409, code: .hostOffline, message: "the host is not connected")) == .hostOffline)
+        #expect(ScreenSharingRefusal.other(reason: "x").isOther && !ScreenSharingRefusal.notShared.isOther)
     }
 
     @Test func theListPutsSharedOnlineMacsFirstAndLeavesOutPhones() {
