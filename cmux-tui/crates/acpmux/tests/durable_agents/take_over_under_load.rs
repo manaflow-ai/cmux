@@ -63,6 +63,52 @@ fn dial_load(socket: PathBuf, stop: Arc<AtomicBool>, answered: Arc<AtomicUsize>)
     }
 }
 
+/// A connection to the daemon at `socket`, dialed again while none listens there (the moment
+/// between one daemon's stop and the next one's bind).
+async fn dial(socket: &Path, deadline: Instant) -> Rpc {
+    loop {
+        match tokio::net::UnixStream::connect(socket).await {
+            Ok(s) => {
+                let (rd, wr) = s.into_split();
+                return Rpc { lines: tokio::io::BufReader::new(rd).lines(), wr, next: 0 };
+            }
+            Err(e) => assert!(Instant::now() < deadline, "no daemon at {}: {e}", socket.display()),
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// Queues prompt `id` behind `session`'s running turn the way the app sends one: a send whose
+/// queued record does not show up (it reached a daemon that was handing the home over) is sent
+/// again on a new connection with `resend`, under the same prompt id. The daemon must keep one
+/// copy. The last connection stays open, as the app's does through an install.
+async fn queue(daemon: &Daemon, session: &str, id: &str, text: &str) -> Rpc {
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let mut meta = json!({"promptId": id});
+    loop {
+        let mut rpc = dial(&daemon.socket, deadline).await;
+        rpc.send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": text}],
+                   "_meta": {"acpmux": meta}}),
+        )
+        .await;
+        let look = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < look {
+            let queued = daemon
+                .events(session)
+                .iter()
+                .any(|e| e["kind"] == "queued" && e["msg"]["promptId"] == id);
+            if queued {
+                return rpc;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(Instant::now() < deadline, "{session}: prompt {id} was never queued");
+        meta["resend"] = json!(true);
+    }
+}
+
 /// The step the test is at, and when it began. A step that takes longer than [`STUCK`] is a
 /// hang: the watchdog prints the step, the processes under the home and the home's logs, then
 /// ends the test process (a hang would otherwise hold the run until the job's own timeout).
@@ -173,25 +219,16 @@ async fn nightly_take_overs_mid_tool_call_keep_agents_and_run_each_queued_prompt
     for install in 0..INSTALLS {
         // The person queues one more prompt behind each running turn, right before the install.
         step.at(format!("install {install}: queue prompts"));
-        let mut rpc = daemon.rpc().await;
+        let mut held = Vec::new();
         for (i, (session, _)) in chats.iter().enumerate() {
             let id = format!("q-{i}-{install}");
-            rpc.send(
-                "session/prompt",
-                json!({"sessionId": session,
-                       "prompt": [{"type": "text", "text": queued_text(i, install)}],
-                       "_meta": {"acpmux": {"promptId": id}}}),
-            )
-            .await;
-            daemon.wait_event(session, "queued record", |e| {
-                e["kind"] == "queued" && e["msg"]["promptId"] == id
-            });
+            held.push(queue(&daemon, session, &id, &queued_text(i, install)).await);
         }
 
         install_over(&exe);
         step.at(format!("install {install}: take-over"));
         daemon.take_over();
-        drop(rpc);
+        drop(held);
         step.at(format!("install {install}: adoption"));
         for (i, pid) in harness.iter().enumerate() {
             assert!(alive(*pid), "install {install}: chat {i}'s agent died at the take-over");
