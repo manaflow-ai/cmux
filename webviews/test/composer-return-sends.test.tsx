@@ -379,6 +379,33 @@ test("an attachment-only Return waits for a pending image and sends it when read
   expect(page.sentAttachments).toEqual([["pending.png"]]);
 });
 
+test("a screenshot sent as a path loads in a file chip at the caret", async () => {
+  const snapshot = chat();
+  snapshot.summary = { ...snapshot.summary!, promptCapabilities: { image: false } };
+  let resolve!: (result: { paths: string[] }) => void;
+  const upload = new Promise<{ paths: string[] }>((done) => {
+    resolve = done;
+  });
+  const page = await composer(snapshot, "", undefined, false, undefined, () => upload);
+  const file = new File([PNG], "screenshot.png", { type: "image/png" });
+  const paste = new window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", {
+    value: { files: [file], types: ["Files"], getData: () => "" },
+  });
+  await act(async () => page.field.dispatchEvent(paste));
+  try {
+    const loading = page.field.querySelector('.acpmux-attachment-file[aria-busy="true"]');
+    expect(loading).not.toBeNull();
+    expect(loading!.textContent).toContain("screenshot.png");
+    expect(loading!.querySelector("img")).toBeNull();
+  } finally {
+    await act(async () => resolve({ paths: ["/tmp/screenshot.png"] }));
+  }
+  expect(page.field.querySelector(".acpmux-attachment-link[data-saved]")).not.toBeNull();
+  await dispatch(page.field, key({ key: "Enter", keyCode: 13 }));
+  expect(page.sentAttachments).toEqual([["screenshot.png"]]);
+});
+
 test("a terminal-only spelling waits for its pending image and sends as an attachment prompt", async () => {
   const page = await composer(chat(), "/logout");
   const file = new File([PNG], "pending.png", { type: "image/png" });
