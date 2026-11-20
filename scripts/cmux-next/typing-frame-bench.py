@@ -197,6 +197,15 @@ def reset_arm():
         rpc("debug.tunables", {"action": "set", "key": opts.ab, "value": None}, timeout=10)
 
 
+def cpu_share(start, end):
+    """App and WindowServer CPU over an interval, in percent of one core (`cpu_seconds` deltas over the wall time).
+    None for either when the process could not be read."""
+    wall = end[0] - start[0]
+    share = lambda i: (round(100.0 * (end[i] - start[i]) / wall, 1)
+                       if wall > 0 and end[i] is not None and start[i] is not None else None)
+    return {"app": share(1), "window_server": share(2), "seconds": round(wall, 2)}
+
+
 def frame_timing_validity(phase, streams):
     """Whether this row's frame-start timings (`listener -> frame`) may be compared across phases.
 
@@ -552,6 +561,9 @@ def ensure_agentpane():
 
 def measure_agentpane(phase, pid, pane, streams=()):
     """Native agent composer path: exact key samples, page paint epoch, foreground proof and load provenance."""
+    global WINDOW_SERVER
+    # `--surfaces=agentpane` never runs `measure`, which is where this is otherwise found.
+    WINDOW_SERVER = WINDOW_SERVER or window_server_pid()
     activation = foreground_activation()
     if activation.get("screen_locked"):
         entry = {
@@ -605,6 +617,7 @@ def measure_agentpane(phase, pid, pane, streams=()):
     if LOAD.get("agentpane_engine") == "cef":
         target["target"] = "page"
     frames_before = draw_on_input_frames()
+    cpu_start = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
     stats_before = rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=10) or {}
     before_keys = stats_before.get("keys", 0) if isinstance(stats_before, dict) else 0
     clear_select = rpc("debug.key", dict(target, key="a", modifiers=["command"]), timeout=10)
@@ -653,6 +666,7 @@ def measure_agentpane(phase, pid, pane, streams=()):
             main_profile = digest_sample(open(sampler[1], errors="replace").read())
         except OSError:
             main_profile = {"error": "sample output unavailable", "file": os.path.basename(sampler[1])}
+    cpu_end = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
     frames_after = draw_on_input_frames()
     verdict = agent_typing_verdict(typing, expected, dispatch)
     frame_report = frame_metrics(frames)
@@ -660,6 +674,9 @@ def measure_agentpane(phase, pid, pane, streams=()):
                   "clear": {"select": clear_select, "delete": clear_delete, "delete_key": "delete",
                             "verified": bool(cleared), "reset": reset},
                   "typing": typing, "dispatch": dispatch, "key_rpc_ms": pct(trips), **verdict,
+                  # The app's and WindowServer's CPU over the keys: a frame-pacing arm buys latency with
+                  # frames nobody sees, so its cost belongs in the same row as its win (`--ab`).
+                  "cpu_percent": cpu_share(cpu_start, cpu_end),
                   "frame_timing": frame_timing_validity(phase, streams),
                   # `counter: false`: this engine has no draw-on-input counter, so the mode cannot be live here
                   # whatever a setting reads, and `drew: 0` with a counter means the mode was off or opted this page out.
