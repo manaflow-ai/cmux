@@ -31,6 +31,10 @@ enum MiscHandlerStrings {
     static var terminalChatBusy: String { String(localized: "handlers.misc.failed.terminalChatBusy", defaultValue: "This chat is still working. Switch when its turn ends.", table: "MiscHandlers", bundle: .module) }
     static var terminalChatStopFailed: String { String(localized: "handlers.misc.failed.terminalChatStopFailed", defaultValue: "The chat could not stop, so no terminal resumes its session.", table: "MiscHandlers", bundle: .module) }
     static var terminalChatNoPane: String { String(localized: "handlers.misc.failed.terminalChatNoPane", defaultValue: "The chat stopped, but its workspace has no pane for the terminal.", table: "MiscHandlers", bundle: .module) }
+    /// Toggle Terminal and Chat's row on a terminal running an agent session (the pane's ⋮, the tab's right-click).
+    static var terminalChatSwitchToChat: String { String(localized: "handlers.misc.terminalChat.switchToChat", defaultValue: "Switch to Chat", table: "MiscHandlers", bundle: .module) }
+    /// Toggle Terminal and Chat's row on a chat a terminal runs.
+    static var terminalChatSwitchToTerminal: String { String(localized: "handlers.misc.terminalChat.switchToTerminal", defaultValue: "Switch to Terminal", table: "MiscHandlers", bundle: .module) }
     static var terminalChatHarness: String { String(localized: "handlers.misc.failed.terminalChatHarness", defaultValue: "Only Claude Code and Codex sessions can open as a chat.", table: "MiscHandlers", bundle: .module) }
     /// A Simulator shortcut (Home, Rotate, Appearance, Software Keyboard) with no phone tab focused.
     static var noPhoneTab: String { String(localized: "handlers.misc.failed.noPhoneTab", defaultValue: "No phone tab is focused.", table: "MiscHandlers", bundle: .module) }
