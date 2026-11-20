@@ -66,6 +66,8 @@ parser.add_argument("--arms", default="warm,quick,cold",
 parser.add_argument("--budget-ms", type=float, default=10.0, help="visible p95 target (reported, not enforced)")
 parser.add_argument("--tunable", action="append", default=[], metavar="KEY=JSON",
                     help="a Debug Settings value for this run (repeatable), e.g. browserPage.sparePage=true: the arms of an A/B")
+parser.add_argument("--inactive", action="store_true",
+                    help="type with the app inactive and no key window, as the fleet launches it (no person can type so)")
 parser.add_argument("--type", default="qwz",
                     help="characters typed at once after each blank Cmd-Shift-L, through the real key path: focus_ms (the omnibar edits, as "
                          "first responder), typed_ms (it shows them) and typed_text (a key lost or typed twice); empty: none")
@@ -192,7 +194,7 @@ def create(params, case, session, rnd, arm=None):
     """One timed `bench_create` (the key goes through the real key path in the app), annotated and printed."""
     if opts.type and not params.get("url") and not params.get("type"):
         params = {**params, "type": opts.type}
-    if params.get("type"):
+    if params.get("type") and not opts.inactive:
         # A person types into an active app with a key window: an inactive app (the fleet launch) drops the replayed keys
         # of its first cold Chromium tab (round 0, a1227 probes A/B), which no person can hit.
         rpc("debug.window.focus", {"window": window_key(), "activate": True})
@@ -207,7 +209,7 @@ def create(params, case, session, rnd, arm=None):
     print(f"{session} r{rnd} {case}: engine={result.get('engine')} key={result.get('key_ms')} "
           f"visible={result.get('visible_ms')} (frame {result['visible_frame']}) chrome={result.get('chrome_ms')} focus={result.get('focus_ms')} typed={result.get('typed_ms')} "
           f"text={result.get('typed_text')!r} focused_end={result.get('focused_at_end')} page={result.get('page_ms')} "
-          f"spare_after={result.get('spare_window')} confirmed={result.get('confirmed_ms')} "
+          f"spare_after={result.get('spare_window')} webkit_spare={result.get('webkit_spare')}/{result.get('webkit_spare_taken')} confirmed={result.get('confirmed_ms')} "
           f"refresh={(result.get('frames') or {}).get('refresh_ms')} "
           f"spans={[(s['name'], round(s['at'], 1), round(s['ms'], 1)) for s in spans][:12]} err={result.get('error')}", flush=True)
     return result

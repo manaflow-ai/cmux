@@ -5,8 +5,8 @@
 //! before it swaps in a kept build.
 
 use std::collections::BTreeMap;
-use std::path::Path;
-use std::time::Duration;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
@@ -31,25 +31,59 @@ pub fn readable() -> BTreeMap<String, i64> {
     STORES.iter().map(|(name, _, version)| ((*name).to_string(), *version)).collect()
 }
 
+/// What a check of the stored schemas found.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Stored {
+    /// Each session was read: the newest schema each store holds.
+    Schemas(BTreeMap<String, i64>),
+    /// The check's time ended first. `sessions` session folders of the state
+    /// root hold a store, and this call read `sessions_read` of them.
+    NotReady { sessions: usize, sessions_read: usize },
+}
+
 /// The newest schema each store holds in any session under `state_root`.
 /// A store that no session has written yet is absent. A store that cannot be
 /// read is an error: the caller must not guess.
-pub fn stored(state_root: &Path) -> anyhow::Result<BTreeMap<String, i64>> {
+///
+/// `end` is the check's end time. The caller of the check ends its process
+/// after a fixed time, and a check that is ended gives no answer. So before
+/// each session after the first, the check reads the clock; at or after
+/// `end` it stops and says how far it is ([`Stored::NotReady`]). The first
+/// session of a call is always read, so each call reads 1 session or more.
+/// The check keeps nothing between 2 calls: a call after it starts at the
+/// first session again, in the same order (the session folders sorted by
+/// path), and is faster only because the files are in the file cache. With
+/// no `end` it reads each session.
+pub fn stored_until(state_root: &Path, end: Option<Instant>) -> anyhow::Result<Stored> {
     let mut found = BTreeMap::new();
-    let sessions = match std::fs::read_dir(state_root) {
+    let entries = match std::fs::read_dir(state_root) {
         Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(found),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Stored::Schemas(found));
+        }
         Err(error) => {
             return Err(error).with_context(|| format!("read {}", state_root.display()));
         }
     };
-    for entry in sessions {
+    // The session folders that hold a store, before the first read: an
+    // answer before the end names how many there are.
+    let mut sessions: Vec<PathBuf> = Vec::new();
+    for entry in entries {
         let session = entry.with_context(|| format!("read {}", state_root.display()))?.path();
-        if !session.is_dir() {
-            continue;
+        if session.is_dir() && STORES.iter().any(|(_, file, _)| session.join(file).is_file()) {
+            sessions.push(session);
+        }
+    }
+    // The same order in each call.
+    sessions.sort();
+    for (sessions_read, session) in sessions.iter().enumerate() {
+        if sessions_read > 0 && end.is_some_and(|end| Instant::now() >= end) {
+            return Ok(Stored::NotReady { sessions: sessions.len(), sessions_read });
         }
         for (name, file, _) in STORES {
             let path = session.join(file);
+            // A store can go away after the listing (a session that is
+            // reset is renamed, then deleted): then it is no store.
             if !path.is_file() {
                 continue;
             }
@@ -59,7 +93,7 @@ pub fn stored(state_root: &Path) -> anyhow::Result<BTreeMap<String, i64>> {
             }
         }
     }
-    Ok(found)
+    Ok(Stored::Schemas(found))
 }
 
 /// `meta.schema_version` of the SQLite store at `path`, read-only; nil when
@@ -89,21 +123,44 @@ fn schema_version(path: &Path) -> anyhow::Result<Option<i64>> {
         .transpose()
 }
 
-/// `cmux-tui __store-schemas [--stored]`: one JSON object of store name to
-/// schema, what this build reads or (`--stored`) what the state directory
-/// holds. Internal plumbing for the app's build stamp and rollback check.
+const USAGE: &str = "usage: cmux-tui __store-schemas [--stored [--within-ms N]]";
+
+/// The time of `--within-ms N`: `text` as a count of milliseconds, nil when
+/// it is not one.
+pub fn within_of(text: &str) -> Option<Duration> {
+    text.parse::<u64>().ok().map(Duration::from_millis)
+}
+
+/// `cmux-tui __store-schemas [--stored [--within-ms N]]`: one JSON object
+/// of store name to schema, what this build reads or (`--stored`) what the
+/// state directory holds. Internal plumbing for the app's build stamp and
+/// rollback check.
+///
+/// `--within-ms N` is the check's own end time, N milliseconds after its
+/// start, below the time at which its caller ends the process. A check that
+/// is not at its end then stops before the next session, prints
+/// `{"not_ready":{"sessions":M,"sessions_read":R}}` and still exits 0
+/// ([`stored_until`]). A caller that knows only the object of numbers reads
+/// that as no answer, as it reads a process that was ended.
 pub fn run(args: &[String]) -> Result<String, String> {
-    let stored_only = match args {
-        [] => false,
-        [flag] if flag == "--stored" => true,
-        _ => return Err("usage: cmux-tui __store-schemas [--stored]".to_string()),
+    let began = Instant::now();
+    let within = match args {
+        [] => return serde_json::to_string(&readable()).map_err(|error| error.to_string()),
+        [flag] if flag == "--stored" => None,
+        [flag, within, millis] if flag == "--stored" && within == "--within-ms" => {
+            Some(within_of(millis).ok_or_else(|| USAGE.to_string())?)
+        }
+        _ => return Err(USAGE.to_string()),
     };
-    let schemas = if stored_only {
-        let root = crate::platform::workspace_state_dir()
-            .ok_or_else(|| "no workspace state directory".to_string())?;
-        stored(&root).map_err(|error| format!("{error:#}"))?
-    } else {
-        readable()
+    let root = crate::platform::workspace_state_dir()
+        .ok_or_else(|| "no workspace state directory".to_string())?;
+    // A time that the clock cannot hold is no end time.
+    let end = within.and_then(|within| began.checked_add(within));
+    let answer = match stored_until(&root, end).map_err(|error| format!("{error:#}"))? {
+        Stored::Schemas(schemas) => serde_json::to_string(&schemas),
+        Stored::NotReady { sessions, sessions_read } => serde_json::to_string(&serde_json::json!({
+            "not_ready": { "sessions": sessions, "sessions_read": sessions_read },
+        })),
     };
-    serde_json::to_string(&schemas).map_err(|error| error.to_string())
+    answer.map_err(|error| error.to_string())
 }
