@@ -90,6 +90,7 @@ pub fn mount_with(overlay: Arc<Overlay>, at: &Path, options: Options) -> anyhow:
         })?;
     }
     overlay.keep_atime(options.read_only || !options.disk_atime);
+    let changes = overlay.clone();
     let fs = Fs { overlay, jobs: sender, listings: HashMap::new() };
     let mut mount_options = vec![
         MountOption::FSName(options.fsname.clone().unwrap_or_else(|| "cmux-projection".into())),
@@ -102,6 +103,19 @@ pub fn mount_with(overlay: Arc<Overlay>, at: &Path, options: Options) -> anyhow:
         mount_options.push(MountOption::AllowOther);
     }
     let session = fuser::spawn_mount2(fs, at, &mount_options)?;
+    // A lower file that changed on the Mac (RFD 0007 hard case 7): the kernel drops its attributes
+    // and pages. Sent from a thread of its own: the kernel may wait for the very read that heard of
+    // the change to finish before it can drop that read's pages.
+    let notifier = session.notifier();
+    let (told, inos) = channel::<u64>();
+    std::thread::Builder::new().name("projection-invalidate".into()).spawn(move || {
+        for ino in inos {
+            let _ = notifier.inval_inode(ino, 0, 0);
+        }
+    })?;
+    changes.on_change(Arc::new(move |ino| {
+        let _ = told.send(ino);
+    }));
     Ok(Mounted { session: Some(session) })
 }
 

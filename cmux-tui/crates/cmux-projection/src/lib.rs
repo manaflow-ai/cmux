@@ -44,10 +44,37 @@ impl FetchError {
     }
 }
 
+/// Bytes from the Mac, and what the file is now when it changed since the manifest (RFD 0007 hard
+/// case 7): then the bytes are the new file's.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Fresh {
+    pub bytes: Vec<u8>,
+    pub now: Option<wire::Identity>,
+}
+
+impl Fresh {
+    /// Bytes of the file the manifest named.
+    #[must_use]
+    pub fn same(bytes: Vec<u8>) -> Self {
+        Self { bytes, now: None }
+    }
+}
+
 /// Where a projection's file bytes come from.
 pub trait Fetch: Send + Sync {
     /// `len` bytes of file `entry` at `offset` (fewer at its end).
     fn read(&self, entry: u32, offset: u64, len: u32) -> Result<Vec<u8>, FetchError>;
     /// The whole of each file in `entries`, in that order.
     fn batch(&self, entries: &[u32]) -> Vec<Result<Vec<u8>, FetchError>>;
+
+    /// [`Fetch::read`], with a file changed since the manifest answered as it is now rather than
+    /// as [`FetchError::Changed`] when the source can say what it is now.
+    fn read_fresh(&self, entry: u32, offset: u64, len: u32) -> Result<Fresh, FetchError> {
+        self.read(entry, offset, len).map(Fresh::same)
+    }
+
+    /// [`Fetch::batch`], answered as [`Fetch::read_fresh`] is.
+    fn batch_fresh(&self, entries: &[u32]) -> Vec<Result<Fresh, FetchError>> {
+        self.batch(entries).into_iter().map(|answer| answer.map(Fresh::same)).collect()
+    }
 }

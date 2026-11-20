@@ -29,7 +29,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context as _, bail};
 use cmux_projection::link::{Source, answer_asks};
 use cmux_projection::manifest::{Item, Kind, Manifest};
-use cmux_projection::wire::{self, Part};
+use cmux_projection::wire::{self, Identity, Part};
 use serde_json::{Value, json};
 
 use super::local::Source as Origin;
@@ -55,6 +55,8 @@ pub(crate) enum NotProjected {
 
 /// The listed folder: its manifest and, by manifest entry, what each file is read from.
 struct Listed {
+    /// The folder listed: a file replaced since (an editor's save) is found again below it.
+    root: PathBuf,
     manifest: Manifest,
     served: Vec<Option<Served>>,
 }
@@ -440,7 +442,7 @@ fn list(folder: &Path) -> anyhow::Result<Listed> {
             *slot = Some(file);
         }
     }
-    Ok(Listed { manifest, served })
+    Ok(Listed { root: folder.to_path_buf(), manifest, served })
 }
 
 fn mtime_ns(meta: &std::fs::Metadata) -> i64 {
@@ -492,8 +494,38 @@ fn open(file: &LocalFile) -> anyhow::Result<std::fs::File> {
     }
 }
 
-impl Source for Listed {
-    fn read(&self, entry: u32, offset: u64, len: u32) -> Part {
+/// Up to `len` bytes of `file` at `offset`, below `size`.
+fn read_range(file: &std::fs::File, offset: u64, len: u64, size: u64) -> Option<Vec<u8>> {
+    let want = len.min(size.saturating_sub(offset));
+    let mut bytes = vec![0u8; usize::try_from(want).unwrap_or(0)];
+    let mut got = 0usize;
+    while let Some(rest) = bytes.get_mut(got..).filter(|rest| !rest.is_empty()) {
+        match file.read_at(rest, offset.saturating_add(got as u64)) {
+            Ok(0) => break,
+            Ok(read) => got += read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => return None,
+        }
+    }
+    bytes.truncate(got);
+    Some(bytes)
+}
+
+impl Listed {
+    /// The file at entry `entry`'s path as it is now, when it is no longer the file listed (an
+    /// editor's save replaces it with a new one): opened below the folder one name at a time, no
+    /// symlink followed, and only a regular file. Its name is the one listed, so the copy's rules
+    /// (secrets and credentials never shared) decide as they did.
+    fn relist(&self, entry: u32) -> Option<std::fs::File> {
+        let relative = self.manifest.path_of(entry);
+        super::place::open_beneath(&self.root, &relative).ok().map(|(file, _, _)| file)
+    }
+
+    /// `len` bytes of `entry` at `offset`; `whole` asks for all of it. A file changed since the
+    /// listing is re-read where it is now and answered as it is now ([`Part::changed`], RFD 0007
+    /// hard case 7); a whole file that grew past its listed size sends what it is and no bytes,
+    /// so a batch's answer never outgrows what the machine asked for.
+    fn part(&self, entry: u32, offset: u64, len: u32, whole: bool) -> Part {
         let Some(Some(served)) = self.served.get(entry as usize) else {
             return Part::status(wire::REFUSED);
         };
@@ -502,25 +534,34 @@ impl Source for Listed {
             let end = start.saturating_add(len as usize).min(bytes.len());
             return Part::ok(bytes.get(start..end).unwrap_or_default().to_vec());
         }
-        let Ok(opened) = open(&served.file) else { return Part::status(wire::FAILED) };
-        // The file the manifest named, unchanged: else the machine is told it changed.
+        let Some(opened) = open(&served.file).ok().or_else(|| self.relist(entry)) else {
+            return Part::status(wire::FAILED);
+        };
         let Ok(meta) = opened.metadata() else { return Part::status(wire::FAILED) };
-        if meta.len() != served.size || mtime_ns(&meta) != served.mtime_ns {
-            return Part::status(wire::CHANGED);
+        let (size, mtime) = (meta.len(), mtime_ns(&meta));
+        if size == served.size && mtime == served.mtime_ns {
+            let len = if whole { served.size } else { u64::from(len) };
+            return read_range(&opened, offset, len, size)
+                .map_or_else(|| Part::status(wire::FAILED), Part::ok);
         }
-        let want = u64::from(len).min(served.size.saturating_sub(offset));
-        let mut bytes = vec![0u8; usize::try_from(want).unwrap_or(0)];
-        let mut got = 0usize;
-        while let Some(rest) = bytes.get_mut(got..).filter(|rest| !rest.is_empty()) {
-            match opened.read_at(rest, offset.saturating_add(got as u64)) {
-                Ok(0) => break,
-                Ok(read) => got += read,
-                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(_) => return Part::status(wire::FAILED),
-            }
+        let now = Identity { size, mtime_ns: mtime, mode: local::permissions_of(meta.mode()) };
+        let len = if !whole {
+            u64::from(len)
+        } else if size <= served.size {
+            size
+        } else {
+            0
+        };
+        match read_range(&opened, offset, len, size) {
+            Some(bytes) => Part::changed(now, bytes),
+            None => Part::status(wire::FAILED),
         }
-        bytes.truncate(got);
-        Part::ok(bytes)
+    }
+}
+
+impl Source for Listed {
+    fn read(&self, entry: u32, offset: u64, len: u32) -> Part {
+        self.part(entry, offset, len, false)
     }
 
     fn whole(&self, entry: u32) -> Part {
@@ -530,7 +571,7 @@ impl Source for Listed {
             .and_then(Option::as_ref)
             .map_or(0, |served| served.size);
         match u32::try_from(size) {
-            Ok(len) if len <= wire::MAX_READ => self.read(entry, 0, len),
+            Ok(len) if len <= wire::MAX_READ => self.part(entry, 0, len, true),
             _ => Part::status(wire::FAILED),
         }
     }

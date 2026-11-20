@@ -22,8 +22,20 @@ fn the_manifest_holds_what_a_copy_sends_and_never_a_secret() {
     // Reads are answered from the file the manifest named; an edit since is `changed`.
     assert_eq!(Source::whole(&listed, main), Part::ok(b"fn main() {}\n".to_vec()));
     assert_eq!(Source::read(&listed, main, 3, 4), Part::ok(b"main".to_vec()));
+    // An edit since is answered as the file is now (RFD 0007 hard case 7): what it is, then its
+    // bytes. A whole file that grew past its listed size sends only what it is.
     std::fs::write(root.join("src/main.rs"), "fn main() { edited(); }\n").unwrap();
-    assert_eq!(Source::whole(&listed, main).status, wire::CHANGED);
+    let grown = Source::whole(&listed, main);
+    let (now, bytes) = grown.changed_to().expect("the edit is answered as the file is now");
+    assert_eq!((now.size, now.mode, bytes), (24, 0o644, b"".as_slice()));
+    let part = Source::read(&listed, main, 3, 4);
+    assert_eq!(part.changed_to().map(|(_, bytes)| bytes.to_vec()), Some(b"main".to_vec()));
+    // An editor's save puts a new file in its place: found again under the folder.
+    std::fs::write(root.join("src/main.rs.tmp"), "fn x() {}\n").unwrap();
+    std::fs::rename(root.join("src/main.rs.tmp"), root.join("src/main.rs")).unwrap();
+    let saved = Source::whole(&listed, main);
+    let (now, bytes) = saved.changed_to().expect("the replaced file is answered as it is now");
+    assert_eq!((now.size, bytes), (10, b"fn x() {}\n".as_slice()));
     // Anything that is not a file of the manifest is refused.
     assert_eq!(Source::whole(&listed, 0).status, wire::REFUSED);
     assert_eq!(Source::whole(&listed, 9999).status, wire::REFUSED);

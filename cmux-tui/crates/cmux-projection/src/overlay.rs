@@ -30,7 +30,8 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use crate::manifest::{Kind, Manifest, ROOT};
 use crate::upper::{SetTime, Stat, Upper};
-use crate::{Fetch, FetchError};
+use crate::wire::Identity;
+use crate::{Fetch, FetchError, Fresh};
 
 /// The size of a chunk of a big file, and the largest file fetched whole.
 pub const CHUNK: u64 = 4 * 1024 * 1024;
@@ -177,6 +178,39 @@ struct Handle {
     lower: Option<u32>,
 }
 
+/// A lower file the Mac said changed since the manifest (RFD 0007 hard case 7): what it is now, and
+/// its generation, which keeps its bytes in the cache apart from every earlier version's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Now {
+    generation: u32,
+    identity: Identity,
+}
+
+/// What [`Overlay::on_change`] calls with the number of a lower file that changed.
+pub type Invalidate = Arc<dyn Fn(u64) + Send + Sync>;
+
+/// Internal: a read found its file changed on the Mac and starts over as the file is now. Never
+/// leaves the overlay (after a few changes in a row the read answers `ESTALE`).
+const RENEWED: i32 = -1;
+/// How many times a read starts over on a file that keeps changing under it.
+const RENEW_TRIES: usize = 4;
+
+/// The `cache/fresh` file: one line per changed file, `entry generation size mtime_ns mode`.
+fn read_fresh(path: &Path) -> HashMap<u32, Now> {
+    let Ok(text) = fs::read_to_string(path) else { return HashMap::new() };
+    text.lines()
+        .filter_map(|line| {
+            let mut fields = line.split(' ');
+            let index = fields.next()?.parse().ok()?;
+            let generation = fields.next()?.parse().ok()?;
+            let size = fields.next()?.parse().ok()?;
+            let mtime_ns = fields.next()?.parse().ok()?;
+            let mode = fields.next()?.parse().ok()?;
+            Some((index, Now { generation, identity: Identity { size, mtime_ns, mode } }))
+        })
+        .collect()
+}
+
 /// A projected folder as the machine sees it.
 pub struct Overlay {
     manifest: Arc<Manifest>,
@@ -195,6 +229,11 @@ pub struct Overlay {
     remote_reads: AtomicU64,
     remote_bytes: AtomicU64,
     cache_hits: AtomicU64,
+    /// Lower files the Mac said changed since the manifest, as they are now ([`Now`]).
+    fresh: Mutex<HashMap<u32, Now>>,
+    fresh_file: PathBuf,
+    /// Told the number of a lower file that changed, so the kernel drops its attributes and pages.
+    invalidate: Mutex<Option<Invalidate>>,
 }
 
 /// Keys this thread is fetching; dropping it lets others waiting on them go on.
@@ -303,6 +342,9 @@ impl Overlay {
             fs::remove_dir_all(&scratch)?;
         }
         fs::create_dir_all(&scratch)?;
+        // Kept with the cache: a new manifest lists every file as it is now, and starts both over.
+        let fresh_file = cache.join("fresh");
+        let fresh = read_fresh(&fresh_file);
         let whiteouts = fs::read_to_string(&whiteouts_file)
             .map(|text| {
                 let ends = if text.contains('\0') { '\0' } else { '\n' };
@@ -327,6 +369,9 @@ impl Overlay {
             remote_reads: AtomicU64::new(0),
             remote_bytes: AtomicU64::new(0),
             cache_hits: AtomicU64::new(0),
+            fresh: Mutex::new(fresh),
+            fresh_file,
+            invalidate: Mutex::new(None),
         })
     }
 
@@ -497,14 +542,23 @@ impl Overlay {
             Node::Lower(index) => {
                 let entry = self.manifest.entry(*index);
                 let kind = entry.map_or(Type::Dir, |entry| Type::of_kind(entry.kind));
-                let size = entry.map_or(0, |entry| entry.size);
-                let mtime = entry.map_or(0, |entry| entry.mtime_ns);
+                // A file the Mac said changed is what it is now.
+                let (size, mtime, mode) = match (kind, self.fresh_of(*index)) {
+                    (Type::File, Some(now)) => {
+                        (now.identity.size, now.identity.mtime_ns, now.identity.mode)
+                    }
+                    _ => (
+                        entry.map_or(0, |entry| entry.size),
+                        entry.map_or(0, |entry| entry.mtime_ns),
+                        entry.map_or(0o755, |entry| entry.mode),
+                    ),
+                };
                 Attr {
                     ino,
                     kind,
                     size,
                     blocks: size.div_ceil(512),
-                    mode: entry.map_or(0o755, |entry| entry.mode),
+                    mode,
                     atime_ns: mtime,
                     mtime_ns: mtime,
                     ctime_ns: mtime,
@@ -719,20 +773,37 @@ impl Overlay {
         }
     }
 
+    /// Lower file `index`'s bytes. A file the Mac says changed since the manifest is read again as
+    /// it is now (RFD 0007 hard case 7); one that keeps changing under the read answers `ESTALE`.
     fn read_lower(&self, index: u32, offset: u64, size: u32) -> Result<Vec<u8>, i32> {
+        for _ in 0..RENEW_TRIES {
+            match self.read_lower_now(index, offset, size) {
+                Err(RENEWED) => {}
+                done => return done,
+            }
+        }
+        Err(FetchError::Changed.errno())
+    }
+
+    fn read_lower_now(&self, index: u32, offset: u64, size: u32) -> Result<Vec<u8>, i32> {
         let entry = self.manifest.entry(index).ok_or(ENOENT)?;
         match entry.kind {
             Kind::Dir => return Err(EISDIR),
             Kind::Link => return Err(EINVAL),
             Kind::File => {}
         }
-        let total = entry.size;
+        let now = self.now_of(index);
+        let total = now.identity.size;
         let end = total.min(offset.saturating_add(u64::from(size)));
         if offset >= end {
             return Ok(Vec::new());
         }
         if total <= CHUNK {
             let whole = self.whole(index)?;
+            if whole.len() as u64 != total {
+                // It changed between the size read above and the fetch.
+                return Err(RENEWED);
+            }
             let from = usize::try_from(offset).unwrap_or(usize::MAX);
             let to = usize::try_from(end).unwrap_or(usize::MAX);
             return Ok(whole.get(from..to).unwrap_or_default().to_vec());
@@ -741,7 +812,7 @@ impl Overlay {
         let mut at = offset;
         while at < end {
             let chunk = u32::try_from(at / CHUNK).map_err(|_| EIO)?;
-            let bytes = self.chunk(index, chunk, total)?;
+            let bytes = self.chunk(index, chunk, now)?;
             let start = (at - u64::from(chunk) * CHUNK) as usize;
             let stop = ((end - u64::from(chunk) * CHUNK) as usize).min(bytes.len());
             out.extend_from_slice(bytes.get(start..stop).ok_or(EIO)?);
@@ -750,23 +821,94 @@ impl Overlay {
         Ok(out)
     }
 
-    fn cache_path(&self, (index, part): Key) -> PathBuf {
-        if part == WHOLE {
-            self.cache.join(index.to_string())
-        } else {
-            self.cache.join(format!("{index}.{part}"))
+    // MARK: Files changed on the Mac
+
+    /// Lower file `index` as the manifest lists it.
+    fn listed(&self, index: u32) -> Identity {
+        let entry = self.manifest.entry(index);
+        Identity {
+            size: entry.map_or(0, |entry| entry.size),
+            mtime_ns: entry.map_or(0, |entry| entry.mtime_ns),
+            mode: entry.map_or(0, |entry| entry.mode),
         }
     }
 
-    fn cached(&self, key: Key) -> Option<Vec<u8>> {
-        let bytes = fs::read(self.cache_path(key)).ok()?;
+    fn fresh_of(&self, index: u32) -> Option<Now> {
+        self.fresh.lock().unwrap_or_else(PoisonError::into_inner).get(&index).copied()
+    }
+
+    /// Lower file `index` as this machine last heard it is: the manifest's, generation 0, until the
+    /// Mac says it changed.
+    fn now_of(&self, index: u32) -> Now {
+        self.fresh_of(index).unwrap_or(Now { generation: 0, identity: self.listed(index) })
+    }
+
+    /// Records that lower file `index` is `identity` now, when that is news: a new generation (its
+    /// earlier bytes leave the cache), kept across restarts, and the kernel told to drop the file's
+    /// attributes and pages. The generation `identity` has.
+    fn renew(&self, index: u32, identity: Identity) -> u32 {
+        let mut fresh = self.fresh.lock().unwrap_or_else(PoisonError::into_inner);
+        let was = fresh
+            .get(&index)
+            .copied()
+            .unwrap_or(Now { generation: 0, identity: self.listed(index) });
+        if was.identity == identity {
+            return was.generation;
+        }
+        let generation = was.generation.wrapping_add(1);
+        fresh.insert(index, Now { generation, identity });
+        let mut text = String::new();
+        for (entry, now) in fresh.iter() {
+            let Identity { size, mtime_ns, mode } = now.identity;
+            text.push_str(&format!("{entry} {} {size} {mtime_ns} {mode}\n", now.generation));
+        }
+        let temp = self.scratch_path();
+        if fs::write(&temp, text).is_ok() && fs::rename(&temp, &self.fresh_file).is_err() {
+            let _ = fs::remove_file(&temp);
+        }
+        drop(fresh);
+        let _ = fs::remove_file(self.cache_path((index, WHOLE), was.generation));
+        for chunk in 0..was.identity.size.div_ceil(CHUNK) {
+            if let Ok(chunk) = u32::try_from(chunk) {
+                let _ = fs::remove_file(self.cache_path((index, chunk), was.generation));
+            }
+        }
+        let invalidate = self.invalidate.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        if let Some(invalidate) = invalidate {
+            invalidate(u64::from(index) + 1);
+        }
+        generation
+    }
+
+    /// Calls `invalidate` with the number of each lower file the Mac says changed, once it is
+    /// recorded; the mount passes it on to the kernel. It must not block: it may run inside a read.
+    pub fn on_change(&self, invalidate: Invalidate) {
+        *self.invalidate.lock().unwrap_or_else(PoisonError::into_inner) = Some(invalidate);
+    }
+
+    // MARK: Cache
+
+    fn cache_path(&self, (index, part): Key, generation: u32) -> PathBuf {
+        let name =
+            if generation == 0 { index.to_string() } else { format!("{index}~{generation}") };
+        if part == WHOLE {
+            self.cache.join(name)
+        } else {
+            self.cache.join(format!("{name}.{part}"))
+        }
+    }
+
+    fn cached(&self, key: Key, generation: u32) -> Option<Vec<u8>> {
+        let bytes = fs::read(self.cache_path(key, generation)).ok()?;
         self.cache_hits.fetch_add(1, Ordering::Relaxed);
         Some(bytes)
     }
 
-    fn store(&self, key: Key, bytes: &[u8]) {
+    fn store(&self, key: Key, generation: u32, bytes: &[u8]) {
         let temp = self.scratch_path();
-        if fs::write(&temp, bytes).is_ok() && fs::rename(&temp, self.cache_path(key)).is_err() {
+        if fs::write(&temp, bytes).is_ok()
+            && fs::rename(&temp, self.cache_path(key, generation)).is_err()
+        {
             let _ = fs::remove_file(&temp);
         }
     }
@@ -790,19 +932,32 @@ impl Overlay {
         self.remote_bytes.fetch_add(bytes, Ordering::Relaxed);
     }
 
-    /// A small file's bytes: from the cache, else fetched with its folder's other uncached small
-    /// files in one batch (directory readahead).
+    /// A small file's bytes, as it is now: from the cache, else fetched with its folder's other
+    /// uncached small files in one batch (directory readahead). [`RENEWED`] when the Mac said it
+    /// changed and sent no bytes this read can use.
     fn whole(&self, index: u32) -> Result<Vec<u8>, i32> {
         let key = (index, WHOLE);
-        if let Some(bytes) = self.cached(key) {
+        let now = self.now_of(index);
+        if let Some(bytes) = self.cached(key, now.generation) {
             return Ok(bytes);
         }
         let mut claim = self.claim(key);
-        if let Some(bytes) = self.cached(key) {
+        // Another thread may have fetched it, or heard it changed, while this one waited.
+        let now = self.now_of(index);
+        if let Some(bytes) = self.cached(key, now.generation) {
             return Ok(bytes);
         }
-        let mut batch = vec![index];
-        let mut bytes = self.manifest.entry(index).map_or(0, |entry| entry.size);
+        if now.generation != 0 {
+            // A file that changed is read alone at its new size: the Mac answers a batch only up
+            // to each file's listed size.
+            let len = u32::try_from(now.identity.size).map_err(|_| EIO)?;
+            let answer = self.fetch.read_fresh(index, 0, len);
+            let got = self.take_whole(index, now, answer);
+            drop(claim);
+            return got;
+        }
+        let mut batch = vec![(index, now)];
+        let mut bytes = now.identity.size;
         if let Some(entry) = self.manifest.entry(index) {
             let folder = self.manifest.path_of(entry.parent);
             let (first, siblings) = self.manifest.children(entry.parent);
@@ -815,42 +970,39 @@ impl Overlay {
                     }
                     let Ok(at) = u32::try_from(at) else { break };
                     let other = first + at;
-                    if other == index
-                        || sibling.kind != Kind::File
-                        || sibling.size > CHUNK
-                        || bytes + sibling.size > BATCH_BYTES
-                    {
+                    if other == index || sibling.kind != Kind::File {
+                        continue;
+                    }
+                    let sibling_now = self.now_of(other);
+                    let size = sibling_now.identity.size;
+                    if size > CHUNK || bytes + size > BATCH_BYTES {
                         continue;
                     }
                     let path = join(&folder, &sibling.name);
-                    if Self::hidden(&inner, &path) || self.cache_path((other, WHOLE)).exists() {
+                    if Self::hidden(&inner, &path)
+                        || self.cache_path((other, WHOLE), sibling_now.generation).exists()
+                    {
                         continue;
                     }
-                    candidates.push((other, path, sibling.size));
-                    bytes += sibling.size;
+                    candidates.push((other, path, sibling_now));
+                    bytes += size;
                 }
             }
             let mut inflight = self.inflight.lock().unwrap_or_else(PoisonError::into_inner);
-            for (other, path, _) in candidates {
+            for (other, path, sibling_now) in candidates {
                 if inflight.contains(&(other, WHOLE)) || self.upper.stat(&path).is_ok() {
                     continue;
                 }
                 inflight.insert((other, WHOLE));
                 claim.keys.push((other, WHOLE));
-                batch.push(other);
+                batch.push((other, sibling_now));
             }
         }
-        let answers = self.fetch.batch(&batch);
+        let entries: Vec<u32> = batch.iter().map(|(other, _)| *other).collect();
+        let answers = self.fetch.batch_fresh(&entries);
         let mut mine = Err(EIO);
-        for (other, answer) in batch.iter().zip(answers) {
-            let expected = self.manifest.entry(*other).map_or(0, |entry| entry.size);
-            let answer = answer.map_err(FetchError::errno).and_then(|bytes| {
-                if bytes.len() as u64 == expected { Ok(bytes) } else { Err(EIO) }
-            });
-            if let Ok(bytes) = &answer {
-                self.count(bytes.len() as u64);
-                self.store((*other, WHOLE), bytes);
-            }
+        for ((other, asked), answer) in batch.iter().zip(answers) {
+            let answer = self.take_whole(*other, *asked, answer);
             if *other == index {
                 mine = answer;
             }
@@ -859,27 +1011,66 @@ impl Overlay {
         mine
     }
 
-    /// Chunk `chunk` of big file `index` (`total` bytes): from the cache, else fetched.
-    fn chunk(&self, index: u32, chunk: u32, total: u64) -> Result<Vec<u8>, i32> {
+    /// The Mac's answer for all of small file `index`, asked for as `asked` says it is: cached and
+    /// returned, or [`RENEWED`] when the file is something else now and the answer holds no bytes
+    /// this read can use.
+    fn take_whole(
+        &self,
+        index: u32,
+        asked: Now,
+        answer: Result<Fresh, FetchError>,
+    ) -> Result<Vec<u8>, i32> {
+        let Fresh { bytes, now } = answer.map_err(FetchError::errno)?;
+        // No identity: the file the manifest listed (an older Mac says only "changed").
+        let identity = now.unwrap_or_else(|| self.listed(index));
+        let changed = identity != asked.identity;
+        let generation = if changed { self.renew(index, identity) } else { asked.generation };
+        if identity.size <= CHUNK && bytes.len() as u64 == identity.size {
+            self.count(bytes.len() as u64);
+            self.store((index, WHOLE), generation, &bytes);
+            Ok(bytes)
+        } else if changed {
+            Err(RENEWED)
+        } else {
+            Err(EIO)
+        }
+    }
+
+    /// Chunk `chunk` of big file `index`, as `now` (from [`Overlay::now_of`]) says the file is:
+    /// from the cache, else fetched. [`RENEWED`] when the Mac says the file is something else now.
+    fn chunk(&self, index: u32, chunk: u32, now: Now) -> Result<Vec<u8>, i32> {
         let key = (index, chunk);
-        if let Some(bytes) = self.cached(key) {
+        if let Some(bytes) = self.cached(key, now.generation) {
             return Ok(bytes);
         }
         let _claim = self.claim(key);
-        if let Some(bytes) = self.cached(key) {
+        if let Some(bytes) = self.cached(key, now.generation) {
             return Ok(bytes);
         }
+        if self.now_of(index) != now {
+            return Err(RENEWED);
+        }
         let start = u64::from(chunk) * CHUNK;
-        let len = CHUNK.min(total.saturating_sub(start));
-        let bytes = self
+        let len = CHUNK.min(now.identity.size.saturating_sub(start));
+        let Fresh { bytes, now: told } = self
             .fetch
-            .read(index, start, u32::try_from(len).map_err(|_| EIO)?)
+            .read_fresh(index, start, u32::try_from(len).map_err(|_| EIO)?)
             .map_err(FetchError::errno)?;
+        let identity = told.unwrap_or_else(|| self.listed(index));
+        if identity != now.identity {
+            let generation = self.renew(index, identity);
+            let fits = CHUNK.min(identity.size.saturating_sub(start));
+            if identity.size > CHUNK && fits > 0 && bytes.len() as u64 == fits {
+                self.count(fits);
+                self.store(key, generation, &bytes);
+            }
+            return Err(RENEWED);
+        }
         if bytes.len() as u64 != len {
             return Err(EIO);
         }
         self.count(len);
-        self.store(key, &bytes);
+        self.store(key, now.generation, &bytes);
         Ok(bytes)
     }
 
@@ -954,26 +1145,50 @@ impl Overlay {
             Kind::File => {}
         }
         let temp = self.scratch_path();
-        let mut file = fs::File::create(&temp).map_err(|error| io_errno(&error))?;
-        if entry.size <= CHUNK {
-            file.write_all(&self.whole(index)?).map_err(|error| io_errno(&error))?;
-        } else {
-            let chunks = entry.size.div_ceil(CHUNK);
-            for chunk in 0..chunks {
-                let chunk = u32::try_from(chunk).map_err(|_| EIO)?;
-                let bytes = self.chunk(index, chunk, entry.size)?;
-                file.write_all(&bytes).map_err(|error| io_errno(&error))?;
+        // The file as it is now on the Mac; a change mid-copy starts the copy over.
+        let mut copied = Err(RENEWED);
+        for _ in 0..RENEW_TRIES {
+            copied = self.copy_bytes(&temp, index);
+            if copied != Err(RENEWED) {
+                break;
             }
         }
-        let at = SetTime::At(entry.mtime_ns);
-        let _ = fd_utimes(&file, Some(at), Some(at));
-        drop(file);
-        let _ = fs::set_permissions(&temp, fs::Permissions::from_mode(entry.mode));
+        let identity = match copied {
+            Ok(identity) => identity,
+            Err(errno) => {
+                let _ = fs::remove_file(&temp);
+                return Err(if errno == RENEWED { FetchError::Changed.errno() } else { errno });
+            }
+        };
+        let _ = fs::set_permissions(&temp, fs::Permissions::from_mode(identity.mode));
         let landed = self.in_folder(parent, || self.upper.adopt(&temp, path));
         if landed.is_err() {
             let _ = fs::remove_file(&temp);
         }
         landed
+    }
+
+    /// Writes lower file `index`'s bytes, as it is now, to `temp` with its modification time; what
+    /// the file is. [`RENEWED`] when it changed on the Mac during the copy.
+    fn copy_bytes(&self, temp: &Path, index: u32) -> Result<Identity, i32> {
+        let now = self.now_of(index);
+        let mut file = fs::File::create(temp).map_err(|error| io_errno(&error))?;
+        if now.identity.size <= CHUNK {
+            let bytes = self.whole(index)?;
+            if bytes.len() as u64 != now.identity.size {
+                return Err(RENEWED);
+            }
+            file.write_all(&bytes).map_err(|error| io_errno(&error))?;
+        } else {
+            for chunk in 0..now.identity.size.div_ceil(CHUNK) {
+                let chunk = u32::try_from(chunk).map_err(|_| EIO)?;
+                let bytes = self.chunk(index, chunk, now)?;
+                file.write_all(&bytes).map_err(|error| io_errno(&error))?;
+            }
+        }
+        let at = SetTime::At(now.identity.mtime_ns);
+        let _ = fd_utimes(&file, Some(at), Some(at));
+        Ok(now.identity)
     }
 
     /// Brings `path` into the upper layer when it is only in the lower one.
