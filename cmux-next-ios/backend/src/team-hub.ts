@@ -669,12 +669,12 @@ export class TeamHub extends DurableObject<Env> {
     this.relayError(ws, "relay_retired", "WireGuard relay frames are retired; this app version needs an update to connect without UDP", sessionId)
   }
 
-  override async webSocketClose(ws: WebSocket): Promise<void> {
-    this.gone(ws)
+  override async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): Promise<void> {
+    this.gone(ws, { code, reason, wasClean })
   }
 
-  override async webSocketError(ws: WebSocket): Promise<void> {
-    this.gone(ws)
+  override async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
+    this.gone(ws, { code: 1006, reason: `error: ${String(error).slice(0, 80)}`, wasClean: false })
   }
 
   // ---- internals -------------------------------------------------------------------------------
@@ -723,11 +723,18 @@ export class TeamHub extends DurableObject<Env> {
     this.attachments.set(ws, att)
   }
 
-  private gone(ws: WebSocket) {
+  private readonly closeLogged = new WeakSet<WebSocket>()
+
+  private gone(ws: WebSocket, close?: { code: number; reason: string; wasClean: boolean }) {
     const att = this.attach(ws)
     try {
       ws.close(1000, "bye")
     } catch {}
+    // webSocketError can be followed by webSocketClose for one socket: one line per socket.
+    if (att?.kind === "phone" && !this.closeLogged.has(ws)) {
+      this.closeLogged.add(ws)
+      logPhoneClose(att, close, Date.now())
+    }
     if (!att || att.replaced || att.kind !== "mac") return
     this.recordPing(ws, att.deviceId)
     if (this.open(att.deviceId, ws)) return
@@ -864,4 +871,23 @@ export class TeamHub extends DurableObject<Env> {
     s.t -= 1
     return true
   }
+}
+
+/**
+ * One structured line per phone signaling socket that closes (connectivity alerts: a record of phone
+ * disconnects that does not depend on the phone reporting them). Logs only; nothing is posted from it.
+ * The device id is shortened and no user id or name is logged.
+ */
+export const phoneCloseRecord = (att: Attachment, close: { code: number; reason: string; wasClean: boolean } | undefined, now: number) => ({
+  msg: "phone signaling closed",
+  device: att.deviceId.slice(0, 8),
+  code: close?.code ?? null,
+  reason: close?.reason ? close.reason.slice(0, 80) : null,
+  clean: close?.wasClean ?? null,
+  replaced: att.replaced === true,
+  durationMs: att.connectedAt != null ? Math.max(0, now - att.connectedAt) : null
+})
+
+const logPhoneClose = (att: Attachment, close: { code: number; reason: string; wasClean: boolean } | undefined, now: number) => {
+  console.log(JSON.stringify(phoneCloseRecord(att, close, now)))
 }

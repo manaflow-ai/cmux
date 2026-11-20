@@ -45,6 +45,8 @@ export interface Env {
   readonly CONNECTIVITY_ALERT_TEST_CHANNEL?: string
   /** Extra team-domain emails that are agents or services (comma-separated): their reports go to the test route. */
   readonly CONNECTIVITY_ALERT_EXCLUDED_EMAILS?: string
+  /** Verified emails whose canary reports are heard (comma-separated; default the agent test account). */
+  readonly CONNECTIVITY_CANARY_EMAILS?: string
   /** Connectivity reports per user per minute. */
   readonly INCIDENT_LIMIT?: RateLimit
   // Test only (ENVIRONMENT=test).
