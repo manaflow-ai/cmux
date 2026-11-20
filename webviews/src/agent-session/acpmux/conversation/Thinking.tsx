@@ -21,6 +21,7 @@ import { compactingLine } from "./compactingLine.experiment";
 import { liveLineTimes } from "./liveLineTimes.experiment";
 import { oneRowPerCall } from "./oneRowPerCall.experiment";
 import { Spinner } from "./icons";
+import { RunningTime } from "./RunningTime";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { LiveShimmer } from "./LiveShimmer";
@@ -708,6 +709,9 @@ export function Thinking({
               {elapsed}
             </span>
           )}
+          {/* With the turn's clock over the work ("Working for"), the line has no time of its own: a
+              call running there counts how long it has run, from a few seconds on (RunningTime.tsx). */}
+          {untimed && !elapsed && !done && !waiting && doing !== undefined && <RunningTime startedAt={doingAt} local />}
         </span>
       )}
       {own && !waiting && timesLook !== "hover" && (
