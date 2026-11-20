@@ -288,9 +288,11 @@ try:
                            ("cmd-d", {"key": "d", "modifiers": ["command"]}), ("cmd-shift-p", {"key": "P", "modifiers": ["command"]})):
             dry[name] = rpc("debug.key", dict(args, dry_run=True))
         RAW["shortcut_dry"] = dry
-        claimed = {k: (v or {}).get("action") or (v or {}).get("decision") or v for k, v in dry.items()}
-        row(all(isinstance(v, dict) and (v.get("action") or v.get("handled") or v.get("decision") not in (None, "pass", "passThrough"))
-                for v in dry.values()), "shortcuts.dry_run", claimed)
+        # The router claims a shortcut only with a `.run` decision, whose action id it names; anything else lets the
+        # key go on to the responder chain (the page).
+        row(all(isinstance(v, dict) and isinstance(v.get("action"), str) and v.get("action") for v in dry.values()),
+            "shortcuts.dry_run", {k: {"action": (v or {}).get("action"), "decision": str((v or {}).get("decision"))[:80],
+                                      "focus": (v or {}).get("focus")} for k, v in dry.items()})
         tabs0 = tab_count()
         rpc("debug.key", {"key": "t", "modifiers": ["command"]})
         tabs1 = wait(lambda: (lambda n: n if n is not None and tabs0 is not None and n > tabs0 else None)(tab_count()), 8)
