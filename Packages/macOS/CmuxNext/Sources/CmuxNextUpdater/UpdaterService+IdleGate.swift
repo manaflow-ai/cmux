@@ -1,7 +1,8 @@
 public import Foundation
 
 /// Update When Idle (`updates.installWhenIdle`): the App hands the updater the question it asks Rust
-/// (`UpdateIdleGate.hold`, cmux-window-rules `update_idle`), and the updater asks it only while the setting is on.
+/// (`UpdateIdleGate.hold`, cmux-window-rules `update_idle`). Signed tracks use the normal quiet
+/// window; the optional setting can select a longer idle interval.
 extension UpdaterService {
     /// `hold(minutes, lastInput)` answers why a staged install waits (a cmux-window-rules hold reason), nil to install.
     public func useIdleGate(_ hold: @escaping @MainActor (_ idleMinutes: Double, _ lastInput: Date?) -> String?) {

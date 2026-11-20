@@ -1,8 +1,9 @@
 public import CmuxNextWindowRules
 public import Foundation
 
-/// Update When Idle (`updates.installWhenIdle`, off by default; Leo, 2026-11-19: "when it's idle, it's able to ...
-/// update automatically ... maybe even having it as an opt-in option would be pretty interesting"). The
+/// Automatic update idle gate (with an optional longer `updates.installWhenIdle` interval; Leo,
+/// 2026-11-19: "when it's idle, it's able to ... update automatically ... maybe even having it as an
+/// opt-in option would be pretty interesting"). The
 /// updater's automatic-install hold asks ``hold(idleMinutes:lastInput:)`` once a second while a staged update
 /// waits; the rule is Rust's (cmux-window-rules `update_idle`). This reads the facts only: the input time
 /// first, and this Mac's agent turns and drafts only once the person has been away long enough, so a person

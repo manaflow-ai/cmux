@@ -296,7 +296,8 @@ extension UpdaterService {
         stagedRefresh.reschedule(automatic: checkAutomatically, interval: checkInterval, updater: self)
         tipCheck.reschedule(automatic: checkAutomatically, updater: self)
         refreshReleasePush()
-        if automaticUpdates != downloadAutomatically { automaticUpdates = downloadAutomatically }
+        let automaticDownloads = downloadAutomatically || installWhenIdle != nil
+        if automaticUpdates != automaticDownloads { automaticUpdates = automaticDownloads }
         guard let controller else { return }
         controller.setSchedule(automaticChecks: checkAutomatically, interval: checkInterval)
         followNetwork()
