@@ -531,6 +531,11 @@
         "nb": {"stringUnit": {"state": "needs_review", "value": "Utseende for «Trenger deg»"}},
         "pl": {"stringUnit": {"state": "needs_review", "value": "Wygląd stanu „Czeka na ciebie”"}},
         "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Aparência de “Precisa de você”"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Внешний вид «Ждёт вас»"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "รูปลักษณ์ของ “รอคุณอยู่”"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "“Sizi bekliyor” görünümü"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Вигляд «Чекає на вас»"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Giao diện của “Cần bạn”"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "“需要你”的外观"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "「需要你」的外觀"}}
       }
@@ -552,6 +557,11 @@
         "nb": {"stringUnit": {"state": "needs_review", "value": "Hvordan en fane og en rad i sidefeltet som venter på deg, viser det: med merket eller en myk glød til du ser på dem."}},
         "pl": {"stringUnit": {"state": "needs_review", "value": "Jak karta i wiersz paska bocznego, które na ciebie czekają, to pokazują: plakietką albo delikatną poświatą, dopóki na nie nie spojrzysz."}},
         "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Como uma aba e uma linha da barra lateral que esperam por você mostram isso: com o selo ou com um brilho suave até você olhar para elas."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Как вкладка и строка боковой панели, которые ждут вас, показывают это: значком или мягким свечением, пока вы на них не посмотрите."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "วิธีที่แท็บและแถวในแถบด้านข้างที่รอคุณอยู่แสดงสถานะนี้: ใช้ป้าย หรือเรืองแสงอ่อน ๆ จนกว่าคุณจะมอง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Sizi bekleyen bir sekmenin ve kenar çubuğu satırının bunu nasıl göstereceği: rozetle ya da siz bakana kadar yumuşak bir parıltıyla."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Як вкладка й рядок бічної панелі, що чекають на вас, це показують: значком або м’яким світінням, доки ви на них не подивитеся."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Cách một tab và một hàng thanh bên đang chờ bạn hiển thị điều đó: bằng huy hiệu, hoặc ánh sáng dịu cho đến khi bạn nhìn vào."}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "等待你的标签页和侧边栏行如何显示：使用标记，或在你查看前柔和地发光。"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "等待你的分頁與側邊欄列如何顯示：使用標記，或在你查看前柔和地發光。"}}
       }
@@ -573,6 +583,11 @@
         "nb": {"stringUnit": {"state": "needs_review", "value": "Merke"}},
         "pl": {"stringUnit": {"state": "needs_review", "value": "Plakietka"}},
         "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Selo"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Значок"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ป้าย"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Rozet"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Значок"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Huy hiệu"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "标记"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "標記"}}
       }
