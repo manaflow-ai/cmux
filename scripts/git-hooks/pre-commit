@@ -528,6 +528,9 @@ while IFS= read -r -d '' path; do
                     ;;
             esac
             ;;
+        # Vendored crates keep their upstream format: `cargo fmt --all` in CI never
+        # formats them, and cmux-tui/rustfmt.toml above them would reflow every file.
+        vendor/*.rs|*/vendor/*.rs|third_party/*.rs|*/third_party/*.rs) ;;
         *.rs)
             STAGED_RUST_PATHS+=("$path")
             ;;
