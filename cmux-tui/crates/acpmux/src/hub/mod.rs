@@ -1123,6 +1123,11 @@ pub struct Hub {
     pub(super) recap_wake: Arc<Notify>,
     /// What writes prompt coach rewrites instead of the small model (tests; `prompt_coach.rs`).
     pub(super) coach_rewriter: StdMutex<Option<prompt_coach::CoachRewriter>>,
+    /// Chats with a surge triage pass due or running, and whether another is asked after it
+    /// (`surge_triage.rs`).
+    pub(super) surge_triage_due: StdMutex<HashMap<String, bool>>,
+    /// What answers surge triage instead of the small model (tests; `surge_triage.rs`).
+    pub(super) surge_triager: StdMutex<Option<surge_triage::SurgeTriager>>,
     /// The forced start mode and the setting's change count (`start_mode_state.rs`).
     pub(super) start_mode_state: start_mode_state::StartModeCell,
     /// The caller tokens earlier daemon runs gave out, by session (`caller_registry.rs`).
@@ -1541,6 +1546,8 @@ impl Hub {
             recap_due: StdMutex::new(HashMap::new()),
             recap_wake: Arc::new(Notify::new()),
             coach_rewriter: StdMutex::new(None),
+            surge_triage_due: StdMutex::new(HashMap::new()),
+            surge_triager: StdMutex::new(None),
             start_mode_state,
             caller_registry,
             full_access_pushes: tokio::sync::Mutex::new(()),
