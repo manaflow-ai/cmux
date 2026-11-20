@@ -3191,7 +3191,7 @@ async fn dispatch_request_with_identity(
                     .and_then(Value::as_str)
                     .filter(|v| !v.is_empty())
                     .ok_or_else(|| RpcError::invalid_params("ownerSessionId is required"))?;
-                hub.resolve(owner_id)
+                hub.inbox_subscription_owner_key(owner_id)
             };
             match m {
                 method::MUX_INBOX_SUBSCRIPTION_SET => hub.set_inbox_subscription(&s, thread()?),
@@ -3200,13 +3200,9 @@ async fn dispatch_request_with_identity(
                 }
                 method::MUX_INBOX_SUBSCRIPTIONS => hub.inbox_subscriptions(&s),
                 method::MUX_INBOX_SUBSCRIPTION_GRANT => {
-                    let owner = owner()?;
-                    hub.grant_inbox_subscription(&s, thread()?, &owner)
+                    hub.grant_inbox_subscription_key(&s, thread()?, &owner()?)
                 }
-                _ => {
-                    let owner = owner()?;
-                    hub.revoke_inbox_subscription(&s, thread()?, &owner)
-                }
+                _ => hub.revoke_inbox_subscription_key(&s, thread()?, &owner()?),
             }
         }
         method::MUX_INBOX_THREADS | method::MUX_INBOX_THREAD | method::MUX_INBOX_REPLY => {

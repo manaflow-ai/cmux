@@ -53,6 +53,36 @@ fn replay(
 }
 
 impl Hub {
+    /// Resolve a subscription owner to a stable local id or host-qualified remote id.
+    ///
+    /// Remote display names are deliberately not accepted as durable identities: the peer row
+    /// may be renamed or replaced after a grant.  A remote binding therefore must name the
+    /// session UUID under its peer name (`HOST/UUID`), which is the same address the outbox pins.
+    pub(crate) fn inbox_subscription_owner_key(&self, key: &str) -> Result<String, RpcError> {
+        if let Ok(owner) = self.resolve(key) {
+            return Ok(owner.id.clone());
+        }
+        let Some((host, remote_id)) = key.split_once('/') else {
+            return Err(RpcError::invalid_params(format!("no session: {key}")));
+        };
+        if host.is_empty() || uuid::Uuid::try_parse(remote_id).is_err() {
+            return Err(RpcError::invalid_params(
+                "ownerSessionId must be a host-qualified session UUID",
+            )
+            .with_data(json!({"reason": "inbox_subscription.owner_identity_unstable"})));
+        }
+        let Some((peer, resolved_id, _)) = self.resolve_remote(key) else {
+            return Err(RpcError::invalid_params(format!("no session: {key}")));
+        };
+        if peer.name != host || resolved_id != remote_id {
+            return Err(RpcError::invalid_params(
+                "ownerSessionId must be a host-qualified session UUID",
+            )
+            .with_data(json!({"reason": "inbox_subscription.owner_identity_unstable"})));
+        }
+        Ok(format!("{host}/{remote_id}"))
+    }
+
     fn inbox_subscription_bindings(
         &self,
         session: &Session,
@@ -129,20 +159,43 @@ impl Hub {
         thread: &str,
         owner: &Session,
     ) -> Result<Value, RpcError> {
+        self.grant_inbox_subscription_key(recipient, thread, &owner.id)
+    }
+
+    /// Grant a recipient's thread to a canonical local or remote owner key.
+    pub(crate) fn grant_inbox_subscription_key(
+        &self,
+        recipient: &Session,
+        thread: &str,
+        owner_key: &str,
+    ) -> Result<Value, RpcError> {
         let thread = thread_id(thread)?;
-        if recipient.id == owner.id {
+        if recipient.id == owner_key {
             return Err(RpcError::invalid_params(
                 "inbox_subscription.owner_must_differ: grant a distinct subscriber",
             )
             .with_data(json!({"reason": "inbox_subscription.owner_must_differ"})));
         }
-        if !self.inbox_subscription_bindings(owner)?.contains_key(thread) {
+        let owner_id = if let Ok(owner) = self.resolve(owner_key) {
+            if !self.inbox_subscription_bindings(&owner)?.contains_key(thread) {
+                return Err(RpcError::invalid_params(
+                    "inbox_subscription.owner_not_subscribed: owner must subscribe first",
+                )
+                .with_data(json!({"reason": "inbox_subscription.owner_not_subscribed"})));
+            }
+            owner.id.clone()
+        } else {
+            // Remote owners are checked by their authenticated peer address and pinned by UUID.
+            // The remote daemon's self-subscription is the authority for its own journal; this
+            // recipient grant records the explicit cross-daemon authorization locally.
+            self.inbox_subscription_owner_key(owner_key)?
+        };
+        if owner_id == recipient.id {
             return Err(RpcError::invalid_params(
-                "inbox_subscription.owner_not_subscribed: owner must subscribe first",
+                "inbox_subscription.owner_must_differ: grant a distinct subscriber",
             )
-            .with_data(json!({"reason": "inbox_subscription.owner_not_subscribed"})));
+            .with_data(json!({"reason": "inbox_subscription.owner_must_differ"})));
         }
-        let owner_id = owner.id.as_str();
         let (_, stored) = self.append_logged(
             recipient,
             "mux",
@@ -169,14 +222,28 @@ impl Hub {
         thread: &str,
         owner: &Session,
     ) -> Result<Value, RpcError> {
+        self.revoke_inbox_subscription_key(recipient, thread, &owner.id)
+    }
+
+    /// Revoke a recipient's grant for a canonical local or remote owner key.
+    pub(crate) fn revoke_inbox_subscription_key(
+        &self,
+        recipient: &Session,
+        thread: &str,
+        owner_key: &str,
+    ) -> Result<Value, RpcError> {
         let thread = thread_id(thread)?;
-        if recipient.id == owner.id {
+        let owner_id = if let Ok(owner) = self.resolve(owner_key) {
+            owner.id.clone()
+        } else {
+            self.inbox_subscription_owner_key(owner_key)?
+        };
+        if recipient.id == owner_id {
             return Err(RpcError::invalid_params(
                 "inbox_subscription.owner_must_differ: revoke a distinct subscriber",
             )
             .with_data(json!({"reason": "inbox_subscription.owner_must_differ"})));
         }
-        let owner_id = owner.id.as_str();
         let (_, stored) = self.append_logged(
             recipient,
             "mux",
@@ -249,5 +316,40 @@ mod tests {
             host_seq: None,
         }];
         assert_eq!(replay("owner", active).keys().next().map(String::as_str), Some("pr:3"));
+    }
+
+    #[test]
+    fn remote_owner_keys_require_the_authenticated_peer_and_uuid() {
+        let mut config = crate::config::Config::default();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(config, store);
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let peer = crate::peer::Peer::new("remote", "ws://127.0.0.1:9", None, None, tx);
+        hub.peers.lock().unwrap().insert(peer.name.clone(), peer.clone());
+        let id = "11111111-1111-4111-8111-111111111111";
+        hub.apply_peer_notice(
+            &peer.name,
+            peer.generation,
+            crate::peer::PeerNotice::sessions_from_values(vec![json!({
+                "sessionId": id,
+                "name": "owner-display-name",
+                "status": "ready"
+            })]),
+        );
+
+        assert_eq!(
+            hub.inbox_subscription_owner_key(&format!("remote/{id}")).unwrap(),
+            format!("remote/{id}")
+        );
+        let display = hub.inbox_subscription_owner_key("remote/owner-display-name").unwrap_err();
+        assert_eq!(
+            display.data.as_ref().and_then(|v| v.get("reason")).and_then(Value::as_str),
+            Some("inbox_subscription.owner_identity_unstable")
+        );
+        let bare = hub.inbox_subscription_owner_key(id).unwrap_err();
+        assert_eq!(bare.message, format!("no session: {id}"));
+        peer.stop();
     }
 }

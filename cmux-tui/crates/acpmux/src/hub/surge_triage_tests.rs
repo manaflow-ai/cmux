@@ -425,6 +425,37 @@ async fn each_digest_names_only_its_own_recipients_messages() {
     assert!(to_chat.iter().all(|ids| *ids == json!(["m2"])), "{to_chat:?}");
 }
 
+#[tokio::test]
+async fn a_remote_grant_uses_only_the_authenticated_host_and_uuid_route() {
+    let (hub, recipient) = chat(Some("1 this")).await;
+    let (tx, _rx) = tokio::sync::mpsc::channel(8);
+    let peer = crate::peer::Peer::new("remote", "ws://127.0.0.1:9", None, None, tx);
+    hub.peers.lock().unwrap().insert(peer.name.clone(), peer.clone());
+    let id = "22222222-2222-4222-8222-222222222222";
+    hub.apply_peer_notice(
+        &peer.name,
+        peer.generation,
+        crate::peer::PeerNotice::sessions_from_values(vec![json!({
+            "sessionId": id,
+            "name": "owner-display-name",
+            "status": "ready"
+        })]),
+    );
+
+    let key = format!("remote/{id}");
+    assert_eq!(hub.remote_owner_target(&key), Some(key.clone()));
+    assert!(hub.remote_owner_target("remote/owner-display-name").is_none());
+
+    let grants = Owners(std::collections::BTreeMap::from([
+        ("authorized".to_owned(), key.clone()),
+        ("display-name".to_owned(), "remote/owner-display-name".to_owned()),
+    ]));
+    let owners = hub.surge_owners(&recipient, &grants);
+    assert_eq!(owners.0.get("authorized"), Some(&key));
+    assert!(!owners.0.contains_key("display-name"));
+    peer.stop();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn failed_journal_writes_lose_no_decision_and_no_delivery() {
     let (hub, s) = chat(Some("1 this\n2 noise")).await;

@@ -288,7 +288,27 @@ impl Hub {
                 || Some(owner) == delegator
         };
         let mut subs = self.surge_subscribers.lock().unwrap_or_else(|e| e.into_inner());
-        authorized_owners(self.surge_subscribed(&mut subs), authorized)
+        let mut owners = authorized_owners(self.surge_subscribed(&mut subs), authorized);
+        // Peer sessions are intentionally absent from Hub::resolve and from the local
+        // subscription scan. A recipient grant's canonical HOST/UUID is the explicit
+        // authorization for the remote outbox route below.
+        for (thread, owner) in &grants.0 {
+            if self.remote_owner_target(owner).is_some() {
+                owners.0.insert(thread.clone(), owner.clone());
+            }
+        }
+        owners
+    }
+
+    /// Return the canonical outbox target for a remote owner binding. Display names are never
+    /// accepted here: only a host-qualified UUID can have reached the grant journal.
+    fn remote_owner_target(&self, owner: &str) -> Option<String> {
+        let (_, id) = owner.split_once('/')?;
+        if uuid::Uuid::try_parse(id).is_err() {
+            return None;
+        }
+        let (peer, mux, _) = self.resolve_remote(owner)?;
+        Some(format!("{}/{mux}", peer.name))
     }
 
     /// Every session's own thread subscriptions, read once per daemon run under `subs`.
@@ -472,15 +492,97 @@ impl Hub {
         let owners: BTreeSet<&str> = lines.iter().filter_map(|l| l.owner.as_deref()).collect();
         for owner in owners {
             let Some(text) = triage::owner_digest(&session.id, owner, lines) else { continue };
-            // An owner gone since its subscription: its items stay in this chat's archive.
-            let Ok(to) = self.resolve(owner) else {
-                tracing::info!(session = %session.id, owner, "surge triage: owner gone");
-                continue;
-            };
             let theirs = triage::owner_digest_lines(owner, lines);
-            self.send_surge_digest(&to, &owner_digest_id(id, owner), text, &theirs).await?;
+            let digest_id = owner_digest_id(id, owner);
+            if let Ok(to) = self.resolve(owner) {
+                self.send_surge_digest(&to, &digest_id, text, &theirs).await?;
+            } else if let Some(target) = self.remote_owner_target(owner) {
+                self.send_remote_surge_digest(session, &target, &digest_id, text, &theirs).await?;
+            } else {
+                // An owner gone since its subscription: its items stay in this chat's archive.
+                tracing::info!(session = %session.id, owner, "surge triage: owner gone");
+            }
         }
         Ok(())
+    }
+
+    /// Queue one owner digest through the durable authenticated peer/outbox transport.
+    async fn send_remote_surge_digest(
+        self: &Arc<Self>,
+        from: &Arc<Session>,
+        target: &str,
+        id: &str,
+        text: String,
+        lines: &[&Line],
+    ) -> Result<(), RpcError> {
+        let prompt_ids: Vec<&str> = lines.iter().map(|l| l.prompt_id.as_str()).collect();
+        let request = json!({
+            "sessionId": target,
+            "prompt": [{"type": "text", "text": text}],
+            "_meta": {"acpmux": {
+                "promptId": id,
+                "messageId": id,
+                "provenance": {"kind": PROVENANCE_KIND, "digestId": id, "promptIds": prompt_ids}
+            }}
+        });
+        let now = now_ms();
+        let delivery = crate::hub::outbox::Delivery {
+            id: id.to_owned(),
+            target: target.to_owned(),
+            request,
+            caller: Some(from.id.clone()),
+            unproven_caller: None,
+            // This is an automatic digest, never an owner's terminal send.
+            not_terminal: true,
+            state: crate::hub::outbox::State::Queued,
+            attempts: 0,
+            never_sent: true,
+            relay_post: None,
+            open_on_peer: false,
+            pin: None,
+            proof: None,
+            error: None,
+            accepted: None,
+            created_at: now,
+            updated_at: now,
+        };
+        let (hub, delivery) = (self.clone(), delivery.clone());
+        let added = tokio::task::spawn_blocking(move || hub.outbox.add(delivery))
+            .await
+            .map_err(|e| RpcError::internal(e.to_string()))?
+            .map_err(|e| RpcError::internal(format!("cannot queue remote surge digest: {e:#}")))?;
+        if added.id == id {
+            crate::server::outbox::resume(self, vec![added]);
+        }
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
+        loop {
+            let changed = self.outbox.changed.notified();
+            if let Some(current) = self.outbox.get(id) {
+                match current.state {
+                    crate::hub::outbox::State::Delivered | crate::hub::outbox::State::Held => {
+                        #[cfg(test)]
+                        if let Some(accepted) = current.accepted.clone() {
+                            DIGEST_ACCEPTS
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                .push((target.to_owned(), accepted));
+                        }
+                        return Ok(());
+                    }
+                    crate::hub::outbox::State::Failed => {
+                        return Err(RpcError::internal(format!(
+                            "remote surge digest delivery failed: {}",
+                            current.error.unwrap_or_else(|| "unknown outbox error".into())
+                        )));
+                    }
+                    _ => {}
+                }
+            }
+            tokio::time::timeout_at(deadline, changed)
+                .await
+                .map_err(|_| RpcError::internal("remote surge digest delivery timed out"))?
+                .ok();
+        }
     }
 
     /// One digest prompt, accepted (queued, steered or a duplicate) before this returns. Its
