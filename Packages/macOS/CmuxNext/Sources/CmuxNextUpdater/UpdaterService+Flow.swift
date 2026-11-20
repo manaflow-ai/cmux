@@ -347,7 +347,7 @@ extension UpdaterService {
         relaunchMomentHold.idleGate = installsWhenIdle ? idleInstallGate : nil
         if let controller, controller.installsUpdatesWhenIdle != installsWhenIdle {
             controller.installsUpdatesWhenIdle = installsWhenIdle
-            log.append("automatic installs \(installsWhenIdle ? \"on\" : \"off\")")
+            log.append("automatic installs \(installsWhenIdle ? "on" : "off")")
         }
         if let controller, controller.downloadsUpdatesInBackground != downloads {
             controller.downloadsUpdatesInBackground = downloads
