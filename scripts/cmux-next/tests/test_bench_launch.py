@@ -17,6 +17,8 @@
    check, and its report says so.
 7. After a signal exit the crash-report wait wakes on the report folder, also for an account that never crashed (no
    report folder yet), and says when it could watch no folder instead of returning at once in silence.
+8. The console user is the IOConsoleUsers entry that is on the console (kCGSSessionOnConsoleKey), not the last GUI
+   login: a hidden CI account logged in after cmux (hq#13193) must not make the bench refuse cmux (hq#13240).
 
 Runs on any Mac, no GUI session or build needed (the session read is injected or the check is `--socket-only`, and a
 copy of /bin/sleep stands in for the app's executable). Signals only the processes it starts.
@@ -110,6 +112,47 @@ class SessionGateTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as refused:
                 bl.require_gui_session("test", argv=[])
         self.assertEqual(refused.exception.code, 1)
+
+
+def ioreg_root(*sessions):
+    """`ioreg -n Root -d1 -a` output (a one-element plist array) with these IOConsoleUsers entries."""
+    import plistlib
+    return lambda: plistlib.dumps([{"IOConsoleUsers": list(sessions)}])
+
+
+def session(name, on_console, login_done=True, locked=False):
+    return {"kCGSSessionUserNameKey": name, "kCGSSessionOnConsoleKey": on_console,
+            "kCGSSessionLoginDoneKey": login_done, "CGSSessionScreenIsLocked": locked}
+
+
+class ConsoleSessionReadTests(unittest.TestCase):
+    """The session on the display, read from IOConsoleUsers (hq#13240). scutil's State:/Users/ConsoleUser names the
+    last GUI login, so a hidden cmuxci-gui-01 login through Screen Sharing (hq#13193) made the bench refuse cmux with
+    no-gui-session on cmux19 (step 1ea20b88), cmux22 and cmux-austin-mini-0 while cmux was on the console."""
+
+    def test_the_on_console_session_wins_over_a_later_hidden_login(self):
+        read = ioreg_root(session("cmux", True), session("cmuxci-gui-01", False))
+        self.assertEqual(bl.console_user(read=read), "cmux")
+        self.assertFalse(bl.screen_locked("cmux", read=read))
+
+    def test_a_hidden_session_is_not_the_console_user(self):
+        read = ioreg_root(session("cmuxci-gui-01", False))
+        self.assertIsNone(bl.console_user(read=read))
+        self.assertIsNone(bl.screen_locked("cmuxci-gui-01", read=read))
+
+    def test_a_locked_console_session_says_locked(self):
+        self.assertTrue(bl.screen_locked("cmux", read=ioreg_root(session("cmux", True, locked=True))))
+
+    def test_an_unfinished_login_or_the_login_window_is_nobody(self):
+        self.assertIsNone(bl.console_user(read=ioreg_root(session("cmux", True, login_done=False))))
+        self.assertIsNone(bl.console_user(read=ioreg_root(session("loginwindow", True))))
+
+    def test_an_unreadable_ioreg_fails_closed(self):
+        self.assertIsNone(bl.console_user(read=lambda: b"not a plist"))
+
+        def broken():
+            raise OSError("no ioreg")
+        self.assertIsNone(bl.console_user(read=broken))
 
 
 class TagInUseTests(unittest.TestCase):
