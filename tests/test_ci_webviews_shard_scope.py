@@ -47,7 +47,8 @@ class ShardScopeTest(unittest.TestCase):
         self.assertEqual(selected[0]["files"], "test/leaf.test.ts")
         self.assertEqual({result["mode"] for result in results}, {"focused"})
         self.assertTrue(results[0]["setup"])
-        self.assertFalse(results[1]["setup"])
+        for index, result in enumerate(results):
+            self.assertEqual(result["setup"], result["run"] or index == 0)
 
     def test_full_ci_keeps_every_matrix_shard(self) -> None:
         out = self.root / "scope-full.json"
