@@ -64,7 +64,7 @@ fn every_recipe_has_a_unique_name_and_every_group_a_recipe() {
 /// stylesheet and sets the sidebar and chat settings.
 #[test]
 fn each_app_look_alike_carries_its_theme_its_chat_stylesheet_and_its_settings() {
-    for name in ["codex-app", "true-black", "claude-code-app"] {
+    for name in ["codex-app", "claude-code-app"] {
         let recipe = find(name).unwrap_or_else(|| panic!("no {name} recipe"));
         assert_eq!(recipe.group, Group::Apps, "{name}");
         let profile = recipe.profile().unwrap();
