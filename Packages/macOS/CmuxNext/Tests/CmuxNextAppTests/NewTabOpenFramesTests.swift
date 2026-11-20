@@ -23,6 +23,14 @@ struct NewTabOpenFramesTests {
         return (window, try #require(controller.content?.focusedPane))
     }
 
+    /// Marks each New Tab page view that the tab store has now as one that the person used, so no tab takes its view
+    /// (`AgentTabStore.idlePage`: a New Tab tab that a pane shows takes the view of an untouched New Tab page that the
+    /// pane leaves or that no window shows, before the pool's spare and before a cold page). For a test of the pool's
+    /// path or of the cold path: its app can start on a New Tab page, and its New Tab key must not get that page's view.
+    static func useEachNewTabPage(_ services: AppServices) {
+        for view in services.agentTabs.views.values where view.model.newTab != nil { view.model.hostTouch.mark("the test's setup") }
+    }
+
     /// The next spare page is made once the open that took the parked one settled, never in the key's turn or the
     /// frames of its open.
     @Test func cmdTMakesTheNextSpareOnlyAfterItsOpenSettled() async throws {
@@ -57,6 +65,7 @@ struct NewTabOpenFramesTests {
             let spare = try #require(pool.spare?.view)
             let before = made.count
 
+            Self.useEachNewTabPage(services) // the pool's path: no idle page that the key's tab takes first
             NewTabPage.open(in: pane, seed: nil)
             #expect(pool.spare?.view !== spare, "Cmd-T did not adopt the parked spare")
             // The open's frames (60 ms: 7 refreshes at 120 Hz, the films' drops came 50-150 ms after the key).

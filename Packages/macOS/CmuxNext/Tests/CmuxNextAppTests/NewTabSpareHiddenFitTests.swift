@@ -68,7 +68,10 @@ struct NewTabSpareHiddenFitTests {
     }
 
     /// A window resize (no spring): the spare takes its pane's new size before the next Cmd-T, which shows it at that size
-    /// with no refit in its turn.
+    /// with no refit in its turn. The key must take the pool's spare: the tab of a New Tab key takes the view of an
+    /// untouched New Tab page first (`AgentTabStore.idlePage`), and the app starts on one, so the row counts each
+    /// New Tab page of the app as used before its key (`NewTabOpenFramesTests.useEachNewTabPage`). Without that the
+    /// key took no spare, and the row's check of a refit said nothing.
     @Test func afterAWindowResizeTheSpareIsAtThePanesSizeAndCmdTTakesItWithNoRefit() async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-spare-resize-fit")
@@ -88,7 +91,9 @@ struct NewTabSpareHiddenFitTests {
             try await PasswordManagerRouteTests.until({ spare.frame.size == size }, within: .seconds(2),
                                                       report: { "the spare is \(spare.frame.size), its pane's content is \(size)" })
             let openings = pool.openings.count
+            NewTabOpenFramesTests.useEachNewTabPage(services)
             NewTabPage.open(in: pane, seed: nil)
+            #expect(pool.spare?.view !== spare, "Cmd-T did not take the parked spare: the row's check of a refit says nothing")
             let opened = try #require(pool.openings.dropFirst(openings).first, "Cmd-T recorded no opening")
             #expect(opened.spare, "Cmd-T loaded cold instead of taking the parked spare")
             #expect(!opened.refit, "Cmd-T found the spare at another size than its pane's")
