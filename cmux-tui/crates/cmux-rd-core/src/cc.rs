@@ -285,9 +285,6 @@ fn slope(points: &VecDeque<(f64, f64)>) -> Option<f64> {
 struct Sent {
     at_us: u64,
     bytes: u32,
-    /// Media is inserted when packetized but must not enter the sent-rate
-    /// window until the carrier reports its real departure.
-    departed: bool,
 }
 
 /// Delay-gradient bandwidth estimator.
@@ -317,10 +314,6 @@ pub struct CongestionController {
     capacity_bps: Option<f64>,
     last_increase_us: Option<u64>,
     last_decrease_us: Option<u64>,
-    rtt_us: Option<u64>,
-    last_feedback_us: Option<u64>,
-    outage_active: bool,
-    outage_resume: bool,
     response_window_us: u64,
     next_decrease_us: u64,
     usage: Usage,
@@ -347,10 +340,6 @@ impl CongestionController {
             capacity_bps: None,
             last_increase_us: None,
             last_decrease_us: None,
-            rtt_us: None,
-            last_feedback_us: None,
-            outage_active: false,
-            outage_resume: false,
             response_window_us: MIN_DECREASE_INTERVAL_US,
             next_decrease_us: 0,
             usage: Usage::Normal,
@@ -410,15 +399,10 @@ impl CongestionController {
         true
     }
 
-    /// Total departure budget, including FEC, repairs and probes. Standard
-    /// retains its existing pacer policy; ultra uses this as a strict ceiling.
+    /// Total departure budget for the strict Ultra pacer. Repairs and probes
+    /// are charged by the pacer; parity is owned by the FEC lane.
     pub fn wire_budget_bps(&self) -> u64 {
         if self.profile == EncodeProfile::Ultra { self.ultra.wire_bps } else { self.target_bps }
-    }
-
-    /// Ultra parity/source byte ratio. Standard's existing loss policy owns FEC.
-    pub fn ultra_fec_ratio(&self) -> Option<f64> {
-        (self.profile == EncodeProfile::Ultra).then(|| self.ultra.fec_ratio())
     }
 
     fn ultra_path_ceiling(&self) -> u64 {
@@ -451,38 +435,8 @@ impl CongestionController {
     /// A datagram recorded by `on_sent_bytes` really left now (a pacer held it): its
     /// delay counts from here. Unknown sequences are ignored.
     pub fn on_departed(&mut self, transport_seq: u16, now_us: u64) {
-        let bytes = {
-            let Some(sent) = self.sent.get_mut(&transport_seq) else { return };
-            if sent.departed {
-                return;
-            }
-            sent.at_us = now_us;
-            sent.departed = true;
-            sent.bytes
-        };
-        if bytes > 0 {
-            self.record_sent_window(now_us, bytes);
-        }
-    }
-
-    /// Records a media datagram that was queued by packetization. Its bytes and
-    /// timestamp stay out of the sent-rate window until [`Self::on_departed`]
-    /// observes the carrier's actual write.
-    pub fn on_queued_bytes(&mut self, transport_seq: u16, queued_us: u64, bytes: usize) {
-        let bytes = u32::try_from(bytes).unwrap_or(u32::MAX);
         if let Some(sent) = self.sent.get_mut(&transport_seq) {
-            if !sent.departed {
-                sent.at_us = queued_us;
-                sent.bytes = sent.bytes.max(bytes);
-            }
-            return;
-        }
-        self.sent.insert(transport_seq, Sent { at_us: queued_us, bytes, departed: false });
-        self.sent_order.push_back(transport_seq);
-        while self.sent_order.len() > 4096 {
-            if let Some(old) = self.sent_order.pop_front() {
-                self.sent.remove(&old);
-            }
+            sent.at_us = now_us;
         }
     }
 
@@ -490,20 +444,14 @@ impl CongestionController {
     pub fn on_sent_bytes(&mut self, transport_seq: u16, now_us: u64, bytes: usize) {
         let bytes = u32::try_from(bytes).unwrap_or(u32::MAX);
         if let Some(sent) = self.sent.get_mut(&transport_seq) {
-            let queued_bytes = {
-                let was_queued = !sent.departed;
-                sent.at_us = now_us;
-                sent.departed = true;
-                was_queued.then_some(sent.bytes).filter(|&bytes| bytes > 0)
-            };
-            if let Some(bytes) = queued_bytes {
-                self.record_sent_window(now_us, bytes);
-            }
+            sent.at_us = now_us;
             return;
         }
-        self.sent.insert(transport_seq, Sent { at_us: now_us, bytes, departed: true });
+        self.sent.insert(transport_seq, Sent { at_us: now_us, bytes });
         if bytes > 0 {
-            self.record_sent_window(now_us, bytes);
+            self.sent_window.push_back((now_us, bytes));
+            self.sent_window_bytes += u64::from(bytes);
+            self.prune_sent_window(now_us);
         }
         self.sent_order.push_back(transport_seq);
         while self.sent_order.len() > 4096 {
@@ -511,12 +459,6 @@ impl CongestionController {
                 self.sent.remove(&old);
             }
         }
-    }
-
-    fn record_sent_window(&mut self, now_us: u64, bytes: u32) {
-        self.sent_window.push_back((now_us, bytes));
-        self.sent_window_bytes += u64::from(bytes);
-        self.prune_sent_window(now_us);
     }
 
     /// A retransmission keeps the original transport sequence, so its
@@ -548,10 +490,6 @@ impl CongestionController {
         self.sent_window_bytes = 0;
         self.capacity_bps = None;
         self.last_decrease_us = None;
-        self.rtt_us = None;
-        self.last_feedback_us = None;
-        self.outage_active = false;
-        self.outage_resume = false;
         self.response_window_us = MIN_DECREASE_INTERVAL_US;
         self.next_decrease_us = 0;
         self.usage = Usage::Normal;
@@ -561,7 +499,6 @@ impl CongestionController {
     /// The path's measured round trip. Under `lan_rtt_us`, before any overuse, the
     /// target starts at `lan_start_bps`.
     pub fn on_rtt(&mut self, rtt_us: u64) {
-        self.rtt_us = Some(rtt_us);
         self.response_window_us = rtt_us.max(MIN_DECREASE_INTERVAL_US);
         if self.profile == EncodeProfile::Standard
             && rtt_us < self.config.lan_rtt_us
@@ -573,16 +510,6 @@ impl CongestionController {
             self.target_bps = self.config.lan_start_bps;
             self.clamp();
         }
-    }
-
-    /// Returns the one-shot edge that a feedback burst ended an outage. The
-    /// engine uses it to release stale frames-in-flight.
-    pub fn take_outage_resume(&mut self) -> bool {
-        std::mem::take(&mut self.outage_resume)
-    }
-
-    fn outage_threshold_us(&self) -> u64 {
-        self.rtt_us.map_or(100_000, |rtt| 100_000.max(rtt.saturating_mul(4)))
     }
 
     fn unwrap_arrival(&mut self, raw: u32) -> i64 {
@@ -630,79 +557,14 @@ impl CongestionController {
     /// and show no overuse), by time elapsed, never more than
     /// [`MAX_STEP_US`] of growth at once.
     pub fn on_feedback(&mut self, arrivals: &[Arrival], loss: f64, now_us: u64) {
-        let feedback_gap_us =
-            self.last_feedback_us.map(|last| now_us.saturating_sub(last)).unwrap_or(0);
-        // The radio-outage detector is part of Ultra's held-rate policy. Standard
-        // keeps its existing loss response even when a loss-only report is quiet
-        // for longer than the outage threshold.
-        let feedback_gap =
-            self.profile == EncodeProfile::Ultra && feedback_gap_us > self.outage_threshold_us();
-        self.last_feedback_us = Some(now_us);
-        if feedback_gap {
-            self.outage_active = true;
-        }
-        let recovering_from_outage = self.outage_active;
         let mut samples: Vec<(u64, i64, u32)> = arrivals
             .iter()
             .filter_map(|a| {
                 let sent = self.sent.remove(&a.transport_seq)?;
-                if recovering_from_outage {
-                    // A radio burst after an outage is receiver-shaped, not a
-                    // path-delay sample. Drop the receipt so a duplicate burst
-                    // cannot seed queue evidence after recovery.
-                    None
-                } else if sent.departed {
-                    Some((sent.at_us, i64::from(a.arrival_us), sent.bytes))
-                } else {
-                    // Feedback can race the bounded departure-receipt drain.
-                    // Keep the sample until its real departure is observed.
-                    self.sent.insert(a.transport_seq, sent);
-                    None
-                }
+                Some((sent.at_us, i64::from(a.arrival_us), sent.bytes))
             })
             .collect();
         samples.sort_unstable_by_key(|s| s.0);
-
-        // A radio hold releases a receiver-shaped burst: feedback was quiet for
-        // at least one short hold, several packets cover a materially wider send
-        // span, and their arrival dispersion collapses into one burst. Treat that
-        // burst as an outage edge, discard its delay samples, and resume at the
-        // held rate. A normal 50 ms feedback interval has comparable send and
-        // arrival spans and does not satisfy this shape.
-        let receiver_burst = self.profile == EncodeProfile::Ultra
-            && feedback_gap_us >= 50_000
-            && samples.len() >= 2
-            && samples.last().is_some_and(|last| {
-                let first = samples[0];
-                let send_span = last.0.saturating_sub(first.0);
-                let min_arrival = samples.iter().map(|sample| sample.1).min().unwrap_or(first.1);
-                let max_arrival = samples.iter().map(|sample| sample.1).max().unwrap_or(first.1);
-                send_span >= 30_000 && max_arrival.saturating_sub(min_arrival) <= 20_000
-            });
-
-        if receiver_burst {
-            self.outage_active = false;
-            self.outage_resume = true;
-            self.groups = InterArrival::default();
-            self.trend = Trendline::default();
-            self.usage = Usage::Normal;
-            self.ultra.resume_after_outage();
-            self.clamp();
-            return;
-        }
-
-        if recovering_from_outage {
-            if !arrivals.is_empty() {
-                self.outage_active = false;
-                self.outage_resume = true;
-                self.groups = InterArrival::default();
-                self.trend = Trendline::default();
-                self.usage = Usage::Normal;
-                self.ultra.resume_after_outage();
-            }
-            self.clamp();
-            return;
-        }
         let mut evidence = false;
         let has_samples = !samples.is_empty();
         for (sent_us, raw_arrival, bytes) in samples {
@@ -733,9 +595,6 @@ impl CongestionController {
             }
         }
         if self.profile == EncodeProfile::Ultra {
-            if loss.is_finite() {
-                self.ultra.loss = loss.clamp(0.0, 1.0);
-            }
             if has_samples {
                 self.update_ultra(now_us);
             }
@@ -862,7 +721,7 @@ impl CongestionController {
                 .held_wire_bps(self.ultra_path_ceiling())
                 .unwrap_or_else(|| self.ultra_path_ceiling());
             self.ultra.wire_bps = self.ultra.wire_bps.clamp(1, ceiling);
-            self.target_bps = self.ultra.media_bps().max(1);
+            self.target_bps = self.ultra.wire_bps.max(1);
             return;
         }
         let max = if self.path == PathKind::DoRelay {
@@ -871,39 +730,5 @@ impl CongestionController {
             self.config.max_bps
         };
         self.target_bps = self.target_bps.clamp(self.config.min_bps, max.max(self.config.min_bps));
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn queued_media_bytes_enter_the_sent_window_at_departure() {
-        let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
-        cc.on_queued_bytes(7, 10, 1200);
-        assert!(cc.sent_bps(500_000).is_none());
-
-        cc.on_departed(7, 200_000);
-        assert!(cc.sent_bps(500_000).is_some());
-    }
-
-    #[test]
-    fn ultra_outage_freezes_rate_and_emits_one_resume_edge() {
-        let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectWan);
-        cc.set_profile(EncodeProfile::Ultra);
-        assert!(cc.on_probe_capacity(cc.probe_generation(), 50_000_000));
-        let held = cc.wire_budget_bps();
-
-        cc.on_sent_bytes(1, 0, 1_200);
-        cc.on_feedback(&[Arrival { transport_seq: 1, arrival_us: 1_000 }], 0.0, 1_000);
-        cc.on_feedback(&[], 0.0, 500_000);
-
-        cc.on_sent_bytes(2, 501_000, 1_200);
-        cc.on_feedback(&[Arrival { transport_seq: 2, arrival_us: 502_000 }], 1.0, 502_000);
-
-        assert_eq!(cc.wire_budget_bps(), held, "outage burst must not cut the held rate");
-        assert!(cc.take_outage_resume());
-        assert!(!cc.take_outage_resume(), "resume notification is one-shot");
     }
 }

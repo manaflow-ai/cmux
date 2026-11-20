@@ -1,12 +1,12 @@
-//! Measured, held wire-rate policy. Random loss buys parity within the budget;
-//! only a standing queue reduces the wire rate.
+//! Measured, held wire-rate policy. Only a standing queue reduces the wire rate;
+//! parity and recovery policy are owned by their respective transport lanes.
 
 use crate::profile::ULTRA_MAX_KBPS;
 
 /// Limits for the explicitly selected ultra profile, in wire bits per second.
 #[derive(Debug, Clone, Copy)]
 pub struct UltraConfig {
-    /// Includes media, parity, repairs and probes, rather than just encoder bytes.
+    /// The strict pacer's total wire ceiling for an explicitly selected session.
     pub max_wire_bps: u64,
     /// A queue must exceed both this floor and twice the observed jitter.
     pub queue_floor_us: u64,
@@ -29,7 +29,6 @@ pub(super) struct UltraState {
     pub config: UltraConfig,
     pub capacity_bps: Option<u64>,
     pub wire_bps: u64,
-    pub loss: f64,
     base_delay_us: Option<i64>,
     last_delay_us: Option<i64>,
     last_send_us: Option<u64>,
@@ -48,30 +47,8 @@ impl UltraState {
         })
     }
 
-    pub fn fec_ratio(&self) -> f64 {
-        // A full loss report can request two parity bytes per source byte. The
-        // packetizer still enforces the maximum total shards in a FEC block.
-        (2.0 * self.loss).clamp(0.1, 2.0)
-    }
-
-    pub fn media_bps(&self) -> u64 {
-        (self.wire_bps as f64 / (1.0 + self.fec_ratio())) as u64
-    }
-
     pub fn reset_path(&mut self) {
         *self = Self { config: self.config, ..Self::default() };
-    }
-
-    /// Discard delay evidence from the burst that ends a radio outage while
-    /// preserving the measured capacity and held wire rate.
-    pub fn resume_after_outage(&mut self) {
-        self.base_delay_us = None;
-        self.last_delay_us = None;
-        self.last_send_us = None;
-        self.jitter_us = 0.0;
-        self.queue_since_us = None;
-        self.standing_queue = false;
-        self.queue_clear = false;
     }
 
     pub fn observe_delay(&mut self, sent_us: u64, arrival_us: i64) {

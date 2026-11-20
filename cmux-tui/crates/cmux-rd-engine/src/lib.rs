@@ -472,8 +472,8 @@ impl MediaEngine {
     /// The controller's target now (all display streams together).
     pub fn target_bps(&self) -> u64 {
         // The host passes this value to the pacer. Ultra's encoder target is
-        // media-only (`EncodeRequest.target_kbps`); pacing must reserve the
-        // same held budget for media, FEC, repair, and probes.
+        // media-only; pacing must reserve the same held budget for media,
+        // repairs, and probes.
         self.cc.wire_budget_bps()
     }
 
@@ -718,7 +718,7 @@ impl MediaEngine {
         };
         for (i, d) in packets.datagrams.iter().enumerate() {
             let seq = packets.first_transport_seq.wrapping_add(i as u16);
-            self.cc.on_queued_bytes(seq, now_us, d.len());
+            self.cc.on_sent_bytes(seq, now_us, d.len());
             self.loss_meter.on_sent(seq);
         }
         state.history.insert(req.frame, packets.datagrams.clone());
@@ -801,11 +801,6 @@ impl MediaEngine {
             })
         {
             self.last_probe_start_us = Some(now_us);
-        }
-        if self.cc.take_outage_resume() {
-            for state in self.streams.values_mut() {
-                state.gate.clear_in_flight();
-            }
         }
         self.last_feedback_us = now_us;
         let Some(state) = self.streams.get_mut(&stream) else { return };
@@ -924,7 +919,7 @@ impl MediaEngine {
     }
 
     fn idle(&self, _now_us: u64) -> bool {
-        self.streams.values().all(|state| state.gate.in_flight() == 0 && !state.gate.has_pending())
+        self.streams.values().all(|state| state.gate.in_flight() == 0)
     }
 
     fn start_probe(&mut self, reason: ProbeReason, now_us: u64) {
@@ -944,7 +939,7 @@ impl MediaEngine {
         }
         let seq = self.packetizer.reserve_transport_seq(1);
         let Some(probe) = self.probe_planner.next_packet(now_us, seq) else { return };
-        self.cc.on_queued_bytes(probe.transport_seq, now_us, probe.bytes.len());
+        self.cc.on_sent_bytes(probe.transport_seq, now_us, probe.bytes.len());
         out.datagrams.push(probe.bytes);
     }
 
