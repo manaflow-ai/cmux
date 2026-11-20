@@ -66,6 +66,10 @@
 #           KEY=VALUE words are the app's environment, e.g.
 #             --arg shots --arg devices=-cmux-mobile-settings-page,devices \
 #               --arg feed=CMUX_MOBILE_FEED_STRESS=60,-cmux-mobile-tab,feed
+#           A leading `@S,S,...` word (seconds after launch, each 1..60) takes a
+#           screenshot at each of those times instead of the one at 5 s, named
+#           name-LOOK-tS.png, e.g. `chat=@5,20,CMUX_MOBILE_LIST_STRESS=chat-200,...`
+#           to see whether a state is transient or stays.
 #           Run it at the base and at the head for a PR's before and after.
 #   clips   build, plus the What's New clip of one iPhone highlight
 #           (release-notes/next/clips/ID.json with "app": "iphone"): the app
@@ -1254,18 +1258,39 @@ if [[ "$mode" == shots ]]; then
     IFS=',' read -r -a words <<< "${scene#*=}"
     envs=(SIMCTL_CHILD_CMUX_MOBILE_MOCK_AUTH=1)
     args=()
+    times=()
+    if [[ ${#words[@]} -gt 0 && "${words[0]}" =~ ^@[0-9]+$ ]]; then
+      # @S,S,...: the times arrive as the leading words (the scene's commas split them).
+      words[0]="${words[0]#@}"
+      while [[ ${#words[@]} -gt 0 && "${words[0]}" =~ ^[0-9]+$ ]]; do
+        (( words[0] >= 1 && words[0] <= 60 )) || { note "- scene '$name': shot time ${words[0]} s is outside 1..60"; words=(); times=(); break; }
+        times+=("${words[0]}"); words=("${words[@]:1}")
+      done
+      [[ ${#times[@]} -gt 0 ]] || continue
+    fi
     for w in ${words[@]+"${words[@]}"}; do
       if [[ ${#args[@]} -eq 0 && "$w" =~ ^[A-Z_][A-Z0-9_]*= ]]; then envs+=("SIMCTL_CHILD_$w"); else args+=("$w"); fi
     done
+    shots=()
     for look in dark light; do
       simctl ui "$udid" appearance "$look" >/dev/null 2>&1 || true
       env "${envs[@]}" xcrun simctl --set "$sims" launch "$udid" "$bundle_id" ${args[@]+"${args[@]}"} >/dev/null
-      # A bounded wait for the scene to draw; demo drivers have no signal to wait on.
-      sleep "${CMUX_NEXT_IOS_SHOT_WAIT:-5}"
-      simctl io "$udid" screenshot "$out/screens/$name-$look.png" >/dev/null
+      launched=$SECONDS
+      if [[ ${#times[@]} -eq 0 ]]; then
+        # A bounded wait for the scene to draw; demo drivers have no signal to wait on.
+        sleep "${CMUX_NEXT_IOS_SHOT_WAIT:-5}"
+        simctl io "$udid" screenshot "$out/screens/$name-$look.png" >/dev/null
+        shots+=("screens/$name-$look.png")
+      else
+        for t in $(printf '%s\n' "${times[@]}" | sort -n); do
+          (( SECONDS - launched < t )) && sleep $(( t - (SECONDS - launched) ))
+          simctl io "$udid" screenshot "$out/screens/$name-$look-t$t.png" >/dev/null
+          shots+=("screens/$name-$look-t$t.png")
+        done
+      fi
       simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
     done
-    note "- $name: screens/$name-dark.png, screens/$name-light.png"
+    note "- $name: $(IFS=' '; echo "${shots[*]}")"
   done
   simctl ui "$udid" appearance dark >/dev/null 2>&1 || true
   note "- screens: $((SECONDS - t0)) s"
