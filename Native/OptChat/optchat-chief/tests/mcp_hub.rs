@@ -13,11 +13,23 @@ use std::time::{Duration, Instant};
 use optchat_chief::mcp_hub::{Caller, McpHub};
 use serde_json::{Value, json};
 
+/// The fake server's script, copied once to the temp folder: the tests add it as a command
+/// target, which the hub splits on spaces, and a checkout under a folder with a space in its path
+/// (a fleet Mac's "Application Support") would split the path itself.
 fn fake() -> String {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/mcp/fake_mcp.py")
-        .display()
-        .to_string()
+    static COPY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    COPY.get_or_init(|| {
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mcp/fake_mcp.py");
+        let dir =
+            std::env::temp_dir().join(format!("optchat-chief-fake-mcp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let copy = dir.join("fake_mcp.py");
+        std::fs::copy(&source, &copy).unwrap();
+        let path = copy.display().to_string();
+        assert!(!path.contains(' '), "the temp folder has a space: {path}");
+        path
+    })
+    .clone()
 }
 
 struct Rig {
@@ -370,30 +382,32 @@ fn unsafe_targets_are_refused_before_anything_runs() {
     );
 }
 
-fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
-}
-
+/// The fake on Streamable HTTP and its port: it binds port 0 and prints the port the kernel gave
+/// it once it listens. A port picked here and bound later could be taken in between by a parallel
+/// test's server, which the connect probe then took for this one.
 fn http_server(args: &[&str]) -> (std::process::Child, u16) {
-    let port = free_port();
-    let child = std::process::Command::new("python3")
+    use std::io::BufRead;
+    let mut child = std::process::Command::new("python3")
         .arg(fake())
-        .args(["--http", &port.to_string()])
+        .args(["--http", "0"])
         .args(args)
+        .stdout(std::process::Stdio::piped())
         .spawn()
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while std::net::TcpStream::connect(("127.0.0.1", port)).is_err() {
-        assert!(
-            Instant::now() < deadline,
-            "the fake HTTP server did not start"
-        );
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    let stdout = child.stdout.take().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        let _ = std::io::BufReader::new(stdout).read_line(&mut line);
+        let _ = tx.send(line);
+    });
+    let line = rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the fake HTTP server did not start");
+    let port = line
+        .trim()
+        .parse()
+        .expect("the fake HTTP server printed no port");
     (child, port)
 }
 
