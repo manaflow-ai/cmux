@@ -111,13 +111,11 @@ HOSTED_LITERAL_RUNNER = re.compile(
 # other value, including a persistent mini's label, falls back to Blacksmith,
 # and a fork running its own CI gets GitHub-hosted. Either provider can then
 # carry the merge-gating checks while the other is down.
-TRUSTED_RUNNER_LABELS = ("ubuntu-24.04", "blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404",
-                         "cmux-fleet-linux-x64")
-# The default is the owned fleet's one-job Linux VM, not Blacksmith (ask-166ab1e98a).
+TRUSTED_RUNNER_LABELS = ("ubuntu-24.04", "blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404")
 TRUSTED_RUNNER_EXPRESSION = (
     "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('"
     + json.dumps(list(TRUSTED_RUNNER_LABELS), separators=(",", ":"))
-    + "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'cmux-fleet-linux-x64' }}"
+    + "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
 )
 # CLA's trusted base validator pins its older selector and runner-name guard.
 # Keep that policy valid while other trusted jobs adopt the measured BS8 size.
@@ -160,6 +158,15 @@ BOUNDED_LINUX_SELECTOR = (
     "contains(fromJSON('" + json.dumps(list(BOUNDED_LINUX_LABELS), separators=(",", ":"))
     + "'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'cmux-fleet-linux-x64'"
 )
+# Jobs an outsider can trigger (workflow_run, pull_request_target, comments) and the CI_REPAIR_SKIP_FLEET
+# janitors keep the pre-fleet selector: no fork code may reach an owned VM, and the janitors' Blacksmith
+# default is their escape off the fleet when the switch is on.
+LEGACY_BOUNDED_LINUX_SELECTOR = (
+    "contains(fromJSON('" + json.dumps([label for label in BOUNDED_LINUX_LABELS if label != "cmux-fleet-linux-x64"],
+                                       separators=(",", ":"))
+    + "'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'"
+)
+LEGACY_BOUNDED_SELECTOR_JOBS = {("ci-cla-quota-rerun.yml", "cla-quota-rerun"), ("ci-queue-janitor.yml", "sweep")}
 # The key-holding Linux jobs that follow LINUX_RUNNER through it (#27557 pinned them to 4 vCPU,
 # so a 4 vCPU stall left them queued). Nightly jobs read no shared variable.
 BOUNDED_SELECTOR_JOBS = {
@@ -1443,6 +1450,8 @@ class ForkRunnerRoutingTests(unittest.TestCase):
             with self.subTest(job=key):
                 self.assertIn(key, runs_on)
                 expected = BOUNDED_LINUX_SELECTOR
+                if key in LEGACY_BOUNDED_SELECTOR_JOBS:
+                    expected = LEGACY_BOUNDED_LINUX_SELECTOR
                 if key == ("sdk-release-cut.yml", "cut-tags"):
                     # The SDK release security contract pins the pre-BS8 selector.
                     expected = expected.replace(',"blacksmith-8vcpu-ubuntu-2404"', '')
@@ -1586,8 +1595,7 @@ class ForkRunnerRoutingTests(unittest.TestCase):
     def test_trusted_runner_selector_admits_only_ephemeral_labels(self) -> None:
         self.assertEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {TRUSTED_RUNNER_EXPRESSION}\n"), [])
         for label in TRUSTED_RUNNER_LABELS:
-            self.assertTrue(label == "ubuntu-24.04" or label.startswith("blacksmith-")
-                            or label in FLEET_EPHEMERAL_LABELS, label)
+            self.assertTrue(label == "ubuntu-24.04" or label.startswith("blacksmith-"), label)
         widened = TRUSTED_RUNNER_EXPRESSION.replace('"ubuntu-24.04",', '"ubuntu-24.04","glaeda-std-xcode-26.6",')
         renamed = TRUSTED_RUNNER_EXPRESSION.replace("vars.CI_TRUSTED_RUNNER", "vars.LINUX_RUNNER")
         unforked = TRUSTED_RUNNER_EXPRESSION.replace("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ", "")
