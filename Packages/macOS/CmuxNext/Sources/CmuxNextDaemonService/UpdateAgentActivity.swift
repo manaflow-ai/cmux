@@ -7,11 +7,14 @@ import Foundation
 /// it, so an idle app does not poll the agent daemon.
 @MainActor
 public final class UpdateAgentActivity {
+    /// How long an answered census stands: the gate asks once a second and a read gets one
+    /// second, so a census older than this means the reads stopped answering (a hung or failed
+    /// read), and its facts are unknown, not the last answer.
+    static let freshFor: Duration = .seconds(3)
+
     private let environment: AcpmuxEnvironment?
-    private var chiefInTurn: Bool?
-    /// The last census (nil until one answered, or after one failed): Update When Idle reads its turns
-    /// and drafts. Refreshed, at most once a second, only by ``applying(to:)``.
-    public private(set) var census: AcpmuxSessionCensus?
+    private let clock: () -> ContinuousClock.Instant
+    private var answer: (census: AcpmuxSessionCensus, at: ContinuousClock.Instant)?
     private var refreshedAt: ContinuousClock.Instant?
     private var refreshTask: Task<Void, Never>?
 
@@ -19,12 +22,23 @@ public final class UpdateAgentActivity {
     ///
     /// - Parameter environment: the local acpmux environment, or `nil` when no acpmux daemon is
     ///   available to protect.
-    public init(environment: AcpmuxEnvironment?) {
+    public convenience init(environment: AcpmuxEnvironment?) {
+        self.init(environment: environment, clock: { ContinuousClock.now })
+    }
+
+    /// `clock`: a monotonic now (tests move it); a wall-clock step back must not keep an old census.
+    init(environment: AcpmuxEnvironment?, clock: @escaping () -> ContinuousClock.Instant) {
         self.environment = environment
-        // No acpmux environment means this app has no Home Chief to protect.
-        self.chiefInTurn = environment == nil ? false : nil
-        // No acpmux: no agent works and no chat keeps a draft there.
-        self.census = environment == nil ? Self.noDaemonCensus : nil
+        self.clock = clock
+    }
+
+    /// The census answered within ``freshFor``, nil otherwise (none yet, the last read failed, or
+    /// the reads stopped answering): Update When Idle reads its turns and drafts. With no acpmux,
+    /// a known empty census. Refreshed, at most once a second, only by ``applying(to:)``.
+    public var census: AcpmuxSessionCensus? {
+        guard environment != nil else { return Self.noDaemonCensus }
+        guard let answer, clock() - answer.at < Self.freshFor else { return nil }
+        return answer.census
     }
 
     /// Adds Home Chief activity to a daemon relaunch snapshot, conservatively holding unknown state.
@@ -35,13 +49,18 @@ public final class UpdateAgentActivity {
         guard environment != nil else { return blockers }
         refreshIfNeeded()
         var result = blockers
-        guard let chiefInTurn else {
+        guard let census else {
             // Unknown is unsafe: a Home Chief turn could be running outside a tab.
             result.daemonStateUnavailable = true
             return result
         }
-        if chiefInTurn { result.busyAgentCount += 1 }
+        if census.chiefInTurn { result.busyAgentCount += 1 }
         return result
+    }
+
+    /// Takes one read's answer (nil: it failed), stamped when it arrived.
+    func record(_ census: AcpmuxSessionCensus?) {
+        answer = census.map { ($0, clock()) }
     }
 
     private static var noDaemonCensus: AcpmuxSessionCensus {
@@ -51,8 +70,7 @@ public final class UpdateAgentActivity {
     }
 
     private func refreshIfNeeded() {
-        // A monotonic clock: a wall-clock step back must not keep an old clear census past its second.
-        let now = ContinuousClock.now
+        let now = clock()
         guard refreshTask == nil,
               refreshedAt.map({ now - $0 >= .seconds(1) }) ?? true else { return }
         refreshedAt = now
@@ -60,8 +78,7 @@ public final class UpdateAgentActivity {
         refreshTask = Task { [weak self] in
             let census = await AcpmuxQuit.census(environment, deadline: .seconds(1), idleFacts: true)
             guard !Task.isCancelled else { return }
-            self?.chiefInTurn = census?.chiefInTurn
-            self?.census = census
+            self?.record(census)
             self?.refreshTask = nil
         }
     }

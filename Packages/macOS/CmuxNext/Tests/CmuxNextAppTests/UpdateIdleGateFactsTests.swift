@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 @testable import CmuxNextDaemonService
 import CmuxUpdater
+import Foundation
 import Testing
 
 /// Update When Idle reads drafts and background work only from an acpmux that serves them: a session
@@ -48,5 +49,56 @@ struct UpdateIdleGateFactsTests {
             census: census(known: true), blockers: UpdateRelaunchBlockers(busyAgentCount: 2, runningCommandCount: 0),
             newChatDrafts: 0))
         #expect(facts.runningTurns == 2)
+    }
+}
+
+/// A census stands only for ``UpdateAgentActivity/freshFor``: a read that hangs or fails must not leave an old
+/// clear answer authorizing an install over a turn that started since (review of #47272 at 4ac735af).
+@MainActor struct UpdateAgentActivityFreshnessTests {
+    private final class Clock {
+        var now = ContinuousClock.now
+    }
+
+    private static func environment() -> AcpmuxEnvironment {
+        let home = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("uaf-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        return AcpmuxEnvironment(executable: URL(fileURLWithPath: "/usr/bin/false"), home: home,
+                                 socketPath: home.appendingPathComponent("acpmux.sock").path,
+                                 daemonArguments: [], childEnvironment: [:])
+    }
+
+    private static func clear() -> AcpmuxSessionCensus {
+        var census = AcpmuxSessionCensus()
+        census.idleFactsKnown = true
+        return census
+    }
+
+    @Test func aClearCensusExpiresWhenNoNewAnswerComes() {
+        let clock = Clock()
+        let activity = UpdateAgentActivity(environment: Self.environment(), clock: { clock.now })
+        #expect(activity.census == nil)
+        activity.record(Self.clear())
+        #expect(activity.census != nil)
+        // The next reads hang: the clear answer stands only until it is too old.
+        clock.now += UpdateAgentActivity.freshFor - .milliseconds(1)
+        #expect(activity.census != nil)
+        clock.now += .milliseconds(1)
+        #expect(activity.census == nil)
+        #expect(UpdateIdleGate.agentFacts(census: activity.census, blockers: .empty, newChatDrafts: 0) == nil)
+    }
+
+    @Test func aFailedReadDropsTheLastAnswer() {
+        let clock = Clock()
+        let activity = UpdateAgentActivity(environment: Self.environment(), clock: { clock.now })
+        activity.record(Self.clear())
+        activity.record(nil)
+        #expect(activity.census == nil)
+    }
+
+    @Test func noAcpmuxIsAKnownEmptyCensus() throws {
+        let activity = UpdateAgentActivity(environment: nil)
+        let census = try #require(activity.census)
+        #expect(census.idleFactsKnown)
+        #expect(census.inTurn == 0 && census.drafts == 0 && census.workingBelow == 0)
     }
 }
