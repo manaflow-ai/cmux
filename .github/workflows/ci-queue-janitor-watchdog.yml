@@ -20,7 +20,7 @@ permissions: {}
 
 concurrency:
   group: ci-queue-janitor-watchdog
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   watch:
