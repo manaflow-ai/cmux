@@ -987,7 +987,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
         guard !heldTabRefreshes.isEmpty else { return }
         let ids = heldTabRefreshes
         heldTabRefreshes = []
-        for id in ids { refreshTab(id) }
+        let before = listedTabs
+        F3Trace.time("flushHeld n=\(ids.count)") { for id in ids { refreshTab(id) } }
+        let changed = zip(before, listedTabs).filter { $0 != $1 }.count
+        F3Trace.mark("flushHeld changed=\(changed) of \(listedTabs.count)")
     }
 
     /// The tab's streamed page while linked (nil: a local web view, if shown).
@@ -1163,7 +1166,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             .filter { cardFeeds[$0.element.id]?.stale == true }
             .min { abs($0.offset - active) < abs($1.offset - active) }
         guard let next, let feed = cardFeeds[next.element.id] else { return false }
-        feed.catchUp()
+        F3Trace.time("catchUp \(next.element.id)") { feed.catchUp() }
         return true
     }
 
@@ -1223,6 +1226,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     public func overviewIdleChanged(_ idle: Bool) { F3Trace.time("overviewIdleChanged") { overviewIdleChanged0(idle) } }
     private func overviewIdleChanged0(_ idle: Bool) {
+        if idle { F3Trace.loudUntil = CACurrentMediaTime() + 1.5 }
+        F3Trace.mark("idle=\(idle) held=\(heldTabRefreshes.count) feeds=\(cardFeeds.count) stale=\(cardFeeds.values.filter(\.stale).count)")
         gridIdle = idle
         if idle {
             flushHeldTabRefreshes()

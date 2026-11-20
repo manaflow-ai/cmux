@@ -10,6 +10,8 @@ public enum F3Trace {
     private static var link: CADisplayLink?
     private static var last: CFTimeInterval = 0
     private static var marks: [String: Int] = [:]
+    /// Every mark is logged until then (set when the grid goes idle).
+    public static var loudUntil: CFTimeInterval = 0
 
     public static func time<T>(_ name: String, _ body: () -> T) -> T {
         let start = CACurrentMediaTime()
@@ -23,7 +25,7 @@ public enum F3Trace {
     public static func mark(_ name: String) {
         marks[name, default: 0] += 1
         let n = marks[name]!
-        guard n <= 3 || n % 10 == 0 else { return }
+        guard n <= 3 || n % 10 == 0 || CACurrentMediaTime() < loudUntil else { return }
         log.notice("FRAMELOG list-stress f3 mark \(name, privacy: .public) n=\(n) t=\(String(format: "%.3f", CACurrentMediaTime()), privacy: .public)")
     }
 
