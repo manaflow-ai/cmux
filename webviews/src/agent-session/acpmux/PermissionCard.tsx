@@ -149,6 +149,9 @@ const DENY_KEY: CardKey = { letter: "n", keys: ["Esc"], aria: "n Escape" };
 const ALLOW_KEY: CardKey = { letter: "y", keys: ["⌘", "↩"], aria: "y Meta+Enter" };
 const ALWAYS_KEY: CardKey = { letter: "a", keys: [], aria: "a" };
 
+/// Where Approve plan builds: here (the ask's own allow) or one of the plan's other builds.
+export type PlanTarget = "here" | PlanBuildElsewhere;
+
 /// Approve plan joined to its build menu, one split button: the primary half approves here with its
 /// ⌘↩ as before; the chevron half opens a menu of where else the plan can be built: Build here (the same
 /// answer), Build in a new worktree (a sub-session on its own branch, so this chat stays free), and
@@ -159,13 +162,16 @@ export function PlanBuildSplit({
   onHere,
   onBuild,
   holdFocus,
+  onPick,
   children,
 }: {
   harness?: string;
   cardKey?: CardKey;
-  /// Under hold to approve, Build here answers nothing itself: the menu closes onto Approve plan,
-  /// where a held Return or press approves (HoldButton.tsx).
+  /// Under hold to approve, no item answers itself: each picks where the held Approve plan builds
+  /// (`onPick`) and the menu closes onto Approve plan, where a held Return or press approves
+  /// (HoldButton.tsx).
   holdFocus?: React.RefObject<HTMLButtonElement | null>;
+  onPick?(target: PlanTarget): void;
   onHere(): void;
   onBuild(target: PlanBuildElsewhere): void;
   /// The Approve plan button.
@@ -194,14 +200,14 @@ export function PlanBuildSplit({
           <MenuItem
             data-value="here"
             shortcut={cardKey ? cardKey.keys.join("") : undefined}
-            onSelect={holdFocus ? undefined : onHere}
+            onSelect={holdFocus ? () => onPick?.("here") : onHere}
           >
             {t("permission.plan.buildHere")}
           </MenuItem>
-          <MenuItem data-value="worktree" onSelect={() => onBuild("worktree")}>
+          <MenuItem data-value="worktree" onSelect={() => (holdFocus ? onPick?.("worktree") : onBuild("worktree"))}>
             {t("permission.plan.buildWorktree")}
           </MenuItem>
-          <MenuItem data-value="compare" onSelect={() => onBuild("compare")}>
+          <MenuItem data-value="compare" onSelect={() => (holdFocus ? onPick?.("compare") : onBuild("compare"))}>
             <span className="acpmux-plan-build-item">
               <span>{t("permission.plan.buildCompare")}</span>
               <span className="acpmux-plan-build-detail">
@@ -451,14 +457,23 @@ export function PermissionCard({
   const holdConfig = holdOverride ?? experimentHold;
   const holds = permission.pending && holdApplies(holdConfig.scope, [{ kind: permission.kind, command }]);
   const holdDescription = t("permission.holdToAllow");
-  // Each hold is bound to the ask and the answer it was pressed on: a press on one ask never
-  // approves the ask that replaces it (HoldButton.tsx `identity`).
+  // Under hold, a plan's build menu answers nothing: it picks where the held Approve plan builds,
+  // for this ask only (a new ask starts at here).
+  const [picked, setPicked] = useState<{ permissionId: string; target: PlanTarget }>();
+  const planTarget: PlanTarget =
+    plan && onBuildPlan && picked?.permissionId === permission.permissionId ? picked.target : "here";
+  // Each hold is bound to the ask, the answer and the plan target it was pressed on: a press on one
+  // ask never approves the ask that replaces it, nor builds where it was not pressed to (HoldButton.tsx
+  // `identity`).
   const holdOnce = useHoldToApprove({
     enabled: holds && !!allowOnce && !writing,
-    identity: `${permission.permissionId}\u0000${allowOnce?.id ?? ""}`,
+    identity: `${permission.permissionId}\u0000${allowOnce?.id ?? ""}\u0000${planTarget}`,
     durationMs: holdConfig.durationMs,
     reducedOverride: holdOverride?.reduced,
-    onComplete: () => allowOnce && answer(allowOnce),
+    onComplete: () => {
+      if (planTarget !== "here") build(planTarget);
+      else if (allowOnce) answer(allowOnce);
+    },
   });
   const holdAlways = useHoldToApprove({
     enabled: holds && !!allowAlways && !alwaysAtSource && !writing,
@@ -752,7 +767,16 @@ export function PermissionCard({
                 (() => {
                   const approve = (
                     <PermissionActionButton
-                      label={plan ? t("permission.plan.approve") : t("permission.allowOnce")}
+                      label={
+                        planTarget === "worktree"
+                          ? t("permission.plan.buildWorktree")
+                          : planTarget === "compare"
+                            ? t("permission.plan.buildCompare")
+                            : plan
+                              ? t("permission.plan.approve")
+                              : t("permission.allowOnce")
+                      }
+                      data-plan-target={holdOnce && plan ? planTarget : undefined}
                       aria-describedby={scopeText ? targetId : undefined}
                       shortcut={shortcuts ? allowOnceShortcut : undefined}
                       cardKey={shortcuts ? ALLOW_KEY : undefined}
@@ -767,6 +791,7 @@ export function PermissionCard({
                       harness={harness}
                       cardKey={shortcuts ? ALLOW_KEY : undefined}
                       holdFocus={holdOnce?.ref}
+                      onPick={(target) => setPicked({ permissionId: permission.permissionId, target })}
                       onHere={() => answer(allowOnce)}
                       onBuild={build}
                     >

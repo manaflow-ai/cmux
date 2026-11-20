@@ -369,3 +369,43 @@ test("F4: the held key's repeats are the hold's and type nothing", async () => {
   editor.blur();
   await act(async () => card.root.unmount());
 });
+
+/// Starts a hold whose completion timer the test keeps: `setTimeout` for the hold's own duration hands
+/// its callback to the test (clearTimeout of it then does nothing), so the timer can fire after the
+/// cancel the identity change ran, as a timer due in the same tick as the change would.
+async function captureHoldTimer(start: () => Promise<void>, durationMs: number) {
+  const real = globalThis.setTimeout;
+  let captured: (() => void) | undefined;
+  globalThis.setTimeout = ((callback: () => void, delay?: number, ...rest: unknown[]) => {
+    if (delay === durationMs && !captured) {
+      captured = callback;
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }
+    return real(callback, delay, ...rest);
+  }) as typeof setTimeout;
+  try {
+    await start();
+  } finally {
+    globalThis.setTimeout = real;
+  }
+  if (!captured) throw new Error("the hold set no timer for its duration");
+  return captured;
+}
+
+test("the timer's last-moment check: a hold whose timer fires after its ask changed answers nothing", async () => {
+  const DURATION = 777;
+  const card = await liveCard(ask("late-a", "npm test"), { scope: "all", durationMs: DURATION });
+  const fireTimer = await captureHoldTimer(() => fire(card.allow(), "pointerdown"), DURATION);
+  // B replaces A before A's timer runs; the cancel cannot stop the timer (it is the test's).
+  await card.show(ask("late-b", "npm test"));
+  await act(async () => fireTimer());
+  expect(card.answers).toEqual([]);
+  expect(card.allow().getAttribute("data-hold")).toBe("idle");
+  await fire(card.allow(), "pointerup");
+  // The same timer on an unchanged ask answers it: the check lets the right ask through.
+  const again = await captureHoldTimer(() => fire(card.allow(), "pointerdown"), DURATION);
+  await act(async () => again());
+  expect(card.answers).toEqual(["late-b:allow"]);
+  await fire(card.allow(), "pointerup");
+  await act(async () => card.root.unmount());
+});
