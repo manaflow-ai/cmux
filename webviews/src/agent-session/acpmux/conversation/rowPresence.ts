@@ -15,12 +15,13 @@ const KEYS = ["active", "anchor", "focus"] as const;
 /// `hints` for `rows`, made from `base`'s hints where `rows` is `base` with `rows[from, end)` in
 /// place of `base[from, baseEnd)` (rowsDelta.ts): a hinted row moves with the rows above it, and
 /// an id whose row was taken out, or that was gone, is looked for among the rows that came in only.
-/// O(rows that came in). `ids`: what each hint is asked for now.
+/// O(rows that came in). `ids`: what each hint is asked for now. `base`: the rows the hints index.
 export function movedHints(
   hints: RowPresenceHints,
   rows: readonly { id: string }[],
   delta: { from: number; end: number; baseEnd: number },
   ids: { active?: string; anchor?: string; focus?: string },
+  base: readonly { id: string }[],
 ): void {
   const cameIn = (id: string) => {
     for (let index = delta.from; index < delta.end; index += 1) if (rows[index]!.id === id) return index;
@@ -40,7 +41,9 @@ export function movedHints(
     }
     // Taken out (or gone before): only a row that came in can hold it now.
     delete hints[key];
-    if (id === undefined || (at === undefined && !wasGone)) continue;
+    // A hint left from an id asked for before (focus moved with no rows changing) says nothing of
+    // where this one is: rowPresence walks for it.
+    if (id === undefined || (!wasGone && (at === undefined || base[at]?.id !== id))) continue;
     const found = cameIn(id);
     if (found >= 0) hints[key] = found;
     else (hints.gone ??= {})[key] = id;
