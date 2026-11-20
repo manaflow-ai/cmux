@@ -171,6 +171,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             session,
             search,
             before,
+            subscribe,
+            unsubscribe,
+            subscriptions,
             thread,
             unread,
         }) => {
@@ -182,6 +185,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 unread,
                 search.as_deref(),
                 before,
+                subscribe.as_deref(),
+                unsubscribe.as_deref(),
+                subscriptions,
                 json_out,
             )
             .await
