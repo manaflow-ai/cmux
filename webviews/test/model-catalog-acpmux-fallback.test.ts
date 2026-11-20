@@ -202,6 +202,41 @@ test("a host that serves models.catalog wins", async () => {
   expect(geminiIds()[0]).toBe("gemini-9-test");
 });
 
+test("repeated empty host deliveries preserve the external-store snapshot", async () => {
+  let reply: unknown = null;
+  setNativeHost(async () => reply);
+  scope.window = fakeWindow();
+  await loadModelCatalog();
+  const settled = modelCatalogStateForTests();
+  expect(settled.provisional).toBe(false);
+  for (const empty of [null, {}, { catalog: null }, { catalog: { schemaVersion: 0 } }]) {
+    reply = empty;
+    await reloadModelCatalog();
+    expect(modelCatalogStateForTests()).toBe(settled);
+  }
+});
+
+test("an empty catalog delivery still applies user changes and a later live catalog", async () => {
+  let reply: unknown = null;
+  setNativeHost(async () => reply);
+  scope.window = fakeWindow();
+  await loadModelCatalog();
+  const user = { remoteCatalog: false };
+  reply = { user };
+  await reloadModelCatalog();
+  expect(modelCatalogStateForTests().user).toBe(user);
+  reply = null;
+  await reloadModelCatalog();
+  expect(modelCatalogStateForTests().user).toBeUndefined();
+  reply = { catalog: acpmuxCatalog(), delivery: "network" };
+  await reloadModelCatalog();
+  const live = modelCatalogStateForTests();
+  expect(geminiIds()[0]).toBe("gemini-9-test");
+  reply = null;
+  await reloadModelCatalog();
+  expect(modelCatalogStateForTests()).toBe(live);
+});
+
 test("a model the catalog disabled never reaches the picker, nor stays the default", async () => {
   const { readModelCatalog } = await import("../src/agent-session/acpmux/modelCatalogData");
   const catalog = acpmuxCatalog();

@@ -31,6 +31,9 @@ let reload: Promise<void> | undefined;
 export function receiveModelCatalog(value: unknown): void {
   const delivery = (value ?? {}) as ModelCatalogDelivery;
   const catalog = readModelCatalog(delivery.catalog);
+  // Older hosts can acknowledge a reload without a catalog. Once settled, that answer changes
+  // nothing: notifying the external store would force a synchronous pane render during startup.
+  if (!catalog && !state.provisional && state.user === (delivery.user ?? undefined)) return;
   const kind = delivery.delivery === "network" || delivery.delivery === "disk" ? delivery.delivery : undefined;
   state = {
     catalog: catalog ? { ...catalog, ...(kind ? { delivery: kind } : {}) } : state.catalog,
