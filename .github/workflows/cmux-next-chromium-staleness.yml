@@ -1,0 +1,29 @@
+name: cmux-next chromium staleness
+
+# Dispatcher only (cmuxterm-hq docs/investigations/2026-11-18-boneheaded-designs.md section 10). The workflow lives on
+# feat-cmux-next (cmux-next-chromium-staleness.yml there), whose schedule never fired: GitHub runs a schedule, and registers a dispatch,
+# only from the default branch. Here the cron starts job start, which dispatches cmux-next-chromium-staleness.yml on feat-cmux-next. That
+# dispatch runs feat-cmux-next's own file (event workflow_dispatch, branch feat-cmux-next), never this one, so this
+# file holds no jobs to drift from it (cmux-next-ios-kit.yml's shape). A dispatch on main does nothing. The pre-push
+# hook (scripts/cmux-next/prepush-gate.py MAIN_TWIN_CHECK) keeps the two crons the same.
+on:
+  schedule:
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  # No secrets: it only dispatches cmux-next-chromium-staleness.yml on feat-cmux-next.
+  start:
+    if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'schedule'
+    permissions:
+      actions: write # dispatch cmux-next-chromium-staleness.yml
+      contents: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Dispatch cmux-next-chromium-staleness.yml on feat-cmux-next
+        run: gh workflow run cmux-next-chromium-staleness.yml -R "$GITHUB_REPOSITORY" --ref feat-cmux-next
