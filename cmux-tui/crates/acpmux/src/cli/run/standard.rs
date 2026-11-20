@@ -868,7 +868,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     )
                     .await;
                 }
-                let id = before_deadline(deadline, &session, resolve_id(&client, &session)).await?;
+                let resolved =
+                    before_deadline(deadline, &session, super::resolve_info(&client, &session))
+                        .await?;
+                // A session only the mesh hub reaches: its listed row says so at once, so the send
+                // goes through the hub (below) without first waiting on a read of its details.
+                if read_through_hub(&resolved) {
+                    return Err(errors::AppError::no_session(&session).into());
+                }
+                let id = crate::cli::resolve::routed_id(&resolved)?;
                 let on_permission = OnPermission::parse(&on_permission)?;
                 // Never refuse: report what the prompt queues behind.
                 // Read from a peer chat's mirrored row while its link's rows are current (`ROW_WILL_DO`).
