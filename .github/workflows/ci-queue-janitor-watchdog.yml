@@ -1,6 +1,6 @@
 name: CI queue janitor watchdog
 
-# The queue janitor's sweep (ci-queue-janitor.yml) runs on cmux-fleet-linux-x64
+# The queue janitor's sweep (ci-queue-janitor.yml) runs on cmux-fleet-repair-x64
 # and is what files "Runner label starved: <label>" issues. When that label
 # boots no runner the sweep cannot run, so it can never report its own label.
 # This watchdog runs on the sweep's previous selector, in its own workflow (a
@@ -34,7 +34,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      LABEL: cmux-fleet-linux-x64
+      LABEL: cmux-fleet-repair-x64
       STALE_SECONDS: "1800"
     steps:
       - name: Open the starved-label issue when the newest sweep snapshot is stale
