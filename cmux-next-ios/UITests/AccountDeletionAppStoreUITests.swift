@@ -8,7 +8,7 @@ import XCTest
 /// comes from `CMUX_MOBILE_ACCOUNT_DELETION_DEMO` (`AccountDeletionCheck.demo`).
 /// Never confirms a deletion. Each state is captured in light and dark.
 final class AccountDeletionAppStoreUITests: XCTestCase {
-    private static let warningTitle = "Your App Store subscription will keep renewing"
+    private static let warningTitle = "Your subscription keeps renewing"
     private static let confirmationTitle = "Delete your cmux account?"
 
     override func setUpWithError() throws {
@@ -28,7 +28,7 @@ final class AccountDeletionAppStoreUITests: XCTestCase {
             let alert = app.alerts.firstMatch
             XCTAssertTrue(alert.waitForExistence(timeout: 10), "a renewing App Store subscription must warn; on screen: \(app.debugDescription.prefix(800))")
             XCTAssertTrue(alert.staticTexts[Self.warningTitle].exists)
-            XCTAssertTrue(alert.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Apple keeps charging you until you cancel it in the App Store")).firstMatch.exists)
+            XCTAssertTrue(alert.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "doesn't cancel your App Store subscription: cancel it in the App Store")).firstMatch.exists)
             XCTAssertTrue(alert.buttons["Manage Subscription"].exists)
             XCTAssertTrue(alert.buttons["Delete Account"].exists)
             XCTAssertTrue(alert.buttons["Cancel"].exists)
