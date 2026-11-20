@@ -197,7 +197,7 @@ impl Hub {
         blocks: Vec<Value>,
         client: &str,
         steer: bool,
-        mut opts: PromptOptions,
+        opts: PromptOptions,
     ) -> Result<Value, RpcError> {
         // A deferred start reads the queues after its ready line: a new prompt waits for its
         // chat's, so it never runs ahead of a prompt queued under the previous daemon, nor ahead
@@ -208,21 +208,53 @@ impl Hub {
         let retry = super::resume_admission::automatic(&opts);
         let background =
             !super::resume_admission::person(opts.agent.as_deref(), opts.provenance.as_ref());
-        let mut resume_permit = if retry || (background && self.resume_admission.recovering()) {
-            Some(
-                self.resume_admission
-                    .enter(super::resume_admission::priority(&opts, session))
-                    .await?,
-            )
+        if background || retry {
+            self.check_background_session(session)?;
+        }
+        let mut permit = if retry
+            || (background
+                && (self.resume_admission.binding().is_some()
+                    || self.resume_admission.recovering()))
+        {
+            Some(self.admit_resume(super::resume_admission::priority(&opts, session)).await?)
         } else {
             None
         };
-        self.check_finished(session)?;
-        // An agent message can await another agent: only retries hold a width permit
-        // through the whole turn. Other delayed work is staggered at entry.
-        if !retry {
-            resume_permit.take();
+        // Admission can wait through a pause. Recheck the session after it, and release an
+        // unused ticket when finished/paused intent superseded the queued prompt.
+        let check = if background || retry {
+            self.check_background_session(session)
+        } else {
+            self.check_finished(session)
+        };
+        if let Err(error) = check {
+            if let Some(permit) = permit {
+                permit.complete().await;
+            }
+            return Err(error);
         }
+        // Messages can await reciprocal replies: stagger their starts without retaining a
+        // retry occupancy slot. Automatic retries retain theirs through the full result.
+        if !retry {
+            if let Some(p) = permit.take() {
+                p.complete().await;
+            }
+        }
+        let result = Box::pin(self.prompt_admitted(session, blocks, client, steer, opts)).await;
+        if let Some(permit) = permit {
+            permit.complete().await;
+        }
+        result
+    }
+
+    async fn prompt_admitted(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        blocks: Vec<Value>,
+        client: &str,
+        steer: bool,
+        mut opts: PromptOptions,
+    ) -> Result<Value, RpcError> {
         self.session_log(session).await;
         self.wait_adopted(session).await;
         // A watched Claude chat whose app still runs it takes the prompt into that app (`bridge.rs`).

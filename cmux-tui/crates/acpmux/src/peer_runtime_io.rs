@@ -25,11 +25,16 @@ impl Peer {
         // well as the generic request budget. Keep the larger one so a caller
         // cannot reintroduce the old short start cutoff through
         // `ACPMUX_PEER_REQUEST_SECS`.
-        let budget = self.timings.request.max(if m == method::SESSION_NEW {
-            self.timings.start
-        } else {
-            Duration::ZERO
-        });
+        let budget = self.timings.request.max(
+            if m == crate::hub::finished::METHOD && params["op"] == "fleet_acquire" {
+                // The authority's priority queue has a one-hour deadline, including pause.
+                Duration::from_secs(3605)
+            } else if m == method::SESSION_NEW {
+                self.timings.start
+            } else {
+                Duration::ZERO
+            },
+        );
         let deadline = started + budget;
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();

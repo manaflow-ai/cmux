@@ -14,6 +14,14 @@ pub(super) async fn dispatch(
 }
 
 async fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
+    if str_param(params, "op").is_some_and(|op| op.starts_with("fleet_")) {
+        if conn.origin != Origin::Peer || !conn.auth.peer_daemon() {
+            return Err(RpcError::invalid_params(
+                "fleet admission requires an authenticated peer daemon",
+            ));
+        }
+        return hub.fleet_authority(params).await;
+    }
     // As for a terminal's send, this is a local declaration, not permission-approval proof.
     // Old CLIs, unproven agent tokens and generic socket programs do not count as terminals.
     let terminal = conn.origin == Origin::Local
@@ -29,7 +37,20 @@ async fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, Rp
     }
     if let Some(op @ ("pause" | "resume")) = str_param(params, "op") {
         let reason = str_param(params, "reason").unwrap_or("");
-        return hub.set_fleet_pause(op == "pause", reason);
+        return hub
+            .fleet_call(
+                if op == "pause" { "fleet_pause" } else { "fleet_resume" },
+                json!({"reason": reason}),
+            )
+            .await;
+    }
+    if str_param(params, "op") == Some("bind") {
+        let peer = str_param(params, "peer")
+            .ok_or_else(|| RpcError::invalid_params("peer is required"))?;
+        return hub.bind_fleet(peer).await;
+    }
+    if str_param(params, "op") == Some("status") {
+        return hub.fleet_call("fleet_status", json!({})).await;
     }
     let key = str_param(params, "sessionId")
         .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;

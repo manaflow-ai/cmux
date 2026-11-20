@@ -22,7 +22,11 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// Pause automatic resumes on this daemon durably; fresh user work remains available.
+    /// Pin this daemon to one shared admission authority (local creates a paused authority).
+    FleetBind { peer: String },
+    /// Read the shared pause and outstanding reservations from the pinned authority.
+    FleetStatus,
+    /// Pause automatic admissions across every enrolled daemon; fresh user work remains available.
     FleetPause {
         #[arg(long)]
         reason: String,

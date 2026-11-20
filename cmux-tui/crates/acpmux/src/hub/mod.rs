@@ -428,6 +428,7 @@ mod background_turn_end_tests;
 pub(crate) mod finished;
 #[cfg(test)]
 mod finished_tests;
+mod fleet_admission;
 mod goal_tools;
 pub mod plan_build;
 #[cfg(test)]

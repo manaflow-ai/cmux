@@ -1,7 +1,8 @@
 //! Automatic work uses a bounded, priority-ordered admission queue after outages. Fresh
 //! user prompts do not use it. A durable pause holds automatic work across daemon restarts.
 use super::*;
-use std::collections::BTreeMap;
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
 use tokio::time::{Duration, Instant};
 
 const WIDTH: usize = 4;
@@ -13,8 +14,24 @@ pub(super) struct Admission {
     path: Option<PathBuf>,
 }
 
-struct State {
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub(super) enum Binding {
+    Authority { id: String },
+    Member { peer: String, id: String },
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+struct Durable {
     paused: Option<String>,
+    #[serde(default)]
+    binding: Option<Binding>,
+    #[serde(default)]
+    reservations: BTreeSet<String>,
+}
+
+struct State {
+    durable: Durable,
     sequence: u64,
     waiting: BTreeMap<(u8, u64), Arc<Notify>>,
     active: usize,
@@ -24,21 +41,34 @@ struct State {
 impl Admission {
     pub(super) fn open(home: Option<&std::path::Path>) -> Self {
         let path = home.map(|h| h.join("resume-admission.json"));
-        let paused = path.as_ref().and_then(|p| match std::fs::read(p) {
-            Ok(bytes) => match serde_json::from_slice::<Option<String>>(&bytes) {
-                Ok(paused) => paused,
-                Err(e) => Some(format!("resume admission state is unreadable: {e}")),
-            },
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-            Err(e) => Some(format!("resume admission state is unreadable: {e}")),
-        });
+        let durable = path
+            .as_ref()
+            .map(|p| match std::fs::read(p) {
+                Ok(bytes) => serde_json::from_slice::<Durable>(&bytes)
+                    .or_else(|_| {
+                        // Upgrade the first version's pause-only file without releasing its hold.
+                        serde_json::from_slice::<Option<String>>(&bytes)
+                            .map(|paused| Durable { paused, ..Default::default() })
+                    })
+                    .unwrap_or_else(|e| Durable {
+                        paused: Some(format!("resume admission state is unreadable: {e}")),
+                        ..Default::default()
+                    }),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Durable::default(),
+                Err(e) => Durable {
+                    paused: Some(format!("resume admission state is unreadable: {e}")),
+                    ..Default::default()
+                },
+            })
+            .unwrap_or_default();
+        let active = durable.reservations.len();
         Self {
             path,
             state: StdMutex::new(State {
-                paused,
+                durable,
                 sequence: 0,
                 waiting: BTreeMap::new(),
-                active: 0,
+                active,
                 next: Instant::now(),
             }),
         }
@@ -46,20 +76,101 @@ impl Admission {
 
     pub(crate) fn pause(&self, reason: Option<&str>) -> Result<(), RpcError> {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut next = state.durable.clone();
+        next.paused = reason.map(str::to_owned);
+        self.persist(&next)?;
+        state.durable = next;
+        wake_first(&state);
+        Ok(())
+    }
+
+    fn persist(&self, next: &Durable) -> Result<(), RpcError> {
         if let Some(path) = &self.path {
-            let bytes =
-                serde_json::to_vec(&reason).map_err(|e| RpcError::internal(e.to_string()))?;
+            let bytes = serde_json::to_vec(next).map_err(|e| RpcError::internal(e.to_string()))?;
             crate::config::write_atomic(path, &bytes)
                 .map_err(|e| RpcError::internal(e.to_string()))?;
         }
-        state.paused = reason.map(str::to_owned);
-        wake_first(&state);
+        Ok(())
+    }
+
+    pub(super) fn binding(&self) -> Option<Binding> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).durable.binding.clone()
+    }
+
+    pub(super) fn bind(&self, binding: Binding) -> Result<(), RpcError> {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(old) = &state.durable.binding {
+            return if old == &binding {
+                Ok(())
+            } else {
+                Err(RpcError::invalid_params(
+                    "fleet authority is already pinned; rebinding is refused",
+                ))
+            };
+        }
+        if state.active != 0 || !state.waiting.is_empty() {
+            return Err(RpcError::invalid_params(
+                "pause and drain local recovery before fleet binding",
+            ));
+        }
+        let mut next = state.durable.clone();
+        next.binding = Some(binding);
+        // Enrolling an authority never releases work. Only its explicit fleet-resume does.
+        next.paused = Some("fleet enrollment: verify every member before release".into());
+        self.persist(&next)?;
+        state.durable = next;
+        Ok(())
+    }
+
+    pub(super) fn authority_status(&self, expected: Option<&str>) -> Result<Value, RpcError> {
+        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(Binding::Authority { id }) = &state.durable.binding else {
+            return Err(RpcError::invalid_params("this daemon is not a fleet admission authority"));
+        };
+        if expected.is_some_and(|expected| expected != id) {
+            return Err(RpcError::invalid_params(
+                "fleet authority identity changed; admission refused",
+            ));
+        }
+        Ok(json!({"authorityId": id, "paused": state.durable.paused,
+            "reservations": state.durable.reservations, "waiting": state.waiting.len(),
+            "width": WIDTH, "spacingMs": SPACING.as_millis() as u64}))
+    }
+
+    /// Transfer an in-memory permit to durable occupancy before replying. Neither a lost
+    /// reply, a disconnected member nor a restarted authority frees it. No TTL can prove
+    /// that a remote harness stopped; only the member's completed prompt releases it.
+    pub(super) async fn reserve(&self, ticket: &str, priority: u8) -> Result<(), RpcError> {
+        if uuid::Uuid::parse_str(ticket).is_err() {
+            return Err(RpcError::invalid_params("fleet ticket must be a UUID"));
+        }
+        let mut permit = self.enter(priority).await?;
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut next = state.durable.clone();
+        if !next.reservations.insert(ticket.to_owned()) {
+            return Err(RpcError::invalid_params("fleet ticket already reserved"));
+        }
+        self.persist(&next)?;
+        state.durable = next;
+        permit.active = false;
+        Ok(())
+    }
+
+    pub(super) fn release(&self, ticket: &str) -> Result<(), RpcError> {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut next = state.durable.clone();
+        if next.reservations.remove(ticket) {
+            self.persist(&next)?;
+            state.durable = next;
+            state.active -= 1;
+            wake_first(&state);
+        }
         Ok(())
     }
 
     pub(super) fn recovering(&self) -> bool {
         let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        state.paused.is_some()
+        state.durable.paused.is_some()
             || !state.waiting.is_empty()
             || state.active > 0
             || Instant::now() < state.next
@@ -71,7 +182,8 @@ impl Admission {
         start: impl FnOnce() -> Result<T, RpcError>,
     ) -> Result<T, RpcError> {
         let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        match &state.paused {
+        match &state.durable.paused {
+            _ if matches!(state.durable.binding, Some(Binding::Member { .. })) => start(),
             _ if person => start(),
             None => start(),
             Some(reason) => Err(RpcError::invalid_params(format!(
@@ -101,7 +213,7 @@ impl Admission {
             changed.as_mut().enable();
             let next = {
                 let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-                if state.paused.is_none()
+                if state.durable.paused.is_none()
                     && state.active < WIDTH
                     && state.waiting.first_key_value().map(|(key, _)| *key) == Some(key)
                     && Instant::now() >= state.next
@@ -114,7 +226,7 @@ impl Admission {
                     return Ok(permit);
                 }
                 // Only the next eligible waiter owns a timer; the rest wait for a change.
-                (state.paused.is_none()
+                (state.durable.paused.is_none()
                     && state.active < WIDTH
                     && state.waiting.first_key_value().map(|(key, _)| *key) == Some(key))
                 .then_some(state.next)

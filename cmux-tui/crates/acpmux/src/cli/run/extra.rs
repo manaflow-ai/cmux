@@ -78,6 +78,22 @@ fn moved_line(host: &str) -> String {
 pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> Result<()> {
     let fleet_paused = matches!(&cmd, Command::FleetPause { .. });
     match cmd {
+        Command::FleetBind { peer } => {
+            let client = connect(true).await?;
+            print_json(
+                &client
+                    .request(crate::hub::finished::METHOD, json!({"op": "bind", "peer": peer}))
+                    .await?,
+            );
+            Ok(())
+        }
+        Command::FleetStatus => {
+            let client = connect(true).await?;
+            print_json(
+                &client.request(crate::hub::finished::METHOD, json!({"op": "status"})).await?,
+            );
+            Ok(())
+        }
         Command::Fresh { session, name } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;

@@ -1,5 +1,6 @@
 use super::*;
 use crate::config::StoreMode;
+use std::time::Duration;
 
 fn memory_hub() -> Arc<Hub> {
     let mut config = Config::default();
@@ -137,7 +138,12 @@ async fn finished_fresh_session_seeds_only_the_handoff_and_retires_the_old_harne
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn finished_admission_recovers_100_fake_503_sessions_without_a_stampede() {
+async fn finished_shared_admission_recovers_100_fake_503_sessions_across_two_daemons() {
+    use crate::server::{
+        WsAuth, bind_ws,
+        peer_auth::{self, PeerAuth},
+        serve_ws_with,
+    };
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut config: Config = serde_json::from_value(json!({
         "harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake",
@@ -145,11 +151,46 @@ async fn finished_admission_recovers_100_fake_503_sessions_without_a_stampede() 
     }))
     .unwrap();
     config.store.mode = StoreMode::Memory;
-    let store = crate::store::open(&config.store, Path::new("/unused")).unwrap();
-    let hub = Hub::new(config, store);
-    hub.set_fleet_pause(true, "synthetic capacity outage").unwrap();
+    let make = || {
+        Hub::new(config.clone(), crate::store::open(&config.store, Path::new("/unused")).unwrap())
+    };
+    let authority = make();
+    let member = make();
+    authority.bind_fleet("local").await.unwrap();
+    let auth_dir = tempfile::tempdir().unwrap();
+    let auth = PeerAuth::create(auth_dir.path()).unwrap();
+    let token = std::fs::read_to_string(peer_auth::token_path(auth_dir.path())).unwrap();
+    let listener = bind_ws("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = tokio::spawn(serve_ws_with(
+        authority.clone(),
+        listener,
+        "test-token".into(),
+        WsAuth { local_app: None, peer: Some(Arc::new(auth)) },
+    ));
+    member
+        .add_peer(
+            "authority",
+            &format!("ws://127.0.0.1:{port}"),
+            Some("test-token".into()),
+            Some(token),
+            true,
+        )
+        .await
+        .unwrap();
+    member.bind_fleet("authority").await.unwrap();
+    let member_status = member.fleet_call("fleet_status", json!({})).await.unwrap();
+    assert!(member_status["paused"].is_string());
+    assert_eq!(
+        member_status["authorityId"],
+        authority.fleet_call("fleet_status", json!({})).await.unwrap()["authorityId"]
+    );
+    // Exercise the single switch from the other host, not just from its authority.
+    member.fleet_call("fleet_pause", json!({"reason": "synthetic capacity outage"})).await.unwrap();
+    let hubs = [authority.clone(), member.clone()];
     let mut sessions = Vec::new();
     for n in 0..100 {
+        let hub = &hubs[n % 2];
         let session = hub
             .new_session(NewRequest {
                 name: Some(format!("fake-503-{n}")),
@@ -169,20 +210,54 @@ async fn finished_admission_recovers_100_fake_503_sessions_without_a_stampede() 
             .await
             .unwrap_err();
         assert!(error.message.contains("no non-exhausted claude accounts"), "{error:?}");
-        sessions.push(session);
+        sessions.push((hub.clone(), session));
     }
-    for session in &sessions[..10] {
+    for (hub, session) in &sessions[..10] {
         hub.finish_session(session, "finished during the outage").unwrap();
     }
-    let mut events = hub.subscribe();
-    hub.set_fleet_pause(false, "synthetic capacity is back").unwrap();
+    for (hub, session) in &sessions[10..20] {
+        session.meta.lock().unwrap().goal = Some(
+            serde_json::from_value(json!({
+                "objective": "remain paused", "status": "paused", "provider": "codex"
+            }))
+            .unwrap(),
+        );
+        hub.save_meta_answered(session).unwrap();
+    }
+    let mut authority_events = authority.subscribe();
+    let mut member_events = member.subscribe();
+    // Wait longer than the configured retry delay: neither daemon may start a retry.
+    let blocked = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let event = tokio::select! {
+                event = authority_events.recv() => event.unwrap(),
+                event = member_events.recv() => event.unwrap(),
+            };
+            assert_ne!(event.record.kind, "turn_started", "retry started while fleet paused");
+        }
+    })
+    .await;
+    assert!(blocked.is_err());
+    assert!(
+        authority.fleet_call("fleet_status", json!({})).await.unwrap()["reservations"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    member
+        .fleet_call("fleet_resume", json!({"reason": "synthetic capacity is back"}))
+        .await
+        .unwrap();
     let mut recovered = std::collections::HashSet::new();
     let mut started_at = Vec::new();
     let mut active = std::collections::HashSet::new();
     let mut peak = 0;
-    let result = tokio::time::timeout(Duration::from_secs(180), async {
-        while recovered.len() < 90 {
-            let event = events.recv().await.unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(240), async {
+        while recovered.len() < 80 {
+            let event = tokio::select! {
+                event = authority_events.recv() => event.unwrap(),
+                event = member_events.recv() => event.unwrap(),
+            };
             if event.record.kind == "turn_started" {
                 started_at.push(event.record.at);
                 active.insert(event.session_id.clone());
@@ -195,19 +270,21 @@ async fn finished_admission_recovers_100_fake_503_sessions_without_a_stampede() 
         }
     })
     .await;
-    hub.shutdown_all().await;
-    result.expect("100-session recovery exceeded its bound");
-    for session in &sessions[..10] {
-        assert!(!recovered.contains(&session.id), "a finished session resumed");
+    for hub in &hubs {
+        hub.shutdown_all().await;
     }
-    assert_eq!(recovered.len(), 90);
-    assert_eq!(started_at.len(), 90);
-    assert!(peak <= 4, "peak concurrent retries: {peak}");
-    // Real harness startup may vary after admission. Exact one-second spacing is asserted
-    // with a paused clock; this harness verifies that recovery still spans the release window.
-    assert!(started_at.last().unwrap() - started_at.first().unwrap() >= 85_000);
+    server.abort();
+    result.expect("two-daemon recovery exceeded its bound");
+    for (_, session) in &sessions[..20] {
+        assert!(!recovered.contains(&session.id), "a finished or paused session resumed");
+    }
+    assert_eq!(recovered.len(), 80);
+    assert_eq!(started_at.len(), 80);
+    assert!(peak <= 4, "fleet peak concurrent retries: {peak}");
+    started_at.sort_unstable();
+    assert!(started_at.last().unwrap() - started_at.first().unwrap() >= 75_000);
     eprintln!(
-        "100-session outage: 10 finished stayed stopped; 90 recovered; peak={peak}; recovery_span_ms={}",
+        "two daemons / 100 cuts: paused=blocked; finished=10 excluded; paused-goals=10 excluded; recovered=80; fleet_peak={peak}; recovery_span_ms={}",
         started_at.last().unwrap() - started_at.first().unwrap()
     );
 }
