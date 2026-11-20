@@ -391,8 +391,8 @@ final class AppServices {
     let newTabChoices = NewTabChoiceMemory(); let newTabPlaces: NewTabPlacesKept
     /// The models picked per harness in the Chief card's Model menu (its Recent section).
     let chiefModelRecents = HomeChiefModelRecents(defaults: .standard)
-    /// Where this Mac's Chief runs and its running move (the Home header's location chip, the Chief
-    /// card's Runs On row); `ChiefMoveHandlers` wires its menu to `chief.moveTo` and `chief.moveRollback`.
+    /// Where this Mac's Chief runs and its running move (the Chief card's Runs On row; Home's header
+    /// has no location chip); `ChiefMoveHandlers` wires its menu to `chief.moveTo` and `chief.moveRollback`.
     private(set) lazy var chiefTeleport = ChiefTeleportModel(home: ChiefHome.resolve(tag: environment.tag).root)
     let newTabTypeAhead = NewTabTypeAhead()
     /// Home's first-run Switching card: Hide memory and the Mission Control check.
