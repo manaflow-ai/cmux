@@ -58,7 +58,8 @@
 //! transfer after the stream. `scripts/remote-stream-bench.sh`
 //! runs the matrix, `scripts/remote-stream-ultra-bench.sh` the ultra-mode one,
 //! `scripts/remote-stream-rd-link-bench.sh` `wg-tcp` against `rd-link`.
-//! Prints one JSON object.
+//! Prints one JSON object. `--perf-suite` runs the perf cron's fixed
+//! workloads instead (`remote_stream_perf/suite.rs`).
 //!
 //! ```text
 //! cargo run --release -p cmux-wg --example remote_stream_bench -- \
@@ -98,6 +99,8 @@ const HEADER: usize = 1 + 4 + 8 + 8;
 mod input;
 #[path = "remote_stream_rd/link.rs"]
 mod rd_link;
+#[path = "remote_stream_perf/suite.rs"]
+mod perf_suite;
 #[allow(dead_code)]
 #[path = "../../cmux-rd-ffi/src/receiver.rs"]
 mod receiver;
@@ -998,6 +1001,9 @@ fn json_number(value: Option<f64>) -> String {
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
+    if std::env::args().nth(1).as_deref() == Some("--perf-suite") {
+        return perf_suite::run().await;
+    }
     let args = args();
     let clock = Arc::new(Clock(Instant::now()));
     let record: Shared = Arc::default();
