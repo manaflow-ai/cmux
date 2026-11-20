@@ -60,11 +60,20 @@ impl Coordinator {
         if ticket.after == AfterTeams::Nothing {
             return;
         }
-        if current && ticket.runs_post_sign_in_hook {
+        if current && ticket.runs_post_sign_in_hook && self.owner_is_active(ticket.after) {
             fx.push(Effect::RunPostSignInHook(ticket));
             return;
         }
         self.after_teams(ticket.generation, ticket.after, fx);
+    }
+
+    /// Whether the restore run or sign-in flow a team read belongs to is still running.
+    fn owner_is_active(&self, after: AfterTeams) -> bool {
+        match after {
+            AfterTeams::Nothing => true,
+            AfterTeams::Restore { id } => self.active_restore_id == Some(id),
+            AfterTeams::SignIn(flow) => self.flow_is_active(flow),
+        }
     }
 
     /// What the answer that finished the team read (or the hook) was for.

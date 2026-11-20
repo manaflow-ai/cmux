@@ -59,7 +59,9 @@ fn a_hook_answer_for_a_flow_that_already_finished_changes_nothing() {
     let fx = d.send(Event::PostSignInHookFinished { ticket: hook });
     assert!(succeeded(&fx), "the current answer still completes the sign-in");
     assert_eq!(d.send(Event::PostSignInHookFinished { ticket: hook }), vec![]);
-    assert_eq!(d.send(Event::TeamsRefreshed { ticket, result: Ok(teams(&["t1"])) }), vec![]);
+    let fx = d.send(Event::TeamsRefreshed { ticket, result: Ok(teams(&["t1"])) });
+    assert!(hook_ticket(&fx).is_none(), "a finished flow runs no second hook");
+    assert!(!succeeded(&fx));
     assert!(d.c.is_authenticated());
 }
 
@@ -100,7 +102,7 @@ fn a_late_team_read_of_a_finished_restore_does_not_finish_the_next_one() {
     let second = d.start_restore(RestoreTrigger::Launch);
     let fx = d.send(Event::TeamsRefreshed { ticket: read, result: Ok(teams(&["t1"])) });
     assert!(!fx.contains(&Effect::RestoreFinished));
-    assert_eq!(d.send(Event::Restore(RestoreTrigger::Foreground)), vec![Effect::JoinRestore]);
+    assert_eq!(d.send(Event::Restore(RestoreTrigger::Launch)), vec![Effect::JoinRestore]);
     d.probe(second, true);
 }
 
