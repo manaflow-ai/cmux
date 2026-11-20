@@ -1,65 +1,15 @@
-ci-step nx47638-route-beb3b11b: scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext CloudMachineRouteTests,CloudStartChatAppLinkTests,CloudMoveTests,CloudWaitTests at beb3b11b2bde70c72c54d736b6e880f53b8909b9: exit 1
-==> same-tree cmux-tui: source=published fallback_seconds=0 total_seconds=19
-53 |     static func interrupted(_ error: Error) -> Bool {
- 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
-120 | private nonisolated func controlError(_ error: Error) -> ControlError {
-310 |     nonisolated static func message(for error: Error) -> String {
-	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
-	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
-✔ Test run with 9 tests in 1 suite passed after 0.021 seconds.
-	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
-	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
-✔ Test run with 3 tests in 2 suites passed after 0.009 seconds.
-	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
-	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
-✘ Test aCLIMoveOfALiveChatEndsWithTheTabAttachedToTheMachineChat() recorded an issue at CloudMoveTests.swift:40:13: Expectation failed: (moved.calls.first → ["link", "start-chat", "preflight", "--local", "/private/tmp/cn-move-a24b4f30/proj"]) == (["link", "seed", "push", "--socket", move.vmSocket, move.project.path, synced] → ["link", "seed", "push", "--socket", "/var/folders/tj/0yv__cx532l2pcjklfdw58_w0000gn/T/cmux-tui-501/cn-move-vm-967f7d.sock", "/private/tmp/cn-move-a24b4f30/proj", "/private/tmp/cn-move-a24b4f30/vm-home/work/proj"])
-✘ Test aCLIMoveOfALiveChatEndsWithTheTabAttachedToTheMachineChat() recorded an issue at CloudMoveTests.swift:41:13: Expectation failed: (moved.calls.dropFirst().first → ["link", "seed", "push", "--socket", "/var/folders/tj/0yv__cx532l2pcjklfdw58_w0000gn/T/cmux-tui-501/cn-move-vm-967f7d.sock", "/private/tmp/cn-move-a24b4f30/proj", "/private/tmp/cn-move-a24b4f30/vm-home/work/proj-ab2e06"]) == (["link", "agent", "move", "--from-socket", moved.macSocket, "--surface", String(moved.surface),
-✘ Test aCLIMoveOfALiveChatEndsWithTheTabAttachedToTheMachineChat() recorded an issue at CloudMoveTests.swift:46:13: Expectation failed: (moved.calls.count → 3) == 2
-✘ Test aCLIMoveOfALiveChatEndsWithTheTabAttachedToTheMachineChat() failed after 1.661 seconds with 3 issues.
-✘ Test aMoveThatStopsKeepsTheTabAndRetriesOnlyWhatIsLeft(_:) recorded an issue with 1 argument stop → .unresolved at CloudMoveTests.swift:238:13: Expectation failed: (calls.count → 3) == 2
-✘ Test aMoveThatStopsKeepsTheTabAndRetriesOnlyWhatIsLeft(_:) recorded an issue with 1 argument stop → .inProgress at CloudMoveTests.swift:238:13: Expectation failed: (calls.count → 3) == 2
-✘ Test aMoveThatStopsKeepsTheTabAndRetriesOnlyWhatIsLeft(_:) recorded an issue with 1 argument stop → .badAnswer at CloudMoveTests.swift:238:13: Expectation failed: (calls.count → 3) == 2
-✘ Test aMoveThatStopsKeepsTheTabAndRetriesOnlyWhatIsLeft(_:) recorded an issue with 1 argument stop → .timeout at CloudMoveTests.swift:238:13: Expectation failed: (calls.count → 3) == 2
-✘ Test aMoveThatStopsKeepsTheTabAndRetriesOnlyWhatIsLeft(_:) recorded an issue with 1 argument stop → .tabFailed at CloudMoveTests.swift:238:13: Expectation failed: (calls.count → 3) == 2
-✘ Test aMoveThatStopsKeepsTheTabAndRetriesOnlyWhatIsLeft(_:) recorded an issue with 1 argument stop → .tabFailed at CloudMoveTests.swift:253:17: Expectation failed: (shown.session == "chat-on-vm" && shown.machineID == "vm-move" && shown.folder == synced → false) && (shown.key == "tr-1" → <not evaluated>)
-✘ Test aMoveThatStopsKeepsTheTabAndRetriesOnlyWhatIsLeft(_:) recorded an issue with 1 argument stop → .tabFailed at CloudMoveTests.swift:258:17: Expectation failed: (moved.calls.count → 3) == 2
-✘ Test aMoveThatStopsKeepsTheTabAndRetriesOnlyWhatIsLeft(_:) recorded an issue with 1 argument stop → .teamMachine at CloudMoveTests.swift:238:13: Expectation failed: (calls.count → 3) == 2
-✘ Test aMoveThatStopsKeepsTheTabAndRetriesOnlyWhatIsLeft(_:) recorded an issue with 1 argument stop → .unavailable at CloudMoveTests.swift:238:13: Expectation failed: (calls.count → 3) == 2
-✘ Test aMoveThatStopsKeepsTheTabAndRetriesOnlyWhatIsLeft(_:) with 7 test cases failed after 10.727 seconds with 9 issues.
-✘ Test aSyncThatThrowsKeepsTheMoveRetryableOnItsMachine() recorded an issue at CloudMoveTests.swift:276:13: Expectation failed: (move.calls().count → 2) == 1
-✘ Test aSyncThatThrowsKeepsTheMoveRetryableOnItsMachine() failed after 1.701 seconds with 1 issue.
-✘ Test aCommittedMoveWhoseTabFailedStillOpensItAfterARelaunch() recorded an issue at CloudMoveTests.swift:314:13: Expectation failed: (shown.session == "chat-on-vm" && shown.machineID == "vm-move" → true) && (shown.folder == synced → false)
-✘ Test aCommittedMoveWhoseTabFailedStillOpensItAfterARelaunch() recorded an issue at CloudMoveTests.swift:318:13: Expectation failed: (moved.calls.count → 3) == 2
-✘ Test aCommittedMoveWhoseTabFailedStillOpensItAfterARelaunch() failed after 1.498 seconds with 2 issues.
-✘ Test aMoveInterruptedByAQuitFinishesOnItsMachineAfterTheRelaunch() recorded an issue at CloudMoveTests.swift:333:13: Expectation failed: (move.calls().count → 2) == 1
-✘ Test aMoveInterruptedByAQuitFinishesOnItsMachineAfterTheRelaunch() failed after 0.926 seconds with 1 issue.
-✘ Test aMoveInterruptedByAQuitOffersRetryInItsChatAfterTheRelaunch() recorded an issue at CloudMoveTests.swift:382:13: Expectation failed: (move.calls().count → 2) == 1
-✘ Test aMoveInterruptedByAQuitOffersRetryInItsChatAfterTheRelaunch() failed after 0.729 seconds with 1 issue.
-✘ Test aDismissedUnfinishedMoveStaysQuietAfterTheNextRelaunch() recorded an issue at CloudMoveTests.swift:382:13: Expectation failed: (move.calls().count → 2) == 1
-✘ Test aDismissedUnfinishedMoveStaysQuietAfterTheNextRelaunch() failed after 0.623 seconds with 1 issue.
-✘ Test anOutdatedMachineIsNamedAndTheChatStaysHere(_:) recorded an issue with 1 argument mode → "syncOutdated" at CloudMoveTests.swift:394:13: Expectation failed: (move.calls().count → 2) == ((mode == "syncOutdated" ? 1 : 2) → 1)
-✘ Test anOutdatedMachineIsNamedAndTheChatStaysHere(_:) recorded an issue with 1 argument mode → "outdated" at CloudMoveTests.swift:394:13: Expectation failed: (move.calls().count → 3) == ((mode == "syncOutdated" ? 1 : 2) → 2)
-✘ Test anOutdatedMachineIsNamedAndTheChatStaysHere(_:) with 2 test cases failed after 1.418 seconds with 2 issues.
-✘ Test updateMachineUpdatesAnOutdatedMachineThenMovesTheChat() recorded an issue at CloudMoveTests.swift:428:37: Expectation failed: (ran → [["link", "start-chat", "preflight"], ["link", "seed", "push"], ["link", "agent", "move"]]) == [["link", "seed", "push"], ["link", "agent", "move"]]
-✘ Test updateMachineUpdatesAnOutdatedMachineThenMovesTheChat() recorded an issue at CloudMoveTests.swift:442:13: Expectation failed: (calls.first → ["link", "start-chat", "preflight", "--local", "/private/tmp/cn-move-4dafce17/proj"]) == (["link", "machine", "update", "--socket", move.vmSocket] → ["link", "machine", "update", "--socket", "/var/folders/tj/0yv__cx532l2pcjklfdw58_w0000gn/T/cmux-tui-501/cn-move-vm-b09e31.sock"])
-✘ Test updateMachineUpdatesAnOutdatedMachineThenMovesTheChat() recorded an issue at CloudMoveTests.swift:443:13: Expectation failed: (calls.dropFirst().map { Array($0.prefix(3)) } → [["link", "machine", "update"], ["link", "seed", "push"], ["link", "agent", "move"]]) == [["link", "seed", "push"], ["link", "agent", "move"]]
-✘ Test updateMachineUpdatesAnOutdatedMachineThenMovesTheChat() failed after 1.099 seconds with 3 issues.
-✘ Test thePersonsMoveUpdatesAnOutdatedMachineFirstThenMoves() recorded an issue at CloudMoveTests.swift:459:13: Expectation failed: (calls → [["link", "start-chat", "preflight"], ["link", "seed", "push"], ["link", "agent", "move"], ["link", "start-chat", "preflight"], ["link", "machine", "update"], ["link", "seed", "push"], ["link", "agent", "move"]]) == [["link", "seed", "push"], ["link", "agent", "move"], ["link", "machine", "update"], ["link", "seed", "push"], ["link", "agent", "move"]]
-✘ Test thePersonsMoveUpdatesAnOutdatedMachineFirstThenMoves() failed after 0.838 seconds with 1 issue.
-✘ Test anAgentsMoveMovesItsChatWithNoCardByDefault() recorded an issue at CloudMoveTests.swift:504:13: Expectation failed: (moved.calls.count → 3) == 2
-✘ Test anAgentsMoveMovesItsChatWithNoCardByDefault() failed after 0.817 seconds with 1 issue.
-✘ Test anAgentsMoveAsksInItsChatAndOnlyThePersonsMoveMovesIt() recorded an issue at CloudMoveTests.swift:534:13: Expectation failed: (moved.calls.count → 3) == 2
-✘ Test anAgentsMoveAsksInItsChatAndOnlyThePersonsMoveMovesIt() failed after 1.066 seconds with 1 issue.
-✘ Suite CloudMoveTests failed after 31.481 seconds with 26 issues.
-✘ Test run with 20 tests in 1 suite failed after 31.481 seconds with 26 issues.
-::error title=Swift suite failed::CloudMoveTests in Packages/macOS/CmuxNext: failed (exit 1) after 36s
-	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
-	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
-✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.
-::error title=Swift suite failed::CloudWaitTests in Packages/macOS/CmuxNext: failed (exit 1) after 4s
-CloudMachineRouteTests                           passed                       13s
-CloudStartChatAppLinkTests                       passed                        4s
-CloudMoveTests                                   failed (exit 1)              36s
-CloudWaitTests                                   failed (exit 1)               4s
-2 of 4 suites failed or gave no result.
-ci-step nx47638-route-beb3b11b exited 1
+ci-step focus-audit-58539eb6edf8-v1: scripts/ci/run-swift-testing-suites.sh Packages/macOS/CmuxNext at 58539eb6edf8f4b828b73b9a282ccc98b2aa9890: exit 1
+==> same-tree cmux-tui: source=published-after-fallback fallback_seconds=43 total_seconds=54
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-1/wsrc/Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI/FocusLog/FocusLog.swift:66:118: error: property 'value' is internal and cannot be referenced from a default argument value
+    |                                                                                                                      `- error: property 'value' is internal and cannot be referenced from a default argument value
+error: emit-module command failed with exit code 1 (use -v to see invocation)
+/Volumes/ephemeral0/cmux-ci/fleet-worker/step-warm/slot-1/wsrc/Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI/FocusLog/FocusLog.swift:66:118: error: property 'value' is internal and cannot be referenced from a default argument value
+    |                                                                                                                      `- error: property 'value' is internal and cannot be referenced from a default argument value
+error: cancelled
+error: cancelled
+error: cancelled
+error: cancelled
+error: cancelled
+error: cancelled
+error: fatalError
+ci-step focus-audit-58539eb6edf8-v1 exited 1
