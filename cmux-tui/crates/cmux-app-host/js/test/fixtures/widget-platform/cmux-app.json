@@ -1,0 +1,26 @@
+{
+  "$schema": "../../../../schema/v2/cmux-app.schema.json",
+  "manifestVersion": 2,
+  "id": "local/widget-platform-fixture",
+  "name": { "en": "Widget platform fixture" },
+  "version": "1.0.0",
+  "description": { "en": "Test-only widget: a cmux.section/1 card in three sizes that reads system_calendar. The sample widgets live in the sample widget repos (manaflow-ai/cmux-widget-*)." },
+  "publisher": { "name": "cmux tests", "url": "https://cmux.com" },
+  "license": "MIT",
+  "icon": { "symbol": "calendar" },
+  "categories": ["sidebar"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "implements": {
+    "cmux.section/1": { "export": "renderWidget", "title": { "en": "Widget" }, "symbol": "calendar" }
+  },
+  "scopes": { "system_calendar:read": "Show your next events." },
+  "settings": {
+    "type": "object",
+    "properties": {
+      "size": { "type": "string", "title": "Size", "enum": ["small", "medium", "large"], "default": "small" }
+    }
+  },
+  "activation": ["onInterface:cmux.section/1"],
+  "files": ["dist/"]
+}
