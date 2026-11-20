@@ -257,7 +257,8 @@
         "appearance.backgroundDark",
         "appearance.backgroundSchedule",
         "appearance.backgroundDynamic",
-        "appearance.backgroundLocation"
+        "appearance.backgroundLocation",
+        "appearance.backgroundMemory"
       ]
     },
     {

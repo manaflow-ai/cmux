@@ -794,6 +794,33 @@
           ]
         },
         {
+          "key": "appearance.backgroundMemory",
+          "name": "memory",
+          "note": "What Background's modes last showed, so switching modes never loses one (Leo, 2026-11-19: \"it lost the folder ... i couldn't get back into it\"): rotate is Rotate's last shuffle (daily or folder:<path>), folder the last folder it shuffled, off the picture Off last showed (none for No Wallpaper). The Settings page's Background card writes it when the background moves to another mode and reads it back in a new page or after a restart; the app's engine never reads it.",
+          "title": {
+            "key": "settings.appearance.backgroundMemory",
+            "text": "Background Mode Memory"
+          },
+          "help": {
+            "key": "settings.appearance.backgroundMemory.help",
+            "text": "The folder and picture each background mode last showed, so switching back restores them."
+          },
+          "kind": "string_map",
+          "swift_owner": {
+            "type": "BackdropSelectionSetting",
+            "prefixed": true
+          },
+          "default": null,
+          "keywords": [
+            "wallpaper",
+            "background",
+            "folder",
+            "rotate",
+            "restore"
+          ],
+          "page_hidden": "the Background card's mode switch writes and reads it"
+        },
+        {
           "key": "appearance.displayBackgrounds",
           "name": "displayBackgrounds",
           "title": {
