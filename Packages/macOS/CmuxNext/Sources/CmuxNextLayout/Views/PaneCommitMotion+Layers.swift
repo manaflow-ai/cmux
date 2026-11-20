@@ -35,9 +35,10 @@ extension PaneCommitMotion {
         return policy.spring(token)
     }
 
-    /// Adds one animation of this motion to `layer`; ``finish()`` takes it away.
-    func add(_ keyPath: String, from: NSValue, to: NSValue, on layer: CALayer, _ token: MotionSpring) {
+    /// Adds one animation of this motion to `layer`; ``finish()`` takes it away. `holds`: it stays at its end until then.
+    func add(_ keyPath: String, from: NSValue, to: NSValue, on layer: CALayer, _ token: MotionSpring, holds: Bool = false) {
         let animation = Motion.panes.springAnimation(token, keyPath, from: from, to: to)
+        if holds { (animation.fillMode, animation.isRemovedOnCompletion) = (.forwards, false) }
         if speed != nil {
             let spring = self.spring(token)
             animation.stiffness = spring.stiffness

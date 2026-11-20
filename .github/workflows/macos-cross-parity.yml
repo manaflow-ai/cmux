@@ -64,9 +64,7 @@ jobs:
         run: git submodule update --init --depth 1 ghostty-next
 
       - name: Install LLVM 19 (clang, ld64.lld, llvm tools)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-19 lld-19 llvm-19
+        run: bash scripts/ci/apt-ensure.sh clang-19 lld-19 llvm-19
 
       - name: Resolve Ghostty Zig version
         id: ghostty-zig-version

@@ -19,6 +19,8 @@ import CmuxNextDesign
 ///   take its room, and hides in the frame that ends the motion (``keepsDeparted(on:)``).
 /// - A pane that moves in a window whose sheet is one plain colour has that colour under its content, on its whole
 ///   cell, until the motion's end (`PaneCommitMotion+Sheet`): no pane under it shows through its tab row.
+/// - In a window that gives no such ground, a pane under one that moves shows only past an edge of that pane
+///   (`PaneCommitMotion+Cover`).
 /// - An unzoom's pane closes from its screen's size to its place over the panes that come back, which do not move.
 ///   Its last frame shows at its old size under its moving clip (`PaneCommitMotion+Unzoom`); with no last frame
 ///   and no picture of its own the unzoom shows in one frame.
@@ -113,6 +115,9 @@ final class PaneCommitMotion {
     /// layer had, with its copy of the window's picture when the ground is one, and with its plain ground when that
     /// is a layer in the pane's card (`PaneCommitMotion+Sheet`).
     var sheets: [(host: PaneHostView, color: CGColor?, picture: CALayer?, plain: CALayer?)] = []
+    /// The hosts that show only past an edge of a pane over them (`PaneCommitMotion+Cover`): each with whether the move
+    /// kept it under then, its layer's frame, the window that it shows through at the end of its acts, and their numbers.
+    var covers: [ObjectIdentifier: (host: PaneHostView, kept: Bool, frame: CGRect, window: CGRect, acts: [Int])] = [:]
     /// The window's picture that the copies show, as it was read at the motion's first act, and its screen.
     var shownPicture: WindowStillPicture?
     weak var pictured: ScreenContentView?
@@ -163,6 +168,8 @@ final class PaneCommitMotion {
     var unzooms: Bool { armed?.act == .unzoom }
     /// A change waits for the frame that shows it.
     var waits: Bool { armed != nil }
+    /// The change that waits for its frame is an act (a split, a close, a zoom or an unzoom), with the move on or off.
+    var acts: Bool { armed?.act != nil }
 
     /// `screen` is about to give its panes the sizes of the change that waits for its frame: no pane heard a size yet.
     /// Each pane that stays and gets smaller in a change that can move, and whose content keeps its own picture, starts
@@ -196,6 +203,13 @@ final class PaneCommitMotion {
         return true
     }
 
+    /// For a probe's note: that each of `riders` rides, or the class of the top view of each one that does not.
+    private static func ride(of riders: [PaneHostView]) -> String {
+        let stops = riders.map(\.content).filter { !$0.paneRidesCommitMotion }
+        let kinds = Set(stops.map { content in content.paneCommitMotionTop.map { "\(type(of: $0))" } ?? "no top view in \(type(of: content))" })
+        return kinds.isEmpty ? "each rides: true" : "each rides: false, the top view that does not ride: \(kinds.sorted().joined(separator: ", "))"
+    }
+
     private static func shown(_ views: [NSView]) -> [ObjectIdentifier: CGRect] {
         var frames: [ObjectIdentifier: CGRect] = [:]
         for view in views where !view.isHidden && view.alphaValue > 0 {
@@ -219,6 +233,8 @@ final class PaneCommitMotion {
         let last = taken
         taken = nil
         guard let act = armed.act, moves(on: screen) else {
+            // Only an act gets a note: a change of no act is not a move that did not come, and a record has few places.
+            if let act = armed.act { MotionTrace.note("layout.commit: \(act) in one frame (the panes move at a commit: false)") }
             finish()
             return nil
         }
@@ -252,9 +268,12 @@ final class PaneCommitMotion {
             && (last?.host === changes[0].host || changes[0].host.holdsContentForMove))
         // A window's picture that changed in the move: the copies show the old one, so this act shows in one frame.
         guard !changes.isEmpty, time > 0, covered, closes, pictureStays, riders.allSatisfy({ $0.content.paneRidesCommitMotion }) else {
+            MotionTrace.note("layout.commit: \(act) in one frame (panes that change: \(changes.count), time: \(time), covered: \(covered), "
+                + "closes: \(closes), the window's picture stays: \(pictureStays), \(Self.ride(of: riders)))")
             finish()
             return nil
         }
+        MotionTrace.note("layout.commit: \(act) moves \(changes.count) panes for \(time) s")
         serial += 1
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -268,10 +287,10 @@ final class PaneCommitMotion {
             moveRing(of: change, act.spring)
             moveClip(of: change, act.spring)
         }
-        if act == .unzoom {
-            // The others: the panes that come back, or, in a zoom's move, the panes that it still kept under.
-            closeOver(changes[0], last: last, others: coming + staying.map(\.host).filter { $0 !== changes[0].host }, act.spring)
-        }
+        // An unzoom's others: the panes that come back, or, in a zoom's move, the panes that it still kept under.
+        let below = act == .unzoom ? coming + staying.map(\.host).filter { $0 !== changes[0].host } : leaving
+        if act == .unzoom { closeOver(changes[0], last: last, others: below, act.spring) }
+        cover(below, under: changes, act.spring)
         for view in screen.dividerViews.values where !view.isHidden {
             guard let layer = view.layer else { continue }
             let new = layer.frame
@@ -318,6 +337,9 @@ final class PaneCommitMotion {
         guard remaining > 0 else { return }
         // The window's picture, its tint or its place changed: the copies under the panes show the old one.
         guard pictureStays else { return finish() }
+        // A probe's count while `debug.motion` records: one sample for each frame tick with a move in flight (the
+        // layout's springs give none in a move: no pane is on one), its value the animations on the layers.
+        if MotionTrace.isEnabled { MotionTrace.sample("layout.commit", Double(moved.count)) }
         if armed != nil, remaining - dt <= PaneZoomDim.spent, overtime <= ScreenContentView.commitBound {
             overtime += 1
             return
@@ -330,6 +352,7 @@ final class PaneCommitMotion {
     /// changed, the screen goes out of sight or away, or panes stopped animating. What the screen showed before the
     /// change is not where its panes show now, so a change that comes before that one's pass does not move either.
     func cancel() {
+        if let act = armed?.act { MotionTrace.note("layout.commit: \(act) in one frame (cancelled before its frame)") }
         armed?.act = nil
         armed?.still = true
         taken = nil
@@ -358,6 +381,7 @@ final class PaneCommitMotion {
         }
         for (layer, key) in moved { layer.removeAnimation(forKey: key) }
         moved = []
+        covers = [:]
         for ground in grounds.values { Self.strips(of: ground.layer).forEach { $0.removeFromSuperlayer() } }
         grounds = [:]
         for (host, z) in under { host.layer?.zPosition = z }
