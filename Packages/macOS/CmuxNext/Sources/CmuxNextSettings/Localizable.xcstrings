@@ -65918,7 +65918,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Off: cmux asks before downloading. It always asks before restarting."
+            "value": "Off: cmux asks before downloading. Automatic installs wait for a quiet moment and never interrupt drafts or active work."
           }
         },
         "ar": {
@@ -228363,7 +228363,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running."
+            "value": "When on, waits for the idle time below before installing. Automatic updates otherwise use Quiet Time Before Installing and never interrupt active work."
           }
         },
         "ar": {

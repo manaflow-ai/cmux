@@ -39,7 +39,7 @@ import Testing
         }
     }
 
-    @Test func stableStaysOptIn() async throws {
+    @Test func explicitOffBuildDefaultStaysOff() async throws {
         let (settings, home) = try await Self.settings("{}", .channel(downloadsAutomatically: false))
         defer { try? FileManager.default.removeItem(at: home) }
         #expect(!settings.snapshot.updates.downloadAutomatically)
