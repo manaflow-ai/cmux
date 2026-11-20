@@ -54,6 +54,9 @@ public final class TabModel: Identifiable {
     public internal(set) var isFrontendOwned: Bool
     public internal(set) var tabGroup: TabGroupID?
     public internal(set) var agent: AgentStatus?
+    /// ``agent``'s state alone, written only when it changes: a reader that needs only the state
+    /// (the backdrop's agent glow) is not told of every hook report's time or prompt.
+    public private(set) var agentState: AgentState?
     /// What the tab's agent is touching now; nil when it is not acting (`agent-presence-v1`).
     public internal(set) var presence: AgentPresence?
     /// Browser page zoom or terminal font scale saved on the tab record;
@@ -460,6 +463,7 @@ public final class TabModel: Identifiable {
 
     func setAgent(_ value: AgentStatus?) {
         if agent != value { agent = value }
+        if agentState != value?.state { agentState = value?.state }
     }
 
     func setPresence(_ value: AgentPresence?) {
