@@ -24,7 +24,7 @@ public nonisolated struct WorkspaceActivityFacts: Hashable, Sendable {
     @MainActor
     public init(_ workspace: WorkspaceModel, tabs: [TabModel]) {
         let newest = tabs.map { max($0.lastOutputMs ?? 0, $0.agent?.updatedAtMs ?? 0, $0.notification?.createdAtMs ?? 0) }.max() ?? 0
-        let asks: Bool = switch StatusMapping.shared.summary(tabs: tabs, status: workspace.status).state {
+        let asks: Bool = switch StatusMapping.shared.summary(tabs: tabs, status: workspace.status, workspaceID: workspace.id).state {
         case .waiting, .error: true
         default: false
         }
