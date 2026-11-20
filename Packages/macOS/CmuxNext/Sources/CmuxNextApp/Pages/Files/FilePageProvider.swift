@@ -9,7 +9,8 @@ import Foundation
 /// What a file page tab asks of its owner (``FilePageService``): the workspace roots, the
 /// recents and picker, the look (settings section, theme.css), preference writes, and where a
 /// followed link opens.
-protocol FilePageHosting: AnyObject, AgentSourceUsesPageHosting {
+@MainActor protocol FilePageHosting: AnyObject {
+    var sourceUses: FilePageSourceContext? { get }
     var roots: FileWorkspaceRoots { get }
     /// `markdown.remoteImages`: load web images without a per-document click (default false).
     var remoteImages: Bool { get }
@@ -50,6 +51,7 @@ protocol FilePageHosting: AnyObject, AgentSourceUsesPageHosting {
 }
 
 extension FilePageHosting {
+    var sourceUses: FilePageSourceContext? { nil }
     var showsOmnibar: Bool { false }
     func historyChanged(canBack: Bool, canForward: Bool) {}
     func run(_ run: RunbookRun, cwd: String) -> Bool { false }
@@ -176,6 +178,10 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard !isClosed, let host else { throw PageError.closed }
+        let shown = file, source = host.sourceUses
+        if let result = try await AgentSourceUsesPageBridge.call(op: op, params: params, gesture: context.userGesture,
+            markdown: kind == .markdown, local: files.isLocal, file: shown, canonical: canonical, source: source,
+            isCurrent: { !self.isClosed && self.file == shown && host.sourceUses === source }) { return result }
         switch op {
         case kind.op("config"):
             guard let file else { return merged(["pick": true], host.look()) }
@@ -210,7 +216,6 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             guard files.isLocal, let chosen = await host.chooseFile(start: start) else { return .null }
             userChose(chosen)
             return ["path": .string(chosen.path)]
-        if let sourceResult = try await AgentSourceUsesPageBridge.call(op: op, params: params, gesture: context.userGesture, markdown: kind == .markdown, local: files.isLocal, file: file, canonical: { self.canonical($0) }, source: host.sourceUses, read: { !isClosed && self.file == file && host.sourceUses != nil }, stillCurrent: { self.file == file && host.sourceUses != nil }, cursor: params["cursor"]?.stringValue) { return sourceResult }
         case kind.op("openLink"):
             try await openLink(params, host: host, userGesture: context.userGesture)
             return .object([:])
@@ -262,12 +267,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
 
     // MARK: Files
 
-    func path(_ value: JSONValue?) throws -> URL {
-        guard let path = value?.stringValue, path.hasPrefix("/"), !path.contains("\u{0}") else {
-            throw PageError.invalidParams("path must be absolute")
-        }
-        return URL(fileURLWithPath: path).standardizedFileURL
-    }
+    func path(_ value: JSONValue?) throws -> URL { try FilePageRequest.path(value) }
 
     /// Writable: every markdown document the page shows, whoever opened it and in whatever
     /// workspace (user 2026-10-18: "All markdown viewers should be read-write"); in the code editor,
@@ -479,7 +479,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
 
     /// `cmux.<page>.setPreference {key, value}`: one `<section>.<dotted key>` (PAGE-PREFS).
     private func setPreference(_ params: JSONValue, host: any FilePageHosting, userGesture: Bool) async throws {
-        guard let key = params["key"]?.stringValue, Self.isPreferenceKey(key, section: kind.section) else {
+        guard let key = params["key"]?.stringValue, FilePageRequest.isPreferenceKey(key, section: kind.section) else {
             throw PageError.invalidParams("key must be a \(kind.section).* setting")
         }
         let value = params["value"] ?? .null

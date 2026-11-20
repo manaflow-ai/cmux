@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextPages
+import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
 
