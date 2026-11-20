@@ -6,11 +6,13 @@ use serde_json::{Value, json};
 
 use crate::prompt::{
     CLOUD_WORKSPACE_DESCRIPTION, CONTROL_DESCRIPTION, DATE_DESCRIPTION, ESCALATE_AUTH_DESCRIPTION,
-    MCP_DESCRIPTION, PEER_TELL_DESCRIPTION, PEERS_DESCRIPTION, REACT_DESCRIPTION,
-    REMEMBER_DESCRIPTION, REPLY_DESCRIPTION, SEND_DESCRIPTION, SLEEP_DESCRIPTION,
-    SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION, SPAWN_HARNESS_DESCRIPTION, SPAWN_MODEL_DESCRIPTION,
-    SPAWN_SIDEBAR_DESCRIPTION, STOP_DESCRIPTION, TELL_DESCRIPTION, TRANSCRIPT_DESCRIPTION,
-    VERSION_DESCRIPTION, WATCH_DESCRIPTION, ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
+    MCP_DESCRIPTION, MEMORY_FORGET_DESCRIPTION, MEMORY_PATH_HELP, MEMORY_READ_DESCRIPTION,
+    MEMORY_WRITE_DESCRIPTION, PEER_TELL_DESCRIPTION, PEERS_DESCRIPTION, REACT_DESCRIPTION,
+    RECALL_DESCRIPTION, REMEMBER_DESCRIPTION, REPLY_DESCRIPTION, SEND_DESCRIPTION,
+    SLEEP_DESCRIPTION, SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION, SPAWN_HARNESS_DESCRIPTION,
+    SPAWN_MODEL_DESCRIPTION, SPAWN_SIDEBAR_DESCRIPTION, STOP_DESCRIPTION, TELL_DESCRIPTION,
+    TRANSCRIPT_DESCRIPTION, VERSION_DESCRIPTION, WATCH_DESCRIPTION, ZOOM_AGENT_DESCRIPTION,
+    ZOOM_DESCRIPTION,
 };
 
 /// Shortest `sleep` (a turn costs more than a shorter wait saves).
@@ -70,6 +72,9 @@ pub const SIZES: [&str; 4] = ["small", "medium", "large", "xlarge"];
 /// The most messages one `transcript` call returns.
 pub const TRANSCRIPT_MAX: u32 = 100;
 
+/// The most hits one `recall` returns.
+pub const RECALL_MAX: u64 = 30;
+
 /// The longest preference `remember` keeps, in characters.
 pub const REMEMBER_MAX: usize = 400;
 
@@ -124,6 +129,12 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
          "inputSchema": {"type": "object", "properties": {"id": {"type": ["integer", "string"]}, "n": int, "at": int}, "required": ["id"], "additionalProperties": false}}),
         json!({"name": "date", "description": DATE_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {"id": int}, "required": ["id"], "additionalProperties": false}}),
+        json!({"name": "recall", "description": RECALL_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "query": {"type": "string", "minLength": 1, "description": "The words to find: names, numbers, rare words, or a question."},
+            "limit": {"type": "integer", "minimum": 1, "maximum": RECALL_MAX, "description": "How many matches (default 8)."},
+            "all": {"type": "boolean", "description": "Also search tool calls and their results."}},
+          "required": ["query"], "additionalProperties": false}}),
     ];
     // A subagent asks its Chief to drive a sign-in, lists the other
     // subagents and tells one (acp-chief-issues.md #11).
@@ -239,6 +250,17 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
             "note": {"type": "string", "description": "What to do when it fires: shown to you in the watch message."},
             "cancel": {"type": "string", "minLength": 1, "description": "A watch id (w<N>) or all: cancels instead of starting one. With no command and no cancel, lists the pending watches."}},
           "additionalProperties": false}}));
+        let path = json!({"type": "string", "minLength": 1, "maxLength": 80, "description": MEMORY_PATH_HELP});
+        list.push(json!({"name": "memory_read", "description": MEMORY_READ_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {"path": path}, "required": ["path"], "additionalProperties": false}}));
+        list.push(json!({"name": "memory_write", "description": MEMORY_WRITE_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "path": path,
+            "description": {"type": "string", "maxLength": 300, "description": "One line for index.md: what the file is about (\"Leo's machines\", \"renew the cmux.dev domain before Fri 2026-11-20\")."},
+            "body": {"type": "string", "minLength": 1, "description": "The file's whole text, in Markdown. Date facts (YYYY-MM-DD)."}},
+          "required": ["path", "description", "body"], "additionalProperties": false}}));
+        list.push(json!({"name": "memory_forget", "description": MEMORY_FORGET_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {"path": path}, "required": ["path"], "additionalProperties": false}}));
         list.push(json!({"name": "remember", "description": REMEMBER_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {
             "text": {"type": "string", "minLength": 1, "maxLength": REMEMBER_MAX, "description": "The preference as one short rule in the person's own terms, e.g. \"Reply in one short bullet list.\""}},
@@ -266,7 +288,16 @@ const ONCE: &[&str] = &[
 /// Tools only a host on the person's machine can do: the Mac's app
 /// (`version`), moving the Chief's home (`move`), running a command off
 /// the turn (`watch`) and the MCP hub with its servers and secrets (`mcp`).
-const HOST_ONLY: &[&str] = &["version", "move", "watch", "mcp"];
+const HOST_ONLY: &[&str] = &[
+    "version",
+    "move",
+    "watch",
+    "mcp",
+    "recall",
+    "memory_read",
+    "memory_write",
+    "memory_forget",
+];
 
 /// The engines that take specs; a cloud engine drops the host-only tools.
 const SPEC_ENGINES: &[(&str, bool)] = &[
@@ -294,7 +325,7 @@ pub fn specs(engine: &str, grant_json: &str) -> Result<Value, String> {
             .collect()
     });
     let allows = |tool: &str| match &granted {
-        _ if matches!(tool, "zoom" | "date" | "version") => true,
+        _ if matches!(tool, "zoom" | "date" | "recall" | "version") => true,
         None => !matches!(tool, "profile" | "chiefs"),
         Some(set) => set.iter().any(|t| t == tool),
     };
