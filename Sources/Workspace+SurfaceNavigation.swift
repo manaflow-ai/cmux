@@ -32,19 +32,49 @@ extension Workspace {
             }
         }
 
-        let previousFocusedPanelId = focusedPanelId
-        let previousFocusedPaneId = bonsplitController.focusedPaneId
-        if let previousFocusedPanelId, let previous = panels[previousFocusedPanelId] {
-            previous.unfocus()
-        }
+        return navigateSplitFocusHonoringPreserveZoom {
+            let previousFocusedPanelId = focusedPanelId
+            let previousFocusedPaneId = bonsplitController.focusedPaneId
+            if let previousFocusedPanelId, let previous = panels[previousFocusedPanelId] {
+                previous.unfocus()
+            }
 
-        bonsplitController.navigateFocus(direction: direction)
-        if let paneId = bonsplitController.focusedPaneId,
-           let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
-            applyTabSelection(tabId: tabId, inPane: paneId)
+            bonsplitController.navigateFocus(direction: direction)
+            if let paneId = bonsplitController.focusedPaneId,
+               let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
+                applyTabSelection(tabId: tabId, inPane: paneId)
+            }
+            return previousFocusedPanelId != focusedPanelId ||
+                previousFocusedPaneId != bonsplitController.focusedPaneId
         }
-        return previousFocusedPanelId != focusedPanelId ||
-            previousFocusedPaneId != bonsplitController.focusedPaneId
+    }
+
+    /// Runs one split-navigation step under Ghostty's `split-preserve-zoom`.
+    /// With `navigation` set, a zoomed split stays zoomed on the pane the step
+    /// reaches; otherwise the zoom ends so the reached pane is visible. A step
+    /// that does not move keeps the zoom where it was.
+    private func navigateSplitFocusHonoringPreserveZoom(
+        preserveZoom: Bool = GhosttyApp.shared.splitPreserveZoom.contains(.navigation),
+        _ navigate: () -> Bool
+    ) -> Bool {
+        guard let zoomedPaneId = bonsplitController.zoomedPaneId else { return navigate() }
+        // Unzoom before moving so focus lands on a pane that is rendered.
+        if !preserveZoom {
+            clearSplitZoom()
+        }
+        guard navigate() else {
+            if !preserveZoom {
+                _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
+            }
+            return false
+        }
+        if preserveZoom,
+           bonsplitController.focusedPaneId != zoomedPaneId,
+           let focusedPanelId {
+            // Zooming the reached pane also refocuses it and reconciles portals.
+            _ = toggleSplitZoom(panelId: focusedPanelId)
+        }
+        return true
     }
 
     /// Moves the focused surface into another pane, optionally creating a
@@ -290,16 +320,19 @@ extension Workspace {
     }
 
     private func focusSplitPane(_ targetPaneId: PaneID) {
-        if let previousPanelId = focusedPanelId,
-           let previousPanel = panels[previousPanelId] {
-            previousPanel.unfocus()
-        }
+        _ = navigateSplitFocusHonoringPreserveZoom {
+            if let previousPanelId = focusedPanelId,
+               let previousPanel = panels[previousPanelId] {
+                previousPanel.unfocus()
+            }
 
-        bonsplitController.focusPane(targetPaneId)
+            bonsplitController.focusPane(targetPaneId)
 
-        if let paneId = bonsplitController.focusedPaneId,
-           let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
-            applyTabSelection(tabId: tabId, inPane: paneId)
+            if let paneId = bonsplitController.focusedPaneId,
+               let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
+                applyTabSelection(tabId: tabId, inPane: paneId)
+            }
+            return bonsplitController.focusedPaneId == targetPaneId
         }
     }
 
