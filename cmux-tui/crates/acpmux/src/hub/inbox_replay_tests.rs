@@ -146,6 +146,67 @@ async fn synthetic_surge_flood_preserves_every_protected_id() {
 }
 
 #[tokio::test]
+async fn surge_hold_at_the_prompt_entry_point_has_no_second_chat_row_on_retry() {
+    let (hub, session) = hub_with_chat("surge-prompt-entry");
+    hub.session_log(&session).await;
+    let now = now_ms();
+    for (seq, at, kind) in [(1, now - 70_000, "turn_started"), (2, now - 10_000, "turn_result")] {
+        session.time_breakdown.lock().unwrap().record(&EventRecord {
+            seq,
+            at,
+            kind: kind.into(),
+            dir: "mux".into(),
+            msg: json!({"turnSeq":1,"turnId":"previous","status":"completed"}),
+            host_seq: None,
+        });
+    }
+    let options = || PromptOptions {
+        prompt_id: Some("delivery-123".into()),
+        class: Some(PromptClass::Fyi),
+        agent: Some("reporter".into()),
+        provenance: Some(crate::prompt_provenance::session_message(
+            "reporter",
+            "reporter",
+            &session.id,
+        )),
+        ..Default::default()
+    };
+    let blocks = vec![json!({"type":"text","text":"org/app#123 runner report"})];
+    assert!(
+        hub.hold_surge_message(&session, "prior", "cli", &blocks, &options(), now - 1000)
+            .unwrap()
+            .is_none()
+    );
+    for resend in [false, true] {
+        let (tx, accepted) = tokio::sync::oneshot::channel();
+        let opts = PromptOptions {
+            resend,
+            on_accepted: Some(Box::new(move |v| {
+                tx.send(v).unwrap();
+            })),
+            ..options()
+        };
+        let result = hub.prompt_with(&session, blocks.clone(), "cli", false, opts).await.unwrap();
+        assert_eq!(result["_meta"]["acpmux"]["surgeHeld"], true);
+        let receipt = accepted.await.unwrap();
+        assert_eq!(receipt["surgeHeld"], true);
+        assert_eq!(receipt["promptId"], "delivery-123");
+        assert_eq!(receipt["threadId"], "topic:pr/org/app/123");
+        // Make the retry consult the durable journal, as it must after daemon replacement.
+        session.prompts.lock().unwrap().clear();
+    }
+    let events = hub.events(&session.id, 0, 1000).unwrap();
+    assert_eq!(
+        events.iter().filter(|e| e.kind == "inbox" && e.msg["surgeHeld"] == true).count(),
+        1
+    );
+    assert!(!events.iter().any(|e| matches!(
+        e.kind.as_str(),
+        "user_message" | "_acpmux/message" | "turn_started" | "queued"
+    )));
+}
+
+#[tokio::test]
 #[ignore = "requires an owner-exported coordinator trace"]
 async fn coordinator_surge_flood_admission() {
     let path = std::env::var("ACPMUX_SURGE_TRACE").expect("path to the coordinator trace");
