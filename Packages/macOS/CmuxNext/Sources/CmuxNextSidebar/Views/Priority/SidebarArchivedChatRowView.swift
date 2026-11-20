@@ -12,7 +12,7 @@ final class SidebarArchivedChatRowView: NSView {
     var onAction: ((SidebarPriorityAction) -> Void)?
 
     private let title = ChromeLabel(labelWithString: "")
-    private let tag = ChromeLabel(labelWithString: "")
+    private let detail = ChromeLabel(labelWithString: "")
     private let restore = SidebarIconButton(symbol: "arrow.uturn.backward", label: Strings.priorityRestore)
     private var pointerHover: PointerHover?
     private var isHovered = false { didSet { if isHovered != oldValue { needsLayout = true; needsDisplay = true } } }
@@ -21,8 +21,8 @@ final class SidebarArchivedChatRowView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         title.lineBreakMode = .byTruncatingTail
-        tag.lineBreakMode = .byTruncatingHead
-        [title, tag, restore].forEach(addSubview)
+        detail.lineBreakMode = .byTruncatingHead
+        [title, detail, restore].forEach(addSubview)
         restore.isHidden = true
         restore.onPress = { [weak self] in
             guard let self, let chat = self.chat else { return }
@@ -45,8 +45,8 @@ final class SidebarArchivedChatRowView: NSView {
         self.chat = chat
         title.stringValue = chat.title
         let age = chat.archivedAt.flatMap { SidebarPriorityRowView.elapsed(from: $0, to: now) }
-        tag.stringValue = Self.tagText(project: chat.project, age: age)
-        setAccessibilityLabel([chat.title, tag.stringValue.isEmpty ? nil : tag.stringValue].compactMap(\.self).joined(separator: ", "))
+        detail.stringValue = Self.tagText(project: chat.project, age: age)
+        setAccessibilityLabel([chat.title, detail.stringValue.isEmpty ? nil : detail.stringValue].compactMap(\.self).joined(separator: ", "))
         needsLayout = true
         needsDisplay = true
     }
@@ -55,7 +55,7 @@ final class SidebarArchivedChatRowView: NSView {
     func configureShowMore(hidden: Int) {
         chat = nil
         title.stringValue = Strings.showMore(hidden)
-        tag.stringValue = ""
+        detail.stringValue = ""
         setAccessibilityLabel(title.stringValue)
         needsLayout = true
         needsDisplay = true
@@ -73,21 +73,21 @@ final class SidebarArchivedChatRowView: NSView {
         super.layout()
         let b = bounds, inset = SidebarStyle.horizontalInset
         title.font = chat == nil ? SidebarStyle.headerFont : SidebarStyle.titleFont
-        tag.font = SidebarStyle.subtitleFont
+        detail.font = SidebarStyle.subtitleFont
         let lineHeight = ceil(SidebarStyle.titleFont.boundingRectForFont.height)
         let y = (b.height - lineHeight) / 2
         let textInset = SidebarStyle.leadingTextX(leading: inset)
         var trailing = b.width - inset
         let showsRestore = isHovered && chat != nil
         restore.isHidden = !showsRestore
-        tag.isHidden = showsRestore || tag.stringValue.isEmpty
+        detail.isHidden = showsRestore || detail.stringValue.isEmpty
         if showsRestore {
             restore.frame = NSRect(x: trailing - lineHeight, y: y, width: lineHeight, height: lineHeight)
             trailing = restore.frame.minX - Metrics.space1
-        } else if !tag.isHidden {
-            let width = min(tag.naturalSize.width, max(0, trailing - textInset) * 0.45)
-            tag.frame = NSRect(x: trailing - width, y: y, width: width, height: lineHeight)
-            trailing = tag.frame.minX - Metrics.space2
+        } else if !detail.isHidden {
+            let width = min(detail.naturalSize.width, max(0, trailing - textInset) * 0.45)
+            detail.frame = NSRect(x: trailing - width, y: y, width: width, height: lineHeight)
+            trailing = detail.frame.minX - Metrics.space2
         }
         title.frame = NSRect(x: textInset, y: y, width: max(0, trailing - textInset), height: lineHeight)
     }
@@ -95,7 +95,7 @@ final class SidebarArchivedChatRowView: NSView {
     override func updateLayer() {
         performWithTheme {
             title.textColor = Palette.textSecondary
-            tag.textColor = Palette.textTertiary
+            detail.textColor = Palette.textTertiary
             if let layer {
                 layer.cornerRadius = SidebarStyle.rowCornerRadius
                 ChromeHover.paint(layer, isHovered ? Palette.hoverFill : nil, animated: window != nil)
