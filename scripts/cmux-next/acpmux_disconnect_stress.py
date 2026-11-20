@@ -32,6 +32,9 @@ Disconnects, on a randomized schedule (`--seed`, gaps `--gap-min`..`--gap-max` s
 - take-over: a new `acpmux daemon run --take-over` takes the home from the running daemon (its
   agents keep running) — the systemd unit's restart path.
 
+An attached client that ends on its own (a take-over drops its connection) is attached again, as the
+app's chat pane reconnects, and counted (`clients_ended`).
+
 Then it lifts every fault, waits for the messages to arrive (`--settle`), and counts per message id
 from the agents' own prompt log: delivered exactly once, lost (never given to an agent), duplicated
 (given in more than one prompt). One summary line, `result.json` and the evidence around each lost or
@@ -394,6 +397,7 @@ class Stress:
         self.procs: list[subprocess.Popen] = []
         self.daemons: list[subprocess.Popen] = []
         self.tails: dict[int, subprocess.Popen] = {}
+        self.attaches: dict[int, int] = {}
         self.sent: list[dict] = []
         self.sent_lock = threading.Lock()
         self.chaos: list[dict] = []
@@ -474,13 +478,24 @@ class Stress:
         return False
 
     def attach(self, k: int) -> None:
-        i = sum(1 for c in self.chaos if c["kind"] == "detach" and c.get("session") == k)
+        i = self.attaches.get(k, 0)
+        self.attaches[k] = i + 1
         tail = subprocess.Popen([self.acpmux, "session", "tail", f"recv-{k}", "-f"], env=self.env,
                                 stdout=(self.out / f"attached-{k}-{i}.ndjson").open("w"),
                                 stderr=(self.out / f"attached-{k}-{i}.err").open("w"), stdin=subprocess.DEVNULL,
                                 start_new_session=True)
         self.procs.append(tail)
         self.tails[k] = tail
+
+    def reattach_exited(self) -> None:
+        """An attached client that ended on its own (its daemon was taken over, or dropped it) is
+        attached again, as the app's chat pane reconnects; each such end is counted."""
+        for k, t in list(self.tails.items()):
+            if t.poll() is not None:
+                err = self.out / f"attached-{k}-{self.attaches.get(k, 1) - 1}.err"
+                why = err.read_text(errors="replace").strip()[-300:] if err.exists() else ""
+                self.chaos_row("client-ended", session=k, exit=t.returncode, why=why)
+                self.attach(k)
 
     # Load ----------------------------------------------------------------------------------------
 
@@ -648,9 +663,12 @@ class Stress:
         nxt = self.load_t0 + self.rng.uniform(a.gap_min, a.gap_max)
         last_report = now()
         while now() < end:
-            time.sleep(max(0, min(nxt, end) - now()))
+            time.sleep(max(0, min(nxt, end, now() + 1) - now()))
+            self.reattach_exited()
             if now() >= end:
                 break
+            if now() < nxt:
+                continue
             self.fault()
             nxt = now() + self.rng.uniform(a.gap_min, a.gap_max)
             if now() - last_report > 300:
@@ -667,6 +685,7 @@ class Stress:
         self.log(f"load done: {len(self.sent)} sent; faults lifted; settling up to {a.settle:.0f} s")
         deadline = self.lifted + a.settle
         while now() < deadline:
+            self.reattach_exited()
             got = self.delivered()
             if markers <= set(got) and not self.hub.queue and not self.hub.leased:
                 break
@@ -674,6 +693,8 @@ class Stress:
         # Late duplicates: a lease that ends unacked comes back after LEASE_S.
         time.sleep(LEASE_S + 5)
         reaper_stop.set()
+        self.reattach_exited()
+        time.sleep(1)
         tails_alive = {k: t.poll() is None for k, t in self.tails.items()}
         tail_events = {}
         for k, t in self.tails.items():
@@ -805,7 +826,8 @@ def tally(out: Path) -> dict:
     for c in chaos:
         kinds[c["kind"]] = kinds.get(c["kind"], 0) + 1
     res.update({
-        "faults": kinds, "take_overs_failed": sum(1 for c in chaos if c["kind"] == "take-over" and not c.get("ok")),
+        "faults": {k: v for k, v in kinds.items() if k != "client-ended"},
+        "attached_clients_ended_on_their_own": kinds.get("client-ended", 0), "take_overs_failed": sum(1 for c in chaos if c["kind"] == "take-over" and not c.get("ok")),
         "direct_sends_killed": sum(s.get("killed", 0) for s in sent),
         "direct_send_attempts": sum(s.get("attempts", 0) for s in sent if s["path"] == "direct"),
         "hub": meta["hub_counts"], "hub_left_queued": meta["hub_left_queued"],
@@ -828,7 +850,7 @@ def verdict(res: dict, out: Path) -> int:
     line = (f"disconnect-stress: sent={res['sent']} delivered_once={res['delivered_once']} lost={res['lost']} "
             f"duplicated={res['duplicated']} unsent={res['unsent']} [{paths} sent/once/lost/dup] "
             f"faults[{faults}] daemons={res['daemons']} take_overs_failed={res['take_overs_failed']} "
-            f"sends_killed={res['direct_sends_killed']} attached_alive={sum(res['attached_alive'].values())}/"
+            f"sends_killed={res['direct_sends_killed']} clients_ended={res['attached_clients_ended_on_their_own']} attached_alive={sum(res['attached_alive'].values())}/"
             f"{len(res['attached_alive'])} daemon_alive={res['daemon_alive']} duration={res['duration_s']}s "
             f"wall={res['wall_s']}s seed={res['seed']}")
     print(json.dumps({k: v for k, v in res.items() if not k.startswith("_")}, indent=1))
