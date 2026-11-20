@@ -108,6 +108,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-cloud-config",
                     # The launch's Cloud environment read, through cmux-daemon-launch-core (CMUX-571).
                     "cmux-cloud-environment",
+                    # The dev build space header rule, through cmux-cloud-environment.
+                    "cmux-build-space",
                     # The follower of the app's cloud tasks (cmux-cloud-tasks).
                     "cmux-cloud-tasks",
                     # Which imported Chrome cookie domains changed (cmux-cookie-sync).
