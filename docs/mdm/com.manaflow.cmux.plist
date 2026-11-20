@@ -171,7 +171,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
 			<string>cmux stays in the menu bar until a window opens.</string>
 			<key>pfm_name</key>

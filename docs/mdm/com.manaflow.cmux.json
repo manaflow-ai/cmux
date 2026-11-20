@@ -667,7 +667,7 @@
       "type" : "boolean"
     },
     "app.hideDockIconWithoutWindows" : {
-      "default" : true,
+      "default" : false,
       "description" : "cmux stays in the menu bar until a window opens.",
       "title" : "Hide Dock Icon When No Windows Are Open",
       "type" : "boolean"

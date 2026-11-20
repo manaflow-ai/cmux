@@ -517,7 +517,7 @@
           "title": "Hide Dock Icon When No Windows Are Open",
           "help": "cmux stays in the menu bar until a window opens.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Window"
         },
         {
