@@ -47,6 +47,9 @@ pub struct Interrupt {
     /// The turn carries another person's text: the native engine refuses
     /// its local effects (README "Remote-origin messages").
     gate: AtomicBool,
+    /// A person's message joined the running wake run: its cost limit no
+    /// longer applies (`Budget`).
+    budget_lifted: AtomicBool,
     /// The running acpmux turn's signals, woken on a request.
     wake: Mutex<Option<Sender<TurnSignal>>>,
     /// Wakes [`Interrupt::wait`] on a request.
@@ -56,6 +59,15 @@ pub struct Interrupt {
 impl Interrupt {
     pub fn new() -> Interrupt {
         Interrupt::default()
+    }
+
+    /// The running turn's cost limit no longer applies.
+    pub fn lift_budget(&self) {
+        self.budget_lifted.store(true, Ordering::SeqCst);
+    }
+
+    pub fn budget_lifted(&self) -> bool {
+        self.budget_lifted.load(Ordering::SeqCst)
     }
 
     pub fn request(&self) {
@@ -219,10 +231,41 @@ pub struct TurnStart {
     pub keep: bool,
     /// A kept session this turn does not reuse: ended before it starts.
     pub retire: Option<String>,
+    /// A wake run's cost limit (check_in.rs): the turn is stopped when its
+    /// estimated cost reaches it. None: no limit.
+    pub budget: Option<Budget>,
     /// The permission mode an owner's Claude turn runs in
     /// (`engine::permission_mode`, cmux#37392; Manual runs under `ask`);
     /// None (a turn that carries another person's text): the session's own.
     pub permission_mode: Option<String>,
+}
+
+/// A turn's cost limit and the rates that price its tokens as they come.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Budget {
+    pub limit_usd: f64,
+    /// Dollars per weighted token, by model (`usage::rates`); `fallback`
+    /// for a model with no measured rate.
+    pub rates: std::collections::BTreeMap<String, f64>,
+    pub fallback: f64,
+}
+
+impl Budget {
+    /// The estimated cost of `requests` (each request's last usage).
+    pub fn spent(&self, requests: &[crate::fold::Request]) -> f64 {
+        requests
+            .iter()
+            .map(|r| {
+                let rate = r
+                    .model
+                    .as_deref()
+                    .and_then(|m| self.rates.get(m))
+                    .copied()
+                    .unwrap_or(self.fallback);
+                crate::usage::weighted_tokens(&r.usage) * rate
+            })
+            .sum()
+    }
 }
 
 /// A turn session kept after its turn (`Settings::keep_turn_session`): the
@@ -344,6 +387,8 @@ pub struct TurnOutcome {
     /// The session this turn left running for the next turn (`TurnStart::keep`
     /// and a clean end); None: the session was ended.
     pub kept: Option<Kept>,
+    /// The host stopped the turn at its cost limit: the estimated dollars.
+    pub budget_stopped: Option<f64>,
     /// The turn failed before its prompt reached a harness (its session did
     /// not start, or its system prompt was not set): nothing ran, so running it again repeats nothing. Set only where that
     /// holds; any other failure keeps false and is never rerun for it.
@@ -787,6 +832,7 @@ pub fn run_with_drafts(
             ..TurnOutcome::default()
         };
     }
+    let over_budget: std::cell::Cell<Option<f64>> = std::cell::Cell::new(None);
     let fetch = |fold: &mut TurnFold| -> Result<(), String> {
         let before = fold.seq();
         let mut entries = Vec::new();
@@ -800,6 +846,21 @@ pub fn run_with_drafts(
             optchat_host::fault("turn:after-fold");
             progress(&session, fold.seq());
             publish(fold);
+            // A wake run past its cost limit stops now (check_in.rs).
+            if let Some(budget) = &start.budget
+                && over_budget.get().is_none()
+                && !interrupt.budget_lifted()
+            {
+                let spent = budget.spent(fold.requests());
+                if spent >= budget.limit_usd {
+                    over_budget.set(Some(spent));
+                    log(&format!(
+                        "turn {}: about ${spent:.3} reached its ${:.2} limit; stopping it",
+                        start.key, budget.limit_usd
+                    ));
+                    interrupt.request_hard();
+                }
+            }
         }
         Ok(())
     };
@@ -1146,6 +1207,7 @@ pub fn run_with_drafts(
     };
     TurnOutcome {
         reply: fold.final_text(),
+        budget_stopped: over_budget.get(),
         done_draft,
         cancelled,
         unstarted: false,
