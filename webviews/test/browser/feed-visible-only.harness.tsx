@@ -12,6 +12,8 @@ declare global {
     benchRowRenders: { mark(): void; since(): number };
     /** Marks the open item read and back unread: the page reads the feed again, the diff the same. */
     benchChangeOne(): Promise<void>;
+    /** The diff's whole text, as its attachment holds it: what select-all copies. */
+    benchDiffText: string;
   }
 }
 
@@ -22,6 +24,7 @@ const diff = Array.from({ length: n }, (_, index) =>
     ? `@@ -${index},40 +${index},40 @@`
     : `${index % 3 === 0 ? "+" : index % 3 === 1 ? "-" : " "}    let value${index} = compute(${index}) // ${"x".repeat(index % 50)}`,
 ).join("\n");
+window.benchDiffText = diff;
 const items = sampleFeed(Date.now()).map((item) =>
   item.id === ITEM
     ? {
