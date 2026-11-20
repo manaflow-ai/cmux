@@ -561,7 +561,7 @@ test("the pane builds its Cloud start from grantedCloudStart and hands every Clo
   const source = readFileSync(join(import.meta.dir, "App.tsx"), "utf8");
   expect(source).toMatch(/const \[cloudFolderGrant\] = useState\(\(\) => cloudFolderGrants\(\)\);/);
   expect(source).toMatch(
-    /const \[startCloud\] = useState\(\(\) =>\s*grantedCloudStart\(reservedCloudCall\(callNative, cloudReservation\), cloudFolderGrant\),?\s*\);/,
+    /const \[startCloud\] = useState\(\(\) =>\s*grantedCloudStart\(\s*pickedChatCloudCall\(reservedCloudCall\(callNative, cloudReservation\), \(ms\) => harnessSwitch\.pickSession\(ms\)\),\s*cloudFolderGrant,?\s*\),?\s*\);/,
   );
   expect(source).toMatch(/cloudFolderGrant\.granting\(\s*folder\.cwd,\s*pickFolder\(callNative, folder\.cwd/);
   expect(source).toMatch(/newTabProjectPick\(callNative, sandboxOfferable, cloudFolderGrant\.granting\)/);

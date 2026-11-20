@@ -247,6 +247,7 @@ function FileRows({
   const rowKey = useCallback((at: number) => pathOf(entries[at]!), [entries, pathOf]);
   // The first measured row sizes every row not yet mounted.
   const rowHeight = useRef(0);
+  // react-doctor-disable-next-line react-hooks-js/incompatible-library -- TanStack Virtual returns a mutable instance, so the React Compiler skips this component, as in ui/VirtualList.
   const virtualizer = useVirtualizer({
     count: entries.length,
     getScrollElement: findViewport,
@@ -271,6 +272,7 @@ function FileRows({
   // coming, going or moving above a row moves its place, and that draws none of the rows. `places`
   // is the current listing's, read by the rows' ref as they mount.
   const places = useRef({ indexOf, count: entries.length });
+  // react-doctor-disable-next-line react-doctor/no-ref-current-in-render -- the rows' ref callback reads it in this commit, before this component's layout effects: an effect would place new rows by the last listing.
   places.current = { indexOf, count: entries.length };
   const measure = useCallback(
     (node: HTMLElement | null) => {
