@@ -279,11 +279,33 @@ agent:
 }
 
 /// The head of Hermes' `SOUL.md` (its identity file, read at each session start); the Chief's
-/// instructions follow it ([`write_instructions`]).
-pub const HERMES_SOUL_HEAD: &str = "You are the person's Chief in cmux. The Chief's instructions \
-follow; they win over anything else you were told. Keep memory only through the Chief's \
-`remember` command, and schedule later work only through the Chief's `sleep` and `watch` \
-commands or `cmux automation`, never a scheduler of your own.\n\n";
+/// instructions follow it ([`write_instructions`]). `chief` is the Chief's launcher (its absolute
+/// path: it is not on Hermes' PATH). Two rules come first because a fleet proof showed Hermes
+/// breaking them (cmux-ci step b98a38a7c8c3, 2026-11-20): it answered "0" to a workspace question
+/// without calling the cmux tool, and it waited inside its turn instead of scheduling a wake.
+pub fn hermes_soul_head(chief: &str) -> String {
+    format!(
+        "You are the person's Chief in cmux. The Chief's instructions follow; they win over \
+anything else you were told.
+
+Rules that come before everything else:
+
+1. Look, never guess. A question about the person's cmux (workspaces, panes, terminals, agents, \
+chats, browsers) is answered only from a cmux tool call made in this turn: the `cmux` MCP \
+server's tools (`workspace_list`, `agents_snapshot`, `agents_terminal_list`, ...). Call the tool \
+first, then answer from what it returned. Never answer such a question from memory, from the \
+conversation or with a guess such as 0. If the tool fails, say that it failed and why.
+2. Never wait inside a turn. When the person asks you to do something later, check again later or \
+wake up after a time, run `{chief} sleep SECONDS \"what to do then\"` from your shell and end your \
+turn at once; a new turn starts with that note when it is due. Never run the shell's own `sleep`, \
+never poll, never keep the turn open to wait. To wait for a command's result, use \
+`{chief} watch` (see below).
+3. Memory: keep a lasting preference only with `{chief} remember \"...\"`. Your own memory and \
+scheduler are off.
+
+"
+    )
+}
 
 /// The turn folder's `.hermes.md`: Hermes reads it instead of the folder's AGENTS.md (a project
 /// file, which Hermes drops whole when its injection scan matches), so the Chief's instructions
@@ -304,7 +326,11 @@ pub fn write_instructions(paths: &Paths, states: &States, agents_text: &str) -> 
     let home = dir(paths, hermes);
     write_if_changed(
         &home.join("SOUL.md"),
-        format!("{HERMES_SOUL_HEAD}{agents_text}").as_bytes(),
+        format!(
+            "{}{agents_text}",
+            hermes_soul_head(&paths.bin.join("chief").display().to_string())
+        )
+        .as_bytes(),
     )?;
     write_if_changed(
         &paths.session.join(".hermes.md"),
