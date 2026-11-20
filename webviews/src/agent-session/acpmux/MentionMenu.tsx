@@ -8,11 +8,11 @@ import { useT } from "./i18n";
 import { FileSearchLoading } from "./FileSearchLoading";
 import { type MentionState } from "./mentionMenuModel";
 import { TOOL_MENTIONS, type ToolMentionId } from "./toolMentions";
-/// The picker under the prompt, styled as the slash menu: other chats, folders, then files
-/// (mentionItems.ts), each with its icon, its name with the matched letters bold and its project or
+/// The picker under the prompt, styled as the slash menu: the plugins, then folders and files
+/// (mentionItems.ts), each with its icon, its name with the matched letters bold and its line or
 /// folder muted beside it. The prompt keeps focus and its keys (Composer.tsx): arrows move, Return
 /// or Tab picks, Esc closes. `state` is the file search's, undefined in a chat whose folder cannot be
-/// searched (a remote chat), which lists chats only and says nothing of files. `active` -1: no row.
+/// searched (a remote chat), which says nothing of files. `active` -1: no row.
 export function MentionMenu({
   state,
   items,
@@ -70,20 +70,12 @@ export function MentionMenu({
           <>
             <span className="acpmux-mention-icon" data-mention-icon={item.kind}>
               <Icon
-                name={
-                  item.kind === "session" || item.kind === "harness"
-                    ? "agent.chat"
-                    : item.kind === "tool"
-                      ? item.icon
-                      : item.kind
-                }
+                name={item.kind === "harness" ? "agent.chat" : item.kind === "tool" ? item.icon : item.kind}
                 size={14}
               />
             </span>
             <span className="acpmux-slash-name">{runs(item.name)}</span>
-            {item.kind === "session" ? (
-              item.project && <span className="acpmux-slash-description">{item.project}</span>
-            ) : item.kind === "harness" ? (
+            {item.kind === "harness" ? (
               <span className="acpmux-slash-description">{t("mention.readOnlyGuest")}</span>
             ) : item.kind === "tool" ? (
               <span className="acpmux-slash-description">{t(toolHint(item.toolId))}</span>

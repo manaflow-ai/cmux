@@ -63,7 +63,6 @@ import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
 import { MentionMenu } from "./MentionMenu";
 import { Icon } from "./icons/Icon";
 import { markdownOffset, mentionQuery, mentionResults, useMentionSearch } from "./mentionMenuModel";
-import { wantAllSessions } from "./sessionPages";
 import {
   loadRecentMentionPaths,
   mentionInsert,
@@ -1384,20 +1383,13 @@ function ComposerFrame({
     setActive(0);
     setArrowed(false);
   }, [query, open]);
-  // Typing @ at a word start lists other chats, then the chat's folders and files that match what
-  // follows (cx-ncc.68, mentionItems.ts).
-  const chatId = snapshot.summary?.sessionId;
-  // Computer use and browser use are always offered (toolMentions.ts), so the menu always has rows.
+  // Typing @ at a word start lists the plugins (toolMentions.ts), then, for a specific word, the
+  // chat's folders and files that match what follows (mentionItems.ts). Computer use and browser use
+  // are always offered, so the menu always has rows.
   const mentionTyped =
     !open && !recalling && mentionDismissed !== text ? mentionQuery(text, markdownOffset(text, caret)) : undefined;
   const mentionWord = mentionTyped?.query;
-  // The @ picker finds any chat by name, not only the first page's: the pane reads the rest once
-  // it opens (sessionPages.ts `wantAllSessions`), and follows the list from then on.
-  const mentioning = mentionWord !== undefined;
-  useEffect(() => {
-    if (mentioning) wantAllSessions();
-  }, [mentioning]);
-  // Only a specific word asks for files (mentionItems.ts mentionWantsFiles): `@b` lists the plugins and chats.
+  // Only a specific word asks for files (mentionItems.ts mentionWantsFiles): `@b` lists the plugins.
   const fileWord = mentionWord !== undefined && mentionWantsFiles(mentionWord) ? mentionWord : undefined;
   const mentionSearch = useMentionSearch(searchFiles, fileWord);
   const mentionFiles = mentionResults(mentionSearch);
@@ -1413,20 +1405,15 @@ function ComposerFrame({
             query: mentionWord,
             files: mentionFiles,
             recent: loadRecentMentionPaths(recentScope),
-            sessions: snapshot.sessions,
-            chatId,
             harnesses: guestHarnesses,
             toolName: (tool) => t(tool.label),
           }),
-    [mentionWord, mentionFiles, snapshot.sessions, guestHarnesses, chatId, recentScope, t],
+    [mentionWord, mentionFiles, guestHarnesses, recentScope, t],
   );
   // A chat whose folder cannot be searched (a remote chat) opens the picker only on a matching
-  // chat; it never hints at a file search.
+  // row; it never hints at a file search.
   const mentionAt = searchFiles || mentions.length > 0 ? mentionTyped : undefined;
-  // The word's files are still on their way: asked, or about to be once typing settles.
-  const mentionPending =
-    !!searchFiles && !!fileWord?.trim() && (mentionSearch.kind === "idle" || mentionSearch.kind === "searching");
-  const mentionSelected = mentionSelection(mentions, mentionActive, mentionPending);
+  const mentionSelected = mentionSelection(mentions, mentionActive);
   useEffect(() => setMentionActive(undefined), [mentionWord]);
   // `:` and two letters at a word start list emoji by shortcode; a text emoticon (`:)`, `:DD`,
   // `<3`) lists its face with no row chosen, so Return still sends it as typed (emojiShortcodes.ts).
