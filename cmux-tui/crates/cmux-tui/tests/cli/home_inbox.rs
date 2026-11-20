@@ -335,6 +335,8 @@ fn home_inbox_since_answers_only_the_rows_that_changed() {
         identity["capabilities"].as_array().unwrap().iter().any(|v| v == "home-inbox-since-v1"),
         "{identity}"
     );
+    // `sent` waits for its own message event, which only a subscribed page gets.
+    page.request("subscribe", json!({}));
     let builder = json!({"id": "agent_builder", "kind": "agent", "display_name": "Builder"});
     let docs = json!({"id": "agent_docs", "kind": "agent", "display_name": "Docs"});
     let first = create(&mut page, "since-a", "Builder", json!([builder]));
