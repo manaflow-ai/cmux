@@ -26,9 +26,9 @@ extension SettingsSchema {
     /// Keys an agent may set and reset.
     public static let agentSettableKeys: Set<String> = [
         "window.titlebar",
+        // Whether a chat shows the live view of the app its agent uses: looks only.
+        "computerUse.livePreview",
         "shortcuts.showModifierHoldHints",
-        // Whether the window offers the Customize Inspector and right-click Customize…: looks only, and off is the default.
-        "customize.fromTheApp",
         // Whether right-click menus end with Customize Menu… (looks only; the layouts stay the person's).
         "contextMenus.showCustomizeItem",
         "window.titlebarButtons", "tabs.plusButton", "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons",
@@ -56,6 +56,8 @@ extension SettingsSchema {
         "tabs.verticalTabs", "tabs.verticalTabsExpandOnHover",
         // Whether a lone chat's tab draws (looks only)
         "tabs.hideLoneChatTab",
+        // When panes show their tab bar (looks only; tabs stay reachable from the keyboard, palette and sidebar)
+        "tabs.stripVisibility",
         "tabs.swapCmdTAndCmdN", "tabs.commandDigits", "palette.scopes.tabs.prefix", "palette.scopes.workspaces.prefix",
         "palette.scopes.commands.prefix", "palette.scopes.settings.prefix", "palette.scopes.scopes.prefix",
         "tasks.layout", "layout.defaultColumnWidth", "layout.centerFocusedColumn", "layout.stripScrollbar",
@@ -72,7 +74,7 @@ extension SettingsSchema {
         "appearance.highlightColor",
         "appearance.themeEdits",
         // The theme file whose look applies (looks only)
-        "appearance.themeFile", "appearance.themeFileExceptions",
+        "appearance.themeFile",
         // Starred themes and their rotation (looks only)
         "appearance.favoriteThemes", "appearance.rotateFavoriteThemes",
         // The color of each machine's marks (looks only)
@@ -276,6 +278,8 @@ extension SettingsSchema {
         "agents.chats.coldArchive", "agents.chats.coldArchiveAfterDays",
         // Whether a chat's pull request link opens the cmux GitHub page or github.com in a cmux tab: both stay in cmux, with no network, privacy or destructive effect.
         "browser.openPullRequestsInGitHubPage",
+        // Which of the person's own connections a thread may move to when one runs out: it adds no connection and spends nothing past a connection's own limit.
+        "models.spreadUsage",
     ]
 
     /// True when an agent may change `descriptor`, false when it may not, nil

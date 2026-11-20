@@ -108,6 +108,12 @@ extension LoneChatTabSetting {
     public nonisolated static let fallback = false
 }
 
+extension TabStripVisibilitySetting {
+    /// `tabs.stripVisibility`: When a pane shows its tab strip; Rust decides each pane (cmux_window_rules tabs::panes::strip). Auto is today's: every pane shows it and tabs.hideLoneChatTab is honoured. A pane's own Show Tab Bar or Hide Tab Bar wins over every value; Never keeps tabs reachable by Ctrl-Tab, Ctrl-1...9, the palette and the sidebar, as a chat-first app does.
+    public nonisolated static let configPath = ["tabs", "stripVisibility"]
+    public nonisolated static let fallback: TabStripVisibility = .auto
+}
+
 extension SwapCmdTAndCmdNSetting {
     /// `tabs.swapCmdTAndCmdN`: Cmd-T opens a workspace and Cmd-N a tab.
     public nonisolated static let configPath = ["tabs", "swapCmdTAndCmdN"]

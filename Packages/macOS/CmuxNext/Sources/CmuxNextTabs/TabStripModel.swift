@@ -27,7 +27,11 @@ public final class TabStripModel {
     public var groups: [TabGroupItem]
     /// One tab, no group, and `tabs.hideLoneChatTab` on: a chat alone in its pane then draws no tab beside its tools
     /// in the tab row (#33132; `PaneTabRowSharing.tabRowTakesLoneTab`). Off by default (Leo 2026-11-03: "leave it as an optional toggle").
-    public var hidesLoneTab: Bool { DesignSettings.shared.hideLoneChatTab && tabs.count == 1 && groups.isEmpty }
+    /// Only `tabs.stripVisibility` `auto` honours it; `always` keeps the tab.
+    public var hidesLoneTab: Bool {
+        let design = DesignSettings.shared
+        return design.hideLoneChatTab && design.tabStripVisibility == .auto && tabs.count == 1 && groups.isEmpty
+    }
     /// The active tab. One outside `multiSelection` ends that selection.
     public var selectedID: TabID? { didSet { if selectedID != oldValue { followActive() } } }
     /// Cmd- and Shift-click's selection (`TabMultiSelection`); empty while only `selectedID` is selected.

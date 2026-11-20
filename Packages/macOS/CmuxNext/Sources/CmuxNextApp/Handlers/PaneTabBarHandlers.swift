@@ -1,6 +1,8 @@
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextSettings
 import CmuxNextWindowRules
 
 /// Hide Tab Bar / Show Tab Bar and New Horizontal Tab (cx-soza): a pane's own
@@ -89,9 +91,13 @@ extension PaneController {
     /// The pinned dock this pane is in, if any.
     private var pinnedDock: DockColumn? { daemon.store.pinnedDock(holding: pane.handle) }
 
-    /// Shows or hides this pane's tab bar now. Shown is the default, so it is no choice.
+    /// The pane's strip at `shownTabs` tabs (its daemon tabs by default): its own Show or Hide Tab Bar, else `tabs.stripVisibility` (Rust's `tabs::panes::strip`).
+    func strip(shownTabs: Int? = nil) -> WindowRules.Strip { WindowRules().strip(visibility: DesignSettings.shared.tabStripVisibility.rawValue, choice: services.paneTabBars.choice(for: paneKey), shownTabs: shownTabs ?? pane.tabs.count) }
+    var hidesTabBar: Bool { !strip().shown } // whether the pane hides its tab bar now
+
+    /// Shows or hides this pane's tab bar now: a hide is always the pane's choice, a show only while `tabs.stripVisibility` hides it.
     func showTabBar(_ shown: Bool) {
-        services.paneTabBars.set(shown ? nil : false, for: paneKey)
+        services.paneTabBars.set(shown ? (strip().shownBySetting ? nil : true) : false, for: paneKey)
         apply(snapshot())
     }
 }

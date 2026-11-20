@@ -75,6 +75,23 @@ extension WindowRules {
         return call("window_panes_tab_bar", Request(appPane: appPane, pinnedDock: pinnedDock, pinnedDockHidesTabBar: pinnedDockHidesTabBar), as: TabBar.self)
     }
 
+    /// What a pane's strip shows (`tabs.stripVisibility`; Rust's `tabs::panes::strip`).
+    public nonisolated struct Strip: Decodable, Equatable, Sendable {
+        /// The pane draws its strip.
+        public var shown: Bool
+        /// The setting alone, without the pane's own Show/Hide Tab Bar choice.
+        public var shownBySetting: Bool
+    }
+
+    /// `visibility` is the setting's value (`auto`, `always`, `whenMultiple`, `never`); `choice` the pane's
+    /// own Show (true) or Hide (false) Tab Bar, nil to follow the setting. When the FFI does not answer: shown
+    /// unless the pane hid it (the behaviour before the setting).
+    public func strip(visibility: String, choice: Bool?, shownTabs: Int) -> Strip {
+        struct Request: Encodable { var visibility: String, choice: Bool?, shownTabs: Int }
+        return call("window_panes_strip", Request(visibility: visibility, choice: choice, shownTabs: shownTabs), as: Strip.self)
+            ?? Strip(shown: choice != false, shownBySetting: true)
+    }
+
     /// The terminal actions that run one Ghostty binding action: (action id, binding).
     public func terminalBindings() -> [(action: String, binding: String)] {
         struct Empty: Encodable {}

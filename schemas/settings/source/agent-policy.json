@@ -158,6 +158,13 @@
     },
     {
       "agent": "settable",
+      "why": "When panes show their tab bar (looks only; tabs stay reachable from the keyboard, palette and sidebar)",
+      "keys": [
+        "tabs.stripVisibility"
+      ]
+    },
+    {
+      "agent": "settable",
       "keys": [
         "tabs.swapCmdTAndCmdN",
         "tabs.commandDigits",
