@@ -82,7 +82,7 @@ final class AgentPanePageSettings {
         // task-owner: lives as long as the tabs; event-driven (Observation)
         displayObservation = Task { [weak self] in
             for await value in ObservationStream({ AgentPaneDisplaySetting(
-                fileRoot: settings.fileRoot,
+                fileRoot: settings.fileRoot, lookRoot: settings.applied.root,
                 managedHarnessPlacement: settings.managedKeys["agentPane.display.harnessPlacement"].flatMap { _ in
                     settings.snapshot.root.value(at: ["agentPane", "display", "harnessPlacement"])
                 }
