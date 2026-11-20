@@ -60,7 +60,8 @@
 #                havent breakdowns of startup times ran on my cosmic things"). The copy gets its own bundle id
 #                (<id>.launch-ready, re-signed ad hoc with no entitlements, its URL schemes and document types removed,
 #                unregistered from LaunchServices at exit; LR-GUEST), so the defaults set aside, cleared and put back
-#                are the guest's domain, never the NIGHTLY's; every launch opens without activating (no focus taken,
+#                are the guest's domain, never the NIGHTLY's; every launch opens without activating and with
+#                CMUX_NEXT_NO_ACTIVATE=1 (the app drops every activation and opens its windows behind; no focus taken,
 #                `active` stays null); and wait_load is skipped (the caller gates load and idle itself). Takes a DMG
 #                (not dmg=build or dmg=swap) and no case=update, copy=fresh, late=, engines= or profile=1.
 #                An ad hoc copy's time before main is not a Developer ID copy's: compare guest runs with guest runs.
@@ -347,7 +348,7 @@ probe() {
   if [[ "$label" == run* && "${LR_DAEMON:-warm}" == cold ]]; then
     cold_daemon "$out" "$side" "$label" || return 1
   fi
-  [[ "$LR_GUEST" == 1 ]] || wait_load "$side" "$label" # guest=1: the caller gates load (and idle) itself
+  [[ "${LR_GUEST:-0}" == 1 ]] || wait_load "$side" "$label" # guest=1: the caller gates load (and idle) itself
   load="$(load_1m)"
   if [[ "$profile" == 1 ]]; then
     xcrun xctrace record --template 'Time Profiler' --all-processes --time-limit 15s --output "$trace" --no-prompt \
