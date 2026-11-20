@@ -320,9 +320,9 @@ impl<H: Http + Send + 'static> CarrierServer<H> {
         // same lock as a resume. A later resume clears the installed ticket;
         // an earlier one means this bind must prefetch a replacement.
         self.shared.change(|state| {
-            let warm = first
-                .filter(|(before, _)| prefetch && before.0 == state.generation)
-                .and_then(|(_, reply)| Warm::of(&reply, (self.hooks.now)()));
+            let warm = first.and_then(|(before, reply)| {
+                state.seed_from_bind(before.0, prefetch, &reply, (self.hooks.now)())
+            });
             let seeded = warm.is_some();
             state.bind_with(Next { client, prefetch, seeded }, warm);
         });
