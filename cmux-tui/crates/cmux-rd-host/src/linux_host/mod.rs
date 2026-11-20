@@ -619,7 +619,19 @@ fn join_consent(
     same_join: bool,
     args: &Args,
 ) -> Res<(Res<LocalConsent>, bool)> {
-    let _ = same_join;
+    if same_join {
+        // Review F1 of #45480: the person's choice stays, including a withdrawn one (no file).
+        // Only a narrower one is taken: `--view-only` turns control off, never on.
+        let kept = LocalConsent::load(dir);
+        return match kept {
+            Ok(kept) if kept.full && args.flag("view-only") => {
+                let narrowed = LocalConsent { full: false, ..kept };
+                narrowed.save(dir)?;
+                Ok((Ok(narrowed), true))
+            }
+            kept => Ok((kept, false)),
+        };
+    }
     let consent = enable_consent(args);
     consent.save(dir)?;
     Ok((Ok(consent), true))
