@@ -225,6 +225,7 @@ public struct AgentChatDriveControl: Sendable {
         guard !person.isUsing(since: nil) else { throw ControlError(code: "busy", message: Text.personBusy) }
 
         // A page that threw or gave no object can't be driven (an older page has no `drive`).
+        // timeout: only how long the drive waits for a stalled page to start its run; the call then refuses, and nothing the person does waits on it
         let begun = try? await Self.call(view, beginScript, ["options": params.beginOptions.foundationObject], timeout: .seconds(10))
         switch begun?["error"]?.stringValue {
         case nil where begun?["ok"] == true: break
@@ -259,6 +260,7 @@ public struct AgentChatDriveControl: Sendable {
         release.runEnded = true
         // The page's report, whatever happened; never a call that would thaw a page frozen meanwhile.
         var report: [String: JSONValue]?
+        // timeout: only how long the drive waits for a stalled page's report; it then answers without one and still releases the hover
         if !view.pageIsFrozen { report = (try? await Self.call(view, endScript, [:], timeout: .seconds(10))) ?? nil }
         await release.release(Task.isCancelled ? "cancel" : how)
         let counters = await input.engineCounters(since: run.countersStart)
