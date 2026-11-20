@@ -465,7 +465,7 @@ if Path(sys.argv[0]).name == "git":
     else: raise AssertionError(args)
 elif args[:2] == ["pr", "list"]: print("1")  # deliberately stale
 elif args[:2] == ["pr", "edit"]:
-    if state["close_on_edit"]: state["prs"][args[2]] = "closed"; save()
+    raise AssertionError("gh pr edit reads Projects (classic) fields GitHub refuses; edit through REST")
 elif args[:2] == ["pr", "close"]:
     state["prs"][args[2]] = "closed"; state.setdefault("closes", []).append(args[2]); save()
 elif args[:2] == ["workflow", "run"]:
@@ -475,7 +475,12 @@ elif args[:2] == ["pr", "create"]:
     print("https://github.com/manaflow-ai/cmux/pull/2")
 elif args[0] == "api":
     endpoint = next(a for a in args if a.startswith("repos/"))
-    if "contents/" in endpoint:
+    if "PATCH" in args and "/pulls/" in endpoint:
+        # The re-pin's title and body edit (REST, not `gh pr edit`: run 44655157417).
+        state.setdefault("edits", []).append(endpoint.rsplit("/", 1)[1])
+        if state["close_on_edit"]: state["prs"][endpoint.rsplit("/", 1)[1]] = "closed"
+        save(); emit({"number": int(endpoint.rsplit("/", 1)[1])})
+    elif "contents/" in endpoint:
         if "PUT" in args:
             payload = json.loads(Path(args[args.index("--input") + 1]).read_text())
             state["writes"] += 1

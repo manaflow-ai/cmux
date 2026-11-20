@@ -1,6 +1,6 @@
-import CmuxNextServer
-import Foundation
-import ServiceManagement
+import CmuxNextCompat
+public import Foundation
+public import ServiceManagement
 
 /// Keeps the Mac's server running when the app quits (plans/cmux-next/server.md 4.3):
 /// a launchd agent registered with `SMAppService.agent` from the plist the app
@@ -11,12 +11,16 @@ import ServiceManagement
 /// `server.agent.allowRegister` (off by default) until the bundled CLI ships
 /// `cmux host run`. `ServerStopServing` unregisters it, switch or not.
 /// This is the only place that registers the agent.
-struct ServerLaunchAgent {
-    static let plistName = "com.cmux.server.plist"
+public struct ServerLaunchAgent {
+    public static let plistName = "com.cmux.server.plist"
 
-    enum Failure: Error, Equatable {
+    public enum Failure: Error, Equatable {
         /// The bundle has no agent plist (the server software is not in this build).
         case notInBuild
+        /// A dev build: the agent's `cmux host run` keeps one state for every build
+        /// (`~/Library/Application Support/cmux/server`) and calls the cloud with no build space, so a dev
+        /// build never registers it (AGENTS.md "Dev builds are separate").
+        case devBuild
         /// The opt-in switch is off: the server software is not ready yet.
         case notReady
         /// The user must allow the agent in System Settings > Login Items.
@@ -25,23 +29,41 @@ struct ServerLaunchAgent {
     }
 
     /// The `SMAppService` calls, as a seam.
-    struct Service {
+    public struct Service {
         var status: @MainActor () -> SMAppService.Status
         var register: @MainActor () throws -> Void
         var openLoginItems: @MainActor () -> Void
+
+        public init(status: @escaping @MainActor () -> SMAppService.Status, register: @escaping @MainActor () throws -> Void,
+                    openLoginItems: @escaping @MainActor () -> Void) {
+            self.status = status
+            self.register = register
+            self.openLoginItems = openLoginItems
+        }
     }
 
     var isBundled: @MainActor () -> Bool
+    /// The app is a dev build (``BuildIdentity/needsBuildSpace``).
+    var isDevBuild: @MainActor () -> Bool = { false }
     var allowRegister: @MainActor () -> Bool
     var service: Service
 
-    static var isBundled: Bool {
+    public init(isBundled: @escaping @MainActor () -> Bool, isDevBuild: @escaping @MainActor () -> Bool = { false },
+                allowRegister: @escaping @MainActor () -> Bool, service: Service) {
+        self.isBundled = isBundled
+        self.isDevBuild = isDevBuild
+        self.allowRegister = allowRegister
+        self.service = service
+    }
+
+    public static var isBundled: Bool {
         FileManager.default.fileExists(atPath: Bundle.main.bundleURL.appending(path: "Contents/Library/LaunchAgents/\(plistName)").path)
     }
 
-    static func app() -> ServerLaunchAgent {
+    public static func app() -> ServerLaunchAgent {
         ServerLaunchAgent(
             isBundled: { Self.isBundled },
+            isDevBuild: { BuildIdentity(bundle: .main).needsBuildSpace },
             allowRegister: { ServerTunables.agentAllowRegister.value },
             service: Service(status: { SMAppService.agent(plistName: plistName).status },
                              register: { try SMAppService.agent(plistName: plistName).register() },
@@ -50,8 +72,9 @@ struct ServerLaunchAgent {
 
     /// Registers the agent. Idempotent: an enabled agent stays enabled.
     @MainActor
-    func register() throws(Failure) {
+    public func register() throws(Failure) {
         guard isBundled() else { throw .notInBuild }
+        guard !isDevBuild() else { throw .devBuild }
         guard allowRegister() else { throw .notReady }
         switch service.status() {
         case .enabled:
