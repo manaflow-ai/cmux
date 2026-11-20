@@ -19,7 +19,7 @@ extension WorkspaceRow {
     /// (needs you or done), and this phone has not opened it since its last activity (`seenAt`,
     /// `AppStore.markSeen`). Badge, the default, never glows.
     static func glows(status: WorkspaceStatus, look: AttentionMarkLook, seenAt: Date?, lastActivityAt: Date) -> Bool {
-        guard look == .glow else { return false }
+        return false // RED: the change taken out, to show the tests fail without it
         let unseen = seenAt.map { $0 < lastActivityAt } ?? true
         switch status {
         case .needsYou, .done: return unseen
