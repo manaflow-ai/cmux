@@ -38,30 +38,31 @@ fn config(home: &Path, surfaces: &[&str]) {
 /// `daemon run --memory` of `cmd` in `home`, ready: its stdout (the ready line, then its log)
 /// drained on a thread so a full pipe never holds it.
 fn start(cmd: Command, home: &Path, socket: &Path) -> (Child, Value) {
-    start_with(cmd, home, socket, true)
+    start_with(cmd, home, socket, true, "warn")
 }
 
-/// [`start`], its store in memory or, without `memory`, the home's own on disk.
-fn start_with(mut cmd: Command, home: &Path, socket: &Path, memory: bool) -> (Child, Value) {
+/// The daemon's `handoff timing: <mark>` lines (`daemon::HANDOFF_TIMING`), each with the instant
+/// its line arrived: the bench's timeline of a restart inside the daemon.
+static MARKS: std::sync::Mutex<Vec<(Instant, String)>> = std::sync::Mutex::new(Vec::new());
+
+/// [`start`], its store in memory or, without `memory`, the home's own on disk, logging at `log`.
+fn start_with(
+    mut cmd: Command,
+    home: &Path,
+    socket: &Path,
+    memory: bool,
+    log: &str,
+) -> (Child, Value) {
     cmd.args(["daemon", "run"]);
     if memory {
         cmd.arg("--memory");
     }
-    cmd.args([
-        "--log",
-        "warn",
-        "--listen",
-        "127.0.0.1:0",
-        "--token",
-        "test-token",
-        "--ready-fd",
-        "1",
-    ])
-    .env("ACPMUX_HOME", home)
-    .env("ACPMUX_SOCKET", socket)
-    .stdin(Stdio::null())
-    .stdout(Stdio::piped())
-    .stderr(Stdio::inherit());
+    cmd.args(["--log", log, "--listen", "127.0.0.1:0", "--token", "test-token", "--ready-fd", "1"])
+        .env("ACPMUX_HOME", home)
+        .env("ACPMUX_SOCKET", socket)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit());
     let mut child = cmd.spawn().unwrap();
     let mut stdout = BufReader::new(child.stdout.take().unwrap());
     let ready = loop {
@@ -82,7 +83,13 @@ fn start_with(mut cmd: Command, home: &Path, socket: &Path, memory: bool) -> (Ch
         // says why there.
         let mut line = String::new();
         while stdout.read_line(&mut line).is_ok_and(|n| n > 0) {
-            eprint!("daemon: {line}");
+            match line.split_once("handoff timing: ") {
+                Some((_, mark)) => MARKS
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .push((Instant::now(), mark.trim().to_owned())),
+                None => eprint!("daemon: {line}"),
+            }
             line.clear();
         }
     });
@@ -259,8 +266,8 @@ struct Pause {
     request: f64,
     /// Of `request`: sent until the check's child runs.
     dispatch: f64,
-    /// Of `dispatch`: sent until the daemon's `handoff-check` thread runs.
-    to_thread: f64,
+    /// The daemon's threads running or in an uninterruptible wait 20 ms into the request.
+    busy: f64,
     /// The old image's thread count as the request was sent.
     threads: f64,
     /// Of `request`: the check's child, from its start to its reaping.
@@ -281,24 +288,15 @@ struct Pause {
 
 impl Pause {
     const PARTS: [&'static str; 11] = [
-        "request",
-        "dispatch",
-        "to_thread",
-        "check",
-        "stop",
-        "init",
-        "start",
-        "status",
-        "rss_mib",
-        "threads",
-        "nice",
+        "request", "dispatch", "busy", "check", "stop", "init", "start", "status", "rss_mib",
+        "threads", "nice",
     ];
 
     fn part(&self, name: &str) -> f64 {
         match name {
             "request" => self.request,
             "dispatch" => self.dispatch,
-            "to_thread" => self.to_thread,
+            "busy" => self.busy,
             "threads" => self.threads,
             "check" => self.check,
             "rss_mib" => self.rss_mib,
@@ -315,8 +313,6 @@ impl Pause {
 /// it).
 #[derive(Default)]
 struct Seen {
-    /// The daemon's `handoff-check` thread first listed (`daemon/handoff.rs`).
-    thread: Option<Instant>,
     /// The `daemon handoff-check` child first listed under one of the daemon's threads.
     check_from: Option<Instant>,
     /// That child no longer listed: it ended and was reaped.
@@ -325,6 +321,20 @@ struct Seen {
     check_nice: Option<i64>,
     /// The pid's command line names handoff count `n`: the exec of restart `n`.
     exec: Option<Instant>,
+    /// The daemon's threads running or in an uninterruptible wait (`R` or `D`) 20 ms into the
+    /// request.
+    busy: Option<u64>,
+}
+
+/// How many of `pid`'s threads are running or in an uninterruptible wait now.
+fn busy_threads(pid: u64) -> u64 {
+    let Ok(tasks) = std::fs::read_dir(format!("/proc/{pid}/task")) else { return 0 };
+    let state = |stat: &str| stat.rsplit_once(')').and_then(|(_, r)| r.trim_start().chars().next());
+    tasks
+        .flatten()
+        .filter_map(|task| std::fs::read_to_string(task.path().join("stat")).ok())
+        .filter(|stat| matches!(state(stat), Some('R' | 'D')))
+        .count() as u64
 }
 
 /// The daemon's children now: every thread's `children` list.
@@ -348,10 +358,11 @@ fn watch_restart(pid: u64, n: u64) -> std::thread::JoinHandle<Seen> {
         if !Path::new("/proc/self/cmdline").exists() {
             return seen;
         }
-        let deadline = Instant::now() + BENCH_WITHIN;
+        let began = Instant::now();
+        let deadline = began + BENCH_WITHIN;
         while Instant::now() < deadline {
-            if seen.thread.is_none() && check_thread(pid) {
-                seen.thread = Some(Instant::now());
+            if seen.busy.is_none() && began.elapsed() >= Duration::from_millis(20) {
+                seen.busy = Some(busy_threads(pid));
             }
             if seen.check_to.is_none() {
                 let now = children(pid);
@@ -378,14 +389,6 @@ fn watch_restart(pid: u64, n: u64) -> std::thread::JoinHandle<Seen> {
             std::thread::sleep(Duration::from_micros(200));
         }
         seen
-    })
-}
-
-/// Whether one of `pid`'s threads is its `handoff-check` thread.
-fn check_thread(pid: u64) -> bool {
-    let Ok(tasks) = std::fs::read_dir(format!("/proc/{pid}/task")) else { return false };
-    tasks.flatten().any(|task| {
-        std::fs::read_to_string(task.path().join("comm")).is_ok_and(|c| c.trim() == "handoff-check")
     })
 }
 
@@ -416,8 +419,9 @@ fn settled(status: &Value) -> bool {
 }
 
 /// `shape`'s home, its store on disk, restarted in place `runs` times right after it serves, then
-/// `runs` times more once its startup ended ([`settled`]): each series' pauses.
-fn pauses(shape: &Shape, runs: u64) -> [Vec<Pause>; 2] {
+/// `runs` times more once its startup ended ([`settled`]): each series' pauses, and each series'
+/// marks ([`MARKS`]) in ms from each request (`next <mark>`: the new image's).
+fn pauses(shape: &Shape, runs: u64) -> ([Vec<Pause>; 2], [Marks; 2]) {
     let scratch = daemon_env::Scratch::new(&format!("hof-{}", shape.name));
     let home = scratch.join("acpmux");
     let claude = daemon_env::home(&scratch).join(".claude");
@@ -428,12 +432,14 @@ fn pauses(shape: &Shape, runs: u64) -> [Vec<Pause>; 2] {
     let socket = dir.path().join("s.sock");
     let mut cmd = daemon_env::acpmux(&scratch);
     cmd.env("ACPMUX_CATALOG_FETCH", "0").env("ACPMUX_LOGIN_ENV", "0");
-    let (mut child, ready) = start_with(cmd, &home, &socket, false);
+    let (mut child, ready) = start_with(cmd, &home, &socket, false, "warn,handoff_timing=debug");
     let pid = u64::from(child.id());
     assert_eq!(ready["pid"].as_u64(), Some(pid));
     let first = status_after(&socket, BENCH_WITHIN, |_| true);
     assert_eq!(first["handoffs"], 0, "{}: {first}", shape.name);
     let mut series = [Vec::new(), Vec::new()];
+    let mut marks: [Marks; 2] = Default::default();
+    let mut since = Instant::now();
     let ms = |from: Instant, to: Instant| {
         let (later, sign) = if to >= from { (to - from, 1.0) } else { (from - to, -1.0) };
         sign * later.as_secs_f64() * 1000.0
@@ -442,13 +448,23 @@ fn pauses(shape: &Shape, runs: u64) -> [Vec<Pause>; 2] {
         let after_startup = n > runs;
         if after_startup {
             let deadline = Instant::now() + Duration::from_secs(30);
-            while !settled(&status_after(&socket, BENCH_WITHIN, |_| true)) {
+            let mut last = status_after(&socket, BENCH_WITHIN, |_| true);
+            while !settled(&last) {
                 if Instant::now() > deadline {
                     println!("HANDOFF-SETTLE-TIMEOUT home={} restart={n}", shape.name);
                     break;
                 }
                 std::thread::sleep(Duration::from_millis(20));
+                last = status_after(&socket, BENCH_WITHIN, |_| true);
             }
+            // A whole startup's phases, once: what a start of this home costs once it ended.
+            if n == runs + 1 {
+                println!(
+                    "HANDOFF-SETTLED-PHASES home={} phases={}",
+                    shape.name, last["gauges"]["startup"]
+                );
+            }
+            since = Instant::now();
         }
         let watch = watch_restart(pid, n);
         let rss = proc_status(pid, "VmRSS").map_or(-1.0, |kib| kib as f64 / 1024.0);
@@ -466,6 +482,25 @@ fn pauses(shape: &Shape, runs: u64) -> [Vec<Pause>; 2] {
         let check_from = seen.check_from.unwrap_or(asked);
         let check_to = seen.check_to.unwrap_or(check_from);
         let (born, ready) = born_and_ready(&status, got).unwrap_or((exec, got));
+        {
+            let lines = MARKS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let window: Vec<_> =
+                lines.iter().filter(|(at, _)| *at >= since && *at <= got).collect();
+            let exec_mark = window.iter().find(|(_, name)| name == "exec").map(|(at, _)| *at);
+            let mut first: std::collections::BTreeMap<String, f64> = Default::default();
+            for (at, name) in window {
+                let name = if exec_mark.is_some_and(|e| *at > e) {
+                    format!("next {name}")
+                } else {
+                    name.clone()
+                };
+                first.entry(name).or_insert_with(|| ms(asked, *at));
+            }
+            for (name, at) in first {
+                marks[usize::from(after_startup)].entry(name).or_default().push(at);
+            }
+        }
+        since = got;
         // The new image's startup phases, once per series: where its start spent the time.
         if n == runs || n == runs * 2 {
             println!(
@@ -477,7 +512,7 @@ fn pauses(shape: &Shape, runs: u64) -> [Vec<Pause>; 2] {
             total: ms(asked, got),
             request: ms(asked, answered),
             dispatch: ms(asked, check_from),
-            to_thread: ms(asked, seen.thread.unwrap_or(check_from)),
+            busy: seen.busy.map_or(-1.0, |n| n as f64),
             threads,
             check: ms(check_from, check_to),
             rss_mib: rss,
@@ -495,8 +530,11 @@ fn pauses(shape: &Shape, runs: u64) -> [Vec<Pause>; 2] {
         );
     }
     stop(child);
-    series
+    (series, marks)
 }
+
+/// Each mark's ms from its request, one per restart that logged it.
+type Marks = std::collections::BTreeMap<String, Vec<f64>>;
 
 #[test]
 #[ignore = "a bench: run with --ignored on Linux CI"]
@@ -506,7 +544,7 @@ fn a_restart_in_place_pauses_a_god_home_no_longer_than_a_small_one() {
     let scale = env_or("ACPMUX_HANDOFF_GOD_SCALE", 0.02f64).clamp(0.001, 1.0);
     let mut p95s = Vec::new();
     for shape in shapes(scale) {
-        let [first, later] = pauses(&shape, runs);
+        let ([first, later], marks) = pauses(&shape, runs);
         // `when=served`: each restart as soon as the image before it served; `when=settled`: each
         // once that image's startup ended (every chat log read).
         for (when, series) in [("served", &first), ("settled", &later)] {
@@ -522,6 +560,18 @@ fn a_restart_in_place_pauses_a_god_home_no_longer_than_a_small_one() {
                 let (p50, p95, max) = spread(&ms);
                 println!(
                     "HANDOFF-PAUSE-SPLIT home={} when={when} part={part} p50={p50:.1} p95={p95:.1} max={max:.1}",
+                    shape.name
+                );
+            }
+        }
+        // The daemon's own timeline of each restart, in ms from the request, in order.
+        for (when, series) in [("served", &marks[0]), ("settled", &marks[1])] {
+            let mut rows: Vec<_> =
+                series.iter().map(|(name, ms)| (spread(ms), name, ms.len())).collect();
+            rows.sort_by(|a, b| a.0.0.total_cmp(&b.0.0));
+            for ((p50, p95, max), name, n) in rows {
+                println!(
+                    "HANDOFF-PAUSE-MARK home={} when={when} mark={name:?} n={n} p50={p50:.1} p95={p95:.1} max={max:.1}",
                     shape.name
                 );
             }

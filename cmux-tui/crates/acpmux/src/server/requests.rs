@@ -3594,6 +3594,7 @@ async fn dispatch_request_with_identity(
         // A chat's older turns, read from its Claude Code transcript (`hub/native_history.rs`).
         method::MUX_NATIVE_HISTORY => crate::hub::native_history::handle(hub, &params).await,
         method::MUX_SHUTDOWN => {
+            tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: handler");
             // Stopping the daemon ends what runs at the VM boundary too: the owner's call only
             // (`hub/vm_boundary.rs`).
             let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
@@ -3635,6 +3636,7 @@ async fn dispatch_request_with_identity(
             // answer, and the daemon serves on.
             let restart = params.get("restart").and_then(Value::as_bool) == Some(true);
             let handoff = if restart {
+                tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: prepare");
                 // Boxed: the dispatch future stays its size for every other request.
                 Box::pin(crate::daemon::prepare_handoff(&shutdown_reason(&params))).await
             } else {

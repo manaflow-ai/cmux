@@ -1794,6 +1794,9 @@ async fn serve_connection_from(
         };
         match msg {
             Message::Request { id, method: m, mut params } => {
+                if m == method::MUX_SHUTDOWN {
+                    tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: read");
+                }
                 // Once a local connection has been admitted as a trigger
                 // principal it is a single-purpose channel. In particular,
                 // the local socket must not keep granting ordinary person

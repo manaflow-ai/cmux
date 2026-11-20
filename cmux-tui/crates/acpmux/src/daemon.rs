@@ -230,6 +230,7 @@ pub(crate) fn shutdown_time_left() -> Option<Duration> {
 /// may use the end of that lifetime while retaining this daemon's exclusive home lock.
 pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<()> {
     *SHUTDOWN_DEADLINE.lock().unwrap_or_else(PoisonError::into_inner) = None;
+    tracing::debug!(target: HANDOFF_TIMING, "handoff timing: run");
     // The start of every startup phase in `daemon status` is timed from (`gauges.rs`).
     let gauges = crate::gauges::global();
     crate::cli::cloud_join::retain_own_machine_consent_requirement()?;
@@ -538,6 +539,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
 
     let store = crate::store::open(&config.store, &home())?;
     gauges.mark("store open");
+    tracing::debug!(target: HANDOFF_TIMING, "handoff timing: store open");
     let mut moved_listener = false;
     // A restart's exec in place keeps the WebSocket listener too, when it is at the address this
     // start would bind; one that is not is closed and the address bound as usual.
@@ -919,6 +921,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         "webUrl": crate::hub::web_url(&*hub.config.read().await),
     });
     gauges.mark("requests ready");
+    tracing::debug!(target: HANDOFF_TIMING, "handoff timing: requests ready");
     // The web URL carries the token; the log (often a 0644 file) never does.
     tracing::info!(
         "acpmux ready pid={} socket={} listen={}",
@@ -1271,6 +1274,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         _ = shutdown => {}
     }
     tracing::info!("shutting down");
+    tracing::debug!(target: HANDOFF_TIMING, "handoff timing: stop");
     let shutdown_started = tokio::time::Instant::now();
     // Whether this stop execs in place is decided now, for the whole stop (`daemon/handoff.rs`).
     // Then it stops accepting at once: new dials wait in the backlog of the listener it keeps for
@@ -1386,6 +1390,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             // A signal can arrive while metadata loads. Snapshot every stored session before
             // detaching or ending hosts. A timeout conservatively keeps their router below.
             let _ = metadata.await;
+            tracing::debug!(target: HANDOFF_TIMING, "handoff timing: stop has the index");
             if restarting {
                 hub.shutdown_for_handoff(true).await
             } else {
@@ -1540,6 +1545,11 @@ pub(crate) fn keeps_listeners() -> bool {
         false
     }
 }
+
+/// The log target of a restart's marks (`handoff timing: <mark>`, at debug): the request read, its
+/// gates, the check, the stop, the exec and the next image's start. `tests/daemon_handoff.rs`
+/// turns it on and times each mark as its line arrives.
+pub(crate) const HANDOFF_TIMING: &str = "handoff_timing";
 
 /// How many restarts this process came through as an exec in place (`_acpmux/status`
 /// `handoffs`): 0 on a normal start, and always off Unix.

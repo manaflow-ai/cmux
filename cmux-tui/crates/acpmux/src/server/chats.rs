@@ -97,7 +97,13 @@ pub(super) async fn route(
     let params = super::pairing::gate(conn, m, params)?;
     // So does a teammate through the Cloud carrier, to its verbs (`carrier.rs`).
     let params = super::carrier::gate(hub, conn, m, params)?;
+    if m == crate::rpc::method::MUX_SHUTDOWN {
+        tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: routed");
+    }
     hub.prepare_store_request(m, &params).await;
+    if m == crate::rpc::method::MUX_SHUTDOWN {
+        tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: store gate passed");
+    }
     if let Some(reply) = super::pairing::dispatch(hub, conn, m, &params).await {
         return reply;
     }

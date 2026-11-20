@@ -242,9 +242,13 @@ async fn arm() -> Result<bool, String> {
     check_args.push("handoff-check".into());
     let (program, name) = (installed.clone(), arg0.clone());
     // bare blocking (daemon): one short child the restart request waits for, bounded by its deadline.
-    let checked = tokio::task::spawn_blocking(move || check(&program, &name, &check_args))
-        .await
-        .map_err(|e| format!("the check's task: {e}"))?;
+    let checked = tokio::task::spawn_blocking(move || {
+        tracing::debug!(target: super::HANDOFF_TIMING, "handoff timing: check");
+        check(&program, &name, &check_args)
+    })
+    .await
+    .map_err(|e| format!("the check's task: {e}"))?;
+    tracing::debug!(target: super::HANDOFF_TIMING, "handoff timing: checked");
     let Some(build) = checked? else {
         return v1(format!(
             "{} daemon handoff-check gave no answer within {CHECK_WITHIN:?}",
@@ -420,6 +424,7 @@ pub(crate) fn exec_if_armed() -> Option<i32> {
     args.push(COUNT.to_owned());
     args.push(count().saturating_add(1).to_string());
     tracing::info!("restart: exec {} in place", exec.program.display());
+    tracing::debug!(target: super::HANDOFF_TIMING, "handoff timing: exec");
     // timeout: a log output that takes no bytes must not hold the exec (`cli/entry.rs`'s flush).
     let _ = crate::log_sink::flush(Duration::from_secs(1));
     let error = exec_with(&exec.program, &exec.arg0, &args, &fds);
