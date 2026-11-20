@@ -171,7 +171,8 @@ import Testing
     /// clock started in the tap had already covered.
     @Test func aGlideBegunInTheSendTapStartsAtItsFirstFrame() {
         var settle = ChatSendSettle(rowIDs: ["u-k"], motion: .rise, fromHeight: 840)
-        #expect(settle.begin(contentHeight: 950, at: 10, inFrame: false))
+        let began = settle.begin(contentHeight: 950, at: 10, inFrame: false)
+        #expect(began)
         // 45 ms of main-thread work later, the rows have not moved, nor is the glide done.
         #expect(abs(settle.remaining(at: 10.045) - 110) < 0.001)
         #expect(!settle.isDone(at: 10 + ChatSendSpring.settleTime + 1))
