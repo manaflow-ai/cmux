@@ -57,6 +57,10 @@ UNWIRED: set[str] = {
     # scripts/install-axe-ci.sh's sha256 refusal and reads ios-e2e.yml only to check it calls that script, not the
     # Homebrew tap. Run it by hand when either changes. Exit: as below.
     "tests/test_install_axe_ci.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, CLAUDE.md). It evaluates every PR- and
+    # merge-queue-reachable runs-on, runner input and env against the reserved cmux-gcp-nightly(-jit)-x64 labels.
+    # Run it by hand when a PR-triggered or reusable workflow's runner changes. Exit: as below.
+    "tests/test_ci_nightly_labels_reserved.py",
     # lane = "manual" (no new CI tests, CLAUDE.md). It checks pool reads against .github/runners.json and that
     # copy against main's; run it by hand when a pool read or the pools change. Exit: as below.
     "tests/test_ci_runner_pools_copy.py",
@@ -195,6 +199,15 @@ UNWIRED: set[str] = {
     # artifacts.yml, cmux-tui-build-package.yml and cmux-tui-tree-request.yml as data. Run it by hand after changing
     # apt-ensure.sh or those install steps. Exit: as above.
     "tests/test_ci_apt_ensure.py",
+    # lane = "manual" (tests/test-execution.d/ci.toml; no new CI tests, CLAUDE.md). It names .github/workflows/ paths
+    # only as data in its fixture runs: scripts/ci/ci_receipt.py accepts a same-tree cmux-ci test run as the fast gates
+    # only from fast-checks.yml (fe0f9593). Run it by hand after changing ci_receipt.py. Exit: as above.
+    "tests/test_ci_receipt.py",
+    # lane = "manual" (tests/test-execution.d/ci.toml; no new CI tests, CLAUDE.md). It runs the Mac build steps of cmux-
+    # tui-build-package.yml with a fake cargo and sysctl and checks their cargo builds run at once at 40 GiB or more
+    # (#46073). Run it by hand after changing those steps, cmux-tui-mac-cargo-builds.sh or cargo-groups.sh. Exit: as
+    # above.
+    "tests/test_ci_cmux_tui_mac_legs_cargo_groups.py",
     # lane = "manual" (no new CI tests, CLAUDE.md). It checks that fast-checks.yml's setup=kernel-free Mac job: its
     # owned label, trust boundary and receipt (#46651). Run it by hand after changing that job. Exit: as above.
     "tests/test_ci_fast_checks_kernel_free.py",
