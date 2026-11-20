@@ -308,7 +308,7 @@ struct SearchResponse {
 fn catalog() -> &'static Value {
     static CATALOG: OnceLock<Value> = OnceLock::new();
     CATALOG.get_or_init(|| {
-        serde_json::from_str(&cmux_tui_core::packed_catalogs::RESOURCE_OPERATIONS_V2.inflate())
+        serde_json::from_str(cmux_tui_core::packed_catalogs::RESOURCE_OPERATIONS_V2)
             .expect("the checked-in resource operation catalog")
     })
 }
