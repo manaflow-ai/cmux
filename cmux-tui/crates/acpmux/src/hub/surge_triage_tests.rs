@@ -44,6 +44,10 @@ async fn a_pass_journals_every_held_message_and_sends_one_digest_once() {
     hold(&hub, &s, "m3", "landed", "result", "landed #12");
     hold(&hub, &s, "m4", "ask", "question", "which base?");
     assert!(!hub.surge_triage_pass(&s).await.unwrap(), "nothing left");
+    assert!(
+        hub.surge_triage_journals.lock().unwrap()[&s.id].cursor > 0,
+        "the pass keeps its cursor"
+    );
 
     let events = hub.events(&s.id, 0, 100_000).unwrap();
     let triaged: Vec<&Value> = records(&events, triage::RECORD_KIND).collect();

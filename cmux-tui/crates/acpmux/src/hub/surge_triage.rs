@@ -6,7 +6,8 @@
 //! each held message and after a restored inbox, so a pass resumes after a restart with no new
 //! arrival. A pass:
 //!
-//! 1. reads the chat's `inbox`, `inbox_triaged` and `inbox_subscription` records;
+//! 1. reads the chat's `inbox`, `inbox_triaged` and `inbox_subscription` records past its
+//!    cursor into its cached [`Journal`] (all of them once after a restart);
 //! 2. triages at most `MAX_BATCHES_PER_PASS` batches of the held messages no record decided,
 //!    each through one `complete_own` call on the harness's small model (Claude: Haiku; Codex:
 //!    its small model). A failed call decides every message of its batch `needs_this_session`;
@@ -32,38 +33,57 @@ pub(crate) const PROVENANCE_KIND: &str = "surge_digest";
 /// What answers instead of the small model (tests).
 pub type SurgeTriager = Arc<dyn Fn(String) -> Option<String> + Send + Sync>;
 
-/// What a chat's records say about surge triage.
+/// A chat's surge triage state, projected from its records and kept between passes
+/// (`Hub::surge_triage_journals`): a pass reads only the records past [`Journal::cursor`]. A
+/// restart starts from none and reads the chat's records once. Every read is idempotent, so a
+/// kept record read again, or this pass's own records read back, change nothing.
 #[derive(Default)]
-pub(super) struct Journal {
+pub(crate) struct Journal {
+    /// The last record seq read.
+    pub(super) cursor: u64,
+    /// Held messages no record decided yet, oldest first.
     pub(super) held: Vec<triage::Held>,
-    pub(super) triaged: BTreeSet<String>,
     pub(super) owners: Owners,
-    /// Every decided item, by the digest that carries it.
-    pub(super) by_digest: BTreeMap<String, Vec<Line>>,
+    /// Undelivered digests: their items by prompt id.
+    pub(super) owed: BTreeMap<String, BTreeMap<String, Line>>,
     pub(super) delivered: BTreeSet<String>,
+    /// `needs_this_session` items: prompt id to thread, while unread.
+    pub(super) open: BTreeMap<String, String>,
 }
 
 impl Journal {
     pub(super) fn read(&mut self, kind: &str, msg: &Value) {
         match kind {
-            "inbox" => self.held.extend(triage::held_from_inbox(msg)),
+            "inbox" => {
+                if let Some(h) = triage::held_from_inbox(msg)
+                    && !self.held.iter().any(|x| x.prompt_id == h.prompt_id)
+                {
+                    self.held.push(h);
+                }
+            }
             triage::SUBSCRIPTION_KIND => self.owners.apply(msg),
             triage::RECORD_KIND => {
-                self.triaged.extend(triage::triaged_ids(msg));
+                let done: BTreeSet<String> = triage::triaged_ids(msg).collect();
+                if !done.is_empty() {
+                    self.held.retain(|h| !done.contains(&h.prompt_id));
+                }
                 if let Some(d) = msg.get("digestDelivered").and_then(Value::as_str) {
+                    self.owed.remove(d);
                     self.delivered.insert(d.to_owned());
                 }
-                if let Some(d) = msg.get("digestPromptId").and_then(Value::as_str) {
-                    let lines = triage::record_lines(msg);
-                    self.by_digest.entry(d.to_owned()).or_default().extend(lines);
+                let Some(d) = msg.get("digestPromptId").and_then(Value::as_str) else { return };
+                for line in triage::record_lines(msg) {
+                    if line.category == triage::Category::NeedsThisSession {
+                        self.open.insert(line.prompt_id.clone(), line.thread_id.clone());
+                    }
+                    if !self.delivered.contains(d) {
+                        let owed = self.owed.entry(d.to_owned()).or_default();
+                        owed.insert(line.prompt_id.clone(), line);
+                    }
                 }
             }
             _ => {}
         }
-    }
-
-    fn all_lines(&self) -> impl Iterator<Item = &Line> {
-        self.by_digest.values().flatten()
     }
 }
 
@@ -120,14 +140,23 @@ impl Hub {
         *self.surge_triager.lock().unwrap_or_else(|e| e.into_inner()) = triager;
     }
 
-    pub(super) fn surge_journal(&self, session: &Session) -> Result<Journal, RpcError> {
-        let mut journal = Journal::default();
+    /// `session`'s journal, read up to its newest record: the cached one past its cursor, or,
+    /// after a restart, the chat's records once.
+    fn surge_journal(&self, session: &Session) -> Result<Journal, RpcError> {
+        let cached = {
+            let mut all = self.surge_triage_journals.lock().unwrap_or_else(|e| e.into_inner());
+            all.remove(&session.id)
+        };
+        let mut journal = cached.unwrap_or_default();
         let kinds = ["inbox", triage::RECORD_KIND, triage::SUBSCRIPTION_KIND];
-        self.scan_for_rebuild(session, &kinds, &mut |e: EventRecord| {
+        let mut newest = journal.cursor;
+        self.scan_kinds_after_and_kept(session, journal.cursor, &kinds, &mut |e: EventRecord| {
+            newest = newest.max(e.seq);
             journal.read(&e.kind, &e.msg);
             true
         })
         .map_err(|e| RpcError::internal(format!("read surge records: {e}")))?;
+        journal.cursor = newest;
         Ok(journal)
     }
 
@@ -137,16 +166,31 @@ impl Hub {
         session: &Arc<Session>,
     ) -> Result<bool, RpcError> {
         let mut journal = self.surge_journal(session)?;
-        let pending = triage::pending(std::mem::take(&mut journal.held), &journal.triaged);
-        let batches = triage::batches(&session.id, pending.clone());
+        let result = self.surge_triage_pass_on(session, &mut journal).await;
+        // A failed write leaves the cached state ahead of the disk: the next pass reads it again.
+        if result.is_err() {
+            return result;
+        }
+        let mut all = self.surge_triage_journals.lock().unwrap_or_else(|e| e.into_inner());
+        all.insert(session.id.clone(), journal);
+        result
+    }
+
+    async fn surge_triage_pass_on(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        journal: &mut Journal,
+    ) -> Result<bool, RpcError> {
+        let batches = triage::batches(&session.id, journal.held.clone());
         let taken: usize = batches.iter().map(|b| b.messages.len()).sum();
+        let left = journal.held.len() > taken;
         let harness = session.meta().harness;
         let mut decided: Vec<(Batch, Vec<Decision>)> = Vec::with_capacity(batches.len());
         for batch in batches {
             let d = self.surge_triage_batch(Some(&harness), &batch, &journal.owners).await;
             decided.push((batch, d));
         }
-        // The pass's digest is named by every item it carries, before any is journaled.
+        // The pass's one digest is named by every item it carries, before any is journaled.
         let lines: Vec<Line> = decided
             .iter()
             .flat_map(|(b, d)| triage::record_lines(&triage::triaged_record(b, d, None)))
@@ -156,30 +200,36 @@ impl Hub {
             for (batch, d) in &decided {
                 let record = triage::triaged_record(batch, d, Some(&id));
                 journal.read(triage::RECORD_KIND, &record);
-                let open = self.surge_open_topics(session, &journal);
+                let open = self.surge_open_topics(session, journal);
                 self.persist_surge_triage(session, record, open)?;
             }
         }
-        for (id, lines) in &journal.by_digest {
-            if !journal.delivered.contains(id) {
-                self.deliver_surge_digests(session, id, lines).await?;
-                let open = self.surge_open_topics(session, &journal);
-                let marker = json!({"digestDelivered": id, "items": []});
-                self.persist_surge_triage(session, marker, open)?;
-            }
+        let owed: Vec<(String, Vec<Line>)> = journal
+            .owed
+            .iter()
+            .map(|(id, lines)| (id.clone(), lines.values().cloned().collect()))
+            .collect();
+        for (id, lines) in owed {
+            self.deliver_surge_digests(session, &id, &lines).await?;
+            let marker = json!({"digestDelivered": id, "items": []});
+            journal.read(triage::RECORD_KIND, &marker);
+            let open = self.surge_open_topics(session, journal);
+            self.persist_surge_triage(session, marker, open)?;
         }
-        Ok(pending.len() > taken)
+        Ok(left)
     }
 
-    /// Distinct threads with a `needs_this_session` item the chat has not read.
-    fn surge_open_topics(&self, session: &Session, journal: &Journal) -> u64 {
-        let read: BTreeSet<String> = {
+    /// Distinct threads with a `needs_this_session` item the chat has not read; read ones
+    /// leave the journal.
+    fn surge_open_topics(&self, session: &Session, journal: &mut Journal) -> u64 {
+        if !journal.open.is_empty() {
             let inbox = session.inbox();
-            inbox.items.iter().filter(|i| i.read).map(|i| i.prompt_id.clone()).collect()
-        };
-        let open: Vec<Line> =
-            journal.all_lines().filter(|l| !read.contains(&l.prompt_id)).cloned().collect();
-        triage::actionable_topics(&open)
+            for item in inbox.items.iter().filter(|i| i.read) {
+                journal.open.remove(&item.prompt_id);
+            }
+        }
+        let threads: BTreeSet<&String> = journal.open.values().collect();
+        threads.len() as u64
     }
 
     /// Sends the digests named `id`: the chat's own and each owner's. Each is sent once: a
