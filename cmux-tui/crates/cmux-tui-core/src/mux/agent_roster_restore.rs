@@ -231,7 +231,16 @@ thread_local! {
     pub(crate) static REPLAY_GATE_FOR_TEST: std::cell::RefCell<
         Option<(std::sync::mpsc::SyncSender<()>, std::sync::mpsc::Receiver<()>)>,
     > = const { std::cell::RefCell::new(None) };
+    /// Test seam: a mux opened on this thread runs this right after it
+    /// hands the start's replay to the roster's owner, before anything else
+    /// of its start.
+    pub(crate) static AFTER_REPLAY_SCHEDULED_FOR_TEST: std::cell::RefCell<Option<AfterReplayScheduled>> =
+        const { std::cell::RefCell::new(None) };
 }
+
+/// [`AFTER_REPLAY_SCHEDULED_FOR_TEST`]'s seam.
+#[cfg(test)]
+pub(crate) type AfterReplayScheduled = Box<dyn FnOnce(&crate::mux::Mux)>;
 
 /// `restore_agent_roster` with no time budget: the whole tail is folded.
 #[cfg(test)]

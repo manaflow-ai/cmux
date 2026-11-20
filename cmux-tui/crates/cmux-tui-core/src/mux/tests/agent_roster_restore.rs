@@ -944,3 +944,58 @@ fn a_live_pass_does_not_save_an_unmarked_migrated_roster_at_the_current_version(
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// #39096 follow-up F2 (router-review): the start handed a migrated
+/// roster's tail replay to the owner before it marked the roster stale. A
+/// short replay could finish first, and its reconcile, seeing no stale mark,
+/// wrote the projections from the migrated roster, which can hold state the
+/// current reducer would not. The mark is set before the replay starts.
+#[test]
+fn a_migrated_rosters_replay_never_reconciles_before_its_stale_mark() {
+    use crate::journal_reducers::{AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION};
+    use crate::mux::agent_roster_restore::{
+        AFTER_REPLAY_SCHEDULED_FOR_TEST, STARTUP_BUDGET_FOR_TEST,
+    };
+    let session = "roster-bump-replay-mark";
+    let root = std::env::temp_dir()
+        .join(format!("cmux-roster-bump-replay-mark-{}", crate::workspace_registry::new_uuid_v4()));
+    store_with_a_previous_version_snapshot(
+        session,
+        &root,
+        AGENT_ROSTER_REDUCER_VERSION - 1,
+        |_, _| {},
+    );
+    // Leave a tail after the migrated cursor, for the start to replay.
+    let registry = WorkspaceRegistry::open(&root, session).unwrap();
+    let (version, cursor, snapshot) =
+        registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID).unwrap().unwrap();
+    assert!(cursor > 1);
+    registry
+        .put_journal_reducer_state(AGENT_ROSTER_REDUCER_ID, version, cursor - 1, &snapshot)
+        .unwrap();
+    drop(registry);
+    let stale_at_reconcile = std::rc::Rc::new(std::cell::Cell::new(None));
+    let seen = std::rc::Rc::clone(&stale_at_reconcile);
+    AFTER_REPLAY_SCHEDULED_FOR_TEST.with(|seam| {
+        *seam.borrow_mut() = Some(Box::new(move |mux: &Mux| {
+            // Let the replay and the reconcile it owes run to their end.
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while mux.agent_roster_settling() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            seen.set(Some(mux.agent_roster_stale()));
+        }));
+    });
+    STARTUP_BUDGET_FOR_TEST.with(|budget| budget.set(Some(Duration::ZERO)));
+    let reopened = open_persistent_test_mux(session, &root);
+    STARTUP_BUDGET_FOR_TEST.with(|budget| budget.set(None));
+    AFTER_REPLAY_SCHEDULED_FOR_TEST.with(|seam| seam.borrow_mut().take());
+    reopened.shutdown();
+    drop(reopened);
+    let _ = std::fs::remove_dir_all(&root);
+    assert_eq!(
+        stale_at_reconcile.get(),
+        Some(true),
+        "the migrated roster's replay reconciled before its stale mark"
+    );
+}
