@@ -492,7 +492,7 @@ class WorkflowTests(unittest.TestCase):
         concurrency = workflow["concurrency"]
         self.assertIs(concurrency["cancel-in-progress"], False)
         # every run that sweeps shares one group; only a run whose job starts no sweep gets its own
-        self.assertTrue(concurrency["group"].endswith("|| 'ci-queue-janitor' }}"), concurrency["group"])
+        self.assertTrue(concurrency["group"].endswith("|| 'ci-queue-janitor-v2' }}"), concurrency["group"])
 
     def test_the_alert_step_uses_the_bot_token_and_adds_no_permission(self) -> None:
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
