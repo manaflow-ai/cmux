@@ -242,10 +242,11 @@ class WorkflowTests(unittest.TestCase):
     def test_the_wait_runs_on_linux_before_the_build(self) -> None:
         sibling_job = self.jobs["sibling"]
         self.assertNotIn("macos", str(sibling_job["runs-on"]))
-        # The same Linux fallback as the runner job. The runner job holds an App key, so no variable
-        # moves it; the sibling holds none and may still follow LINUX_RUNNER.
-        fallback = self.jobs["runner"]["runs-on"].rsplit("||", 1)[1]
-        self.assertTrue(sibling_job["runs-on"].endswith("||" + fallback), sibling_job["runs-on"])
+        # Linux: the persistent pool (hq#15332), after the fork-repository branch the runner job leads with.
+        # The runner job holds an App key, so it keeps its bounded Blacksmith selector; the sibling holds none.
+        owner = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+        self.assertTrue(self.jobs["runner"]["runs-on"].startswith(owner), self.jobs["runner"]["runs-on"])
+        self.assertEqual(sibling_job["runs-on"], owner + "'cmux-linux' }}")
         self.assertIn("sibling", self.jobs["build"]["needs"])
         wait = next(step for step in sibling_job["steps"] if "e2e_sibling_build.py wait" in str(step.get("run")))
         self.assertTrue(wait["run"].endswith("|| true"))

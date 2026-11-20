@@ -636,7 +636,8 @@ def test_release_build_waits_for_linux_preflight_admission() -> None:
         " || github.event_name == 'pull_request'"
         " && github.event.pull_request.head.repo.full_name != github.repository"
         " && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)"
-        " && 'blacksmith-4vcpu-ubuntu-2404'"
+        # A fork pull request: GitHub-hosted, outside every label the persistent pool registers.
+        " && 'ubuntu-24.04'"
         " || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
     ) in admission
     assert 'TARGET_JOB: "linux-preflight"' in admission
@@ -938,7 +939,7 @@ def test_diff_failure_does_not_look_like_a_known_empty_standalone_diff() -> None
 def test_remote_daemon_rejects_stale_heads_before_allocating_macos() -> None:
     jobs = yaml.safe_load(REMOTE_DAEMON_WORKFLOW.read_text())["jobs"]
     admission = jobs["remote-daemon-admission"]
-    assert "LINUX_RUNNER" in admission["runs-on"]
+    assert "'cmux-linux'" in admission["runs-on"]  # a Linux job: the persistent pool (hq#15332)
     assert jobs["remote-daemon-macos-tests"]["needs"] == "remote-daemon-admission"
     script = admission["steps"][0]["run"]
     with tempfile.TemporaryDirectory() as directory:
@@ -3560,7 +3561,7 @@ def _job_runs_only_on_linux(job: dict) -> bool:
         called = yaml.safe_load((ROOT / uses.removeprefix("./")).read_text(encoding="utf-8"))
         return all(_job_runs_only_on_linux(inner) for inner in called["jobs"].values())
     runs_on = str(job.get("runs-on", ""))
-    return "macos" not in runs_on.lower() and ("ubuntu" in runs_on or "LINUX_RUNNER" in runs_on)
+    return "macos" not in runs_on.lower() and ("ubuntu" in runs_on or "LINUX_RUNNER" in runs_on or "'cmux-linux'" in runs_on)
 
 
 def test_macos_admission_gate_needs_every_fast_linux_only_job() -> None:
@@ -5684,7 +5685,7 @@ def test_ci_status_requires_the_suite_coverage_gate() -> None:
     gate = workflow_job_block("suite-coverage")
     assert "needs.changes.outputs.coverage_gap == 'true'" in gate
     # A Linux job, so refusing a run never costs a macOS runner.
-    assert "vars.LINUX_RUNNER" in gate
+    assert "'cmux-linux'" in gate
     assert "exit 1" in gate
 
 

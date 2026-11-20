@@ -475,9 +475,14 @@ class WorkflowGuardTests(unittest.TestCase):
         for name, block in self.jobs.items():
             if name != REPORT_JOB:
                 self.assertNotIn(f"needs.{REPORT_JOB}", block, name)
-        # The same Linux runner, with the same fork fallback, as `changes`.
-        self.assertEqual(self.job_line("runs-on"), jobs_line(self.jobs["changes"], "runs-on"))
-        self.assertIn("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'", self.job_line("runs-on"))
+        # The same fork branches as `changes` (a fork repository and a fork pull request both take
+        # GitHub-hosted ubuntu-24.04), then the persistent Linux pool (hq#15332). `changes` holds a
+        # secret, so it keeps its bounded Blacksmith selector after those branches.
+        fork = ("    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != "
+                "github.repository && 'ubuntu-24.04' || ")
+        self.assertTrue(jobs_line(self.jobs["changes"], "runs-on").startswith(fork), jobs_line(self.jobs["changes"], "runs-on"))
+        self.assertEqual(self.job_line("runs-on"), fork + "'cmux-linux' }}")
 
     def test_the_report_job_writes_no_outputs(self) -> None:
         self.assertFalse(any(line.startswith("    outputs:") for line in self.job.splitlines()))

@@ -235,12 +235,14 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         self.assertIn("scripts/cmux-next/request-nightly-next.sh --tree-ready", text)
         self.assertIn("cancel-in-progress: false", text)
 
-    def test_control_jobs_can_leave_blacksmith_linux_with_one_variable(self) -> None:
-        """CI_CONTROL_RUNNER moves the tick and the feed watch off Blacksmith Linux.
+    def test_control_jobs_run_on_the_persistent_linux_pool(self) -> None:
+        """The tick and the feed watch name the persistent Linux pool, off Blacksmith Linux.
 
         2026-10-28: every Blacksmith Linux size stopped starting jobs for over an
         hour while Blacksmith macOS served; these light jobs had nowhere else to go.
-        Unset, they keep their Blacksmith Linux default.
+        CI_CONTROL_RUNNER was their escape hatch. hq#15332 ("Linux CI is one
+        persistent pool, no deletes, no caps, no pickers") puts them on cmux-linux:
+        no Blacksmith label, and no variable left to pick another machine.
         """
         for name, job in (("nightly-next-tick.yml", "request"), ("nightly-next-feed-watch.yml", "watch")):
             text = (WORKFLOWS / name).read_text(encoding="utf-8")
@@ -248,7 +250,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
             runs_on = re.search(r"^    runs-on: (.+)$", body, re.MULTILINE).group(1)
             with self.subTest(workflow=name):
                 self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-                                          "vars.CI_CONTROL_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}")
+                                          "'cmux-linux' }}")
 
     def test_the_tick_hashes_without_gnu_coreutils(self) -> None:
         """The tick may run on macOS (CI_CONTROL_RUNNER), where sha256sum is not guaranteed."""

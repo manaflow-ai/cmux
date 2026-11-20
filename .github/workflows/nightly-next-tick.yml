@@ -63,8 +63,8 @@ jobs:
     # buildable and are not a finished build, so they start no tick; the cron backstop and
     # the landings still do.
     if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository && (github.event.workflow_run.head_branch != 'nightly-next' || github.event.workflow_run.name == 'Nightly macOS build'))
-    # CI_CONTROL_RUNNER, when set, takes this control job off Blacksmith Linux
-    # (2026-10-28: every Blacksmith Linux size stopped starting jobs from ~20:00Z).
+    # The persistent Linux pool (cmux-linux, hq#15332) reuses machines, so this control job
+    # holds no secret, only its job-scoped GITHUB_TOKEN (tests/test_ci_cloud_overflow_switch.py).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     # 15 minutes of work, plus the hour its gh calls may wait for a rate limit (below).
     timeout-minutes: 75
@@ -319,8 +319,8 @@ jobs:
       # reads (a GET, a GraphQL query, a list or view) as the App, and github.token again when the
       # App is refused; the cancels and re-runs go out once as github.token, unchanged. With no App
       # token (a failed mint, or no CMUX_BOT_APP_ID) nothing is installed and every call is
-      # github.token's. Only this job holds the App key: the request job runs where
-      # CI_CONTROL_RUNNER puts it, which may be a reused machine, so it keeps only its job-scoped
+      # github.token's. Only this job holds the App key: the request job runs on the
+      # persistent cmux-linux pool, a reused machine, so it keeps only its job-scoped
       # GITHUB_TOKEN (tests/test_ci_cloud_overflow_switch.py) and spends fewer reads instead.
       - name: Mint the cmux-bot token for this job's reads
         id: read-token

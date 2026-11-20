@@ -104,7 +104,8 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "ref: ${{ inputs.ref }}",
             workflow_job_block("resolve-ref", workflow_path),
         )
-        self.assertIn("blacksmith-4vcpu-ubuntu-2404", changes)
+        # Linux: the persistent pool, a fork pull request on GitHub-hosted ubuntu-24.04 (#47956 review).
+        self.assertIn("&& 'ubuntu-24.04' || 'cmux-linux' }}", changes)
         self.assertIn("Detect cloud-machine package changes", changes)
         self.assertIn("/pulls/{pr_number}/files?per_page=100&page={page}", changes)
         self.assertIn('startswith("Packages/macOS/CmuxCloudMachines/")', changes)

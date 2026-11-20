@@ -972,9 +972,10 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertIn('- cron: "37 2,8,14,20 * * *"', self.text)
         self.assertIn("workflow_dispatch:", self.text)
 
-    def test_the_runner_comes_from_a_repository_variable(self):
+    def test_the_report_runs_on_the_persistent_linux_pool(self):
+        # hq#15332: "Linux CI is one persistent pool, no deletes, no caps, no pickers".
         self.assertIn(
-            "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}", self.text
+            "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}", self.text
         )
 
     def test_it_can_read_runs_and_write_issue_comments_but_not_cancel(self):

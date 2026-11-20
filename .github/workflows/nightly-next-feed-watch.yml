@@ -36,8 +36,8 @@ concurrency:
 jobs:
   watch:
     if: github.repository_owner == 'manaflow-ai'
-    # CI_CONTROL_RUNNER, when set, takes this control job off Blacksmith Linux
-    # (2026-10-28: every Blacksmith Linux size stopped starting jobs from ~20:00Z).
+    # The persistent Linux pool (cmux-linux, hq#15332) reuses machines, so this control job
+    # holds no secret, only its job-scoped GITHUB_TOKEN (tests/test_ci_cloud_overflow_switch.py).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:

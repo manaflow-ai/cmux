@@ -322,7 +322,7 @@ class ReadsOnlyTests(unittest.TestCase):
 class TickWiringTests(unittest.TestCase):
     """nightly-next-tick.yml's unstick job sends its gh reads as the cmux-bot App, with the
     repository's existing credentials, before any gh call, and keeps its single-shot steps
-    single-shot. The request job holds no App key: CI_CONTROL_RUNNER may move it to a reused
+    single-shot. The request job holds no App key: it runs on the persistent cmux-linux pool, a reused
     machine (tests/test_ci_cloud_overflow_switch.py)."""
 
     def test_unstick_mints_and_installs_before_the_rate_limit_wait(self) -> None:
@@ -358,7 +358,7 @@ class TickWiringTests(unittest.TestCase):
         import json
         import yaml
         job = yaml.safe_load(TICK.read_text(encoding="utf-8"))["jobs"]["request"]
-        self.assertIn("CI_CONTROL_RUNNER", job["runs-on"])
+        self.assertIn("'cmux-linux'", job["runs-on"])
         self.assertNotIn("secrets.", json.dumps(job))
         self.assertNotIn("create-github-app-token", json.dumps(job))
 

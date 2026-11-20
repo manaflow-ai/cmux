@@ -1190,18 +1190,23 @@ class WorkflowTests(unittest.TestCase):
             self.assertNotIn("${{", job["runs-on"], name)
             self.assertTrue(job["runs-on"].startswith(switch.CLOUD_PREFIX), name)
 
-    def test_no_job_that_ci_control_runner_moves_holds_a_secret(self) -> None:
-        # CI_CONTROL_RUNNER may name a reused machine, so the control jobs it moves hold only their
-        # job-scoped GITHUB_TOKEN: no secret, and no App token minted from one.
+    def test_no_control_job_on_a_reused_machine_holds_a_secret(self) -> None:
+        # CI_CONTROL_RUNNER may name a reused machine, and the nightly control jobs it used to move
+        # now name the persistent cmux-linux pool (hq#15332), which reuses machines too. Either way
+        # they hold only their job-scoped GITHUB_TOKEN: no secret, and no App token minted from one.
+        control_jobs = {"nightly-next-tick.yml:request", "nightly-next-feed-watch.yml:watch"}
         moved = []
         for path in sorted(WORKFLOW.parent.glob("*.y*ml")):
             for name, job in (yaml.safe_load(path.read_text(encoding="utf-8")).get("jobs") or {}).items():
-                if "CI_CONTROL_RUNNER" not in str(job.get("runs-on", "")):
+                runs_on = str(job.get("runs-on", ""))
+                if f"{path.name}:{name}" in control_jobs:
+                    self.assertIn("'cmux-linux'", runs_on, f"{path.name}:{name}")
+                elif "CI_CONTROL_RUNNER" not in runs_on:
                     continue
                 moved.append(f"{path.name}:{name}")
                 self.assertNotIn("secrets.", json.dumps(job), f"{path.name}:{name}")
                 self.assertNotIn("create-github-app-token", json.dumps(job), f"{path.name}:{name}")
-        self.assertIn("nightly-next-tick.yml:request", moved)
+        self.assertTrue(control_jobs <= set(moved), sorted(control_jobs - set(moved)))
 
     def test_one_fixed_group_so_two_watches_never_write_at_once(self) -> None:
         # The switch's variable writes and record delete are separate calls; a group keyed by anything a
