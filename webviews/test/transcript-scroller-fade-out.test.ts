@@ -42,16 +42,26 @@ await requireBrowserLane("transcript-scroller-fade-out.test.ts", async () => {
     await vite?.close();
   });
 
-  test("the thumb fades out over frames a reader can see", async () => {
+  /// How the page's motion stands while the thumb fades: the host's defaults; Reduce Motion (the host
+  /// zeroes only its move step, theme.ts applyAgentTheme, and keeps its crossfades); the chat in its
+  /// minimal motion under load (conversation/frameBudget.ts marks the chat, and composerStates.css
+  /// MINIMAL-MOTION zeroes every chat motion token under it).
+  type Motion = "default" | "reduce-motion" | "minimal";
+  const fadeOutSamples = async (motion: Motion) => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
     await installPaintedFrames(page);
     await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-fling.html`);
     await page.waitForFunction(() => "__debug" in window);
     await page.evaluate(`window.__debug.seedRows(300)`);
-    const samples = (await page.evaluate(async () => {
+    const samples = (await page.evaluate(async (motion) => {
       document.documentElement.setAttribute("data-cmux-scroller-fade", "");
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      if (motion === "reduce-motion") {
+        document.documentElement.style.setProperty("--agent-motion-move", "0ms");
+        document.documentElement.dataset.agentMove = "instant";
+      }
+      if (motion === "minimal") scroller.parentElement!.setAttribute("data-chat-motion", "minimal");
       const ink = () => {
         const inline = scroller.style.getPropertyValue("--cmux-shown-scroller-ink");
         if (inline) return parseFloat(inline);
@@ -72,16 +82,27 @@ await requireBrowserLane("transcript-scroller-fade-out.test.ts", async () => {
         out.push({ ms: Math.round(at - start), ink: Math.round(ink() * 10) / 10 });
       }
       return out;
-    })) as { ms: number; ink: number }[];
+    }, motion)) as { ms: number; ink: number }[];
     await page.close();
-    const half = samples.find((sample) => sample.ink < 19);
-    console.log(`transcript-scroller-fade-out: ${JSON.stringify({ halfAt: half?.ms, samples: samples.slice(0, 20) })}`);
-    // More than half the ink for at least 100 ms of the fade.
-    expect(half?.ms ?? Infinity).toBeGreaterThanOrEqual(100);
-    // Several painted frames part-way, and none of the thumb left at the end.
-    expect(samples.filter((sample) => sample.ink > 3 && sample.ink < 35).length).toBeGreaterThanOrEqual(4);
-    expect(samples.at(-1)!.ink).toBe(0);
-  });
+    return samples;
+  };
+
+  // Under Reduce Motion and the chat's minimal motion too: Leo's NIGHTLY (2026-11-20, no Reduce
+  // Motion, default speed) took the thumb from full to none in one frame as the pointer left its bar
+  // and 800 ms after a scroll up through loading history stopped, a chat in its minimal motion.
+  for (const motion of ["default", "reduce-motion", "minimal"] as const)
+    test(`${motion}: the thumb fades out over frames a reader can see`, async () => {
+      const samples = await fadeOutSamples(motion);
+      const half = samples.find((sample) => sample.ink < 19);
+      console.log(
+        `transcript-scroller-fade-out ${motion}: ${JSON.stringify({ halfAt: half?.ms, samples: samples.slice(0, 20) })}`,
+      );
+      // More than half the ink for at least 100 ms of the fade.
+      expect(half?.ms ?? Infinity).toBeGreaterThanOrEqual(100);
+      // Several painted frames part-way, and none of the thumb left at the end.
+      expect(samples.filter((sample) => sample.ink > 3 && sample.ink < 35).length).toBeGreaterThanOrEqual(4);
+      expect(samples.at(-1)!.ink).toBe(0);
+    });
 
   // The host's motion settings set the duration (ui.animationSpeed, Reduce Motion, animations off):
   // with no motion the thumb hides in the frame its scroll mark clears.
@@ -94,8 +115,10 @@ await requireBrowserLane("transcript-scroller-fade-out.test.ts", async () => {
     await page.evaluate(`window.__debug.seedRows(300)`);
     const inks = (await page.evaluate(async () => {
       document.documentElement.setAttribute("data-cmux-scroller-fade", "");
-      document.documentElement.style.setProperty("--agent-motion-move", "0ms");
-      document.documentElement.style.setProperty("--agent-motion-in", "0ms");
+      // The host's all-zero motion policy (theme.ts applyAgentTheme).
+      for (const token of ["hover", "hover-out", "focus", "in", "out", "move"])
+        document.documentElement.style.setProperty(`--agent-motion-${token}`, "0ms");
+      document.documentElement.dataset.agentMotion = "off";
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       scroller.setAttribute("data-cmux-scrolling", "");
       for (let frame = 0; frame < 5; frame += 1) await window.cmuxPaintFrame();
