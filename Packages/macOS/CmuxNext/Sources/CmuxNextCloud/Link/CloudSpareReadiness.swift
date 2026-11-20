@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Leo, Cloud V0 item 1 ("A chat starts in a few seconds: ready spare"): the person's warm spare made ready in this
 /// app run before any claim, so the start that claims it has little left to do but open its chat. On a warm's answer
@@ -66,6 +67,13 @@ public final class CloudSpareReadiness {
     private var keyed: [String: Keyed] = [:]
     private var links: [String: Held] = [:]
     private var primes: [String: Task<Void, Never>] = [:]
+    /// When a key ahead of `machine` last did not key it: not tried again for ``keyRetry``, so a spare whose daemon is
+    /// busy or too old is not read (or restarted) on every app activation.
+    private var keyMissed: [String: ContinuousClock.Instant] = [:]
+    /// Counts ``reset()``: a key ahead that was running across one records nothing.
+    private var resets = 0
+    /// How long after a key ahead that keyed nothing the next one waits.
+    public static let keyRetry: Duration = .seconds(60)
     public var now: @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }
 
     public init(_ dependencies: Dependencies) { self.dependencies = dependencies }
@@ -117,6 +125,8 @@ public final class CloudSpareReadiness {
         for held in links.values { end(held.link) }
         links = [:]
         keyed = [:]
+        keyMissed = [:]
+        resets += 1
     }
 
     private func primed(_ machine: String, team: String?, scope: Scope) async {
@@ -127,9 +137,22 @@ public final class CloudSpareReadiness {
 
     private func keyAhead(_ machine: String, scope: Scope) async {
         guard !isKeyed(machine, scope: scope, instance: dependencies.keyedInstance(machine)) else { return }
-        guard let instance = await dependencies.key(machine, scope), dependencies.scope() == scope else { return }
+        if let missed = keyMissed[machine], now() < missed.advanced(by: Self.keyRetry) { return }
+        keyMissed[machine] = nil
+        let resets = resets
+        let instance = await dependencies.key(machine, scope)
+        // Forgotten meanwhile (Cloud turned off, signed out): nothing of this run is written back.
+        guard resets == self.resets else { return }
+        guard let instance, dependencies.scope() == scope else {
+            keyMissed[machine] = now()
+            Self.log.info("cloud spare \(machine, privacy: .public): not keyed ahead (its daemon is not idle or not up yet, or the account changed); the start keys it")
+            return
+        }
         keyed[machine] = Keyed(scope: scope, instance: instance)
+        Self.log.info("cloud spare \(machine, privacy: .public): keyed ahead for approvals")
     }
+
+    private static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.spare")
 
     private func linkAhead(_ machine: String, team: String?, scope: Scope) async {
         if let held = links[machine], fits(held, scope: scope), held.team == team { return }
@@ -144,8 +167,10 @@ public final class CloudSpareReadiness {
         guard up, dependencies.scope() == scope else {
             links[machine] = nil
             end(link)
+            Self.log.info("cloud spare \(machine, privacy: .public): no link ahead (it did not come up, or the account changed); the start links it")
             return
         }
+        Self.log.info("cloud spare \(machine, privacy: .public): linked ahead")
     }
 
     private func fits(_ held: Held, scope: Scope) -> Bool { held.scope == scope && now() < held.until && !held.link.fenced() }

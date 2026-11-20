@@ -15,9 +15,12 @@ Each pass it
   dead-member rule, the probe and janitor evidence and the --check schema stay main's;
 - samples the Linux queue itself (sample_load()): queued and in-progress runs created WAITED_MINUTES to
   SAMPLE_WINDOW ago, listed in age slices and spread evenly over each (at most MAX_RUNS), their jobs read with
-  the job's own GITHUB_TOKEN (actions: read), counted per Blacksmith Linux label as queued, running and `waited`
-  (queued WAITED_MINUTES or more, the stall-aware failover's bound). The counts are a lower bound;
-- clears main's dead mark on any Linux label the sample shows running a job (served_marks()), and lets main's
+  the cmux-bot read token and a refused read asked once more with the job's own GITHUB_TOKEN (GH_FALLBACK_TOKEN),
+  counted per Blacksmith Linux label as queued, running, `waited` (queued WAITED_MINUTES or more, the stall-aware
+  failover's bound) and `started` (a runner took it within STARTED_WINDOW, finished or not). The counts are a lower
+  bound;
+- clears main's dead mark on any Linux label the sample shows running or recently starting a job (served_marks()),
+  and lets main's
   reconcile() re-pick every pool, by main's own rule that a label running a job is busy, not dead
   (runner_pools.started_nothing_while_queued()). main reads that from the janitor's snapshot, but the janitor runs
   on the same saturated Blacksmith sizes: on 2026-11-17 its snapshots landed at 20:57Z and 21:59Z, so the passes at
@@ -30,14 +33,10 @@ Each pass it
   `_spill`. It comes back once the member it left shows a drain on a complete sample (nothing waited, at most
   SPILL_RETURN_QUEUED queued, at most SPILL_RETURN_SHARE of what it ran when the pool left) after SPILL_MIN_HOLD,
   or when the target backs up while the member left does not, or after SPILL_MAX_HOLD in any case: if the member
-  is still backed up the next pass spills again, so a spill never outlives the backlog by more than about an hour;
-- opens or closes the hosted-first release valve (valve_choice()): the declared hosted light jobs (.github/runners.json
-  `hosted_light_jobs`: routers, resolvers, report steps) take GitHub-hosted `ubuntu-24.04` on attempt 1. When
-  VALVE_ON_WAITED or more sampled jobs on that label have waited WAITED_MINUTES, GitHub-hosted is saturated, and
-  RUNNER_POOLS' VALVE_KEY records since when; each such job's runs-on reads it ahead of its hosted branch
-  (`github.run_attempt == 1 && fromJSON(vars.RUNNER_POOLS).hosted_saturated && fromJSON(vars.RUNNER_POOLS).linux_2`)
-  and takes the smallest live Linux pool instead. It closes after VALVE_MIN_HOLD once a sample shows at most
-  VALVE_OFF_WAITED waited there; with no mark every job keeps hosted-first, the default;
+  is still backed up the next pass spills again, so a spill never outlives the backlog by more than about an hour.
+  linux_16 (gallery health's shards, compiles, large suites) spills the same way. A spill never leaves the pool's
+  declared members (spill_candidates()): on 2026-11-18 linux_16 sat on 2 and then 4 vCPU, outside its members, and
+  memory-heavy legs there failed (rustc OOM) instead of only waiting;
 - writes RUNNER_POOLS and the LINUX_RUNNER mirror (main's mirror_writes(), so the overflow switch's record still
   wins) only when something changed.
 
@@ -51,6 +50,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import inspect
 import json
 import os
 import re
@@ -66,20 +66,8 @@ import runner_pool_reconcile  # noqa: E402  (load_policy(): main's policy, never
 UTC = dt.timezone.utc
 VARIABLE = "RUNNER_POOLS"
 SPILL_KEY = "_spill"
-QUEUE_AWARE_POOLS = ("linux",)
+QUEUE_AWARE_POOLS = ("linux", "linux_16")
 LINUX_LABEL = re.compile(r"^blacksmith-[0-9]+vcpu-ubuntu-[0-9][\w.-]*$")
-# GitHub-hosted Ubuntu, sampled beside the Blacksmith sizes for the hosted-first valve (valve_choice()).
-HOSTED_LABEL = re.compile(r"^ubuntu-[0-9]+\.[0-9]+$")
-# The label every declared hosted light job asks for on attempt 1 (scripts/ci/runner_routing_table.py).
-HOSTED_LIGHT_LABEL = "ubuntu-24.04"
-# The hosted-first release valve. On 2026-11-17/18 GitHub-hosted held 2,500+ queued jobs in this repository; jobs
-# that finished there between 01:40Z and 02:10Z on 11-18 had waited a median 10,768 s (166 jobs), while
-# blacksmith-2vcpu-ubuntu-2404 started its 727 jobs in a median 23 s. Every pull request's `changes` router waited
-# in that queue, so its required checks never started.
-VALVE_KEY = "hosted_saturated"
-VALVE_ON_WAITED = 10
-VALVE_OFF_WAITED = 2
-VALVE_MIN_HOLD = dt.timedelta(minutes=60)
 # A sampled queued job counts as `waited` once it has waited this long.
 WAITED_MINUTES = 3
 # The sample: runs in flight created WAITED_MINUTES to SAMPLE_WINDOW ago, at most MAX_RUNS of them.
@@ -96,7 +84,19 @@ SPILL_MAX_HOLD = dt.timedelta(minutes=60)
 SPILL_RETURN_QUEUED = 5
 SPILL_RETURN_SHARE = 0.7
 COMPLETE = "_complete"
-ZERO = {"queued": 0, "running": 0, "waited": 0}
+# Label -> minutes the oldest sampled queued job has waited.
+OLDEST = "_oldest"
+ZERO = {"queued": 0, "running": 0, "waited": 0, "started": 0}
+# A sampled job a runner took this recently, finished or not, counts as `started`: the label is serving (main's
+# runner_pools.RECENT_START). On 2026-11-18 at 13:18Z every probe but 2 vCPU waited out its 5 minutes under the org's
+# vCPU cap, main marked 4, 8, 16 and 32 vCPU dead, and every Linux pool went to 2 vCPU; a short job that started
+# and finished between passes left no `running` count to clear the mark with.
+STARTED_WINDOW = dt.timedelta(minutes=15)
+
+
+def took(job: Mapping[str, Any]) -> bool:
+    """A runner took the job. `started_at` alone says nothing: GitHub sets it on queued jobs too."""
+    return bool(job.get("runner_name") or job.get("runner_id"))
 
 
 def iso(moment: dt.datetime) -> str:
@@ -160,6 +160,7 @@ def sample_load(client: Any, *, now: dt.datetime, max_runs: int = MAX_RUNS) -> d
             weight[run["id"]] = population / len(found)
         recent += found
     counts: dict[str, dict[str, float]] = {}
+    oldest: dict[str, float] = {}
     for run in recent:
         try:
             jobs = client.jobs(run["id"])
@@ -171,13 +172,19 @@ def sample_load(client: Any, *, now: dt.datetime, max_runs: int = MAX_RUNS) -> d
             complete = False
         for job in jobs:
             status = job.get("status")
-            if status not in ("queued", "in_progress"):
-                continue
-            label = next((str(label) for label in job.get("labels") or ()
-                          if LINUX_LABEL.match(str(label)) or HOSTED_LABEL.match(str(label))), None)
+            label = next((str(label) for label in job.get("labels") or () if LINUX_LABEL.match(str(label))), None)
             if label is None:
                 continue
+            started = parse_time(job.get("started_at"))
+            recent = (status != "queued" and job.get("conclusion") != "skipped" and took(job)
+                      and started is not None and now - started <= STARTED_WINDOW)
+            if status not in ("queued", "in_progress") and not recent:
+                continue
             entry = counts.setdefault(label, {key: 0.0 for key in ZERO})
+            if recent:
+                entry["started"] += weight[run["id"]]
+            if status not in ("queued", "in_progress"):
+                continue
             if status == "in_progress":
                 entry["running"] += weight[run["id"]]
                 continue
@@ -185,8 +192,11 @@ def sample_load(client: Any, *, now: dt.datetime, max_runs: int = MAX_RUNS) -> d
             created = parse_time(job.get("created_at"))
             if created is not None and now - created >= dt.timedelta(minutes=WAITED_MINUTES):
                 entry["waited"] += weight[run["id"]]
+            if created is not None:
+                oldest[label] = max(oldest.get(label, 0.0), (now - created).total_seconds() / 60)
     load: dict[str, Any] = {label: {key: round(value) for key, value in entry.items()} for label, entry in counts.items()}
     load[COMPLETE] = complete
+    load[OLDEST] = {label: round(minutes) for label, minutes in oldest.items()}
     return load
 
 
@@ -199,10 +209,29 @@ def valid_spill(spill: object, listed: Sequence[str]) -> bool:
             and isinstance(running, int) and not isinstance(running, bool) and running >= 0)
 
 
+def spill_candidates(name: str, listed: Sequence[str]) -> list[str]:
+    """Where a pool may spill: its declared members only, never a size outside them.
+
+    2026-11-18 from about 13:40Z: linux_16 and linux_8 named blacksmith-2vcpu-ubuntu-2404, then linux_16 spilled down to
+    4 vCPU, neither a member. cmux-tui's thin legs took 25-44 min instead of 2-8, and 7 aarch64 legs failed with rustc
+    OOM (SIGKILL), e.g. job 134837837144: a busy size makes a job slower, a too-small one makes it fail."""
+    return list(listed)
+
+
+def has_room(member: str, members: Sequence[str], base: str, load: Mapping[str, Any]) -> bool:
+    """Whether a backed-up pool on `base` may spill to `member`: a declared member with at most SPILL_ROOM_WAITED
+    waited. A size with nothing queued in the sample has room."""
+    return member in members and load.get(member, ZERO)["waited"] <= SPILL_ROOM_WAITED
+
+
 def spill_choice(name: str, candidates: Sequence[str], dead: Mapping[str, Any], base: str,
                  spill: Mapping[str, Any] | None, load: Mapping[str, Any] | None, *,
-                 now: dt.datetime) -> tuple[str, dict[str, Any] | None, list[str]]:
-    """(member, spill record or None, lines) for a pool whose first live member (main's choice) is `base`."""
+                 now: dt.datetime,
+                 members: Sequence[str] | None = None) -> tuple[str, dict[str, Any] | None, list[str]]:
+    """(member, spill record or None, lines) for a pool whose first live member (main's choice) is `base`.
+
+    `candidates` is spill_candidates(): the declared `members` (all of them when None)."""
+    members = list(candidates) if members is None else list(members)
     if name not in QUEUE_AWARE_POOLS:
         return base, None, []
     later = candidates[candidates.index(base) + 1:] if base in candidates else []
@@ -237,35 +266,13 @@ def spill_choice(name: str, candidates: Sequence[str], dead: Mapping[str, Any], 
         if member in dead:
             continue
         room = load.get(member, ZERO)
-        if room["waited"] <= SPILL_ROOM_WAITED:
+        if has_room(member, members, base, load):
             record = {"from": base, "to": member, "since": iso(now), "running": left["running"]}
             return member, record, [f"pools.{name}: {base} backed up ({left['waited']} of {left['queued']} sampled "
                                     f"queued jobs waited {WAITED_MINUTES}+ min, {left['running']} running); "
                                     f"spill to {member} ({room['waited']} waited)"]
     return base, None, [f"pools.{name}: {base} backed up ({left['waited']} sampled jobs waited) and no later live "
                         "member has room; staying"]
-
-
-def valve_choice(since: object, load: Mapping[str, Any] | None, *,
-                 now: dt.datetime) -> tuple[str | None, list[str]]:
-    """(the VALVE_KEY value or None, lines): whether the hosted light jobs leave GitHub-hosted on attempt 1.
-
-    Open (a since-time) while sampled jobs on HOSTED_LIGHT_LABEL back up; closed (None) is hosted-first, the default.
-    An unread sample changes nothing. Once open it holds VALVE_MIN_HOLD, so the jobs it moved off do not read as a
-    drain at once, then closes on a sample with at most VALVE_OFF_WAITED waited there; if hosted backs up again the
-    next pass opens it again."""
-    opened = parse_time(since)
-    hosted = (load or {}).get(HOSTED_LIGHT_LABEL, ZERO)
-    if opened is not None:
-        if load is None or now - opened < VALVE_MIN_HOLD or hosted["waited"] > VALVE_OFF_WAITED:
-            return iso(opened), []
-        return None, [f"{VARIABLE}.{VALVE_KEY}: {HOSTED_LIGHT_LABEL} drained ({hosted['waited']} sampled jobs waited "
-                      f"{WAITED_MINUTES}+ min, {hosted['queued']} queued); hosted light jobs take it first again"]
-    if load is None or hosted["waited"] < VALVE_ON_WAITED:
-        return None, []
-    return iso(now), [f"{VARIABLE}.{VALVE_KEY}: {HOSTED_LIGHT_LABEL} saturated ({hosted['waited']} of "
-                      f"{hosted['queued']} sampled queued jobs waited {WAITED_MINUTES}+ min); hosted light jobs take "
-                      "the linux_2 pool on attempt 1"]
 
 
 class Recorder:
@@ -286,8 +293,9 @@ class Recorder:
 
 
 def served_marks(dead: object, load: Mapping[str, Any] | None) -> set[str]:
-    """The dead-marked Blacksmith Linux labels the sample shows running at least one job. A running job is a
-    start, complete sample or not (the counts are a lower bound), so a cut sample still clears a mark."""
+    """The dead-marked Blacksmith Linux labels the sample shows running at least one job or starting one within
+    STARTED_WINDOW. A start is a start, complete sample or not (the counts are a lower bound), so a cut sample still
+    clears a mark."""
     if not isinstance(dead, Mapping) or not isinstance(load, Mapping):
         return set()
     served = set()
@@ -296,11 +304,21 @@ def served_marks(dead: object, load: Mapping[str, Any] | None) -> set[str]:
         if not (isinstance(label, str) and LINUX_LABEL.match(label) and isinstance(counts, Mapping)):
             continue
         try:
-            if int(counts.get("running") or 0) > 0:
+            if int(counts.get("running") or 0) > 0 or int(counts.get("started") or 0) > 0:
                 served.add(label)
         except (TypeError, ValueError):
             continue
     return served
+
+
+def sample_client(switch_module: Any, token: str, repo: str, fallback: str | None) -> Any:
+    """The sample's REST client from the policy checkout's cloud_overflow_switch (main's, beside its policy), with
+    `fallback` as its fallback reader when that client takes one. main's does; an older checkout's takes only token
+    and repo, and then the sample reads with `token` alone, as before."""
+    github = switch_module.GitHub
+    if fallback and "fallback_token" in inspect.signature(github).parameters:
+        return github(token, repo, fallback_token=fallback)
+    return github(token, repo)
 
 
 def apply(policy: Any, raw: str | None, policy_value: str | None, pools: Mapping[str, Any],
@@ -327,12 +345,13 @@ def apply(policy: Any, raw: str | None, policy_value: str | None, pools: Mapping
     for name in QUEUE_AWARE_POOLS:
         if name not in pools or name not in value:
             continue
-        listed = policy.members(pools[name])
+        members = policy.members(pools[name])
+        listed = spill_candidates(name, members)
         spill = spills.get(name)
         if spill is not None and not valid_spill(spill, listed):
             lines.append(f"{VARIABLE}.{SPILL_KEY}.{name} is not a spill between two of its members; dropped")
             spill = None
-        member, record, said = spill_choice(name, listed, dead, value[name], spill, load, now=now)
+        member, record, said = spill_choice(name, listed, dead, value[name], spill, load, now=now, members=members)
         lines += said
         if member != value[name]:
             lines.append(f"pools.{name}: {value[name]} -> {member}")
@@ -343,13 +362,6 @@ def apply(policy: Any, raw: str | None, policy_value: str | None, pools: Mapping
         value[SPILL_KEY] = kept
     else:
         value.pop(SPILL_KEY, None)
-    # main's parse_value() keeps only the pools, `_dead` and `_updated`, so the valve is carried from the raw value.
-    valve, said = valve_choice(previous.get(VALVE_KEY) if isinstance(previous, Mapping) else None, load, now=now)
-    lines += said
-    if valve is not None:
-        value[VALVE_KEY] = valve
-    else:
-        value.pop(VALVE_KEY, None)
     return value, lines
 
 
@@ -369,7 +381,11 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         switch = policy.Variables(str(env["SWITCH_TOKEN"]).strip(), repo)
     if client is None and (env.get("GH_TOKEN") or "").strip() and repo:
         import cloud_overflow_switch  # noqa: PLC0415 - main's client, loaded beside its policy
-        client = cloud_overflow_switch.GitHub(str(env["GH_TOKEN"]).strip(), repo)
+        # The cmux-bot read budget is org-wide: on 2026-11-18 from 11:18Z its reads were refused (403), so this
+        # sample was unread and no served mark cleared. A refused read is asked once more with the workflow token,
+        # as main's runner_pools.main() does for the janitor snapshot (cmux#46257).
+        client = sample_client(cloud_overflow_switch, str(env["GH_TOKEN"]).strip(), repo,
+                               (env.get("GH_FALLBACK_TOKEN") or "").strip() or None)
 
     # The current value, read live: the job-start value may predate the switch step's writes.
     raw = env.get(VARIABLE)

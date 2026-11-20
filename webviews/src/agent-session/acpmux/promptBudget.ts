@@ -5,10 +5,27 @@
 /// 2026-10-31: "this is completely hardlocked bc of message size").
 import { promptBlocks, type ComposerAttachment, type InlineReadOptions, type PromptBlock } from "./attachments";
 import { withoutFrames } from "./composer/videoPrompt";
+import { fitFrames } from "./composer/videoFramePick";
 
 /// The bytes a prompt's blocks may carry: under acpmux's 31 MiB, with room for the message's
 /// envelope (its ids, `_meta`, the bubble's display parts).
 export const PROMPT_INLINE_BUDGET = 28 * 1024 * 1024;
+
+/// Room in one message, besides its blocks, for the prompt's envelope: its `_meta` (the hidden
+/// context, at most 16 KiB; the bubble's display parts), and the escaping of its quotes when the
+/// message goes inside another (the app's bridge, bridgeSocket.ts).
+const ENVELOPE_SLACK = 512 * 1024;
+
+/// The budget of a prompt sent over `socket`: acpmux's, or less when the socket takes smaller
+/// messages (`maxMessageBytes`). The app's bridge takes at most 4 MiB a call (bridgeSocket.ts
+/// `BRIDGE_FRAME_BYTES`): over it, a prompt went nowhere and its row waited five minutes (Leo,
+/// 2026-11-17, two screen recordings dragged in).
+export function promptBudgetFor(socket: unknown): number {
+  const max = (socket as { maxMessageBytes?: unknown } | null | undefined)?.maxMessageBytes;
+  return typeof max === "number" && Number.isFinite(max) && max > 0
+    ? Math.min(PROMPT_INLINE_BUDGET, Math.max(0, max - ENVELOPE_SLACK))
+    : PROMPT_INLINE_BUDGET;
+}
 
 /// What each block adds to the message besides its own strings (its keys and quotes).
 const BLOCK_OVERHEAD = 64;
@@ -72,13 +89,30 @@ export function fitPromptBudget(
     }
   }
   const fitted = attachments.map((chip) => linked.get(chip.id) ?? chip);
-  // Still too large: the videos' frames stay out, each video going as its link (composer/videoPrompt.ts).
+  // Still too large: the videos keep fewer frames, an equal share of the room left each, spread over
+  // the video (videoFramePick.ts `fitFrames`); with no room, each goes as its link alone
+  // (composer/videoPrompt.ts).
   if (total > budget && fitted.some((chip) => chip.video?.frames.length)) {
     const bare = withoutFrames(fitted);
-    if (inlineBytes(promptBlocks(input, bare, options)) < total) return bare;
+    const bareTotal = inlineBytes(promptBlocks(input, bare, options));
+    const videos = fitted.filter((chip) => chip.video?.frames.length).length;
+    // Each frame's own label and note lines, besides its base64, take a little of the share.
+    const share = Math.floor((budget - bareTotal) / videos) - FRAME_SLACK;
+    if (share > 0) {
+      const fewer = fitted.map((chip) =>
+        chip.video?.frames.length
+          ? { ...chip, video: { ...chip.video, frames: fitFrames(chip.video.frames, share) } }
+          : chip,
+      );
+      if (inlineBytes(promptBlocks(input, fewer, options)) <= budget) return fewer;
+    }
+    if (bareTotal < total) return bare;
   }
   return fitted;
 }
+
+/// What a video's frames add besides their base64 (each frame's label and image block, the note).
+const FRAME_SLACK = 16 * 1024;
 
 /// Whether a send must wait for originals still uploading (`uploading`, by chip id) before it goes:
 /// the prompt is over `budget` even with every saved original linked, and an image still uploading

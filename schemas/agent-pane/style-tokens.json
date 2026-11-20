@@ -41,13 +41,13 @@
       "name": "--cv-card-fill",
       "kind": "color",
       "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
-      "about": "The fill of every card in the transcript: opened tool output, code, edited files. Unset: each card keeps its own strength (the theme's text at 4%, code at 7.5%)."
+      "about": "The fill of the card level in the pane: tool output, edit, error and permission cards, plans, the subagent card (design/chat-surfaces.md). Code blocks keep --cv-codeblock-bg. Unset: the card level, the theme's text at 4%."
     },
     {
       "name": "--cv-card-ring",
       "kind": "color",
       "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
-      "about": "The hairline around those cards (none under appearance.borders: none). Unset: each card keeps its own."
+      "about": "The hairline around those cards (none under appearance.borders: none). Unset: the card level's line, the theme's text at 10%."
     },
     {
       "name": "--cv-user-bubble-tint",
