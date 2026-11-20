@@ -476,6 +476,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
+name = "cmux-local-url"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "url",
+]
+
+[[package]]
 name = "cmux-mobile-host"
 version = "0.1.0"
 dependencies = [
@@ -544,6 +552,7 @@ dependencies = [
 name = "cmux-mobile-link-ffi"
 version = "0.1.0"
 dependencies = [
+ "cmux-local-url",
  "cmux-mobile-host",
  "cmux-mobile-link",
  "cmux-rd-core",
@@ -560,7 +569,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uniffi",
- "url",
  "uuid",
 ]
 

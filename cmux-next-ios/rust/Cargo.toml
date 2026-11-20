@@ -29,6 +29,8 @@ cmux-rd-ffi = { path = "../../cmux-tui/crates/cmux-rd-ffi" }
 cmux-terminal-prediction = { path = "../../cmux-tui/crates/cmux-terminal-prediction" }
 # Toggle Terminal and Chat: the Mac's pair route (`tabs::terminal_chat_toggle`), which the phone asks too.
 cmux-window-rules = { path = "../../cmux-tui/crates/cmux-window-rules" }
+# Which device opens a web link (`side`): the phone and the Mac's daemon read one classifier.
+cmux-local-url = { path = "../../cmux-tui/crates/cmux-local-url" }
 anyhow = "1"
 base64 = "0.22"
 bytes = "1"
