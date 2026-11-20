@@ -328,7 +328,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         // Per-automation secrets (automation-secrets.ts): the value travels only in this request, sealed in SchedulerDO.
         if (payload.op === "automation.secret.set" || payload.op === "automation.secret.remove") {
           const p = yield* principalFor("cloud:SchedulerDO", principal)
-          return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.SCHEDULER_DO.get(env.SCHEDULER_DO.idFromName(p.team!)).secretOp(p.team!, p, frame)), catch: unreachable })
+          return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(requestEnv().SCHEDULER_DO.get(requestEnv().SCHEDULER_DO.idFromName(p.team!)).secretOp(p.team!, p, frame)), catch: unreachable })
         }
         // Team shared agent keys (team-agent-keys.ts): the key travels only in this request, sealed in TeamDO.
         if (payload.op === "team.agent_key.set" || payload.op === "team.agent_key.remove") {
