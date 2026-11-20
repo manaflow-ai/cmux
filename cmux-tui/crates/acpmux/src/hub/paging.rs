@@ -807,20 +807,41 @@ impl Hub {
     /// them: a scan of the whole log for its prompts took 10 s on a 566 MB chat and held the
     /// rail's pending ticks blank (Leo, 2026-11-03: "the hover previews ... aren't loading past
     /// the first bits").
-    pub fn prompt_index(&self, id: &str, before: Option<u64>) -> Result<Vec<EventRecord>> {
+    ///
+    /// A page: the newest `limit` prompts before `before` whose cut records fit `max_bytes` (at
+    /// least one), oldest first, `has_more` while older ones are left. It reads the copies newest
+    /// first and stops at the page's oldest prompt (`scan_back_indexed`), so a page costs the
+    /// segments it holds prompts from, not the chat: every prompt in one reply grew with the chat,
+    /// in the daemon's reads and its reply (Leo, 2026-11-19: "we need to be able to have infinite
+    /// chats, infinitely long chats").
+    pub fn prompt_index(
+        &self,
+        id: &str,
+        before: Option<u64>,
+        limit: usize,
+        max_bytes: Option<usize>,
+    ) -> Result<EventPage> {
         let before = before.unwrap_or(u64::MAX);
-        let mut out = Vec::new();
-        self.store.scan_kinds(id, &["user_message"], &mut |mut rec| {
-            if rec.seq >= before {
+        let mut page = EventPage::default();
+        let mut bytes = 0usize;
+        let skip = |dir: &[u8], kind: &[u8]| dir != b"mux" || kind != b"user_message";
+        self.store.scan_back_indexed(id, 0, before, &skip, &mut |mut rec| {
+            if rec.dir != "mux" || rec.kind != "user_message" {
+                return true;
+            }
+            rec.msg = prompt_index_msg(&rec.msg);
+            let size = record_bytes(&rec);
+            let held = page.events.len();
+            if held >= limit || (held > 0 && max_bytes.is_some_and(|max| bytes + size > max)) {
+                page.has_more = true;
                 return false;
             }
-            if rec.dir == "mux" {
-                rec.msg = prompt_index_msg(&rec.msg);
-                out.push(rec);
-            }
+            bytes += size;
+            page.events.push(rec);
             true
         })?;
-        Ok(out)
+        page.events.reverse();
+        Ok(page)
     }
 }
 
