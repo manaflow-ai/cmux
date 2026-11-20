@@ -32,6 +32,14 @@ extension Workspace {
             }
         }
 
+        // Past an edge nothing moves: return before the zoom is touched, as
+        // Ghostty does. A transient unzoom would mark hidden panes visible
+        // and resume their hibernated agents.
+        guard let currentPaneId = bonsplitController.focusedPaneId,
+              bonsplitController.adjacentPane(to: currentPaneId, direction: direction) != nil else {
+            return false
+        }
+
         return navigateSplitFocusHonoringPreserveZoom {
             let previousFocusedPanelId = focusedPanelId
             let previousFocusedPaneId = bonsplitController.focusedPaneId
