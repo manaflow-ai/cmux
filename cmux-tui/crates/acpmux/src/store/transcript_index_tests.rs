@@ -65,8 +65,19 @@ fn same_reads(store: &LocalStore, last: u64, state: &str) {
 
 #[test]
 fn an_entry_and_a_header_read_back_as_written_and_zeros_are_damage() {
-    let entry = Entry { seq: 9, offset: 1234, len: 77, flags: 0 };
+    let entry = Entry { seq: 9, offset: 1234, len: 77, ..Entry::default() };
     assert_eq!(Entry::decode(&entry.encode()), Some(entry));
+    let snapshot = Entry {
+        seq: 9,
+        offset: 1234,
+        len: 77,
+        flags: SNAPSHOT | CONTENT,
+        call: u64::MAX - 5,
+        span_start: 30,
+        span_len: 20,
+        cut: 40,
+    };
+    assert_eq!(Entry::decode(&snapshot.encode()), Some(snapshot));
     assert_eq!(Entry::decode(&[0u8; WIDTH as usize]), None, "a zeroed entry is damage");
     let header = Header {
         file: (1, 2, 3),
@@ -257,5 +268,74 @@ fn transcript_index_append_cost() {
                 if indexed { "on" } else { "off" }
             );
         }
+    }
+}
+
+/// An update the superseded fold may leave out whole gets an entry with its facts; its call's
+/// start, its end, an update with a title, and a subagent's own `_meta` beside the owner do not.
+#[test]
+fn an_update_the_fold_may_leave_out_gets_its_facts() {
+    let line = |update: Value, meta: Option<Value>| {
+        let mut msg = json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "a", "update": update}});
+        if let Some(meta) = meta {
+            msg["params"]["_meta"] = meta;
+        }
+        let kind = msg["params"]["update"]["sessionUpdate"].as_str().unwrap().to_owned();
+        serde_json::to_string(&EventRecord {
+            seq: 4,
+            at: 4,
+            dir: "in".into(),
+            kind,
+            msg,
+            host_seq: None,
+        })
+        .unwrap()
+    };
+    let text = json!([{"type": "content", "content": {"type": "text", "text": "out"}}]);
+    let snapshot = line(
+        json!({"sessionUpdate": "tool_call_update", "toolCallId": "c", "status": "in_progress", "content": text, "_meta": {"terminal_output_delta": {"data": "x"}}}),
+        None,
+    );
+    let entry = Entry::of(snapshot.as_bytes(), 0).unwrap();
+    assert_eq!(entry.flags, SNAPSHOT | STATUS | CONTENT);
+    assert!(entry.is_snapshot());
+    let (at, len) = (entry.span_start as usize, entry.span_len as usize);
+    let span = &snapshot[at..at + len];
+    assert!(span.starts_with(",\"content\":") || span.starts_with("\"content\":"), "{span}");
+    assert!(entry.cut > 0 && (entry.cut as usize) < snapshot.len());
+    assert_eq!(entry.call, super::super::superseded::call_hash("\u{0}c"));
+    let owned = line(
+        json!({"sessionUpdate": "tool_call_update", "toolCallId": "c", "content": text}),
+        Some(json!({"acpmux": {"subagent": "s"}})),
+    );
+    let owned = Entry::of(owned.as_bytes(), 0).unwrap();
+    assert_eq!(owned.flags, SNAPSHOT | CONTENT);
+    assert_ne!(owned.call, entry.call, "a subagent's calls are numbered apart");
+    for plain in [
+        line(json!({"sessionUpdate": "tool_call", "toolCallId": "c", "title": "t"}), None),
+        line(
+            json!({"sessionUpdate": "tool_call_update", "toolCallId": "c", "status": "completed", "content": text}),
+            None,
+        ),
+        line(
+            json!({"sessionUpdate": "tool_call_update", "toolCallId": "c", "title": "t", "content": text}),
+            None,
+        ),
+        line(
+            json!({"sessionUpdate": "tool_call_update", "toolCallId": "c", "content": [{"type": "diff", "path": "p"}]}),
+            None,
+        ),
+        line(
+            json!({"sessionUpdate": "tool_call_update", "toolCallId": "c", "content": text}),
+            Some(json!({"acpmux": {"subagent": "s", "x": 1}})),
+        ),
+        line(
+            json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "hi"}}),
+            None,
+        ),
+    ] {
+        let entry = Entry::of(plain.as_bytes(), 0).unwrap();
+        let facts = (entry.flags, entry.call, entry.span_start, entry.span_len, entry.cut);
+        assert_eq!(facts, (0, 0, 0, 0, 0), "{plain}");
     }
 }

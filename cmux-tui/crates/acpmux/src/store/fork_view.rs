@@ -569,6 +569,24 @@ impl Store for ForkView {
     ) -> Result<()> {
         self.back(id, after, before, skip, visit, Back::Transcript)
     }
+    /// A chat with no history of another's: its log's own read. A fork's view joins two logs,
+    /// and reads both as `scan_back_transcript`, every record read.
+    fn scan_back_snapshots(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(BackItem) -> bool,
+    ) -> Result<()> {
+        {
+            let _held = self.shared();
+            if self.reference(id)?.is_none() {
+                return self.inner.scan_back_snapshots(id, after, before, skip, visit);
+            }
+        }
+        self.scan_back_transcript(id, after, before, skip, &mut |rec| visit(BackItem::Record(rec)))
+    }
     /// A fork's view joins two logs: it keeps no restore point, and its load reads it whole.
     fn restore_point(&self, id: &str) -> Option<Vec<u8>> {
         let _held = self.shared();

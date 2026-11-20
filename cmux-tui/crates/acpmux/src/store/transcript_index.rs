@@ -37,9 +37,17 @@
 //! a check, so an entry lost to zeros is damage, and a damaged index is read past from where the
 //! damage is.
 //!
-//! Entries also hold `call`, `span_start` and `span_len`, all 0 for now: a later change keeps a
-//! tool call's key and the span of its content there, so a page leaves superseded
-//! `tool_call_update` snapshots unread, with no change of format.
+//! An entry of a `tool_call_update` the superseded fold may leave out of a page whole
+//! (`store/superseded.rs` `snapshot_facts`: a plain call's update with nothing but output, not its
+//! end) also says so ([`SNAPSHOT`]): its call's key (`call`, hashed), which of `status` and
+//! `content` it carries, the span of the line that holds its content (`span_start`, `span_len`)
+//! and its JSON bytes with that content left out (`cut`, the reserved u32 before). A page that
+//! leaves superseded updates out reads such an entry as a [`Snapshot`], not its line
+//! (`Hub::events_page`): the fold decides from those facts, and the page reads the line only when
+//! the record stays in it, and then without the span when the fold leaves its content out. In a long Codex chat these updates are a
+//! small part of the log but most of what a page read through the index read. An entry without
+//! the flag (an index written before, all 0 there) is read as before. The format is the same:
+//! a build that knows nothing of the flag reads past it.
 
 use super::kind_index::{Stamp, fnv};
 use super::*;
@@ -65,6 +73,11 @@ const WIDTH: u64 = 48;
 /// An entry's flag: the line's head names no seq (not a line this daemon wrote); it is not checked
 /// by seq.
 const NO_SEQ: u32 = 1;
+/// An entry's flag: the line is an update the superseded fold may leave out whole, and the entry
+/// holds its facts (module docs). With [`STATUS`] and [`CONTENT`], the fields it carries.
+const SNAPSHOT: u32 = 2;
+const STATUS: u32 = 4;
+const CONTENT: u32 = 8;
 
 /// How many entries a read takes from an index at a time, newest first.
 const ENTRY_BLOCK: u64 = 1024;
@@ -255,37 +268,63 @@ impl Header {
 }
 
 /// One entry: where a held line is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 struct Entry {
     seq: u64,
     offset: u64,
     /// With its newline.
     len: u32,
     flags: u32,
+    /// With [`SNAPSHOT`]: its call's key (`superseded.rs` `call_hash`), where its content is in
+    /// the line, and its JSON bytes with the content left out. 0 otherwise.
+    call: u64,
+    span_start: u32,
+    span_len: u32,
+    cut: u32,
 }
 
 impl Entry {
     /// The entry of `line` (without its newline) at `offset`.
     fn of(line: &[u8], offset: u64) -> Option<Self> {
         let len = u32::try_from(line.len() + 1).ok()?;
-        Some(match record_seq(line) {
-            Some(seq) => Self { seq, offset, len, flags: 0 },
-            None => Self { seq: 0, offset, len, flags: NO_SEQ },
-        })
+        let Some(seq) = record_seq(line) else {
+            return Some(Self { offset, len, flags: NO_SEQ, ..Self::default() });
+        };
+        let mut entry = Self { seq, offset, len, ..Self::default() };
+        if let Some(facts) = super::superseded::snapshot_facts(line) {
+            entry.flags = SNAPSHOT
+                | if facts.status { STATUS } else { 0 }
+                | if facts.content { CONTENT } else { 0 };
+            (entry.call, entry.span_start, entry.span_len, entry.cut) =
+                (facts.call, facts.span_start, facts.span_len, facts.cut);
+        }
+        Some(entry)
+    }
+
+    /// Whether a page may read it as a [`Snapshot`]: its span inside its line.
+    fn is_snapshot(&self) -> bool {
+        self.flags & SNAPSHOT != 0
+            && self.flags & NO_SEQ == 0
+            && self.span_len > 0
+            && u64::from(self.span_start) + u64::from(self.span_len) < u64::from(self.len)
     }
 
     fn end(&self) -> u64 {
         self.offset.saturating_add(u64::from(self.len))
     }
 
-    /// Bytes 24..44 are `call` (u64), `span_start` and `span_len` (u32) and a reserved u32: 0
-    /// here (module docs). The last 4 bytes check the rest.
+    /// Bytes 24..44 are `call` (u64), `span_start`, `span_len` and `cut` (u32), 0 but with
+    /// [`SNAPSHOT`]. The last 4 bytes check the rest.
     fn encode(&self) -> [u8; WIDTH as usize] {
         let mut b = [0u8; WIDTH as usize];
         b[0..8].copy_from_slice(&self.seq.to_le_bytes());
         b[8..16].copy_from_slice(&self.offset.to_le_bytes());
         b[16..20].copy_from_slice(&self.len.to_le_bytes());
         b[20..24].copy_from_slice(&self.flags.to_le_bytes());
+        b[24..32].copy_from_slice(&self.call.to_le_bytes());
+        b[32..36].copy_from_slice(&self.span_start.to_le_bytes());
+        b[36..40].copy_from_slice(&self.span_len.to_le_bytes());
+        b[40..44].copy_from_slice(&self.cut.to_le_bytes());
         let check = check(&b[..44]);
         b[44..48].copy_from_slice(&check.to_le_bytes());
         b
@@ -302,6 +341,10 @@ impl Entry {
             offset: u64::from_le_bytes(b[8..16].try_into().ok()?),
             len: u32::from_le_bytes(b[16..20].try_into().ok()?),
             flags: u32::from_le_bytes(b[20..24].try_into().ok()?),
+            call: u64::from_le_bytes(b[24..32].try_into().ok()?),
+            span_start: u32::from_le_bytes(b[32..36].try_into().ok()?),
+            span_len: u32::from_le_bytes(b[36..40].try_into().ok()?),
+            cut: u32::from_le_bytes(b[40..44].try_into().ok()?),
         })
     }
 }
@@ -823,9 +866,48 @@ impl LocalStore {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
+        self.scan_back_transcript_items(id, after, before, skip, false, &mut |item| match item {
+            BackItem::Record(rec) => visit(rec),
+            // Never given when `snapshots` is false.
+            BackItem::Unread(_) => true,
+        })
+    }
+
+    /// [`Self::scan_back_transcript_in`], and with `snapshots` an update whose entry holds its
+    /// facts ([`SNAPSHOT`]) goes to `visit` unread, as a [`Snapshot`] (module docs).
+    pub(super) fn scan_back_transcript_items(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        snapshots: bool,
+        visit: &mut dyn FnMut(BackItem) -> bool,
+    ) -> Result<()> {
         let done = std::cell::Cell::new(false);
         // One line, newest first, as `scan_back_in` reads it: false once the read is over.
-        let mut line = |line: &[u8]| {
+        let mut on = |read: Found<'_>, shared: &Option<std::sync::Arc<File>>| {
+            let line = match read {
+                Found::Line(line) => line,
+                Found::Snapshot(entry) => {
+                    if entry.seq >= before {
+                        return true;
+                    }
+                    if entry.seq <= after {
+                        done.set(true);
+                        return false;
+                    }
+                    if skip(b"in", b"tool_call_update") {
+                        return true;
+                    }
+                    let Some(file) = shared.clone() else { return true };
+                    if !visit(BackItem::Unread(Snapshot::of(file, *entry))) {
+                        done.set(true);
+                        return false;
+                    }
+                    return true;
+                }
+            };
             match record_seq(line) {
                 Some(seq) if seq >= before => return true,
                 Some(seq) if seq <= after => {
@@ -843,7 +925,7 @@ impl LocalStore {
             if rec.seq >= before {
                 return true;
             }
-            if rec.seq <= after || !visit(rec) {
+            if rec.seq <= after || !visit(BackItem::Record(rec)) {
                 done.set(true);
                 return false;
             }
@@ -858,8 +940,23 @@ impl LocalStore {
             let mut file = crate::config::private_state_file(&path)?;
             let stamp = Stamp::of(&file)?;
             match trusted(&self.transcript_index_path(id, index), &stamp) {
-                Some(kept) => read_indexed(&mut file, stamp.len, &kept, before, &mut line, &done)?,
+                Some(kept) => {
+                    // The segment, shared with the snapshots it gives (none when it cannot be).
+                    let shared =
+                        snapshots.then(|| file.try_clone().ok().map(std::sync::Arc::new)).flatten();
+                    let shared = &shared;
+                    read_indexed(
+                        &mut file,
+                        stamp.len,
+                        &kept,
+                        before,
+                        shared.is_some(),
+                        &mut |read| on(read, shared),
+                        &done,
+                    )?;
+                }
                 None => {
+                    let mut line = |text: &[u8]| on(Found::Line(text), &None);
                     let end = offset_of_seq(&mut file, before)?;
                     // The segment still written to is indexed by its writer; any other is
                     // indexed by this read: the lines it visits, then (once the page is full) the
@@ -916,16 +1013,163 @@ impl LocalStore {
     }
 }
 
+/// What a read through an index passes on, newest first.
+enum Found<'a> {
+    Line(&'a [u8]),
+    /// An entry with [`SNAPSHOT`] whose line starts as one of its seq: its line unread.
+    Snapshot(&'a Entry),
+}
+
+/// What a backward read of the transcript gives (`Store::scan_back_snapshots`).
+pub enum BackItem {
+    Record(EventRecord),
+    /// A `tool_call_update` the superseded fold may leave out of a page whole, unread.
+    Unread(Snapshot),
+}
+
+/// A `tool_call_update` read from its index entry alone (module docs): what the superseded fold
+/// needs of it (`Superseded::read_unread`), and its line, read only when the page keeps it.
+pub struct Snapshot {
+    pub seq: u64,
+    /// Its call's key (`superseded.rs` `call_hash`).
+    pub call: u64,
+    /// Whether it carries `status`, and `content`.
+    pub status: bool,
+    pub content: bool,
+    /// Its record's JSON bytes, whole (its line's) and with its content left out.
+    pub whole: usize,
+    pub cut: usize,
+    file: std::sync::Arc<File>,
+    entry: Entry,
+}
+
+impl Snapshot {
+    fn of(file: std::sync::Arc<File>, entry: Entry) -> Self {
+        Self {
+            seq: entry.seq,
+            call: entry.call,
+            status: entry.flags & STATUS != 0,
+            content: entry.flags & CONTENT != 0,
+            whole: entry.len.saturating_sub(1) as usize,
+            cut: entry.cut as usize,
+            file,
+            entry,
+        }
+    }
+
+    /// Its record, as a read of its line gives it; None when the bytes its entry names are not
+    /// one whole line of its seq that parses (a read of the line would have passed it).
+    pub fn read(&self) -> Result<Option<EventRecord>> {
+        let base = self.entry.offset.saturating_sub(1);
+        let mut bytes = vec![0u8; usize::try_from(self.entry.end() - base).unwrap_or(0)];
+        read_at(&self.file, &mut bytes, base)?;
+        let Some(text) = whole_line(&bytes, base, &self.entry) else { return Ok(None) };
+        Ok(parse_record(text).ok())
+    }
+
+    /// Its record with its content left out and noted, as the superseded fold leaves it out, read
+    /// from its line less the span that holds the content; None when those bytes are not of a
+    /// whole line of its seq, or do not read as the record its entry says.
+    pub fn read_cut(&self) -> Result<Option<EventRecord>> {
+        let entry = &self.entry;
+        let base = entry.offset.saturating_sub(1);
+        let span = entry.offset + u64::from(entry.span_start);
+        let after = span + u64::from(entry.span_len);
+        let mut head = vec![0u8; usize::try_from(span - base).unwrap_or(0)];
+        read_at(&self.file, &mut head, base)?;
+        let mut tail = vec![0u8; usize::try_from(entry.end() - after).unwrap_or(0)];
+        read_at(&self.file, &mut tail, after)?;
+        let skip = usize::from(entry.offset > 0);
+        if (skip == 1 && head.first() != Some(&b'\n')) || tail.last() != Some(&b'\n') {
+            return Ok(None);
+        }
+        let mut text = head.split_off(skip);
+        tail.pop();
+        text.extend_from_slice(&tail);
+        if memchr::memchr(b'\n', &text).is_some() || record_seq(&text) != Some(entry.seq) {
+            return Ok(None);
+        }
+        let Ok(mut rec) = parse_record(&text) else { return Ok(None) };
+        let bytes = super::superseded::span_content_bytes(entry.span_len);
+        super::superseded::note_superseded_content(&mut rec, bytes);
+        let same = serde_json::to_string(&rec).is_ok_and(|json| json.len() == self.cut);
+        Ok(same.then_some(rec))
+    }
+}
+
+/// How much of a snapshot's line a read looks at before it passes the line on unread.
+const SNAPSHOT_HEAD: u64 = 128;
+
+/// Whether `entry`'s bytes start a line of its seq, an agent's `tool_call_update`, and end with a
+/// newline: what a read checks of a line it passes on unread (the rest is checked if it is read).
+fn snapshot_starts(file: &File, entry: &Entry) -> std::io::Result<bool> {
+    let base = entry.offset.saturating_sub(1);
+    let head = u64::from(entry.len).min(SNAPSHOT_HEAD);
+    let mut bytes = vec![0u8; usize::try_from(entry.offset + head - base).unwrap_or(0)];
+    read_at(file, &mut bytes, base)?;
+    let start = usize::try_from(entry.offset - base).unwrap_or(0);
+    if entry.offset > 0 && bytes.get(start.wrapping_sub(1)) != Some(&b'\n') {
+        return Ok(false);
+    }
+    let text = bytes.get(start..).unwrap_or_default();
+    let text = if head == u64::from(entry.len) {
+        text.split_last().map_or(text, |(_, t)| t)
+    } else {
+        text
+    };
+    if memchr::memchr(b'\n', text).is_some()
+        || record_seq(text) != Some(entry.seq)
+        || record_dir(text) != Some(b"in")
+        || record_kind(text) != Some(b"tool_call_update")
+    {
+        return Ok(false);
+    }
+    let mut last = [0u8; 1];
+    read_at(file, &mut last, entry.end() - 1)?;
+    Ok(last[0] == b'\n')
+}
+
+/// Reads `group`'s lines in one read and passes each that is the line its entry names, at or
+/// before `bound`; false once `on` ended the read.
+fn flush_group(
+    file: &File,
+    group: &mut Vec<Entry>,
+    bound: &mut u64,
+    on: &mut dyn FnMut(Found<'_>) -> bool,
+) -> std::io::Result<bool> {
+    let (Some(lo), Some(hi)) =
+        (group.iter().map(|e| e.offset).min(), group.iter().map(Entry::end).max())
+    else {
+        return Ok(true);
+    };
+    let base = lo.saturating_sub(1);
+    let mut bytes = vec![0u8; usize::try_from(hi - base).unwrap_or(0)];
+    read_at(file, &mut bytes, base)?;
+    for entry in group.drain(..) {
+        if entry.end() > *bound {
+            continue;
+        }
+        let Some(text) = whole_line(&bytes, base, &entry) else { continue };
+        *bound = entry.offset;
+        if !on(Found::Line(text)) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 /// One segment of `len` bytes read through its index `index`, newest first: the bytes past what
 /// the index covers the old way, then its entries' lines below `before`, then the bytes before
 /// its `from` the old way. A damaged entry ends the index's part: the segment below the last line
-/// read through it is read the old way.
+/// read through it is read the old way. With `snapshots`, an entry with [`SNAPSHOT`] whose line
+/// starts as its entry says ([`snapshot_starts`]) goes to `on` unread.
 fn read_indexed(
     file: &mut File,
     len: u64,
     index: &Trusted,
     before: u64,
-    line: &mut dyn FnMut(&[u8]) -> bool,
+    snapshots: bool,
+    on: &mut dyn FnMut(Found<'_>) -> bool,
     done: &std::cell::Cell<bool>,
 ) -> Result<()> {
     let from = index.header.from;
@@ -936,7 +1180,7 @@ fn read_indexed(
         } else {
             len
         };
-        for_each_line_rev_between(file, to, end, line)?;
+        for_each_line_rev_between(file, to, end, &mut |text| on(Found::Line(text)))?;
         if done.get() {
             return Ok(());
         }
@@ -947,28 +1191,6 @@ fn read_indexed(
     let mut left = index.entries;
     let mut group: Vec<Entry> = Vec::new();
     let mut damaged = false;
-    // Reads `group`'s lines in one read and passes each that is the line its entry names.
-    let mut flush = |group: &mut Vec<Entry>, bound: &mut u64| -> std::io::Result<bool> {
-        let (Some(lo), Some(hi)) =
-            (group.iter().map(|e| e.offset).min(), group.iter().map(Entry::end).max())
-        else {
-            return Ok(true);
-        };
-        let base = lo.saturating_sub(1);
-        let mut bytes = vec![0u8; usize::try_from(hi - base).unwrap_or(0)];
-        read_at(file, &mut bytes, base)?;
-        for entry in group.drain(..) {
-            if entry.end() > *bound {
-                continue;
-            }
-            let Some(text) = whole_line(&bytes, base, &entry) else { continue };
-            *bound = entry.offset;
-            if !line(text) {
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    };
     'blocks: while left > 0 {
         let n = left.min(ENTRY_BLOCK);
         left -= n;
@@ -988,6 +1210,23 @@ fn read_indexed(
             if entry.flags & NO_SEQ == 0 && entry.seq >= before {
                 continue;
             }
+            // A snapshot: after the newer lines, unread when its line starts as the entry says
+            // (else read as any line, and passed when it is not one).
+            if snapshots && entry.is_snapshot() {
+                if !flush_group(file, &mut group, &mut bound, on)? {
+                    return Ok(());
+                }
+                if entry.end() > bound {
+                    continue;
+                }
+                if snapshot_starts(file, &entry)? {
+                    bound = entry.offset;
+                    if !on(Found::Snapshot(&entry)) {
+                        return Ok(());
+                    }
+                    continue;
+                }
+            }
             // Read with the group when near it, else the group first.
             if let (Some(lo), Some(hi)) =
                 (group.iter().map(|e| e.offset).min(), group.iter().map(Entry::end).max())
@@ -995,19 +1234,19 @@ fn read_indexed(
                 let near = entry.end().saturating_add(NEAR) >= lo
                     && entry.offset <= hi.saturating_add(NEAR);
                 let span = hi.max(entry.end()) - lo.min(entry.offset);
-                if (!near || span > READ_SPAN) && !flush(&mut group, &mut bound)? {
+                if (!near || span > READ_SPAN) && !flush_group(file, &mut group, &mut bound, on)? {
                     return Ok(());
                 }
             }
             group.push(entry);
         }
     }
-    if !flush(&mut group, &mut bound)? {
+    if !flush_group(file, &mut group, &mut bound, on)? {
         return Ok(());
     }
     let rest = if damaged { bound } else { from };
     if rest > 0 {
-        for_each_line_rev_between(file, 0, rest, line)?;
+        for_each_line_rev_between(file, 0, rest, &mut |text| on(Found::Line(text)))?;
     }
     Ok(())
 }

@@ -43,7 +43,9 @@ mod shared_value;
 mod text_index;
 mod transcript_index;
 pub use shared_value::{SharedRows, SharedValue};
-pub use transcript_index::{DIR as TRANSCRIPT_INDEX_DIR, PAGE_KINDS as TRANSCRIPT_INDEX_KINDS};
+pub use transcript_index::{
+    BackItem, DIR as TRANSCRIPT_INDEX_DIR, PAGE_KINDS as TRANSCRIPT_INDEX_KINDS, Snapshot,
+};
 
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1260,6 +1262,21 @@ pub trait Store: Send + Sync {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         self.scan_back(id, after, before, skip, visit)
+    }
+    /// [`Store::scan_back_transcript`] for a page that leaves superseded tool call updates out
+    /// (`store/superseded.rs`): a file store gives an update its transcript index holds the facts
+    /// of as [`BackItem::Unread`], its line unread, so the page reads it only if it keeps it
+    /// (`store/transcript_index.rs`). Every other record, and every record of every other store,
+    /// as [`BackItem::Record`].
+    fn scan_back_snapshots(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(BackItem) -> bool,
+    ) -> Result<()> {
+        self.scan_back_transcript(id, after, before, skip, &mut |rec| visit(BackItem::Record(rec)))
     }
     /// Visit records with `after < seq < before` newest first until `visit`
     /// returns false: the reverse of `scan`, for pages taken from the end.
@@ -2537,6 +2554,17 @@ impl Store for LocalStore {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         self.scan_back_transcript_in(id, after, before, skip, visit)
+    }
+
+    fn scan_back_snapshots(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(BackItem) -> bool,
+    ) -> Result<()> {
+        self.scan_back_transcript_items(id, after, before, skip, true, visit)
     }
 
     fn flush(&self) -> Result<()> {

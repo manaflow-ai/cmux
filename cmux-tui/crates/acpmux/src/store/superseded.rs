@@ -26,6 +26,14 @@
 //! `user_message` or `turn_started` the read passes ends what newer updates cover, even when the
 //! page's kinds leave it out ([`starts_prompt`]). Every call still folds to its state at the end of
 //! the read. The log, the live stream, forward reads and reads with no byte bound are unchanged.
+//!
+//! An update of the first kind is most of what an older page of a long chat would read, and the
+//! page drops it whole. So the log's transcript index (`store/transcript_index.rs`) says of each
+//! update this fold may drop ([`snapshot_facts`]: plain, nothing but output, not the call's end)
+//! its call, which of `status` and `content` it carries, and its size with and without its
+//! content. A page read through the index hands such an update to [`Superseded::read_unread`]
+//! without reading it, which folds it by the same rules as [`Superseded::read`]; the page reads it
+//! only when it stays in the page.
 
 use super::*;
 use serde_json::Map;
@@ -40,6 +48,125 @@ const UNREAD_META: &[&str] = &["terminal_output_delta"];
 /// page holds.
 pub fn starts_prompt(dir: &[u8], kind: &[u8]) -> bool {
     dir == b"mux" && matches!(kind, b"user_message" | b"turn_started")
+}
+
+/// A call's key as the fold and the transcript index keep it: the first 8 bytes of the SHA-256 of
+/// [`call_of_msg`]'s key, so an index entry of fixed width names it. Both [`Superseded::read`] and
+/// the index's facts ([`snapshot_facts`]) key calls by this one function, so a page read through
+/// the index folds as a page read from the log.
+///
+/// Two calls whose keys share a hash fold as one call: an update of one may then be left out for
+/// an update of the other. Accepted: at 64 bits that needs about 4 billion calls in one read, and
+/// the line it would leave out cannot be checked against its key without reading it, which is
+/// the read this saves.
+pub(super) fn call_hash(key: &str) -> u64 {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(key.as_bytes());
+    let mut first = [0u8; 8];
+    first.copy_from_slice(&digest[..8]);
+    u64::from_le_bytes(first)
+}
+
+/// Whether the update ends its call.
+fn ends(update: &Map<String, Value>) -> bool {
+    matches!(update.get("status").and_then(Value::as_str), Some("completed" | "failed"))
+}
+
+/// What the fold needs of a `tool_call_update` it may leave out of a page whole, without the
+/// record: written into the transcript index at append time ([`snapshot_facts`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct SnapshotFacts {
+    /// [`call_hash`] of its call.
+    pub(super) call: u64,
+    /// Whether it carries `status`, and `content`: its only fields ([`only_output`]).
+    pub(super) status: bool,
+    pub(super) content: bool,
+    /// The JSON bytes of the record with its content left out ([`leave_out_content`]).
+    pub(super) cut: u32,
+    /// Where `"content":<value>` and one comma beside it are in the line: taken out, the rest is
+    /// the record without its content.
+    pub(super) span_start: u32,
+    pub(super) span_len: u32,
+}
+
+/// `"content":`, the key a [`SnapshotFacts`] span starts or ends with.
+const CONTENT_KEY: &[u8] = b"\"content\":";
+
+/// The bytes the note of an update whose content a span held says it left out: the value's.
+pub(super) fn span_content_bytes(span_len: u32) -> usize {
+    (span_len as usize).saturating_sub(CONTENT_KEY.len() + 1)
+}
+
+/// [`SnapshotFacts`] of a log line, when it is an agent's `tool_call_update` that a page's fold
+/// may leave out whole: of a plain call ([`call_of_msg`]), nothing but output ([`only_output`]),
+/// and not its call's end, written as this daemon writes records (its JSON read and written again
+/// is the line), with a span that takes its content out. None for any other line.
+pub(super) fn snapshot_facts(line: &[u8]) -> Option<SnapshotFacts> {
+    if record_dir(line)? != b"in" || record_kind(line)? != b"tool_call_update" {
+        return None;
+    }
+    // Not `parse_record`: this is the index's own work, not a read's.
+    let mut rec: EventRecord = serde_json::from_slice(line).ok()?;
+    if rec.dir != "in"
+        || rec.msg.get("method").and_then(Value::as_str) != Some(crate::rpc::method::SESSION_UPDATE)
+    {
+        return None;
+    }
+    if serde_json::to_string(&rec).ok()?.len() != line.len() {
+        return None;
+    }
+    let (key, plain) = call_of(&rec)?;
+    let update = update_of(&mut rec)?;
+    let fields = fields(update);
+    if !plain || !only_output(update, &fields) || ends(update) {
+        return None;
+    }
+    let (status, content) = (fields.contains("status"), fields.contains("content"));
+    let value = serde_json::to_vec(update.get("content")?).ok()?;
+    update.remove("content");
+    let bare = rec.clone();
+    let (span_start, span_len) = content_span(line, &value, &bare)?;
+    let mut cut = bare;
+    note_left_out(update_of(&mut cut)?, span_content_bytes(span_len));
+    Some(SnapshotFacts {
+        call: call_hash(&key),
+        status,
+        content,
+        cut: u32::try_from(serde_json::to_string(&cut).ok()?.len()).ok()?,
+        span_start,
+        span_len,
+    })
+}
+
+/// The span of `line` that holds `"content":<value>` and a comma beside it, when the line with it
+/// taken out is `bare` (the record without its content).
+fn content_span(line: &[u8], value: &[u8], bare: &EventRecord) -> Option<(u32, u32)> {
+    let mut pair = CONTENT_KEY.to_vec();
+    pair.extend_from_slice(value);
+    for at in memchr::memmem::find_iter(line, &pair).take(4) {
+        let end = at + pair.len();
+        let span = if line.get(end) == Some(&b',') {
+            (at, end + 1)
+        } else if at > 0 && line.get(at - 1) == Some(&b',') {
+            (at - 1, end)
+        } else {
+            continue;
+        };
+        let mut rest = line[..span.0].to_vec();
+        rest.extend_from_slice(&line[span.1..]);
+        if serde_json::from_slice::<EventRecord>(&rest).ok().as_ref() == Some(bare) {
+            return Some((u32::try_from(span.0).ok()?, u32::try_from(span.1 - span.0).ok()?));
+        }
+    }
+    None
+}
+
+/// Notes on a `tool_call_update` read without its content (its line less the span that held it)
+/// that its content, of `bytes`, was left out, as [`leave_out_content`] notes it.
+pub(super) fn note_superseded_content(rec: &mut EventRecord, bytes: usize) {
+    if let Some(update) = update_of(rec) {
+        note_left_out(update, bytes);
+    }
 }
 
 /// The update of a `tool_call_update` record, if it is one.
@@ -126,6 +253,11 @@ pub(super) fn only_output(update: &Map<String, Value>, fields: &BTreeSet<String>
 fn leave_out_content(update: &mut Map<String, Value>) {
     let Some(content) = update.remove("content") else { return };
     let bytes = serde_json::to_string(&content).map_or(0, |s| s.len());
+    note_left_out(update, bytes);
+}
+
+/// Notes in `update`'s `_meta.acpmux` that `bytes` of content were left out.
+fn note_left_out(update: &mut Map<String, Value>, bytes: usize) {
     let meta = update.entry("_meta").or_insert_with(|| Value::Object(Map::new()));
     if let Some(meta) = meta.as_object_mut() {
         let acpmux = meta.entry("acpmux").or_insert_with(|| Value::Object(Map::new()));
@@ -138,7 +270,8 @@ fn leave_out_content(update: &mut Map<String, Value>) {
 /// A newest-first read of a log's records: what each tool call's newer updates already carry.
 #[derive(Default)]
 pub struct Superseded {
-    calls: HashMap<String, Call>,
+    /// By [`call_hash`] of the call's key.
+    calls: HashMap<u64, Call>,
 }
 
 #[derive(Default)]
@@ -172,6 +305,7 @@ impl Superseded {
             return None;
         }
         let (key, plain) = call_of(rec)?;
+        let key = call_hash(&key);
         if rec.kind == "tool_call" {
             // The call's start: older than every update of it.
             return if delivered(rec) {
@@ -187,8 +321,7 @@ impl Superseded {
         if output && newer == Some(true) {
             leave_out_content(update);
         }
-        let ends =
-            matches!(update.get("status").and_then(Value::as_str), Some("completed" | "failed"));
+        let ends = ends(update);
         if !delivered(rec) {
             return None;
         }
@@ -201,6 +334,39 @@ impl Superseded {
         }
         call.fields.extend(fields);
         call.held.take()
+    }
+
+    /// Whether a newer update of call `call` ([`call_hash`]) in this read replaces its content:
+    /// an update of it with nothing but output that [`Self::read_unread`] reads loses its content.
+    pub fn replaces_content(&self, call: u64) -> bool {
+        self.calls.get(&call).is_some_and(|call| call.fields.contains("content"))
+    }
+
+    /// [`Self::read`] for an update the read left unread, one [`snapshot_facts`] names (a plain
+    /// call's, nothing but output, not an end) and that goes out whole: of call `call` carrying
+    /// `status` and `content`, at `slot`. The same rules, from those facts; the content goes
+    /// when [`Self::replaces_content`] said so before.
+    pub fn read_unread(
+        &mut self,
+        call: u64,
+        status: bool,
+        content: bool,
+        slot: usize,
+    ) -> Option<usize> {
+        let fields: BTreeSet<String> = [("status", status), ("content", content)]
+            .into_iter()
+            .filter(|(_, has)| *has)
+            .map(|(name, _)| name.to_owned())
+            .collect();
+        let Some(entry) = self.calls.get_mut(&call) else {
+            self.calls.insert(call, Call { fields, held: None });
+            return None;
+        };
+        if fields.is_subset(&entry.fields) {
+            return entry.held.replace(slot);
+        }
+        entry.fields.extend(fields);
+        entry.held.take()
     }
 }
 
