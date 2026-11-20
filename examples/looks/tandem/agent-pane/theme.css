@@ -1,0 +1,47 @@
+/* Tandem's chat: an agent workspace. Your prompt sits in a bubble warmed toward the accent (the
+   accent at 8%: a pale peach over the light workspace, the warm brown #271E1D of the dark one) with
+   10 px corners and no edge; cards are the ink at 4% with an 8% hairline, the "Done, you're in an
+   isolated copy" card's weight; secondary ink is the gray of step rows ("Opening the site",
+   "Downloading the file"), as dark as reads at 4.5:1; links are the accent a long step toward the
+   ink, so they read as links and not as a warning.
+   Only cmux.agentPane.style/1 tokens (schemas/agent-pane/style-tokens.json), on :root: paint, so
+   nothing in the transcript moves when this applies or reloads. Every color is made from the
+   theme's own (--agent-text, --agent-accent, --agent-page-bg), so it reads over Tandem and Tandem
+   Dark and over any theme of your own. */
+:root {
+  --cv-user-bubble-tint: color-mix(in srgb, var(--agent-accent) 8%, transparent);
+  --cv-user-bubble-edge: transparent;
+  --cv-user-bubble-radius: 10px;
+  --cv-card-fill: color-mix(in srgb, var(--agent-text) 4%, transparent);
+  --cv-card-ring: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  --cv-text-muted: color-mix(in srgb, var(--agent-text) 70%, transparent);
+  --cv-text-dim: color-mix(in srgb, var(--agent-text) 64%, transparent);
+  --cv-link: color-mix(in srgb, var(--agent-accent) 62%, var(--agent-text));
+  --agent-link: color-mix(in srgb, var(--agent-accent) 62%, var(--agent-text));
+
+  /* Pending cmux#46846 (--menu-*): the composer's pickers (model, effort, policy, location) and
+     every menu and popover like them. Inert until it lands. A panel a hair off the workspace with
+     10 px corners, a 6 px inset and the 8% hairline; 32 px rows (the model list's pitch); the
+     highlighted row a gray wash (the ink at 9%) inset with 6 px corners; section labels
+     ("Permission", "Folder access") in 12 px medium gray; shortcuts (1, 2, 3, the chord) gray at
+     the right; a row's second line ("Runs on your computer") in the same gray; separators inset
+     8 px; disabled rows at 40%; submenus 4 px beside, their first row level with the row that
+     opened them. */
+  --menu-radius: 10px;
+  --menu-padding: 6px;
+  --menu-fill: color-mix(in srgb, var(--agent-page-bg) 98%, var(--agent-text));
+  --menu-border: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  --menu-row-height: 32px;
+  --menu-hover-fill: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  --menu-hover-radius: 6px;
+  --menu-separator: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  --menu-separator-inset: 8px;
+  --menu-label-color: color-mix(in srgb, var(--agent-text) 70%, transparent);
+  --menu-label-weight: 500;
+  --menu-label-size: 12px;
+  --menu-shortcut-color: color-mix(in srgb, var(--agent-text) 70%, transparent);
+  --menu-subtitle-color: color-mix(in srgb, var(--agent-text) 70%, transparent);
+  --menu-disabled-opacity: 0.4;
+  --menu-submenu-offset: 4px;
+  --menu-submenu-align-offset: -6px;
+}

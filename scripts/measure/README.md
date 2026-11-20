@@ -94,6 +94,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `action-signposts.sh` | Action perform, commit and gate signposts, light and STRESS. | perf-lead row 23 | 2026-10-27 | active |
 | `sidebar-stress.sh` | Sidebar scroll, switch, theme switch during a scroll and custom sidebar sections (install, save to render) at 20 and 500 workspaces. | - | 2026-11-17 | active |
 | `main-thread-large-session.sh` | Main thread under the LARGE session (60 workspaces x 6 tabs). | MTS-0 | 2026-11-10 | active |
+| `mobile-bench-mac-capture.sh` | Reference clips for the mobile bench: an iPhone app the App Store offers on the Mac, recorded at 120 fps (ScreenCaptureKit, every frame's own time) on a 120 Hz virtual display through the bench's flows, one `clip.mp4` + `meta.json` per flow (driver `scripts/mobile-bench/mac/`). | Leo 2026-11-19, mobile reference bench | 2026-11-19 | active |
 
 ## Rendering and frames
 
