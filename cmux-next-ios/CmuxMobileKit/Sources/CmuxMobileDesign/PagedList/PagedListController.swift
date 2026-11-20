@@ -111,7 +111,7 @@ final class PagedListLayout: UICollectionViewCompositionalLayout {
     /// Corrections made (tests and the lab).
     private(set) var corrections = 0
     /// Each correction as it is made (the frame-shift measure tells it from a scroll).
-    var corrected: ((CGFloat) -> Void)?
+    var corrected: ((CGFloat, Int?) -> Void)?
 
     override func invalidationContext(forPreferredLayoutAttributes preferred: UICollectionViewLayoutAttributes,
                                       withOriginalAttributes original: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutInvalidationContext {
@@ -119,7 +119,7 @@ final class PagedListLayout: UICollectionViewCompositionalLayout {
         guard let collectionView else { return context }
         guard context.contentOffsetAdjustment == .zero else {
             // UIKit's own adjustment for this row: a correction for the measure, not a scroll.
-            corrected?(context.contentOffsetAdjustment.y)
+            corrected?(context.contentOffsetAdjustment.y, preferred.indexPath.item)
             return context
         }
         let delta = preferred.frame.height - original.frame.height
@@ -130,7 +130,7 @@ final class PagedListLayout: UICollectionViewCompositionalLayout {
         guard original.frame.minY < readerTop - 0.5 else { return context }
         context.contentOffsetAdjustment = CGPoint(x: 0, y: delta)
         corrections += 1
-        corrected?(delta)
+        corrected?(delta, preferred.indexPath.item)
         return context
     }
 }
@@ -143,11 +143,15 @@ final class PagedListLayout: UICollectionViewCompositionalLayout {
 final class PagedListCell: UICollectionViewCell {
     var knownHeight: ((CGFloat) -> CGFloat?)?
     var measured: ((CGFloat, CGFloat) -> Void)?
+    /// Every size the cell gives the layout, with the attributes the layout had for it: UIKit may
+    /// move the offset for it outside a layout pass (a cell it prepares ahead of the scroll).
+    var sized: ((UICollectionViewLayoutAttributes, CGFloat) -> Void)?
 
     override func prepareForReuse() {
         super.prepareForReuse()
         knownHeight = nil
         measured = nil
+        sized = nil
     }
 
     override func preferredLayoutAttributesFitting(_ attributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
@@ -155,10 +159,12 @@ final class PagedListCell: UICollectionViewCell {
         if let height = knownHeight?(width) {
             let fitted = attributes.copy() as? UICollectionViewLayoutAttributes ?? attributes
             fitted.size = CGSize(width: width, height: height)
+            sized?(attributes, height)
             return fitted
         }
         let fitted = super.preferredLayoutAttributesFitting(attributes)
         measured?(width, fitted.size.height)
+        sized?(attributes, fitted.size.height)
         return fitted
     }
 }
@@ -328,8 +334,8 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         var offsetY: CGFloat
     }
     private var shiftSample: ShiftSample?
-    /// Offset moves since the last sample that the scroll explains.
-    private var explained: CGFloat = 0
+    /// What the scroll explains since the last sample, and the corrections UIKit still owes.
+    private var ledger = PagedListShiftLedger()
     /// Counts every offset move the scroll explains (the finger, a fling, the list's own slide): a
     /// landing measured after one is judged per frame instead.
     private var explainedMoves = 0
@@ -337,8 +343,6 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     /// Depth of the list's own deliberate moves (explained) and corrections (not explained).
     private var ownMoves = 0
     private var corrections = 0
-    /// A correction the layout asked for and UIKit has yet to apply.
-    private var pendingAdjustment: CGFloat = 0
     /// The offset moves since the last sample and how the measure read each (the probe's detail).
     private var trail: [String] = []
     /// The previous sample's interval as the detail shows it (its source, trail and the correction
@@ -381,9 +385,9 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         collectionView = PagedListCollectionView(frame: .zero, collectionViewLayout: layout)
         super.init()
         swipes.provide = { [weak self] indexPath in self?.swipeConfiguration(at: indexPath) }
-        layout.corrected = { [weak self] delta in
+        layout.corrected = { [weak self] delta, item in
             guard let self else { return }
-            self.pendingAdjustment += delta
+            self.ledger.corrected(delta, item: item)
             self.note(self.collectionView.laying > 0 ? "AL" : self.collectionView.layingLayer > 0 ? "AS" : "A", delta)
         }
         collectionView.backgroundColor = .clear
@@ -442,15 +446,24 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         let row = row
         cell.contentConfiguration = UIHostingConfiguration { row(item) }.margins(.all, 0)
         cell.backgroundConfiguration = .clear()
+        cell.sized = { [weak self] attributes, height in self?.rowSized(attributes, height) }
         guard cachesHeights else { return }
         cell.knownHeight = { [weak self] width in
             guard let known = self?.heights[id], known.width == width else { return nil }
             return known.height
         }
-        cell.measured = { [weak self] width, height in
-            self?.heights[id] = (width, height)
-            self?.note("m", height)
-        }
+        cell.measured = { [weak self] width, height in self?.heights[id] = (width, height) }
+    }
+
+    /// A row's cell gave the layout its size: one that differs from what the layout had, for a row
+    /// starting above the reader's top edge, is corrected by the offset (by UIKit, or by
+    /// ``PagedListLayout``) to keep what the reader sees in place.
+    private func rowSized(_ attributes: UICollectionViewLayoutAttributes, _ height: CGFloat) {
+        let delta = height - attributes.size.height
+        guard abs(delta) > 0.25 else { return }
+        let above = attributes.frame.minY < readerTop - 0.5
+        ledger.sized(item: attributes.indexPath.item, by: delta, aboveReader: above)
+        note(above ? "m" : "m_", delta)
     }
 
     /// The newest row's id (the top of a `.down` list, the bottom of an `.up` one).
@@ -779,7 +792,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     private func stayOnNewest(edgeMove: CGFloat?) {
         // The edge moving up by d (d < 0) takes the rows up with it: an offset move of -d (or, for a
         // short list sitting on the edge, its top inset's).
-        if let edgeMove { explained -= edgeMove }
+        if let edgeMove { ledger.explain(-edgeMove) }
         let delta = newestOffset - collectionView.contentOffset.y
         guard abs(delta) > 0.01 else { return }
         correctOffset(by: delta)
@@ -914,10 +927,9 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         defer {
             shiftSample = current.map { ShiftSample(id: $0.id, next: $0.next, gap: $0.gap, bottom: $0.bottom, windowY: $0.windowY, width: width, offsetY: offsetY) }
             if probe?.shiftDetail != nil {
-                previousInterval = "\(source):\(trail.joined(separator: ","))/pending=\(pendingAdjustment)"
+                previousInterval = "\(source):\(trail.joined(separator: ","))/pending=\(ledger.pending)"
             }
-            explained = 0
-            pendingAdjustment = 0
+            ledger.reset()
             trail.removeAll(keepingCapacity: true)
         }
         guard let last = shiftSample, abs(last.width - width) < 0.5,
@@ -925,12 +937,12 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         if let next = last.next, let gap = last.gap {
             guard let nextPath = dataSource.indexPath(for: next), nextPath.item - indexPath.item == gap else { return }
         }
-        let shift = (now - last.windowY) + explained
+        let shift = (now - last.windowY) + ledger.explained
         report(shift)
         if abs(shift) > 0.5, let detail = probe?.shiftDetail {
             let insets = collectionView.adjustedContentInset
-            detail(shift, "from=\(source) moved=\(now - last.windowY) explained=\(explained) offset=\(offsetY - last.offsetY) "
-                + "pending=\(pendingAdjustment) follows=\(followsNewest) tracking=\(collectionView.isTracking) "
+            detail(shift, "from=\(source) moved=\(now - last.windowY) explained=\(ledger.explained) offset=\(offsetY - last.offsetY) "
+                + "pending=\(ledger.pending) follows=\(followsNewest) tracking=\(collectionView.isTracking) "
                 + "decelerating=\(collectionView.isDecelerating) spring=\(spring.isRunning) arriving=\(arriving) "
                 + "insetTop=\(insets.top) insetBottom=\(insets.bottom) gap=\(bottomGap) rows=\(order.count) "
                 + "trail=\(trail.joined(separator: ",")) prev=\(previousInterval)")
@@ -1054,7 +1066,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             // Putting the reader back: not part of the scroll.
             note("c", delta)
         } else if ownMoves > 0 {
-            explained += delta
+            ledger.explain(delta)
             explainedMoves += 1
             note("o", delta)
         } else if updating || collectionView.laying > 0 || collectionView.layingLayer > 0 {
@@ -1062,10 +1074,9 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             // that sized itself, a batch update), never the finger or a fling, which move the
             // offset between passes.
             note(updating ? "U" : collectionView.laying > 0 ? "L" : "S", delta)
-        } else if pendingAdjustment != 0, delta * pendingAdjustment > 0, abs(delta) <= abs(pendingAdjustment) + 0.5 {
+        } else if ledger.pays(delta) {
             // The layout's own correction for a row above that changed height (UIKit may apply
             // several rows' corrections one at a time or together).
-            pendingAdjustment = abs(pendingAdjustment - delta) < 0.5 ? 0 : pendingAdjustment - delta
             note("p", delta)
         } else if userMove {
             explainedMoves += 1
@@ -1075,11 +1086,11 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
                 // UIKit's (once per set: a callback nested in the same set is all UIKit's).
                 let person = request.serial == countedRequest ? 0 : request.y - request.from
                 countedRequest = request.serial
-                explained += person
+                ledger.explain(person)
                 note(kind, person)
                 if abs(delta - person) > 0.01 { note("K", delta - person) }
             } else {
-                explained += delta
+                ledger.explain(delta)
                 note(kind, delta)
             }
         } else {

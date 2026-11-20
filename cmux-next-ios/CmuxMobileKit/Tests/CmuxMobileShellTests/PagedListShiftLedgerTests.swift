@@ -1,0 +1,61 @@
+import CoreGraphics
+import Testing
+@testable import CmuxMobileDesign
+
+/// The frame-shift measure's account (verify/paged-list.md, "Frame shift"). Fleet steps
+/// 506b47639ef1, 5b62e90dbe89, 7c392c159b35 and 3a7933b8d828 each failed on one frame: a cell above
+/// the reader sized itself outside a layout pass (UIKit prepares cells ahead of the scroll), UIKit
+/// moved the offset by the same amount to keep the reader still (the row did not move on screen),
+/// and the measure took that move for the person's drag: `trail=m+86.3,d-20.0 moved=0.0
+/// explained=-20.0`, a 20 pt shift no one saw.
+struct PagedListShiftLedgerTests {
+    /// The probe's shift for an interval: how far the row moved on screen plus what the scroll explains.
+    private func shift(_ ledger: PagedListShiftLedger, moved: CGFloat) -> CGFloat { moved + ledger.explained }
+
+    @Test func uikitsCorrectionForARowAboveTheReaderIsNotTheScroll() {
+        var ledger = PagedListShiftLedger()
+        // Row 12, above the reader, sized 20 pt shorter than the layout had it.
+        ledger.sized(item: 12, by: -20, aboveReader: true)
+        // UIKit's own offset set, outside a layout pass, while the person drags: it pays that.
+        let paid = ledger.pays(-20)
+        if !paid { ledger.explain(-20) }
+        #expect(paid)
+        // The row being read stayed where it was on screen: nothing shifted.
+        #expect(shift(ledger, moved: 0) == 0)
+    }
+
+    @Test func aRowBelowTheReaderTopOwesNoCorrection() {
+        var ledger = PagedListShiftLedger()
+        // A row that starts below the reader's top grows: the rows below it move, the reader's does not.
+        ledger.sized(item: 30, by: 20, aboveReader: false)
+        #expect(!ledger.pays(20))
+        #expect(ledger.pending == 0)
+    }
+
+    @Test func aSizingTheLayoutAlsoCorrectsIsOwedOnce() {
+        var ledger = PagedListShiftLedger()
+        // The same row's size reaches the layout too (`invalidationContext(forPreferredLayoutAttributes:)`),
+        // which asks for the same correction: one move pays it, a second is the person's.
+        ledger.sized(item: 12, by: 20, aboveReader: true)
+        ledger.corrected(20, item: 12)
+        #expect(ledger.pays(20))
+        #expect(!ledger.pays(20))
+    }
+
+    @Test func theFingersStepStillCounts() {
+        var ledger = PagedListShiftLedger()
+        // A drag with no sizing in between explains its move: a row that moved with it did not shift.
+        #expect(!ledger.pays(8))
+        ledger.explain(8)
+        #expect(shift(ledger, moved: -8) == 0)
+    }
+
+    @Test func aSampleStartsTheNextIntervalEmpty() {
+        var ledger = PagedListShiftLedger()
+        ledger.sized(item: 3, by: 20, aboveReader: true)
+        ledger.explain(5)
+        ledger.reset()
+        #expect(ledger.explained == 0)
+        #expect(ledger.pending == 0)
+    }
+}
