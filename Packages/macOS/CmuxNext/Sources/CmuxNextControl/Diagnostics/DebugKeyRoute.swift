@@ -4,9 +4,11 @@
 /// A person's key goes to the key window. While a chat shown in Chromium has the keyboard (a menu
 /// of its page is open, its composer is focused), that is the page's own window, a child of the
 /// shell window, not the shell window. So a key with no `target` goes to the key window when it
-/// is one of the shell's child windows, and to the shell window otherwise (the shell itself; another
-/// window's child; no key window, as in a capture slot that never activates). `"target": "shell"`
-/// always names the shell window. `Window` is any reference type, so tests use plain objects:
+/// is one of the shell's child windows. With no key window at all (a capture slot that never
+/// activates), it goes to the focused agent chat's page window (`focusedPage`), where a person's key
+/// would go; otherwise to the shell window (the shell itself, another window's child, no chat with
+/// the keyboard). `"target": "shell"` always names the shell window. `Window` is any reference type,
+/// so tests use plain objects:
 ///
 /// ```swift
 /// let route = DebugKeyRoute(shell: shell, keyWindow: NSApp.keyWindow, keyWindowParent: NSApp.keyWindow?.parent,
@@ -38,10 +40,12 @@ public struct DebugKeyRoute<Window: AnyObject> {
 
     /// The window a key with `target` (nil: none named, or `"shell"`) goes to.
     /// - Parameter target: The request's `target`.
-    /// - Returns: The key window when no target is named and it is a child of the shell window, else the shell window.
+    /// - Returns: With no target: the key window when it is a child of the shell window, the focused chat's page
+    ///   window when no window is key, else the shell window. With `"shell"`: the shell window.
     public func window(target: String?) -> Window {
-        guard target == nil, let keyWindow, keyWindow !== shell, keyWindowParent === shell else { return shell }
-        return keyWindow
+        guard target == nil else { return shell }
+        guard let keyWindow else { return focusedPage ?? shell }
+        return keyWindow !== shell && keyWindowParent === shell ? keyWindow : shell
     }
 }
 #endif

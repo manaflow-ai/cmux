@@ -12,13 +12,12 @@ import CmuxNextWakeups
 /// `debug.key` (DEBUG builds): a key-down synthesized into one of this process's own windows and dispatched the way
 /// `NSApplication.sendEvent` does for the key window: the app-wide interceptor (`KeyRouter`, tiers 0 and 1), then window
 /// key equivalents (tier 2), then the main menu (gated by the router), then the window's responder chain. With no
-/// `target` the key goes where a person's goes (`DebugKeyRoute`): the key window when it is a child of the shell window
-/// (a Chromium page that has the keyboard, such as one with a menu open), else the shell; `"target": "shell"` keeps the
-/// shell. With `"target": "page"` it goes to the Chromium page window of `pane` (default: the focused pane), as if key.
-/// Lets automation verify key routing and focus on a window that is never
-/// key (`CMUX_NEXT_NO_ACTIVATE=1`). A key the responder chain gets passes the
-/// local event monitors as a real key does (DebugNativeInput), so a key in an
-/// agent pane records the user's gesture. Never touches another app.
+/// `target` the key goes where a person's goes (`DebugKeyRoute`): a key child of the shell (a Chromium page with a menu
+/// open), the focused chat's page when no window is key (a slot never activated), else the shell (`"target": "shell"`).
+/// With `"target": "page"` it goes to the Chromium page window of `pane` (default: the focused pane), as if key.
+/// Lets automation verify key routing and focus on a window that is never key (`CMUX_NEXT_NO_ACTIVATE=1`). A key the
+/// responder chain gets passes the local event monitors as a real key does (DebugNativeInput), so a key in an agent pane
+/// records the user's gesture. Never touches another app.
 /// A request with `sequence` plays raw key transitions through the app's event queue instead,
 /// optionally into a chosen key window (`DebugKey+Sequence`, dispatched by `AppControl`); with
 /// `last`, the router's last interception.
@@ -64,7 +63,8 @@ enum DebugKey {
         // a palette row then runs as the user's, which no socket call can do otherwise (bd cx-beg1).
         let palettePanel = params["target"]?.stringValue == "palette" && windowID == nil ? services.palette.visiblePanel : nil
         guard let shell = controller?.window ?? palettePanel else { return .object(["error": .string("no window")]) }
-        var window: NSWindow = DebugKeyRoute(shell: shell, keyWindow: NSApp.keyWindow, keyWindowParent: NSApp.keyWindow?.parent).window(target: params["target"]?.stringValue)
+        let chatPage = services.registry.context.contains(.agentPaneFocused) ? controller.flatMap { c in c.focus.state.pane.flatMap { pageWindow(of: $0, in: c) } } : nil
+        var window: NSWindow = DebugKeyRoute(shell: shell, keyWindow: NSApp.keyWindow, keyWindowParent: NSApp.keyWindow?.parent, focusedPage: chatPage).window(target: params["target"]?.stringValue)
         if params["target"]?.stringValue == "page" {
             let pane = params["pane"]?.stringValue ?? controller?.focus.state.pane
             guard let controller, let pane, let page = pageWindow(of: pane, in: controller) else {
