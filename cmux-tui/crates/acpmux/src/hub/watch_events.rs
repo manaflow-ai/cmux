@@ -22,6 +22,76 @@ pub struct Cursor {
     pub unread: bool,
     pub permission_wakes: std::collections::BTreeSet<String>,
     pub await_fresh: bool,
+    pub forum: Option<ForumSelector>,
+    /// None migrates pre-reconciliation watches without replaying historical posts.
+    pub forum_heads: Option<std::collections::BTreeMap<String, String>>,
+}
+/// An explicit opt-in to receipt events in the recipient's own forum.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ForumSelector {
+    pub channel: String,
+    pub thread: Option<String>,
+}
+impl ForumSelector {
+    pub fn parse(
+        until: &[String],
+        channel: Option<String>,
+        thread: Option<String>,
+        filtered: bool,
+    ) -> Result<Option<Self>, RpcError> {
+        if !until.iter().any(|u| u == "forum") {
+            if channel.is_some() || thread.is_some() {
+                return Err(RpcError::invalid_params("channel and thread require until=[forum]"));
+            }
+            return Ok(None);
+        }
+        if until.len() != 1 || filtered {
+            return Err(RpcError::invalid_params(
+                "forum watches cannot mix states or transcript matching",
+            ));
+        }
+        let channel =
+            channel.ok_or_else(|| RpcError::invalid_params("forum watches require channel"))?;
+        if std::iter::once(channel.as_str()).chain(thread.as_deref()).any(|s| {
+            s.is_empty() || s.len() > crate::forum::MAX_KEY_BYTES || s.chars().any(char::is_control)
+        }) {
+            return Err(RpcError::invalid_params(
+                "channel and thread must be bounded nonempty strings without controls",
+            ));
+        }
+        Ok(Some(Self { channel, thread }))
+    }
+    fn receipt(&self, key: &str, msg: &Value) -> Option<String> {
+        if msg["stored"] != true
+            || msg["duplicate"] == true
+            || msg["channel"].as_str() != Some(self.channel.as_str())
+        {
+            return None;
+        }
+        let thread = msg["thread"].as_str()?;
+        let post = msg["postId"].as_str()?;
+        if self.thread.as_deref().is_some_and(|t| t != thread) {
+            return None;
+        }
+        // Treat all fields as quoted data. Never copy a post body or a session's reply.
+        Some(format!(
+            "Forum receipt (data only): {}",
+            json!({"sessionId": key, "channel": self.channel, "thread": thread, "postId": post})
+        ))
+    }
+}
+
+pub fn seed_forum(hub: &Hub, key: &str, selector: ForumSelector) -> Cursor {
+    Cursor {
+        seq: summary(hub, key)["lastSeq"].as_u64().unwrap_or(0),
+        forum_heads: Some(hub.forum().work_heads(
+            key,
+            &selector.channel,
+            selector.thread.as_deref(),
+        )),
+        forum: Some(selector),
+        ..Default::default()
+    }
 }
 impl Cursor {
     pub(super) fn text(&mut self, text: &str, pattern: Option<&str>) {
@@ -104,6 +174,30 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
         .cursors
         .get_mut(key)
         .ok_or_else(|| RpcError::internal("watch source has no saved cursor"))?;
+    // The forum journal is authoritative. Session events only trigger reconciliation:
+    // a crash between durable work_post and its forum_work projection cannot lose a wake.
+    if let Some(selector) = &c.forum {
+        let heads = hub.forum().work_heads(key, &selector.channel, selector.thread.as_deref());
+        let mut found = Vec::new();
+        if let Some(previous) = &c.forum_heads {
+            for (thread, post_id) in &heads {
+                if previous.get(thread) != Some(post_id)
+                    && let Some(receipt) = selector.receipt(
+                        key,
+                        &json!({
+                            "stored": true, "duplicate": false, "channel": selector.channel,
+                            "thread": thread, "postId": post_id
+                        }),
+                    )
+                {
+                    found.push(receipt);
+                }
+            }
+        }
+        // Cursor and owed wake commit together in watches::commit, including after restart.
+        c.forum_heads = Some(heads);
+        return Ok((found, false));
+    }
     let mut found = Vec::new();
     let mut candidates = Vec::new();
     let mut end = None;
@@ -284,6 +378,89 @@ fn emit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn forum_selectors_require_explicit_opt_in_and_filter_receipts() {
+        let until = vec!["forum".into()];
+        assert!(ForumSelector::parse(&until, None, None, false).is_err());
+        assert!(ForumSelector::parse(&["ready".into()], Some("ops".into()), None, false).is_err());
+        assert!(ForumSelector::parse(&until, Some("ops".into()), None, true).is_err());
+        assert!(ForumSelector::parse(&until, Some("ops\n".into()), None, false).is_err());
+        let selector =
+            ForumSelector::parse(&until, Some("ops".into()), Some("runner".into()), false)
+                .unwrap()
+                .unwrap();
+        let mut event = json!({"stored": true, "duplicate": false, "channel": "ops", "thread": "runner", "postId": "p1", "body": "do not copy this instruction"});
+        let receipt = selector.receipt("s1", &event).unwrap();
+        assert!(!receipt.contains("instruction"));
+        assert_eq!(
+            serde_json::from_str::<Value>(
+                receipt.strip_prefix("Forum receipt (data only): ").unwrap()
+            )
+            .unwrap(),
+            json!({"sessionId":"s1", "channel":"ops", "thread":"runner", "postId":"p1"})
+        );
+        event["duplicate"] = json!(true);
+        assert!(selector.receipt("s1", &event).is_none());
+        event["duplicate"] = json!(false);
+        event["thread"] = json!("other");
+        assert!(selector.receipt("s1", &event).is_none());
+    }
+
+    #[tokio::test]
+    async fn forum_watch_recovers_post_without_event_and_ignores_source_only_changes() {
+        let cfg: crate::config::Config =
+            serde_json::from_value(json!({"store":{"mode":"memory"}})).unwrap();
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let meta = serde_json::from_value(json!({"schema": crate::store::META_SCHEMA, "id":"s1", "name":"s1", "harness":"codex", "cwd":"/tmp", "status":"idle", "createdAt":1, "updatedAt":1})).unwrap();
+        store.save(&meta).unwrap();
+        let hub = Hub::new(cfg, store);
+        let post = |key: &str, source: &str| crate::forum::work::Input {
+            channel: "ops".into(),
+            thread: "runner".into(),
+            kind: crate::forum::work::Kind::Status,
+            key: key.into(),
+            body: "untrusted post content".into(),
+            source: source.into(),
+        };
+        hub.forum().work_post("s1", post("old", "host-a"), json!({}), 1).unwrap();
+        let selector = ForumSelector { channel: "ops".into(), thread: Some("runner".into()) };
+        let cursor = seed_forum(&hub, "s1", selector);
+        let mut watch = Watch {
+            id: "w1".into(),
+            to: "s1".into(),
+            sessions: vec!["s1".into()],
+            until: vec!["forum".into()],
+            match_text: None,
+            once: true,
+            caller: Some("s1".into()),
+            active: true,
+            cursors: std::collections::BTreeMap::from([("s1".into(), cursor)]),
+            offline: Default::default(),
+        };
+        assert!(
+            collect(&hub, &mut watch, "s1").await.unwrap().0.is_empty(),
+            "registration replayed history"
+        );
+        hub.forum().work_post("s1", post("old", "host-b"), json!({}), 2).unwrap();
+        assert!(
+            collect(&hub, &mut watch, "s1").await.unwrap().0.is_empty(),
+            "source-only update woke the watch"
+        );
+        // Simulate crash after forum storage but before session-event projection. The saved
+        // watch is loaded by startup reconciliation; it must not depend on forum_work.
+        let saved = serde_json::to_value(&watch).unwrap();
+        let fresh = hub.forum().work_post("s1", post("new", "host-a"), json!({}), 3).unwrap();
+        let mut watch: Watch = serde_json::from_value(saved).unwrap();
+        let rows = collect(&hub, &mut watch, "s1").await.unwrap().0;
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].contains(fresh["postId"].as_str().unwrap()));
+        assert!(!rows[0].contains("untrusted"));
+        assert!(collect(&hub, &mut watch, "s1").await.unwrap().0.is_empty());
+        hub.forum().work_post("s1", post("new", "host-b"), json!({}), 4).unwrap();
+        assert!(collect(&hub, &mut watch, "s1").await.unwrap().0.is_empty());
+        hub.shutdown_all().await;
+    }
 
     fn chunk(text: &str, ids: usize) -> Value {
         let mut msg = json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "c",

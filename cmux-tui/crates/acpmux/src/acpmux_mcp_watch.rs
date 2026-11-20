@@ -15,7 +15,7 @@ pub(super) const TOOLS: &[&str] = &["watch_add", "watch_ls", "watch_rm"];
 /// The instruction the server gives with the tools.
 pub(super) const STEER: &str = "To learn when other sessions finish or get blocked, call \
 watch_add once with them instead of polling them with ls, last or info: the daemon wakes this chat \
-with one message when one of them is done, even across restarts.";
+with one message when one of them is done, even across restarts. For an opt-in wake on a new forum post, use until=[forum], channel and optional thread with your own local session as source and recipient.";
 
 pub(super) fn tools() -> Vec<Value> {
     vec![
@@ -27,7 +27,9 @@ pub(super) fn tools() -> Vec<Value> {
                 "properties": {
                     "sessions": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "The sessions to watch: names, ids or host/name."},
                     "to": {"type": "string", "description": "The session to wake (default: this chat)."},
-                    "until": {"type": "array", "items": {"type": "string", "enum": ["ready", "permission", "done", "closed"]}, "description": "States that wake it (default ready and permission)."},
+                    "until": {"type": "array", "items": {"type": "string", "enum": ["ready", "permission", "done", "closed", "forum"]}, "description": "States that wake it (default ready and permission)."},
+                    "channel": {"type": "string", "description": "Required with until=[forum]; watch new receipts in this channel of your own local session."},
+                    "thread": {"type": "string", "description": "Optional exact forum thread selector."},
                     "match": {"type": "string", "description": "Only a turn whose transcript contains this text wakes it, such as BLOCKER."}
                 },
                 "required": ["sessions"]
@@ -68,12 +70,20 @@ pub(super) fn request(name: &str, args: &Value) -> Result<(&'static str, Value),
             if sessions.is_empty() {
                 return Err("sessions is required: the sessions to watch".to_owned());
             }
-            let params = crate::cli::watch::add_params(
+            let mut params = crate::cli::watch::add_params(
                 sessions,
                 arg(args, "to").map(str::to_owned),
                 strings("until")?,
                 arg(args, "match").map(str::to_owned),
             );
+            for field in ["channel", "thread"] {
+                if let Some(value) = args.get(field) {
+                    if !value.is_string() {
+                        return Err(format!("{field} must be a string"));
+                    }
+                    params[field] = value.clone();
+                }
+            }
             Ok((method::MUX_WATCH_ADD, params))
         }
         "watch_rm" => {
@@ -92,5 +102,21 @@ pub(super) async fn call(daemon: &Arc<Client>, name: &str, args: &Value) -> Valu
     match daemon.request(m, params).await {
         Ok(reply) => ok(crate::cli::watch::text(m, &reply), reply),
         Err(e) => refusal(e),
+    }
+}
+
+#[cfg(test)]
+mod forum_tests {
+    use super::*;
+    #[test]
+    fn forum_selectors_reach_daemon_and_reject_wrong_types() {
+        let (_, params) = request(
+            "watch_add",
+            &json!({"sessions":["s1"], "until":["forum"], "channel":"ops", "thread":"runner"}),
+        )
+        .unwrap();
+        assert_eq!(params["channel"], "ops");
+        assert_eq!(params["thread"], "runner");
+        assert!(request("watch_add", &json!({"sessions":["s1"], "channel":3})).is_err());
     }
 }

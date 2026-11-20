@@ -527,6 +527,46 @@ impl Hub {
                 }
             }
         };
+        // Typed work posts use the ordinary authenticated delivery transport, but their
+        // acceptance means durable forum storage, never a prompt or an agent's answer.
+        // Pair/protected holds and race checks above still apply. Storage starts no agent,
+        // needs no cold child, and does not grant a Web caller a local forum identity.
+        if control != Control::Web
+            && !crate::author::awaits_owner(opts.provenance.as_ref())
+            && !super::queue::closing(session)
+            && super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref())
+                .is_some()
+            && blocks.len() == 1
+            && let Some(wire) = blocks[0].get("text").and_then(Value::as_str).and_then(|text| {
+                super::inbox::relay_body(text).strip_prefix(crate::forum::work::PREFIX)
+            })
+        {
+            if opts.send_now {
+                return Err(RpcError::invalid_params(
+                    "forum.requires_queued_delivery: typed work posts cannot use send-now or steer",
+                ));
+            }
+            let input: crate::forum::work::Input = serde_json::from_str(wire)
+                .map_err(|e| RpcError::invalid_params(format!("forum.bad_post: {e}")))?;
+            let provenance = opts.provenance.clone().unwrap_or(Value::Null);
+            let recipient = session.id.clone();
+            let hub = self.clone();
+            let receipt = tokio::task::spawn_blocking(move || {
+                hub.forum().work_post(&recipient, input, provenance, now_ms())
+            })
+            .await
+            .map_err(|e| RpcError::internal(format!("forum storage task: {e}")))?
+            .map_err(|e| RpcError::internal(format!("forum storage: {e:#}")))?;
+            if receipt["duplicate"] != true {
+                self.append(session, "mux", "forum_work", receipt.clone());
+            }
+            accept(
+                json!({"sessionId": session.id, "promptId": prompt_id, "queued": false, "forum": receipt}),
+            );
+            return Ok(
+                json!({"stopReason": "end_turn", "_meta": {"acpmux": {"forum": receipt, "stored": true}}}),
+            );
+        }
         // A prompt that cannot reach any agent (none running, and its folder or harness is gone)
         // is refused before it is recorded (`cold_prompt_check`, after steer-only's refusal).
         let live = match session.child.lock().await.as_ref() {
@@ -1229,14 +1269,14 @@ impl Hub {
             Ok(_) => {
                 let e = stopped_before_prompt();
                 self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
-                self.forum_turn_end(session, &told, false);
+                self.forum_turn_end(session, &told, false).await;
                 Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
                 drop(guard);
                 return Err(e);
             }
             Err(e) => {
                 self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
-                self.forum_turn_end(session, &told, false);
+                self.forum_turn_end(session, &told, false).await;
                 Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
                 drop(guard);
                 return Err(e);
@@ -1257,7 +1297,7 @@ impl Hub {
             let e = RpcError::new(-32000, "the remote floor cancelled this turn before its prompt")
                 .with_data(json!({"reason": reason}));
             self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
-            self.forum_turn_end(session, &told, false);
+            self.forum_turn_end(session, &told, false).await;
             Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
             drop(guard);
             return Err(e);
@@ -1579,7 +1619,7 @@ impl Hub {
             self.start_carried(session, &child, &turn_id, c, guard.take_slot());
         }
         // A rule counts as told once the agent answered the prompt that carried it.
-        self.forum_turn_end(session, &told, result.is_ok());
+        self.forum_turn_end(session, &told, result.is_ok()).await;
         // A cut turn goes on by itself (`auto_resume.rs`), unless carried on or cache_compact's.
         let goes_on = !trigger && !super::idle::cache_compact::is_own(run.provenance.as_ref());
         let cut = match (&result, detached) {
