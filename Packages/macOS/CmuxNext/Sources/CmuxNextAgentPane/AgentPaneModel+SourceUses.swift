@@ -1,6 +1,6 @@
 import CmuxNextPages
-import CmuxNextSettings
-import Foundation
+public import CmuxNextSettings
+public import Foundation
 
 extension AgentPaneModel {
     /// A local document's reverse links use only the chat that opened it. Remote carriers

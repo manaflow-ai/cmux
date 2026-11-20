@@ -1,6 +1,6 @@
 import CmuxNextPages
-import CmuxNextSettings
-import Foundation
+public import CmuxNextSettings
+public import Foundation
 
 /// Native-only provenance of a local file open. The Markdown page never chooses a socket,
 /// session or tab. Navigating to another file does not transfer this capability to it.
