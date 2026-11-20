@@ -254,7 +254,6 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         #endif
         return CEFSwitches(
             forkAPIVersion: forkAPIVersion,
-            noFrameRateLimit: CEFFramePacing.noFrameRateLimit.value,
             rendererPaths: rendererPaths,
             useMockKeychain: dev && !realKeychain,
             loadExtensions: extensions,
@@ -262,6 +261,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             keepsUnpackedEnabled: keepsUnpackedEnabled,
             extraSwitches: extra,
             asyncLiveResize: asyncLiveResize,
+            noFrameRateLimit: CEFFramePacing.noFrameRateLimit.value,
             initialProfileDirectory: initialProfileDirectory
         )
     }
