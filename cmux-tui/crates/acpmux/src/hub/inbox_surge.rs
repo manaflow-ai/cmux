@@ -54,10 +54,11 @@ impl SurgeRate {
         self.excess_ms > 0
     }
 
-    pub(super) fn restore_held(&mut self, at: u64, period_ms: Option<u64>) {
+    pub(super) fn restore_held(&mut self, at: u64, period_ms: Option<u64>, excess_ms: u64) {
         if self.last_arrival.is_none_or(|later| at >= later) {
             self.last_arrival = Some(at);
             self.restored_period_ms = period_ms.filter(|p| *p > 0);
+            self.excess_ms = excess_ms.min(period_ms.unwrap_or_default());
         }
     }
 }
@@ -251,9 +252,14 @@ impl Hub {
                 turn.as_ref().map(|turn| now.saturating_sub(turn.started_at))
             })
         });
-        if !session.inbox().surge_rate.arrival(now, period) {
-            return Ok(None);
-        }
+        let (arrival_at, excess_ms) = {
+            let mut inbox = session.inbox();
+            let rate = &mut inbox.surge_rate;
+            if !rate.arrival(now, period) {
+                return Ok(None);
+            }
+            (rate.last_arrival.unwrap_or(now), rate.excess_ms)
+        };
         if super::super::queue::closing(session) {
             return Err(super::super::queue::closing_error());
         }
@@ -285,7 +291,8 @@ impl Hub {
         });
         let msg = json!({"promptId": prompt_id, "threadId": thread, "from": from, "fromSession": from_session,
             "class":class,"kind":kind_of(class),"client":client,"text":text,"prompt":blocks,
-            "sender":sender,"surgeHeld":true,"replyPeriodMs":period,"report":is_report(provenance)});
+            "sender":sender,"surgeHeld":true,"replyPeriodMs":period,"surgeArrivalAt":arrival_at,
+            "surgeExcessMs":excess_ms,"report":is_report(provenance)});
         self.persist_surge_event(
             session,
             "inbox",
@@ -336,7 +343,7 @@ mod tests {
         assert!(slow.arrival(249, Some(100)));
         assert!(slow.arrival(349, Some(100)));
         assert!(!slow.arrival(500, Some(100)));
-        slow.restore_held(500, Some(100));
+        slow.restore_held(500, Some(100), 0);
         assert!(slow.arrival(520, Some(100)));
     }
 

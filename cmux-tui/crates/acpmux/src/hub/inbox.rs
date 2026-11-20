@@ -2081,7 +2081,7 @@ impl Hub {
     /// the log says. Run again, it adds only what it does not hold.
     pub(super) fn restore_inbox(&self, session: &Session) {
         let mut counts = surge::Counts::default();
-        let mut last_held = None;
+        let mut last_held: Option<(u64, Option<u64>, u64)> = None;
         let mut recent_held = std::collections::VecDeque::new();
         let mut items: Vec<Item> = Vec::new();
         let mut noticed: std::collections::HashMap<String, String> = Default::default();
@@ -2141,8 +2141,12 @@ impl Hub {
                         reader: None,
                     };
                     if item.surge_held {
-                        last_held =
-                            Some((e.at, e.msg.get("replyPeriodMs").and_then(Value::as_u64)));
+                        // Concurrent admissions can journal in a different order.
+                        let at = e.msg["surgeArrivalAt"].as_u64().unwrap_or(e.at);
+                        let excess = e.msg["surgeExcessMs"].as_u64().unwrap_or_default();
+                        if last_held.is_none_or(|(prev, _, debt)| (at, excess) >= (prev, debt)) {
+                            last_held = Some((at, e.msg["replyPeriodMs"].as_u64(), excess));
+                        }
                         if recent_held.len() == KEEP {
                             recent_held.pop_front();
                         }
@@ -2182,8 +2186,8 @@ impl Hub {
         }
         // The state itself: `Session::inbox` calls this to fill it.
         let mut inbox = session.inbox_state.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some((at, period)) = last_held {
-            inbox.surge_rate.restore_held(at, period);
+        if let Some((at, period, excess)) = last_held {
+            inbox.surge_rate.restore_held(at, period, excess);
         }
         {
             let mut live = inbox.surge_counts.lock().unwrap_or_else(|e| e.into_inner());

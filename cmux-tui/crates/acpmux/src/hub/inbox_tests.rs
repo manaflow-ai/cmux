@@ -541,6 +541,36 @@ async fn surge_first_upgrade_uses_a_completed_reply_before_any_held_receipt() {
 }
 
 #[tokio::test]
+async fn surge_reopen_preserves_the_remaining_burst_after_a_short_lull() {
+    let (hub, session) = hub_with_chat("burst");
+    let now = now_ms();
+    // The receiver has a 30 s reply period. After 40 s idle it has paid off only
+    // 10 s of its 20 s excess. The older admission reached the journal second.
+    for (id, arrival, excess) in [("newer", now - 40_000, 20_000), ("older", now - 90_000, 10_000)]
+    {
+        hub.append_at(
+            &session,
+            "mux",
+            "inbox",
+            json!({"promptId":id,"from":"runner","threadId":"runner","surgeHeld":true,
+                "replyPeriodMs":30_000,"surgeArrivalAt":arrival,"surgeExcessMs":excess}),
+            None,
+            Some(now - 40_000),
+        );
+    }
+    *session.inbox() = Default::default();
+    hub.restore_inbox(&session);
+    let blocks = [json!({"type":"text","text":"Report"})];
+    let opts = PromptOptions { agent: Some("runner".into()), ..Default::default() };
+    let receipt = hub.hold_surge_message(&session, "after", "cli", &blocks, &opts).unwrap();
+    assert_eq!(receipt.unwrap()["surgeHeld"], true);
+    let events = hub.events(&session.id, 0, 20).unwrap();
+    let after = events.iter().find(|e| e.msg["promptId"] == "after").unwrap();
+    let at = after.msg["surgeArrivalAt"].as_u64().unwrap();
+    assert_eq!(after.msg["surgeExcessMs"], 50_000 - (at - (now - 40_000)));
+}
+
+#[tokio::test]
 async fn surge_cold_headless_burst_uses_the_last_held_measurement() {
     let (hub, session) = hub_with_chat("reopening");
     let blocks = [json!({"type":"text","text":"Runner is still busy"})];
