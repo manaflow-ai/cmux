@@ -152,6 +152,15 @@ class LayoutSpans(unittest.TestCase):
             "layout.hide": {"count": 1, "sum_ms": 8.1, "max_ms": 8.1, "max_at_ms": 400.0},
             "layout.place": {"count": 2, "sum_ms": 10.8, "max_ms": 9.6, "max_at_ms": 108.3}})
 
+    def test_a_layers_opacity_spans_are_parts_too_and_its_other_spans_are_not(self):
+        # The dim of the other panes at a zoom (`layer.opacity.paneDim`) and a timed fade (`layer.opacity.timed`).
+        spans = [{"name": "layer.opacity.paneDim", "ms": 107.7, "at_ms": 12.0}, {"name": "layer.opacity.timed", "ms": 108.1, "at_ms": 30.0},
+                 {"name": "layer.opacity.timed", "ms": 100.0, "at_ms": 31.0}, {"name": "layer.position.timed", "ms": 107.0, "at_ms": 12.0},
+                 {"name": "layer.opacity", "ms": 5.0, "at_ms": 1.0}, {"name": "tabs", "ms": 3.0, "at_ms": 90.0}]
+        self.assertEqual(self.layout_spans(spans), {
+            "layer.opacity.paneDim": {"count": 1, "sum_ms": 107.7, "max_ms": 107.7, "max_at_ms": 12.0},
+            "layer.opacity.timed": {"count": 2, "sum_ms": 208.1, "max_ms": 108.1, "max_at_ms": 30.0}})
+
     def test_a_build_without_the_spans_gives_none(self):
         for spans in (None, [], {}, [None, 3], [{"name": "layout", "ms": 250.0}], [{"name": "layout.place"}]):
             self.assertEqual(self.layout_spans(spans), {})

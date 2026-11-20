@@ -494,8 +494,9 @@ def first_move_row(arm, act, times):
 
 
 def parts_said(parts):
-    """`layout_spans` of an act (the app's own spans with a name that starts with `layout.`) as the text of a proof
-    round's line: each part's count, sum and longest one with its start. A build with no such span: no text."""
+    """`layout_spans` of an act (the app's own spans with a name that starts with `layout.` or `layer.opacity.`) as
+    the text of a proof round's or a recording's line: each part's count, sum and longest one with its start. A build
+    with no such span: no text."""
     return "".join(f"; {name} {part['count']} x, sum {part['sum_ms']} ms, max {part['max_ms']} ms at {part['max_at_ms']} ms"
                    for name, part in sorted((parts or {}).items()))
 
@@ -847,12 +848,13 @@ def commit_placements(samples, notes):
 
 def layout_spans(spans):
     """The app's measured parts of a pane change while recording: each span whose name starts with `layout.` (the
-    placement, the show and the hide loops), as {name: count, sum_ms, max_ms, max_at_ms (when the longest one
-    started, ms from the record's start)}. The span `layout` (a whole motion, to its rest) is not one of them. A
-    build without such a span gives an empty dict."""
+    placement, the show and the hide loops) or with `layer.opacity.` (a layer's opacity animation, from its add to
+    its end: the dim of the other panes at a zoom, a timed fade), as {name: count, sum_ms, max_ms, max_at_ms (when
+    the longest one started, ms from the record's start)}. The span `layout` (a whole motion, to its rest) is not
+    one of them. A build without such a span gives an empty dict."""
     parts = {}
     for span in spans if isinstance(spans, list) else []:
-        if not (isinstance(span, dict) and str(span.get("name") or "").startswith("layout.")
+        if not (isinstance(span, dict) and str(span.get("name") or "").startswith(("layout.", "layer.opacity."))
                 and isinstance(span.get("ms"), (int, float))):
             continue
         part = parts.setdefault(span["name"], {"count": 0, "sum_ms": 0.0, "max_ms": None, "max_at_ms": None})
@@ -1210,11 +1212,13 @@ def record(name, label, rounds=()):
     if isinstance(reply, dict) and reply.get("error"):
         print(f"  (no recording of {label}: {reply['error']})", flush=True)
     time.sleep(0.2)  # test harness: the recorder takes its first frame at rest
+    rpc("debug.motion", {"action": "start"})  # the app's own spans of the recorded act, as in a timed round (measure)
     rpc("debug.frames", {"action": "start"})
     action_s = time.monotonic()  # the uptime clock, as in a timed round (measure)
     error = perform(name)
     time.sleep(1.2)  # test harness: the same time after the act as a timed round has (measure)
     late = late_frames(rpc("debug.frames", {"action": "stop", "raw": True}) or {}, action_s)
+    motion = rpc("debug.motion", {"action": "stop"}) or {}
     time.sleep(max(0.0, opts.record_seconds - 1.2) + 0.2)  # test harness: the recording stops by itself
     trace = rpc("debug.motion", {"action": "trace_stop"})
     deadline = time.monotonic() + 10
@@ -1227,8 +1231,9 @@ def record(name, label, rounds=()):
         index = None
     clock = stills_clock(index, trace)
     cost = stills_cost(late["missed_refreshes"], rounds)
-    kept = {"act": name, "label": label, "error": error, "seconds": opts.record_seconds, **facts, **clock, "cost": cost}
-    print(f"  {label}: recorded: {cost['text']}", flush=True)
+    kept = {"act": name, "label": label, "error": error, "seconds": opts.record_seconds, **facts, **clock, "cost": cost,
+            "layout_spans": layout_spans(motion.get("spans")) if isinstance(motion, dict) else {}}
+    print(f"  {label}: recorded: {cost['text']}{parts_said(kept['layout_spans'])}", flush=True)
     if os.path.isdir(folder):
         json.dump({**kept, "trace": trace}, open(os.path.join(folder, "trace.json"), "w"))
     seen = ", ".join(f"{key.replace('_', ' ')} {value}" for key, value in facts.items() if key != "problem")
