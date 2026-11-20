@@ -319,6 +319,12 @@ pub trait AgentPort: Send + Sync {
     fn background_work(&self, _session: &str) -> Result<bool, String> {
         Ok(false)
     }
+    /// Sends a waiting steer now (`_acpmux/queue_edit op=send_now`): acpmux
+    /// stops the agent's current step so it reads the steer at once (it never
+    /// stops a background shell or subagent). True when the step was stopped.
+    fn send_now(&self, _session: &str, _prompt_id: &str) -> Result<bool, String> {
+        Ok(false)
+    }
     /// Takes back a steer the harness has not read yet (`_acpmux/queue_edit
     /// op=withdraw`, Claude Code's `cancel_async_message`): true when it was
     /// dropped unread, false when the harness read it or cannot take one back.
@@ -1545,6 +1551,17 @@ impl AgentPort for Acpmux {
             .request("session/cancel", json!({"sessionId": session}))
             .map(|_| ())
             .map_err(|e| format!("cancel: {e}"))
+    }
+
+    fn send_now(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
+        self.client()?
+            .request_within(
+                "_acpmux/queue_edit",
+                json!({"sessionId": session, "promptId": prompt_id, "op": "send_now"}),
+                WITHDRAW_WAIT,
+            )
+            .map(|v| v.get("sent").and_then(Value::as_str) == Some("now"))
+            .map_err(|e| format!("send now: {e}"))
     }
 
     fn background_work(&self, session: &str) -> Result<bool, String> {

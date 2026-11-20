@@ -45,7 +45,7 @@ pub(super) struct Steering {
 
 /// Added to a person's message sent with `steerNow`: Claude Code reads the
 /// stop it causes as the person cancelling the request.
-pub(super) const STEER_NOW_NOTE: &str = "\n\n[You were stopped only so you read this now. Answer it, then still finish and answer every earlier message of this turn.]";
+pub(super) const STEER_NOW_NOTE: &str = "\n\n[If this stopped your work: you were stopped only so you read this now. Answer it, then still finish and answer every earlier message of this turn.]";
 
 /// Whether `items` hold a person's message (a report never interrupts).
 fn has_person(items: &[Queued]) -> bool {
@@ -120,19 +120,20 @@ impl Brain {
             .is_none_or(|e| self.family_of(&e.harness) != Family::Claude);
         // A person's message is read now, not at the turn's next step
         // (bench 2026-11-20: later burst messages acted on after 19 s p50).
-        // With no tool call running, `steerNow` stops the model's current
-        // step and Claude Code reads the message at once (the stopped step's
-        // turn carries into the message's, which the turn follows). With a
-        // call running, that call moves to the background at once (Ctrl-B),
-        // which ends the step without killing the call.
+        // After the steer is written, off the brain thread: a running
+        // foreground call moves to the background (Ctrl-B, which ends the
+        // step without killing the call); when nothing moved, the steer is
+        // sent now (`_acpmux/queue_edit send_now`: acpmux stops the model's
+        // current step; the stopped step's turn carries into the message's,
+        // which the turn follows). In that order, a call is never killed for
+        // a message (`steerNow` would stop a foreground shell).
         let person = has_person(&items) && !at_end;
-        let calling = self.interrupt.tool_running();
         let texts: Vec<&str> = items.iter().map(|i| i.text.as_str()).collect();
         let mut text = texts.join("\n\n");
         // Sent now, the message stops the step Claude Code was on, which it
         // reads as the person cancelling; it must still answer the turn's
         // earlier messages.
-        if person && !calling {
+        if person {
             text.push_str(STEER_NOW_NOTE);
         }
         blocks.push(serde_json::json!({"type": "text", "text": text}));
@@ -142,17 +143,9 @@ impl Brain {
         // Their people join the turn before their words reach it, so the
         // rights hook holds the turn's next call to them too.
         self.add_turn_people(&items);
-        let started = if person && !calling {
-            self.agents.start_steer_now(&session, blocks, &prompt_id)
-        } else {
-            self.agents.start_steer(&session, blocks, &prompt_id)
-        };
-        if person
-            && calling
-            && started.is_ok()
-            && self.backgrounded.as_deref() != Some(key.as_str())
-        {
-            self.start_background_move(&key, false);
+        let started = self.agents.start_steer(&session, blocks, &prompt_id);
+        if person && started.is_ok() {
+            self.start_background_move(&key, false, Some(prompt_id.clone()));
         }
         let logged = at_end && started.is_ok() && self.log_delivered(&items);
         // Claude Code says when it read the message: one it has not read by
@@ -282,7 +275,7 @@ impl Brain {
         // answered (responsiveness bench, steer probe, 3 of 3 rounds).
         if self.backgrounded.as_deref() != Some(key.as_str()) {
             self.steering.extend(unread);
-            if self.start_background_move(&key, true) {
+            if self.start_background_move(&key, true, None) {
                 return;
             }
             let (unread2, kept2): (Vec<_>, Vec<_>) = std::mem::take(&mut self.steering)
@@ -297,7 +290,12 @@ impl Brain {
     /// Asks acpmux, off the brain thread, to move turn `key`'s running work
     /// to the background (once a turn); the answer comes as
     /// `Input::SteerBackgrounded`. False: no session or no thread.
-    fn start_background_move(&mut self, key: &str, at_deadline: bool) -> bool {
+    fn start_background_move(
+        &mut self,
+        key: &str,
+        at_deadline: bool,
+        then_send_now: Option<String>,
+    ) -> bool {
         let Some(session) = self.state.turn.as_ref().and_then(|t| t.session_id.clone()) else {
             return false;
         };
@@ -309,6 +307,10 @@ impl Brain {
             .name("steer-background".into())
             .spawn(move || {
                 let moved = agents.background_work(&session) == Ok(true);
+                // Nothing to move: stop the model's step for the message.
+                if !moved && let Some(prompt) = then_send_now {
+                    let _ = agents.send_now(&session, &prompt);
+                }
                 let _ = tx.send(Input::SteerBackgrounded {
                     key: asked,
                     moved,

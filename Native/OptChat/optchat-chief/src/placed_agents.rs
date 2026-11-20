@@ -237,6 +237,9 @@ impl AgentPort for PlacedPort {
     fn background_work(&self, session: &str) -> Result<bool, String> {
         self.port(session).background_work(session)
     }
+    fn send_now(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
+        self.port(session).send_now(session, prompt_id)
+    }
     fn set_mode(&self, session: &str, mode: &str) -> Result<(), String> {
         self.port(session).set_mode(session, mode)
     }

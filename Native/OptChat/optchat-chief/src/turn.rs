@@ -48,10 +48,6 @@ pub struct Interrupt {
     /// (`steer.rs`): the session outlives the turn until that work reports
     /// (`brain/background.rs`), so the runner hands it back, kept or not.
     moved_work: AtomicBool,
-    /// A tool call of the turn runs now (the runner sets it after each
-    /// fetch): a person's message then moves that call to the background at
-    /// once; with no call running it is steered with `steerNow` (`steer.rs`).
-    tool_running: AtomicBool,
     /// The turn carries another person's text: the native engine refuses
     /// its local effects (README "Remote-origin messages").
     gate: AtomicBool,
@@ -133,14 +129,6 @@ impl Interrupt {
     /// The turn's running work moved to the background (`steer.rs`).
     pub fn set_moved_work(&self) {
         self.moved_work.store(true, Ordering::SeqCst);
-    }
-
-    pub fn set_tool_running(&self, on: bool) {
-        self.tool_running.store(on, Ordering::SeqCst);
-    }
-
-    pub fn tool_running(&self) -> bool {
-        self.tool_running.load(Ordering::SeqCst)
     }
 
     pub fn moved_work(&self) -> bool {
@@ -940,7 +928,6 @@ pub fn run_with_drafts(
     let mut forced_end = false;
     let mut last_event = Instant::now();
     loop {
-        interrupt.set_tool_running(fold.tool_running());
         // A newer human message: stop the model at once, but let a running
         // tool call finish (Claude Code's interrupt would abort it), and
         // send the stop again until the turn ends. Read the newest events

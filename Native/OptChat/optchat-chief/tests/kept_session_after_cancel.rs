@@ -658,22 +658,24 @@ fn thinking_script() -> Script {
 }
 
 #[test]
-fn a_message_while_the_model_thinks_is_steered_now() {
+fn a_message_while_the_model_thinks_is_sent_now() {
     let mut h = harness(thinking_script());
     h.agents.inner.lock().unwrap().steering = true;
     running(&mut h, "plan the release");
     h.say("user_local", "also: what is 5 plus 6?");
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while h.agents.inner.lock().unwrap().steer_ids.is_empty() {
-        assert!(std::time::Instant::now() < deadline, "no steer");
+    while h.agents.inner.lock().unwrap().sent_now.is_empty() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the waiting steer was not sent now"
+        );
         tick(&mut h);
     }
     let inner = h.agents.inner.lock().unwrap();
-    assert!(
-        inner.steer_ids[0].1,
-        "steered with steerNow: the model's current step stops for it"
-    );
-    assert!(inner.backgrounded.is_empty(), "no call to move");
+    assert!(!inner.steer_ids[0].1, "a plain steer first, never steerNow");
+    assert_eq!(inner.backgrounded.len(), 1, "a move was asked first");
+    assert_eq!(inner.sent_now[0].1, inner.steer_ids[0].0, "the same steer");
+    assert!(inner.cancels.is_empty(), "the turn was not cut");
 }
 
 #[test]
@@ -715,4 +717,8 @@ fn a_message_while_a_tool_runs_moves_the_call_at_once() {
         "a plain steer: the moved call ends the step"
     );
     assert!(inner.cancels.is_empty(), "the turn was not cut");
+    assert!(
+        inner.sent_now.is_empty(),
+        "the move ended the step: nothing sent now"
+    );
 }

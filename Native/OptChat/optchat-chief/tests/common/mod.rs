@@ -681,6 +681,8 @@ pub struct Agents {
     pub backgrounds: bool,
     /// Every `background_work` call's session.
     pub backgrounded: Vec<String>,
+    /// Every `send_now`: (session, prompt id).
+    pub sent_now: Vec<(String, String)>,
     /// The running call moved to the background: waiting steers are read.
     pub moved: bool,
     /// Turns whose prompt was answered.
@@ -1183,6 +1185,14 @@ impl AgentPort for FakeAgents {
             .modes
             .push((session.to_owned(), mode.to_owned(), prompts));
         Ok(())
+    }
+
+    fn send_now(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
+        let mut inner = self.inner.lock().unwrap();
+        inner
+            .sent_now
+            .push((session.to_owned(), prompt_id.to_owned()));
+        Ok(true)
     }
 
     fn background_work(&self, session: &str) -> Result<bool, String> {
