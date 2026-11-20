@@ -13257,6 +13257,18 @@ export class AcpmuxDirectClient {
     }
     return reply;
   }
+  /// A page of the chat's inbox archive matching `search` (acpmux `_acpmux/inbox_threads` with
+  /// `{search, before?}`): `{hits, next}`, as acpmux sent it, for the held surge's search
+  /// (SurgeArchiveResults.tsx). Asked only when the person searches, never as posts arrive.
+  async searchInbox(search: string, before?: string | number): Promise<unknown> {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || !search.trim()) throw new Error(translate("error.notOpen"));
+    return this.request(
+      "_acpmux/inbox_threads",
+      { sessionId, search: search.trim(), ...(before !== undefined && { before }) },
+      15_000,
+    );
+  }
   /// An offer the reducer draws: offers of one group share one card, in the order they came.
   private addOffer(offer: AcpmuxSessionOffer, at: number): void {
     const id = offer.groupId ? `offers-${offer.groupId}` : `offer-${offer.offerId}`;

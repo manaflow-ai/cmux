@@ -206,3 +206,56 @@ button.acpmux-surge-need:hover {
   outline: var(--cmux-focus-ring-width) solid var(--cmux-focus-ring-color);
   outline-offset: calc(-1 * var(--cmux-focus-ring-width));
 }
+
+/* The archive's results under the live threads (SurgeArchiveResults.tsx): a quiet heading, then one
+   line per post (sender, age, first line) that opens to the whole original. */
+.acpmux-surge-archive {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  margin-top: var(--ds-space-2);
+  padding-top: var(--ds-space-2);
+  border-top: 1px solid var(--agent-hairline, color-mix(in srgb, currentColor 10%, transparent));
+}
+.acpmux-surge-archive-title {
+  margin: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  font-weight: var(--font-weight-emphasis);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.acpmux-surge-hits { margin: 0; padding: 0; list-style: none; }
+.acpmux-surge-hit-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  width: 100%;
+  min-height: var(--acpmux-surge-row);
+  margin: 0;
+  padding: 0 var(--ds-space-1);
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.acpmux-surge-hit-line:hover { background: var(--acpmux-row-hover); }
+.acpmux-surge-hit-line:focus-visible {
+  outline: var(--cmux-focus-ring-width) solid var(--cmux-focus-ring-color);
+  outline-offset: calc(-1 * var(--cmux-focus-ring-width));
+}
+.acpmux-surge-hit-from { flex: none; font-weight: var(--font-weight-emphasis); }
+.acpmux-surge-hit-age { flex: none; color: var(--agent-muted); font-size: var(--text-detail); font-variant-numeric: tabular-nums; }
+.acpmux-surge-hit-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--agent-soft, var(--agent-muted));
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-surge-hit-line .acpmux-surge-chevron { margin-inline-start: auto; align-self: center; }
+.acpmux-surge-hit[data-open] .acpmux-surge-chevron { transform: none; }
+.acpmux-surge-hit-body { padding: var(--ds-space-1) var(--ds-space-2) var(--ds-space-2); }
