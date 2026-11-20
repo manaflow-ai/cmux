@@ -1,7 +1,9 @@
 // Teal: a bright teal look on deep sea-green glass. It names no picture of its own, so
 // bring yours: copy this file to ~/.config/cmux/themes/teal.json (yours wins over this one), put
-// your pictures in ~/.config/cmux/themes/teal/, and uncomment the "folder:teal" line below. The
-// window then shuffles them, a new one every 15 minutes. Save and the running app repaints at once.
+// your pictures in ~/.config/cmux/themes/teal/, and uncomment the "folder:teal" line below. If
+// macOS Desktop already rotates a folder of your own Miku or Phoenix M6 images, use that folder
+// instead: set the line to "folder:/absolute/path/to/that/folder". The window then shuffles it,
+// a new one every 15 minutes. Save and the running app repaints at once; no artwork ships here.
 {
   "name": "Teal",
   "description": "Bright teal on sea-green glass; shuffles your own picture folder.",
