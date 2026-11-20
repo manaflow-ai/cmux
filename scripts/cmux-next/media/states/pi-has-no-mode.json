@@ -75,6 +75,17 @@
    "shot": false
   },
   {
+   "title": "Open a New Agent Chat tab for Pi",
+   "cmux": [
+    "agent",
+    "new-chat",
+    "--cwd",
+    "/tmp"
+   ],
+   "wait": 4,
+   "shot": false
+  },
+  {
    "title": "A New Agent Chat on Pi, before any send",
    "rpc": {
     "method": "debug.agent_pane",
@@ -129,6 +140,17 @@
     "focus"
    ],
    "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Open a New Agent Chat tab for Claude",
+   "cmux": [
+    "agent",
+    "new-chat",
+    "--cwd",
+    "/tmp"
+   ],
+   "wait": 4,
    "shot": false
   },
   {
