@@ -63,8 +63,9 @@
   background: var(--nt-widget-card);
   box-shadow: inset 0 0 0 0.5px var(--nt-widget-card-edge);
   color: var(--agent-text);
-  -webkit-backdrop-filter: blur(24px) saturate(1.4);
-  backdrop-filter: blur(24px) saturate(1.4);
+  /* The popover glass level (ui/glass/glass.css): the card's 24 px blur, at the level's saturation. */
+  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
+  backdrop-filter: var(--ds-glass-popover-blur);
 }
 /* Reduce Transparency: an opaque card, no blur. */
 @media (prefers-reduced-transparency: reduce) {

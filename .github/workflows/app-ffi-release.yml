@@ -143,10 +143,16 @@ jobs:
   # skipped placement leaves the build its earlier route. Known limit: the
   # reading is taken when the run starts, so a build that first waits in its
   # concurrency group for an older build starts on that reading.
+  # LINUX ROUTE (2026-11-19): the Linux jobs (placement, rescue, publish, re-pin) take the nightly lane's
+  # reserved label cmux-gcp-nightly-x64 first, attempts 1 and 2 (the build's RELEASE_FIRST rule, same switch
+  # vars.CI_RELEASE_PIN_SLOT). On vars.LINUX_RUNNER they queued behind all of cmux's PR CI: runs 44600407530 and
+  # 44612287186 sat in "place the build" on cmux-fleet-linux-x64 (2,600 jobs queued, 0 idle runners) for hours, and
+  # the pin guard went 30 h stale. That label's runners are one-job JIT VMs (signing rule 7), which the HQ booter
+  # (gha_runners.py LANE_POOLS) starts per queued job ahead of the PR lanes. Attempt 3 takes the old route.
   placement:
     name: place the build
     if: github.ref == 'refs/heads/feat-cmux-next' && github.repository_owner == 'manaflow-ai' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    runs-on: ${{ vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     # The routing App's read-only key, in the environment cmux-next's placement uses.
     environment: ci-routing-agent
@@ -448,7 +454,7 @@ jobs:
     name: rescue a build no runner took
     needs: placement
     if: ${{ !cancelled() && github.ref == 'refs/heads/feat-cmux-next' && github.repository_owner == 'manaflow-ai' && inputs.rescue == '' }}
-    runs-on: ${{ vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 110
     permissions:
       actions: write
@@ -595,7 +601,7 @@ jobs:
     # !cancelled(): a failed placement (an ancestor the build runs past) must
     # not skip the publish of a build that succeeded.
     if: ${{ !cancelled() && needs.build.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     # Never cancelled. Two runs of one commit (a push and a dispatch, or two
     # dispatches) publish one at a time, so the second sees the first's
@@ -782,7 +788,7 @@ jobs:
     # re-pin either, until the next FFI push or pin merge; dispatch app-ffi-repin.yml by hand after any force-cancel.
     if: always() && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     environment: ffi-release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     # actions: write only for the failure step's dispatch of app-ffi-repin.yml; the re-pin script reads runs and
     # jobs with this token (READ_TOKEN) and writes nothing with it.
@@ -792,7 +798,9 @@ jobs:
       checks: read
       statuses: read
     concurrency:
-      group: app-ffi-repin
+      # -v2 (2026-11-20): GitHub kept the old key held after runs 44636531297 and 44645693256 were cancelled; every
+      # later re-pin sat PENDING with no holder (run 44651765158). A new key keeps the same one-at-a-time rule.
+      group: app-ffi-repin-v2
       cancel-in-progress: false
     steps:
       # Workflows too: the force push moves app-ffi-repin from an older base to
