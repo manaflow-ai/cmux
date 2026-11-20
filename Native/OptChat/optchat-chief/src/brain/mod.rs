@@ -147,6 +147,9 @@ pub enum Input {
     SteerBackgrounded {
         key: String,
         moved: bool,
+        /// The deadline asked (else the message's arrival): an unmoved call
+        /// then cuts the turn.
+        at_deadline: bool,
     },
     TurnEnded {
         key: String,
@@ -1705,7 +1708,11 @@ impl Brain {
             Input::Run(update) => self.turn_run(*update),
             Input::Steered { id, result } => self.steered(id, result),
             Input::SteersWithdrawn { key, all } => self.steers_withdrawn(&key, all),
-            Input::SteerBackgrounded { key, moved } => self.steer_backgrounded(&key, moved),
+            Input::SteerBackgrounded {
+                key,
+                moved,
+                at_deadline,
+            } => self.steer_backgrounded(&key, moved, at_deadline),
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, *outcome),
             Input::Notice { key, text } => self.notice(key, text),
             Input::CompactorStatus(status) => self.compactor_status(status),

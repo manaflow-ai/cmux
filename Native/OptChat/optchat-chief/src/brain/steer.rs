@@ -122,7 +122,27 @@ impl Brain {
         // Their people join the turn before their words reach it, so the
         // rights hook holds the turn's next call to them too.
         self.add_turn_people(&items);
-        let started = self.agents.start_steer(&session, blocks, &prompt_id);
+        // A person's message is read now, not at the turn's next step
+        // (bench 2026-11-20: later burst messages acted on after 19 s p50).
+        // With no tool call running, `steerNow` stops the model's current
+        // step and Claude Code reads the message at once (the stopped step's
+        // turn carries into the message's, which the turn follows). With a
+        // call running, that call moves to the background at once (Ctrl-B),
+        // which ends the step without killing the call.
+        let person = has_person(&items) && !at_end;
+        let calling = self.interrupt.tool_running();
+        let started = if person && !calling {
+            self.agents.start_steer_now(&session, blocks, &prompt_id)
+        } else {
+            self.agents.start_steer(&session, blocks, &prompt_id)
+        };
+        if person
+            && calling
+            && started.is_ok()
+            && self.backgrounded.as_deref() != Some(key.as_str())
+        {
+            self.start_background_move(&key, false);
+        }
         let logged = at_end && started.is_ok() && self.log_delivered(&items);
         // Claude Code says when it read the message: one it has not read by
         // the deadline interrupts the turn (`on_steer_deadline`).
@@ -249,42 +269,56 @@ impl Brain {
         // Claude desktop does with a message sent during a long command.
         // Before, the cut killed the call and the earlier ask was never
         // answered (responsiveness bench, steer probe, 3 of 3 rounds).
-        let session = self.state.turn.as_ref().and_then(|t| t.session_id.clone());
-        if self.backgrounded.as_deref() != Some(key.as_str())
-            && let Some(session) = session.clone()
-        {
-            self.backgrounded = Some(key.clone());
+        if self.backgrounded.as_deref() != Some(key.as_str()) {
             self.steering.extend(unread);
-            let agents = self.agents.clone();
-            let tx = self.tx.clone();
-            let asked = key.clone();
-            let spawned = std::thread::Builder::new()
-                .name("steer-background".into())
-                .spawn(move || {
-                    let moved = agents.background_work(&session) == Ok(true);
-                    let _ = tx.send(Input::SteerBackgrounded { key: asked, moved });
-                });
-            match spawned {
-                Ok(_) => return,
-                Err(e) => {
-                    (self.log)(&format!(
-                        "moving the turn's work to the background failed: {e}"
-                    ));
-                    let (unread2, kept2): (Vec<_>, Vec<_>) = std::mem::take(&mut self.steering)
-                        .into_iter()
-                        .partition(|s| s.key == key && !s.logged);
-                    self.steering = kept2;
-                    return self.withdraw_and_cut(&key, unread2);
-                }
+            if self.start_background_move(&key, true) {
+                return;
             }
+            let (unread2, kept2): (Vec<_>, Vec<_>) = std::mem::take(&mut self.steering)
+                .into_iter()
+                .partition(|s| s.key == key && !s.logged);
+            self.steering = kept2;
+            return self.withdraw_and_cut(&key, unread2);
         }
         self.withdraw_and_cut(&key, unread);
     }
 
-    /// The deadline's background move answered: when work moved, Claude
-    /// Code reads the message at its next step, so the deadline starts once
-    /// more; else the unread steers are taken back and the turn is cut.
-    pub(super) fn steer_backgrounded(&mut self, key: &str, moved: bool) {
+    /// Asks acpmux, off the brain thread, to move turn `key`'s running work
+    /// to the background (once a turn); the answer comes as
+    /// `Input::SteerBackgrounded`. False: no session or no thread.
+    fn start_background_move(&mut self, key: &str, at_deadline: bool) -> bool {
+        let Some(session) = self.state.turn.as_ref().and_then(|t| t.session_id.clone()) else {
+            return false;
+        };
+        self.backgrounded = Some(key.to_owned());
+        let agents = self.agents.clone();
+        let tx = self.tx.clone();
+        let asked = key.to_owned();
+        let spawned = std::thread::Builder::new()
+            .name("steer-background".into())
+            .spawn(move || {
+                let moved = agents.background_work(&session) == Ok(true);
+                let _ = tx.send(Input::SteerBackgrounded {
+                    key: asked,
+                    moved,
+                    at_deadline,
+                });
+            });
+        if let Err(e) = spawned {
+            (self.log)(&format!(
+                "moving the turn's work to the background failed: {e}"
+            ));
+            return false;
+        }
+        true
+    }
+
+    /// A background move answered: when work moved, Claude Code reads the
+    /// message at its next step, so the deadline starts once more; else, when
+    /// the deadline asked, the unread steers are taken back and the turn is
+    /// cut (a move asked at the message's arrival leaves the deadline as it
+    /// is).
+    pub(super) fn steer_backgrounded(&mut self, key: &str, moved: bool, at_deadline: bool) {
         let current =
             self.phase == Phase::Running && self.state.turn.as_ref().is_some_and(|t| t.key == key);
         if !current {
@@ -302,6 +336,9 @@ impl Brain {
             if let Some(deadline) = self.steer_deadline {
                 self.steer_due = Some((Instant::now() + deadline, key.to_owned()));
             }
+            return;
+        }
+        if !at_deadline {
             return;
         }
         self.steer_due = Some((Instant::now(), key.to_owned()));

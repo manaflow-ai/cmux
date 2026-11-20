@@ -494,7 +494,13 @@ impl TurnFold {
     /// far is kept and posted first. A turn that ended in error goes on too
     /// (the carried turn answers the message); its error is dropped.
     fn resume_carried(&mut self) {
-        if let Some(text) = self.last_talk.take() {
+        // A step a steer stopped (`steerNow`) ended with a cancel: its words
+        // were cut mid-sentence and the carried turn answers again; a clean
+        // end's answer stays and is posted first.
+        let cut = self.ended.as_ref().is_some_and(|e| e.error.is_some());
+        if let Some(text) = self.last_talk.take()
+            && !cut
+        {
             self.answered.push(text);
         }
         self.ended = None;

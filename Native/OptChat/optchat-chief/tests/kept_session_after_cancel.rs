@@ -645,3 +645,74 @@ fn a_turn_in_a_kept_session_costs_only_its_own_rise() {
         "the second turn's own cost: {costs:?}"
     );
 }
+
+/// Turn 0 thinks (no tool call, no turn end yet).
+fn thinking_script() -> Script {
+    let rest = default_script();
+    Box::new(move |turn, blocks| {
+        if turn > 0 {
+            return rest(turn, blocks);
+        }
+        vec![serde_json::json!({"dir": "mux", "kind": "turn_started", "msg": {}})]
+    })
+}
+
+#[test]
+fn a_message_while_the_model_thinks_is_steered_now() {
+    let mut h = harness(thinking_script());
+    h.agents.inner.lock().unwrap().steering = true;
+    running(&mut h, "plan the release");
+    h.say("user_local", "also: what is 5 plus 6?");
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while h.agents.inner.lock().unwrap().steer_ids.is_empty() {
+        assert!(std::time::Instant::now() < deadline, "no steer");
+        tick(&mut h);
+    }
+    let inner = h.agents.inner.lock().unwrap();
+    assert!(
+        inner.steer_ids[0].1,
+        "steered with steerNow: the model's current step stops for it"
+    );
+    assert!(inner.backgrounded.is_empty(), "no call to move");
+}
+
+#[test]
+fn a_message_while_a_tool_runs_moves_the_call_at_once() {
+    let mut h = harness(long_tool_script());
+    {
+        let mut inner = h.agents.inner.lock().unwrap();
+        inner.steering = true;
+        inner.steer_at_end = true;
+        inner.backgrounds = true;
+    }
+    // A long deadline: the move must come from the arrival, not the deadline.
+    h.brain.set_steer_deadline(Some(Duration::from_secs(600)));
+    running(&mut h, "run the long build");
+    // The tool call reports progress: the runner reads it and knows a call
+    // runs (a held fake turn sends no change of its own).
+    h.agents.push_events(
+        "s1",
+        vec![update(
+            "tool_call_update",
+            serde_json::json!({"toolCallId": "t0", "status": "in_progress"}),
+        )],
+    );
+    for _ in 0..20 {
+        tick(&mut h);
+    }
+    h.say("user_local", "while that runs: what is 5 plus 6?");
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while h.agents.inner.lock().unwrap().backgrounded.is_empty() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the call was not moved when the message came"
+        );
+        tick(&mut h);
+    }
+    let inner = h.agents.inner.lock().unwrap();
+    assert!(
+        !inner.steer_ids[0].1,
+        "a plain steer: the moved call ends the step"
+    );
+    assert!(inner.cancels.is_empty(), "the turn was not cut");
+}
