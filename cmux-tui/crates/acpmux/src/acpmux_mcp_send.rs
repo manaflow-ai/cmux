@@ -641,24 +641,26 @@ pub(super) async fn aliases(daemon: &Arc<Client>, targets: &[Target]) -> Vec<Vec
             let daemon = Arc::clone(daemon);
             async move {
                 if tokio::time::Instant::now() >= deadline {
-                    return (name, None);
+                    return (name, None, true);
                 }
                 let id =
                     tokio::time::timeout_at(deadline, crate::cli::run::resolve_id(&daemon, &name))
                         .await
                         .ok()
                         .and_then(Result::ok);
-                (name, id)
+                (name, id, false)
             }
             .boxed()
         })
         .collect();
-    let resolved: BTreeMap<String, Option<String>> = futures::stream::iter(lookups)
-        .buffer_unordered(SEND_CONCURRENCY)
-        .collect::<Vec<_>>()
-        .await
-        .into_iter()
-        .collect();
+    let looked: Vec<(String, Option<String>, bool)> =
+        futures::stream::iter(lookups).buffer_unordered(SEND_CONCURRENCY).collect::<Vec<_>>().await;
+    // A name never looked up (the shared deadline passed first) could be any session, including
+    // one another name of the batch resolved to: the whole batch is then one chain, so one
+    // session never gets two chains sending at once.
+    let skipped = looked.iter().any(|(_, _, skipped)| *skipped);
+    let resolved: BTreeMap<String, Option<String>> =
+        looked.into_iter().map(|(name, id, _)| (name, id)).collect();
     let unresolved =
         |t: &Target| t.tag.is_none() && !matches!(resolved.get(t.key.as_str()), Some(Some(_)));
     let host_of = |key: &str| key.split_once('/').map(|(host, _)| format!("\0host:{host}"));
@@ -672,7 +674,7 @@ pub(super) async fn aliases(daemon: &Arc<Client>, targets: &[Target]) -> Vec<Vec
             if let Some(Some(id)) = resolved.get(t.key.as_str()).filter(|_| t.tag.is_none()) {
                 names.push(id.clone());
             }
-            if unresolved(t) {
+            if skipped || unresolved(t) {
                 names.push("\0unresolved".to_owned());
             }
             if let Some(host) = host_of(&t.key).or_else(|| host_of(&t.to))
