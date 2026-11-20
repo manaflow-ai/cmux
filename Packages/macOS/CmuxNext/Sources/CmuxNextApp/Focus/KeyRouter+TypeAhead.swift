@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextFocusUI
 import CmuxNextPages
@@ -65,7 +65,7 @@ extension KeyRouter {
         let surface = String(describing: ObjectIdentifier(readiness))
         let waiting = typeAhead.pending(for: surface) || deliveringTypeAhead == surface || typeAheadTail.holds(surface) || parkedTyping.holds(readiness)
         let otherPage = keyInOtherPage(window, controller: controller)
-        let facts = Facts(pageInputPending: !readiness.isReady || waiting, keyInOtherPage: otherPage)
+        let facts = Facts(pageInputPending: !readiness.isReady || waiting || (controller.content?.paneController(key: pane)?.currentContent?.view as? AgentPaneView)?.chromiumPage?.dropsKeys(typedIn: window, appIsActive: services?.appActiveSource() == true) == true, keyInOtherPage: otherPage) // a ready page's window not key yet (PageChromiumPage.dropsKeys)
         // Return follows the text typed before it, and the keys after it follow Return: they run once that text landed.
         if !otherPage, typeAheadTail.takes(keyCode: event.keyCode, chord: Self.isChord(event.modifierFlags), surface: surface, behindText: waiting) {
             decided.add(event)
