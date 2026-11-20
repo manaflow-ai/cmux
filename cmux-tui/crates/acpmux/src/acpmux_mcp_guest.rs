@@ -41,6 +41,9 @@ use super::*;
 use cmux_json::JsonSet as _;
 use std::process::Stdio;
 
+#[path = "acpmux_mcp_guest_handoff.rs"]
+mod handoff;
+
 /// The tools of the full server a guest keeps, by name.
 const KEPT: &[&str] = &["send", "send_status", "ls", "last", "info", "search"];
 pub(super) const NEW: &str = "new";
@@ -62,6 +65,10 @@ there is no acpmux daemon, cmux NEXT is not running on this machine: ask the per
 /// The guest's tools: [`KEPT`] of `all` (the full server's list, artifacts included when signed
 /// in), then `machines` and `new`.
 pub(super) fn tools(all: &Value) -> Value {
+    tools_with_preview(all, false)
+}
+
+fn tools_with_preview(all: &Value, preview: bool) -> Value {
     let mut out: Vec<Value> = all
         .as_array()
         .into_iter()
@@ -74,6 +81,9 @@ pub(super) fn tools(all: &Value) -> Value {
         .collect();
     out.push(machines_tool());
     out.push(new_tool());
+    if preview {
+        out.push(handoff::tool());
+    }
     Value::Array(out)
 }
 
@@ -354,7 +364,12 @@ async fn run_cli(
 /// Runs the guest server for `app` on stdin and stdout.
 pub(super) async fn run(app: String, artifacts: Option<Arc<artifacts::Artifacts>>) -> Result<()> {
     let inside = std::env::var(SESSION_ENV).is_ok_and(|s| !s.trim().is_empty());
-    let tools = if inside { json!([]) } else { tools(&tools_with_artifacts(artifacts.is_some())) };
+    let preview = handoff::enabled(&crate::user_settings::read());
+    let tools = if inside {
+        json!([])
+    } else {
+        tools_with_preview(&tools_with_artifacts(artifacts.is_some()), preview)
+    };
     let steer = (!inside).then(|| STEER.to_owned());
     crate::secret_mcp::serve_as(SERVER_NAME, String::new(), tools, steer, move |_, params| {
         let artifacts = artifacts.clone();
@@ -378,6 +393,14 @@ pub(super) async fn run(app: String, artifacts: Option<Arc<artifacts::Artifacts>
             }
             match name {
                 NEW => return new(&app, &args).await,
+                handoff::NAME => {
+                    // Recheck on use: disabling Labs also stops clients with a cached tool list.
+                    let enabled = preview && handoff::enabled(&crate::user_settings::read());
+                    return match handoff::arguments(&args, enabled) {
+                        Ok(args) => new(&app, &args).await,
+                        Err(why) => error_result(why),
+                    };
+                }
                 MACHINES => return machines(&app).await,
                 "search" | "send_status" => {}
                 n if KEPT.contains(&n) => {}
