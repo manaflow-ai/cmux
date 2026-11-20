@@ -152,6 +152,30 @@
             "theme",
             "labs"
           ]
+        },
+        {
+          "key": "experiments.remote_screen_share_zero_touch",
+          "name": "remoteScreenShareZeroTouch",
+          "note": "Opt-in remote screen sharing for joined machines. When enabled, a joined machine's daemon keeps its share host available with the app closed. Off by default so existing screen-sharing behavior is unchanged.",
+          "title": {
+            "key": "settings.labs.remoteScreenShareZeroTouch",
+            "text": "Zero-touch Remote Screen Sharing"
+          },
+          "help": {
+            "key": "settings.labs.remoteScreenShareZeroTouch.help",
+            "text": "Keep remote screen sharing available for joined machines while cmux is closed."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "remote",
+            "screen",
+            "sharing",
+            "joined",
+            "machine",
+            "zero-touch",
+            "experiment"
+          ]
         }
       ]
     }

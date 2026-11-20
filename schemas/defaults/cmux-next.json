@@ -609,6 +609,7 @@
     "setting.labs.previewFeatures": false,
     "setting.labs.voiceRoom": false,
     "setting.labs.voiceRoomURL": "",
+    "setting.experiments.remote_screen_share_zero_touch": false,
     "setting.layout.centerFocusedColumn": "never",
     "setting.layout.closeFocus": "mostRecent",
     "setting.layout.columnWidthPresets": [1, 0.6667, 0.5, 0.3333],

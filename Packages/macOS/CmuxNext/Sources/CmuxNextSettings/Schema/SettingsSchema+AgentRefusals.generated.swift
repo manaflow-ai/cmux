@@ -94,6 +94,8 @@ extension SettingsSchema {
         "labs.voiceRoomURL": .network,
         // On, Add Device mints a line that joins any machine to the team's machines: only the person turns that on.
         "labs.machineJoin": .network,
+        // On, a joined machine keeps a remote screen-share host available while cmux is closed: only the person turns that on.
+        "experiments.remote_screen_share_zero_touch": .network,
         // On, a live code build loads Swift patches into the running app: only the person turns that on.
         "labs.liveCode": .userOnly,
         // Whether cmux's own pages open developer tools, which read and change their live content: the person's call.

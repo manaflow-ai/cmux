@@ -20,6 +20,9 @@ extension CmuxConfigSnapshot {
     /// `customize.fromTheApp`: Opt-in Customize surfaces in the window: holding Option over a big part shows the Customize Inspector (its settings, theme colors, Change This… and Reset), and the right-click menus of those parts end with Customize…. Off by default; off hides both, and nothing else changes. Leo 2026-11-15 (ask-9634dbcdac): opt-in UI needs a way back, which is turning this off.
     public nonisolated static let customizeFromTheAppPath = ["customize", "fromTheApp"]
     public nonisolated static let customizeFromTheAppDefault = false
+    /// `experiments.remote_screen_share_zero_touch`: Opt-in remote screen sharing for joined machines. When enabled, a joined machine's daemon keeps its share host available with the app closed. Off by default so existing screen-sharing behavior is unchanged.
+    public nonisolated static let remoteScreenShareZeroTouchPath = ["experiments", "remote_screen_share_zero_touch"]
+    public nonisolated static let remoteScreenShareZeroTouchDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -87,6 +90,16 @@ nonisolated enum LabsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.customizeFromTheAppDefault),
                 keywords: ["customize", "inspector", "option", "hover", "right-click", "theme", "labs"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.remoteScreenShareZeroTouchPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.remoteScreenShareZeroTouch", "Zero-touch Remote Screen Sharing"),
+                help: SettingsText.keyed("settings.labs.remoteScreenShareZeroTouch.help", "Keep remote screen sharing available for joined machines while cmux is closed."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.remoteScreenShareZeroTouchDefault),
+                keywords: ["remote", "screen", "sharing", "joined", "machine", "zero-touch", "experiment"]
             ),
         ]
     }

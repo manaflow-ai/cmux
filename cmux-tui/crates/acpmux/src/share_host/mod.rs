@@ -46,6 +46,55 @@ mod tests;
 #[cfg(unix)]
 use std::path::{Path, PathBuf};
 
+/// The opt-in gate for the zero-touch remote screen-share host.
+pub(crate) const ZERO_TOUCH_SETTING: &str = "experiments.remote_screen_share_zero_touch";
+
+fn zero_touch_enabled_in(doc: &serde_json::Value) -> bool {
+    crate::user_settings::value(doc, ZERO_TOUCH_SETTING)
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+}
+
+/// Whether the person enabled the zero-touch share host experiment.
+///
+/// Missing, unreadable, or incorrectly typed settings stay disabled so existing
+/// screen-sharing behavior remains unchanged.
+pub(crate) fn zero_touch_enabled() -> bool {
+    match crate::user_settings::read() {
+        crate::user_settings::Settings::Parsed(doc) => zero_touch_enabled_in(&doc),
+        crate::user_settings::Settings::Missing | crate::user_settings::Settings::Unreadable(_) => {
+            false
+        }
+    }
+}
+
+#[cfg(test)]
+mod zero_touch_setting_tests {
+    use super::zero_touch_enabled_in;
+    use serde_json::json;
+
+    #[test]
+    fn missing_and_wrong_values_keep_the_experiment_off() {
+        assert!(!zero_touch_enabled_in(&json!({})));
+        assert!(!zero_touch_enabled_in(
+            &json!({"experiments.remote_screen_share_zero_touch": "on"})
+        ));
+        assert!(!zero_touch_enabled_in(
+            &json!({"experiments": {"remote_screen_share_zero_touch": 1}})
+        ));
+    }
+
+    #[test]
+    fn nested_and_flat_true_values_enable_the_experiment() {
+        assert!(zero_touch_enabled_in(
+            &json!({"experiments.remote_screen_share_zero_touch": true})
+        ));
+        assert!(zero_touch_enabled_in(
+            &json!({"experiments": {"remote_screen_share_zero_touch": true}})
+        ));
+    }
+}
+
 /// The folder under the acpmux home that holds the device, the session records and the app's
 /// device channel.
 #[cfg(unix)]

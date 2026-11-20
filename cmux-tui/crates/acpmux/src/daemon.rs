@@ -679,12 +679,26 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     crate::cli::cloud_join::state_capabilities_at_start(&hub.scope);
     // A joined Mac's daemon serves screen shares with no app running (`share_host/`).
     #[cfg(target_os = "macos")]
-    crate::share_host::start(&hub.scope);
+    if crate::share_host::zero_touch_enabled() {
+        crate::share_host::start(&hub.scope);
+    } else {
+        crate::share_host::not_running(crate::share_host::NotRunning::new(
+            "experiment_disabled",
+            "zero-touch remote screen sharing is disabled in Settings",
+        ));
+    }
     // A joined Linux machine's is cmux-rd's, which the daemon sets up here in the background
     // (`share_host/linux.rs`): its join needs no step on the machine.
     #[cfg(target_os = "linux")]
     if !clone_unsettled {
-        crate::share_host::linux::start(&hub.scope);
+        if crate::share_host::zero_touch_enabled() {
+            crate::share_host::linux::start(&hub.scope);
+        } else {
+            crate::share_host::not_running(crate::share_host::NotRunning::new(
+                "experiment_disabled",
+                "zero-touch remote screen sharing is disabled in Settings",
+            ));
+        }
     }
     // The Macs whose app may allow here over the peer link (`hub/mac_approvers.rs`).
     hub.person.macs.open(home().join(crate::hub::mac_approvers::FILE));

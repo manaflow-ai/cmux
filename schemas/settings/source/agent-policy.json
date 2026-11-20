@@ -1260,6 +1260,13 @@
       ]
     },
     {
+      "agent": "network",
+      "why": "On, a joined machine keeps a remote screen-share host available while cmux is closed: only the person turns that on.",
+      "keys": [
+        "experiments.remote_screen_share_zero_touch"
+      ]
+    },
+    {
       "agent": "userOnly",
       "why": "On, a live code build loads Swift patches into the running app: only the person turns that on.",
       "keys": [
