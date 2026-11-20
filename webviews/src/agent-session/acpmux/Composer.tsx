@@ -6,6 +6,7 @@ import { createDraftStore } from "./composer/draftStore";
 import React, {
   useCallback,
   useEffect,
+  useEffectEvent,
   useImperativeHandle,
   useInsertionEffect,
   useLayoutEffect,
@@ -1014,6 +1015,12 @@ function ComposerFrame({
     flushPendingDraftWrites();
     return next.text;
   };
+  /// The effects below call the newest `setDraft` and `applyDraftRead`, and do not run again when a render makes new
+  /// ones: the switch and the durable read must run once per session, not once per render.
+  const setDraftFromEffect = useEffectEvent((value: string, at: number, write?: boolean) => setDraft(value, at, write));
+  const applyDraftReadFromEffect = useEffectEvent((session: string | undefined, saved: string | undefined) =>
+    applyDraftRead(session, saved),
+  );
   useImperativeHandle(
     handle,
     () => ({
@@ -1197,7 +1204,7 @@ function ComposerFrame({
         }
       },
     }),
-    [setAttachments, attachLater, attachRefused, attach],
+    [setAttachments, attachLater, attachRefused, attach, applyDraftRead, setDraft, draftStore],
   );
   useEffect(() => {
     if (!draft) return;
@@ -1212,9 +1219,9 @@ function ComposerFrame({
     if (next === typed) return;
     notTyped();
     field.current?.reset(next);
-    setDraft(next, next.length);
+    setDraftFromEffect(next, next.length);
     pendingCaret.current = next.length;
-  }, [draft]);
+  }, [draft, draftStore]);
   useEffect(() => {
     if (switching) carryPrompt.current = true;
   }, [switching]);
@@ -1258,9 +1265,9 @@ function ComposerFrame({
       if (sessionId) cachePersistedDraft(sessionId, initial);
     }
     // Its own cache write (above) or none: the chat's acpmux draft is not read yet.
-    setDraft(initial, initial.length, false);
+    setDraftFromEffect(initial, initial.length, false);
     pendingCaret.current = initial.length;
-  }, [sessionId, draft]);
+  }, [sessionId, draft, draftStore]);
   // The pane closes: what it queued for its chat still goes to acpmux, but no quit compares it again.
   useEffect(() => () => forgetQueuedDraft(persistedSession.current), []);
   // The chat's own chips come back with its prompt; a switch carries the ones held (keptAttachments.ts).
@@ -1298,7 +1305,7 @@ function ComposerFrame({
         if (hydratedSession.current !== state.sessionId) return "composer.draft-restoring";
         return null;
       }),
-    [],
+    [draftStore],
   );
   // After the session effect, so a switch that ends with its session change still carries.
   useEffect(() => {
@@ -1317,7 +1324,7 @@ function ComposerFrame({
       // merged it (the action map's next version runs this again). Before, an unanswered read
       // counted as "no draft", and the typed text then replaced the draft acpmux kept.
       if (sessionId && !state) return;
-      applyDraftRead(sessionId, state?.draft);
+      applyDraftReadFromEffect(sessionId, state?.draft);
       // A web update reloaded the page while the prompt had the keyboard: it takes it back, the
       // caret after the text as it was (pages/shared/webSwap.ts).
       if (takeWebSwapFocus("composer"))
@@ -1357,7 +1364,7 @@ function ComposerFrame({
   }, [sessionId, onUnsentDraft]);
   // A new throttle, or a Cloud start, takes the text as it is now; each change after goes from the
   // edit (`edit`, `setDraft`).
-  useEffect(pushUnsentDraft, [sessionId, onUnsentDraft, cloudStarting]);
+  useEffect(pushUnsentDraft, [sessionId, onUnsentDraft, cloudStarting, draftStore]);
   const commands = snapshot.commands;
   const remote = remoteComposer(snapshot);
   // Permission modes live in the access chip beside +; the + menu keeps only the Plan/Build toggle.
