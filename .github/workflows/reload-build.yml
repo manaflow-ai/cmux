@@ -196,6 +196,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # cmux-next's agent pane starts the in-tree acpmux daemon from the app
       # bundle. Build it on the fleet before reload.sh; local reloads use the

@@ -134,6 +134,7 @@ jobs:
         if: env.SELECTED == 'true'
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Cloud journey (prod, ${{ matrix.model }} model)
         id: journey
         if: env.SELECTED == 'true'
@@ -145,6 +146,9 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ matrix.model == 'real' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
           MODEL: ${{ matrix.model }}
           CMUX_TUI: ${{ steps.build-cmux-tui.outputs.path }}
+          # The dedicated private sandbox repository (OWNER/REPO) the test team's GitHub connection lists: the live
+          # GitHub cells and, with the real model, the agent's. Unset (the repository variable is not set): skipped.
+          CMUX_JOURNEY_GITHUB_REPO: ${{ vars.CMUX_JOURNEY_GITHUB_REPO }}
         run: |
           set -uo pipefail
           out="$RUNNER_TEMP/cloud-journey"
@@ -274,6 +278,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Mint the private HQ preclaim store token
         id: hq-preclaim-token
         timeout-minutes: 1
