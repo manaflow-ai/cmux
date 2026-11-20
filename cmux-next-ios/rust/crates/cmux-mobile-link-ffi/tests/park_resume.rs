@@ -24,6 +24,9 @@ use serde_json::json;
 /// a phone silent this long is a dead link the Mac closes.
 const SILENT: Duration = Duration::from_secs(36);
 
+/// The park exchange's own tail (its delayed ACKs), counted apart from the silence.
+const TAIL: Duration = Duration::from_secs(1);
+
 /// An echo Mac that hands each link it answers to the test.
 fn spawn_echo_mac(mac: SignalingClient, links: tokio::sync::mpsc::UnboundedSender<Link>) {
     tokio::spawn(async move {
@@ -169,18 +172,24 @@ async fn a_suspended_phone_gets_nothing_and_resumes_with_its_first_frame() {
     let linked = link_up(vec![turn.udp_only()], true).await;
     let parked_ms = park(&linked).await;
 
+    // Into the relay: either end's datagrams to the TURN server; out of it: what the relay would
+    // have delivered from one end to the other. The first second after the park is its own tail
+    // (the ACKs of the park exchange), counted apart; the rest of the silence must be empty.
     turn.set_udp_blocked(true);
-    let before = turn.udp_dropped();
-    tokio::time::sleep(SILENT).await;
+    let cut = turn.udp_dropped();
+    tokio::time::sleep(TAIL).await;
+    let tail = turn.udp_dropped();
+    tokio::time::sleep(SILENT - TAIL).await;
     let after = turn.udp_dropped();
     turn.set_udp_blocked(false);
-    // Into the relay: either end's datagrams to the TURN server; out of it: what the relay would
-    // have delivered from one end to the other.
-    let (into_relay, out_of_relay) = (after.0 - before.0, after.1 - before.1);
+    let (tail_in, tail_out) = (tail.0 - cut.0, tail.1 - cut.1);
+    let (into_relay, out_of_relay) = (after.0 - tail.0, after.1 - tail.1);
     assert_held(&linked);
     println!(
-        "suspended {} s: {into_relay} datagrams into the relay, {out_of_relay} out of it",
-        SILENT.as_secs()
+        "suspended: first {} ms {tail_in} datagrams into the relay, {tail_out} out of it; next {} s \
+         {into_relay} into the relay, {out_of_relay} out of it",
+        TAIL.as_millis(),
+        (SILENT - TAIL).as_secs()
     );
     assert_eq!(out_of_relay, 0, "the relay had {out_of_relay} datagrams for a suspended end");
     assert_eq!(into_relay, 0, "the held ends sent the relay {into_relay} datagrams");
@@ -189,6 +198,7 @@ async fn a_suspended_phone_gets_nothing_and_resumes_with_its_first_frame() {
     println!(
         "PARK_RESUME {}",
         json!({"path": "turn", "parked_ms": parked_ms, "silent_s": SILENT.as_secs(),
+               "park_tail_datagrams": {"into_relay": tail_in, "out_of_relay": tail_out},
                "suspended_datagrams": {"into_relay": into_relay, "out_of_relay": out_of_relay},
                "probed_ms": probed_ms, "first_frame_ms": first_frame_ms})
     );
