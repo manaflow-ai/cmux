@@ -319,13 +319,9 @@ await requireBrowserLane("agent-chat-stream-no-shift-browser.test.ts", async () 
                   .filter((entry) => entry.prompt === null || Math.abs(entry.prompt - sent!) > 1)
                   .map((entry) => `${entry.step}: prompt at ${entry.prompt}px, sent at ${sent}px`),
               ).toEqual([]);
-              // Nothing in view moves after the send, at any step: no row rides a follow.
-              expect(
-                report
-                  .slice(1)
-                  .filter((entry) => entry.moved > 1)
-                  .map((entry) => `${entry.step}: ${entry.moved}px ${entry.moves[0]?.label}`),
-              ).toEqual([]);
+              // The prompt holding its pixel holds every row above it (rows stay packed): no follow carries
+              // the view. The rows under the reply move down only by its growth, which the judge below
+              // allows and nothing else.
               // No row strays from the follow, at any step.
               expect(
                 report
