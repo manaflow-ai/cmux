@@ -184,7 +184,6 @@ import Testing
         #expect(!filtered.contains { if case .doneFold = $0 { true } else { false } })
     }
 
-
     @Test func disclosuresRoundTripAndOlderSnapshotsStartCollapsed() throws {
         var snapshot = SidebarSnapshot(sections: Self.sections(), profiles: [], activeProfileID: nil)
         let fold = SidebarDoneFoldID(section: Self.sections()[0].id, group: GroupID("g"), kind: .archived)

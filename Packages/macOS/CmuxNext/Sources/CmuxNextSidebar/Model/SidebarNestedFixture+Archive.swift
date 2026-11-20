@@ -1,7 +1,7 @@
 #if DEBUG
 import CmuxNextDesign
 
-extension SidebarNestedFixture {
+nonisolated extension SidebarNestedFixture {
     static var archiveGroups: [SidebarNode] {
         func workspace(_ id: String, _ title: String, archived: Bool = false) -> SidebarWorkspace {
             var row = SidebarWorkspace(id: WorkspaceID(id), title: title)
@@ -24,6 +24,19 @@ extension SidebarNestedFixture {
             group("archive-empty", "Empty group", []),
             .workspace(workspace("archive-loose", "Ungrouped archive", archived: true)),
         ]
+    }
+}
+
+extension SidebarNestedFixture {
+    @MainActor package func applyArchivedFolds(_ opened: Bool?, to model: SidebarModel) {
+        guard scenario == .archived, let opened else { return }
+        let folds = sections.flatMap { section in
+            section.nodes.compactMap { node -> SidebarDoneFoldID? in
+                guard case let .group(group) = node else { return nil }
+                return SidebarDoneFoldID(section: section.id, group: group.id, kind: .archived)
+            }
+        }
+        model.openDoneFolds = opened ? Set(folds + [.archive]) : []
     }
 }
 #endif
