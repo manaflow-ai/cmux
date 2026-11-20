@@ -231,11 +231,12 @@ impl Hub {
         })
     }
 
-    /// Starts the daemon's one lock-bridge worker. It holds the hub weakly and ends with it.
+    /// Starts the daemon's one lock-bridge worker, owned by the hub's scope. It holds the hub
+    /// weakly and ends with it.
     pub(crate) fn lock_bridge_worker(self: &std::sync::Arc<Self>) {
         let hub = std::sync::Arc::downgrade(self);
         BRIDGE.wake.notify_one();
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("lock-bridge", async move {
             let mut tracker = Tracker::new(Instant::now(), crate::mac_lock::lock());
             loop {
                 BRIDGE.wake.notified().await;
