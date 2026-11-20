@@ -109,6 +109,7 @@ failed_once = set()
 # "goal:" and "/goal": each session's goal as Codex reports it (session_info_update _meta.goal).
 goals = {}
 cap_failures = {}
+capacity_inner_loops = set()
 failed_digest = set()
 # Sessions whose "net-down" prompt cut the connection for good (auto-resume tests).
 net_down = set()
@@ -664,6 +665,22 @@ def handle_prompt(rid, params):
     if (text.startswith("cap-fail-three:") or sid in cap_failures) and cap_failures.get(sid, 0) < 3:
         cap_failures[sid] = cap_failures.get(sid, 0) + 1
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "API Error: 503 no non-exhausted claude accounts available. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://user:secret@example.invalid/inference. (error type server_error, HTTP 503)"}})
+        return
+    # Older Codex keeps retrying in the turn, with no maximum in its notice.
+    # It acknowledges cancel, but never ends the capacity failure on its own.
+    if text == "capacity-inner-loop":
+        capacity_inner_loops.add(sid)
+    if sid in capacity_inner_loops:
+        cancelled.discard(sid)
+        for attempt in range(1, 251):
+            if sid in cancelled:
+                break
+            update(sid, {"sessionUpdate": "session_info_update", "_meta": {"codex": {"error": {
+                "message": f"Reconnecting... {attempt}", "willRetry": True,
+                "additionalDetails": "Selected model is at capacity.", "codexErrorInfo": {"serverOverloaded": {}}
+            }}}})
+            time.sleep(0.02)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
         return
     if text.startswith("net-down"):
         net_down.add(sid)
