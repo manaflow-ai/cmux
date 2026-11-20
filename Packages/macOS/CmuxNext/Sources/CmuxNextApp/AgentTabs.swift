@@ -259,6 +259,9 @@ final class AgentTabStore {
     var startPermissionMode: @MainActor () -> String? = { nil }
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
     var blankChatHandler: ((AgentTabKey) -> NewTabPageHandler?)?
+    /// Whether agent tab `key` is half of a terminal and chat pair: its chat menu offers Switch to Terminal
+    /// (``TerminalChatHandler/offersToggle(on:services:)``, as the tab's right-click).
+    var offersTerminalSwitch: ((AgentTabKey) -> Bool)?
     /// Each agent session's own avatar (Set Avatar… in the chat's ⋯ menu).
     var agentAvatars: AgentAvatars?
     /// The floating mini's chat: the chat menu's Show in Mini (`agent.mini`, `agent.mini.show`).

@@ -273,6 +273,7 @@
       "keys": [
         "appearance.paneBackgrounds",
         "ui.reducedBackgrounds",
+        "appearance.agentGlow",
         "appearance.experimentalControls",
         "app.uiScale",
         "appearance.glassTransparency",
@@ -437,6 +438,7 @@
         "notifications.attention.flashOnTyping",
         "notifications.attention.showOnTab",
         "notifications.attention.showOnSidebar",
+        "notifications.attention.mark",
         "notifications.attention.moveToTop",
         "notifications.attention.moveToTopOnAgentFinish"
       ]
@@ -1320,6 +1322,14 @@
       "keys": [
         "updates.idleInstallMaxWaitSeconds",
         "updates.idleInstallQuietSeconds"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, cmux restarts into a downloaded update by itself once idle: the person's call.",
+      "keys": [
+        "updates.installWhenIdle",
+        "updates.installWhenIdleMinutes"
       ]
     },
     {
