@@ -1106,6 +1106,13 @@ SIGNER_ROUTE
 PUBLISH_ROUTE
 )
 
+  # Attempt 1 of these nightly jobs takes the owned JIT nightly label (#47764, #47905): one job per VM, so the
+  # signing secrets still meet an ephemeral machine; a re-run takes hosted Ubuntu, never Blacksmith.
+  local nightly_jit_route
+  nightly_jit_route=$(cat <<'NIGHTLY_JIT_ROUTE'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'ubuntu-24.04' }}
+NIGHTLY_JIT_ROUTE
+)
   # signer-build takes the nightly's early fleet placement (#29864) first, then hosted Ubuntu.
   local signer_build_route
   signer_build_route=$(cat <<'SIGNER_BUILD_ROUTE'
@@ -1149,6 +1156,15 @@ SIGNER_BUILD_ROUTE
     # dSYMs incl. sentry-dsyms-nightly, deltas) take this ephemeral route too: the signing-secret rules
     # (tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py rule 7) keep them off reused minis.
     "nightly.yml:$signer_route"
+    # The nightly signing jobs outside nightly.yml (notarization polls and publish, the iOS nightly's previous-build,
+    # the nightly-next train): they hold signing secrets, so they need an ephemeral runner, and nightlies never
+    # run on Blacksmith (Lawrence, 2026-10-30), so they take the same hosted Ubuntu route. Until 2026-11-19 they
+    # read vars.LINUX_RUNNER, which now names our own Linux runners.
+    "auto-resume-nightly-notarization.yml:$signer_route"
+    "ios-internal-nightly.yml:$signer_route"
+    "nightly-next-train.yml:$signer_route"
+    "nightly.yml:$nightly_jit_route"
+    "nightly-next-train.yml:$nightly_jit_route"
     "nightly.yml:$publish_route"
     "nightly.yml:$signer_build_route"
     # republish-nightly-deltas: nightly-next takes the trusted signing runner (the whole Mac); the other tracks
