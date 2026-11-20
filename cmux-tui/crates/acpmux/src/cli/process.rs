@@ -771,7 +771,7 @@ type Env<'a> = &'a dyn Fn(&str) -> Option<String>;
 /// The `_acpmux/bg/start` params of `start` in the chat the environment names (its
 /// `ACPMUX_SESSION_ID`; the caller token proves it to the daemon), in folder `here` unless
 /// `--cwd` names one, with the Claude Code subagent the hook's mark names (`bg_hook::subagent_mark`).
-fn start_params(start: &Start, env: Env, here: Option<std::path::PathBuf>) -> Result<Value> {
+fn start_params(start: &Start, env: Env<'_>, here: Option<std::path::PathBuf>) -> Result<Value> {
     let session = env("ACPMUX_SESSION_ID").ok_or_else(|| {
         anyhow!("process start runs only inside an acpmux agent chat (no ACPMUX_SESSION_ID)")
     })?;
