@@ -1326,7 +1326,8 @@ mod tests {
         let (held_tx, held) = mpsc::channel();
         let (release, release_rx) = mpsc::channel::<()>();
         log.send(Msg::Hold(held_tx, release_rx)).unwrap();
-        held.recv().unwrap();
+        held.recv_timeout(Duration::from_secs(10))
+            .unwrap_or_else(|e| panic!("the writer did not reach its hold: {e}"));
         let purge = log.purge("gone").unwrap();
         let waiting = log.record_durable(json!({"at": 2, "sessionId": "gone", "kind": "review",
                                                 "prUrl": "https://github.com/o/r/pull/5",
@@ -1560,7 +1561,8 @@ mod tests {
         let (held_tx, held) = mpsc::channel();
         let (release, release_rx) = mpsc::channel::<()>();
         log.send(Msg::Hold(held_tx, release_rx)).unwrap();
-        held.recv().unwrap();
+        held.recv_timeout(Duration::from_secs(10))
+            .unwrap_or_else(|e| panic!("the writer did not reach its hold: {e}"));
         log.record(entry("s1", 1));
         log.record(entry("s2", 2));
         let on_disk = read_lines(&d.join(FILE)).unwrap();
@@ -1679,7 +1681,8 @@ mod tests {
         let (held_tx, held) = mpsc::channel();
         let (release, release_rx) = mpsc::channel::<()>();
         log.send(Msg::Hold(held_tx, release_rx)).unwrap();
-        held.recv().unwrap();
+        held.recv_timeout(Duration::from_secs(10))
+            .unwrap_or_else(|e| panic!("the writer did not reach its hold: {e}"));
         // Queued behind the held thread, recorded while it waits, then given up on. The record
         // yields first, so it runs after the purge was sent whichever future is polled first.
         let (given_up, ()) =
@@ -1694,7 +1697,8 @@ mod tests {
         let (held_tx, held) = mpsc::channel();
         let (release, release_rx) = mpsc::channel::<()>();
         log.send(Msg::Hold(held_tx, release_rx)).unwrap();
-        held.recv().unwrap();
+        held.recv_timeout(Duration::from_secs(10))
+            .unwrap_or_else(|e| panic!("the writer did not reach its hold: {e}"));
         // Queued, then fails.
         let failed = log.purge("s1").unwrap();
         log.record(entry("s1", 3));
@@ -1718,7 +1722,8 @@ mod tests {
         let (held_tx, held) = mpsc::channel();
         let (release, release_rx) = mpsc::channel::<()>();
         log.send(Msg::Hold(held_tx, release_rx)).unwrap();
-        held.recv().unwrap();
+        held.recv_timeout(Duration::from_secs(10))
+            .unwrap_or_else(|e| panic!("the writer did not reach its hold: {e}"));
         let purge = log.purge("same").unwrap();
         log.reopen("same");
         drop(release);
