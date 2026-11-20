@@ -204,11 +204,19 @@ env:
   # SUPublicEDKey of the cmux-next track. The build refuses a
   # SPARKLE_NEXT_PRIVATE_KEY that does not derive this public key.
   NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY: IOPItMLjtc4NsROTNZ6a/jsUW+C4fcicl6SNjVVvzRM=
-  # Why: docs/ci/nightly-workflow-notes.md#note-29
+  # cx-f58x: Apple held the browser-data import (status 7000, 2026-10-09) and
+  # accepted it again in run 42176643049 (notary_test_import_part=full,
+  # 2026-11-06), so `full` builds the import into every nightly-next build.
+  # `compiled-out` is the switch back: every nightly-next build then compiles
+  # the import out (CMUX_NO_PASSWORD_IMPORT, CMUX_NO_BROWSER_DATA_IMPORT, empty
+  # browser-sources.json), proves it, and may notarize and publish even with
+  # NIGHTLY_NEXT_NOTARY_PAUSED=1. With the import in, the pause still stops a
+  # build before notarization, so a build with the import is never published
+  # while the pause is set.
   NIGHTLY_NEXT_BROWSER_DATA_IMPORT: full
 
 jobs:
-  # Why: docs/ci/nightly-workflow-notes.md#note-30
+  # Why: docs/ci/nightly-workflow-notes.md#note-29
   runner-preflight:
     permissions:
       issues: write # a failure opens or updates the nightly's failure incident (notify() in the script)
@@ -1403,19 +1411,7 @@ jobs:
       attestations: write
       id-token: write
     needs: decide
-    # This seeder runs on our nightly-only minis, never Blacksmith (a fork on hosted macos-26).
-    # The schedule skips this seeder while owned pools serve pull
-    # requests (CI_PR_POOL_OWNED is 1): admission then runs on owned minis that
-    # keep their own DerivedData, and seed-derived-data.yml still seeds the
-    # Blacksmith admission pools on main pushes that change app-host build
-    # inputs. Those incremental chains then get no six-hourly cold reset; a
-    # seed_only dispatch still writes one on demand.
-    # Writes the cold DerivedData seed that ci-macos.yml compile admission
-    # adopts. It no longer restores, bounds or saves the Debug compilation
-    # cache: admission stopped restoring it (the app target missed on every
-    # file; see tests/test_ci_test_compilation_cache_seed.sh), so nothing read
-    # it. The build's CAS stays local to the run. Scheduled, not per push: a
-    # build per merge would take macOS slots from the pull request queue.
+    # Why: docs/ci/nightly-workflow-notes.md#note-30
     if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && vars.CI_PR_POOL_OWNED != '1' || github.event_name == 'workflow_dispatch' && inputs.seed_only
     # Why: docs/ci/nightly-workflow-notes.md#note-2
     strategy:
@@ -1879,7 +1875,14 @@ jobs:
           retention-days: 1
           overwrite: true
 
-  # Why: docs/ci/nightly-workflow-notes.md#note-31
+  # The route for build-nightly-app on nightly-next, read right before it queues
+  # (scripts/ci/nightly_build_runner.py): `owned`, the owned label while one of its
+  # runners is idle now. The build takes `owned` when set by a pick made for its own
+  # attempt (`attempt`): a push, a dispatch, or a re-run that ran this job again.
+  # Anything else (a failed-jobs re-run that kept an earlier attempt's pick, a failed
+  # pick) takes the plain nightly-only pool, never the label that refused it and never
+  # Blacksmith (nightlies never use Blacksmith, Lawrence 2026-10-30). The picker's
+  # `blacksmith` output is no longer read by any nightly job.
   pick-nightly-build-runner:
     # Beside resolve-nightly-cmux-tui-client, not after it: the pick reads only decide's outputs, and build-nightly-app
     # still needs both. One runner pickup off the path to the app build (nightly-30min; run 41941610932 waited 5.9 min
@@ -2020,7 +2023,12 @@ jobs:
       light_attempt: ${{ steps.place-light.outcome == 'success' && github.run_attempt || '' }}
       # The cx-f58x scan of the archived app passed here; prepare skips its own.
       browser_data_proven: ${{ steps.browser-data-proof.outcome == 'success' && 'true' || '' }}
-    # Why: docs/ci/nightly-workflow-notes.md#note-32
+    # pick-nightly-build-runner is continue-on-error, and its pre-job hook can wait out its 13-minute
+    # timeout while a signing job holds the mini it landed on. A timed-out job ends `cancelled`, and an `if`
+    # with no status function (an implicit success() over every ancestor) then skipped this job and lost the
+    # started build (runs 43129045111, 43138638076 on 2026-11-12). So this job and the jobs below it start
+    # with !cancelled() and their own needs' success, and the pick's empty outputs fall back to the plain pool
+    # (tests/test_nightly_delivery_concurrency.py::test_a_tolerated_need_never_skips_its_dependents).
     if: "!cancelled() && needs.decide.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.one_job != 'true'"
     # nightly-next: pick-nightly-build-runner's dedicated builder, else an idle owned
     # label, else the moving Blacksmith label; never one label with no fallback. Main's
@@ -2362,9 +2370,9 @@ jobs:
         name: Fetch the Chromium engine
         if: inputs.nightly_next_unsigned_run == '' && !env.LEFT_SLOT
         env:
-          CMUX_CEF_R2_ACCOUNT_ID: &r2a ${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}
-          CMUX_CEF_R2_ACCESS_KEY_ID: &r2k ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
-          CMUX_CEF_R2_SECRET_ACCESS_KEY: &r2s ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
+          CMUX_CEF_R2_ACCOUNT_ID: ${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}
+          CMUX_CEF_R2_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
+          CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
           CMUX_CEF_R2_ENV_FILE: /dev/null
           GH_TOKEN: ${{ secrets.CMUX_CEF_READ_TOKEN }}
         run: bash -e scripts/ci/nightly-steps/app-fetch-chromium-engine.sh
@@ -5198,7 +5206,13 @@ jobs:
           retention-days: 3
           overwrite: true
 
-  # Why: docs/ci/nightly-workflow-notes.md#note-33
+  # No environment and no secrets: verifies the DMG that
+  # recover-nightly-next-notarization continued and stapled with static checks
+  # deferred, and records the tested bytes; publish-nightly publishes a
+  # recovered build only when this job passed, and only those bytes.
+  # It takes the build pick's owned Mac (no signing key), never the recovery's signer pin (sign_owned): glaeda admits only the signing jobs
+  # on a signing mini and refused this one ("untrusted: NEXT nightly needs its exact nightly.yml signing job"),
+  # so every build whose notarization outlasted its 20 minutes was notarized and never published (run 43224144950).
   verify-recovered-nightly-next:
     needs: [decide, recover-nightly-next-notarization, find-nightly-next-recovery, pick-nightly-build-runner]
     if: "!cancelled() && needs.recover-nightly-next-notarization.outputs.accepted == 'true'"
@@ -5801,12 +5815,12 @@ jobs:
           set -euo pipefail
           run_id=
           cef=false source_archive=false
-          [ "${CEF_ON_DEMAND:-}" = 1 ] && cef=true
-          [ "${PUBLISH_SOURCE_ARCHIVE:-}" = 1 ] && source_archive=true
           # Language packs (CMUX-570) are on unless CMUX_NEXT_LANGUAGE_PACKS is 0; a recovered build's
           # packs stay in its own run (language_packs_run), a republished one's come from its receipt.
           language_packs=true language_packs_run=
           [ "${LANGUAGE_PACKS:-}" = 0 ] && language_packs=false
+          [ "${CEF_ON_DEMAND:-}" = 1 ] && cef=true
+          [ "${PUBLISH_SOURCE_ARCHIVE:-}" = 1 ] && source_archive=true
           if [ "$OWN_RESULT" = success ] && [ "$OWN_PENDING" != true ] && [ "$OWN_VERIFIED" = success ] && [ "$OWN_DMG_VERIFIED" = success ] && [ "$OWN_TREE" = ok ]; then
             source=own build="$OWN_BUILD" build_sha="$OWN_BUILD_SHA" tip_sha="$OWN_TIP_SHA"
             behind="$OWN_BEHIND" behind_hours="$OWN_BEHIND_HOURS" pattern="cmux-nightly-variant-*"
@@ -6964,6 +6978,7 @@ jobs:
             scripts/ci/gh_budget_wait.sh
             scripts/ci/publish-nightly-next-r2.py
             scripts/ci/nightly_next_delta_check.py
+            scripts/ci/deadline_http.py
             scripts/ci/upload-r2-object.py
             scripts/ci/gh_app_token.sh
             scripts/ci/nightly_next_dev_ring.sh

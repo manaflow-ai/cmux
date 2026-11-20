@@ -268,6 +268,9 @@ final class FieldTextView: NSTextView {
     /// Spell checking while typing, off the keystroke frame (SpellCheck.swift); the Edit
     /// menu's "Check Spelling While Typing" switches it.
     lazy var spell = DeferredSpellChecker(view: self)
+    /// cmux: each paragraph's writing direction from its text, the TextKit 1 text storage's delegate
+    /// (ComposeParagraphDirection.swift).
+    let paragraphDirection = ComposeParagraphDirection()
     /// Enables the host's opt-in composer spell checking without changing the system-wide setting.
     func setSpellCheckingEnabled(_ enabled: Bool) {
         if DeferredSpellChecker.useAppKit {
@@ -661,6 +664,7 @@ final class ComposeTextView {
         // cmux: TextKit 1, not Catalyst's TextKit 2: TextKit 2 lays out and draws an edited paragraph
         // whole, so a key at the end of a long one cost the whole paragraph (NSTextView+TextKit1Lines.swift).
         view = FieldTextView(usingTextLayoutManager: false)
+        view.textStorage?.delegate = view.paragraphDirection
         view.wantsLayer = true
         clip.wantsLayer = true
         clip.layer?.masksToBounds = true

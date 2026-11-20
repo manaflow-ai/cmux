@@ -111,7 +111,7 @@ SHIPPED_BUILD_SPECS = (".github/workflows", "scripts/build-sign-upload.sh", "Pac
 # The shell scripts plist-missing-file reads (and the workflows, above).
 SHELL_SPECS = (":(glob)scripts/**/*.sh",)
 APP = SOURCES + "CmuxNextApp/"
-UPSTREAM = "origin/feat-cmux-next"
+UPSTREAM = "refs/remotes/origin/feat-cmux-next"  # full name, never a local branch `origin/...` (push_range.UPSTREAM)
 OWNERS = "plans/cmux-next/OWNERS.md"
 BENCHES = "scripts/cmux-next/perf-hot-benches.json"
 SKIP_ENV = "CMUX_GUARDRAILS_SKIP_REASON"

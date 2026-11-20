@@ -259,6 +259,9 @@ final class AgentTabStore {
     var startPermissionMode: @MainActor () -> String? = { nil }
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
     var blankChatHandler: ((AgentTabKey) -> NewTabPageHandler?)?
+    /// Whether agent tab `key` is half of a terminal and chat pair: its chat menu offers Switch to Terminal
+    /// (``TerminalChatHandler/offersToggle(on:services:)``, as the tab's right-click).
+    var offersTerminalSwitch: ((AgentTabKey) -> Bool)?
     /// Each agent session's own avatar (Set Avatar… in the chat's ⋯ menu).
     var agentAvatars: AgentAvatars?
     /// The floating mini's chat: the chat menu's Show in Mini (`agent.mini`, `agent.mini.show`).
@@ -555,7 +558,7 @@ final class AgentTabStore {
         // already as idle work (``reserveWorkspace(on:cwd:)``): a take here was a cold open on an empty pool, marking a launch's pool used.
         if known == nil, local, kind == .local, sessions[tabKey] == nil, record.session == nil, let newTab = newTabPages[tabKey],
            seed?.holdsOnlyFolder ?? true, wakeStates[tabKey] == nil, !relaunchWake.mayHold(tabKey.relaunchKeyCandidates), let spare = takeSpare?(.now) {
-            adoptSpare(spare, key: tabKey, page: newTab.page.listing(newTab.handler.places(tabKey.key)))
+            adoptSpare(spare, key: tabKey, page: newTab.page.listing(newTab.handler.listsAtViewMake(tabKey.key)))
             track(key, in: store, machine: tabKey.machine)
             onPageBuilt?(key)
             return spare
@@ -589,7 +592,7 @@ final class AgentTabStore {
             sessionId: sessions[tabKey] ?? record.session,
             seed: seed,
             // A new chat this app opened on another machine shows the same New Tab page (cx-k21v).
-            newTab: local || record.host.hasPrefix(AgentTabRemoteStart.registryPrefix) ? newTabPages[tabKey].map { $0.page.listing($0.handler.places(tabKey.key)) } : nil,
+            newTab: local || record.host.hasPrefix(AgentTabRemoteStart.registryPrefix) ? newTabPages[tabKey].map { $0.page.listing($0.handler.listsAtViewMake(tabKey.key)) } : nil,
             allowsTabConversion: local
         )
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: tabKey) ?? seed?.revealTurn
@@ -708,9 +711,9 @@ final class AgentTabStore {
             if let self, let view = views[self.resolvedKey(scoped)], view.model.newTab != nil, let host = view.superview { AgentPaneNewTabFrame.shared.capture(view, in: host) }
             return answer
         }
-        model.onAppAction = { [weak self] id in
+        model.onAppAction = { [weak self] id, shown in
             guard let self else { return }
-            newTabPages[resolvedKey(scoped)]?.handler.action(id)
+            newTabPages[resolvedKey(scoped)]?.handler.action(id, shown)
         }
         model.onCheckpointAvailability = { [weak self] _ in self?.publishCheckpointAvailability() }
         model.onGit = { [weak self] request in

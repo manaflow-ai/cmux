@@ -9,7 +9,9 @@ import CmuxNextDesignTokens
 /// consent sheet (``JoinConsentAskPanel``'s pattern): Allow answers only from the person's own click,
 /// read from the click itself by the app's strict check (``PersonInputCheck``), never from the button's
 /// action, so a click or key another process posts, an Accessibility press or DEBUG automation never
-/// turns it on. Not Now and Turn Off take any press: closing and revoking need no proof.
+/// turns it on. Not Now and Turn Off take any press: closing and revoking need no proof. Like the join
+/// consent sheet, it is left out of every capture cmux makes and Computer Use refuses it
+/// (`sharingType = .none`, `CaptureExcludedWindows`).
 @MainActor
 public final class AgentPaneActAsMeCard: CmuxFloatingDialogPanel {
     let grant: AgentPaneActAsMe
@@ -32,6 +34,7 @@ public final class AgentPaneActAsMeCard: CmuxFloatingDialogPanel {
         self.grant = grant
         content = AgentPaneActAsMeCardView(grant: grant)
         super.init(identifier: "cmux.actAsMeCard")
+        sharingType = .none
         content.close = { [weak self] in self?.hide() }
     }
 
