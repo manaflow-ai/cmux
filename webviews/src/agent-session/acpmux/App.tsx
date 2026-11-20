@@ -179,7 +179,7 @@ import {
   type HarnessCatalogSource,
   useMachineHarnesses,
 } from "./catalog";
-import { usePickerCatalog, loadModelCatalog } from "./modelCatalogHost";
+import { usePickerCatalog, reloadModelCatalog } from "./modelCatalogHost";
 import { isDefaultChoice } from "./defaultChoice";
 import { applySwitch, browserSwitchClock, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
 import { liveAsk } from "./liveAsk";
@@ -8849,7 +8849,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         setCatalogSource({ id: catalogClientId.current, client });
         // A refreshed harness list or live model list re-reads the catalog (no polling).
         followHarnessChanges(client, queryClient, catalogClientId.current, () => {
-          void loadModelCatalog().catch(() => undefined);
+          if (cancelled || directClient.current !== client) return;
+          void reloadModelCatalog().catch(() => undefined);
         });
         connectedAt = Date.now();
         // A mock session is not one the host can reopen.
@@ -10046,7 +10047,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         };
         // The first catalog request can race the connection: useModelCatalogState subscribes before
         // this action table exists, so retry once the direct client can serve catalog.get.
-        void loadModelCatalog().catch(() => undefined);
+        void reloadModelCatalog().catch(() => undefined);
         // An adoption that came while this page was still connecting runs on this client.
         runPendingAdoption.current();
         // The host may now hand this page (a prewarmed New Tab page) to a tab opening an existing

@@ -5685,7 +5685,7 @@ export class AcpmuxDirectClient {
       this.onHarnessesChanged?.();
       startModeChanged();
     } else if (notification.method === "catalog.changed") {
-      this.onCatalogChanged?.();
+      if (!stale && !this.closed) this.onCatalogChanged?.();
     } else if (notification.method === "_acpmux/process_update")
       for (const listener of this.processListeners) listener(notification.params?.process);
     // A new chat's start mode may have changed (a config reload, the

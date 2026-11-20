@@ -10,8 +10,9 @@ import {
   loadModelCatalog,
   modelCatalogStateForTests,
   resetModelCatalogForTests,
+  reloadModelCatalog,
 } from "../src/agent-session/acpmux/modelCatalogHost";
-import { BUNDLED_MODEL_CATALOG } from "../src/agent-session/acpmux/modelCatalogData";
+import { BUNDLED_MODEL_CATALOG, buildPickerCatalog } from "../src/agent-session/acpmux/modelCatalogData";
 
 const scope = globalThis as { window?: unknown };
 /** A stand-in window: the page's i18n follows the window's language events. */
@@ -19,6 +20,110 @@ const fakeWindow = (extra: Record<string, unknown> = {}) => ({
   addEventListener() {},
   removeEventListener() {},
   ...extra,
+});
+
+test("catalog events during an older read coalesce into one fresh read", async () => {
+  setNativeHost(unserved);
+  let finish!: (value: unknown) => void;
+  let started!: () => void;
+  const reading = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  let reads = 0;
+  scope.window = fakeWindow({
+    cmuxAcpmuxActions: {
+      "models.catalog": () => {
+        reads += 1;
+        if (reads > 1) return Promise.resolve({ catalog: acpmuxCatalog() });
+        started();
+        return new Promise((resolve) => {
+          finish = resolve;
+        });
+      },
+    },
+  });
+  const first = loadModelCatalog();
+  await reading;
+  const next = reloadModelCatalog();
+  expect(reloadModelCatalog()).toBe(next);
+  finish({ catalog: BUNDLED_MODEL_CATALOG });
+  await Promise.all([first, next]);
+  expect(reads).toBe(2);
+  expect(geminiIds()).toContain("gemini-9-test");
+});
+
+test("reconnecting recovers after a previous client's refusal", async () => {
+  setNativeHost(unserved);
+  let fail!: (reason: unknown) => void;
+  let started!: () => void;
+  const reading = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  scope.window = fakeWindow({
+    cmuxAcpmuxActions: {
+      "models.catalog": () => {
+        started();
+        return new Promise((_, reject) => {
+          fail = reject;
+        });
+      },
+    },
+  });
+  const first = loadModelCatalog().catch(() => undefined);
+  await reading;
+  scope.window = fakeWindow({ cmuxAcpmuxActions: { "models.catalog": async () => ({ catalog: acpmuxCatalog() }) } });
+  const next = reloadModelCatalog();
+  fail(new Error("disconnected"));
+  await Promise.all([first, next]);
+  expect(geminiIds()).toContain("gemini-9-test");
+});
+
+test("an obsolete client's reply cannot replace the current catalog", async () => {
+  setNativeHost(unserved);
+  let finish!: (value: unknown) => void;
+  let started!: () => void;
+  const reading = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  scope.window = fakeWindow({
+    cmuxAcpmuxActions: {
+      "models.catalog": () => {
+        started();
+        return new Promise((resolve) => {
+          finish = resolve;
+        });
+      },
+    },
+  });
+  const first = loadModelCatalog();
+  await reading;
+  scope.window = fakeWindow();
+  finish({ catalog: acpmuxCatalog() });
+  await first;
+  expect(modelCatalogStateForTests().catalog).toBe(BUNDLED_MODEL_CATALOG);
+});
+
+test("runtime Codex releases reach an old CLI's picker without a bundled entry", async () => {
+  const served = structuredClone(BUNDLED_MODEL_CATALOG);
+  served.harnesses
+    .find((harness) => harness.id === "codex")!
+    .models.unshift({
+      id: "gpt-9-test",
+      name: "GPT-9 Test",
+      shortName: "GPT-9 Test",
+      fast: true,
+    });
+  setNativeHost(unserved);
+  scope.window = fakeWindow({ cmuxAcpmuxActions: { "models.catalog": async () => ({ catalog: served }) } });
+  await reloadModelCatalog();
+  const picker = buildPickerCatalog({
+    catalog: modelCatalogStateForTests().catalog,
+    acpmux: [{ id: "codex", name: "Codex", models: [{ id: "gpt-6-sol", name: "GPT-6 Sol" }] }],
+  });
+  const ids = picker.harnesses.find((harness) => harness.id === "codex")!.models.map((model) => model.id);
+  expect(ids).toContain("gpt-9-test");
+  expect(ids).toContain("gpt-6.2-astra");
+  expect(ids).toContain("gpt-6.2-sol");
 });
 const before = scope.window;
 const unserved = async () => {
