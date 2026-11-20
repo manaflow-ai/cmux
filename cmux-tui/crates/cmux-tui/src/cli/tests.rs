@@ -1330,14 +1330,32 @@ fn root_help_lists_every_scope_and_help_word_reaches_own_help_scopes() {
     );
     assert_eq!(
         agent_acp_scope_args(&strings(&["agent", "bg", "start", "lane"])),
-        Some(os(&["process", "background", "lane"]))
+        Some(os(&["bg", "start", "lane"]))
     );
+    assert_eq!(agent_acp_scope_args(&strings(&["agent", "bg", "list"])), Some(os(&["bg", "list"])));
+    assert_eq!(agent_acp_scope_args(&strings(&["agent", "notices"])), Some(os(&["notices"])));
     assert_eq!(
-        agent_acp_scope_args(&strings(&["agent", "bg", "list"])),
-        Some(os(&["process", "list"]))
+        agent_acp_scope_args(&strings(&["agent", "--json", "ls"])),
+        Some(os(&["--json", "ls"]))
     );
-    assert_eq!(agent_acp_scope_args(&strings(&["agent", "notices"])), Some(os(&["pending"])));
+    assert_eq!(agent_acp_scope_args(&strings(&["agent", "open", "lane"])), None);
+    assert_eq!(agent_acp_scope_args(&strings(&["agent", "open-tab", "lane"])), None);
+    assert_eq!(
+        agent_acp_scope_args(&strings(&["agent", "wait", "lane"])),
+        Some(os(&["wait", "lane"]))
+    );
     assert_eq!(agent_acp_scope_args(&strings(&["agent", "list"])), None);
+    for verb in ["grep", "list-sessions", "prompt", "session", "pending"] {
+        assert_eq!(
+            agent_acp_scope_args(&strings(&["agent", verb, "--help"])),
+            Some(os(&[verb, "--help"])),
+            "{verb}"
+        );
+    }
+    let (global, command) = parse_globals(&strings(&["agent", "--json", "open", "lane"])).unwrap();
+    assert!(matches!(global.output, OutputMode::Json));
+    assert_eq!(command, strings(&["agent", "open", "lane"]));
+    assert!(app::parse(&command).unwrap().is_some());
 }
 
 #[test]
@@ -1492,6 +1510,7 @@ fn a_leading_json_lands_where_each_first_word_scope_reads_it() {
         strings(&["harness", "run", "aider", "--tab", "--json"])
     );
     assert_eq!(hoisted(&["--json", "chats", "list"]), strings(&["chats", "--json", "list"]));
+    assert_eq!(hoisted(&["--json", "agent", "ls"]), strings(&["agent", "--json", "ls"]));
     // `acp gh`'s trailing words are gh's: `--json` stays acpmux's.
     assert_eq!(
         hoisted(&["--json", "acp", "gh", "pr", "list"]),

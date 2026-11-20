@@ -4,7 +4,9 @@
 //! `orchestrate` holds the commands other agents and scripts call; `handoff`
 //! is `continue`; `errors` maps every failure to one exit code and envelope.
 
+pub mod app_open;
 pub mod beads;
+pub mod bg;
 pub(crate) use crate::bounded_child;
 pub mod bridge;
 pub mod chats;
@@ -53,6 +55,7 @@ pub(crate) use crate::machine_consent;
 pub mod machine_deps;
 pub mod mesh_control;
 pub use crate::mesh_node_key;
+pub mod notices;
 pub mod orchestrate;
 pub mod output;
 pub mod pairing;

@@ -160,6 +160,22 @@ fn a_key_names_a_session_id_or_a_name_on_its_host() {
         serde_json::from_str::<Value>(&body(method::MUX_INFO, &json!({"x": 1}))).unwrap()["params"],
         json!({})
     );
+    let search: Value = serde_json::from_str(&body(
+        method::MUX_SESSION_SEARCH,
+        &json!({
+            "sessionId": "x",
+            "host": "y",
+            "query": "ship the build",
+            "role": "assistant",
+            "sinceMs": 123,
+            "limit": 4,
+        }),
+    ))
+    .unwrap();
+    assert_eq!(
+        search["params"],
+        json!({"query": "ship the build", "role": "assistant", "sinceMs": 123, "limit": 4})
+    );
 }
 
 #[tokio::test]
@@ -392,12 +408,16 @@ async fn history_reads_through_the_hub_and_other_session_reads_never_answer_no_s
         (Some("machine-b"), Some("hub"))
     );
 
-    for m in [
+    let found = call(
+        &a,
         method::MUX_SESSION_SEARCH,
-        method::MUX_QUEUE_TEXT,
-        method::MUX_ATTACHMENT,
-        method::MUX_WAIT,
-    ] {
+        json!({"sessionId": "machine-b/own-e2e", "query": "turn on b", "role": "user"}),
+    )
+    .await;
+    assert_eq!(found["hits"][0]["snippet"], "turn on b");
+    assert_eq!(found["peer"], "machine-b");
+
+    for m in [method::MUX_QUEUE_TEXT, method::MUX_ATTACHMENT, method::MUX_WAIT] {
         let refused = call_error(&a, m, json!({"sessionId": "machine-b/own-e2e"})).await;
         assert_eq!(
             refused.pointer("/data/reason"),

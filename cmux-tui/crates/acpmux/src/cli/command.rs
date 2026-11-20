@@ -20,8 +20,87 @@ pub struct Cli {
     pub command: Option<Command>,
 }
 
+/// Whether the engine accepts this root command name or alias.
+pub fn owns_word(word: &str) -> bool {
+    use clap::CommandFactory as _;
+    Cli::command().find_subcommand(word).is_some() || matches!(word, "stop" | "--skill" | "--guide")
+}
+
+#[cfg(test)]
+mod agent_front_door_tests {
+    use super::{Cli, Command, owns_word};
+    use clap::Parser;
+
+    #[test]
+    fn engine_root_aliases_share_the_command_grammar() {
+        for word in ["ls", "list-sessions", "grep", "prompt", "session", "pending", "bg", "notices"]
+        {
+            assert!(owns_word(word), "missing engine word {word}");
+        }
+        assert!(!owns_word("not-a-command"));
+    }
+
+    #[test]
+    fn app_open_aliases_preserve_app_options_and_help() {
+        for verb in ["open", "open-tab"] {
+            let cli = Cli::try_parse_from(["acpmux", verb, "lane", "--help"]).unwrap();
+            match cli.command.unwrap() {
+                Command::Open { args } | Command::OpenTab { args } => {
+                    assert_eq!(args, ["lane", "--help"]);
+                }
+                _ => panic!("{verb} did not use the app alias"),
+            }
+        }
+    }
+
+    #[test]
+    fn background_and_notice_cli_accept_the_documented_flags() {
+        for argv in [
+            vec![
+                "acpmux",
+                "bg",
+                "start",
+                "echo ready",
+                "--cwd",
+                "/tmp",
+                "--description",
+                "check",
+                "--session",
+                "lane",
+                "--no-notify",
+            ],
+            vec!["acpmux", "bg", "list", "--session", "lane", "--all"],
+            vec!["acpmux", "bg", "ls"],
+            vec!["acpmux", "notices", "lane", "-n", "5"],
+            vec!["acpmux", "--json", "notices"],
+        ] {
+            assert!(Cli::try_parse_from(&argv).is_ok(), "{argv:?} did not parse");
+        }
+        for limit in ["0", "201"] {
+            assert!(Cli::try_parse_from(["acpmux", "notices", "--limit", limit]).is_err());
+        }
+    }
+}
+
 #[derive(Subcommand)]
 pub enum Command {
+    /// Open a session in a cmux app workspace, using `cmux agent open`.
+    #[command(disable_help_flag = true)]
+    Open {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Open a session as a cmux app tab, using `cmux agent open-tab`.
+    #[command(disable_help_flag = true)]
+    OpenTab {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Run and list shell tasks that keep running while this chat hibernates.
+    #[command(subcommand)]
+    Bg(crate::cli::bg::BgCommand),
+    /// Read this session's tool, inbox and host notices, newest first.
+    Notices(crate::cli::notices::NoticesArgs),
     /// Run a task on several models in separate worktrees and compare the reviewer's winner.
     #[command(subcommand)]
     Race(crate::cli::race::RaceCmd),

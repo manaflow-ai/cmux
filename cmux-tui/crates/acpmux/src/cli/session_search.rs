@@ -16,6 +16,12 @@ use std::sync::Arc;
 pub struct SearchArgs {
     /// The session: name, id, or host/name for a peer's.
     pub session: String,
+    #[command(flatten)]
+    pub query: HistoryQuery,
+}
+
+#[derive(Args)]
+pub struct HistoryQuery {
     /// The words to find, in any case and order, within one message.
     #[arg(required = true)]
     pub text: Vec<String>,
@@ -30,21 +36,27 @@ pub struct SearchArgs {
     pub limit: usize,
 }
 
+impl HistoryQuery {
+    pub(super) fn params(&self) -> Result<Value> {
+        let since_ms = self
+            .since
+            .as_deref()
+            .map(crate::cli::run::ls::parse_duration_ms)
+            .transpose()?
+            .map(|ago| crate::store::now_ms().saturating_sub(ago));
+        Ok(json!({
+            "query": self.text.join(" "),
+            "role": self.role,
+            "sinceMs": since_ms,
+            "limit": self.limit,
+        }))
+    }
+}
+
 pub async fn run(client: Arc<Client>, args: SearchArgs, json_out: bool) -> Result<()> {
     let id = resolve_id(&client, &expand_session_key(&args.session)?).await?;
-    let since_ms = args
-        .since
-        .as_deref()
-        .map(crate::cli::run::ls::parse_duration_ms)
-        .transpose()?
-        .map(|ago| crate::store::now_ms().saturating_sub(ago));
-    let params = json!({
-        "sessionId": id,
-        "query": args.text.join(" "),
-        "role": args.role,
-        "sinceMs": since_ms,
-        "limit": args.limit,
-    });
+    let mut params = args.query.params()?;
+    params["sessionId"] = json!(id);
     let v = client.request(method::MUX_SESSION_SEARCH, params).await?;
     if json_out {
         print_json(&v);
