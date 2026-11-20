@@ -679,7 +679,7 @@
   text-align: start;
 }
 button.acpmux-attachment-pasted-open:hover {
-  background: var(--ds-color-hover);
+  background: var(--ds-surface-hover);
 }
 .acpmux-attachment-pasted-open:focus-visible {
   outline: 1.5px solid var(--agent-text);
@@ -1006,7 +1006,7 @@ button.acpmux-attachment-pasted-open:hover {
   white-space: nowrap;
 }
 .acpmux-chip-collapse:hover {
-  background: var(--ds-color-hover);
+  background: var(--ds-surface-hover);
   color: var(--agent-text);
 }
 .acpmux-chip-collapse:focus-visible {
