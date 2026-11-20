@@ -464,7 +464,7 @@ fn run_channel(global: &GlobalArgs, dry_run: bool, named: Option<&Path>) -> i32 
         }
     });
     match result {
-        Ok(false) if !dry_run => {
+        Ok(ChannelApply::SkippedOlder) => {
             let value = json!({
                 "path": "channel", "channel": payload.channel, "commit": payload.commit,
                 "committed_at": payload.committed_at, "applied": false, "reason": "older-or-equal",
@@ -479,9 +479,15 @@ fn run_channel(global: &GlobalArgs, dry_run: bool, named: Option<&Path>) -> i32 
                 super::super::wire::print_local_success(&value, global.output)
             }
         }
-        Ok(_) => 0,
+        Ok(ChannelApply::Applied { .. }) => 0,
         Err(error) => failure("try.channel_state", &error, global.output),
     }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ChannelApply {
+    SkippedOlder,
+    Applied { changed: bool },
 }
 
 /// Applies a signed channel pointer through an injected live-update operation.
@@ -492,7 +498,7 @@ fn apply_channel<F>(
     payload: &live::ChannelPayload,
     dry_run: bool,
     apply: F,
-) -> Result<bool, String>
+) -> Result<ChannelApply, String>
 where
     F: FnOnce(&str) -> Result<bool, String>,
 {
@@ -504,13 +510,13 @@ where
     }
     let _lock = store.lock()?;
     if !live::channel_is_newer(store.channel_last()?, payload.committed_at) {
-        return Ok(false);
+        return Ok(ChannelApply::SkippedOlder);
     }
     let changed = apply(&app_commit)?;
-    if changed && !dry_run {
+    if !dry_run {
         store.record_channel(payload.committed_at, &payload.commit)?;
     }
-    Ok(changed)
+    Ok(ChannelApply::Applied { changed })
 }
 
 /// Test-only injection point for the command's channel/apply boundary.  The
@@ -529,7 +535,7 @@ fn run_channel_once_for_test(
     now: u64,
 ) -> Result<bool, String> {
     let channel = live::verify_channel(channel_body, keys, now)?;
-    apply_channel(app, store, &channel, false, |app_commit| {
+    match apply_channel(app, store, &channel, false, |app_commit| {
         let payload = live::verify(live_body, keys, &channel.commit)?;
         let plan = choose(&channel.commit, Some(app_commit), &Live::Found(payload), None, base);
         let Plan::Live { files } = plan else {
@@ -537,7 +543,10 @@ fn run_channel_once_for_test(
         };
         let applied = try_live(app, &files, store, daemon, &mut Phases::default())?;
         Ok(applied.changed)
-    })
+    })? {
+        ChannelApply::SkippedOlder => Ok(false),
+        ChannelApply::Applied { changed } => Ok(changed),
+    }
 }
 
 fn run_try(

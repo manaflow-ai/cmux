@@ -263,10 +263,46 @@ fn nightly_live_channel_command_fixture_applies_readback_and_refuses_older_or_ba
     );
     assert_eq!(daemon.terminated.get(), 1);
 
+    // A newer pointer whose files are already current still advances the
+    // watermark, so a later older pointer cannot move it back.
+    let mut current = payload(live::PURPOSE, COMMIT, good_targets());
+    current["committed_at"] = json!(1_200);
+    assert!(
+        !run_channel_once_for_test(
+            &fixture.app,
+            &fixture.store,
+            &envelope(&current),
+            &live_body,
+            &fixture.base,
+            &keys(),
+            &daemon,
+            1_200,
+        )
+        .unwrap()
+    );
+    assert_eq!(fixture.store.channel_last().unwrap(), Some(1_200));
+    let mut older = payload(live::PURPOSE, COMMIT, good_targets());
+    older["committed_at"] = json!(1_100);
+    assert!(
+        !run_channel_once_for_test(
+            &fixture.app,
+            &fixture.store,
+            &envelope(&older),
+            &live_body,
+            &fixture.base,
+            &keys(),
+            &daemon,
+            1_200,
+        )
+        .unwrap()
+    );
+    assert_eq!(fixture.store.channel_last().unwrap(), Some(1_200));
+    assert_eq!(daemon.terminated.get(), 1);
+
     // A newer pointer whose per-commit bytes fail verification leaves the
     // already-applied files and channel receipt intact.
     let mut newer = payload(live::PURPOSE, COMMIT, good_targets());
-    newer["committed_at"] = json!(1_200);
+    newer["committed_at"] = json!(1_300);
     let mut bad_targets = good_targets();
     bad_targets["cmux-tui-app-host"]["sha256"] = json!(sha(b"wrong"));
     let bad_live = envelope(&payload(live::PURPOSE, COMMIT, bad_targets));
@@ -283,7 +319,7 @@ fn nightly_live_channel_command_fixture_applies_readback_and_refuses_older_or_ba
     .unwrap_err();
     assert!(error.contains("live payload") || error.contains("sha256"), "{error}");
     assert_eq!(read(&fixture.app, "cmux").as_deref(), Some(NEW_CMUX));
-    assert_eq!(fixture.store.channel_last().unwrap(), Some(1_000));
+    assert_eq!(fixture.store.channel_last().unwrap(), Some(1_200));
 }
 
 fn copy_of(tree: &str, from: Option<&str>, action: CopyAction, dry_run: bool) -> Command {
