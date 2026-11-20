@@ -57,6 +57,11 @@ if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in
 if "--suite=memory-agents" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "memory-agents-cron.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=memory-agents"])
+# `--suite=chat-size`: one chat at 1 MB to 4 GB, five axes, each over the 1 MB chat's (scripts/cmux-next/chat-size-ratio.py;
+# the perf cron's chat-size part).
+if "--suite=chat-size" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chat-size-ratio.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=chat-size"])
 # `--suite=renderer-rest`: each Chromium renderer's footprint, pages and V8 heap every 5 s while the empty app rests,
 # then after a GC and a memory-pressure purge (scripts/cmux-next/renderer-rest.py, CMUX-571 ram-baseline).
 if "--suite=renderer-rest" in sys.argv:
