@@ -87,17 +87,23 @@ struct TabBarPlusShapeTests {
         }
     }
 
-    /// Every look of the + rounds as a tab, the lone + (a sidebar's, a tab bar without its ⌄) as the split segment.
+    /// Every look of a tab bar's + rounds as a tab, the lone + (a tab bar without its ⌄) as the split segment. A +
+    /// outside a tab bar (the sidebar's, Home's) keeps the proportional corner, never a circle at a large density.
     @Test(arguments: DensityPreset.allCases)
-    func everyPlusLookRoundsAsATab(_ preset: DensityPreset) {
+    func everyTabBarPlusLookRoundsAsATab(_ preset: DensityPreset) {
         at(preset) {
             let side = TitlebarBandButton.side
             let bounds = CGRect(x: 0, y: 0, width: side, height: side)
             for segment in [PlusButtonLook.Segment.alone, .leading] {
-                let geometry = PlusButtonLook.geometry(in: bounds, segment: segment, hoverStyle: .plate, showsChevron: false, scale: 2)
+                let geometry = PlusButtonLook.geometry(in: bounds, segment: segment, hoverStyle: .plate, showsChevron: false,
+                                                       roundsAsTabBarControl: true, scale: 2)
                 #expect(geometry.cornerRadius == min(Metrics.tabCornerRadius, side / 2), "\(preset) \(segment): \(geometry.cornerRadius)")
                 #expect(geometry.fill.size == bounds.size, "\(preset) \(segment): the fill is the button's square")
             }
+            let small = CGRect(x: 0, y: 0, width: 20, height: 20)
+            let other = PlusButtonLook.geometry(in: small, segment: .alone, hoverStyle: .plate, showsChevron: false, scale: 2)
+            #expect(other.cornerRadius == Metrics.buttonCornerRadius(proportionalTo: 20), "\(preset): a sidebar + keeps its corner")
+            #expect(other.cornerRadius < 10, "\(preset): a sidebar + is never a circle")
         }
     }
 }
