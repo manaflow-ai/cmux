@@ -23,7 +23,7 @@ declare global {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
     /** Renames the `index`th listing and has the page read the catalog again. */
-    benchChangeOne(index: number): Promise<void>;
+    benchChangeListing(index: number): Promise<void>;
   }
 }
 
@@ -74,7 +74,7 @@ createRoot(root).render(
 );
 const catalogCards = () => document.querySelectorAll(".apps-catalog-section:last-of-type :is(.apps-card, .apps-row)");
 window.benchRowRenders = mountedRowRenders(catalogCards);
-window.benchChangeOne = async (index) => {
+window.benchChangeListing = async (index) => {
   listings[index] = { ...listings[index]!, name: `Changed ${Date.now()}` };
   await store.reload();
 };

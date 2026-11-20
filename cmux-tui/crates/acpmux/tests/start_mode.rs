@@ -1313,6 +1313,37 @@ async fn a_policy_holds_on_an_asks_before_tools_claim_only_from_an_unchanged_con
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The Cloud carrier drill's no-model agent (cmuxterm-hq run 43973035740): a config harness that
+/// runs `cli-agent` on a program that only prints. Every remote start asks for `ask`, which a plain
+/// `cli-agent` cannot keep (`policy_unenforceable`, the machine's bare `agent_session.refused`);
+/// with `--prints-only` it says it asks before every tool call (it makes none), acpmux believes
+/// it from its own config entry, and the chat starts and answers.
+#[tokio::test]
+async fn a_prints_only_cli_agent_starts_under_ask() {
+    let agent = |extra: &[&str]| {
+        let mut argv = vec![daemon_env::bin().to_string_lossy().into_owned(), "cli-agent".into()];
+        argv.extend(extra.iter().map(|s| s.to_string()));
+        argv.extend(["--", "/bin/echo", "drill"].map(str::to_owned));
+        json!({"argv": argv})
+    };
+    let dir = home(
+        "prints-only",
+        json!({"harnesses": {"drill": agent(&[]), "drill-prints": agent(&["--prints-only"])}}),
+    );
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let r = app.new_chat_with_policy(&dir, "drill", "ask").await;
+    assert_eq!(r["error"]["data"]["reason"], "policy_unenforceable", "{r}");
+    // No `chat_with_policy`: a `cli-agent` offers no modes to read.
+    let r = app.new_chat_with_policy(&dir, "drill-prints", "ask").await;
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(r["result"]["_meta"]["acpmux"]["policy"], "ask", "{r}");
+    let claims = app.records(&id, "asks_before_tools_claim").await;
+    assert_eq!(claims.len(), 1, "{claims:?}");
+    assert_eq!(claims[0]["msg"]["trusted"], true, "{claims:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The median, the 95th percentile and the largest of `ms`, sorted in place.
 fn spread(ms: &mut [f64]) -> (f64, f64, f64) {
     ms.sort_by(f64::total_cmp);
@@ -1608,5 +1639,155 @@ async fn a_web_switch_of_a_mac_chat_starts_asking_and_its_send_runs() {
         )
         .await;
     assert!(r.get("error").is_none(), "the Web switch's first send runs: {r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `_acpmux/harnesses` tells every client, the Web included (the phone's New Task), the modes
+/// and options a new chat on each agent has, as its newest chat reported them: names and
+/// choices, never a chat's current values. Before any chat, Claude Code's own modes.
+#[tokio::test]
+async fn harnesses_report_each_agents_modes_and_options_for_a_new_chat() {
+    let dir = home("reported", json!({}));
+    let path = dir.join("config.json");
+    let mut config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    // The stand-in agent's chats report modes Normal and Strict and a Model option on m1.
+    config["harnesses"]["picker"] = json!({"argv": ["python3", FAKE_AGENT]});
+    std::fs::write(&path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+
+    let rows = |r: &Value| r["result"]["harnesses"].clone();
+    let before = rows(&app.call("_acpmux/harnesses", json!({})).await);
+    let claude = &before["claude"]["reported"]["modes"];
+    assert_eq!(claude[1]["id"], "default", "{before}");
+    assert_eq!(claude[1]["name"], "Manual", "{before}");
+    assert!(claude[1]["description"].is_string(), "{before}");
+    assert!(before["picker"].get("reported").is_none(), "no chat yet: {before}");
+
+    let (_, _) = app.chat(&dir, "picker").await;
+    for mut client in
+        [Client::app(&daemon).await, Client::new(&daemon, Origin::Web, ConnAuth::ListenerToken)]
+    {
+        let r = client.call("_acpmux/harnesses", json!({})).await;
+        assert!(r.get("error").is_none(), "{r}");
+        let reported = &rows(&r)["picker"]["reported"];
+        let ids: Vec<&str> =
+            reported["modes"].as_array().unwrap().iter().filter_map(|m| m["id"].as_str()).collect();
+        assert_eq!(ids, ["normal", "strict"], "{reported}");
+        assert_eq!(reported["modes"][1]["name"], "Strict", "{reported}");
+        let model = reported["configOptions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|o| o["id"] == "model")
+            .unwrap_or_else(|| panic!("{reported}"));
+        assert_eq!(model["options"].as_array().map(Vec::len), Some(2), "{reported}");
+        assert!(model.get("currentValue").is_none(), "a chat's value stays with it: {reported}");
+        // A phone may set the model (a free option); it is told so.
+        assert_eq!(model["remoteSettable"], true, "{reported}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Before any chat of an agent runs here, `_acpmux/harnesses` `reported` is what the agent's
+/// startup model probe answered `session/new` with (Lawrence 2026-11-19, a first New Tab on Pi:
+/// "pi should not have a "mode""): the pane learns Pi reports options and no permission modes
+/// before its first chat, instead of holding a Mode chip for it.
+#[tokio::test]
+async fn harnesses_report_the_startup_probes_choices_before_any_chat() {
+    let dir = home("probed", json!({}));
+    let path = dir.join("config.json");
+    let mut config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    config["harnesses"]["picker"] = json!({"argv": ["python3", FAKE_AGENT]});
+    std::fs::write(&path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let daemon = hub(&dir);
+    daemon.set_probe_only(Some(["picker".to_owned()].into_iter().collect()));
+    daemon.refresh_models().await;
+    let mut app = Client::app(&daemon).await;
+    let r = app.call("_acpmux/harnesses", json!({})).await;
+    let reported = &r["result"]["harnesses"]["picker"]["reported"];
+    let ids: Vec<&str> = reported["modes"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{r}"))
+        .iter()
+        .filter_map(|m| m["id"].as_str())
+        .collect();
+    assert_eq!(ids, ["normal", "strict"], "the probe's answer, with no chat yet: {reported}");
+    let model = reported["configOptions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["id"] == "model")
+        .unwrap_or_else(|| panic!("{reported}"));
+    assert!(model.get("currentValue").is_none(), "definitions only: {reported}");
+    assert!(
+        app.call("session/list", json!({})).await["result"]["sessions"]
+            .as_array()
+            .is_none_or(|s| s.iter().all(|s| s["harness"] != "picker")),
+        "the probe left no chat behind"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Pi has no permission mode (Lawrence 2026-11-19: "pi should not have a "mode""). pi-acp 0.0.33
+/// answers `session/new` with its thinking levels twice: its `thought_level` config option, and
+/// again as ACP `modes` ("Thinking: off" … "Thinking: xhigh") for clients older than config
+/// options. acpmux keeps no modes for it, so every client (the Mac's panes, the phone's chat and
+/// New Task, acpmux's own start mode) sees none: not in the new chat's answer, not in its info, not
+/// in the harness list's `reported` (from its startup probe or from a chat), and its thinking
+/// levels stay as the option they are.
+#[tokio::test]
+async fn pi_keeps_no_modes_that_only_copy_its_thinking_option() {
+    let dir = home("pi-modes", json!({}));
+    let path = dir.join("config.json");
+    let mut config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    config["harnesses"]["pi"] =
+        json!({"argv": ["python3", FAKE_AGENT], "family": "pi", "env": {"FAKE_PI_MODES": "1"}});
+    std::fs::write(&path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let reported_modes = |r: &Value| -> Vec<String> {
+        r["result"]["harnesses"]["pi"]["reported"]["modes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|m| m["id"].as_str().map(str::to_owned))
+            .collect()
+    };
+    let option_ids = |options: &Value| -> Vec<String> {
+        options
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|o| o["id"].as_str().map(str::to_owned))
+            .collect()
+    };
+
+    // Its startup probe's answer, before any chat of it.
+    daemon.set_probe_only(Some(["pi".to_owned()].into_iter().collect()));
+    daemon.refresh_models().await;
+    let r = app.call("_acpmux/harnesses", json!({})).await;
+    assert_eq!(reported_modes(&r), Vec::<String>::new(), "probed: {r}");
+    assert!(
+        option_ids(&r["result"]["harnesses"]["pi"]["reported"]["configOptions"])
+            .contains(&"thought_level".to_owned()),
+        "probed, its thinking option stays: {r}"
+    );
+
+    // A chat of it.
+    let r = app.new_chat(&dir, "pi").await;
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert!(r["result"]["modes"].is_null(), "session/new: {r}");
+    assert_eq!(option_ids(&r["result"]["configOptions"]), ["model", "thought_level"], "{r}");
+    let info = app.call("_acpmux/info", json!({"sessionId": id})).await;
+    assert!(info["result"]["modes"].is_null(), "_acpmux/info (the phone's chat): {info}");
+    let load = app
+        .call("session/load", json!({"sessionId": id, "cwd": dir.join("work"), "mcpServers": []}))
+        .await;
+    assert!(load["result"]["modes"].is_null(), "session/load: {load}");
+    let r = app.call("_acpmux/harnesses", json!({})).await;
+    assert_eq!(reported_modes(&r), Vec::<String>::new(), "from its chat: {r}");
+    let start = start_mode(&mut app, &dir, "pi").await;
+    assert!(start["modeId"].is_null(), "no start mode: {start}");
     let _ = std::fs::remove_dir_all(&dir);
 }

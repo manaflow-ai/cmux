@@ -28,6 +28,7 @@ import {
   type UpstreamClientService,
 } from "./client.ts";
 import { execResultStream } from "./exec-stream.ts";
+import { timedUpstream } from "./timing.ts";
 
 const DirListing = Schema.Struct({
   entries: Schema.Array(Schema.Struct({ name: Schema.String, kind: Schema.String })),
@@ -141,6 +142,7 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
       },
       catch: () => new UpstreamError({ operation, status: null }),
     }).pipe(
+      timedUpstream,
       Effect.flatMap((result) =>
         result.ok ? Effect.succeed(result.response) : Effect.fail(new UpstreamError({ operation, status: result.status })),
       ),

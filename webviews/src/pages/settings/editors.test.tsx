@@ -11,7 +11,7 @@ afterAll(() => restore());
 const { changeValue, click, fire, ops, renderPage, resetRow, rowElement, run, settle } = await import("./testing");
 const { isDuration } = await import("./editors/DurationEditor");
 const { ROW_LEVELS } = await import("./rowLevelsData");
-const { PERSONALIZATION_KEYS } = await import("./components/PersonalizationCard");
+const { PERSONALIZATION_KEYS } = await import("./personalizationParts");
 const { DENSITY_CARD_ROWS } = await import("./density");
 
 let page: Rendered | null = null;
@@ -123,6 +123,14 @@ describe("editors", () => {
             failures.push(`${row.key}: no machine color well`);
           continue;
         }
+        // The Computer Use card draws its mode as a radio per mode and its denied apps as a list
+        // with an add field (ComputerUseCard), not the generic choice and token editors.
+        if (row.key === "computerUse.mode" || row.key === "computerUse.deniedApps") {
+          const control = row.key === "computerUse.mode" ? '[data-mode] input[type="radio"]' : "[data-denied-input]";
+          if (!page.container.querySelector(`[data-card="computer-use"] [data-row-key="${row.key}"] ${control}`))
+            failures.push(`${row.key}: not drawn by the Computer Use card`);
+          continue;
+        }
         // The density card draws appearance.density and the custom density keys (SectionView).
         if (DENSITY_ROWS.has(row.key)) {
           if (!page.container.querySelector('[data-card="density"]')) failures.push(`${row.key}: no density card`);
@@ -147,7 +155,7 @@ describe("editors", () => {
 
   test("the window material is a material choice, never a radius slider", async () => {
     // Personalization is the one page that draws the background rows.
-    page = await renderPage({ path: "/settings/personalization" });
+    page = await renderPage({ path: "/settings/personalization?part=background" });
     const material = rowElement(page.container, "appearance.backgroundBlur");
     expect(material.querySelector('input[type="range"]')).toBeNull();
     const values = [...material.querySelectorAll("option")].map((option) => option.getAttribute("value"));
@@ -160,7 +168,7 @@ describe("editors", () => {
 
   test("opacity is a percent slider: preview while dragging, one settings.set on release", async () => {
     // Personalization is the one page that draws the background rows.
-    page = await renderPage({ path: "/settings/personalization" });
+    page = await renderPage({ path: "/settings/personalization?part=background" });
     const row = rowElement(page.container, "appearance.backgroundOpacity");
     expect(row.querySelector(".unit")?.textContent).toBe("%");
     const slider = row.querySelector<HTMLInputElement>('input[type="range"]')!;
@@ -203,7 +211,7 @@ describe("editors", () => {
 
   test("an unset slider sits at the value the host derives (the theme's opacity), live", async () => {
     // Personalization is the one page that draws the background rows.
-    page = await renderPage({ path: "/settings/personalization" });
+    page = await renderPage({ path: "/settings/personalization?part=background" });
     const row = rowElement(page.container, "appearance.backgroundOpacity");
     const slider = () => row.querySelector<HTMLInputElement>('input[type="range"]')!.value;
     await run(() =>
