@@ -81,6 +81,18 @@ if "--bench=cmdn-typing" in sys.argv:
     other = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cmdn-typing-bench.py")
     os.execv(sys.executable, [sys.executable, other, *[a for a in sys.argv[1:] if a != "--bench=cmdn-typing"]])
 
+# `--bench=settings-open`: scripts/cmux-next/bench-settings-open.py on the same tagged app: Cmd-, to the painted Settings
+# page, the first open of each launch cold and the others warm. It takes the app (`--app`) and `--runs`, `--opens` and
+# `--settle`; the instant-create arguments (`--tag`, `--page-engine`) are not its own.
+if "--bench=settings-open" in sys.argv:
+    other = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-settings-open.py")
+    kept, args = [], sys.argv[1:]
+    for index, arg in enumerate(args):
+        name = arg.split("=", 1)[0]
+        if name in ("--app", "--runs", "--opens", "--settle", "--json"):
+            kept += [arg] if "=" in arg else [arg, args[index + 1]]
+    os.execv(sys.executable, [sys.executable, other, *kept])
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, bundle_id, close_all_workspaces, wait_for_count  # noqa: E402
 import bench_arms  # noqa: E402
