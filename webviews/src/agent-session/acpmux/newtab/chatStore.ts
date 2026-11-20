@@ -9,10 +9,8 @@
 // store leaves each page its own list, as before. With `agent.pageHost` on each page has its own
 // store, so this is each page's own list again.
 import { useSyncExternalStore } from "react";
-import { experimentArm } from "../../../experiments/experiment";
 import { composerSettingsSnapshot } from "../composerSettings";
 import { pageLanes } from "../schedule";
-import { chatInstantUnderLoad } from "./chatInstantUnderLoad.experiment";
 import type { AcpmuxSnapshot } from "../model";
 import type { AcpmuxSessionEntry } from "../sessionList";
 
@@ -192,10 +190,7 @@ function endWindow(): void {
 // store is warm, the idle lane coalesces updates while a key or a transcript frame is pending.
 // The existing pagehide and visibility handlers still flush the newest list synchronously.
 function scheduleWrite(): void {
-  if (
-    current?.sessions.length &&
-    (composerSettingsSnapshot().chatInstantUnderLoad || experimentArm(chatInstantUnderLoad) === "on")
-  ) {
+  if (current?.sessions.length && composerSettingsSnapshot().chatInstantUnderLoad) {
     pageLanes().idle("new-tab-chat-list", () => {
       if (windowTimer === undefined) flushPending();
     });
