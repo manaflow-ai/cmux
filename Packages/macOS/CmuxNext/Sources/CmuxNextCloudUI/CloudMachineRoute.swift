@@ -51,11 +51,12 @@ public struct CloudMachineRoute: Sendable {
     /// with its reason and Retry on `machineID`, not the route's bare refusal.
     public init(machineID: String, exec: @escaping Exec, start: (@Sendable () async throws -> Void)?) {
         let started = Self.startingWhenStopped(exec, start: start)
-        self.exec = start == nil ? started : { command, timeoutMs in
+        let retried: Exec = { command, timeoutMs in
             do { return try await started(command, timeoutMs) } catch let refusal as CloudAPIError where refusal.isMachineNotRunning {
-                throw CloudMoveFailure(message: CloudMoveStrings.moveFailed(refusal.text()), retry: .move(machineID: machineID))
+                throw CloudMoveFailure(message: await CloudMoveStrings.moveFailed(refusal.text()), retry: .move(machineID: machineID))
             }
         }
+        self.exec = start == nil ? started : retried
         self.machineID = machineID
     }
 
