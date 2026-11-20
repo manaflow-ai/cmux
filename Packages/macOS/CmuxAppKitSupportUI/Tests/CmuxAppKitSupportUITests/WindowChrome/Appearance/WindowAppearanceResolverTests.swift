@@ -182,9 +182,9 @@ import Testing
         #expect(snapshot.resolvedColorScheme == terminalScheme)
     }
 
-    /// A user who never chose keeps the sidebar and titlebar on the terminal
-    /// background, so a light terminal theme never sits beside dark chrome.
-    @Test func sidebarMatchesTerminalBackgroundUntilTheUserOptsOut() throws {
+    /// A user who never chose gets the glass sidebar; matching the terminal
+    /// background is opt-in (Settings > Sidebar > Match Terminal Background).
+    @Test func sidebarUsesGlassUntilTheUserOptsIntoMatchingTheTerminal() throws {
         let suiteName = "cmux.tests.match-terminal-default"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
@@ -198,10 +198,10 @@ import Testing
             )
         )
 
-        #expect(resolver.currentFromUserDefaults(defaults: defaults).unifySurfaceBackdrops)
-
-        defaults.set(false, forKey: "sidebarMatchTerminalBackground")
         #expect(!resolver.currentFromUserDefaults(defaults: defaults).unifySurfaceBackdrops)
+
+        defaults.set(true, forKey: "sidebarMatchTerminalBackground")
+        #expect(resolver.currentFromUserDefaults(defaults: defaults).unifySurfaceBackdrops)
     }
 
     @Test func ghosttyMacOSGlassStyleForcesClearRootAndTerminalTintedGlass() {
@@ -232,6 +232,30 @@ import Testing
         )
         #expect(plan.hostingPhase == .windowGlass)
         #expect(plan.glass?.tintColor.hexString(includeAlpha: true) == "#272822FF")
+    }
+
+    /// The stock tint is a dark glass, so light mode swaps it for the light
+    /// default; dark keeps it, and a chosen colour or opacity still wins.
+    @Test func stockSidebarTintIsAppearanceAware() {
+        func tint(_ scheme: ColorScheme, hex: String = WindowChromeSidebarTintDefaults().hex,
+                  opacity: Double = WindowChromeSidebarTintDefaults().opacity) -> (String, Double) {
+            let color = SidebarBackdropSettingsSnapshot(
+                materialRawValue: WindowChromeSidebarMaterialOption.hudWindow.rawValue,
+                blendModeRawValue: "behindWindow", stateRawValue: "active",
+                tintHex: hex, tintHexLight: nil, tintHexDark: nil, tintOpacity: opacity,
+                cornerRadius: 0, blurOpacity: 1, colorScheme: scheme,
+                compositorGlass: true, compositorBlurRadius: 12
+            ).resolvedTintColor
+            return (color.hexString(), Double(color.alphaComponent))
+        }
+        func expect(_ actual: (String, Double), _ hex: String, _ alpha: Double) {
+            #expect(actual.0 == hex)
+            #expect(abs(actual.1 - alpha) < 0.001)
+        }
+        expect(tint(.dark), "#393939", 0.72)
+        expect(tint(.light), "#D1D4D5", 0.88)
+        expect(tint(.light, hex: "#FF0000"), "#FF0000", 0.72)
+        expect(tint(.light, opacity: 0.4), "#D1D4D5", 0.4)
     }
 
     private func makeSettings(

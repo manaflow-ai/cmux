@@ -96,7 +96,7 @@ final class SidebarLazyLayoutScaleTests {
     }
 
     @MainActor
-    static func mountSidebar(workspaceCount: Int, includeGroups: Bool = true) async throws -> Harness {
+    static func mountSidebar(workspaceCount: Int, includeGroups: Bool = true, sidebarState: SidebarState = SidebarState()) async throws -> Harness {
         _ = NSApplication.shared
 
         // Hermetic defaults: VerticalTabsSidebar picks between the workspace
@@ -108,10 +108,7 @@ final class SidebarLazyLayoutScaleTests {
         let defaultsSuiteName = "SidebarLazyLayoutScaleTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
         defaults.removePersistentDomain(forName: defaultsSuiteName)
-        defaults.set(
-            CmuxExtensionSidebarSelection.defaultProviderId,
-            forKey: CmuxExtensionSidebarSelection.defaultsKey
-        )
+        defaults.set(CmuxExtensionSidebarSelection.defaultProviderId, forKey: CmuxExtensionSidebarSelection.defaultsKey)
         // This suite measures SwiftUI lazy row bodies and pointer ownership.
         // Keep that implementation explicit now that AppKit is the default.
         let featureFlags = CmuxFeatureFlags(
@@ -172,9 +169,9 @@ final class SidebarLazyLayoutScaleTests {
             onSendFeedback: {},
             onToggleSidebar: {},
             onNewTab: {},
+            onTogglePresentationMode: {},
             observedWindowReference: WeakWindowReference(),
             chromeBackgroundColor: .black,
-            selection: .constant(.tabs),
             selectedTabIds: .constant([]),
             lastSidebarSelectionIndex: .constant(nil),
             sidebarRenderWorkerClient: .constant(nil)
@@ -183,7 +180,7 @@ final class SidebarLazyLayoutScaleTests {
         .environmentObject(tabManager)
         .environmentObject(CmuxConfigStore())
         .environmentObject(TerminalNotificationStore.shared)
-        .environmentObject(SidebarState())
+        .environmentObject(sidebarState)
         .environmentObject(SidebarSelectionState())
         .environment(
             \.sidebarLazyContractProbe,

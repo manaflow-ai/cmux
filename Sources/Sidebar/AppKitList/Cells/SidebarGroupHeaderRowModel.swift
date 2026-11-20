@@ -78,4 +78,27 @@ struct SidebarGroupHeaderRowActions {
     let onOpenDocs: () -> Void
     /// Resolves current notification availability for retained rows.
     var notificationState: () -> NotificationState = { .unavailable }
+    /// Sets the group's own color (nil clears it back to any config color).
+    var onSetColor: (String?) -> Void = { _ in }
+    /// The group's own color, without any config color behind it.
+    var customColorHex: () -> String? = { nil }
+}
+
+extension SidebarGroupHeaderRowActions {
+    /// Wires the actions that read or write live group state: notification
+    /// availability and the group's own color.
+    @MainActor
+    mutating func bindLiveState(
+        groupId: UUID,
+        tabManager: TabManager,
+        notificationState: @escaping () -> NotificationState
+    ) {
+        self.notificationState = notificationState
+        onSetColor = { [weak tabManager] hex in
+            tabManager?.setWorkspaceGroupColor(groupId: groupId, hex: hex)
+        }
+        customColorHex = { [weak tabManager] in
+            tabManager?.workspaceGroups.first(where: { $0.id == groupId })?.customColor
+        }
+    }
 }

@@ -46,6 +46,11 @@ public struct WindowAppearanceUserSettingsSnapshot {
     /// Background glass tint opacity.
     public let bgGlassTintOpacity: Double
 
+    /// Whether the sidebar glass uses the compositor blur path.
+    public let sidebarCompositorGlass: Bool
+
+    /// Sidebar compositor blur radius in points.
+    public let sidebarGlassBlurRadius: Double
     /// The macOS Reduce Transparency setting.
     public let reduceTransparency: Bool
 
@@ -65,8 +70,12 @@ public struct WindowAppearanceUserSettingsSnapshot {
         bgGlassEnabled: Bool,
         bgGlassTintHex: String,
         bgGlassTintOpacity: Double,
+        sidebarCompositorGlass: Bool = false,
+        sidebarGlassBlurRadius: Double = SidebarBackdropSettingsSnapshot.compositorBlurRadiusRange.lowerBound,
         reduceTransparency: Bool = false
     ) {
+        self.sidebarCompositorGlass = sidebarCompositorGlass
+        self.sidebarGlassBlurRadius = sidebarGlassBlurRadius
         self.unifySurfaceBackdrops = unifySurfaceBackdrops
         self.colorScheme = colorScheme
         self.sidebarMaterial = sidebarMaterial

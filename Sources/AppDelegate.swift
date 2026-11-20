@@ -51,12 +51,6 @@ private enum CmuxThemeNotifications {
     static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
 }
 
-struct WorkspaceGroupNewWorkspaceTarget {
-    let groupId: UUID
-    let referenceWorkspaceId: UUID
-    let placement: WorkspaceGroupNewPlacement
-}
-
 /// Owns debug-window coordinators at the application composition root.
 @MainActor
 final class CmuxDebugWindowsCoordinator {
@@ -8438,8 +8432,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return result
     }
 
+    /// The visibility the window's sidebar is heading to. An animated hide
+    /// keeps `isVisible` true until its sweep lands; this reports it hidden
+    /// from the moment the toggle is accepted.
     func sidebarVisibility(windowId: UUID) -> Bool? {
-        mainWindowContexts.values.first(where: { $0.windowId == windowId })?.sidebarState.isVisible
+        mainWindowContexts.values.first(where: { $0.windowId == windowId })?.sidebarState.requestedVisibility
     }
 
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
@@ -8925,6 +8922,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if case .builtIn(.newWorkspace) = action.action { return false }
             return true
         }
+        SidebarNavigationTimings.begin("create")
         let preferredContext = preferredTabManager.flatMap { mainWindowContext(for: $0) }
         let livePreferredContext: MainWindowContext? = {
             guard let preferredContext else { return nil }
@@ -16241,6 +16239,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .closeWorkspace) {
+            SidebarNavigationTimings.begin("close")
             tabManagerForFocusedCloseShortcut(event: event)?.closeCurrentWorkspaceWithConfirmation()
             return true
         }

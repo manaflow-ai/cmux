@@ -25,7 +25,11 @@ final class SidebarFocusBoundaryReference {
             return false
         }
         let boundaryFrame = boundaryView.convert(boundaryView.bounds, to: nil)
-        let responderFrame = responderView.convert(responderView.visibleRect, to: nil)
+        // Clamped to bounds: an unclipped hierarchy (macOS 14+ views don't
+        // clip to bounds by default) reports a visibleRect far larger than
+        // the view, whose midpoint can fall outside the sidebar.
+        let visible = responderView.visibleRect.intersection(responderView.bounds)
+        let responderFrame = responderView.convert(visible.isEmpty ? responderView.bounds : visible, to: nil)
         guard !boundaryFrame.isEmpty, !responderFrame.isEmpty else { return false }
         return boundaryFrame.contains(NSPoint(x: responderFrame.midX, y: responderFrame.midY))
     }

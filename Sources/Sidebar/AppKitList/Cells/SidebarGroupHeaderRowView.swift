@@ -14,6 +14,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
     /// Selection fill and edge layer. Internal so tests read its paint directly.
     let backgroundView = NSView()
+    /// Row hover wash; see `SidebarRowHover.swift`.
+    let rowHoverLayer = CAGradientLayer()
     private let pinImageView = NSImageView()
     private let chevronButton = SidebarHeaderGlyphButton()
     private let iconImageView = NSImageView()
@@ -29,12 +31,12 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     private let bottomDropIndicator = SidebarReorderIndicatorView()
     private let hintPill = SidebarShortcutHintPillView()
 
-    private var model: SidebarGroupHeaderRowModel?
+    private(set) var model: SidebarGroupHeaderRowModel?
     private var actions: SidebarGroupHeaderRowActions?
     /// Mirrors the table controller's flag, as workspace row cells do, so a
     /// cell configured while the sidebar is hidden does not restart the pulse.
     private var isPresentationActive = true
-    private var isPointerHovering = false
+    var isPointerHovering = false
     private var contextMenuVisible = false
     private var contextMenuDidOpen: (() -> Void)?
     private var contextMenuDidClose: (() -> Void)?
@@ -63,6 +65,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         backgroundView.layer?.cornerRadius = 4
         backgroundView.layer?.cornerCurve = .continuous
         addSubview(backgroundView)
+        SidebarGlassSelection.installHoverLayer(rowHoverLayer, in: backgroundView)
 
         pinImageView.imageScaling = .scaleProportionallyDown
         addSubview(pinImageView)
@@ -103,6 +106,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         suspendPresentation()
         model = nil
         isPointerHovering = false
+        rowHoverLayer.isHidden = true
         plusButton.concealImmediately()
         hintPill.resetForReuse()
     }
@@ -249,6 +253,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             weight: .medium
         )
         plusButton.contentTintColor = colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
+        plusButton.hoverFillColor = colorResolver.resolvedColor(.labelColor, for: colorScheme)
         plusButton.setAccessibilityLabel(String(
             localized: "workspaceGroup.newWorkspaceInGroup.a11y",
             defaultValue: "New workspace in group"
@@ -276,8 +281,12 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             representedIdentity: model.groupId
         )
 
-        alphaValue = model.isBeingDragged ? 0.6 : 1
+        // Full opacity while dragged: the freeform reorder suppresses the
+        // floating ghost, so the row itself is the drag visual and must keep
+        // its exact resting appearance (the dim was a ghost-era cue).
+        alphaValue = 1
         updatePlusVisibility()
+        updateRowHoverFill()
         setAccessibilityIdentifier("sidebarWorkspaceGroup.\(model.groupId.uuidString)")
         setAccessibilityLabel(model.name)
     }
@@ -300,18 +309,9 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     }
 #endif
 
-    private func updatePlusVisibility() {
+    func updatePlusVisibility() {
         let showsHint = model?.shortcutHintText != nil
         plusButton.setRevealed(isPointerHovering && !contextMenuVisible && !showsHint)
-    }
-
-    /// Authoritative hover enforcement: the controller sweeps visible cells
-    /// so hover-revealed chrome cannot strand on rows the pointer left
-    /// (row-index/id races during churn made per-transition repaints miss).
-    func enforcePointerHovering(_ hovering: Bool) {
-        guard isPointerHovering != hovering else { return }
-        isPointerHovering = hovering
-        updatePlusVisibility()
     }
 
     /// Optimistic press treatment: paints the anchor-active header visuals
@@ -324,10 +324,11 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         backgroundView.layer?.cornerRadius = 4
-        backgroundView.layer?.backgroundColor = labelColor.withAlphaComponent(0.08).cgColor
+        backgroundView.layer?.backgroundColor = headerBackgroundColor(for: model, forcingActive: true).cgColor
         applySelectionEdge(model.anchorActiveEdgeColor)
         CATransaction.commit()
         nameField.textColor = labelColor
+        updateRowHoverFill()
     }
 
     /// Modifier-click preview: paints the same dim membership tint as an
@@ -340,6 +341,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         backgroundView.layer?.backgroundColor = headerMultiSelectionBackgroundColor(for: model).cgColor
         applySelectionEdge(model.multiSelectionBackgroundStyle.edgeColor)
         CATransaction.commit()
+        updateRowHoverFill()
     }
 
     /// Plain-click counterpart: clears active and multi-selected header paint
@@ -358,6 +360,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             for: colorScheme,
             opacity: 0.9
         )
+        updateRowHoverFill()
     }
 
     /// Rollback for optimistic press paint: reapplies the stored model
@@ -371,9 +374,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         applyModel(model)
     }
 
-    private func headerBackgroundColor(for model: SidebarGroupHeaderRowModel) -> NSColor {
-        if model.isAnchorActive {
+    private func headerBackgroundColor(for model: SidebarGroupHeaderRowModel, forcingActive: Bool = false) -> NSColor {
+        if model.isAnchorActive || forcingActive {
             let colorScheme: ColorScheme = model.colorSchemeIsDark ? .dark : .light
+            if SidebarGlassSelection.usesStockLightLook(colorScheme) { return SidebarGlassSelection.fill(for: colorScheme) }
             return SidebarAppearanceColorResolver().resolvedColor(
                 .labelColor,
                 for: colorScheme,
@@ -442,6 +446,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         let outerPad = SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
         let bgFrame = NSRect(x: outerPad, y: 0, width: bounds.width - outerPad * 2, height: bounds.height)
         backgroundView.frame = bgFrame
+        SidebarGlassSelection.fitOverlay(rowHoverLayer)
         let contentMaxX = bgFrame.maxX - SidebarWorkspaceListMetrics.rowContentHorizontalPadding
         let midY = bounds.height / 2
         var x = bgFrame.minX
@@ -620,6 +625,50 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         ))
     }
 
+    /// Group Color submenu, built like the workspace row's color menu: clear,
+    /// a custom color prompt, then the named palette with swatches.
+    private func makeColorMenuItem(
+        model: SidebarGroupHeaderRowModel,
+        actions: SidebarGroupHeaderRowActions
+    ) -> NSMenuItem {
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+        let palette = WorkspaceTabColorSettings.palette()
+        // Clear only what the user set; a config color cannot be cleared here.
+        if actions.customColorHex() != nil {
+            let clearItem = menuItem(String(localized: "contextMenu.clearColor", defaultValue: "Clear Color")) {
+                actions.onSetColor(nil)
+            }
+            clearItem.image = RenderableSystemSymbol.configuredAppKitImage(
+                systemName: "xmark.circle", pointSize: 13, weight: nil
+            )
+            submenu.addItem(clearItem)
+        }
+        let customItem = menuItem(String(localized: "contextMenu.chooseCustomColor", defaultValue: "Choose Custom Color…")) { [weak self] in
+            guard let hex = WorkspaceCustomColorPrompt.run(
+                currentHex: model.tintHex,
+                presentingWindow: self?.window
+            ) else { return }
+            actions.onSetColor(hex)
+        }
+        customItem.image = RenderableSystemSymbol.configuredAppKitImage(
+            systemName: "paintpalette", pointSize: 13, weight: nil
+        )
+        submenu.addItem(customItem)
+        if !palette.isEmpty {
+            submenu.addItem(.separator())
+        }
+        SidebarWorkspaceRowColorMenu(
+            currentColorHex: model.tintHex,
+            colorScheme: model.colorSchemeIsDark ? .dark : .light
+        ).addPaletteItems(to: submenu, palette: palette) { hex in
+            actions.onSetColor(hex)
+        }
+        let parent = menuItem(String(localized: "workspaceGroup.contextMenu.groupColor", defaultValue: "Group Color")) {}
+        parent.submenu = submenu
+        return parent
+    }
+
     private func makeHeaderMenu() -> NSMenu {
         guard let model, let actions else { return NSMenu() }
         let menu = trackedMenu()
@@ -642,6 +691,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 : String(localized: "workspaceGroup.contextMenu.pin", defaultValue: "Pin Group"),
             action: actions.onTogglePinned
         ))
+        menu.addItem(makeColorMenuItem(model: model, actions: actions))
         menu.addItem(.separator())
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.markRead", defaultValue: "Mark Group as Read"),
@@ -683,57 +733,6 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             action: actions.onDelete
         ))
         return menu
-    }
-}
-
-/// Borderless glyph button used for the header chevron and plus controls.
-@MainActor
-final class SidebarHeaderGlyphButton: NSButton {
-    var onClick: (() -> Void)?
-    var menuProvider: (() -> NSMenu?)?
-
-    var glyphImage: NSImage? {
-        didSet { image = glyphImage }
-    }
-
-    init() {
-        super.init(frame: .zero)
-        isBordered = false
-        bezelStyle = .regularSquare
-        imagePosition = .imageOnly
-        setButtonType(.momentaryChange)
-        target = self
-        action = #selector(didClick)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    @objc private func didClick() {
-        onClick?()
-    }
-
-    override func menu(for event: NSEvent) -> NSMenu? {
-        menuProvider?() ?? super.menu(for: event)
-    }
-
-    /// Starting state for hover-revealed buttons, and the reset on cell
-    /// reuse. NSButton is born visible, so without this every fresh or
-    /// recycled cell painted an X on its first unhovered configure, which
-    /// flashed the close buttons on all rows at once after a workspace close.
-    func concealImmediately() {
-        setRevealed(false)
-    }
-
-    /// Hover reveal lands in the same frame as the hover change. The row
-    /// swaps its trailing badge or spinner for this button synchronously, so
-    /// a fade here left the slot blank on hover-in and doubled up on
-    /// hover-out.
-    func setRevealed(_ revealed: Bool) {
-        isEnabled = revealed
-        alphaValue = revealed ? 1 : 0
-        isHidden = !revealed
     }
 }
 

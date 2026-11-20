@@ -185,9 +185,9 @@ skipped, and the error goes to the log rather than showing as a config error.
 In `cmux.json`:
 
 - `sidebarAppearance.tintColor`, `lightModeTintColor`, `darkModeTintColor`, and
-  `tintOpacity` (0 to 1, default 0.18) tint the sidebar.
-- `sidebarAppearance.matchTerminalBackground` (default `true`) uses the
-  terminal background instead of a tint. Set it to `false` to use the tint.
+  `tintOpacity` (0 to 1, default 0.72) tint the sidebar.
+- `sidebarAppearance.matchTerminalBackground` (default `false`) uses the
+  terminal background instead of a tint. Set it to `true` to match the terminal.
 - `sidebar.*` keys pick which rows appear (branch, PRs, ports, logs, progress,
   notification text, and so on), and `sidebar.workspaceDescriptionColor`
   recolors workspace descriptions. See the

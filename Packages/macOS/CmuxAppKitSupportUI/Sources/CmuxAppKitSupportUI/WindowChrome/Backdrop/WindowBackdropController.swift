@@ -43,7 +43,9 @@ public final class WindowBackdropController {
             didChangeGlassRoot = dependencies.glassEffect.remove(from: window)
             window.backgroundColor = plan.windowBackgroundColor
             window.isOpaque = false
-            if plan.shouldApplyGhosttyCompositorBlur {
+            if let radius = plan.compositorBlurRadius {
+                dependencies.setCompositorBackgroundBlur(windowNumber: window.windowNumber, radius: radius)
+            } else if plan.shouldApplyGhosttyCompositorBlur {
                 dependencies.applyGhosttyCompositorBlurIfNeeded(to: window)
             } else {
                 dependencies.resetCompositorBackgroundBlur(windowNumber: window.windowNumber)

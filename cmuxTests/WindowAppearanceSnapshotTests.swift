@@ -24,7 +24,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         assertClearBackdrop(snapshot.policy(for: .rightSidebar))
     }
 
-    func testSeparateSurfaceBackdropsKeepRootBackdropAndSidebarMaterialsSeparate() {
+    func testSeparateSurfaceBackdropsKeepSidebarMaterialAndSolidToolsSidebar() {
         let snapshot = makeSnapshot(unifySurfaceBackdrops: false)
 
         assertTerminalBackdrop(snapshot.policy(for: .windowRoot))
@@ -40,12 +40,8 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertEqual(leftPolicy.material, .sidebar)
         XCTAssertEqual(leftPolicy.blendingMode, .withinWindow)
 
-        guard case let .sidebarMaterial(rightPolicy) = snapshot.policy(for: .rightSidebar) else {
-            XCTFail("right sidebar should keep its own material policy")
-            return
-        }
-        XCTAssertEqual(rightPolicy.material, .sidebar)
-        XCTAssertEqual(rightPolicy.blendingMode, .withinWindow)
+        // The tools sidebar is a work surface on a solid terminal ground.
+        assertTerminalBackdrop(snapshot.policy(for: .rightSidebar), expectedOpacity: 1.0)
     }
 
     func testMacOSGlassClearForcesTransparentHostingAndClearGlassStyle() {
@@ -234,8 +230,8 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             sidebarColorScheme: .dark
         )
 
-        guard case let .sidebarMaterial(policy) = snapshot.policy(for: .rightSidebar) else {
-            XCTFail("right sidebar should keep its own material policy")
+        guard case let .sidebarMaterial(policy) = snapshot.policy(for: .leftSidebar) else {
+            XCTFail("left sidebar should keep its own material policy")
             return
         }
         XCTAssertEqual(policy.tintColor.hexString(includeAlpha: true), "#00000066")
