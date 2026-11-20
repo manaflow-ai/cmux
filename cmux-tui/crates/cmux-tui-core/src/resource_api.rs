@@ -37,7 +37,7 @@ use crate::workspace_registry::{
 };
 use crate::{Mux, ResourceSelectors};
 
-pub(crate) use committed_snapshot::CommittedSnapshots;
+pub(crate) use committed_snapshot::{COMMITTED_SNAPSHOT_KEEP, CommittedSnapshots};
 #[cfg(test)]
 pub(crate) use committed_snapshot::{
     route_wait_times_on_this_thread, route_waits_on_this_thread,
