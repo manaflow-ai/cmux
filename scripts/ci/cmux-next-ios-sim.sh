@@ -1070,8 +1070,10 @@ ui_cold_tests() {
     for test in "${tests[@]}"; do
       for ((run = 1; run <= runs; run++)); do
         xcrun simctl shutdown "$ui_udid" >/dev/null 2>&1 || true
-        xcrun simctl boot "$ui_udid"
-        xcrun simctl bootstatus "$ui_udid" -b >/dev/null
+        # A run counts as cold only after a confirmed fresh boot; a failed transition is no sample.
+        if ! { xcrun simctl boot "$ui_udid" && xcrun simctl bootstatus "$ui_udid" -b >/dev/null; }; then
+          ui_status=1; note "- cold $suite/$test run $run: simulator reboot failed, no sample"; continue
+        fi
         local bundle="$work/ui-cold-${test}-${run}.xcresult"
         xcodebuild test-without-building "${ui_xcodebuild[@]}" -resultBundlePath "$bundle" \
           "-only-testing:CmuxMobileAppUITests/${suite%%/*}/$test" >"$work/ui-cold-${test}-${run}.log" 2>&1
