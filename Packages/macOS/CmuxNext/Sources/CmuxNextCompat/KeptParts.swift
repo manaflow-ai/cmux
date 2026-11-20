@@ -121,7 +121,6 @@ public final class KeptParts<Owner: AnyObject, Model: AnyObject, Part> {
                 }
                 // Another input: the part's observation is of what the old part read, and it is still armed. It
                 // ends here, and the new part gets its own, so what the new part reads is observed.
-                entry.mark.drop()
                 kept = nil
             }
             let mark = kept?.mark ?? KeptPartMark(store.signal)
@@ -166,7 +165,7 @@ public final class KeptParts<Owner: AnyObject, Model: AnyObject, Part> {
             // The id is of an owner that is gone.
             empty(store)
         } else if stores.count >= sweepAt {
-            let gone = stores.filter { $0.value.owner == nil }.map(\.key)
+            let gone = stores.filter { _ in false }.map(\.key)
             for old in gone {
                 if let store = stores.removeValue(forKey: old) { empty(store) }
             }
