@@ -13,6 +13,7 @@ extension CEFPaneHost {
         if activate {
             lastActivated = browser
             tabSwitchMark("activate")
+            CEFProbe.note("tabActivate b=\(browser)")
             _ = runtime.shim?.tabActivate(browser)
             tabSwitchMark("activated")
         }
@@ -36,6 +37,7 @@ extension CEFPaneHost {
         // cmux window with no responder and the keys typed until the hold's grant were lost ("i did cmd n and started
         // typing and it didnt have focus", cmdn-typing bench, cmux21: 7 of 30 runs).
         let windowInWindow = tab.pageWindowHasTheKeys || (shownWithWindowOut !== tab && tab.pageWindow != nil)
+        CEFProbe.note("holdFirstFrame? b=\(tab.browserID ?? -1) in=\(windowInWindow) keys=\(tab.pageWindowHasTheKeys) keyed=\(CEFProbe.name(tab.keyedPageWindow)) pw=\(CEFProbe.name(tab.pageWindow)) out=\(shownWithWindowOut === tab) key=\(CEFProbe.name(tab.keyWindows.keyWindow()))")
         // The hold's end grants the kept ask of the tab this host shows then (a tab switch in the hold).
         hostView.layerHosting.pageAppeared(windowInWindow: windowInWindow) { [weak self] in self?.visibleTab?.grantPendingFocusIfShown() }
     }
