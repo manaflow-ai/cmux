@@ -28,6 +28,32 @@ const NEUTRAL_UPDATES: &[&str] = &[
     "prompt_suggestion",
 ];
 
+/// A blocked Stop hook's reason (`claude_stdio/inbound.rs` `stop_hook_feedback`): Claude Code
+/// gives it to the model and the turn goes on. An agent sent back over one line of its reply often
+/// sends the whole reply again, and both stayed in the chat (Leo, 2026-11-14: "why did u send this
+/// twice?"). The next reply, when nothing but thoughts and progress ticks came between, replaces
+/// the last one (`message_superseded`, reason `stop_hook`). The key is the hook event, never the
+/// two texts' likeness.
+const STOP_HOOK_FEEDBACK: &str = "stop_hook_feedback";
+
+/// Whether `update` stands between a reply and the one after it, so a Stop hook between them is
+/// no reason to replace the first: a call the person sees (the agent did work after the hook, and
+/// its next words report that work), a plan, or the person's or a steer's prompt. Thoughts,
+/// progress ticks and a subagent's updates do not.
+fn ends_revision(kind: &str, update: &Value) -> bool {
+    match kind {
+        "tool_call" => {
+            let tool = update
+                .pointer("/_meta/claude/tool")
+                .or_else(|| update.pointer("/_meta/claudeCode/toolName"))
+                .and_then(Value::as_str);
+            !tool.is_some_and(|t| PLUMBING_TOOLS.contains(&t))
+        }
+        "plan" | "user_message_chunk" => true,
+        _ => false,
+    }
+}
+
 /// Codex (`codex-acp`) reports stream trouble as
 /// `session_info_update._meta.codex.error`. `willRetry: true` means the
 /// harness drops the partial answer and streams it again under a new
@@ -188,7 +214,17 @@ impl Hub {
                         && let Some(new) = id
                         && new != old
                     {
-                        superseded = Some((old, new.to_owned(), notice));
+                        superseded = Some((old, new.to_owned(), notice, "harness_retry", "codex"));
+                    }
+                    // The reply sent again after a blocked Stop hook replaces the one before it.
+                    if let Some(new) = id
+                        && st.revise_from.as_ref().is_some_and(|(old, _)| old != new)
+                        && let Some((old, notice)) = st.revise_from.take()
+                    {
+                        superseded = Some((old, new.to_owned(), notice, "stop_hook", "claude"));
+                    }
+                    if id.is_some() {
+                        st.last_reply = id.map(str::to_owned);
                     }
                     if id != st.open_message.as_deref() {
                         st.trailing_text.clear();
@@ -196,6 +232,10 @@ impl Hub {
                         st.trailing_overflow = false;
                     }
                     st.open_message = id.map(str::to_owned);
+                }
+                STOP_HOOK_FEEDBACK => {
+                    let reason = update.get("text").and_then(Value::as_str).unwrap_or("");
+                    st.revise_from = st.last_reply.clone().map(|old| (old, reason.to_owned()));
                 }
                 "session_info_update" => {
                     if let Some((will_retry, err)) = codex_error(update) {
@@ -242,6 +282,10 @@ impl Hub {
                         st.reply_segment = None;
                     }
                     st.plan_shown = plan_shown;
+                    if ends_revision(kind, update) {
+                        st.last_reply = None;
+                        st.revise_from = None;
+                    }
                     if !NEUTRAL_UPDATES.contains(&kind) {
                         // A tool call, plan or user chunk ends the message: a
                         // later retry does not abandon it.
@@ -258,13 +302,13 @@ impl Hub {
         if let Some(retry) = retrying {
             self.turn_retrying(session, retry);
         }
-        if let Some((old, new, notice)) = superseded {
+        if let Some((old, new, notice, reason, source)) = superseded {
             let turn_id = session.turn().map(|t| t.turn_id);
             self.append(
                 session,
                 "mux",
                 "message_superseded",
-                json!({"oldMessageId": old, "newMessageId": new, "reason": "harness_retry", "source": "codex", "notice": notice, "turnId": turn_id}),
+                json!({"oldMessageId": old, "newMessageId": new, "reason": reason, "source": source, "notice": notice, "turnId": turn_id}),
             );
         }
         segment

@@ -394,6 +394,19 @@ impl Translator {
                     }
                 }
             }
+            // A Stop hook that blocked the turn's end: Claude Code gives its reason to the model
+            // as a synthetic user line and the turn goes on. The hub reads it to replace the reply
+            // the agent sends again right after it (`hub/stream.rs`, `message_superseded` with
+            // reason `stop_hook`; Leo, 2026-11-14: "why did u send this twice?").
+            "user"
+                if parent.is_none()
+                    && line.get("isSynthetic").and_then(Value::as_bool) == Some(true)
+                    && stop_hook_feedback(line).is_some() =>
+            {
+                if let Some(text) = stop_hook_feedback(line) {
+                    out.push(upd(json!({"sessionUpdate": STOP_HOOK_FEEDBACK, "text": text})));
+                }
+            }
             // The summary a compaction leaves: the synthetic user line after
             // its boundary. It is not a prompt; acpmux keeps it as the context
             // a handoff or fallback carries.
@@ -1389,6 +1402,17 @@ fn compaction_update(state: &str, line: &Value) -> Value {
         update.set("error", json!(error.trim()));
     }
     update
+}
+
+/// The update a blocked Stop hook's reason is sent as (`hub/stream.rs` `STOP_HOOK_FEEDBACK` reads it).
+const STOP_HOOK_FEEDBACK: &str = "stop_hook_feedback";
+
+/// The reason of a Stop hook that blocked the turn's end, from the synthetic user line Claude Code
+/// writes for it (`Stop hook feedback:\n<reason>`, Claude Code 2.1.3xx); None for any other line.
+fn stop_hook_feedback(line: &Value) -> Option<String> {
+    let text = compaction_summary_text(line)?;
+    let reason = text.strip_prefix("Stop hook feedback:")?.trim();
+    Some(reason.to_owned())
 }
 
 /// The text of a compaction's summary line (string or text-block content).

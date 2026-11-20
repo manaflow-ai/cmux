@@ -153,6 +153,8 @@ const SEGMENT_QUIET_UPDATES: &[&str] = &[
     "session_info_update",
     "prompt_suggestion",
     "compaction_summary",
+    // A blocked Stop hook's reason; the hub records what it means (`message_superseded`).
+    "stop_hook_feedback",
 ];
 
 /// acpmux records drawn as a one-line notice.

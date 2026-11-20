@@ -176,6 +176,44 @@ fn a_superseded_message_and_a_cleared_checklist_hide_their_rows_in_place() {
     assert!(!rows[3].head.hidden && rows[3].text == "whole");
 }
 
+/// Leo, 2026-11-15: "this is super wack the way we're scrolling up infinitely :(" (the same reply
+/// drawn two and three times). A reply sent again after a blocked Stop hook (`message_superseded`,
+/// reason `stop_hook`, `hub/stream.rs`) hides the first one's row; the hook's update draws none.
+#[test]
+fn a_reply_sent_again_after_a_stop_hook_hides_the_first() {
+    let log = [
+        mux(1, "user_message", json!({"promptId": "p", "turnId": "t", "text": "go"})),
+        chunk(2, "A few updates: it's fixed now.", Some("r1"), Some("t.b.1")),
+        update(3, json!({"sessionUpdate": "usage_update", "used": 1, "size": 10})),
+        update(
+            4,
+            json!({"sessionUpdate": "stop_hook_feedback", "text": "Rewrite only that sentence."}),
+        ),
+        mux(
+            5,
+            "message_superseded",
+            json!({"oldMessageId": "r1", "newMessageId": "r2", "reason": "stop_hook", "source": "claude"}),
+        ),
+        chunk(6, "A few updates: a change is pushed, unconfirmed.", Some("r2"), Some("t.b.2")),
+    ];
+    let table = RowTable::fold(&log);
+    let replies: Vec<(&str, bool)> = table
+        .rows()
+        .iter()
+        .filter(|r| r.head.kind == RowKind::Reply)
+        .map(|r| (r.text.as_str(), r.head.hidden))
+        .collect();
+    assert_eq!(
+        replies,
+        [
+            ("A few updates: it's fixed now.", true),
+            ("A few updates: a change is pushed, unconfirmed.", false)
+        ]
+    );
+    // The hook's update draws no row.
+    assert!(table.rows().iter().all(|r| !r.text.contains("Rewrite only")));
+}
+
 #[test]
 fn a_subagent_update_and_a_load_replay_draw_no_row() {
     let mut sub = chunk(1, "child", None, None);

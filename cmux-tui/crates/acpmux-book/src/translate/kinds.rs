@@ -329,6 +329,10 @@ pub(super) const UPDATES: &[Kind] = &[
     code("plan", "the turn's plan row (State::plan)"),
     not("prompt_suggestion", LIVE),
     page("session_info_update"),
+    not(
+        "stop_hook_feedback",
+        "a blocked Stop hook's reason, read by the hub (message_superseded, reason stop_hook)",
+    ),
     code("subagent_progress", "a sub row (State::sub)"),
     not("subagent_state_update", LIVE),
     not(
