@@ -171,6 +171,10 @@ class DaemonTestsGateTests(unittest.TestCase):
         # The key output stays set, so publish-tree-tested and the request still run.
         self.assertNotIn("steps.marked", str(daemon["steps"][ids.index("key")].get("if")))
         for later in daemon["steps"][ids.index("key") + 1:]:
+            # The projected checkout's own ending (unmount, prepare the next one) runs whether or not the
+            # tests ran: a mount made before the marker check must still come off.
+            if str(later.get("id", "")).startswith("projected-"):
+                continue
             self.assertIn("steps.marked.outputs.marked != 'true'", str(later.get("if")), later.get("name"))
 
         key, legacy = "a" * 40, "b" * 40
