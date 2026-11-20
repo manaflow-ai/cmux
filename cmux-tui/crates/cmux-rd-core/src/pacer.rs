@@ -241,7 +241,7 @@ impl Pacer {
     /// Queues one frame's media datagrams. In strict mode, `target_bps` and
     /// `frame_interval_us` are intentionally ignored: the measured strict
     /// rate (see [`Pacer::set_rate_bps`]) is the one budget shared by media,
-    /// FEC, repair, and probes, and a datagram past the queue bound is dropped.
+    /// FEC, repair, and probes. A frame is always queued whole.
     ///
     /// Frame datagrams produced by `Packetizer` carry their departure ID in the
     /// existing header; this method extracts that ID. Call the explicit
@@ -254,9 +254,18 @@ impl Pacer {
         now_us: u64,
     ) {
         if self.is_strict() {
+            // The engine already counted every datagram of the frame as sent (and the
+            // host times the frame by them), so a frame is queued whole, past
+            // `max_queue_bytes`: a dropped tail would only force a recovery.
+            self.wake(now_us);
             for datagram in datagrams {
                 let departure_id = wire_departure_id(&datagram);
-                let _ = self.enqueue_media(datagram, departure_id, now_us);
+                self.queued_bytes = self.queued_bytes.saturating_add(datagram.len());
+                self.queue.push_back(QueuedDatagram::new(
+                    datagram,
+                    departure_id,
+                    DatagramClass::Media,
+                ));
             }
             return;
         }
@@ -848,5 +857,16 @@ mod tests {
         assert_eq!(sent.len(), 11);
         assert!(sent[..2].iter().all(|(_, d)| d[0] == 0xaa), "repairs first");
         assert_eq!(p.take_frame_datagrams_sent(), 9);
+    }
+
+    /// A frame the engine already counted as sent is queued whole under strict pacing,
+    /// even past `max_queue_bytes`: a dropped tail would only force a recovery.
+    #[test]
+    fn strict_queues_a_frame_whole_past_the_queue_bound() {
+        let mut p = Pacer::strict(StrictWireBudget::with_limits(100_000_000, 64 * 1024, 4_096, 64));
+        p.push_frame(frame(10), 0, 16_667, 0);
+        assert_eq!(p.queued().count(), 10);
+        assert_eq!(drain(&mut p, 0).len(), 10);
+        assert_eq!(p.take_frame_datagrams_sent(), 10);
     }
 }
