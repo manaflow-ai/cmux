@@ -192,7 +192,9 @@ export function ChiefBackendPicker({
           {/* The command stays as typed in every language: the catalog holds its place, %@. */}
           {t("chief.backend.uniiNote")
             .split("%@")
-            .flatMap((part, index) => (index === 0 ? [part] : [<code key={index}>unii login</code>, part]))}
+            .flatMap((part, index) =>
+              index === 0 ? [part] : [<code key={index}>cmux harness login unii</code>, part],
+            )}
         </span>
       )}
       <CheckLine strings={strings} check={check} onRecheck={onRecheck} />
