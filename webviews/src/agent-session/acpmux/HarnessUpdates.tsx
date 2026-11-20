@@ -2,12 +2,49 @@
 // agent CLI on one row each (its mark, its name, the installed and newest versions, Update), Update
 // all in the heading once there are two, and the reason under them. The reference (Leo 2026-11-12)
 // listed Codex and OpenCode; it is the same list for Claude Code and every other harness.
-import type { KeyboardEvent, Ref } from "react";
+import type { ComponentProps, KeyboardEvent, Ref } from "react";
 import { AgentMark } from "../shared/AgentMark";
 import { Spinner } from "./conversation/icons";
 import { useT } from "./i18n";
 import type { HarnessUpdateRow, HarnessUpdates } from "./harnessUpdateList";
 import "./harnessUpdates.css";
+
+export function HarnessUpdateButton({
+  row,
+  onOwnUpdate,
+  showAgent,
+  ...props
+}: Pick<ComponentProps<"button">, "ref" | "onKeyDown" | "title" | "className"> & {
+  row: HarnessUpdateRow;
+  onOwnUpdate?: () => void;
+  showAgent?: boolean;
+}) {
+  const t = useT();
+  return (
+    <button
+      {...props}
+      type="button"
+      className={`acpmux-harness-update-run ${props.className ?? ""}`}
+      disabled={row.phase === "updating"}
+      aria-busy={row.phase === "updating" || undefined}
+      aria-label={showAgent ? `${t("harness.update")} ${row.agent}` : undefined}
+      onClick={() => {
+        row.update();
+        if (row.skip) onOwnUpdate?.();
+      }}
+    >
+      {row.phase === "updating" ? (
+        <Spinner size={12} loading />
+      ) : row.phase === "failed" ? (
+        t("harness.tryAgain")
+      ) : showAgent ? (
+        `${t("harness.update")} ${row.agent}`
+      ) : (
+        t("harness.update")
+      )}
+    </button>
+  );
+}
 
 export function HarnessUpdatesSection({
   updates,
@@ -26,10 +63,6 @@ export function HarnessUpdatesSection({
   const t = useT();
   const title = t("harness.updatesAvailable");
   const all = updates.rows.length > 1;
-  const run = (row: HarnessUpdateRow) => {
-    row.update();
-    if (row.skip) onOwnUpdate?.();
-  };
   return (
     <section className="acpmux-harness-updates" aria-label={title} data-harness-updates={updates.rows.length}>
       <div className="acpmux-harness-updates-head">
@@ -74,22 +107,11 @@ export function HarnessUpdatesSection({
                 {t("harness.skipVersion")}
               </button>
             )}
-            <button
+            <HarnessUpdateButton
               {...(!all && index === 0 ? { ref: firstAction, onKeyDown: onFirstKeyDown } : {})}
-              type="button"
-              className="acpmux-harness-update-run"
-              disabled={row.phase === "updating"}
-              aria-busy={row.phase === "updating" || undefined}
-              onClick={() => run(row)}
-            >
-              {row.phase === "updating" ? (
-                <Spinner size={12} loading />
-              ) : row.phase === "failed" ? (
-                t("harness.tryAgain")
-              ) : (
-                t("harness.update")
-              )}
-            </button>
+              row={row}
+              onOwnUpdate={onOwnUpdate}
+            />
           </li>
         ))}
       </ul>

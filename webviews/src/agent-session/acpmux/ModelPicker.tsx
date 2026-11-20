@@ -29,7 +29,7 @@ import { ContextMenu } from "../../ui/ContextMenu";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { useUpdateOffer } from "./harnessHealthNoticeModel";
 import { useHarnessUpdates } from "./harnessUpdateList";
-import { HarnessUpdatesSection } from "./HarnessUpdates";
+import { HarnessUpdateButton, HarnessUpdatesSection } from "./HarnessUpdates";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, type ModelPickerProps } from "./modelPickerLayout";
 import { curatedSections, modelSections } from "./modelSections";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
@@ -742,7 +742,9 @@ export function ModelPicker(props: ModelPickerProps) {
     else trigger.current?.focus();
   }, [current, harness, heldEntry, lang, open, props.model, railHarnesses]);
   const showRef = useRef(show);
-  showRef.current = show;
+  useLayoutEffect(() => {
+    showRef.current = show;
+  }, [show]);
   const toggle = open ? (_next: boolean) => close() : setOpen;
   const press = usePopoverTrigger(open, toggle, show, { popupId: menuId });
   const more = (typed?: string) => {
@@ -1854,18 +1856,13 @@ export function ModelPicker(props: ModelPickerProps) {
                           )}
                         </PickerOption>
                         {releaseUpdate && (
-                          <button
-                            type="button"
-                            className="acpmux-harness-update-run mr-8 flex-none"
-                            disabled={releaseUpdate.phase === "updating"}
+                          <HarnessUpdateButton
+                            row={releaseUpdate}
+                            showAgent
+                            className="mr-8 flex-none"
                             title={model.unavailable}
-                            onClick={() => {
-                              releaseUpdate.update();
-                              if (releaseUpdate.skip) close();
-                            }}
-                          >
-                            {t("harness.update")} {releaseUpdate.agent}
-                          </button>
+                            onOwnUpdate={close}
+                          />
                         )}
                         <span className="pointer-events-none absolute right-1.5 flex items-center">
                           <button
