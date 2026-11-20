@@ -32,9 +32,17 @@ final class CmuxMobileGhosttyApp {
 
     static func shared() throws -> CmuxMobileGhosttyApp {
         if let current { return current }
-        let made = try CmuxMobileGhosttyApp()
+        // Built already (TerminalEngineWarmup) costs nothing here; still building waits for that one.
+        let engine = try EngineBuild.shared.engine(colorLines: productColorLines).get()
+        let made = CmuxMobileGhosttyApp(engine)
         current = made
         return made
+    }
+
+    /// The theme's color lines for the engine config, read here on the main actor so the engine can
+    /// be built on any thread.
+    static var productColorLines: String {
+        (macTheme?.terminalConfigLines ?? ["background = #000000", "foreground = #E6E6E6"]).joined(separator: "\n")
     }
 
     /// Ghostty's runtime callbacks, nonisolated: Ghostty calls them from its
@@ -96,22 +104,28 @@ final class CmuxMobileGhosttyApp {
         )
     }
 
-    private init() throws {
+    private init(_ engine: EngineBuild.Engine) {
+        self.app = engine.app
+        self.config = engine.config
+    }
+
+    /// `ghostty_init`, the product config and `ghostty_app_new`, on the calling thread. Nonisolated:
+    /// the warmup runs it off the main thread (EngineBuild makes it once per process).
+    nonisolated fileprivate static func buildEngine(colorLines: String) -> Result<EngineBuild.Engine, Failure> {
         let status = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
-        guard status == GHOSTTY_SUCCESS else { throw Failure.initFailed(status) }
-        guard let config = ghostty_config_new() else { throw Failure.appCreationFailed }
-        Self.loadProductConfig(config)
+        guard status == GHOSTTY_SUCCESS else { return .failure(.initFailed(status)) }
+        guard let config = ghostty_config_new() else { return .failure(.appCreationFailed) }
+        loadProductConfig(config, colorLines: colorLines)
         ghostty_config_finalize(config)
         // Built outside the main actor: Ghostty calls these from its own
         // threads, and a closure formed in this @MainActor init would carry
         // main-actor isolation (Swift traps when the renderer thread calls it).
-        var runtime = Self.runtimeConfig()
+        var runtime = runtimeConfig()
         guard let app = ghostty_app_new(&runtime, config) else {
             ghostty_config_free(config)
-            throw Failure.appCreationFailed
+            return .failure(.appCreationFailed)
         }
-        self.app = app
-        self.config = config
+        return .success(EngineBuild.Engine(app: app, config: config))
     }
 
     /// A config for one surface: the app's, with `theme` over every terminal theme key (none of
@@ -133,9 +147,7 @@ final class CmuxMobileGhosttyApp {
     /// Product settings: no padding (rows land on exact multiples of the cell
     /// height, which native scrolling relies on), the app's black, the
     /// scrollback cap, and no auto-scroll: the screen owns the viewport.
-    private static func loadProductConfig(_ config: ghostty_config_t) {
-        let colorLines = (macTheme?.terminalConfigLines ?? ["background = #000000", "foreground = #E6E6E6"])
-            .joined(separator: "\n")
+    nonisolated private static func loadProductConfig(_ config: ghostty_config_t, colorLines: String) {
         let text = """
         scrollback-limit-bytes = \(8 * 1024 * 1024)
         window-padding-x = 0
@@ -171,6 +183,28 @@ enum TerminalSurfaceEvent: Sendable {
     case cellSize
     case bell
 }
+/// The engine, built once per process on whichever thread asks first. A second caller waits on the
+/// lock for that build instead of starting another; a failed build is not kept, so the next asks again.
+final class EngineBuild: @unchecked Sendable {
+    struct Engine: @unchecked Sendable {
+        let app: ghostty_app_t
+        let config: ghostty_config_t
+    }
+
+    static let shared = EngineBuild()
+    private let lock = NSLock()
+    private var built: Engine?
+
+    func engine(colorLines: String) -> Result<Engine, CmuxMobileGhosttyApp.Failure> {
+        lock.withLock {
+            if let built { return .success(built) }
+            let result = CmuxMobileGhosttyApp.buildEngine(colorLines: colorLines)
+            if case .success(let engine) = result { built = engine }
+            return result
+        }
+    }
+}
+
 /// At most one queued main-thread tick for Ghostty's wakeups.
 final class WakeupGate: @unchecked Sendable {
     private let lock = NSLock()
