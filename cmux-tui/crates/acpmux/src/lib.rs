@@ -151,6 +151,7 @@ pub mod list_bytes;
 pub mod listener_record;
 pub mod live_models;
 pub mod local_stream;
+pub mod log_keep;
 pub mod log_sink;
 pub mod login_env;
 pub mod lossy_lines;
