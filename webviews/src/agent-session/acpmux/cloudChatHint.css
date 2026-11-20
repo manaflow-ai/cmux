@@ -4,7 +4,7 @@
    with a fade, on the house settle, so the composer moves with it in one transition; motion off or
    Reduce Motion shows and hides it at once. */
 .acpmux-cloud-hint-fold {
-  --acpmux-cloud-hint-fill: color-mix(in srgb, var(--agent-text) 5%, transparent);
+  --acpmux-cloud-hint-fill: var(--ds-surface-card);
   --acpmux-cloud-hint-fill-strong: color-mix(in srgb, var(--agent-text) 9%, transparent);
   --acpmux-cloud-hint-fill-hover: color-mix(in srgb, var(--agent-text) 13%, transparent);
   display: grid;
