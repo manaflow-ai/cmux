@@ -425,6 +425,9 @@ fn a_client_dripping_its_line_is_cut_off_at_the_line_wait() {
 #[derive(Default)]
 struct Live {
     life_s: u64,
+    /// Optional identity used by the rebind race harness so request order
+    /// cannot be confused with generation order.
+    ticket_prefix: String,
     tickets: Mutex<u64>,
     resets: Mutex<u64>,
     /// While set, a GitHub token mint is held here (the head-of-line case).
@@ -488,7 +491,7 @@ impl Http for LiveHttp {
         *self.0.answered.lock().unwrap() += 1;
         Ok((
             200,
-            json!({ "ok": true, "value": { "relay": "relay+do://relay.example", "slot": "slot_0123456789abcdefghijkl", "ticket": format!("t-{n}"), "expires_at": wall_now() / 1000 + self.0.life_s } }),
+            json!({ "ok": true, "value": { "relay": "relay+do://relay.example", "slot": "slot_0123456789abcdefghijkl", "ticket": if self.0.ticket_prefix.is_empty() { format!("t-{n}") } else { format!("{}-{n}", self.0.ticket_prefix) }, "expires_at": wall_now() / 1000 + self.0.life_s } }),
         ))
     }
 
@@ -843,15 +846,23 @@ fn an_asker_woken_before_its_request_starts_causes_one_request() {
 #[test]
 fn a_rebind_before_a_wanted_request_starts_drops_that_requests_late_reply() {
     let dir = tempfile::tempdir().unwrap();
-    let (server, path, live, _resumes) = live_server(&dir, 300, Duration::from_secs(10));
-    server.bound(client_with(LiveHttp(Arc::clone(&live))), false);
+    let (server, path, _live, _resumes) = live_server(&dir, 300, Duration::from_secs(10));
+    // Use separate transports with explicit identities. The old and new
+    // request threads may start in either order; ticket numbering must never
+    // stand in for the generation they belong to.
+    let old_live =
+        Arc::new(Live { life_s: 300, ticket_prefix: "old".to_owned(), ..Live::default() });
+    let new_live =
+        Arc::new(Live { life_s: 300, ticket_prefix: "new".to_owned(), ..Live::default() });
+    server.bound(client_with(LiveHttp(Arc::clone(&old_live))), false);
     wait_for("the bind", || {
         let state = server.shared.lock();
         state.bound && !state.fetching
     });
-    // The old client's ticket request (t-1) and the new bind's (t-2) are each held.
-    let (release_old, old_entered) = hold_next_ticket(&live);
-    let (release_new, new_entered) = hold_next_ticket(&live);
+    // Hold each transport independently so the old reply can be released
+    // first while the current generation's request remains in flight.
+    let (release_old, old_entered) = hold_next_ticket(&old_live);
+    let (release_new, new_entered) = hold_next_ticket(&new_live);
     let (at_wanted, reached_wanted) = std::sync::mpsc::channel();
     let (go, gate) = std::sync::mpsc::channel::<()>();
     *server.shared.test_points.before_wanted.lock().unwrap() = Some(Box::new(move || {
@@ -860,7 +871,7 @@ fn a_rebind_before_a_wanted_request_starts_drops_that_requests_late_reply() {
     }));
     let asking = std::thread::spawn(move || ask(&path, r#"{"carrier_ticket": {}}"#));
     reached_wanted.recv_timeout(Duration::from_secs(10)).expect("the ask's want was not taken");
-    server.bound(client_with(LiveHttp(Arc::clone(&live))), false);
+    server.bound(client_with(LiveHttp(Arc::clone(&new_live))), false);
     go.send(()).unwrap();
     old_entered.recv_timeout(Duration::from_secs(10)).expect("the old request did not start");
     new_entered.recv_timeout(Duration::from_secs(10)).expect("the new bind did not ask");
@@ -870,8 +881,7 @@ fn a_rebind_before_a_wanted_request_starts_drops_that_requests_late_reply() {
     release_new.send(()).unwrap();
     let reply = asking.join().unwrap();
     assert_eq!(reply["ok"], true, "{reply}");
-    assert_ne!(reply["ticket"], "t-1", "the old binding's ticket was handed out");
-    assert_eq!(reply["ticket"], "t-2", "{reply}");
+    assert_eq!(reply["ticket"], "new-1", "the old binding's ticket was handed out: {reply}");
     drop(server);
 }
 
