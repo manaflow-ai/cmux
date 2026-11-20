@@ -16,6 +16,7 @@ workspace = true
 hotpatch = ["dep:subsecond"]
 
 [dependencies]
+cmux-build-space.workspace = true
 cmux-json.workspace = true
 # Locks that unlock before they close (a forked child keeps none).
 cmux-file-lock.workspace = true

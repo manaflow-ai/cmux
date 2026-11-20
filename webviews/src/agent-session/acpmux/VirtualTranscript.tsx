@@ -2213,6 +2213,16 @@ function TranscriptView({
     sent = false,
   ) => {
     const chase = followChase.current!;
+    // An at-once pass cannot shift a chase: the rows have already landed and the next
+    // animated pass must establish a fresh anchor. Avoid reading row geometry here; on
+    // every streamed update the old path paid two getBoundingClientRect() calls even
+    // though `moveAtOnce` skipped the only branch that used their result.
+    if (moveAtOnce) {
+      chaseAnchor.current = undefined;
+      resumeFollowMotion();
+      chase.fit(below);
+      return;
+    }
     const rowTop = (id: string) => {
       const name = typeof CSS === "undefined" ? id.replace(/["\\]/g, "\\$&") : CSS.escape(id);
       const row = thread.current?.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${name}"]`);
@@ -5122,7 +5132,17 @@ function TranscriptView({
             // sends: the send's rows rise from behind the composer again.
             if (sentRows) chaseHeld.current = false;
             const held = chaseHeld.current;
-            const below = held ? room : sentRows ? Number.POSITIVE_INFINITY : room + CHASE_UNDER_STACK_PX;
+            // A prompt's row that came at the tail (before the live line) outside a send's window (the
+            // reader's other device, a queued prompt sent) rises from behind the composer as a sent
+            // one does: kept to a line under the stack, its rise moved at once and the room the
+            // composer gave back after it drew the rows down again (`spring`, `chunk`, `linear`).
+            // O(rows that came).
+            let promptCame = false;
+            for (let index = rows.length - 1; index >= Math.max(0, oldRows.length - 2) && !sentRows; index -= 1) {
+              const row = rows[index]!;
+              if (row.kind === "user" && !isLineRow(row) && row.id !== oldRows[index]?.id) promptCame = true;
+            }
+            const below = held ? room : sentRows || promptCame ? Number.POSITIVE_INFINITY : room + CHASE_UNDER_STACK_PX;
             // The reply growing with no live line under it (no room: a line that names a call, a
             // queue's cards last, a view that draws none) steps as before (followRoom), as base's
             // glide did; rows that come and go, the send's among them, still chase.
