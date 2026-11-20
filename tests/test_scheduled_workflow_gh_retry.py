@@ -30,7 +30,7 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 
 # `gh` as a command: line start or after a shell separator, `$(` or `!`. A `gh` inside
 # backticks or prose (an error message telling a person what to run) is not a call.
-GH_CALL = re.compile(r"(?:^|[;&|(!{]|\$\(|\b(?:if|then|else|do|in)\s)\s*gh\s+[a-z]")
+GH_CALL = re.compile(r"(?:^|[;&|(!{]|\$\(|\b(?:if|then|else|do|in)\s)\s*gh\s+(?:[a-z]|[\"'$])")
 INSTALL = re.compile(r"^bash\s+(?:(\S+)/)?scripts/ci/gh_budget_wait\.sh\s+--install$")
 JS_INSTALL = "if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core })"
 DEFAULT_CAP = 3600
@@ -146,6 +146,8 @@ class ScheduledWorkflowGhRetryTests(unittest.TestCase):
     def test_the_lint_flags_a_bare_call(self) -> None:
         bare = {"timeout-minutes": 5, "steps": [{"run": 'x="$(gh api repos/o/r)"'}]}
         self.assertTrue(job_problems("j", bare))
+        dynamic = {"steps": [{"run": 'gh "${query[@]}"'}]}
+        self.assertTrue(job_problems("j", dynamic))
         script = {"timeout-minutes": 5, "steps": [{"uses": "actions/github-script@abc", "with": {"script": "await github.rest.x()"}}]}
         self.assertTrue(job_problems("j", script))
         # Prose that names a command for a person is not a call.
