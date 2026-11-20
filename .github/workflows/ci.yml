@@ -79,6 +79,7 @@ jobs:
       linux_jobs: ${{ steps.place.outputs.linux_jobs }}
       mini_runner: ${{ steps.place.outputs.mini_runner }}
       mini_jobs: ${{ steps.place.outputs.mini_jobs }}
+      mini_lease_ids: ${{ steps.place.outputs.mini_lease_ids }}
       placed_attempt: ${{ github.run_attempt }}
     steps:
       - name: Check out the trusted placement script
@@ -95,6 +96,7 @@ jobs:
         timeout-minutes: 2
         env:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          CMUX_CI_CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           JOBS: changes
           # `changes` mints the routing App token later in this job. Keep that
