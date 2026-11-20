@@ -1269,7 +1269,12 @@ fn push_inner(
     let checking_total = set.files.len() as u64;
     let mut tally = Tally {
         summary,
-        next: Manifest { version: 1, files: spared.into_iter().collect(), git, links: BTreeMap::new() },
+        next: Manifest {
+            version: 1,
+            files: spared.into_iter().collect(),
+            git,
+            links: BTreeMap::new(),
+        },
         save_every_files: SAVE_EVERY_FILES.max(done.files_total / 20),
         since_save: (0, 0),
         done,
