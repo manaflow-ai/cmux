@@ -982,9 +982,13 @@ function settleNextSteps(out: AcpmuxRow[], cards: NextStepAt[], from: number): n
 /// person sent after a newer card answers that card, not an older one still waiting before it. Walks
 /// back from the newest card until one was taken over: every card before that one has the person's
 /// words after it too, so it costs the waiting cards, never the chat's length.
+/// One card per question: an agent that asks the same question again in a later turn (a coordinator
+/// woken by another agent's message) pins only its newest asking, and none while that asking is the
+/// chat's last row (Leo, 2026-11-19, on one [trust] question drawn as two stacked cards: "odd looking").
 export function waitingAsks(view: Pick<TurnView, "nextSteps" | "rows">): readonly AcpmuxRow[] {
   const { nextSteps, rows } = view;
   const waiting: AcpmuxRow[] = [];
+  const asked = new Set<string>();
   for (let index = nextSteps.length - 1; index >= 0; index -= 1) {
     const { at, spoke } = nextSteps[index]!;
     const card = rows[at];
@@ -993,6 +997,9 @@ export function waitingAsks(view: Pick<TurnView, "nextSteps" | "rows">): readonl
     if (step.superseded) break;
     // Answered, or the person said something after it: it leaves the pin, its card stays answerable.
     if (!step.ask.question || step.answer !== undefined || spoke) continue;
+    const question = sameQuestion(step.ask.question);
+    if (asked.has(question)) continue;
+    asked.add(question);
     waiting.push(card);
   }
   if (!waiting.length) return NO_ASKS;
@@ -1002,6 +1009,9 @@ export function waitingAsks(view: Pick<TurnView, "nextSteps" | "rows">): readonl
   return waiting.length ? waiting.reverse() : NO_ASKS;
 }
 const NO_ASKS: readonly AcpmuxRow[] = [];
+
+/// A question as two askings of it compare: case and runs of space aside.
+export const sameQuestion = (question: string) => question.trim().replace(/\s+/g, " ").toLowerCase();
 
 /// A turn as drawn, kept while its rows (by identity) and what shapes them stay the same: a long
 /// chat's snapshot rebuilds only the turns that changed, and an unchanged turn's derived rows stay
