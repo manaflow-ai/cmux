@@ -167,3 +167,28 @@ fn only_a_train_with_under_two_percent_loss_is_a_capacity() {
         assert!(p.start(ProbeReason::Idle, 100_000).is_some());
     }
 }
+
+/// A bottleneck is first in, first out: a train that arrived out of the order it left
+/// crossed per-packet jitter, and its spread is that jitter, not a capacity (netem with
+/// 15 ms of jitter read 5 Mbit/s on a link that carried 80, and ultra held 4).
+#[test]
+fn a_train_that_arrived_out_of_order_is_not_a_capacity() {
+    let mut p = planner();
+    p.start(ProbeReason::Startup, 0).expect("start");
+    let mut seqs = Vec::new();
+    for i in 0..8u16 {
+        let at = u64::from(i) * 100;
+        let packet = p.next_packet(at, 500 + i).expect("packet");
+        assert!(p.record_departure(packet.transport_seq, at));
+        seqs.push(packet.transport_seq);
+    }
+    // Packet 3 overtook packet 2.
+    let arrival_us = [1_000u32, 1_100, 1_400, 1_300, 1_500, 1_600, 1_700, 1_800];
+    let arrivals = seqs
+        .iter()
+        .zip(arrival_us)
+        .map(|(&transport_seq, arrival_us)| Arrival { transport_seq, arrival_us })
+        .collect::<Vec<_>>();
+    assert!(p.on_feedback(2_000, &arrivals).is_none());
+    assert!(p.active().is_some(), "it expires like a lossy train");
+}
