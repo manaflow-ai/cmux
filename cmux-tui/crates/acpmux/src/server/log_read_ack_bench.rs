@@ -196,4 +196,10 @@ async fn log_read_ack_bench() {
     control("god-blocking-pool", &god, Load::Pool, READERS).await;
     control("god-wire-1", &god, Load::Wire, 1).await;
     control("god-wire-8", &god, Load::Wire, 8).await;
+    // No reader at all: a daemon whose workers sit parked between requests. And the handoff at a
+    // small read's length (1 ms), so the workers wake about as often as on the small home.
+    control("small-idle", &small, Load::Wire, 0).await;
+    control("god-idle", &god, Load::Wire, 0).await;
+    let short = Load::Sleep(Duration::from_millis(1));
+    control("small-handoff-sleep-1ms", &small, short, READERS).await;
 }
