@@ -1,11 +1,15 @@
 // One launch of a cmux NEXT app the way the Dock launches it (CMUX-629, CMUX-631), timed from outside the app.
 //
-//   launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [MODES...]]]   MODES: shell, keys, layout (separate or
+//   launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [MODES...]]]   MODES: shell, keys, layout, type (separate or
 //                                                                      comma-separated)
 //
 // With `shell` (launch-ready.sh state=bare), once the app marks `window_usable` the probe opens a terminal the way a
 // person's first one opens (`action.run newSurface` on the app's socket) and records `shell_requested`; the app's
 // `first_shell_live` mark is that terminal's first shell output.
+//
+// With `type` (launch-ready.sh type=1) the app types one space and one Delete the moment its first window frame is in
+// and a window is key (CMUX_NEXT_LAUNCH_TYPE_PROBE=1): `terminal.probe_key_typed`, then `terminal_input_accepted` (the
+// key left the app for the restored terminal's PTY) and `terminal_echo` (the shell's echo came back).
 //
 // With `keys` (launch-ready.sh keys=1) it opens no terminal (that moves focus). From the moment it sees the window it
 // posts one key every 100 ms to the app's pid (CGEvent postToPid: the app's own event queue, which AppKit hands to its
@@ -56,6 +60,7 @@ guard socketPath.utf8.count <= 103 else { // sun_path less its NUL: the app coul
 }
 let modes = Set(args.dropFirst(6).flatMap { $0.split(separator: ",").map(String.init) })
 let opensShell = modes.contains("shell"), typesKeys = modes.contains("keys"), samplesLayout = modes.contains("layout")
+let typesFirstKey = modes.contains("type")
 var shellRequested: Double?
 let home = homeRoot.appendingPathComponent("h"), tmp = homeRoot.appendingPathComponent("t")
 for sub in ["Library/Preferences", "Library/Application Support", "Library/Caches", "Library/Logs"] {
@@ -129,6 +134,8 @@ var environment: [String: String] = [
     "CMUX_NEXT_SOCKET_PATH": socketPath, "CMUX_NEXT_SOCKET_MODE": "allowAll",
     "CMUX_NEXT_LAUNCH_MARKS_PATH": fifo,
 ]
+// `type` (launch-ready.sh type=1): the app types one key at its first frame (LaunchTypeProbe) and marks its echo.
+if typesFirstKey { environment["CMUX_NEXT_LAUNCH_TYPE_PROBE"] = "1" }
 if let user = ProcessInfo.processInfo.environment["USER"] { environment["USER"] = user; environment["LOGNAME"] = user }
 // A side with its own settings (launch-ready.sh engines=): the app reads HOME_ROOT/cmux-next.json, not the account's.
 let sideConfig = homeRoot.appendingPathComponent("cmux-next.json").path
@@ -464,7 +471,11 @@ let keep = ["stub_main", "main_start", "main.warmup_started", "main.environment"
             "launch_snapshot_shown", "first_window_flushed", "did_finish_launching_end", "first_window_frame_committed", "home.first_page", "reveal.home",
             "deferred_windows_restored",
             // The bare launch's marks (piece 8): Home's composer takes keys; a terminal's shell printed its first output.
-            "window_usable", "first_shell_live"]
+            "window_usable", "first_shell_live",
+            // A relaunch's restored terminal: its first frame, and with `type` the key typed at the first window frame,
+            // when it left the app for the PTY, and its echo back (LaunchTypeProbe, LaunchInputMarks).
+            "first_terminal_content_applied", "first_terminal_frame", "launch.visible_terminals_drawn",
+            "terminal.probe_key_typed", "terminal_input_accepted", "terminal_echo"]
 var row: [String: Any] = [
     "label": label, "pid": app?.processIdentifier ?? 0, "start_epoch_ms": start ?? NSNull(),
     "request_to_start": start.map { ($0 - requested).rounded(toPlaces: 1) } ?? NSNull(),
@@ -480,7 +491,7 @@ var row: [String: Any] = [
     // its window still waited on the CLI (2026-11-17: 635 ms on a fresh home's prime launch, and no relaunch row).
     "marks": marks.filter { mark in
         label == "prime" || keep.contains(mark.key)
-            || ["dfl.", "home.", "reveal.", "cloud_env.", "app.", "daemon.", "launch_snapshot"].contains { mark.key.hasPrefix($0) }
+            || ["dfl.", "home.", "reveal.", "cloud_env.", "app.", "daemon.", "launch_snapshot", "terminal."].contains { mark.key.hasPrefix($0) }
     },
     "all_marks": marks.count,
     "shell_requested": rel(shellRequested),
