@@ -69,6 +69,26 @@
 //!   them in, and a turn that completes with them puts none back. The leading message's sender
 //!   had the turn's error; the others' sends wait on. A turn its model began is continued as
 //!   before, and its messages go back once (`requeue_joined`).
+//!
+//! On 2026-11-20 (Leo: "every single coordinator is hitting a 429 ... we're not being efficient
+//! enough again") a chat whose turns came from acpmux's own notices (gcp-agent-lane-6
+//! glass-chrome-polish) failed six turns in a row 61 s apart, each resending 190K tokens: every
+//! failure held the chat a flat [`MIN_HOLD_MS`], whatever its strikes, and with no continuation
+//! (`autoResumeDelaysMs: []`) the hold's own timer let the requeued notice fire again. Now:
+//!
+//! - Every turn that fails on the limit holds the chat, whatever started it (a person's prompt,
+//!   another agent's message, a notice, a trigger, a retry: [`Hub::limit_failure`] runs at every
+//!   turn's end, `turns.rs`), for at least [`backoff_ms`] of its strikes, jittered per chat and
+//!   strike ([`jittered`]), and until a `retry-after` or a named reset when the error has one.
+//! - While the limit has the chat (held, or with a strike: the next turn is a probe), no notice
+//!   steers into its turn (`inbox.rs`): a steer would be a second full-context request.
+//! - A held chat goes on by itself at the reset, `autoResumeDelaysMs` or none: its
+//!   continuation is one short turn (`auto_resume.rs` `rate_limit_waits`), and what queued
+//!   meanwhile folds into it. Only if that probe works does the rest of the queue drain.
+//! - The SR2 gateway's 503 "no non-exhausted ... accounts" is the whole pool's limit, so it holds
+//!   every chat of that harness on the daemon at once (`pool_hold.rs`), until the reset it names.
+//! - The row counts the turns that failed on a limit in the last hour (`rateLimitRetries1h`;
+//!   `acpmux ls`: "rate-limited until 04:30Z, 3 retries/1h").
 
 use super::*;
 use std::sync::Mutex as StdMutex;
@@ -91,6 +111,26 @@ pub(super) const PARK_AFTER: u32 = 6;
 
 /// A parked chat tells the session it reports to at most this often.
 pub(super) const NOTICE_EVERY_MS: u64 = 30 * 60_000;
+
+/// The longest a counted failure stays in [`RateHold::retries_last_hour`].
+const RETRY_WINDOW_MS: u64 = 60 * 60_000;
+
+/// `ms` with up to a fifth more, from `key` and `strike`: chats held together do not come back
+/// together, and one chat's next step lands somewhere else in its window.
+pub(super) fn jittered(ms: u64, key: &str, strike: u32) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (key, strike).hash(&mut h);
+    ms.saturating_add(h.finish() % (ms / 5 + 1))
+}
+
+/// When a chat that failed on the limit at `now`, with `strikes`, may try again: its backoff
+/// ([`backoff_ms`] from `base`, [`jittered`]), and no sooner than `reset` (a `retry-after`, the
+/// error's or the account window's reset) when there is one.
+pub(super) fn hold_until(now: u64, strikes: u32, base: u64, reset: Option<u64>, key: &str) -> u64 {
+    let backoff = now.saturating_add(jittered(backoff_ms(strikes, base), key, strikes));
+    reset.map_or(backoff, |reset| reset.max(backoff))
+}
 
 /// The least a chat with `strikes` turns in a row failed on the limit waits: `base` (the
 /// continuation's minute, [`backoff_base`]), doubling with each strike, at most [`MAX_HOLD_MS`].
@@ -145,6 +185,21 @@ struct HoldState {
     parked: Option<u64>,
     /// When the chat last told the session it reports to that it parked.
     noticed_at: Option<u64>,
+    /// When its turns failed on a limit, oldest first, at most [`RETRY_WINDOW_MS`] back.
+    failures: std::collections::VecDeque<u64>,
+}
+
+impl HoldState {
+    fn count_failure(&mut self, now: u64) {
+        self.failures.push_back(now);
+        self.forget_before(now);
+    }
+
+    fn forget_before(&mut self, now: u64) {
+        while self.failures.front().is_some_and(|at| now.saturating_sub(*at) > RETRY_WINDOW_MS) {
+            self.failures.pop_front();
+        }
+    }
 }
 
 impl RateHold {
@@ -166,6 +221,24 @@ impl RateHold {
     /// The chat's strikes: turns in a row that failed on the limit.
     pub(crate) fn strikes(&self) -> u32 {
         self.lock().strikes
+    }
+
+    /// The chat's turns that failed on a limit (a 429, the pool's 503) in the last hour.
+    pub(crate) fn retries_last_hour(&self) -> u32 {
+        let mut s = self.lock();
+        s.forget_before(now_ms());
+        u32::try_from(s.failures.len()).unwrap_or(u32::MAX)
+    }
+
+    /// Counts a turn that failed on the pool's limit (`pool_hold.rs`).
+    pub(super) fn count_failure(&self, now: u64) {
+        self.lock().count_failure(now);
+    }
+
+    /// Whether the chat's next turn is a probe of the limit: it has a strike. No notice steers
+    /// into such a turn (`inbox.rs`).
+    pub(crate) fn probing(&self) -> bool {
+        self.lock().strikes > 0
     }
 
     /// Whether the limit has the chat: held, parked, or with a strike. A Stop parks such a chat
@@ -321,6 +394,7 @@ impl Hub {
         let strikes = {
             let mut s = session.rate_hold.lock();
             s.strikes = s.strikes.saturating_add(1);
+            s.count_failure(now);
             s.strikes
         };
         if strikes >= PARK_AFTER {
@@ -329,9 +403,58 @@ impl Hub {
         }
         let limits = session.meta().usage_limits;
         let reset = super::auto_resume::reset_hint::reset_at(error, limits.as_ref(), now);
-        let until = reset.max(not_before).unwrap_or(now + MIN_HOLD_MS);
+        // Never a flat minute: the backoff of the chat's strikes, whatever started the turn and
+        // whether a continuation follows (glass-chrome-polish, 2026-11-20: six notices 61 s
+        // apart).
+        let until =
+            hold_until(now, strikes, self.backoff_base_now(), reset.max(not_before), &session.id);
         self.hold_for_rate_limit(session, turn, until, false);
         false
+    }
+
+    /// The backoff's first wait from the configured continuation waits ([`backoff_base`]), read
+    /// without waiting: [`MIN_HOLD_MS`] while the config is being written, and when continuations
+    /// are off (`[]`).
+    pub(super) fn backoff_base_now(&self) -> u64 {
+        let delays = self.config.try_read().ok().and_then(|c| c.auto_resume_delays_ms.clone());
+        match delays {
+            Some(d) if !d.is_empty() => backoff_base(&d),
+            _ => self.min_hold_ms(),
+        }
+    }
+
+    /// The shortest hold when nothing else says: [`MIN_HOLD_MS`].
+    pub(super) fn min_hold_ms(&self) -> u64 {
+        self.rate_min_hold_ms.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Tests only: a shorter [`MIN_HOLD_MS`], so a chat whose continuations are off still comes
+    /// back by itself within a test.
+    #[doc(hidden)]
+    pub fn set_rate_min_hold_for_test(&self, ms: u64) {
+        self.rate_min_hold_ms.store(ms, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// The one hold every turn's end goes through (`turns.rs`): a turn of `session` that failed
+    /// with `error` on the account's limit holds the chat, whatever started it; one that failed
+    /// on the pool's limit holds every chat of the pool (`pool_hold.rs`). `has_continuation`:
+    /// the turn's continuation sets the hold itself (`auto_resume.rs` `schedule_auto_resume`).
+    pub(super) fn limit_failure(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        turn: &str,
+        error: &str,
+        not_before: Option<u64>,
+        has_continuation: bool,
+    ) {
+        if super::pool_hold::is_pool_exhausted(error) {
+            self.hold_pool(session, error, not_before);
+            return;
+        }
+        let rate = super::turn_errors::resume_cause(error, error) == Some("rate_limit");
+        if rate && !has_continuation {
+            self.hold_at_failure(session, turn, error, not_before);
+        }
     }
 
     /// Whether the turn of `session` that started at `turn_seq` failed with `error` on the
@@ -680,11 +803,15 @@ impl Hub {
 }
 
 impl Hub {
-    /// Whether a prompt with `provenance` waits for `session`'s hold: every one but acpmux's own
-    /// continuation of the cut turn (`auto_resume` provenance), which runs once the hold is due.
-    pub(super) fn rate_holds(session: &Session, provenance: Option<&Value>) -> bool {
-        Self::rate_held(session)
-            && provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) != Some("auto_resume")
+    /// Whether a prompt with `provenance` waits for `session`'s hold or the pool's
+    /// (`pool_hold.rs`): every one but acpmux's own continuation of the cut turn (`auto_resume`
+    /// provenance), which runs once the hold is due and the pool lets it (`Hub::wait_retry`).
+    /// The pool holds only what some agent sent (a notice, a message, a trigger): the
+    /// person's own prompt, with no provenance, goes, and is a probe of its own.
+    pub(super) fn rate_holds(&self, session: &Session, provenance: Option<&Value>) -> bool {
+        let own =
+            provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some("auto_resume");
+        (Self::rate_held(session) || (provenance.is_some() && self.pool_holds(session))) && !own
     }
 }
 
@@ -701,14 +828,18 @@ impl Hub {
         wake: &Notify,
     ) {
         if reason == crate::protocol::session::RetryReason::RateLimit {
-            self.wait_rate_hold(session, turn, next_at, wake).await;
+            if self.wait_rate_hold(session, turn, next_at, wake).await {
+                self.wait_pool(session, wake).await;
+            }
             return;
         }
         let delay = next_at.saturating_sub(now_ms());
         tokio::select! {
             () = tokio::time::sleep(Duration::from_millis(delay)) => {}
-            () = wake.notified() => {}
+            () = wake.notified() => return,
         }
+        // The pool's limit holds every chat's continuation until its probe went well.
+        self.wait_pool(session, wake).await;
     }
 }
 

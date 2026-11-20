@@ -6243,6 +6243,15 @@
             "null"
           ]
         },
+        "rateLimitRetries1h": {
+          "description": "This chat's turns that failed on a rate limit (an account's 429, the pool's 503) in the\nlast hour: each was a request the limit refused (`hub/rate_hold.rs`). `acpmux ls` shows\n\"N retries/1h\". Absent when none, and from a peer on an older acpmux.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "rateLimitedUntil": {
           "description": "The account's rate limit holds every turn of this chat until this time (Unix ms): what\ncomes in queues and goes in as one turn at the reset (`hub/rate_hold.rs`). `acpmux ls` shows\n\"rate-limited until HH:MMZ\". Absent otherwise, and from a peer on an older acpmux.",
           "format": "uint64",
@@ -6970,6 +6979,15 @@
         "rateLimitParked": {
           "description": "Since when (Unix ms) this chat is parked on the rate limit: six turns in a row failed on\nit, or Stop came while the limit had it, so it starts nothing by itself until `acpmux\nretry` or the person's own prompt (`hub/rate_hold.rs`). Absent otherwise, and from a peer\non an older acpmux.",
           "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "rateLimitRetries1h": {
+          "description": "This chat's turns that failed on a rate limit (an account's 429, the pool's 503) in the\nlast hour: each was a request the limit refused (`hub/rate_hold.rs`). `acpmux ls` shows\n\"N retries/1h\". Absent when none, and from a peer on an older acpmux.",
+          "format": "uint32",
           "minimum": 0,
           "type": [
             "integer",

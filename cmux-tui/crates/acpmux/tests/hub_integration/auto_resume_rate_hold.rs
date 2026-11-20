@@ -571,3 +571,35 @@ async fn a_parked_chat_stays_parked_across_a_daemon_restart() {
     assert_eq!(started, 7, "{k:?}");
     assert!(last.contains("late report") && last.contains("rate limit"), "{last}");
 }
+
+/// Leo, 2026-11-20 23:02Z: "our auto pausing, our auto resuming after the whatever uh, is is
+/// good, right? Like we don't have that right now." With continuations off
+/// (`autoResumeDelaysMs: []`, as on cosmic-gray), a chat the 429 held sat until a new message
+/// started a turn. Now it goes on by itself at the hold's end, one short continuation.
+#[tokio::test]
+async fn a_rate_limited_chat_comes_back_by_itself_with_continuations_off() {
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(Vec::new());
+    hub.set_rate_min_hold_for_test(50);
+    let id = new_session(&mut c, "off").await;
+    let r = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({
+                "sessionId": id,
+                "prompt": [{"type": "text", "text": format!("recover-once: {LIMIT}")}],
+                "_meta": {"acpmux": {"promptId": "p-off"}}
+            }),
+        )
+        .await;
+    assert!(r.unwrap_err().contains("429"));
+    let k = until(&hub, &id, |k| k.iter().filter(|k| *k == "turn_result").count() == 2).await;
+    let messages = user_messages(&hub, &id);
+    assert_eq!(messages.len(), 2, "{k:?}");
+    assert_eq!(messages[1]["promptId"], "p-off~resume-1", "{k:?}");
+    let held = of_kind(&hub, &id, "rate_limit_held");
+    let until_ms = held[0].msg["until"].as_u64().unwrap();
+    assert!(of_kind(&hub, &id, "turn_started")[1].at >= until_ms, "not before the hold's end");
+    let row = hub.session_summary(&hub.resolve(&id).unwrap());
+    assert_eq!(row["rateLimitRetries1h"], 1, "{row}");
+}
