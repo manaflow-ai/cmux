@@ -163,6 +163,37 @@ test("a generic slice sent before its block windows it once drawn; one naming an
   expect(other.rows().length).toBe(1_000);
 });
 
+// The page hears both surfaces until its first block names its part, so a slice for the other surface can
+// arrive between its own slice and its block; it must not lose its own.
+test("before the first block: a pinned slice then an earlier one, then the pinned block windows by the pinned", async () => {
+  const page = await mount("visible");
+  await page.visible("sidebar-chats:pinned", { revision: 1, top: 3_000, height: 300 });
+  await page.visible("sidebar-chats:earlier", { revision: 1, top: 6_000, height: 300 });
+  await page.block(fixtureBlock({ revision: 1, part: "pinned", rows: fixtureRows(1_000) }));
+  expect(page.ids()).toEqual(expected(1_000, 3_000, 300));
+});
+
+test("before the first block: an earlier slice then a pinned one, then the earlier block windows by the earlier", async () => {
+  const page = await mount("visible");
+  await page.visible("sidebar-chats:earlier", { revision: 1, top: 6_000, height: 300 });
+  await page.visible("sidebar-chats:pinned", { revision: 1, top: 3_000, height: 300 });
+  await page.block(fixtureBlock({ revision: 1, part: "earlier", rows: fixtureRows(1_000) }));
+  expect(page.ids()).toEqual(expected(1_000, 6_000, 300));
+});
+
+test("before the first block: an old-wire slice and a generic one for the other surface each window their block", async () => {
+  // Each block is its own page and both hear the same events: the old wire's slice (no surface) and a generic
+  // slice for earlier. The pinned page has no generic slice, so the old wire windows it; earlier takes its own.
+  for (const part of ["pinned", "earlier"] as const) {
+    const page = await mount("both");
+    await page.oldSlice({ revision: 1, top: 3_000, height: 300 });
+    await page.visible("sidebar-chats:earlier", { revision: 1, top: 6_000, height: 300 });
+    await page.block(fixtureBlock({ revision: 1, part, rows: fixtureRows(1_000) }));
+    expect(page.ids()).toEqual(expected(1_000, part === "pinned" ? 3_000 : 6_000, 300));
+    await act(async () => mounted.splice(0).forEach((chats) => chats.unmount()));
+  }
+});
+
 test("a host with only cmux.sidebarChats.slice: the old wire windows the rows as before", async () => {
   const page = await mount("old");
   expect(page.subscribed).toEqual([BLOCK, SLICE]);
