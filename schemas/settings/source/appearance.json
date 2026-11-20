@@ -817,8 +817,7 @@
             "folder",
             "rotate",
             "restore"
-          ],
-          "page_hidden": "the Background card's mode switch writes and reads it"
+          ]
         },
         {
           "key": "appearance.displayBackgrounds",
