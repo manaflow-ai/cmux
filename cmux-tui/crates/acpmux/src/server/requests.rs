@@ -3417,6 +3417,18 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_RENAME => {
             let s = hub.resolve(session_key(&params)?)?;
+            if let Some(handle) = params.get("newHandle") {
+                let handle = handle
+                    .as_str()
+                    .ok_or_else(|| RpcError::invalid_params("newHandle must be a string"))?;
+                if params.get("newName").is_some() || params.get("to").is_some() {
+                    return Err(RpcError::invalid_params(
+                        "rename a name or a handle in one request",
+                    ));
+                }
+                hub.rename_spoken_handle(&s, handle)?;
+                return Ok(hub.session_summary(&s));
+            }
             let name = str_param(&params, "newName")
                 .or_else(|| str_param(&params, "to"))
                 .ok_or_else(|| RpcError::invalid_params("newName is required"))?;
