@@ -188,6 +188,7 @@ mod new_request;
 pub use model_options::{
     current_effort, current_model, current_option, resolve_config_id, web_url, web_url_for_session,
 };
+mod earned_access;
 pub mod ledger;
 mod list_order;
 mod model_hint;
