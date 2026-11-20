@@ -5,10 +5,12 @@ name: cmux-next guards
 # tests there: tests/test_nightly_cmux_tui_resolve.py stayed red on the branch
 # unseen. nightly-next ships from feat-cmux-next, so run the release-notary
 # group (nightly, notarization, nightly-next guard and publication tests) for
-# its pull requests and pushes. There is no workflow path filter, so a base red
-# shows on the push that caused it.
+# its pull requests and pushes. Pushes have no path filter, so a base red shows
+# on the push that caused it; pull requests carry only the docs-only block
+# (scripts/ci/docs_only_paths.py): a pull request of prose nothing reads starts
+# no run (none of these jobs is a required check; tests/test_ci_docs_only_prs.py).
 #
-# A push runs the group in nightly-guards, judged at its tip, so a base red
+# A push runs the group in its release-notary job, judged at its tip, so a base red
 # still fails the push that caused it, and in the CI guard group, so the merge
 # gate's base-red excuse finds a base verdict for every release-notary step a
 # pull request's guard group can fail. A pull request runs it inside the CI
@@ -26,6 +28,56 @@ name: cmux-next guards
 on:
   pull_request:
     branches: [feat-cmux-next]
+    # docs-only paths: BEGIN (scripts/ci/docs_only_paths.py --sync writes this block; edit DOCS_ONLY_PATHS there)
+    paths:
+      - "**"
+      - "!**/*.md"
+      - "!docs/**/*.png"
+      - "!docs/**/*.jpg"
+      - "!docs/**/*.gif"
+      - "!docs/**/*.webp"
+      - "!plans/**/*.png"
+      - "!plans/**/*.jpg"
+      - "!plans/**/*.gif"
+      - "!plans/**/*.webp"
+      - "**/AGENTS.md"
+      - "**/CLAUDE.md"
+      - "**/SKILL.md"
+      - ".github/**"
+      - "**/skills/**"
+      - "**/references/**"
+      - "**/templates/**"
+      - "**/Resources/**"
+      - "**/fixtures/**"
+      - "**/testdata/**"
+      - "**/test/**"
+      - "**/tests/**"
+      - "CHANGELOG.md"
+      - "THIRD_PARTY_LICENSES.md"
+      - "release-notes/**"
+      - "docs/agent-hooks.md"
+      - "docs/chief-setup-prompts.md"
+      - "docs/configuration.md"
+      - "docs/ci/node-product-cache-maintenance.md"
+      - "plans/cmux-next/actions.md"
+      - "docs/mdm/managed-preferences.md"
+      - "docs/ci/health-report.md"
+      - "docs/privacy.md"
+      - "**/notices/**"
+      - "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md"
+      - "cmux-tui/README.md"
+      - "docs/remote-agents-and-cloud.md"
+      - "docs/cmux-next/customize-recipes.md"
+      - "cmux-tui/crates/acpmux/README.md"
+      - "cmux-tui/crates/acpmux/docs/**"
+      - "cmux-tui/crates/cmux-browser-host/js/guide.md"
+      - "cmux-tui/crates/cmux-extension-sdk/README.md"
+      - "cmux-tui/vendor/terminput-crossterm/README.md"
+      - "mux/packages/brain/conformance/README.md"
+    # docs-only paths: END
+  # docs-only-fallback.yml calls this in a pull request's own context when the docs-only `paths:` above could
+  # have skipped it wrongly (over 300 changed files, or a full-ci/dev-build label): scripts/ci/docs_only_paths.py.
+  workflow_call:
   push:
     branches: [feat-cmux-next]
 
@@ -100,25 +152,57 @@ jobs:
         run: scripts/cmux-next/check-pinned-assets.sh "${{ steps.base.outputs.base }}"
 
   nightly-guards:
-    # !cancelled(): a skipped or failed portable-placement leaves the group on its usual runner.
-    needs: [portable-placement]
     if: ${{ !cancelled() }}
     permissions:
       contents: read
       checks: read
     uses: ./.github/workflows/ci-guards.yml
     with:
-      # Fleet Linux or a free mini when portable-placement found one; empty keeps ci-guards.yml's own runner.
-      guard_tests_runner: ${{ needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' release-notary ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' release-notary ') && needs.portable-placement.outputs.mini_runner || '' }}
-      # Pushes only: a pull request runs release-notary in ci-guard-group's head-and-base comparison (header),
-      # and keeps this call for the submodule forward-only guard and Guard status.
-      linux_guard_tests: ${{ github.event_name != 'pull_request' && 'true' || 'false' }}
+      # Never the matrix leg: it ran release-notary's 124 steps one after another, 915 s on 4 vCPU, past its
+      # 15-minute job on every push (run 44110521024). A push runs them in parallel in the release-notary job (below);
+      # a pull request runs them in ci-guard-group's head-and-base comparison (header). This call keeps the
+      # submodule forward-only guard and Guard status.
+      linux_guard_tests: ${{ 'false' }}
       linux_guard_test_groups: '["release-notary"]'
       linux_guard_history: ${{ 'false' }}
       linux_guard_cli: ${{ 'false' }}
       linux_guard_source: ${{ 'false' }}
 
-  # Signing jobs (nightly.yml, cmux-tui-artifacts.yml) take their runner from these variables, so they must
+  # A push's release-notary guards (nightly, notarization, nightly-next publication), judged at the tip so a base
+  # red fails the push that caused it. run_ci_guards.py runs the group's ci-guards.yml steps, every one, a worker
+  # per core: the ghostty-next init first, then the rest in parallel, each in its own RUNNER_TEMP and session. In
+  # the matrix leg, one after another, the 124 steps took 915 s on 4 vCPU and the 15-minute job ended cancelled
+  # with no verdict on every push sampled (runs 44105922962, 44107327387, 44109411155, 44110521024). Each red
+  # step is named on a `guard red step (tip): STEP` line. Linux only: fleet Linux (portable-placement), else the
+  # 4 vCPU Linux pool. Never a mini, as for the guard group: on cmux13 (run 44211360475) 12 of its steps went red
+  # for the mini alone (no node, no Linux tools), where every step finished in 230 s.
+  release-notary:
+    name: release-notary guards at the tip
+    needs: [portable-placement]
+    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' release-notary ') && needs.portable-placement.outputs.linux_runner || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # A mini or fleet Linux host reuses its workspace: drop the submodule checkouts a previous job
+      # left there (a no-op on Blacksmith, which starts with none).
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        run: scripts/ci/reset-stale-submodules.sh
+
+      - name: Run the release-notary guards
+        run: |
+          # The job ends at 15 minutes; the group gets 13 of them (--deadline: a mini has no GNU timeout), so a stuck
+          # step ends in a "timed out" verdict instead of a cancelled job.
+          scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --group release-notary --deadline 780 --results "$RUNNER_TEMP/release-notary.json" || true
+          python3 scripts/ci/guards_new_reds.py --tip "$RUNNER_TEMP/release-notary.json"
+
+  # Signing jobs (the nightly notarization and iOS nightly Mac jobs) take their runner from this variable, so they must
   # name ephemeral runners only: Blacksmith or GitHub's hosted Linux, never an owned mini
   # (tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py rule 7). Unset falls back to a Blacksmith
   # literal and passes. This job's own runner is a literal, so a variable at a missing label still goes red.
@@ -130,11 +214,10 @@ jobs:
     steps:
       - name: Runner variables that signing jobs read name ephemeral runners
         env:
-          LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}
           MACOS_RUNNER_26: ${{ vars.MACOS_RUNNER_26 }}
         run: |
           bad=0
-          for name in LINUX_RUNNER MACOS_RUNNER_26; do
+          for name in MACOS_RUNNER_26; do
             value="${!name}"
             case "$value" in
               ""|blacksmith-*|ubuntu-*) echo "$name=${value:-<unset>}" ;;
@@ -235,7 +318,7 @@ jobs:
   # never ran for feat-cmux-next (tests/pr-lane-exemptions.json). This job runs them too: --feat-routes picks
   # the groups a pull request's paths route to (detect_linux_guard_changes.classify_feat, workflow_guard_groups.py's
   # ownership), and every routed group on a push. The main-only release-ios group never runs here; release-notary runs here
-  # on a pull request that reaches its inputs (compared with its base) and on every push (here, and in nightly-guards).
+  # on a pull request that reaches its inputs (compared with its base) and on every push (here, and in the release-notary job).
   ci-guard-group:
     name: cmux-next CI guard group
     # 32 vCPU, a guard worker per core: the head and the base each run every routed group, on every pull request
@@ -322,6 +405,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # setup-python installs 3.9 on Linux; a runner without it takes the one uv installs, if any.
       # The head and the base run on the same machine, so either way they compare like for like.
@@ -944,6 +1028,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: The web lint pre-push hook
         run: python3 -m pytest -p no:cacheprovider -n 4 -v tests/test_web_lint_prepush.py
