@@ -436,7 +436,7 @@ fn failed_index_publication_restores_the_worktree() {
     repo(src.path());
     sh(
         src.path(),
-        "mkdir directory && printf original > directory/child && git add directory && git commit -qm directory",
+        "mkdir -p directory/deep/nested && printf original > directory/deep/nested/child && git add directory && git commit -qm directory",
     );
     sh(
         src.path(),
@@ -560,13 +560,16 @@ fn a_real_partial_write_restores_the_worktree_and_allows_retry() {
     repo(src.path());
     sh(
         src.path(),
-        "printf 'base first\\n' > a-first.txt && printf 'base last\\n' > z-last.txt && git add . && git commit -qm files",
+        "printf 'base first\\n' > a-first.txt && printf 'base last\\n' > z-last.txt && mkdir -p b-directory/deep/nested && printf original > b-directory/deep/nested/child && git add . && git commit -qm files",
     );
     std::fs::remove_file(src.path().join("a-first.txt")).unwrap();
     std::fs::create_dir_all(src.path().join("a-first.txt/deep/nested")).unwrap();
     std::fs::write(src.path().join("a-first.txt/deep/nested/child"), b"changed first\n").unwrap();
     std::fs::write(src.path().join("z-last.txt"), vec![b'x'; 128 * 1024]).unwrap();
-    sh(src.path(), "git add a-first.txt z-last.txt");
+    sh(
+        src.path(),
+        "git rm -qr b-directory && printf replacement > b-directory && git add a-first.txt b-directory z-last.txt",
+    );
     let carry = snapshot(&here, src.path(), true).unwrap();
     sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
     let index = std::fs::read(dst.path().join(".git/index")).unwrap();
@@ -582,6 +585,10 @@ fn a_real_partial_write_restores_the_worktree_and_allows_retry() {
     assert!(!out.ok);
     assert!(out.stdout.contains("PARTIAL_WRITE:changed first"), "{} / {}", out.stdout, out.stderr);
     assert_eq!(std::fs::read(dst.path().join("a-first.txt")).unwrap(), b"base first\n");
+    assert_eq!(
+        std::fs::read(dst.path().join("b-directory/deep/nested/child")).unwrap(),
+        b"original"
+    );
     assert_eq!(std::fs::read(dst.path().join("z-last.txt")).unwrap(), b"base last\n");
     assert_eq!(std::fs::read(dst.path().join(".git/index")).unwrap(), index);
     assert!(!dst.path().join(".git/index.lock").exists());

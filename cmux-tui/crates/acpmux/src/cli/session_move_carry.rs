@@ -386,6 +386,11 @@ restore_worktree() {
     xargs -0 sh -c '. "$1/path-guards.sh"; shift; for p do
       safe_parents "$p" || continue
       if [ -L "$p" ] || [ -f "$p" ]; then rm -f -- "$p" || exit 1; fi
+    done' sh "$s" <"$s/directories" || restored=1
+    # Remove every replacement first: a parent file would otherwise prevent
+    # mkdir from restoring a deeper original directory. mkdir creates parents.
+    xargs -0 sh -c '. "$1/path-guards.sh"; shift; for p do
+      safe_parents "$p" || continue
       mkdir -p -- "$p" || exit 1
     done' sh "$s" <"$s/directories" || restored=1
   fi

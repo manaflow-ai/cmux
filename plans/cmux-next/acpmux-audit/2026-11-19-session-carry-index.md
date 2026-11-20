@@ -84,3 +84,9 @@ extraction refuses if an original file still has a symlink ancestor.
 child plus a final symlink into an unrelated directory, forces both a real write
 failure and publication failure, and proves the outside target-only file remains
 unchanged before retrying.
+
+Directory recovery first removes all replacement files and symlinks, then
+recreates original directories and their parents. Combining these passes would
+try to recreate descendants beneath a parent still replaced by a file. The
+publication and real partial-write tests cover nested directory-to-file as well
+as nested file-to-directory transitions.
