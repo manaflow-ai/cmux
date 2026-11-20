@@ -32,12 +32,15 @@
 //! - [`launch`]: whether the launch snapshot drawn before the daemon answered
 //!   is that daemon's, or stale (the launch then goes on as a bare one), and
 //!   where the launch lands: the last workspace and tab, or Home.
+//! - [`editors`]: the code editors Open in Editor knows and which one opens
+//!   a folder (the person's `editor.default`, else the first installed).
 
 pub mod appearance;
 pub mod browser;
 pub mod chat;
 pub mod close;
 pub mod closed;
+pub mod editors;
 pub mod files;
 pub mod history;
 pub mod launch;
