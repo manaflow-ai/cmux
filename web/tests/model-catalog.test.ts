@@ -123,6 +123,31 @@ describe("projectCatalog", () => {
     expect(ids).toEqual(["claude-opus-5-5", "claude-sonnet-5", "claude-haiku-4-5"]);
   });
 
+  // acpmux reads the public feed itself every hour (catalog/feed.rs) and adds what these rules
+  // select, so a model shows the day the feed lists it (user 2026-11-19: "gemini neon didn't
+  // automatically appear in model picker for us").
+  test("a catalog harness carries the feed rules a client applies itself", () => {
+    const gemini = harness(catalog, "gemini");
+    expect(gemini.runsAnyModel).toBe(true);
+    expect(gemini.feed?.sources).toEqual([expect.objectContaining({ provider: "google", include: ["gemini-"] })]);
+    expect(gemini.feed?.shortNamePrefix).toBe("Gemini ");
+    expect(gemini.feed?.familyNames?.gemini).toBe("Gemini");
+    expect(harness(catalog, "claude").feed?.defaultEffort).toBe("medium");
+    expect(harness(catalog, "claude").runsAnyModel).toBeUndefined();
+    expect(harness(catalog, "vercel-ai-gateway").feed?.groupByProvider).toBe(true);
+    expect(harness(catalog, "opencode").feed).toBeUndefined();
+    expect(validateCatalog(JSON.parse(JSON.stringify(catalog)))).toBeTruthy();
+  });
+
+  test("a malformed feed rule is refused", () => {
+    const broken = JSON.parse(JSON.stringify(catalog));
+    harness(broken, "gemini").feed = { sources: [] };
+    expect(() => validateCatalog(broken)).toThrow();
+    harness(broken, "gemini").feed = undefined;
+    (harness(broken, "gemini") as { runsAnyModel?: unknown }).runsAnyModel = "yes";
+    expect(() => validateCatalog(broken)).toThrow();
+  });
+
   test("a feed with no Claude or Codex models is refused", () => {
     expect(() => projectCatalog({ anthropic: { id: "anthropic", name: "Anthropic", models: {} } }, NOW)).toThrow();
     expect(() => projectCatalog("nope", NOW)).toThrow();
@@ -233,6 +258,13 @@ describe("the checked-in catalog", () => {
     expect(gemini.models.every((model) => model.efforts === undefined && model.ref === `google/${model.id}`)).toBe(true);
   });
 
+  test("Gemini CLI lists Gemini 4 Neon, runs any Gemini API id, and carries its feed rules", () => {
+    const gemini = harness(bundledSnapshot(), "gemini");
+    expect(gemini.models.map((model) => model.id)).toContain("gemini-4-neon");
+    expect(gemini.runsAnyModel).toBe(true);
+    expect(gemini.feed?.sources[0]?.provider).toBe("google");
+  });
+
   // cx-jqkx: each aliased Claude family's newest model carries the alias Claude Code resolves to it
   // (Claude Code 2.1.295: opus, sonnet, haiku -> 5.5 and fable -> Fable 5.1, each checked with
   // `claude -p --model`; fable added by cx-uxeb).
@@ -241,8 +273,9 @@ describe("the checked-in catalog", () => {
     const aliased = Object.fromEntries(
       claude.models.flatMap((model) => (model.aliases ?? []).map((alias) => [alias, model.id])),
     );
+    // Fable 5.2 (feed 2026-11-19) leads Claude Code's own live list, so `fable` follows it.
     expect(aliased).toEqual({
-      fable: "claude-fable-5-1",
+      fable: "claude-fable-5-2",
       opus: "claude-opus-5-5",
       sonnet: "claude-sonnet-5-5",
       haiku: "claude-haiku-5-5",

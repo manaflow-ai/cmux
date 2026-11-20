@@ -521,6 +521,11 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     let surface: AgentChatSurface
     var context: ChatRowContext { lookup.context }
     private(set) var builder: ChatTranscriptBuilder
+    /// Finished turns fold their work under "Worked for" (`WorkedFold`); tests of a row's own
+    /// disclosure turn it off to keep each turn's tool row on screen.
+    var foldsWork = true {
+        didSet { if oldValue != foldsWork { reload() } }
+    }
     private let dataSource: UICollectionViewDiffableDataSource<Int, String>
     /// The rows by id and their environment, for the cells.
     private let lookup: ChatRowLookup
@@ -833,10 +838,19 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// Any file: reading whether it is viewed observes every viewed mark.
     private static let viewedProbe = DiffFile(path: "", status: .modified, lines: [], hasFullContext: false)
     private var shownDisclosures = -1
+    /// The turn running at the last reload.
+    private var runningShown: String?
 
     func reload() {
         let reloadStart = ContinuousClock.now
         defer { reloadTime += reloadStart.duration(to: .now) }
+        // A turn that ended under a reader scrolled up keeps its work open: folding it under
+        // "Worked for" would take away what they are reading (the Mac's rule, cmux#42802).
+        let running = store.isRunning ? store.turns.last?.id : nil
+        if let ended = runningShown, ended != running, !surface.following {
+            surface.disclosures.set(WorkedFold.key(turnID: ended), true)
+        }
+        runningShown = running
         // A disclosure opened or closed, or a file was marked viewed: shown rows may change
         // their cell type or their drawing.
         let disclosures = surface.disclosures.revision
@@ -870,7 +884,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         let built = builder.build(turns: turns, pendingPermission: store.pendingPermission,
                                   askOpen: store.pendingPermission != nil || store.pendingQuestion != nil,
                                   permissionBarHidden: surface.permissionBarHidden,
-                                  earlierHistory: store.hasEarlierHistory)
+                                  earlierHistory: store.hasEarlierHistory, foldsWork: foldsWork)
         var ids: [String] = []
         var seen: Set<String> = []
         var changed: [String] = []
@@ -1084,6 +1098,20 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     func reloadIfDisclosuresChanged() {
         guard disclosuresPending else { return }
         reload()
+    }
+
+    /// Row `id` drawn inside a closed "Worked for" (Find in Chat's match in a turn's folded work):
+    /// opens that fold and returns its row, which the reader is taken to. Nil when `id` is a row of
+    /// its own.
+    func openFold(holding id: String) -> String? {
+        guard rows[id] == nil else { return nil }
+        for row in rows.values {
+            guard case .worked(let fold) = row.kind, fold.rows.contains(where: { $0.id == id }) else { continue }
+            surface.disclosures.set(fold.key, true)
+            reloadIfDisclosuresChanged()
+            return row.id
+        }
+        return nil
     }
 
     /// A disclosure changed since the last reload.
@@ -1380,6 +1408,15 @@ final class ChatRowLookup {
             hasher.combine(disclosures.isOpen("chiefContext-\(row.id)"))
         case .whoElse(let id, _):
             hasher.combine(disclosures.isOpen(WhoElseCard.disclosureKey(id)))
+        case .incoming, .steer:
+            hasher.combine(disclosures.isOpen(AgentIncomingCard.key(row.id)))
+        case .worked(let fold):
+            // Open, it draws its rows: their disclosures count too.
+            let open = disclosures.isOpen(WorkedFold.key(turnID: row.turnID))
+            hasher.combine(open)
+            if open == true {
+                for inner in fold.rows { hasher.combine(self.fold(inner)) }
+            }
         case .edit(let call, _):
             // A running edit draws as its tool row.
             hasher.combine(disclosures.isOpen("diff-\(call.id)"))
@@ -1525,7 +1562,7 @@ extension ChatRow {
     }
 
     static let hostedReuseKeys = ["prompt", "chiefContext", "incoming", "block", "thought", "tool", "toolGroup", "edit", "plan", "permission", "question",
-                                  "subagents", "working", "editedFiles", "stopped", "failed", "actions", "nextStep", "whoElse", "other"]
+                                  "subagents", "working", "editedFiles", "stopped", "failed", "actions", "nextStep", "whoElse", "worked", "other"]
 
     /// The SwiftUI reuse pool: one per kind, so a reused cell keeps its view structure.
     var hostedReuseKey: String {
@@ -1551,6 +1588,7 @@ extension ChatRow {
         case .actions: "actions"
         case .nextStep: "nextStep"
         case .whoElse: "whoElse"
+        case .worked: "worked"
         }
     }
 
@@ -1595,11 +1633,11 @@ extension ChatRow {
             let drawn = NextStepAsk.replyQuote(text).map { (lines($0.quote) + lines($0.body)) * perLine + 6 } ?? lines(text) * perLine
             return drawn + 22 + (attachments.isEmpty ? 0 : 156)
         case .incoming(let incoming, let attachments, _):
-            return (incoming.messages.count == 1 ? 46 + lines(incoming.text) * perLine : 46 + CGFloat(incoming.messages.count) * 40)
+            return (incoming.messages.count == 1 ? 46 + perLine : 46 + CGFloat(incoming.messages.count) * 40)
                 + (attachments.isEmpty ? 0 : 156)
         case .steer(let message):
             if let incoming = message.incoming {
-                return (incoming.messages.count == 1 ? 46 + lines(incoming.text) * perLine : 46 + CGFloat(incoming.messages.count) * 40)
+                return (incoming.messages.count == 1 ? 46 + perLine : 46 + CGFloat(incoming.messages.count) * 40)
                     + (message.attachments.isEmpty ? 0 : 156)
             }
             return lines(message.text) * perLine + 22 + (message.attachments.isEmpty ? 0 : 156)
@@ -1613,7 +1651,7 @@ extension ChatRow {
             case .math: return 60
             case .rule: return 9
             }
-        case .thought, .tool, .toolGroup, .working: return 32
+        case .thought, .tool, .toolGroup, .working, .worked: return 32
         case .edit(_, let files): return files == nil ? 44 : 44 + 12 * 19 + 20
         case .plan(let entries): return 56 + CGFloat(entries.count) * 30
         case .permission: return 120
