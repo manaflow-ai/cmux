@@ -161,7 +161,9 @@ impl Counts {
         let cleared = removed
             .into_iter()
             .filter(|(thread, count)| {
-                self.actionable_by_thread.get(*thread).is_some_and(|total| count >= total)
+                self.actionable_by_thread
+                    .get(*thread)
+                    .is_some_and(|total| (*count as u64) >= *total)
             })
             .count();
         self.actionable_by_thread.len().saturating_sub(cleared) as u64
@@ -241,7 +243,7 @@ impl Hub {
     ) -> Result<(), RpcError> {
         let state = session.inbox().surge_counts.clone();
         let mut counts = state.lock().unwrap_or_else(|e| e.into_inner());
-        let (additions, mut next_need) = if kind == "inbox_triaged" {
+        let (_additions, mut next_need) = if kind == "inbox_triaged" {
             counts.triage_additions(&msg)
         } else {
             (Vec::new(), counts.need_you)
@@ -256,10 +258,6 @@ impl Hub {
             }
         }
         let next_held = counts.held.saturating_add(u64::from(actionable_topics.is_none()));
-        let held_prompt = actionable_topics
-            .is_none()
-            .then(|| msg.get("promptId").and_then(Value::as_str).map(str::to_owned))
-            .flatten();
         msg["surge"] = json!({"held": next_held, "needYou": next_need});
         // The caller retries a failed append. A parked copy must not be replayed behind it.
         let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
@@ -269,15 +267,7 @@ impl Hub {
         if !stored {
             return Err(RpcError::internal("could not persist the surge inbox event"));
         }
-        counts.held = next_held;
-        for (prompt, thread) in additions {
-            counts.add_actionable(&prompt, &thread);
-        }
-        if let Some(prompt) = held_prompt {
-            counts.held_pending.insert(prompt);
-        }
-        counts.need_you = next_need;
-        counts.seq = event.seq;
+        counts.restore(&event);
         Ok(())
     }
 

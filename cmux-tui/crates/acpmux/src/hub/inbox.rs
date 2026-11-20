@@ -1514,7 +1514,7 @@ impl Hub {
             json!({"threadId": thread, "promptIds": prompt_ids,
                 "surge": {"held": counts.held, "needYou": need_you}}),
         );
-        counts.apply(&event);
+        counts.restore(&event);
         self.append(
             session,
             "mux",
@@ -2258,7 +2258,7 @@ impl Hub {
         let mut why = why;
         why["surge"] = json!({"held": counts.held, "needYou": need_you});
         let event = self.append(session, "mux", "inbox_removed", why);
-        counts.apply(&event);
+        counts.restore(&event);
         if let Some(answer) = removed.answer {
             answer.send_replace(Some(Ok(super::queue::withdrawn_reply(prompt_id, ""))));
         }
@@ -2467,7 +2467,7 @@ impl Hub {
             let msg = json!({"threadId": thread, "promptIds": marked, "surgePromptIds": surge_marked,
                 "surge": {"held": counts.held, "needYou": need_you}});
             let event = self.append(session, "mux", "inbox_read", msg);
-            counts.apply(&event);
+            counts.restore(&event);
         }
         json!({"sessionId": session.id, "threadId": thread, "label": label(&label_key), "messages": messages})
     }
