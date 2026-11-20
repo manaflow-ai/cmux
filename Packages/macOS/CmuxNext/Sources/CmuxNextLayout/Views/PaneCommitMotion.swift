@@ -300,8 +300,6 @@ final class PaneCommitMotion {
                 guard old != new else { continue }
                 move(layer, act.spring, origin: CGPoint(x: old.minX - new.minX, y: old.minY - new.minY),
                      size: CGSize(width: old.width - new.width, height: old.height - new.height))
-            } else if act == .unzoom {
-                holdLine(of: view, under: changes[0])
             } else if let edge = changes.lazy.compactMap({ Self.edge(of: $0, at: new) }).first {
                 move(layer, act.spring, origin: edge, size: .zero)
             }
