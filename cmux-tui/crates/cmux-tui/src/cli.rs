@@ -682,7 +682,7 @@ pub(crate) fn agent_engine_requested(args: &[String]) -> bool {
     else {
         return false;
     };
-    if matches!(
+    !matches!(
         verb.as_str(),
         "list"
             | "message"
@@ -695,12 +695,7 @@ pub(crate) fn agent_engine_requested(args: &[String]) -> bool {
             | "open"
             | "open-tab"
             | "help"
-    ) || !acpmux::cli::entry::is_command(verb)
-    {
-        return false;
-    }
-    let action = format!("agent {verb}");
-    !action_hint::offered_app_action(&action) && action_hint::non_verb_action(&action).is_none()
+    ) && acpmux::cli::entry::is_command(verb)
 }
 
 /// The acpmux argv of `cmux agent …` and `cmux acp …` (the words after the scope) and of its

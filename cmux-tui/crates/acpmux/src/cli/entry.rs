@@ -3,12 +3,12 @@
 //! the command in help and errors, and `daemon_prefix` is what the detached
 //! daemon is started with (`<current exe> <prefix…> daemon run`).
 
-use crate::cli::command::{Cli, Command, RouterCmd, flatten};
+use crate::cli::command::{Cli, Command, RouterCmd, aliases, flatten};
 use crate::cli::errors;
 use crate::cli::run::run_client;
 use crate::daemon::{DaemonOptions, connect};
 use anyhow::Result;
-use clap::{CommandFactory, FromArgMatches};
+use clap::{CommandFactory, FromArgMatches, Subcommand};
 use std::ffi::OsString;
 
 static ORIGINAL_ARGS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
@@ -572,7 +572,10 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
 /// A command the session engine accepts, including compatibility spellings.
 /// The cmux CLI uses the same grammar when sharing its `agent` scope.
 pub fn is_command(word: &str) -> bool {
-    matches!(word, "stop" | "--skill" | "--guide") || Cli::command().find_subcommand(word).is_some()
+    // Routing needs only the first word. Build the parser once the command has an owner.
+    matches!(word, "stop" | "--skill" | "--guide")
+        || Command::has_subcommand(word)
+        || aliases::GROUPS.iter().any(|group| group.contains(&word))
 }
 
 /// Index of the first argument after the program name that is not a global
@@ -591,6 +594,38 @@ mod tests {
 
     fn os(args: &[&str]) -> Vec<OsString> {
         args.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn the_agent_router_recognizes_every_engine_command_and_alias() {
+        // Build the full grammar on the CLI stack. Run the router on the normal test thread.
+        let words = std::thread::Builder::new()
+            .stack_size(WORKER_STACK_BYTES)
+            .spawn(|| {
+                Cli::command()
+                    .get_subcommands()
+                    .flat_map(|cmd| {
+                        std::iter::once(cmd.get_name())
+                            .chain(cmd.get_all_aliases())
+                            .map(str::to_owned)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        for word in &words {
+            assert!(is_command(word), "{word}");
+        }
+        for &alias in aliases::GROUPS.iter().flat_map(|group| group.iter()) {
+            assert!(words.iter().any(|word| word == alias), "unregistered alias {alias}");
+        }
+        for word in ["stop", "--skill", "--guide"] {
+            assert!(is_command(word), "{word}");
+        }
+        for word in ["", "unknown-command", "open-terminal-as-chat"] {
+            assert!(!is_command(word), "{word}");
+        }
     }
 
     #[test]

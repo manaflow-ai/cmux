@@ -190,6 +190,10 @@ mod remote_cli_docs {
     }
 
     fn action_names() -> HashSet<String> {
+        catalog_action_names(|action| action["cli"] == "offered")
+    }
+
+    fn catalog_action_names(include: impl Fn(&serde_json::Value) -> bool) -> HashSet<String> {
         let catalog: serde_json::Value = serde_json::from_str(include_str!(
             "../../../../../plans/cmux-next/action-surfaces.json"
         ))
@@ -198,7 +202,7 @@ mod remote_cli_docs {
             .as_array()
             .expect("actions array")
             .iter()
-            .filter(|action| action["cli"] == "offered")
+            .filter(|action| include(action))
             .filter_map(|action| action["cli_name"].as_str().map(str::to_owned))
             .collect()
     }
@@ -318,6 +322,16 @@ mod remote_cli_docs {
                 // cloud_start_chat.rs: the CLI's own Cloud verb, not an app action.
                 | ["cloud", "start-chat", ..]
         )
+    }
+
+    #[test]
+    fn every_catalog_agent_action_keeps_its_native_route() {
+        for name in catalog_action_names(|_| true) {
+            let words: Vec<_> = name.split_whitespace().map(str::to_owned).collect();
+            if words.first().is_some_and(|scope| scope == "agent") {
+                assert!(!agent_engine_requested(&words), "{name} belongs to the app");
+            }
+        }
     }
 
     #[test]
