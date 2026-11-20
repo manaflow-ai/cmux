@@ -43,9 +43,9 @@ pub(super) async fn run(
 
 /// A move begun on the source: the chat is frozen there and its bundle made.
 pub(super) struct Begun {
-    begin: Value,
-    transfer_id: String,
-    epoch: u64,
+    pub(super) begin: Value,
+    pub(super) transfer_id: String,
+    pub(super) epoch: u64,
 }
 
 /// Freezes the chat `id` on `src` and makes its bundle (`_acpmux/transfer_begin`). `watch` is

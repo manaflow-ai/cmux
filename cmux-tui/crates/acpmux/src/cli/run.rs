@@ -25,7 +25,7 @@ mod ls_tools;
 pub use ls::LsArgs;
 mod parent;
 mod send_async;
-mod session_move;
+pub(crate) mod session_move;
 mod standard;
 pub(crate) mod transfer;
 

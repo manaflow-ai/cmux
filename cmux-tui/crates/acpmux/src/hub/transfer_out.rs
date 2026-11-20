@@ -13,7 +13,9 @@
 //!    prompt id): the manifest the target takes. `to` names the
 //!    target's local socket, which the source asks if the client goes away (`transfer_watch.rs`);
 //!    with `ssh`, that socket is on that ssh host, reached through a forward (`ssh_forward.rs`);
-//!    `host` is the peer's name, recorded in `movedTo` when the watch ends the move.
+//!    `host` is the peer's name, recorded in `movedTo` when the watch ends the move. With
+//!    `hub` (no `socket`), the target is a machine only the team hub reaches, by its hub
+//!    `daemonId`: it pulls the pages itself (`transfer_pull.rs`), and only it may.
 //! 2. source `_acpmux/transfer_read {transferId, path, offset, limit?}` pages a file: `{data`
 //!    (base64)`, next, eof}`.
 //! 3. target `_acpmux/transfer_receive {manifest}`, `transfer_write`, `transfer_finish`.
@@ -256,14 +258,28 @@ impl Hub {
                 }
                 let host = to.and_then(|to| to.get("host")).and_then(Value::as_str);
                 let host = host.filter(|h| crate::cli::hosts::checked_host(h).is_ok());
+                // A machine only the team hub reaches: its hub `daemonId`, which alone may pull
+                // the move's pages (`transfer_pull.rs`).
+                let hub = to.and_then(|to| to.get("hub")).and_then(Value::as_str);
+                if let Some(hub) = hub {
+                    let plain = (8..=128).contains(&hub.len())
+                        && hub.bytes().all(|b| b.is_ascii_alphanumeric() || b"+/=_-".contains(&b));
+                    if !plain || socket.is_some() || ssh.is_some() {
+                        return Err(RpcError::invalid_params(
+                            "transfer: `to.hub` needs a plain hub daemon id, and no socket or ssh",
+                        ));
+                    }
+                }
                 // The client hands the bundle only to a receiver whose own `initialize` listed
                 // queue approval when it carries approved prompts that still wait.
                 let gates = params.get("gatesQueueApproval").and_then(Value::as_bool) == Some(true);
                 // Wait for a running turn to end on its own, then move (`AFTER_TURN_WAIT`).
                 let after_turn =
                     !interrupt && params.get("afterTurn").and_then(Value::as_bool) == Some(true);
-                self.transfer_begin(&session, interrupt, after_turn, socket, ssh, host, gates).await
+                self.transfer_begin(&session, interrupt, after_turn, socket, ssh, host, hub, gates)
+                    .await
             }
+            "hub" => self.transfer_hub(params).await,
             "read" => {
                 let offset = params.get("offset").and_then(Value::as_u64).unwrap_or(0);
                 let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(1 << 20);
@@ -326,6 +342,7 @@ impl Hub {
         to: Option<&str>,
         to_ssh: Option<&str>,
         to_host: Option<&str>,
+        to_hub: Option<&str>,
         gates_receiver: bool,
     ) -> Result<Value, RpcError> {
         if !session.ownership_epoch_is_valid() {
@@ -517,6 +534,13 @@ impl Hub {
         }
         if let Some(host) = to_host {
             let _ = crate::home_fs::write(dir.join("to-host"), host);
+        }
+        // Written before the begin answers: no page is served before it names the target.
+        if let Some(daemon) = to_hub
+            && let Err(error) =
+                crate::home_fs::write(dir.join(super::transfer_pull::TO_HUB), daemon)
+        {
+            tracing::warn!(session = %session.id, transfer_id = %transfer_id, "recording a hub move's target: {error}");
         }
         if let Some(id) = carried {
             let _ = crate::home_fs::write(dir.join("continues"), id);

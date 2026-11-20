@@ -1901,3 +1901,117 @@ async fn hub_carrier_a_black_holed_direct_path_costs_no_more_than_the_relay_open
     );
     drop(hole);
 }
+
+/// A hub move's pages over the carrier (`transfer_service.rs`, `hub/transfer_pull.rs`): machine A
+/// moves a chat to B (`to.hub` is B's key). B dials A naming the transfer service and reads the
+/// bundle; C, another of the person's machines, is refused while A's hub book does not list it,
+/// and reads no page of B's move once it does; a machine with no transfer gate refuses by name.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_moves_pages_reach_only_the_machine_it_moves_to() {
+    use acpmux::hub::transfer_pull::PageSource;
+    use acpmux::transfer_service::{CircuitPages, ConfiguredTransferGate};
+
+    let _ = HERMETIC;
+    let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_address = relay_listener.local_addr().unwrap();
+    let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
+        allow_open: true,
+        ..cmux_relay::RelayConfig::default()
+    })
+    .unwrap();
+    let (relay_listener, router) = relay.server_parts(relay_listener);
+    tokio::spawn(async move {
+        let _ = axum::serve(relay_listener, router).await;
+    });
+    let route = format!("relay+ws://{relay_address}");
+    let (key_a, key_b, key_c, key_d) = (random_key(), random_key(), random_key(), random_key());
+    let (a_key, b_key, c_key, d_key) =
+        (public(&key_a), public(&key_b), public(&key_c), public(&key_d));
+    let fast = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        ..Timings::default()
+    };
+    let carrier = |key: [u8; 32], peers: Vec<String>| {
+        HubCarrier::new(
+            Arc::new(FixedTickets { relay: route.clone(), peers, asked: AtomicU64::new(0) }),
+            key,
+            fast,
+        )
+    };
+
+    // A, with a chat moving to B.
+    let a = hub();
+    let mut ca = client(a.clone()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let s = ca.call(method::SESSION_NEW, json!({"cwd": dir.path(), "mcpServers": []})).await;
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let hi = json!({"sessionId": id, "prompt": [{"type": "text", "text": "hi"}]});
+    ca.call(method::SESSION_PROMPT, hi).await;
+    let begin = ca
+        .call(
+            "_acpmux/transfer_begin",
+            json!({"sessionId": id, "gatesQueueApproval": true,
+                   "to": {"hub": b_key, "host": "machine-b"}}),
+        )
+        .await;
+    let read = json!({"transferId": begin["transferId"], "path": "session.json", "offset": 0,
+                      "limit": 4096, "epoch": begin["epoch"]});
+
+    let carrier_a = carrier(key_a, vec![b_key.clone(), c_key.clone()]);
+    carrier_a.set_transfer_gate(Arc::new(ConfiguredTransferGate::new(&a)));
+    a.set_mesh_book_machines(BTreeMap::from([(b_key.clone(), "machine-b".to_owned())]));
+    let nothing = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let _serving = carrier_a.serve(nothing);
+    let carrier_b = carrier(key_b, vec![a_key.clone(), d_key.clone()]);
+    let carrier_c = carrier(key_c, vec![a_key.clone()]);
+
+    // B reads its move's pages, A's registration perhaps still on its way.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    let stream = loop {
+        match carrier_b.dial_service(&a_key, CircuitService::TransferSource).await {
+            Ok(stream) => break stream,
+            Err(e) => {
+                assert!(tokio::time::Instant::now() < deadline, "A never answered: {e}");
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+    };
+    let mut pages = CircuitPages::new(stream);
+    let page = pages.call("read", read.clone()).await.unwrap();
+    assert!(page["data"].as_str().is_some_and(|d| !d.is_empty()), "{page}");
+    assert!(page["next"].as_u64().is_some_and(|n| n > 0), "{page}");
+    let renewed = pages
+        .call("renew", json!({"transferId": begin["transferId"], "epoch": begin["epoch"]}))
+        .await;
+    assert!(renewed.is_ok(), "{renewed:?}");
+    // Nothing else runs on the circuit.
+    let commit = json!({"sessionId": id, "transferId": begin["transferId"]});
+    assert!(pages.call("commit", commit).await.is_err());
+
+    // C: not in A's book, refused at the hello; in it, refused each page of B's move.
+    let refused = carrier_c.dial_service(&a_key, CircuitService::TransferSource).await.unwrap_err();
+    assert!(refused.contains("machine.unlisted"), "{refused}");
+    a.set_mesh_book_machines(BTreeMap::from([
+        (b_key.clone(), "machine-b".to_owned()),
+        (c_key.clone(), "machine-c".to_owned()),
+    ]));
+    let stream = carrier_c.dial_service(&a_key, CircuitService::TransferSource).await.unwrap();
+    let refused = CircuitPages::new(stream).call("read", read.clone()).await.unwrap_err();
+    assert!(refused.message.contains("not_yours"), "{}", refused.message);
+
+    // A machine that serves no move pages refuses by name.
+    let carrier_d = carrier(key_d, vec![b_key.clone()]);
+    let _serving_d = carrier_d.serve(nothing);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        match carrier_b.dial_service(&d_key, CircuitService::TransferSource).await {
+            Ok(_) => panic!("admitted with no transfer gate"),
+            Err(e) if e.contains("service.off") => break,
+            Err(e) => {
+                assert!(tokio::time::Instant::now() < deadline, "D never answered: {e}");
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+    }
+}
