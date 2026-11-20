@@ -164,6 +164,9 @@ export function McpServersCard() {
     <section className="group" data-card="mcpServers">
       <div className="group-title">{t("settingsWindow.mcpServers.title")}</div>
       <div className="row-help">{t("settingsWindow.mcpServers.help")}</div>
+      <div className="row-help" data-mcp-connect-how="">
+        {t("settingsWindow.mcpServers.connectHow")}
+      </div>
       <div className="accounts-header">
         <Button
           type="button"

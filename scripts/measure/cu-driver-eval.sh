@@ -323,7 +323,7 @@ if [[ -n "$arena" ]]; then
   IFS=',' read -r -a harnesses <<<"$harness"
   for h in ${harnesses[@]+"${harnesses[@]}"}; do [[ -n "$h" ]] && harness_args+=(--harness "$h"); done
   [[ ${#harness_args[@]} -gt 0 ]] || { finish "arena: no harness= given"; exit 4; }
-  PATH="/opt/homebrew/bin:$PATH" python3 -I "$here/arena/arena.py" run --arms "$work/arena/arms.json" "${harness_args[@]}" \
+  PATH="/opt/homebrew/bin:$PATH" python3 -I "$here/arena/arena.py" run --arms "$work/arena/arms.json" ${harness_args[@]+"${harness_args[@]}"} \
     --app "$work/arena/Arena.app" --probe "$work/arena/bin/arena-probe" --out "$out/arena" --reps "$reps" \
     --budget "$arena_budget" ${arena_tasks:+--tasks "$arena_tasks"}
   status=$?
@@ -337,7 +337,7 @@ if [[ -n "$bench" ]]; then
   IFS=';' read -r -a waivers <<<"$waive"
   for regex in ${waivers[@]+"${waivers[@]}"}; do [[ -n "$regex" ]] && waive_args+=(--waive "$regex"); done
   "$bench_python" -I "$here/bench_v2.py" --bench "$macos_bench" --work "$bench_dir/work" --build-dir "$bench_dir/build" \
-    --out "$out/bench-v2" "${bench_args[@]}" ${waive_args[@]+"${waive_args[@]}"} --mode "$bench" --condition "$condition" \
+    --out "$out/bench-v2" ${bench_args[@]+"${bench_args[@]}"} ${waive_args[@]+"${waive_args[@]}"} --mode "$bench" --condition "$condition" \
     --runs "$reps" ${tasks:+--tasks "$tasks"}
   status=$?
   finish

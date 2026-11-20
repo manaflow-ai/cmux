@@ -32,7 +32,8 @@ import { useHarnessUpdates } from "./harnessUpdateList";
 import { HarnessUpdatesSection } from "./HarnessUpdates";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, type ModelPickerProps } from "./modelPickerLayout";
 import { curatedSections, modelSections } from "./modelSections";
-import { effortWords, fitsQuery, modelEffort, parseQuery, type ParsedQuery } from "./modelQuery";
+import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
+import { effortWords, fitsQuery, matchingModels, modelEffort, parseQuery, type ParsedQuery } from "./modelQuery";
 import { listsFeedModels } from "./feedHarnesses";
 import { INSTALL_COMMANDS } from "./harnesses/harnessRows";
 import { groupVariants } from "./modelVariants";
@@ -188,11 +189,8 @@ function searchModels(
   query: ParsedQuery,
   lang?: string,
 ): { model: ModelChoice; entry: HarnessChoice }[] {
-  return entries.flatMap((entry) =>
-    choicesFor(entry, lang)
-      .filter((model) => fitsQuery(model, entry.name, query))
-      .map((model) => ({ model, entry })),
-  );
+  const choices = entries.flatMap((entry) => choicesFor(entry, lang).map((model) => ({ model, entry })));
+  return matchingModels(choices, query, ({ model, entry }, parsed) => fitsQuery(model, entry.name, parsed));
 }
 
 /// A model as a row of the compact menu's tab `family`, with its providers' rows when it has several.
@@ -558,6 +556,8 @@ export function ModelPicker(props: ModelPickerProps) {
     [harnesses, modelsNeeded],
   );
   const parsed = useMemo(() => parseQuery(query, vocabulary), [query, vocabulary]);
+  // Switch Model's keys (Ctrl-Cmd-M by default) after the chip's tooltip.
+  const switchModelShortcut = useShortcut(SHORTCUT_ACTIONS.switchModel);
   const searching = query.trim() !== "";
   // The chat's model, on its own harness's tab only.
   const runsHere = selected?.ids.includes(harness ?? "") ? props.model : undefined;
@@ -1354,6 +1354,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 title: [chipLabel, forkText, fastOn ? fastModeText : undefined, sessionAuthText, usage, updateText]
                   .filter(Boolean)
                   .join(" · "),
+                "data-tooltip-shortcut": switchModelShortcut,
               }}
               menu={{
                 ...quick,
@@ -1469,6 +1470,7 @@ export function ModelPicker(props: ModelPickerProps) {
               title={[chipLabel, forkText, fastOn ? fastModeText : undefined, sessionAuthText, usage, updateText]
                 .filter(Boolean)
                 .join(" · ")}
+              data-tooltip-shortcut={switchModelShortcut}
               keyboard={(event) => {
                 if (open && event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
                   event.preventDefault();
