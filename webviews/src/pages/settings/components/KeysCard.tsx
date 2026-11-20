@@ -52,7 +52,9 @@ export function KeysCard({ reveal = false }: { reveal?: boolean }) {
   );
   // The deep link (a request's notification) lands on the requests when any wait, else on the keys,
   // once the keys' window is drawn (cardWindow.ts `ready`).
-  const ready = rowWindow.ready;
+  // The list's ref apart from the window: the compiler takes a property set as a `ref` for a ref
+  // object and every other read of the window for a ref read during render.
+  const { list: rowList, ready } = rowWindow;
   useLayoutEffect(() => {
     if (drawn && reveal && ready) (asking ? requestsCard : card).current?.scrollIntoView?.({ block: "start" });
   }, [drawn, reveal, asking, ready]);
@@ -105,7 +107,7 @@ export function KeysCard({ reveal = false }: { reveal?: boolean }) {
         <h3 className="group-title">{t("settingsPage.keys.title")}</h3>
         <div
           className="rows"
-          ref={rowWindow.list}
+          ref={rowList}
           role={listing ? "list" : undefined}
           style={{ paddingBottom: rowWindow.padBottom }}
           onFocus={rowWindow.onFocus}

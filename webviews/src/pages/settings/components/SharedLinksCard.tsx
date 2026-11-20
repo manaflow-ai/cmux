@@ -27,10 +27,11 @@ export function SharedLinksCard({ reveal = false }: { reveal?: boolean }) {
   const drawn = query.isFetched;
   // The rows change with the list the host sends, not with the card's own state (busy, confirming):
   // a share that ends drops at the next read (the list is read with the section and after each revoke).
-  const [kept, setKept] = useState(() => ({ state, rows: sharedLinkRows(state, Date.now()) }));
+  const now = Date.now();
+  const [kept, setKept] = useState(() => ({ state, rows: sharedLinkRows(state, now) }));
   let rows = kept.rows;
   if (kept.state !== state) {
-    rows = keepUnchangedLinks(kept.rows, sharedLinkRows(state, Date.now()));
+    rows = keepUnchangedLinks(kept.rows, sharedLinkRows(state, now));
     setKept({ state, rows });
   }
   const keys = useMemo(() => rows.map((row) => row.id), [rows]);
@@ -38,7 +39,9 @@ export function SharedLinksCard({ reveal = false }: { reveal?: boolean }) {
   const rowWindow = useCardWindow(keys, SHARED_LINK_ESTIMATE, (index) => (rows[index]?.guests.length ? "guests" : ""));
   // The route's reveal waits for the window (cardWindow.ts `ready`): the card and its rows' room are
   // drawn, and the window's start no longer moves the page.
-  const ready = rowWindow.ready;
+  // The list's ref apart from the window: the compiler takes a property set as a `ref` for a ref
+  // object and every other read of the window for a ref read during render.
+  const { list: rowList, ready } = rowWindow;
   useLayoutEffect(() => {
     if (drawn && reveal && ready) card.current?.scrollIntoView?.({ block: "start" });
   }, [drawn, reveal, ready]);
@@ -61,7 +64,7 @@ export function SharedLinksCard({ reveal = false }: { reveal?: boolean }) {
       <h3 className="group-title">{t("settingsPage.sharedLinks.title")}</h3>
       <div
         className="rows"
-        ref={rowWindow.list}
+        ref={rowList}
         role={listing ? "list" : undefined}
         style={{ paddingBottom: rowWindow.padBottom }}
         onFocus={rowWindow.onFocus}
@@ -76,7 +79,7 @@ export function SharedLinksCard({ reveal = false }: { reveal?: boolean }) {
             <span className="row-help">{t("settingsPage.sharedLinks.empty")}</span>
           </div>
         ) : (
-          <SharedLinksList rows={rows} now={Date.now()} busy={busy} onRevoke={onRevoke} rowWindow={rowWindow} />
+          <SharedLinksList rows={rows} now={now} busy={busy} onRevoke={onRevoke} rowWindow={rowWindow} />
         )}
       </div>
       {rows.length > 1 &&
