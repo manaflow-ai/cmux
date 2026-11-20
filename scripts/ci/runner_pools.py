@@ -209,7 +209,7 @@ def load_pools(path: Path = RUNNERS, env: Mapping[str, str] | None = None) -> di
         if HOSTED_OVERRIDE_POOL.match(name) and isinstance(listed, list) and listed \
                 and all(isinstance(m, str) and X64_UBUNTU.match(m) for m in listed):
             declared[name] = {**spec, "members": [label, *listed], "hosted": True,
-                              "hosted_why": f"{HOSTED_OVERRIDE} is set: Blacksmith Linux outage override"}
+                              "hosted_why": f"{HOSTED_OVERRIDE} is set: Blacksmith Linux pause override"}
     return declared
 
 
@@ -806,7 +806,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     pools = load_pools(env=env)
     if hosted_override(env):
         print(f"::notice title=Runner pools::{HOSTED_OVERRIDE}={hosted_override(env)}: the x64 Linux pools lead with it "
-              f"(Blacksmith outage override); delete the variable to return them to Blacksmith")
+              f"(Blacksmith pause override); delete the variable to welcome them back to Blacksmith")
     elif (env.get(HOSTED_OVERRIDE) or "").strip():
         print(f"::warning title=Runner pools::{HOSTED_OVERRIDE}={env.get(HOSTED_OVERRIDE)!r} is not a hosted Ubuntu "
               "label (ubuntu-NN.NN); ignored")
