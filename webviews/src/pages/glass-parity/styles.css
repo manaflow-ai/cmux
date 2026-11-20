@@ -67,3 +67,9 @@ body {
   padding: 0;
   box-shadow: none;
 }
+
+/* The text axis (GlassParityPlayground.TextRendering): `smooth` measures the page's text with macOS font
+   smoothing on, against AppKit's own. */
+:root[data-parity-text="smooth"] .glass-parity-surface {
+  -webkit-font-smoothing: subpixel-antialiased;
+}
