@@ -21,16 +21,24 @@ echo 0 >"$rate_limit_waited"
 : >"$rate_limit_failed"
 exec 3>&2  # the job log, for the wait notes of a call whose stderr its caller captures or drops
 # split_include OUT: OUT.headers gets the status line and headers that `gh api --include` prints before the first
-# blank line, OUT.body the rest. Output with no status line (any other command) is all body.
+# blank line, OUT.body the rest, byte for byte: gh prints a failed call's JSON error body with no final newline, and
+# held_pr's `read ... < <(...)` fails on that (a failed read: the branch is left alone), as it did before gh_retry.
+# Output with no status line (any other command) is all body.
 split_include() {
+  local blank
   : >"$1.headers"
   : >"$1.body"
-  awk -v headers="$1.headers" -v body="$1.body" '
-    NR == 1 && !/^HTTP\/[0-9.]+ [0-9][0-9][0-9]/ { in_body = 1 }
-    in_body { print > body; next }
-    { sub(/\r$/, "") }
-    $0 == "" { in_body = 1; next }
-    { print > headers }' "$1"
+  if ! head -n 1 "$1" | grep -qE '^HTTP/[0-9.]+ [0-9]{3}'; then
+    cp "$1" "$1.body"
+    return 0
+  fi
+  blank="$(awk '{ sub(/\r$/, "") } $0 == "" { print NR; exit }' "$1")"
+  if [[ -z "$blank" ]]; then
+    tr -d '\r' <"$1" >"$1.headers"
+    return 0
+  fi
+  head -n "$((blank - 1))" "$1" | tr -d '\r' >"$1.headers"
+  tail -n "+$((blank + 1))" "$1" >"$1.body"
 }
 header() { # header FILE NAME: the value of header NAME (any case) in FILE, anchored at the line's start
   awk -v name="$2" 'BEGIN { name = tolower(name) ":" }
@@ -65,7 +73,7 @@ rate_limit_wait() {
     ((wait_s > 0)) || wait_s=1
     wait_why="the limit resets at $(date -u -d "@$reset" +%H:%M:%SZ 2>/dev/null || date -u -r "$reset" +%H:%M:%SZ), in ${wait_s}s"
   else
-    wait_s=$((60 << ($2 - 1))) wait_why="no retry-after or reset, so a backoff"
+    wait_s=$((60 << (($2 > 5 ? 5 : $2) - 1))) wait_why="no retry-after or reset, so a backoff"
     ((wait_s <= left)) || wait_s=$left
   fi
   if ((left <= 0 || wait_s > left)); then
@@ -78,6 +86,8 @@ rate_limit_wait() {
 # rate limit. `gh api` is asked with --include, so a refusal's headers say how long to wait; only its body is printed.
 gh_retry() {
   local out status attempt=0 what="${*:1:3}" arg wait_s wait_why
+  # A call that already gave up on the rate limit ends this run (rate_limit_gate): no more calls into the limit.
+  [[ -s "$rate_limit_failed" ]] && return 1
   out="$(mktemp "$RUNNER_TEMP/gh-retry.XXXXXX")"
   for arg in "$@"; do [[ "$arg" == repos/* ]] && { what="$arg"; break; }; done
   while :; do

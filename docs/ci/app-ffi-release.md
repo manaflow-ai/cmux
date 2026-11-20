@@ -80,8 +80,8 @@ compile proves before it lands. Dry run until `CMUX_NEXT_BASE_AUTOFIX` is
 `1`, like the base autofix.
 
 A GitHub call that the re-pin makes and GitHub refuses for its rate limit
-(HTTP 429, a 403 whose message names a rate limit, or `x-ratelimit-remaining:
-0`) waits and asks again. The wait comes from the refusal's `retry-after`
+(HTTP 429, an error that names a rate limit, or a 403 with
+`x-ratelimit-remaining: 0`) waits and asks again. The wait comes from the refusal's `retry-after`
 header. Without that header, it waits until `x-ratelimit-reset`. Without
 either, it waits 60 s, then doubles. One run waits at most
 `REPIN_RATE_LIMIT_WAIT_S` (600 s) in all. When the refusal still stands after

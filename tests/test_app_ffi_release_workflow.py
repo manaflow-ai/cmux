@@ -395,6 +395,10 @@ path = Path(os.environ["STATE"])
 state = json.loads(path.read_text())
 args = sys.argv[1:]
 def save(): path.write_text(json.dumps(state))
+def server_error():
+    """A 502 as gh prints it: GitHub's JSON error body on stdout with no final newline, the error on stderr."""
+    sys.stdout.write(json.dumps({"message": "Server Error", "status": "502"}))
+    print("gh: Server Error (HTTP 502)", file=sys.stderr); sys.exit(1)
 # `gh api --include` prints the status line and headers, a blank line, then the body. The real header that names
 # other headers comes first, so a reader that does not anchor at a line's start would take it for retry-after.
 INCLUDE = Path(sys.argv[0]).name == "gh" and "--include" in args
@@ -528,17 +532,17 @@ elif args[0] == "api":
     elif "/git/ref/heads/" in endpoint:
         ref = endpoint.split("/heads/")[1]
         if state["ref_read"] == "fail":
-            print("gh: Server Error (HTTP 502)", file=sys.stderr); sys.exit(1)
+            server_error()
         if ref not in state["refs"]:
-            # Real gh prints the error body on stdout, --jq or not (run 42536967661).
-            print(json.dumps({"message": "Not Found", "status": "404"}))
+            # Real gh prints the error body on stdout, --jq or not (run 42536967661), with no final newline.
+            sys.stdout.write(json.dumps({"message": "Not Found", "status": "404"}))
             print("gh: Not Found (HTTP 404)", file=sys.stderr); sys.exit(1)
         emit({"object": {"sha": state["refs"][ref]}})
     elif "/actions/workflows/" in endpoint:
         if os.environ.get("GH_TOKEN") != "read-token":
             print("gh: Resource not accessible by integration (HTTP 403)", file=sys.stderr); sys.exit(1)
         if state.get("runs_read") == "fail":
-            print("gh: Server Error (HTTP 502)", file=sys.stderr); sys.exit(1)
+            server_error()
         state.setdefault("run_reads", []).append(endpoint); save()
         emit({"workflow_runs": state.get("runs", [])})
     elif "/actions/runs/" in endpoint and endpoint.split("?")[0].endswith("/jobs"):
@@ -547,19 +551,19 @@ elif args[0] == "api":
         run_id = endpoint.split("/actions/runs/")[1].split("/")[0]
         state.setdefault("job_reads", []).append(run_id); save()
         if state.get("jobs_read") == "fail":
-            print("gh: Server Error (HTTP 502)", file=sys.stderr); sys.exit(1)
+            server_error()
         emit({"total_count": len(state.get("jobs", {}).get(run_id, [])), "jobs": state.get("jobs", {}).get(run_id, [])})
     elif "/pulls?" in endpoint: emit([{"number": 1}])  # stale even after auto-close
     elif "/commits/" in endpoint and os.environ.get("GH_TOKEN") != "read-token":
         print("gh: Resource not accessible by integration (HTTP 403)", file=sys.stderr); sys.exit(1)
     elif endpoint.endswith("/status") and state.get("status_read") == "fail":
-        print("gh: Server Error (HTTP 502)", file=sys.stderr); sys.exit(1)
+        server_error()
     elif "/check-runs?" in endpoint:
         # Named check-0, check-1, ...; at the staged-on commit, the test's base_checks. Served a page at a time
         # (per_page/page, as scripts/ci/gh_pages.py asks).
         base = state.get("staged_on") and f"/commits/{state['staged_on']}/" in endpoint
         if state.get("base_checks_read" if base else "checks_read") == "fail":
-            print("gh: Server Error (HTTP 502)", file=sys.stderr); sys.exit(1)
+            server_error()
         runs = [{"name": f"check-{i}", "conclusion": c}
                 for i, c in enumerate(state.get("base_checks" if base else "checks", []))]
         query = dict(part.split("=", 1) for part in endpoint.split("?", 1)[1].split("&") if "=" in part)
@@ -571,6 +575,7 @@ elif args[0] == "api":
         at = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=state.get("head_age_min", 600))
         emit({"commit": {"committer": {"date": at.strftime("%Y-%m-%dT%H:%M:%SZ")}}})
     elif "/pulls/" in endpoint:
+        if state.get("pr_read") == "fail": server_error()
         number = endpoint.rsplit("/", 1)[1]
         emit({"state": state["prs"][number], "base": {"ref": "feat-cmux-next"},
               "head": {"ref": "app-ffi-repin", "sha": "f" * 40 if state["wrong_head"]
@@ -613,7 +618,7 @@ class RePinPublication(unittest.TestCase):
                   workflow=WORKFLOW, pr_files=None, current_pin=None, diff_exit=None,
                   jobs_read="ok", base_result="newer", base_enabled="true", pin_age_min=None,
                   unpinned_age_min=None, staged_on=None, base_checks=(), base_checks_read="ok", checks_read="ok",
-                  rate_limits=(), wait_bound=None):
+                  rate_limits=(), wait_bound=None, pr_read="ok"):
         step = pin_step(yaml.safe_load(workflow.read_text())["jobs"]["repin"])
         with tempfile.TemporaryDirectory() as temp:
             work = Path(temp)
@@ -667,7 +672,7 @@ class RePinPublication(unittest.TestCase):
                 "pr_files": pr_files or {}, "diff_exit": diff_exit, "jobs_read": jobs_read,
                 "pin_age_min": pin_age_min, "unpinned_age_min": unpinned_age_min, "staged_on": staged_on, "base_checks": list(base_checks),
                 "base_checks_read": base_checks_read, "checks_read": checks_read,
-                "rate_limits": [dict(rule) for rule in rate_limits]}))
+                "rate_limits": [dict(rule) for rule in rate_limits], "pr_read": pr_read}))
             env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STATE=str(state_path),
                        GH_TOKEN="pr-token", APP_TOKEN="contents-token", READ_TOKEN="read-token", TAG=TAG, CHECKSUM="f" * 64,
                        BASE_TOKEN="base-token", BASE_PIN_ENABLED=base_enabled,
@@ -792,6 +797,9 @@ class RePinPublication(unittest.TestCase):
         cases = {
             "a failed status read": {"status_read": "fail"},
             "a failed check-run read": {"checks_read": "fail"},
+            # gh prints the 502's JSON body with no final newline, so held_pr's `read` of the PR's state fails: a
+            # failed read, not a closed PR (review of #48228: a body copied with a newline moved the head).
+            "a failed read of the PR's state": {"pr_read": "fail"},
         }
         for name, options in cases.items():
             with self.subTest(name):
@@ -863,7 +871,8 @@ class RePinPublication(unittest.TestCase):
                     self.assertEqual(state["refs"], {"app-ffi-repin": self.HEAD})
                     self.assertEqual(state["published"], [])
                     self.assertEqual(state["writes"], 0)
-                    self.assertIn("rate limit", result.stderr.split("::error title=Re-pin rate-limited::")[1])
+                    reason = result.stderr.split("::error title=Re-pin rate-limited::")[1].splitlines()[0]
+                    self.assertIn("rate limit", reason)
 
     def test_every_other_github_call_waits_out_a_rate_limit_too(self):
         newer = "7" * 40
@@ -905,6 +914,16 @@ class RePinPublication(unittest.TestCase):
             {"match": "pulls/1 --jq", "style": "secondary"}, {"match": "/status", "style": "secondary", "times": -1}])
         self.assert_failed_loud(result, state, [60, 40])
         self.assertIn("past this run's 100s rate-limit wait (100s waited)", result.stderr)
+
+    def test_after_one_call_gives_up_no_other_call_is_made(self):
+        # Two newer release runs to read the jobs of; the limit resets in an hour, so the first read gives up at once.
+        # The second is never asked (review of #48228: it would ask into the spent limit, and could wait 600 s more).
+        runs = [{"id": 9, "status": "queued", "head_sha": "7" * 40}, {"id": 10, "status": "queued", "head_sha": "8" * 40}]
+        result, state = self.run_repin(runs=runs, ancestry=[(self.NEWEST, "7" * 40), (self.NEWEST, "8" * 40)],
+                                       rate_limits=[{"match": "/jobs?", "style": "far", "times": -1}])
+        self.assert_failed_loud(result, state, [])
+        self.assertEqual(state["refused"], ["/jobs?"])
+        self.assertEqual(state.get("job_reads", []), [])
 
     def test_a_refusal_that_is_not_the_rate_limit_is_answered_at_once(self):
         # A 502 still leaves the branch alone, a 404 is a missing branch, a failed runs read re-pins as before: none
