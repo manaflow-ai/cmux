@@ -73,9 +73,18 @@ final class PaneZoomDimView: NSView {
     }
 
     /// The dim comes, on the pane veil's fade: from nothing to its full strength, or, `continuing` a dim that was
-    /// going, from the strength it shows.
-    func fadeIn(continuing: Bool) {
-        Motion.panes.set(dim, "opacity", to: Float(amount), fade: .paneDim, from: continuing ? nil : Float(0))
+    /// going, from the strength it shows. `veil`: the strength of the veil that the panes under the dim showed until
+    /// this frame and show no more. The dim then starts with that strength (over the strength it shows, if it
+    /// continues) and ends at its full strength as before, or at its start if that is stronger, so no pane under it
+    /// is brighter in a frame than it was before. With no veil nothing changes.
+    func fadeIn(continuing: Bool, over veil: CGFloat = 0) {
+        guard veil > 0 else {
+            Motion.panes.set(dim, "opacity", to: Float(amount), fade: .paneDim, from: continuing ? nil : Float(0))
+            return
+        }
+        let shown = continuing ? CGFloat(dim.presentation()?.opacity ?? dim.opacity) : 0
+        let start = 1 - (1 - veil) * (1 - shown)
+        Motion.panes.set(dim, "opacity", to: Float(max(amount, start)), fade: .paneDim, from: Float(start))
     }
 
     /// The dim goes, on the pane veil's fade: from its full strength to nothing, or, `continuing` a dim that came

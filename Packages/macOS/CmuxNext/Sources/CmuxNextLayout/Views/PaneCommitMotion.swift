@@ -19,6 +19,8 @@ import CmuxNextDesign
 ///   take its room, and hides in the frame that ends the motion (``keepsDeparted(on:)``).
 /// - A pane that moves in a window whose sheet is one plain colour has that colour under its content, on its whole
 ///   cell, until the motion's end (`PaneCommitMotion+Sheet`): no pane under it shows through its tab row.
+/// - In a window that gives no such ground, a pane under one that moves shows only past an edge of that pane
+///   (`PaneCommitMotion+Cover`).
 /// - An unzoom's pane closes from its screen's size to its place over the panes that come back, which do not move.
 ///   Its last frame shows at its old size under its moving clip (`PaneCommitMotion+Unzoom`); with no last frame
 ///   and no picture of its own the unzoom shows in one frame.
@@ -113,6 +115,9 @@ final class PaneCommitMotion {
     /// layer had, with its copy of the window's picture when the ground is one, and with its plain ground when that
     /// is a layer in the pane's card (`PaneCommitMotion+Sheet`).
     var sheets: [(host: PaneHostView, color: CGColor?, picture: CALayer?, plain: CALayer?)] = []
+    /// The hosts that show only past an edge of a pane over them (`PaneCommitMotion+Cover`): each with its layer's
+    /// frame, with the window that it shows through at the end of its acts, and with those acts' numbers.
+    var covers: [ObjectIdentifier: (frame: CGRect, window: CGRect, acts: [Int])] = [:]
     /// The window's picture that the copies show, as it was read at the motion's first act, and its screen.
     var shownPicture: WindowStillPicture?
     weak var pictured: ScreenContentView?
@@ -282,10 +287,10 @@ final class PaneCommitMotion {
             moveRing(of: change, act.spring)
             moveClip(of: change, act.spring)
         }
-        if act == .unzoom {
-            // The others: the panes that come back, or, in a zoom's move, the panes that it still kept under.
-            closeOver(changes[0], last: last, others: coming + staying.map(\.host).filter { $0 !== changes[0].host }, act.spring)
-        }
+        // An unzoom's others: the panes that come back, or, in a zoom's move, the panes that it still kept under.
+        let below = act == .unzoom ? coming + staying.map(\.host).filter { $0 !== changes[0].host } : leaving
+        if act == .unzoom { closeOver(changes[0], last: last, others: below, act.spring) }
+        cover(below, under: changes, act.spring)
         for view in screen.dividerViews.values where !view.isHidden {
             guard let layer = view.layer else { continue }
             let new = layer.frame
@@ -376,6 +381,7 @@ final class PaneCommitMotion {
         }
         for (layer, key) in moved { layer.removeAnimation(forKey: key) }
         moved = []
+        covers = [:]
         for ground in grounds.values { Self.strips(of: ground.layer).forEach { $0.removeFromSuperlayer() } }
         grounds = [:]
         for (host, z) in under { host.layer?.zPosition = z }

@@ -60,7 +60,9 @@ extension PaneCommitMotionTests {
 
     /// The frame that shows a zoom or an unzoom of 4 and of 30 panes, and the frame after it: in an opaque window and
     /// over one still picture, no pane other than the one that the key moves has an animation on its layer or on its
-    /// clip's layer, and none has a mask there. The row prints the counts of each case, of a glass window too.
+    /// clip's layer, and none has a mask there. In a glass window each other pane shows through a window on its own
+    /// layer (`PaneCommitMotion+Cover`): at most 3 animations for each, on the layer or its clip's, and no mask. The
+    /// row prints the counts of each case.
     @Test(arguments: crowds)
     func aMoveOverAGroundGivesNoOtherPaneAClipOrAnAnimation(_ crowd: Crowd) throws {
         let over = try Self.overPicture(crowd.scene, panes: crowd.panes, gap: crowd.kind == "still" ? nil : crowd.kind, speed: .fast)
@@ -76,7 +78,13 @@ extension PaneCommitMotionTests {
         let second = Self.cost(of: over, others: others)
         print("COUNT ROW: \(crowd.testDescription): \(others.count) other panes show; the motion holds \(moved) animations;",
               "the frame that shows the act: \(first); the frame after it: \(second)")
-        guard crowd.kind != "glass" else { return }
+        guard crowd.kind != "glass" else {
+            for (frame, cost) in [("that shows the \(crowd.scene)", first), ("after the one that shows the \(crowd.scene)", second)] {
+                #expect(cost.masks == 0 && cost.others > 0 && cost.others <= 3 * others.count,
+                        "the frame \(frame) with no ground, \(others.count) other panes: \(cost)")
+            }
+            return
+        }
         #expect(first.others == 0 && first.masks == 0, "the frame that shows the \(crowd.scene) over a ground: \(first)")
         #expect(second.others == 0 && second.masks == 0, "the frame after the one that shows the \(crowd.scene) over a ground: \(second)")
     }
@@ -151,6 +159,43 @@ extension PaneCommitMotionTests {
             #expect(inside < 1, "\(name): a clip on one edge shows \(inside) pt2 of a pane inside the pane that grows")
             #expect(straight < 1, "\(name): a pane in the row or the column of the pane that grows loses \(straight) pt2 that the rect does not cover")
             #expect(panes <= (columns - 1) * (rows - 1), "\(name): \(panes) panes lose a corner; \((columns - 1) * (rows - 1)) panes are in another row and another column")
+        }
+    }
+
+    /// The side that the product code takes for each pane of the same grid (`PaneCommitMotion.coverSide`), read at
+    /// each frame of the zoom's spring: a window on that side shows nothing of the pane inside the rect of the pane
+    /// that grows; a pane in the row or the column of that pane loses nothing that the rect does not cover; and the
+    /// move back takes the same side, so a zoom and the unzoom in its move give one window.
+    @Test(arguments: movingSpeeds)
+    func theSideOfAPanesWindowTakesNothingInTheRowAndTheColumnOfThePaneThatGrows(_ speed: MotionSpeed) {
+        let screen = CGRect(x: 0, y: 0, width: 1600, height: 1000), columns = 6, rows = 5
+        let width = screen.width / CGFloat(columns), height = screen.height / CGFloat(rows)
+        func cell(_ column: Int, _ row: Int) -> CGRect { CGRect(x: CGFloat(column) * width, y: CGFloat(row) * height, width: width, height: height) }
+        let frames = Int((Self.zoomKey(.zoom, at: speed).end / Self.dt).rounded(.up))
+        let ways = (0...frames).map { Self.way(of: "zoom", at: speed, tick: $0) }
+        for start in [(column: 0, row: 0), (column: 2, row: 2)] {
+            let from = cell(start.column, start.row)
+            let rects = ways.map { way in
+                CGRect(x: from.minX * (1 - way), y: from.minY * (1 - way),
+                       width: from.width + (screen.width - from.width) * way, height: from.height + (screen.height - from.height) * way)
+            }
+            var inside: CGFloat = 0, straight: CGFloat = 0, turned = 0
+            for column in 0..<columns {
+                for row in 0..<rows where column != start.column || row != start.row {
+                    let pane = cell(column, row)
+                    let side = PaneCommitMotion.coverSide(of: pane, under: from, to: screen)
+                    if PaneCommitMotion.coverSide(of: pane, under: screen, to: from) != side { turned += 1 }
+                    for rect in rects {
+                        inside = max(inside, Self.area(side.shows(of: pane, past: rect).intersection(rect)))
+                        guard column == start.column || row == start.row else { continue }
+                        straight = max(straight, PaneCommitMotion.lost(of: pane, past: side, of: rect))
+                    }
+                }
+            }
+            let name = "a zoom from column \(start.column), row \(start.row) of 6 by 5 panes at `\(speed.rawValue)`"
+            #expect(inside < 1, "\(name): a window on the product's side shows \(inside) pt2 of a pane inside the pane that grows")
+            #expect(straight < 1, "\(name): a pane in the row or the column of the pane that grows loses \(straight) pt2 that the rect does not cover")
+            #expect(turned == 0, "\(name): for \(turned) panes the move back takes another side than the move")
         }
     }
 }

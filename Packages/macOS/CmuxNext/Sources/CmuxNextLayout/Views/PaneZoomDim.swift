@@ -157,7 +157,9 @@ final class PaneZoomDim {
         let before = holeBefore
         holeBefore = nil
         guard let view = place(around: zoom.host.pane, on: screen) else { return leave() }
-        view.fadeIn(continuing: continuing)
+        // The panes that the zoom covers show no veil from this frame (`PaneCommitMotion.keepUnder` hides their
+        // rings): the dim starts at the strength of the strongest veil that one of them had.
+        view.fadeIn(continuing: continuing, over: motion.under.map { $0.host.chrome.dimStrength }.max() ?? 0)
         if let before {
             let spring = PaneCommitMotion.Act.zoom.spring
             view.moveHole(from: before) { part, origin, size in motion.move(part, spring, origin: origin, size: size) }
