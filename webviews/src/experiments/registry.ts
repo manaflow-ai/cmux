@@ -79,6 +79,7 @@ import { cmuxLinkLook } from "../agent-session/acpmux/chips/cmuxLinkLook.experim
 import { sentPasteJoin } from "../agent-session/acpmux/conversation/sentPasteJoin.experiment";
 import { sentMessageLook } from "../agent-session/acpmux/conversation/sentMessageLook.experiment";
 import { readingLook } from "../agent-session/acpmux/readingLook.experiment";
+import { highContrastLook } from "../agent-session/acpmux/highContrastLook.experiment";
 import { contextRingLook } from "../agent-session/acpmux/contextRingLook.experiment";
 import { contextRingMotion } from "../agent-session/acpmux/contextRingMotion.experiment";
 import { planUsageLook } from "../agent-session/acpmux/planUsageLook.experiment";
@@ -182,6 +183,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   sentPasteJoin,
   sentMessageLook,
   readingLook,
+  highContrastLook,
   contextRingLook,
   contextRingMotion,
   planUsageLook,
