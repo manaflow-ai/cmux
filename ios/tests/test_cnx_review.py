@@ -626,6 +626,29 @@ class SignerTests(unittest.TestCase):
 
 
 class FleetStepTests(unittest.TestCase):
+    def test_a_stale_ffi_pin_builds_the_mac_app_on_a_mac(self):
+        # At a head whose FFI sources are ahead of app-ffi-pin.json, `--builder auto` sent the Mac build
+        # to the Linux pool, which cannot build the FFI from source: job 9fa436759cd7bb0f72e3e928 failed
+        # "stale FFI" in 2.5 s at 0e6e7019af (2026-11-19). An up-to-date pin keeps the default builder.
+        for pin_ok, want_mac in ((False, True), (True, False)):
+            with self.subTest(pin_ok=pin_ok), tempfile.TemporaryDirectory() as temp:
+                ci = Path(temp) / 'cmux-ci'
+                ci.write_text('#!/bin/sh\nfor a in "$@"; do echo "$a"; done > "%s/args"\necho \'{"id": "job123"}\'\n' % temp)
+                ci.chmod(0o755)
+                pin = Path(temp) / 'pin'
+                pin.write_text('#!/bin/sh\nexit %d\n' % (0 if pin_ok else 1))
+                pin.chmod(0o755)
+                r = bash(f'''source "{REVIEW}"; SLUG={TAG} SHA={SHA} STATE="{temp}" WORKSPACE=w CMUX_CI="{ci}"
+fleet_submit_mac; echo "JOB=$MAC_JOB"''', {'CMUX_CI': str(ci), 'CNX_REVIEW_FFI_PIN_CHECK': str(pin)})
+                self.assertIn('JOB=job123', r.stdout, r.stderr)
+                args = (Path(temp) / 'args').read_text().splitlines()
+                self.assertEqual(args[:2], ['build', 'cmux'])
+                if want_mac:
+                    self.assertEqual(args[args.index('--builder') + 1], 'mac')
+                    self.assertTrue(args[args.index('--reason') + 1])
+                else:
+                    self.assertNotIn('--builder', args)
+
     def test_sim_step_arguments(self):
         with tempfile.TemporaryDirectory() as temp:
             ci = Path(temp) / 'cmux-ci'

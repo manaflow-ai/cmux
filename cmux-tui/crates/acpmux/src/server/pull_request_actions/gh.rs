@@ -1,6 +1,7 @@
 //! Bounded, one-shot GitHub reads. Log tails retain fixed memory while stdout drains.
 use crate::rpc::RpcError;
-use std::{collections::VecDeque, path::Path, process::Stdio, time::Duration};
+use cmux_process::{Command, Stdio};
+use std::{collections::VecDeque, path::Path, time::Duration};
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 const JSON_LIMIT: usize = 2 * 1024 * 1024;
@@ -26,20 +27,41 @@ async fn capture(mut stream: impl AsyncRead + Unpin, tail: bool) -> std::io::Res
 }
 
 pub(super) async fn read(cwd: &Path, args: &[String], tail: bool) -> Result<String, RpcError> {
-    let mut child = tokio::process::Command::new("gh")
-        .args(args)
-        .current_dir(cwd)
-        .env("GH_PROMPT_DISABLED", "1")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|e| RpcError::internal(e.to_string()))?;
-    let stdout = child.stdout.take().ok_or_else(|| RpcError::internal("no GitHub stdout"))?;
-    let stderr = child.stderr.take().ok_or_else(|| RpcError::internal("no GitHub stderr"))?;
-    let work =
-        async { tokio::try_join!(capture(stdout, tail), capture(stderr, true), child.wait()) };
+    let cwd = cwd.to_owned();
+    let args = args.to_vec();
+    let mut child = tokio::task::spawn_blocking(move || {
+        Command::new("gh")
+            .args(args)
+            .current_dir(cwd)
+            .env("GH_PROMPT_DISABLED", "1")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+    })
+    .await
+    .map_err(|e| RpcError::internal(e.to_string()))?
+    .map_err(|e| RpcError::internal(e.to_string()))?;
+    let stdout = tokio::process::ChildStdout::from_std(
+        child.stdout.take().ok_or_else(|| RpcError::internal("no GitHub stdout"))?,
+    )
+    .map_err(|e| RpcError::internal(e.to_string()))?;
+    let stderr = tokio::process::ChildStderr::from_std(
+        child.stderr.take().ok_or_else(|| RpcError::internal("no GitHub stderr"))?,
+    )
+    .map_err(|e| RpcError::internal(e.to_string()))?;
+    // The process owns its whole group. Even cancellation of this read leaves the wait
+    // bounded at 30 seconds; dropping Child then ends/reaps the group, including gh helpers.
+    let wait = async move {
+        tokio::task::spawn_blocking(move || {
+            child.wait_timeout(Duration::from_secs(30))?.ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::TimedOut, "GitHub process timed out")
+            })
+        })
+        .await
+        .map_err(std::io::Error::other)?
+    };
+    let work = async { tokio::try_join!(capture(stdout, tail), capture(stderr, true), wait) };
     let (out, err, status) = tokio::time::timeout(Duration::from_secs(30), work)
         .await
         .map_err(|_| RpcError::internal("GitHub read exceeded 30 seconds"))?

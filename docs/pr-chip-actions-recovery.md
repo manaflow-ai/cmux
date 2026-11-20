@@ -1,8 +1,8 @@
 # PR chip action recovery checkpoint
 
-This is unfinished recovery of PR #38507, owned by `gcp-codex-swarm-05/pr-chip-fix-and-merge`.
-The recovery lane has permission to edit and commit locally. Publishing, CI at a new head,
-and merging await a successful broker ownership-transfer receipt. Issue
+This is unfinished recovery of PR #38507, now owned by `gcp-agent-lane-1/pr-chip-rust-recovery`.
+Broker transfer `bg-cbb818fa69f1` succeeded with status 200 at 02:08Z on 2026-11-20;
+the parent supplied the receipt after the initial local checkpoint. Issue
 https://github.com/manaflow-ai/cmuxterm-hq/issues/14903 owns the remaining execution work.
 
 The checkpoint reconciles the original branch at b10625de45ea115f8ea9c5d8a50fd95ec7e3d5cd
@@ -33,7 +33,7 @@ check found an untyped empty action array (fixed) and a ReadableStream async-ite
 No final whole-web, Rust build, UI, or full-flow success is claimed. Translations inherited from
 original feature keys remain needs_review and require completion before landing.
 
-After ownership transfer, publish a WIP head, run protocol generation through `cmux-ci` on that
+Publish a WIP head, run protocol generation through `cmux-ci` on that
 exact head, and retrieve generated files as artifacts. The source-prescribed generation is
 `ACPMUX_PROTOCOL_BLESS=1 cargo test -p acpmux protocol_ir_is_current` in `cmux-tui`, followed by
 `bun run acpmux-protocol:codegen` in `webviews`. The committed protocol JSON is currently stale;

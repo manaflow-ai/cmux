@@ -24,6 +24,7 @@ pub mod brain;
 pub mod brain_home;
 pub mod brain_home_openclaw;
 pub mod browse;
+pub mod build_space;
 pub mod check_in;
 pub mod chief_channel;
 pub mod chief_profile;
