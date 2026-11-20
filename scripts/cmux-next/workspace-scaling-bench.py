@@ -227,6 +227,19 @@ def scaling_warnings(rows, limit=LIMIT):
     return warnings
 
 
+def instant_runs(reports):
+    """Each count's warm new_workspace and split_right runs as the app timed them (key, confirmed and visible ms and
+    the named spans), so a scaling warning says which part of the create grew, not only that it did."""
+    keep = ("command", "key_ms", "confirmed_ms", "visible_ms", "spans")
+    out = {}
+    for count in COUNTS:
+        runs = ((reports.get(count) or {}).get("instant") or {}).get("runs")
+        if isinstance(runs, list):
+            out[str(count)] = [{k: run.get(k) for k in keep} for run in runs
+                               if isinstance(run, dict) and str(run.get("phase", "")).startswith("idle")]
+    return out
+
+
 def collect(reports):
     rows = []
     for count in COUNTS:
@@ -421,7 +434,7 @@ def run_app(opts):
         # Preserve completed topology reports if the outer cron budget interrupts a later probe.
         partial = {"workspaces": list(COUNTS), "rows": collect(reports),
                    "warnings": scaling_warnings(collect(reports)), "incomplete": failures,
-                   "budget": {"ratio": LIMIT, "advisory": True}}
+                   "budget": {"ratio": LIMIT, "advisory": True}, "instant_runs": instant_runs(reports)}
         output = pathlib.Path(opts.json)
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(partial, indent=2) + "\n")
