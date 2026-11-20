@@ -1271,7 +1271,10 @@ export function NewTabScreen(props: Props) {
       if (field.current?.plainText().trim()) field.current.selectAll();
       else field.current?.setCaret(0);
     };
-    if (fieldReady && focusOnShow) focus();
+    // Not again while the field has the keyboard: the token changes after the readiness (an adopt that takes the next
+    // token in place, a context update with none), and a second focus selected the keys typed so far, which the next key
+    // replaced (Lawrence 2026-11-19, Cmd-N then "hello world 123" left "llo world 123").
+    if (fieldReady && focusOnShow && !field.current?.focused()) focus();
     const view = fieldElement()?.ownerDocument.defaultView;
     // The app replays the keys typed after Cmd-T into the page at this readiness: it waits until
     // the page has focus, or a page not focused yet loses them (reportInputReadyWhenFocused).
