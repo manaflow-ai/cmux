@@ -50,14 +50,18 @@ public nonisolated struct WorkspaceRowOverride: Hashable, Sendable {
     public var isEmpty: Bool { elements.isEmpty && secondLineOrder == nil }
 }
 
-/// `sidebar.workspaceRow`: the base set plus per-kind overrides.
+/// `sidebar.workspaceRow`: the base set plus per-kind overrides, and where every row's status mark draws.
 public nonisolated struct WorkspaceRowPreferences: Hashable, Sendable {
     public var base: WorkspaceRowElements
     public var overrides: [WorkspaceRowKind: WorkspaceRowOverride]
+    /// `sidebar.workspaceRow.statusPlacement`: one value for every kind.
+    public var statusPlacement: WorkspaceRowStatusPlacement
 
-    public init(base: WorkspaceRowElements = .standard, overrides: [WorkspaceRowKind: WorkspaceRowOverride] = [:]) {
+    public init(base: WorkspaceRowElements = .standard, overrides: [WorkspaceRowKind: WorkspaceRowOverride] = [:],
+                statusPlacement: WorkspaceRowStatusPlacement = .trailing) {
         self.base = base
         self.overrides = overrides
+        self.statusPlacement = statusPlacement
     }
 
     public static let defaults = Self()

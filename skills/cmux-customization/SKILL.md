@@ -136,8 +136,9 @@ top, so a block copies between the two:
 - cmux ships examples (`Resources/theme-files/` in the app), each in the Theme File
   list by name: `harbor` (the sidebar's own glass, the terminal font, a painting
   behind the window and the pane background), `classic-desktop` (gray chrome, hard
-  edges, no motion), `phosphor` (green on black), `claude-desktop` (cream and clay)
-  and `charcoal` (a dark chat app). To ask for a look, start from the closest one:
+  edges, no motion), `phosphor` (green on black), `claude-desktop` (cream and clay),
+  `charcoal` (a dark chat app) and `minimal-sessions` (only the sidebar: one line per
+  session, its status mark first, then its name). To ask for a look, start from the closest one:
   copy it to `~/.config/cmux/themes/<name>.json` to edit it (your file of the same
   name wins over the shipped one). Steps and the undo path for people:
   [theme-recipes.md](../../docs/cmux-next/theme-recipes.md).
@@ -167,10 +168,13 @@ top, so a block copies between the two:
   `browser.omnibar.glass*`, `app.uiScale`, `terminal.fontFamily`,
   `terminal.fontSize`; the sidebar's shape, text and buttons: `sidebar.style`, `sidebar.border`,
   `sidebar.borderWidth`, `sidebar.sectionLook`, `sidebar.density`, `sidebar.textSize`,
-  `sidebar.groupHeader.background`, `sidebar.groupPalette`, `sidebar.groupGradient`,
   `sidebar.showSearchButton`, `sidebar.showProfileControl`, `sidebar.showNewWorkspaceChooser`,
-  `sidebar.controlsOnHover`, `sidebar.detailedStatusIcons`, `sidebar.showColors`,
-  `sidebar.spacesVisibility`; the top right buttons and tabs: `tabs.toolbarButtons`,
+  `sidebar.controlsOnHover`, `sidebar.spacesVisibility`; how its rows draw:
+  `sidebar.detailedStatusIcons`, `sidebar.showTimestamps`, `sidebar.showColors`,
+  `workspaceColors.indicatorStyle`, and every `sidebar.workspaceRow.<name>`, such as
+  `statusPlacement` and `lines`, but not the per-kind `sidebar.workspaceRow.<kind>.*`; its
+  grouping: `sidebar.groupBy`, `sidebar.groupHeader.*`, `sidebar.groupPalette`,
+  `sidebar.groupGradient`; the top right buttons and tabs: `tabs.toolbarButtons`,
   `tabs.plusButton`, `window.titlebarButtons`, `focus.inactiveTabStyle`; pane corners:
   `layout.paneCornerRadius`, `layout.cornerPadding`, `layout.paneBorderWidth`; the agent
   chat's text sizes and Session Info: `agentPane.display.font.*`, `agentPane.display.code.scale`,

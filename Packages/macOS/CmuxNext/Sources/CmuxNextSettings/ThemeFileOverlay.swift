@@ -58,16 +58,19 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     static let lookPrefixes = ["appearance.", "ui.animation", "ui.calm", "ui.paneAnimations", "ui.reducedBackgrounds",
                                "browser.omnibar.glass", "app.uiScale"]
     /// Look keys outside those prefixes: the terminal font; the sidebar's shape, edges, text, group headers and
-    /// buttons; the tab strip's and titlebar's buttons and inactive tabs; pane corners; and the agent chat's text
-    /// sizes, sender marks and Session Info (Leo, 2026-11-18: "you guys should be customizing the tabs/sidebars a
-    /// lot deeper too. prob likewise the session info and the top right buttons as well"). Keep in step with
-    /// cmux-config's `LOOK_KEYS`.
+    /// buttons, and how its rows draw (status icons, timestamps, colors, grouping), so one file restyles the sidebar
+    /// as a whole (the shipped `minimal-sessions`); the tab strip's and titlebar's buttons and inactive tabs; pane
+    /// corners; and the agent chat's text sizes, sender marks and Session Info (Leo, 2026-11-18: "you guys should be
+    /// customizing the tabs/sidebars a lot deeper too. prob likewise the session info and the top right buttons as
+    /// well"). Keep in step with cmux-config's `LOOK_KEYS`.
     static let lookKeys: Set<String> = [
         "terminal.fontFamily", "terminal.fontSize",
         "sidebar.style", "sidebar.border", "sidebar.borderWidth", "sidebar.sectionLook", "sidebar.density",
         "sidebar.textSize", "sidebar.groupHeader.background", "sidebar.groupPalette", "sidebar.groupGradient",
         "sidebar.showSearchButton", "sidebar.showProfileControl", "sidebar.showNewWorkspaceChooser",
-        "sidebar.controlsOnHover", "sidebar.detailedStatusIcons", "sidebar.showColors", "sidebar.spacesVisibility",
+        "sidebar.controlsOnHover", "sidebar.detailedStatusIcons", "sidebar.showColors",
+        "sidebar.showTimestamps", "workspaceColors.indicatorStyle", "sidebar.groupBy",
+        "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.spacesVisibility",
         "tabs.toolbarButtons", "tabs.plusButton", "window.titlebarButtons", "focus.inactiveTabStyle",
         "layout.paneCornerRadius", "layout.cornerPadding", "layout.paneBorderWidth",
         "agentPane.display.sessionInfo.placement", "agentPane.display.font.preset", "agentPane.display.font.ui",
@@ -75,12 +78,21 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
         "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner",
         "agentPane.display.trayHandle",
     ]
+    /// The workspace row's own keys (`sidebar.workspaceRow.<name>`), one segment only: the per-kind overrides
+    /// (`sidebar.workspaceRow.<kind>.<name>`) stay in cmux-next.json.
+    static let rowPrefix = "sidebar.workspaceRow."
 
     /// Whether a theme file may set `descriptor`: a look setting an agent may set too.
     public static func isLook(_ descriptor: SettingDescriptor) -> Bool {
         let id = descriptor.id
         return SettingsSchema.agentSettableKeys.contains(id) && !excludedKeys.contains(id)
-            && (lookKeys.contains(id) || lookPrefixes.contains { id.hasPrefix($0) })
+            && (lookKeys.contains(id) || lookPrefixes.contains { id.hasPrefix($0) } || isRowKey(id))
+    }
+
+    static func isRowKey(_ id: String) -> Bool {
+        guard id.hasPrefix(rowPrefix) else { return false }
+        let name = id.dropFirst(rowPrefix.count)
+        return !name.isEmpty && !name.contains(".")
     }
 
     /// Reads `name`'s file, the user's or else the one cmux ships (`ThemeFileSetting.bundledFolder`): its
