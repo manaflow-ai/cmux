@@ -353,11 +353,11 @@ function CatalogList({
   }, [place]);
   const columns = grid ? gridColumns(box.width) : 1;
   const previous = useRef<CatalogRows | undefined>(undefined);
-  const model = useMemo(() => {
-    const next = catalogRows(apps, columns, previous.current);
-    previous.current = next;
-    return next;
-  }, [apps, columns]);
+  const model = useMemo(() => catalogRows(apps, columns, previous.current), [apps, columns]);
+  // The committed rows, whose unchanged rows the next build keeps.
+  useLayoutEffect(() => {
+    previous.current = model;
+  }, [model]);
   const { rows, rowOf } = model;
   // The listing that holds focus (a click or Tab focuses one) stays mounted however far it scrolls;
   // so do the rows before and after it and the first and last rows, the browser's next tab stops:
