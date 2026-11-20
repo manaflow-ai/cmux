@@ -881,3 +881,27 @@ fn a_workspace_commit_prepared_before_another_lands_states_every_workspace() {
     drop(registry);
     assert_journal_states_the_rows(&mux);
 }
+
+/// PROBE (temporary, ask-bdd706af47): the cost of one create at 10 and at 2000 workspaces.
+#[test]
+fn probe_create_cost_at_10_and_2000_workspaces() {
+    let mut table = String::new();
+    for count in [10usize, 2000] {
+        let seeded = std::time::Instant::now();
+        let mux = mux_with_workspaces(count);
+        let seed_ms = seeded.elapsed().as_secs_f64() * 1e3;
+        let mut samples = Vec::new();
+        for index in 0..8 {
+            let key = format!("018f6e21-7b70-7e70-9000-{index:012}");
+            let started = std::time::Instant::now();
+            mux.create_empty_workspace(None, Some(key), None).unwrap();
+            samples.push(started.elapsed().as_secs_f64() * 1e3);
+        }
+        samples.sort_by(f64::total_cmp);
+        table.push_str(&format!(
+            "PROBE count={count} seed_ms={seed_ms:.0} create_ms min={:.2} p50={:.2} max={:.2}\n",
+            samples[0], samples[4], samples[7]
+        ));
+    }
+    panic!("\n{table}");
+}
