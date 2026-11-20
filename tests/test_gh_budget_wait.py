@@ -277,6 +277,9 @@ class WrapperTests(unittest.TestCase):
     def test_a_reset_past_the_cap_fails_at_once_and_loud(self) -> None:
         # Waiting part of the way to a reset gains nothing: the next try is refused the same.
         h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="900", RESET_IN="3000")
+        fake_sleep = Path(h.env["PATH"].split(":")[0]) / "sleep"
+        fake_sleep.write_text("#!/bin/bash\n")
+        fake_sleep.chmod(0o755)
         result = h.gh("api", "repos/o/r/contents/x")
         self.assertEqual(result.returncode, 1)
         self.assertEqual(h.calls().count("call api repos/o/r/contents/x"), 1)
@@ -297,10 +300,13 @@ class WrapperTests(unittest.TestCase):
     def test_a_loud_failure_with_merged_streams_goes_to_the_summary(self) -> None:
         # billing-nightly.yml's storekit step reads `$(gh api ... 2>&1)`: no annotation in its data.
         h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="900", RESET_IN="3000")
+        fake_sleep = Path(h.env["PATH"].split(":")[0]) / "sleep"
+        fake_sleep.write_text("#!/bin/bash\n")
+        fake_sleep.chmod(0o755)
         summary = h.runner_temp / "summary.md"
         h.env["GITHUB_STEP_SUMMARY"] = str(summary)
         out = subprocess.run(["bash", "-c", f'x="$("{h.shim}" api x 2>&1)"; printf "%s" "$x"'],
-                             env=h.env, capture_output=True, text=True)
+                             env=h.env, capture_output=True, text=True, timeout=30)
         self.assertNotIn("::error", out.stdout)
         self.assertIn("GitHub API: gh api x was refused", summary.read_text())
 

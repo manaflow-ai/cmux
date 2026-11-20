@@ -669,6 +669,7 @@ jobs:
             const guard = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/promote-nightly-next.mjs`);
             const { owner, repo } = context.repo;
             const writer = getOctokit(process.env.APP_TOKEN);
+            // This token has its own client; the read client's hook does not cover it.
             if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github: writer, core });
             core.notice(await guard.move({ writer, github, owner, repo, decision: JSON.parse(process.env.DECISION) }));
 
@@ -828,6 +829,7 @@ jobs:
             const guard = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/promote-nightly-next.mjs`);
             const { owner, repo } = context.repo;
             const writer = getOctokit(process.env.APP_TOKEN);
+            // This token has its own client; the read client's hook does not cover it.
             if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github: writer, core });
             core.notice(await guard.move({ writer, github, owner, repo, decision: JSON.parse(process.env.DECISION) }));
 
