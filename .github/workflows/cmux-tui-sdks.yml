@@ -81,6 +81,7 @@ on:
       - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneCloudFolder.swift"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json"
       - "Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json"
+      - "Packages/macOS/CmuxNext/Tests/Fixtures/agent-tools/setup-mcp-terminals.json"
       - "Resources/cmux-cli-path/**"
       - "Resources/theme-files/charcoal.json"
       - "Resources/theme-files/classic-desktop.json"
@@ -136,6 +137,7 @@ on:
       - "skills/cmux-browser/templates/authenticated-session.sh"
       - "skills/cmux-browser/templates/capture-workflow.sh"
       - "skills/cmux-browser/templates/form-automation.sh"
+      - "skills/cmux-computer-use/SKILL.md"
       - "skills/cmux-cua/SKILL.md"
       - "skills/cmux-customization/SKILL.md"
       - "skills/cmux-customization/references/examples.md"
@@ -147,6 +149,7 @@ on:
       - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl"
       - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-2.changes.jsonl"
       - "webviews/src/agent-session/acpmux/rows/parity/seed-turn.changes.jsonl"
+      - "webviews/src/apps/scene/extTemplateScenes.json"
       - "workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs"
       - "workers/cmux-vm/cli/crates/cmux-vm-client/Cargo.toml"
       - "workers/cmux-vm/cli/crates/cmux-vm-client/src/**"
@@ -234,6 +237,7 @@ on:
       - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneCloudFolder.swift"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json"
       - "Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json"
+      - "Packages/macOS/CmuxNext/Tests/Fixtures/agent-tools/setup-mcp-terminals.json"
       - "Resources/cmux-cli-path/**"
       - "Resources/theme-files/charcoal.json"
       - "Resources/theme-files/classic-desktop.json"
@@ -289,6 +293,7 @@ on:
       - "skills/cmux-browser/templates/authenticated-session.sh"
       - "skills/cmux-browser/templates/capture-workflow.sh"
       - "skills/cmux-browser/templates/form-automation.sh"
+      - "skills/cmux-computer-use/SKILL.md"
       - "skills/cmux-cua/SKILL.md"
       - "skills/cmux-customization/SKILL.md"
       - "skills/cmux-customization/references/examples.md"
@@ -300,6 +305,7 @@ on:
       - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl"
       - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-2.changes.jsonl"
       - "webviews/src/agent-session/acpmux/rows/parity/seed-turn.changes.jsonl"
+      - "webviews/src/apps/scene/extTemplateScenes.json"
       - "workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs"
       - "workers/cmux-vm/cli/crates/cmux-vm-client/Cargo.toml"
       - "workers/cmux-vm/cli/crates/cmux-vm-client/src/**"
@@ -1096,6 +1102,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # Ubuntu 24.04 lets only AppArmor-profiled programs make an unprivileged user
       # namespace; bwrap needs one, so the runner VM lifts that restriction.

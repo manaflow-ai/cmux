@@ -14,6 +14,14 @@ import textwrap
 import unittest
 from pathlib import Path
 
+import importlib.util as _git_fixture_importlib
+
+# tests/git_fixture_env.py turns off git's background maintenance in temp repos.
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", Path(__file__).resolve().parents[3] / "tests" / "git_fixture_env.py")
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+
 ROOT = Path(__file__).resolve().parents[3]
 TOOL = ROOT / "scripts/cmux-next/swap-binary.sh"
 SIDE = ROOT / "scripts/cmux-next/side-instance.sh"
@@ -112,16 +120,43 @@ class SwapBinaryTests(unittest.TestCase):
             self.skipTest("a sparse checkout without the project")
         r = self.run_tool("wrapper", ROOT, self.tmp / "wrapper")
         manifest = (self.tmp / "wrapper/Package.swift").read_text()
-        # -no_exported_symbols comes only from Release's LD_EXPORT_SYMBOLS = NO: the Release block, not Debug's.
-        for flag in ('"-objc_stubs_small"', '"@executable_path/../Frameworks"', '"-no_exported_symbols"', '"Carbon"'):
+        # Not "-no_exported_symbols": since #44204 the app's code is in CmuxNextApp.framework behind a stub, and the
+        # Release configuration no longer sets LD_EXPORT_SYMBOLS = NO (Packages/macOS/CmuxNext/Package.swift,
+        # appFrameworkLinkerSettings, says why). The row below covers that setting.
+        for flag in ('"-objc_stubs_small"', '"@executable_path/../Frameworks"', '"Carbon"'):
             self.assertIn(flag, manifest)
         self.assertIn('.macOS("14.0")', manifest)
         self.assertIn("link flags", r.stderr)
 
+    def test_wrapper_exports_no_symbols_only_when_the_release_configuration_says_so(self):
+        """-no_exported_symbols comes only from Release's LD_EXPORT_SYMBOLS = NO: the Release block, not Debug's."""
+        def project(debug: str, release: str) -> str:
+            block = ("\t\t{id} /* {name} */ = {{\n\t\t\tisa = XCBuildConfiguration;\n\t\t\tbuildSettings = {{\n{more}"
+                     "\t\t\t\tOTHER_LDFLAGS = (\n\t\t\t\t\t\"-lc++\",\n\t\t\t\t);\n\t\t\t\tPRODUCT_NAME = cmux;\n"
+                     "\t\t\t}};\n\t\t\tname = {name};\n\t\t}};\n")
+            return block.format(id="A1", name="Debug", more=debug) + block.format(id="A2", name="Release", more=release)
+
+        off = "\t\t\t\tLD_EXPORT_SYMBOLS = NO;\n"
+        for name, debug, release, wanted in (("release", "", off, True), ("neither", "", "", False),
+                                             ("debug-only", off, "", False)):
+            with self.subTest(name):
+                src = self.tmp / f"src-{name}"
+                (src / "App").mkdir(parents=True)
+                (src / "App/main.swift").write_text("// stub\n")
+                (src / "cmux.xcodeproj").mkdir()
+                (src / "cmux.xcodeproj/project.pbxproj").write_text(project(debug, release))
+                (src / "Packages/macOS/CmuxNext").mkdir(parents=True)
+                (src / "Packages/macOS/CmuxNext/Package.resolved").write_text('{"pins": [], "version": 3}\n')
+                self.run_tool("wrapper", src, self.tmp / f"wrapper-{name}")
+                manifest = (self.tmp / f"wrapper-{name}/Package.swift").read_text()
+                self.assertIn('"-lc++"', manifest)
+                self.assertEqual('"-no_exported_symbols"' in manifest, wanted, manifest)
+
     def test_check_refuses_a_diff_that_touches_the_project(self):
         repo = self.tmp / "repo"
         repo.mkdir()
-        git = lambda *a: subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True, text=True).stdout.strip()
+        git = lambda *a: subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True, text=True,
+                                        env=git_fixture_env.fixture_env()).stdout.strip()
         git("init", "-q")
         git("config", "user.email", "t@example.com"); git("config", "user.name", "t")
         (repo / "App").mkdir(); (repo / "App/main.swift").write_text("1")

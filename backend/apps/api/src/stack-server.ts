@@ -92,8 +92,8 @@ const readOnlyPlan = (metadata: unknown): string | null => {
 }
 
 /** The cmux NEXT plan ids a `cmuxNextPlan` may carry; any other value is no NEXT plan. */
-const NEXT_PLAN_IDS: ReadonlySet<string> = new Set(["next_pro", "next_max"])
-/** A cmux NEXT plan id ("next_pro" or "next_max") exactly, else null. */
+const NEXT_PLAN_IDS: ReadonlySet<string> = new Set(["next_plus", "next_pro", "next_max"])
+/** A cmux NEXT plan id ("next_plus", "next_pro" or "next_max") exactly, else null. */
 export const nextPlanId = (value: unknown): string | null => (typeof value === "string" && NEXT_PLAN_IDS.has(value) ? value : null)
 
 /**
