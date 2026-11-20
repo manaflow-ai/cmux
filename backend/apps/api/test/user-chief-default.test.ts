@@ -2,9 +2,9 @@ import { env } from "cloudflare:workers"
 import { runInDurableObject as runIn } from "cloudflare:test"
 import type { Principal, ReduceContext, ReduceResult } from "@cmux/ownership"
 import { describe, expect, it } from "vitest"
-import { DEFAULT_CHIEF_BIND, DEFAULT_CHIEF_ENSURE, DEFAULT_CHIEF_PROVISION, HOSTED_DEFAULT_KEY, defaultChiefIdentity, defaultChiefWorkspace } from "../src/domains/user-chief-default.ts"
+import { DEFAULT_CHIEF_BIND, DEFAULT_CHIEF_ENSURE, DEFAULT_CHIEF_REBIND, DEFAULT_CHIEF_PROVISION, HOSTED_DEFAULT_KEY, defaultChiefIdentity, defaultChiefWorkspace } from "../src/domains/user-chief-default.ts"
 import { personalTeamIdFor, userDomain, type UserState } from "../src/domains/user.ts"
-import { deliverSignupChief, ensureChiefMachine, type DefaultMachinePlatform } from "../src/user-chief-provision.ts"
+import { deliverSignupChief, ensureChiefMachine, rebindDefaultChief, type DefaultMachinePlatform } from "../src/user-chief-provision.ts"
 import type { TargetItem } from "../src/do-outbox.ts"
 import { fireAlarm, quiesce } from "./setup/alarm.ts"
 import { cloudTestUser } from "./setup/cloud-teams.ts"
@@ -96,6 +96,60 @@ describe("signup default Chief", () => {
     ]) expect(userDomain.reduce(changed, DEFAULT_CHIEF_BIND, binding, context())).toMatchObject({ ok: false, code: "validation.invalid" })
   })
 
+  it("a rebind follows the same logical machine to its new VM and install, and nothing else", () => {
+    const VM2 = "vm_00000000000000000002", INSTALL2 = "inst_00000000000000000002"
+    const bound = decided(userDomain.reduce(machineState(), DEFAULT_CHIEF_BIND, binding, context())).state
+    expect(userDomain.reduce(machineState(), DEFAULT_CHIEF_REBIND, binding, context())).toMatchObject({ ok: false, code: "chief.unavailable" })
+    // The platform registered the new VM's own install; the old one is revoked with the old VM.
+    const moved: UserState = {
+      ...bound,
+      installs: { ...bound.installs, [INSTALL]: { ...bound.installs[INSTALL]!, revoked_at: 2 }, [INSTALL2]: { ...bound.installs[INSTALL]!, id: INSTALL2, grant: "grant_00000000000000000002", bound_machine: VM2 } },
+      grants: { ...bound.grants, grant_00000000000000000002: { ...bound.grants.grant_00000000000000000001!, id: "grant_00000000000000000002", grantee: INSTALL2 } }
+    }
+    const next = { ...binding, connection_machine: VM2, install: INSTALL2 }
+    const rebound = decided(userDomain.reduce(moved, DEFAULT_CHIEF_REBIND, next, context()))
+    expect(rebound.state.chiefs?.[bound.hosted_default!]).toMatchObject({ brain_place: null, cloud_machine: next })
+    expect(rebound.state.grants).toEqual(moved.grants)
+    expect(decided(userDomain.reduce(rebound.state, DEFAULT_CHIEF_REBIND, next, context())).changed).toBe(false)
+    // Signup's bind still never replaces a machine.
+    expect(userDomain.reduce(moved, DEFAULT_CHIEF_BIND, next, context())).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(userDomain.reduce(moved, DEFAULT_CHIEF_REBIND, { ...next, machine: "another-logical-machine" }, context())).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(userDomain.reduce(moved, DEFAULT_CHIEF_REBIND, { ...next, provider: "other-provider" }, context())).toMatchObject({ ok: false, code: "auth.forbidden" })
+    // The new VM must hold its own live install; the old VM's revoked one never binds.
+    expect(userDomain.reduce(moved, DEFAULT_CHIEF_REBIND, { ...next, install: INSTALL }, context())).toMatchObject({ ok: false, code: "validation.invalid" })
+    expect(userDomain.reduce(moved, DEFAULT_CHIEF_REBIND, { ...binding, connection_machine: VM2 }, context())).toMatchObject({ ok: false, code: "validation.invalid" })
+    for (const principal of [session, { identity: "system:user:someone-else", kind: "system" as const }]) {
+      expect(userDomain.authorize?.(moved, DEFAULT_CHIEF_REBIND, next, principal)?.code).toBe("auth.forbidden")
+      expect(userDomain.reduce(moved, DEFAULT_CHIEF_REBIND, next, context(principal))).toMatchObject({ ok: false, code: "auth.forbidden" })
+    }
+  })
+
+  it("rebinds only when the platform names another VM for the same logical machine", async () => {
+    const VM2 = "vm_00000000000000000002", INSTALL2 = "inst_00000000000000000002"
+    let state = decided(userDomain.reduce(machineState(), DEFAULT_CHIEF_BIND, binding, context())).state
+    const agent = state.hosted_default!
+    const submit = (machine: typeof binding, key: string) => {
+      const r = userDomain.reduce(state, DEFAULT_CHIEF_REBIND, machine, context())
+      if (!r.ok) return { frames: [{ t: "reject" as const, tx: "rebind", idempotency_key: key, code: r.code, message: r.message, retryable: false, replayed: false }] }
+      state = r.state
+      return { frames: [{ t: "result" as const, tx: "rebind", idempotency_key: key, value: machine, revision: "2", replayed: false }] }
+    }
+    const now = () => context().now
+    expect(await rebindDefaultChief(platform(), USER, agent, () => state, submit, now)).toEqual({ ok: true, changed: false, binding })
+    expect(await rebindDefaultChief(platform(), USER, "agent_other", () => state, submit, now)).toMatchObject({ ok: false, code: "chief.machine.not_default", retryable: false })
+    // The new VM has not registered its install yet: retry later, change nothing.
+    expect(await rebindDefaultChief(platform({ ...platformValue(), connectionMachine: VM2 }), USER, agent, () => state, submit, now)).toMatchObject({ ok: false, code: "chief.provision.machine_binding_pending", retryable: true })
+    expect(await rebindDefaultChief(platform({ ...platformValue(), machine: { ...platformValue().machine, id: "another-logical-machine" } }), USER, agent, () => state, submit, now)).toMatchObject({ ok: false, code: "chief.machine.binding_changed", retryable: false })
+    state = {
+      ...state,
+      installs: { ...state.installs, [INSTALL2]: { ...state.installs[INSTALL]!, id: INSTALL2, grant: "grant_00000000000000000002", bound_machine: VM2 } },
+      grants: { ...state.grants, grant_00000000000000000002: { ...state.grants.grant_00000000000000000001!, id: "grant_00000000000000000002", grantee: INSTALL2 } }
+    }
+    const next = { ...binding, connection_machine: VM2, install: INSTALL2 }
+    expect(await rebindDefaultChief(platform({ ...platformValue(), connectionMachine: VM2 }), USER, agent, () => state, submit, now)).toEqual({ ok: true, changed: true, binding: next })
+    expect(state.chiefs?.[agent]?.cloud_machine).toEqual(next)
+  })
+
   it("retries admission/registration outages and rejects cross-account platform replies", async () => {
     const state = machineState()
     expect(await ensureChiefMachine(platform(), USER, () => state, () => context().now)).toEqual(binding)
@@ -144,78 +198,4 @@ describe("signup default Chief", () => {
 
 const runInDurableObject = runIn as unknown as <T>(stub: unknown, fn: (instance: any, state: DurableObjectState) => Promise<T>) => Promise<T>
 
-describe("signup outbox integration", () => {
-  it("first signup creates and binds its Chief on the server, without chief.create or a machine client request", async () => {
-    const user = cloudTestUser(188), team = personalTeamIdFor(user)
-    let carrier: string | undefined
-    const namespace = (env as unknown as { USER_DO: DurableObjectNamespace }).USER_DO
-    const stub = namespace.get(namespace.idFromName(user))
-    await runInDurableObject(stub, async (i) => {
-      i.signupMachineReady = false
-      let machine: Promise<Awaited<ReturnType<DefaultMachinePlatform["ensureDefaultMachine"]>>> | undefined
-      i.signupPlatform = () => ({ ensureDefaultMachine: async (owner: string) => {
-        if (owner !== user) throw new Error("wrong owner")
-        if (!i.signupMachineReady) throw new Error("machine is still booting")
-        return machine ??= (async () => {
-          const cloud = cloudStub(team)
-          const created = reply(await cloud.submit(team, { identity: `session:${user}`, kind: "session", user, team }, frame("cloud.machine.create", { size: SIZE })))
-          if (created.t !== "result") throw new Error(JSON.stringify(created))
-          carrier = created.value.machine.id as string
-          const file = await bindFile(cloud, carrier), key = await vmKey()
-          const bound = await cloud.bindMachine(team, { team, machine: carrier, bind_token: file.json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: key.jwk })
-          if (!bound.ok) throw new Error(JSON.stringify(bound))
-          return { ok: true as const, value: { workspace: defaultChiefWorkspace(user), team, connectionMachine: carrier, machine: { ...platformValue().machine, creator: user } } }
-        })()
-      } })
-    })
-    const request = { ...session, identity: `user:${user}`, user, team, stack_user_id: "signup-integration" }
-    const result = await (stub as unknown as { submit(e: string, p: Principal, f: unknown): Promise<{ frames: Array<{ t: string }> }> }).submit(user, request, { t: "op", op: "user.ensure", params: {}, idempotency_key: "signup", origin: "user" })
-    expect(result.frames.some((f) => f.t === "result")).toBe(true)
-    await fireAlarm(stub)
-    const pendingId = await runInDurableObject(stub, async (i, s) => {
-      await quiesce(i, s)
-      const state = i.boundEngine.currentState as UserState
-      expect(state.chiefs?.[state.hosted_default!]?.cloud_machine).toBeUndefined()
-      return state.hosted_default!
-    })
-    const brains = (env as unknown as { CHIEF_BRAIN_DO: DurableObjectNamespace }).CHIEF_BRAIN_DO
-    const brain = brains.get(brains.idFromName(pendingId)) as unknown as {
-      status(): Promise<{ config: { enabled: boolean } }>
-      configure(agent: string, owner: string, patch: { enabled: boolean }): Promise<{ ok: boolean }>
-      admit(agent: string, owner: string, turn: boolean): Promise<{ ok: boolean; reason?: string; machine?: { binding: { connection_machine: string } } }>
-    }
-    expect((await brain.status()).config.enabled).toBe(true)
-    expect(await brain.admit(pendingId, user, true)).toEqual({ ok: false, reason: "provisioning_pending" })
-    await runInDurableObject(stub, async (i, s) => {
-      await quiesce(i, s)
-      i.signupMachineReady = true
-      // Clear only this test's retry delay; the durable items are retried by the real alarm drain.
-      i.boundEngine.outbox.succeeded(`UserDO:${user}`)
-    })
-    await fireAlarm(stub)
-    const chiefId = await runInDurableObject(stub, async (i, s) => {
-      await quiesce(i, s)
-      const state = i.boundEngine.currentState as UserState
-      const chief = state.chiefs?.[state.hosted_default!]
-      expect(chief).toMatchObject({ is_default: true, brain_place: null, cloud_machine: { workspace: defaultChiefWorkspace(user), team, connection_machine: carrier } })
-      expect(chief?.cloud_machine?.install).toMatch(/^inst_[0-9a-f]{20}$/)
-      expect(Object.values(state.chiefs ?? {})).toHaveLength(1)
-      expect(i.boundEngine.outbox.allPending(100).filter((o: { kind: string }) => o.kind === DEFAULT_CHIEF_ENSURE || o.kind === DEFAULT_CHIEF_PROVISION)).toEqual([])
-      return chief!.id
-    })
-    expect(chiefId).toBe(pendingId)
-    expect(await brain.admit(chiefId, user, true)).toMatchObject({ ok: true, machine: { binding: { connection_machine: carrier } } })
-    expect(await brain.configure(chiefId, user, { enabled: false })).toMatchObject({ ok: true })
-    // The account's default can move while signup retains its selected hosted Chief.
-    const other = await (stub as unknown as { submit(e: string, p: Principal, f: unknown): Promise<{ frames: Array<{ t: string }> }> }).submit(user, request, {
-      t: "op", op: "chief.create", params: { display_name: "Research", is_default: true }, idempotency_key: "another-default", origin: "user"
-    })
-    expect(other.frames.some((f) => f.t === "result")).toBe(true)
-    // A crash after activation can replay signup even after the owner deliberately turned it off.
-    await (stub as unknown as { systemDeliver(e: string, source: string, items: Array<TargetItem>): Promise<unknown> }).systemDeliver(user, `user:${user}`, [
-      { id: 100, op: DEFAULT_CHIEF_ENSURE, key: HOSTED_DEFAULT_KEY, params: {} }
-    ])
-    expect((await brain.status()).config.enabled).toBe(false)
-    expect(await brain.admit(chiefId, user, true)).toEqual({ ok: false, reason: "disabled" })
-  }, 60_000)
-})
+// The signup outbox's end to end machine provisioning reaches CloudDO, which is cmux-platform's.

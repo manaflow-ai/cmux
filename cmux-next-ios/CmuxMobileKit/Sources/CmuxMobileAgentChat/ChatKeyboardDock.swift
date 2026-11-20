@@ -85,6 +85,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     private var contentHeight: CGFloat = 0
     /// The stack's measured height (the guide's height follows it).
     private var stackHeight: CGFloat = 96
+    /// The stack height the transcript's bottom inset was last set from. The inset's change
+    /// splits into the stack moving (the keyboard) and the stack growing (a composer line):
+    /// only the move carries a scrolled-up reader's view (`updateInsets`).
+    private var insetStackHeight: CGFloat?
     private var positionedInitially = false
     private var shownIdentity: ObjectIdentifier?
     private var keyboardPin: NSLayoutConstraint?
@@ -200,6 +204,18 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         if placement == .external { externalMetricsChanged() }
     }
 
+    /// The Mac's chat look (``CmuxMobileChatLook``), or nil for the stock chat: the transcript is
+    /// clear over the chat's backdrop (`CmuxMobileChatBackdrop`, which the host draws behind it),
+    /// its rows take the theme's light or dark style and the top fade its ground.
+    func applyChatLook(_ look: CmuxMobileChatLook?) {
+        loadViewIfNeeded()
+        let background: UIColor = look == nil ? .cmuxMobileBackground : .clear
+        if scrollView.backgroundColor != background { scrollView.backgroundColor = background }
+        let style = look?.interfaceStyle ?? .unspecified
+        if overrideUserInterfaceStyle != style { overrideUserInterfaceStyle = style }
+        topFade.ground = look?.groundColor
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
@@ -222,6 +238,13 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         scrollView.backgroundColor = .cmuxMobileBackground
         scrollView.topEdgeEffect.style = .soft
         list.scrollDelegate = self
+        // Safari's bottom bar: a tap on the page while the field is being edited ends the
+        // editing and lowers the keyboard (CMUX-34). The draft stays in the composer, and the
+        // tap still reaches the row under it (a disclosure, a link).
+        transcriptTap.addTarget(self, action: #selector(transcriptTapped(_:)))
+        transcriptTap.cancelsTouchesInView = false
+        transcriptTap.delegate = TranscriptTapDelegate.shared
+        scrollView.addGestureRecognizer(transcriptTap)
         view.addSubview(scrollView)
         setContentScrollView(scrollView, for: .top)
 
@@ -383,6 +406,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             view.layoutIfNeeded()
             return
         }
+        // A stack not measured yet rests from the page's bottom: placed again at the page's size.
+        if placement == .external, externalRest == nil { externalMetricsChanged() }
         let top = headerBottom
         if openAreaTop?.constant != top { openAreaTop?.constant = top }
         updateStackCeiling(headerBottom: top)
@@ -482,7 +507,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             return
         }
         let old = scrollView.contentInset
-        let bottomDelta = positionedInitially ? bottom - old.bottom : 0
+        // The stack's bottom moved by this much (the keyboard); its own growth is not in it.
+        let stackGrowth = insetStackHeight.map { stackHeight - $0 } ?? 0
+        let bottomDelta = positionedInitially ? bottom - old.bottom - stackGrowth : 0
+        insetStackHeight = stackHeight
         if old.top != top || old.bottom != bottom {
             // Resting on the newest turn counts as following it (an
             // interactive dismissal drags the content away mid-gesture, then
@@ -505,6 +533,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         } else if positionedInitially {
             // A reader scrolled up keeps the bottom of what they see on the
             // stack too (Telegram): the stack rising covers the top instead.
+            // The composer growing a line (or losing one) moves nothing: the
+            // taller stack covers more of the bottom, as in Messages
+            // (user report 2026-11-12: a newline shifted the transcript).
             var offset = scrollView.contentOffset
             offset.y = min(max(-top, offset.y + bottomDelta), bottomOffset.y)
             if offset != scrollView.contentOffset { scrollView.contentOffset = offset }
@@ -604,6 +635,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             }
         }
         let insets = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
+        insetStackHeight = stackHeight
         if scrollView.contentInset != insets {
             scrollView.contentInset = insets
             scrollView.verticalScrollIndicatorInsets = UIEdgeInsets(top: headerBottom, left: 0, bottom: bottom, right: 0)
@@ -627,12 +659,25 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         UIView.performWithoutAnimation { updateInsets() }
     }
 
+    /// In a window and drawn at the size it is laid out at: no zoom or card scale on it or an
+    /// ancestor, so a window point converts into it as it will once the page rests.
+    private var isDrawnAtOwnSize: Bool {
+        guard let window = view.window, view.bounds.width > 0, view.bounds.height > 0 else { return false }
+        let drawn = view.convert(view.bounds, to: window)
+        return abs(drawn.width - view.bounds.width) < 0.5 && abs(drawn.height - view.bounds.height) < 0.5
+    }
+
     /// The external stack's height and resting bottom from the surface.
     private func externalMetricsChanged() {
         guard placement == .external, isViewLoaded else { return }
         // The stack's bottom is reported in screen space; with the keyboard
         // down it is the resting place (TabsKit puts it above its toolbar).
-        if let maxY = surface.stackMaxY, !surface.composerFocused, view.window != nil {
+        // Measured only while the page is drawn at its own size. In the tab grid and during the
+        // zoom that opens a card, TabsKit draws the page scaled down, and the stack's bottom (a
+        // window point from when the page was last shown) converted into the scaled page lands
+        // far below it: 1,485 for 776 on an iPhone 17 Pro, which dropped the newest turn 146 pt
+        // under the card's place until the zoom landed and the page measured again (cmux#45442).
+        if let maxY = surface.stackMaxY, !surface.composerFocused, isDrawnAtOwnSize {
             let rest = view.convert(CGPoint(x: 0, y: maxY), from: nil).y
             if externalRest != rest {
                 externalRest = rest
@@ -640,10 +685,27 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
                 externalRestBottomMax?.constant = rest
                 view.setNeedsLayout()
             }
+            // The resting stack the tab's grid card is drawn with, and any tab not measured yet.
+            if let height = surface.stackHeight, height > 0, view.bounds.height > 0 {
+                let resting = ChatRestingStack(height: height, bottomGap: view.bounds.height - rest)
+                if surface.restingStack != resting { surface.restingStack = resting }
+                AgentChatSurface.lastRestingStack = resting
+            }
         } else if externalRest == nil {
-            let rest = view.bounds.height - 72 - Self.dockGap
-            externalRestBottom?.constant = rest
-            externalRestBottomMax?.constant = rest
+            // Not measured yet (the page is built under the zoom that opens it, before TabsKit
+            // shows its composer): placed as its card was (`AgentChatSurface.placementStack`),
+            // so the card opens into the page without a jump.
+            let stack = surface.placementStack
+            let rest = view.bounds.height - stack.bottomGap
+            if externalRestBottom?.constant != rest {
+                externalRestBottom?.constant = rest
+                externalRestBottomMax?.constant = rest
+                view.setNeedsLayout()
+            }
+            if surface.drawnStackHeight == nil, abs(stackHeight - stack.height) > 0.01 {
+                stackHeight = stack.height
+                dockHeightConstraint?.constant = stack.height
+            }
         }
     }
 
@@ -711,6 +773,24 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         UIView.performWithoutAnimation { view.layoutIfNeeded() }
     }
 
+    /// The tap on the transcript that ends editing (`transcriptTapped`).
+    let transcriptTap = UITapGestureRecognizer()
+
+    @objc private func transcriptTapped(_ tap: UITapGestureRecognizer) {
+        guard tap.state == .ended else { return }
+        endEditingFromTranscriptTap()
+    }
+
+    /// A tap on the transcript while the composer is focused: the composer lets go of focus
+    /// and the keyboard goes down, as Safari's address bar does on a tap on the page. Only
+    /// the composer's focus changes (its binding resigns the field), never a text field in
+    /// a row (the question card's "Other..." answer). Nothing happens when the composer is
+    /// not focused, so a tap while reading moves nothing.
+    func endEditingFromTranscriptTap() {
+        guard surface.composerFocused else { return }
+        surface.composerFocused = false
+    }
+
     @objc private func dockPanned(_ pan: UIPanGestureRecognizer) {
         guard pan.state == .changed else { return }
         let t = pan.translation(in: view)
@@ -730,7 +810,27 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         followDraggedKeyboard(true)
     }
 
-    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { followDraggedKeyboard(false) }
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        followDraggedKeyboard(false)
+        #if DEBUG
+        if decelerate, Self.jumpsMidFling { jumpMidFling() }
+        #endif
+    }
+
+    #if DEBUG
+    /// `-cmux-mobile-jump-mid-fling` (AgentJumpDuringMomentumUITests): a fling's release taps Jump to
+    /// bottom 120 ms later, while the transcript still glides. A UI test's own tap waits for the app
+    /// to go idle, so it only lands once the fling has stopped and never sees the momentum.
+    static let jumpsMidFling = ProcessInfo.processInfo.arguments.contains("-cmux-mobile-jump-mid-fling")
+
+    private func jumpMidFling() {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard let self, self.scrollView.isDecelerating else { return }
+            self.surface.scrollToBottom()
+        }
+    }
+    #endif
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         let y = scrollView.contentOffset.y
@@ -762,11 +862,13 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
                                           maxOffsetY: bottomOffset.y, keyboardDragging: keyboardDragging)
         }
         guard surface.showJump != shown else { return }
-        withAnimation(.cmuxMobileSnap) { surface.showJump = shown }
+        withAnimation(.cmuxMobileSnap.unlessReduceMotion) { surface.showJump = shown }
         jumpHost?.view.isUserInteractionEnabled = shown
     }
 
     func scrollTranscript(toTop: Bool, animated: Bool) {
+        // A jump ends the reader's own drag and fling first, before its layout pass.
+        scrollView.haltScrollMomentum()
         endFoldHold(force: true)
         surface.following = !toTop
         view.layoutIfNeeded()
@@ -777,6 +879,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     static let findBarClearance: CGFloat = 64
 
     func scrollTranscript(toContentY y: CGFloat, animated: Bool) {
+        // A jump ends the reader's own drag and fling first, before its layout pass.
+        scrollView.haltScrollMomentum()
         endFoldHold(force: true)
         surface.following = false
         view.layoutIfNeeded()
@@ -824,6 +928,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     }
 
     func revealFindBlock(_ findBlock: String, position: Double, animated: Bool) {
+        // A jump ends the reader's own drag and fling first, before its layout pass.
+        scrollView.haltScrollMomentum()
         let id = ChatTranscriptList.rowID(findBlock: findBlock)
         list.layOutNow(id)
         view.layoutIfNeeded()
@@ -843,6 +949,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     var isHoldingFold: Bool { foldHolding }
 
     private func scroll(to target: CGPoint, animated: Bool) {
+        // A flick's momentum kept moving the page under the animation, so Jump to Bottom
+        // stopped short (Leo, 2026-11-12). Stop it first; the move starts from where it is now.
+        scrollView.haltScrollMomentum()
         if animated, !reducesMotion() {
             // A long jump animated the offset across pages SwiftUI had not drawn yet (a
             // blank band and stale fragments for ~300 ms). Cut to one screen short of the
@@ -958,6 +1067,21 @@ private final class DragLinkTarget: NSObject {
     @objc func tick() { owner?.draggedKeyboardFrame() }
 }
 
+/// The transcript's end-editing tap runs beside the rows' own taps, and never takes a touch
+/// on a text input in a row (tapping into it must keep the focus it gets).
+private final class TranscriptTapDelegate: NSObject, UIGestureRecognizerDelegate {
+    @MainActor static let shared = TranscriptTapDelegate()
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        var view = touch.view
+        while let current = view {
+            if current is UITextInput { return false }
+            view = current.superview
+        }
+        return true
+    }
+}
+
 /// Lets the composer's swipe-down recognizer run beside the text view's own.
 private final class DockPanDelegate: NSObject, UIGestureRecognizerDelegate {
     @MainActor static let shared = DockPanDelegate()
@@ -999,6 +1123,8 @@ struct ChatTranscriptRepresentable: UIViewControllerRepresentable {
         configureRows(controller.rowContext)
         // Read here so SwiftUI calls update when the chat's Text and Width change.
         controller.applyDisplay(ChatDisplayPreferences.shared.settings(for: store.summary))
+        // Read here so SwiftUI calls update when the Mac's chat look changes.
+        controller.applyChatLook(CmuxMobileMacTheme.shared.chatLook)
     }
 }
 
@@ -1095,8 +1221,13 @@ private final class TopFadeView: UIView {
         gradient.locations = [0, NSNumber(value: Double(solid)), 1]
     }
 
+    /// The chat look's ground while the chat follows the Mac (``CmuxMobileChatLook/groundColor``).
+    var ground: UIColor? {
+        didSet { if ground != oldValue { updateColors() } }
+    }
+
     private func updateColors() {
-        let color = UIColor(Color.cmuxMobileBackground).resolvedColor(with: traitCollection)
+        let color = (ground ?? UIColor(Color.cmuxMobileBackground)).resolvedColor(with: traitCollection)
         gradient.colors = [color.cgColor, color.cgColor, color.withAlphaComponent(0).cgColor]
     }
 }

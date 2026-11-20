@@ -2,7 +2,7 @@ import type { SlackDestination } from "../chief-slack.ts"
 import type { ChiefBrainDO } from "../chief-brain/brain-do.ts"
 import { brainName } from "../chief-brain/brain-do.ts"
 import { sha256Hex } from "../ingress/verify.ts"
-import type { ChiefJob, JobDelivery } from "./jobs.ts"
+import type { JobDelivery } from "./jobs.ts"
 
 /**
  * The record of every Chief job on the Upstash engine (jobs-upstash.ts), one brain object per owner's
@@ -281,7 +281,7 @@ const fire = async (b: ChiefBrainDO, body: FireBody, run: string): Promise<FireR
   const job = getJob(b, body.job)
   if (!job) return { ok: false, code: "job.gone", message: "the job was removed" }
   if (job.paused && body.trigger !== "manual") return { ok: false, code: "job.paused", message: "the job is paused" }
-  const brain = b.doEnv.CHIEF_BRAIN_DO.get(b.doEnv.CHIEF_BRAIN_DO.idFromName(brainName(job.agent, job.conversation))) as unknown as { chiefJob(j: ChiefJob): Promise<JobDelivery> }
+  const brain = b.doEnv.CHIEF_BRAIN_DO.get(b.doEnv.CHIEF_BRAIN_DO.idFromName(brainName(job.agent, job.conversation)))
   const out = await brain.chiefJob({
     run: `upstash:${run}`,
     automation: job.id,

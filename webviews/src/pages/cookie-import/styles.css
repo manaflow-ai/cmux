@@ -1,0 +1,10 @@
+/* The card's glass is the native card's; the page draws only the lines and buttons over it. */
+html,
+body {
+  background: transparent;
+  overflow: hidden;
+}
+
+#root {
+  display: block;
+}

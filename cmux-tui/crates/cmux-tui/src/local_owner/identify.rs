@@ -78,9 +78,13 @@ pub(super) fn identify(
     {
         return Err(refused_or_failed(&mut connection, &error));
     }
-    if writeln!(connection.get_mut(), "{}", serde_json::json!({"id":1,"cmd":"identify"}))
-        .and_then(|()| connection.get_mut().flush())
-        .is_err()
+    if writeln!(
+        connection.get_mut(),
+        "{}",
+        serde_json::json!({"id":1,"cmd":"identify","revisions":true})
+    )
+    .and_then(|()| connection.get_mut().flush())
+    .is_err()
     {
         // A full owner may close before this write lands.
         return Err(if refused_after_write(&mut connection) {

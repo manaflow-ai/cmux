@@ -87,6 +87,11 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     /// Whether `markAgentDriven` has run on this page.
     var isAgentDriven: Bool { get }
 
+    /// True for an extension's own window (`chrome.windows.create`, a password manager's popout) that
+    /// cmux shows over a pane: the extension made it, not the page cmux names as its opener, so no
+    /// page script reaches it. The default is false (an engine without extension windows).
+    var isExtensionWindow: Bool { get }
+
     /// The tab's profile allows Chromium's password filling: false while an
     /// extension is the profile's password manager or the person turned
     /// autofill off (`PasswordFillPolicy`, plans/cmux-next/passwords.md).
@@ -115,6 +120,10 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     /// The zoom per site this tab's chrome follows (its engine's ``BrowserSharedStores``). The
     /// default is nil: the chrome keeps the tab's own zoom.
     var siteZoomLevels: SiteZoomLevels? { get }
+
+    /// The shown page's own background, as the engine read it from the document (`pageBackdropARGB`): the ground its
+    /// pane shows when it closes (``BrowserChromeView`` as `PaneGroundReporting`). The default is nil: the chrome's.
+    var pageGround: CGColor? { get }
 }
 
 extension BrowserTab {
@@ -131,7 +140,9 @@ extension BrowserTab {
 
     public func markAgentDriven() {}
     public var isAgentDriven: Bool { false }
+    public var isExtensionWindow: Bool { false }
     public var siteZoomLevels: SiteZoomLevels? { nil }
+    public var pageGround: CGColor? { nil }
     public func setPasswordFillAllowedByProfile(_ allowed: Bool) {}
 
     public func zoomIn() { setZoom(BrowserZoom.zoomIn(from: state.zoom)) }

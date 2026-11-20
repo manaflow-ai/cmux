@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+public import CmuxNextHomeModel
 
 /// The first-run panel's inputs from the host (`HomeFirstRunView`): shortcuts, agents, the
 /// Chief's face, the pet row's state and the hero's Debug Settings switch; and the
@@ -65,14 +66,5 @@ extension HomeNativeTranscriptView {
     /// none.
     public func setFirstRunAgents(_ agents: [HomeAgentGlance]) {
         firstRun.setAgents(agents)
-    }
-
-    /// Debug Settings > Home > Chief front page hero: off keeps the rows-only first-run panel.
-    func followHeroTunable() {
-        withObservationTracking {
-            firstRun.showsHero = HomeTunables.firstRunHero.value
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in self?.followHeroTunable() }
-        }
     }
 }

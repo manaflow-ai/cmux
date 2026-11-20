@@ -7,11 +7,21 @@
 // `staysInSight`), and another agent's line and a compaction between two runs split them, so such a
 // turn drew a dozen flat rows that no click could fold. After: the run draws one line ("Sent 3
 // messages, read a file, ran a command, received a message") and opens to the rows as they drew.
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { layoutConversation } from "../src/agent-session/acpmux/model";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { hiddenRowFolds, turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { toolGroups } from "../src/agent-session/acpmux/conversation/toolGroups";
+
+// Claude's in-place runs (claudeTurnFold.experiment.ts arm "runs"): these tests cover that arm. The
+// default folds a Claude turn under "Worked for", as Codex does (turnFoldStyle.test.ts).
+beforeAll(() => {
+  globalThis.cmuxExperiments = { "claude-turn-fold": "runs" };
+});
+afterAll(() => {
+  globalThis.cmuxExperiments = undefined;
+});
 
 const MESSAGE_RUN = "messageRun";
 let n = 0;
@@ -29,6 +39,27 @@ const tool = (title: string, kind: string, fields: Record<string, unknown> = {})
 });
 const send = (to: string, message: string) =>
   tool("SendMessage", "other", { inputSummary: JSON.stringify({ to, message }) });
+
+test("a 1024-recipient MCP batch keeps its full summary count and its closed group's height", () => {
+  const batch = (count: number) =>
+    activity([
+      tool("mcp__cmux__acpmux_send", "other", {
+        inputSummary: JSON.stringify({ tag: "area=docs", text: "hello" }),
+        output: JSON.stringify({
+          results: Array.from({ length: count }, (_, index) => ({ index: 0, to: `recipient-${index}`, ok: true })),
+        }),
+      }),
+    ]);
+  const small = { ...batch(32), foldRun: true };
+  const large = { ...batch(1024), foldRun: true };
+  // With another send beside it, every message is one group of sends that counts each recipient.
+  const companion = send("recipient-companion", "hello");
+  const groups = toolGroups([...large.items!, companion]);
+  expect(groups.map((group) => group.type)).toEqual(["sendGroup"]);
+  expect(groups[0]?.type === "sendGroup" && groups[0].entries.length).toBe(1025);
+  // Both start as one closed "Sent N messages" line: the estimate does not grow with the receipt.
+  expect(layoutConversation([large], 720).heights[0]).toBe(layoutConversation([small], 720).heights[0]);
+});
 const read = (path: string) => tool(`Read ${path}`, "read", { locations: [{ path }] });
 const run = (command: string) => tool(command, "execute", { command, output: "ok\n" });
 const activity = (items: AcpmuxActivity[], id?: string) =>
@@ -74,7 +105,7 @@ function turn(): AcpmuxRow[] {
   ];
 }
 
-const claude = { liveRuns: true, agentFamily: "claude" } as const;
+const claude = { agentFamily: "claude" } as const;
 const ids = (rows: readonly AcpmuxRow[]) => rows.map((row) => row.id);
 
 test("a finished Claude turn's run of sends, another agent's line and a compaction folds into one line", () => {
@@ -115,13 +146,13 @@ test("the line counts what the run did, messages first", async () => {
 
 test("a running turn folds its run of messages the same way, under the live line", () => {
   const rows = turn().filter((row) => row.kind !== "assistant" && row.kind !== "turnSummary");
-  const view = turnView(rows, new Set(), { ...claude, working: true, lineBelow: true });
+  const view = turnView(rows, new Set(), { ...claude, working: true });
   expect(view.filter((row) => row.kind === MESSAGE_RUN)).toHaveLength(1);
   expect(ids(view)).not.toContain("report");
 });
 
 test("a Codex turn's open Worked for folds its run of messages too", () => {
-  const view = turnView(turn(), new Set(["worked-prompt"]), { liveRuns: true, agentFamily: "codex" });
+  const view = turnView(turn(), new Set(["worked-prompt"]), { agentFamily: "codex" });
   expect(view.filter((row) => row.kind === MESSAGE_RUN)).toHaveLength(1);
 });
 
@@ -156,7 +187,7 @@ test("the closed line is estimated as one line, so its mount moves nothing below
 // not drawn yet, so Find and links must open the turn's fold and the run inside it together.
 test("Find and a link open a closed Worked for and the message run inside it at once", () => {
   const rows = turn();
-  const codex = { liveRuns: true, agentFamily: "codex" } as const;
+  const codex = { agentFamily: "codex" } as const;
   const closed = turnView(rows, new Set(), codex);
   expect(ids(closed)).not.toContain("report");
   const folds = hiddenRowFolds(
@@ -188,4 +219,26 @@ test("a run whose edit waits for its permission stays in sight, not under the li
   );
   const view = turnView(rows, new Set(), claude);
   expect(ids(view)).toContain("asks");
+});
+
+test("hidden discovery never invents a second line or work count beside a coordination send", async () => {
+  const { foldMessageRuns, messageRunSummary } = await import("../src/agent-session/acpmux/conversation/messageRuns");
+  const discovery = tool("ToolSearch", "other", {
+    provenance: { claudeTool: "ToolSearch" },
+    output: "Loaded 2 tools",
+  });
+  const sent = send("helper", "Read the result");
+  const folded = (items: AcpmuxActivity[]) => ({ ...activity(items, "discovery-run"), foldRun: true });
+  const lone = folded([discovery, sent, discovery]);
+  expect(foldMessageRuns([lone], new Set())).toEqual([lone]);
+  const receivedRow = received("helper", "Checked", "discovery-report");
+  const run = foldMessageRuns([lone, receivedRow], new Set())[0]!;
+  expect(run.kind).toBe(MESSAGE_RUN);
+  expect(run.messageRun!.work).toEqual([]);
+  expect(messageRunSummary(translate, run.messageRun!)).toBe("Sent a message, received a message");
+  const failed = { ...discovery, tool: { ...discovery.tool!, status: "failed", output: "Discovery unavailable" } };
+  const visible = foldMessageRuns([folded([failed, sent])], new Set())[0]!;
+  expect(visible.kind).toBe(MESSAGE_RUN);
+  expect(visible.messageRun!.work).toEqual([failed]);
+  expect(visible.messageRun!.failed).toBe(1);
 });

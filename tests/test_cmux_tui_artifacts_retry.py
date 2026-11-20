@@ -89,7 +89,19 @@ class RetryPolicyTests(unittest.TestCase):
                 self.assertEqual(retry.decide(run(**overrides), tree_jobs(job(2, "failure")), {2: []}).action, action)
 
     def test_failure_without_a_failed_job_is_not_retried(self):
-        self.assertEqual(retry.decide(run(), tree_jobs(job(1, "success")), {}).action, "skip")
+        self.assertEqual(retry.decide(run(), tree_jobs(job(1, "success"), job(2, "skipped")), {}).action, "skip")
+
+    def test_a_job_cancelled_by_its_timeout_is_retried(self):
+        # 2026-11-13, run 43346255778: the macOS leg hit its 60 min timeout. It ended `cancelled`, the run
+        # ended `failure`, no job had `failure`, and the run was left with its tree unpublished.
+        for conclusion in ("cancelled", "timed_out"):
+            with self.subTest(conclusion=conclusion):
+                decision = retry.decide(run(), tree_jobs(job(1, "success"), job(2, conclusion), job(3, "skipped")), {})
+                self.assertEqual(decision.action, "rerun-failed-jobs")
+                self.assertIn("job 2", decision.reason)
+        # A run that someone cancelled ends `cancelled` and stays as it is.
+        cancelled = retry.decide(run(conclusion="cancelled"), tree_jobs(job(2, "cancelled")), {})
+        self.assertEqual(cancelled.action, "skip")
 
 
 if __name__ == "__main__":

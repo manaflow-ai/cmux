@@ -1,7 +1,8 @@
 // l10n-allow-file: synthetic worst-case gallery data, not shipped UI.
 import { componentEntry } from "../../../gallery/format";
 import type { SummaryPullRequest } from "../summary/sessionSummary";
-import { ChangesSection, type SessionInfoPullRequestStatus } from "./ChangesSection";
+import { ChangesSection } from "./ChangesSection";
+import type { SessionInfoPullRequestStatus } from "./changesSectionModel";
 import "./sessionInfo.css";
 
 const names = [

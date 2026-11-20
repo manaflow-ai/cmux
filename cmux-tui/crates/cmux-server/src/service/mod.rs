@@ -47,6 +47,17 @@ pub struct Services<'a> {
     /// The installing user (`loginctl`, `launchctl gui/<uid>`).
     pub uid: u32,
     pub user: String,
+    /// `Some`: the units run this session daemon (the session service)
+    /// instead of the store's `host run`. Paths and names are the same, so
+    /// `up`, `down`, `status` and `uninstall` need no `Some` here.
+    pub session: Option<SessionHost>,
+}
+
+/// The session service's binary and session name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionHost {
+    pub binary: String,
+    pub session: String,
 }
 
 fn unsupported(kind: &ServiceKind) -> Error {
@@ -87,6 +98,29 @@ impl Services<'_> {
                 systemd::restart(self)
             }
             ServiceKind::LaunchAgent { .. } => launchd::restart(self),
+            other => Err(unsupported(other)),
+        }
+    }
+
+    /// Starts the installed server and enables it, so it starts at each login or boot.
+    pub fn start(&self) -> Result<()> {
+        match &self.layout.service {
+            ServiceKind::SystemdUser { .. } | ServiceKind::SystemdSystem { .. } => {
+                systemd::start(self)
+            }
+            ServiceKind::LaunchAgent { .. } => launchd::start(self),
+            other => Err(unsupported(other)),
+        }
+    }
+
+    /// Stops the server and disables it, so it stays stopped across logins and boots.
+    /// The units stay on disk.
+    pub fn stop(&self) -> Result<()> {
+        match &self.layout.service {
+            ServiceKind::SystemdUser { .. } | ServiceKind::SystemdSystem { .. } => {
+                systemd::stop(self)
+            }
+            ServiceKind::LaunchAgent { .. } => launchd::stop(self),
             other => Err(unsupported(other)),
         }
     }

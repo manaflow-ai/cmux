@@ -24,9 +24,10 @@ live = importlib.util.module_from_spec(spec)
 sys.modules["nightly_next_live_feed_check"] = live
 spec.loader.exec_module(live)
 
-RING_SPEC = importlib.util.spec_from_file_location("nightly_next_ring", ROOT / "scripts/ci/nightly_next_ring.py")
-ring = importlib.util.module_from_spec(RING_SPEC)
-RING_SPEC.loader.exec_module(ring)
+# Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import nightly_next_ring as ring  # noqa: E402
 
 UPDATE_RING = ROOT / "Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift"
 FEED_RESOLVER = ROOT / "Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateFeedResolver.swift"
@@ -258,18 +259,6 @@ class WorkflowTests(unittest.TestCase):
         script = (ROOT / "scripts/ci/nightly-steps/publish-next-feed-readback.sh").read_text()
         self.assertIn("nightly_next_live_feed_check.py", script)
         self.assertIn('--build "$NIGHTLY_BUILD" --dev-ring "$DEV_RING" --before', script)
-
-    def test_the_old_feed_is_read_back_after_its_publish(self):
-        job = self.job("publish-nightly-identity-legacy", "nightly-identity-legacy-published")
-        publish = job.index("- name: Publish the cmux NIGHTLY DMG, release notes and the old feed")
-        readback = job.index("- name: Read the old feed back")
-        self.assertLess(publish, readback)
-        # After the attempt accounting, which reads steps.publish only.
-        self.assertLess(job.index("- name: Fail a failed attempt"), readback)
-        self.assertIn("if: always() && steps.publish.outcome == 'success'", job[readback:])
-        script = (ROOT / "scripts/ci/nightly-steps/legacy-identity-readback.sh").read_text()
-        self.assertIn('${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}', script)
-        self.assertIn("--before", script)
 
 
 if __name__ == "__main__":

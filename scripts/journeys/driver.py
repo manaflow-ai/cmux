@@ -75,6 +75,11 @@ EXT_CONDITIONS = {}
 # The extension conditions that are negative (an extension's NEGATIVE): a live one is read again every poll, never
 # latched; a frame one fails at once on a frame whose detail says seen (step_expect), else it is tried again.
 EXT_NEGATIVE = set()
+# Journey-end hooks an extension adds (its JOURNEY_END): fn(journey, status, reason), run first in every journey's
+# `finally`, whatever ended it (a pass, a failed step, a NotRun, the lease deadline). A hook returns None when it had
+# nothing to do and then adds no step. A kit's recorder extension stops a recording a failed step left running, so its
+# movie is written before run.py fetches it and the lease ends the app (cmux-ad m29 item 3: 23 films had no moov atom).
+EXT_JOURNEY_END = []
 # `relaunch` kinds that quit through the app's own quit actions, with no dialog (QuitOrigin.explicit).
 QUIT_ACTIONS = {"quit-keep": "quitKeepSessions", "quit-end-sessions": "quitEndSessions",
                 "quit-end-everything": "quitEndEverything"}
@@ -307,35 +312,56 @@ class App:
         return path
 
     def read_text(self, image):
-        """The text lines of IMAGE (a Read: the reader's bands that read no text go with the lines)."""
+        """The text lines of IMAGE (a Read: whether the reader read it in bands, and its bands that show ink and read no
+        text (unread) or show no ink at all (blank))."""
         done = subprocess.run([self.ocr, str(image)], capture_output=True, text=True, timeout=120)
         if done.returncode != 0:
             raise StepError(f"text recognition failed on {Path(image).name}: {(done.stderr or done.stdout).strip()[-200:]}")
-        silent = re.search(r"no text in bands? ([0-9][0-9, ]*)", done.stderr or "")
-        return Read([line for line in done.stdout.splitlines() if line.strip()],
-                    [int(b) for b in re.findall(r"[0-9]+", silent.group(1))] if silent else [])
+        err = done.stderr or ""
+
+        def bands(pattern):
+            found = re.search(pattern, err)
+            return [int(b) for b in re.findall(r"[0-9]+", found.group(1))] if found else []
+
+        return Read([line for line in done.stdout.splitlines() if line.strip()], bands(r"no text in bands? ([0-9][0-9, ]*)"),
+                    blank=bands(r"blank bands? ([0-9][0-9, ]*)"), banded="lines in 4 bands" in err)
 
 
 class Read(list):
     """The text lines of one image, and the bands of it (1 is the top) in which the reader read no text.
     scripts/ci/pr_media_ocr.swift reads an image in which Vision finds no text at all again in 4 horizontal bands; on
     macOS 27 a band can read nothing although it shows text, so such a read is partial: a check that text is absent
-    must not pass on it (cmux-ad m10 1, review 1 of #35282)."""
+    must not pass on it (cmux-ad m10 1, review 1 of #35282). UNREAD: the bands that show ink and read no text; BLANK:
+    the bands that show no ink at all (empty terminal rows: they hold no text, so they do not make the read partial;
+    review 2 of #35282); BANDED: the read came from bands."""
 
-    def __init__(self, lines=(), unread=()):
+    def __init__(self, lines=(), unread=(), blank=(), banded=None):
         super().__init__(lines)
         self.unread = list(unread)
+        self.blank = list(blank)
+        self.banded = bool(self.unread or self.blank) if banded is None else bool(banded)
 
 
 def unread_bands(lines):
-    """The bands of a read that read no text ([] for a whole read or a plain list)."""
+    """The bands of a read that show ink and read no text ([] for a whole read or a plain list)."""
     return list(getattr(lines, "unread", None) or [])
 
 
-def lacks_not_judged(want, lines):
-    """Why a `lacks` check of WANT cannot be judged on LINES (a band read nothing), or None."""
+def blank_bands(lines):
+    """The bands of a read that show no ink ([] for a whole read or a plain list)."""
+    return list(getattr(lines, "blank", None) or [])
+
+
+def band_detail(lines):
+    """{"bands": {"unread": [...], "blank": [...]}} for a frame check's detail when LINES came from a band read, else {}."""
+    return {"bands": {"unread": unread_bands(lines), "blank": blank_bands(lines)}} if getattr(lines, "banded", False) else {}
+
+
+def lacks_not_judged(want, lines, present=()):
+    """Why a `lacks` check of WANT cannot be judged on LINES (a band that shows ink read nothing), or None. A forbidden
+    text the read does find (PRESENT) is there, partial read or not: the check fails (None here)."""
     unread = unread_bands(lines)
-    if not want.get("lacks") or not unread:
+    if not want.get("lacks") or not unread or present:
         return None
     return (f"band{'s' if len(unread) > 1 else ''} {', '.join(map(str, unread))} of the reader's 4 read no text: "
             "a lacks check needs the whole frame read")
@@ -934,8 +960,9 @@ class Journey:
         lines = self.app.read_text(image)
         missing = [t for t in want.get("shows", []) if not ocr_contains(lines, t)]
         present = [t for t in want.get("lacks", []) if ocr_contains(lines, t)]
-        detail = {"image": image.name, "text": lines[-12:], "lines": len(lines), "missing": missing, "present": present}
-        partial = lacks_not_judged(want, lines)
+        detail = {"image": image.name, "text": lines[-12:], "lines": len(lines), "missing": missing, "present": present,
+                  **band_detail(lines)}
+        partial = lacks_not_judged(want, lines, present)
         if partial:
             return False, dict(detail, lacks_not_judged=partial)
         return bool(want.get("shows")) and not missing and not present, detail
@@ -1626,6 +1653,18 @@ class Journey:
         except (StepError, OSError, ValueError, subprocess.TimeoutExpired) as error:
             status, reason = "fail", f"step {len(self.steps)} ({self.steps[-1]['do'] if self.steps else '?'}): {error}"
         finally:
+            # Extension hooks first (EXT_JOURNEY_END), before the clean-up steps change what the app shows; their
+            # errors are recorded and never change the status, as the clean-up's.
+            for hook in EXT_JOURNEY_END:
+                record = {"do": getattr(hook, "__name__", "journey_end"), "title": "journey end", "finally": True}
+                try:
+                    out = hook(self, status, reason)
+                    if out is None:
+                        continue
+                    record["result"], record["ok"] = out, True
+                except Exception as error:  # noqa: BLE001 (clean-up: record any error, keep going)
+                    record["ok"], record["error"] = False, str(error)[-300:]
+                self.steps.append(record)
             # `finally` steps put the app back for the next journey (leave full screen, close a second
             # window), whatever happened; their errors are recorded and never change the status.
             for step in self.spec.get("finally") or []:
@@ -1677,7 +1716,8 @@ class Journey:
 def load_extensions(module):
     """Step and condition groups beside this file (`ext_*.py`): each has `install(driver)`, `STEPS`
     ({name: fn(journey, step)}, played as `do: name`) and `CONDITIONS` ({name: (evidence kind, fn(journey,
-    want, cache) -> (holds, detail))}). They must not import this file (it runs as __main__ on the mini)."""
+    want, cache) -> (holds, detail))}), and may have `JOURNEY_END` (fn(journey, status, reason), run at every journey's
+    end). They must not import this file (it runs as __main__ on the mini)."""
     import importlib
     for path in sorted(Path(os.path.dirname(os.path.abspath(__file__))).glob("ext_*.py")):
         ext = importlib.import_module(path.stem)
@@ -1693,6 +1733,8 @@ def load_extensions(module):
         # `NEGATIVE`: the group's conditions that claim something did NOT happen (a live one is read every poll and
         # through `settle`; a frame one stops its tries on a frame whose detail says seen).
         EXT_NEGATIVE.update(n for n in getattr(ext, "NEGATIVE", ()) if n in EXT_CONDITIONS)
+        # `JOURNEY_END`: functions run at every journey's end, before its `finally` steps (EXT_JOURNEY_END).
+        EXT_JOURNEY_END.extend(getattr(ext, "JOURNEY_END", ()))
 
 
 load_extensions(sys.modules[__name__])

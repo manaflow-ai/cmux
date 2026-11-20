@@ -7,8 +7,9 @@ import Foundation
 import Observation
 
 /// The `cmux://history` page in a browser tab (plans/cmux-next/history.md
-/// 5.1): a native view, no engine. Navigating it to a web address asks the
-/// host (`onNavigate`) to turn the tab into a real page.
+/// 5.1, react-pages.md 2): the React History page (cmux-page://cmux.history/),
+/// no browser engine. Navigating it to a web address asks the host
+/// (`onNavigate`) to turn the tab into a real page.
 @MainActor
 @Observable
 final class HistoryPageTab: BrowserTab {
@@ -21,53 +22,42 @@ final class HistoryPageTab: BrowserTab {
     let pendingPrompts: [BrowserPrompt] = []
     @ObservationIgnored weak var delegate: (any BrowserTabDelegate)?
     @ObservationIgnored weak var keyRouter: (any BrowserKeyRouting)?
-    @ObservationIgnored let model: HistoryPageModel
     @ObservationIgnored let contentView: NSView
-    /// The React page (Debug Settings `history.surface = web`; react-pages.md H1b), else nil.
+    /// The React page; nil only when the app's page resources are missing (an empty view shows).
     @ObservationIgnored let webPage: PageWebView?
     @ObservationIgnored var onNavigate: ((URL) -> Void)?
 
-    init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, source: any HistoryPageSource,
-         webPage: PageWebView? = nil) {
+    init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, webPage: PageWebView?) {
         self.id = id
         self.engineKind = engine
         self.profileID = profile
-        var state = BrowserTabState(url: HistoryPageAddress.url, title: HistoryPageStrings.title)
+        var state = BrowserTabState(url: URL.historyPage, title: HistoryPageStrings.title)
         state.phase = .finished
         self.state = state
-        model = HistoryPageModel(source: source)
         self.webPage = webPage
-        if let webPage {
-            contentView = webPage
-        } else {
-            contentView = HistoryPageHostView(model: model)
-            model.reload()
-        }
+        contentView = webPage ?? NSView()
     }
 
     func load(_ url: URL) {
-        if HistoryPageAddress.matches(url) { return reload() }
+        if url.isHistoryPage { return reload() }
         onNavigate?(url)
     }
 
     func reload() {
-        if let webPage { return webPage.reload() }
-        model.reload()
+        webPage?.reload()
     }
     func goBack() {}
     func goForward() {}
     func stop() {}
 
     func setFocused(_ focused: Bool) {
-        guard focused, let window = contentView.window else { return }
-        if let webPage { return webPage.focusPage() }
-        window.makeFirstResponder(contentView)
+        guard focused, contentView.window != nil else { return }
+        webPage?.focusPage()
     }
 
     func setContentVisible(_ visible: Bool) {
+        // The page stays current from the owner's change events (`history-changed`).
         contentView.isHidden = !visible
-        // The React page stays current from the owner's change events; the native one re-reads.
-        if visible, webPage == nil { model.reload() }
     }
 
     func snapshot() async throws -> CGImage {
@@ -79,11 +69,7 @@ final class HistoryPageTab: BrowserTab {
 
     func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue { throw BrowserTabError.closed }
     func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult {
-        if let webPage {
-            webPage.send(command: "find", arguments: ["text": .string(text)])
-            return .none
-        }
-        model.text = text
+        webPage?.send(command: "find", arguments: ["text": .string(text)])
         return .none
     }
     func clearFind() {}

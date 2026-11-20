@@ -209,7 +209,7 @@ async fn an_idle_chat_runs_its_first_work_and_wakes_for_a_blocker_only() {
     assert_eq!(ids, ["a-1", "b-1", "f-1"]);
     let text = notices[0]["text"].as_str().unwrap();
     assert!(
-        text.contains("\n- [blocker] 1 new in #12 from lane-d: blocked on #12"),
+        text.contains("\n- [blocker] 1 new in #12 (self-declared, unauthenticated) from lane-d (self-declared, unauthenticated): blocked on #12"),
         "blockers first: {text}"
     );
     for answer in answered.values() {
@@ -268,7 +268,9 @@ async fn a_queued_prompt_never_waits_behind_agent_messages() {
     assert_ne!(notices[0]["steer"], true, "no steer: {all:?}");
     assert_eq!(all[at("p-me")]["text"], text.as_str(), "the person's words as written");
     assert_eq!(carried(&notices[0]).len(), 5);
-    assert!(notices[0]["text"].as_str().unwrap().contains("5 new in #9 from lane-a"));
+    assert!(notices[0]["text"].as_str().unwrap().contains(
+        "5 new in #9 (self-declared, unauthenticated) from lane-a (self-declared, unauthenticated)"
+    ));
     for answer in answered.values() {
         assert_eq!(answer["stopReason"], "end_turn", "{answer}");
         assert_eq!(answer["_meta"]["acpmux"]["turnId"], notices[0]["turnId"], "{answer}");
@@ -399,11 +401,13 @@ async fn the_persons_steer_goes_in_while_a_prompt_waits() {
     }
 }
 
-/// Leo, 2026-11-04: "... isn't even responding to me". The person's prompt never goes into a turn
-/// another agent's message started: that turn's reply answers the agent only. It queues as a turn
-/// of its own and runs next; the person's steer into their own turn still goes in.
+/// Leo, 2026-11-05: "WHY THE FUCK ARE MY MESSAGES BEING QUEUED INSTEAD OF STEERING". The person's
+/// Return steers into the running turn even when another agent's message started it (a lane
+/// report, an inbox notice): it never queues behind that turn as one of its own (takes back the
+/// person's half of #35142). Other agents' messages still wait behind the person's turn and
+/// prompt (`inbox.rs`).
 #[tokio::test]
-async fn the_persons_prompt_never_steers_into_a_turn_another_agent_started() {
+async fn the_persons_steer_goes_into_a_turn_another_agent_started() {
     let env = BTreeMap::from([("FAKE_CLAUDE_STEER".to_owned(), "1".to_owned())]);
     let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
     let id = new_session(&mut c, "coord").await;
@@ -411,48 +415,22 @@ async fn the_persons_prompt_never_steers_into_a_turn_another_agent_started() {
     let turn = c.send(method::SESSION_PROMPT, agents_gated_turn(&id, &gate)).await;
     c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "before-gate").await;
     let agents = hub.resolve(&id).unwrap().turn().unwrap();
-    assert!(agents.from_agents && !agents.persons, "another agent's turn: {agents:?}");
+    assert!(!agents.persons, "another agent's turn: {agents:?}");
 
-    // The person's steer, as the chat sends it: queued, not steered into the agent's turn.
-    let next = fifo("next");
-    let words = format!("gate: {}", next.display());
-    let steer = json!({"sessionId": id, "prompt": [{"type": "text", "text": words}],
+    // The person's steer, as the chat sends it on Return: into the agent's running turn.
+    let steer = json!({"sessionId": id, "prompt": [{"type": "text", "text": "are you SURE"}],
                        "_meta": {"acpmux": {"promptId": "p-me", "steer": true}}});
     let mine = c.send(method::SESSION_PROMPT, steer).await;
-    let accepted = c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-me").await;
-    assert_eq!(accepted["queued"], true, "a turn of its own: {accepted}");
-    assert_ne!(accepted["steer"], true, "{accepted}");
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    let all = prompts(&hub, &id);
-    assert!(!all.iter().any(|m| m["steer"] == true), "nothing steered in: {all:?}");
-
-    // The agent's turn ends; the person's runs next as its own turn.
-    open(&gate).await;
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
-    let own = loop {
-        if let Some(t) = hub.resolve(&id).unwrap().turn().filter(|t| t.prompt_id == "p-me") {
-            break t;
-        }
-        assert!(tokio::time::Instant::now() < deadline, "the person's turn never started");
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    };
-    assert_ne!(own.turn_id, agents.turn_id, "{own:?}");
-    assert!(own.persons && !own.from_agents, "{own:?}");
-
-    // The person's steer into their own running turn still goes in.
-    let more = json!({"sessionId": id, "prompt": [{"type": "text", "text": "also this"}],
-                      "_meta": {"acpmux": {"promptId": "p-steer", "steer": true}}});
-    let more = c.send(method::SESSION_PROMPT, more).await;
-    let answered = answers(&mut c, &[turn, more]).await;
-    assert_eq!(answered[&more]["stopReason"], "steered", "{}", answered[&more]);
-    assert_eq!(answered[&more]["_meta"]["acpmux"]["turnId"], own.turn_id.as_str());
-    open(&next).await;
     let answered = answers(&mut c, &[mine]).await;
-    assert_eq!(answered[&mine]["stopReason"], "end_turn", "{}", answered[&mine]);
-    assert_eq!(answered[&mine]["_meta"]["acpmux"]["turnId"], own.turn_id.as_str());
-    for path in [gate, next] {
-        let _ = std::fs::remove_file(path);
-    }
+    assert_eq!(answered[&mine]["stopReason"], "steered", "{}", answered[&mine]);
+    assert_eq!(answered[&mine]["_meta"]["acpmux"]["turnId"], agents.turn_id.as_str());
+    let all = prompts(&hub, &id);
+    let me = all.iter().find(|m| m["promptId"] == "p-me").expect("the person's prompt is logged");
+    assert_eq!(me["turnId"], agents.turn_id.as_str(), "into the running turn: {all:?}");
+    assert_eq!(hub.resolve(&id).unwrap().queued(), 0, "nothing queued: {all:?}");
+    open(&gate).await;
+    answers(&mut c, &[turn]).await;
+    let _ = std::fs::remove_file(gate);
 }
 
 /// Leo, 2026-11-01: "why do the x messages from y sessions seem to always piggyback on my messages
@@ -597,8 +575,13 @@ async fn threads_are_read_whole_and_answered_into_the_senders_inbox() {
     }
     let threads = c.request(method::MUX_INBOX_THREADS, json!({"sessionId": id})).await.unwrap();
     let rows = threads["threads"].as_array().unwrap();
-    let keys: Vec<&str> = rows.iter().map(|t| t["threadId"].as_str().unwrap()).collect();
-    assert_eq!(keys, ["topic:plan", "from:lane-a/pr:27133", "pr:27133"], "{threads}");
+    let keys: Vec<String> =
+        rows.iter().map(|t| t["threadId"].as_str().unwrap().to_owned()).collect();
+    assert_eq!(
+        keys,
+        vec!["topic:plan".to_owned(), "from:lane-a/pr:27133".to_owned(), "pr:27133".to_owned()],
+        "{threads}"
+    );
     assert_eq!(rows[0]["from"], json!(["lane-a"]));
     assert_eq!(rows[0]["unread"], 1);
     assert_eq!(rows[0]["class"], "action");
@@ -703,7 +686,7 @@ async fn a_closed_chat_answers_and_refuses_senders_and_keeps_its_threads() {
     .expect("the waiting sender was never answered");
     assert!(line.is_some(), "a closed chat answers its waiting sender with an error");
     let threads = c.request(method::MUX_INBOX_THREADS, json!({"sessionId": id})).await.unwrap();
-    assert_eq!(threads["threads"][0]["threadId"], "from:lane-b/pr:5", "{threads}");
+    assert_eq!(threads["threads"][0]["threadId"], "declared:lane-b/pr:5", "{threads}");
 }
 
 /// A review box (`review_box.rs`) has no inbox: another agent's message to its running review

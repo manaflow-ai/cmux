@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxHomeCore
 public import CmuxNextDesign
+public import CmuxNextHomeModel
 import MessagesLabSidebar
 import Observation
 
@@ -67,13 +68,13 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
                                         label: CmuxSidebarView.unreadTitle, identifier: "cmux.home.sidebar.unread", glass: true)
     /// The Unread toggle's glass circle, under it in the header (Messages' round glass filter
     /// button, the user 2026-10-28): Liquid Glass on macOS 26 and later, the frosted material before.
-    let filterGlass = GlassPanelView(style: .regular, cornerRadius: HomeSidebarHeaderMetrics.standard.side / 2)
+    let filterGlass = GlassPanelView(style: .regular, cornerRadius: HomeSidebarHeaderMetrics.standard.side / 2) // glass-level-allow: a round or capsule control in the system's untinted button glass, as Messages draws it (the user, 2026-10-28)
     /// The avatar-only list's search: Messages' magnifier on a glass circle (`searchGlass`) beside
     /// the Unread toggle; a click opens the search over the band, as ⌘F does.
     let searchButton = HomeHeaderButton(symbol: "magnifyingglass", label: CmuxSidebarView.searchTitle,
                                         identifier: "cmux.home.sidebar.searchIcon", glass: true)
     /// The search circle's glass, under it in the header.
-    let searchGlass = GlassPanelView(style: .regular, cornerRadius: HomeSidebarHeaderMetrics.standard.side / 2)
+    let searchGlass = GlassPanelView(style: .regular, cornerRadius: HomeSidebarHeaderMetrics.standard.side / 2) // glass-level-allow: a round or capsule control in the system's untinted button glass, as Messages draws it (the user, 2026-10-28)
     /// Compose at the chat's top-left at every list width, as in Messages (`HomeChatColumnView`,
     /// which `HomeSidebarSplitView` places beside this list); the list's `compose` stays hidden.
     let chatCompose = HomeChatComposeButton(label: HomeConversationStrings.newMessage)
@@ -125,8 +126,6 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         // No system blue in the list: a neutral selection in the theme's tint and grey pinned
         // names, as Messages' pinned grid.
         list.neutralSelection = true
-        // A Chief's avatar loops only while Home's loops run (calm mode, speed off, Home's switch).
-        list.avatarLoopGate = { Motion.home.animatesLoops }
         // A teammate row is a person, not a conversation: choosing it starts the DM, and it has
         // no pin, read state or conversation menu.
         list.onSelect = { [weak self] id in
@@ -214,7 +213,6 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     }
 
     private func reshow() {
-        list.avatarMotionStyle = HomeTunables.avatarMotion.value.style
         var entries = (model.pinned + model.rows).map(Self.entry)
         if let draftRowTitle {
             entries.insert(CmuxSidebarEntry(id: Self.draftRowID.rawValue, title: draftRowTitle, people: [], preview: "", previewSender: nil,
@@ -258,19 +256,7 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         CmuxSidebarEntry(id: item.id.rawValue, title: item.title,
                          people: item.people.map { CmuxSidebarEntry.Person(id: $0.id, name: $0.name, initials: $0.initials) },
                          preview: item.preview, previewSender: nil, lastAt: item.lastAt, unreadCount: item.unreadCount,
-                         pinned: item.isPinned, muted: item.isMuted, avatar: item.chiefAvatar.map(avatar), badge: item.listBadge ?? item.backendBadge,
-                         avatarMotion: item.chiefAvatar == nil ? nil : avatarState(item))
-    }
-
-    /// The state a Chief's avatar shows (the Codex status dot's states): a failed send first, then its
-    /// turn running in a tool or the model, then a question or approval waiting on the person, then an
-    /// unread reply (done), else idle.
-    static func avatarState(_ item: HomeSidebarItem) -> CmuxSidebarEntry.AvatarMotion {
-        if item.chiefSendFailed { return .failed }
-        if item.chiefIsInTool { return .tool }
-        if item.chiefIsWorking { return .thinking }
-        if item.chiefWaitsOnYou { return .waiting }
-        return item.unread ? .done : .idle
+                         pinned: item.isPinned, muted: item.isMuted, avatar: item.chiefAvatar.map(avatar), badge: item.listBadge ?? item.backendBadge)
     }
 
     /// The Chief's avatar as the list draws it: the picture, else its text
@@ -633,7 +619,7 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
 final class HomeSearchCapsule: NSView {
     var onClick: () -> Void = {}
     /// The capsule's glass, edge to edge, its corners half its height.
-    let glass = GlassPanelView(style: .regular)
+    let glass = GlassPanelView(style: .regular) // glass-level-allow: a round or capsule control in the system's untinted button glass, as Messages draws it (the user, 2026-10-28)
 
     init() {
         super.init(frame: .zero)

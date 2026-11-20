@@ -81,6 +81,21 @@ pub(crate) fn pick_reclaim(
     eligible.into_iter().take(want).flat_map(|(_, c)| c.surfaces.iter().copied()).collect()
 }
 
+/// `surfaces` without the views of a terminal a client is attached to or that is kept
+/// (`set-terminal-keep`): what `park-tabs` may park. A surface no candidate shows is kept as
+/// given; `park_terminal_tabs` skips it when it shows no live terminal.
+pub(crate) fn drop_watched(
+    candidates: &[ReclaimCandidate],
+    surfaces: &[SurfaceId],
+) -> Vec<SurfaceId> {
+    let watched: HashSet<SurfaceId> = candidates
+        .iter()
+        .filter(|c| c.attached || c.kept)
+        .flat_map(|c| c.surfaces.iter().copied())
+        .collect();
+    surfaces.iter().copied().filter(|surface| !watched.contains(surface)).collect()
+}
+
 /// How many PTYs to free given `used` of `max`: none while at least
 /// [`PTY_RESERVE`] are free, else enough to reach [`PTY_REFILL`] free.
 pub(crate) fn reclaim_need(used: usize, max: usize) -> usize {
@@ -284,6 +299,20 @@ impl Mux {
         ended
     }
 
+    /// `park-tabs`: parks the terminals at `surfaces` except one a client is attached to
+    /// or that is kept ([`drop_watched`]): a shell another Mac or the phone shows keeps running.
+    /// Returns the surfaces parked.
+    pub(crate) fn park_unwatched_terminal_tabs(
+        &self,
+        surfaces: &[SurfaceId],
+    ) -> anyhow::Result<Vec<SurfaceId>> {
+        let surfaces = drop_watched(&self.reclaim_candidates(), surfaces);
+        if surfaces.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.park_terminal_tabs(&surfaces)
+    }
+
     /// Every running terminal of this owner with the facts
     /// [`pick_reclaim`] judges.
     fn reclaim_candidates(&self) -> Vec<ReclaimCandidate> {
@@ -368,6 +397,20 @@ mod tests {
         );
         assert_eq!(pick_reclaim(&candidates, now, 1), [sid(8)]);
         assert!(pick_reclaim(&candidates, now, 0).is_empty());
+    }
+
+    #[test]
+    fn park_tabs_leaves_watched_and_kept_terminals_running() {
+        let watched =
+            ReclaimCandidate { attached: true, surfaces: vec![sid(2), sid(3)], ..idle(2, 0) };
+        let kept = ReclaimCandidate { kept: true, ..idle(4, 0) };
+        let busy = ReclaimCandidate { prompt_since_ms: None, ..idle(5, 0) };
+        let candidates = [idle(1, 0), watched, kept, busy];
+        assert_eq!(
+            drop_watched(&candidates, &[sid(1), sid(3), sid(4), sid(5), sid(9)]),
+            [sid(1), sid(5), sid(9)],
+            "every view of an attached terminal stays; a busy shell is the caller's choice"
+        );
     }
 
     #[test]

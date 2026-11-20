@@ -7,7 +7,23 @@
 // after its check passed.
 import { useEffect, useId, useState, type InputHTMLAttributes } from "react";
 import type { Strings } from "../shared/i18n";
-import { describeError, type ChiefEditorService } from "./chiefEditing";
+import { EndpointFields } from "../shared/EndpointFields";
+import {
+  bringEndpoint,
+  checkEndpoint,
+  declaredModelId,
+  endpointBackend,
+  endpointBusy,
+  modelList,
+  patchDraft,
+  addedTarget,
+  type AddTarget,
+  type EndpointDraft,
+  type EndpointKind,
+  type EndpointStatus,
+} from "../shared/byoEndpoint";
+import { useNextTarget, useOwnedEndpoint } from "../shared/useOwnedEndpoint";
+import type { ChiefEditorService } from "./chiefEditing";
 import { chiefEffortName, chiefModelName } from "./chiefNames";
 import {
   chiefBackend,
@@ -239,13 +255,10 @@ function Failure({
 }
 
 type Kind = HomeChiefByoBackend["kind"];
-type Status =
-  | { state: "editing" }
-  | { state: "adding" }
-  | { state: "checking"; harness: string; model: string }
-  | { state: "failed"; harness?: string; model?: string; step?: HomeChiefDoctor["steps"][number] };
 
-/** The inline Bring your own form: three kinds, then add (the host) and check (a hello turn). */
+/** The inline Bring your own form: three kinds, then add (the host) and check (a hello turn). The
+ * endpoint fields and the add-then-check sequence are the ones Settings > Agents > Add > Endpoint
+ * uses (shared/byoEndpoint.ts). */
 function BringYourOwn({
   service,
   strings,
@@ -262,46 +275,73 @@ function BringYourOwn({
   const [name, setName] = useState("");
   const [command, setCommand] = useState("");
   const [args, setArgs] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
-  const [model, setModel] = useState("");
-  // The key lives here only while the person types it; sending the form clears it.
-  const [apiKey, setApiKey] = useState("");
-  const [status, setStatus] = useState<Status>({ state: "editing" });
+  // The key lives in the draft only while the person types it; sending the form clears it.
+  const [draft, setDraft] = useState<Omit<EndpointDraft, "kind" | "name">>({ baseUrl: "", models: "", apiKey: "" });
+  const [status, setStatus] = useState<EndpointStatus>({ state: "editing" });
+  // The model a passed check picks: the first of the endpoint's.
+  const [picked, setPicked] = useState("");
+  // The endpoint harness this form added: an Add after a failed check writes it again (`target`).
+  // Closed without a passing check, it is removed (`owned`, the Settings Endpoint form's rule); a
+  // change of kind or URL starts over.
+  const [target, setTarget] = useState<AddTarget | null>(null);
+  const owned = useOwnedEndpoint((id) => service.removeBackend?.(id));
   const endpoint = kind !== "command";
-  const busy = status.state === "adding" || status.state === "checking";
+  // The next add's id, known before the click (no read between the click and the add); until the
+  // ids are read, an endpoint's Add waits (never a guessed id).
+  const next = useNextTarget(service, name, kind, target);
+  const startOver = () => {
+    owned.discard();
+    setTarget(null);
+    next.refresh();
+    setStatus({ state: "editing" });
+  };
+  const busy = endpointBusy(status);
   const complete =
     name.trim() !== "" &&
-    (endpoint ? baseUrl.trim() !== "" && model.trim() !== "" && apiKey !== "" : command.trim() !== "");
-  const check = async (harness: string, picked: string) => {
-    setStatus({ state: "checking", harness, model: picked });
-    try {
-      const result = await service.checkBackend(harness);
-      if (result.ok) return onPassed(harness, picked);
-      setStatus({ state: "failed", harness, model: picked, step: result.steps.find((step) => !step.ok) });
-    } catch (failure) {
-      setStatus({
-        state: "failed",
-        harness,
-        model: picked,
-        step: { name: "doctor", ok: false, detail: describeError(failure) },
-      });
+    (!endpoint || next.target !== null) &&
+    (endpoint
+      ? draft.baseUrl.trim() !== "" &&
+        modelList(draft.models).length > 0 &&
+        (draft.apiKey !== "" || !!(target?.own && target.typedKey))
+      : command.trim() !== "");
+  const recheck = async (harness: string) => {
+    setStatus({ state: "checking", harness });
+    const checked = await checkEndpoint(service, harness);
+    if (checked.state === "passed") {
+      owned.keep();
+      return onPassed(harness, picked);
     }
+    setStatus(checked);
   };
   const submit = async () => {
     if (!complete || busy) return;
+    // The id the harness declares (`byo/<model>` for an OpenAI-compatible endpoint), not the typed one.
+    const model = endpoint ? declaredModelId(kind as EndpointKind, modelList(draft.models)[0] ?? "") : "";
+    const full = { ...draft, kind: kind as EndpointKind, name };
+    const at = endpoint ? (next.target ?? undefined) : undefined;
+    if (endpoint && !at) return;
     const backend: HomeChiefByoBackend = endpoint
-      ? { kind, name: name.trim(), baseUrl: baseUrl.trim(), model: model.trim(), apiKey }
+      ? endpointBackend(full, at)
       : { kind: "command", name: name.trim(), command: command.trim(), args: words(args) };
+    // The form owns an add once it answers, never one that failed (it may have hit an id it never got;
+    // the ids are read again after a failure, so a timed-out add that wrote is never taken over).
+    const added =
+      at && backend.kind !== "command"
+        ? (harness: string) => {
+            owned.claim(harness);
+            setTarget(addedTarget({ ...at, id: harness }, backend));
+          }
+        : undefined;
     // The key leaves the page's state now: only the host's add call carries it.
-    setApiKey("");
-    setStatus({ state: "adding" });
-    let harness: string;
-    try {
-      harness = await service.addBackend(backend);
-    } catch (failure) {
-      return setStatus({ state: "failed", step: { name: "add", ok: false, detail: describeError(failure) } });
+    setDraft((before) => ({ ...before, apiKey: "" }));
+    setPicked(model);
+    const done = await bringEndpoint(service, backend, setStatus, added);
+    // A refused add (another harness took the id meanwhile): the next one reads the ids again.
+    if (done.state === "failed" && endpoint) next.refresh();
+    if (done.state === "passed" && !owned.closed) {
+      owned.keep();
+      onPassed(done.harness, model);
     }
-    await check(harness, endpoint ? model.trim() : "");
   };
   const kinds: [Kind, string][] = [
     ["command", t("chief.byo.kind.command")],
@@ -345,7 +385,14 @@ function BringYourOwn({
               aria-label={label}
               checked={kind === value}
               disabled={busy}
-              onChange={() => setKind(value)}
+              onChange={() => {
+                if (value !== kind) {
+                  startOver();
+                  // A key typed for one protocol never goes to another.
+                  setDraft((before) => ({ ...before, apiKey: "" }));
+                }
+                setKind(value);
+              }}
             />
             <span>{label}</span>
           </label>
@@ -354,17 +401,19 @@ function BringYourOwn({
       {text(t("chief.byo.name"), name, setName, { placeholder: t("chief.byo.namePlaceholder"), maxLength: 64 })}
       {endpoint ? (
         <>
-          {text(t("chief.byo.baseUrl"), baseUrl, setBaseUrl, {
-            type: "url",
-            placeholder: kind === "anthropic-endpoint" ? "https://api.anthropic.com" : "https://api.openai.com/v1",
-            spellCheck: false,
-          })}
-          {text(t("chief.byo.model"), model, setModel, { spellCheck: false, maxLength: 128 })}
-          {text(t("chief.byo.apiKey"), apiKey, setApiKey, {
-            type: "password",
-            autoComplete: "off",
-            spellCheck: false,
-          })}
+          <EndpointFields
+            draft={{ ...draft, kind: kind as EndpointKind, name }}
+            change={(patch) => {
+              if (patch.baseUrl !== undefined && patch.baseUrl !== draft.baseUrl) startOver();
+              // Another URL also drops the typed key (`patchDraft`).
+              setDraft((before) => patchDraft(before, patch));
+            }}
+            labels={{ baseUrl: t("chief.byo.baseUrl"), models: t("chief.byo.model"), apiKey: t("chief.byo.apiKey") }}
+            placeholders={{
+              baseUrl: kind === "anthropic-endpoint" ? "https://api.anthropic.com" : "https://api.openai.com/v1",
+            }}
+            field={(spec) => text(spec.label, spec.value, spec.set, spec.attrs)}
+          />
           <span className="ce-note">{t("chief.byo.keyNote")}</span>
         </>
       ) : (
@@ -383,8 +432,13 @@ function BringYourOwn({
         <Failure
           strings={strings}
           step={status.step}
-          onRetry={status.harness ? () => void check(status.harness!, status.model ?? "") : undefined}
+          onRetry={status.harness ? () => void recheck(status.harness!) : undefined}
         />
+      )}
+      {endpoint && next.failed && (
+        <output className="ce-check failed" role="alert" data-chief-byo-ids-failed="">
+          {next.failed}
+        </output>
       )}
       <span className="ce-row ce-byo-actions">
         <button type="button" className="ce-button" disabled={busy} onClick={onCancel}>

@@ -11,6 +11,11 @@
 #   start   start the background wait and install
 #   run     (the background command) wait for the tree's client, then install it on a scratch bundle
 set -euo pipefail
+# nightly-next compiles arm64 only (NIGHTLY_COMPILE_ARCHS); thin-app-bundle.sh drops any x86_64 slice
+# before signing, so fetch only the slices the variants ship. Run 42675465011 failed on an x86_64 slice
+# files.cmux.com trickled at 6 KB/s, a slice that build would have thrown away.
+client_arch=universal
+[[ "${NIGHTLY_COMPILE_ARCHS:-}" == arm64 ]] && client_arch=arm64
 scratch="$RUNNER_TEMP/cmux-tui-prefetch/cmux.app"
 case "${1:-}" in
   start)
@@ -25,6 +30,7 @@ case "${1:-}" in
     read -r -a candidates <<<"$TREE_CANDIDATES"
     commit="$(scripts/cmux-next/await-tree-client.sh "$CMUX_TUI_CLIENT_KEY" "${candidates[@]}")"
     exec ./scripts/install-cmux-tui-client.sh "$scratch" \
+      --arch "$client_arch" \
       --manifest-url "https://files.cmux.com/cmux-tui/${commit}/manifest.json" \
       --expected-commit "$commit" \
       --require-capability wireguard-hub \

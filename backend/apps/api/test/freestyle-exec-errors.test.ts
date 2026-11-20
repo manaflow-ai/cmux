@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest"
 import { DriverError } from "../src/providers/contract.ts"
-import { DIR_MAX_BYTES, DIR_MAX_ENTRIES, FILE_MAX_BYTES, OUTPUT_MAX_BYTES } from "../src/cloud-machine-guest.ts"
+// The guest exec and file bounds Cloud machines answer within (cmux-platform src/server/cloud/MachineGuest.ts).
+const OUTPUT_MAX_BYTES = 1024 * 1024
+const FILE_MAX_BYTES = 8 * 1024 * 1024
+const DIR_MAX_ENTRIES = 10_000
+const DIR_MAX_BYTES = 2 * 1024 * 1024
 import { EXEC_RESPONSE_MAX_BYTES, EXEC_RESPONSE_MAX_CHUNKS, freestyleExecStdin } from "../src/providers/freestyle/exec.ts"
 
 /**

@@ -76,10 +76,6 @@ struct Message: Codable, Equatable {
     /// thread; a reply: its branch), when the loaded window may not hold them all (cmux: the
     /// daemon's `reply_count`). nil: counted from the loaded messages. Ignored in `.messages` mode.
     var replyCount: Int? = nil
-    /// cmux: the host sets this message apart from the same sender's message just above it, as its own
-    /// group (Chief's first-launch welcome: three short bubbles one by one, user 2026-10-31 "more spaced
-    /// out"). nil: Messages' grouping (same sender under a minute: one group, 3 pt apart).
-    var cmuxStandsAlone: Bool? = nil
     /// cmux: an aside under the sender's own message: the Chief's messages to its agents and their
     /// reports (`HomeAgentMessages` rows). It never draws the sender's avatar or name, and it ends the
     /// sender's run, so the avatar stays beside the sender's last real bubble while asides arrive, fold

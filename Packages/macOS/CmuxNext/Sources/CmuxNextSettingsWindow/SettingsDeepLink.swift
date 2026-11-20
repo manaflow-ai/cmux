@@ -23,6 +23,21 @@ public struct SettingsDeepLink: Equatable, Sendable {
         setting = Self.text(invocation["setting"])
     }
 
+    /// Settings > Personalization's page route (Personalization…), on `part` (its jump bar's
+    /// `background`, `theme`, ...) and for `workspace` (Change Background…'s This Workspace) when given.
+    /// A route with a part is new at each request (`open`, which the page ignores, as Customize
+    /// Menu…'s): the host opens a route only when it differs from the last one it opened, and the
+    /// person may have jumped to another part since, so a repeat Change Background… lands again.
+    public static func personalizationRoute(part: String? = nil, workspace: String? = nil,
+                                            open: UInt64? = nil) -> String {
+        var query: [String] = []
+        if let part {
+            query.append(contentsOf: ["focus=personalization.\(part)", "open=\(open ?? DispatchTime.now().uptimeNanoseconds)"])
+        }
+        if let workspace, let id = workspace.addingPercentEncoding(withAllowedCharacters: .alphanumerics) { query.append("workspace=\(id)") }
+        return "#/settings/personalization" + (query.isEmpty ? "" : "?" + query.joined(separator: "&"))
+    }
+
     /// Where the window scrolls: nil without a setting, or when nothing in
     /// Settings has that name (the caller reports it).
     public var anchor: SettingsAnchor? { setting.flatMap { SettingsAnchor(key: $0) } }

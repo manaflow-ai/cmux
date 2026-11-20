@@ -192,6 +192,39 @@ public final class ChiefScreenShare {
         return seen
     }
 
+    /// One look at the screen when the floating Chief opens with "sees your screen" on (`home.chiefPanel.seesScreen`,
+    /// user 2026-11-07): the screen behind cmux (the helper leaves cmux out), kept as one memory entry the Chief reads
+    /// at its next turn, naming `app` and `window` (cmux's window and tab in front) when given, else what the helper
+    /// saw in front. It uses the helper's Screen Recording grant and never asks macOS for it: without the grant there
+    /// is no look. Sharing stays as it was: off, the journal opens for this one entry and closes again, so no
+    /// current-screen file stays; on, it is one more look of the session.
+    ///
+    /// - Returns: What was kept; nil when the screen could not be read or Screen Recording is not allowed.
+    public func glance(app: String? = nil, window: String? = nil) async -> ChiefScreenObservation? {
+        let capture = capture, journal = journal, sharing = state == .sharing, mine = session
+        guard sharing || !isOn else { return nil }  // starting or waiting: the session's own check decides
+        let at = now()
+        let seen = await Self.glance(capture, journal, sharing: sharing, after: journalTail, at: at, app: app, window: window)
+        if sharing, let seen, state == .sharing, session == mine {
+            remembered += 1
+            latest = seen
+        }
+        return seen
+    }
+
+    @concurrent
+    private nonisolated static func glance(_ capture: any ChiefScreenCapturing, _ journal: any ChiefScreenJournaling, sharing: Bool,
+                                           after tail: Task<Void, Never>?, at: Date, app: String?, window: String?) async -> ChiefScreenObservation? {
+        await tail?.value
+        guard (try? await capture.isAllowed()) == true, var frame = try? await capture.capture(changedSince: nil) else { return nil }
+        if let app { frame.app = app; frame.window = window }
+        guard !sharing else { return await journal.record(frame, at: at, remember: true) }
+        await journal.beginSharing()
+        let seen = await journal.record(frame, at: at, remember: true)
+        await journal.endSharing()
+        return seen
+    }
+
     /// Waits for the work already started: a Screen Recording check, the look under way
     /// and the last journal step. A signal, never a delay: tests read the outcome after it.
     public func settled() async {

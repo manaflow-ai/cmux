@@ -19,7 +19,14 @@ pub(super) use app_scopes::print;
 /// first word. A cmux global option before them otherwise reached the
 /// resource grammar as "unknown resource scope".
 pub(super) fn own_options_scope(scope: &str) -> Option<UsageError> {
-    matches!(scope, "acp" | "link" | "harness").then(|| {
+    // Every scope `main` routes by its first word: a global option before
+    // `github`, `host` or `chats` read "unknown resource scope", which named
+    // no fix (docs/cli-conventions.md in cmuxterm-hq).
+    matches!(
+        scope,
+        "acp" | "link" | "harness" | "chats" | "github" | "gitlab" | "host" | "repo" | "carrier"
+    )
+    .then(|| {
         UsageError::new(format!(
             "`{scope}` takes its own options after the word {scope}: run `cmux {scope} …` \
              with no cmux global option before it (`cmux {scope} --help`)"

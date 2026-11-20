@@ -1,3 +1,4 @@
+public import CmuxNextAgentIntegrations
 public import AppKit
 public import CmuxNextDesign
 
@@ -16,6 +17,8 @@ public final class OnboardingWindowPresenter {
     /// Builds a window's model (the App's services); nil opens nothing.
     public var makeModel: MakeModel?
     private let presentWindow: @MainActor (OnboardingWindowController) -> Void
+    /// ``untilClosed()`` callers, resumed once no tool window shows.
+    private var closeWaiters: [CheckedContinuation<Void, Never>] = []
     /// The app's ``ActiveLookScope``, for each tool window's backdrop.
     private let activeLook: ActiveLookScope?
 
@@ -48,10 +51,82 @@ public final class OnboardingWindowPresenter {
         presentWindow(controller)
     }
 
+    /// First run only, once per app channel (`defaults`): the Agents step, when `source` lists an
+    /// installed agent CLI and no tool window shows. None found, nothing opens; an existing
+    /// installation (`isFirstRun` false) never gets it.
+    public func showAgentsAtFirstRun(isFirstRun: Bool, source: (any AgentSignInSource)?, defaults: UserDefaults = .standard) async {
+        let key = Self.agentsShownKey
+        guard !defaults.bool(forKey: key) else { return }
+        // An upgrade is no first run; a first run marks it only once the step showed.
+        guard isFirstRun else { return defaults.set(true, forKey: key) }
+        // Installed agents only: the step's Install for a missing one is drawn by the onboarding page, not
+        // AgentsStepView, so a Mac with none would get an empty step until that page shows it.
+        guard let source, (await source.agentSignIns(recheck: false)).contains(where: \.installed), controller == nil else { return }
+        show(step: .agents)
+        defaults.set(true, forKey: key)
+    }
+
+    /// Returns once no tool window shows: at once when none is open, else after the open one
+    /// closed (Continue, Skip or its close button). A replacing window is waited out too, so the
+    /// next first-run step never shows beside a tool window.
+    public func untilClosed() async {
+        guard controller != nil else { return }
+        await withCheckedContinuation { closeWaiters.append($0) }
+    }
+
+    /// The Agents step's once flag; the Set Up cmux card (``FirstRunSetup``) sets it in its place.
+    public static let agentsShownKey = "home.firstRun.agentsShown"
+
+    /// Bring your history's once flag (the App shows that page); unset, and no Set Up cmux card started, this Mac
+    /// never finished a first launch.
+    public static let historyShownKey = "home.firstRun.historyImportShown"
+
+    /// Whether this launch is the Mac's first, read before the first-run steps set their flags:
+    /// the hang-report card waits for the next launch.
+    public static func isFirstLaunch(defaults: UserDefaults = .standard) -> Bool {
+        !defaults.bool(forKey: historyShownKey) && defaults.string(forKey: FirstRunSetup.stateKey) == nil
+    }
+
+    /// The first-run steps, one at a time: Agents first (it gets a person to a working agent), then
+    /// cmux Tools (``askAgentToolsOnce(source:defaults:)``), then `next` (Bring your
+    /// history) once no tool window shows. Each keeps its own once flag.
+    public func showFirstRunSteps(isFirstRun: Bool, source: (any AgentSignInSource)?, agentTools: (any AgentToolsSource)? = nil,
+                                  defaults: UserDefaults = .standard, then next: @MainActor () -> Void) async {
+        await showAgentsAtFirstRun(isFirstRun: isFirstRun, source: source, defaults: defaults)
+        await untilClosed()
+        await askAgentToolsOnce(source: agentTools, defaults: defaults)
+        await untilClosed()
+        next()
+    }
+
+    /// Set once the cmux Tools step was shown under the launch-only rule (agents cmux starts, its
+    /// terminals and agent chats, get cmux's server only with the person's yes), so a person who
+    /// closes it without answering is not asked at every launch (Settings > Agents keeps the row). A
+    /// new key: an install that was asked under the old rule (cmux added its server to the person's
+    /// own agents; agent chats always had it) is asked once more, since its chats now need the yes.
+    public static let agentToolsAskedKey = "cmux.onboarding.agentToolsAsked.launchOnly"
+
+    /// The cmux Tools step, asking whether agents the person starts in cmux (its terminals and agent
+    /// chats) get cmux's MCP server, at launch (a first run or an existing installation, an upgrade
+    /// included) when the answer is not `on`, no tool window shows, and it was not shown under this
+    /// rule before. Until the person says yes, their agents in cmux get no server, agent chats too
+    /// (agent_mcp_choice.rs, acpmux `agent_tools`), so the question comes right away rather than
+    /// waiting in Settings (Aziz, 2026-11-11). It asks whether or not a coding agent's CLI is on the
+    /// PATH: agent chats need none.
+    public func askAgentToolsOnce(source: (any AgentToolsSource)?, defaults: UserDefaults = .standard) async {
+        guard let source, source.agentToolsChoice() != .on, controller == nil,
+              !defaults.bool(forKey: Self.agentToolsAskedKey) else { return }
+        defaults.set(true, forKey: Self.agentToolsAskedKey)
+        show(step: .agentTools)
+    }
+
     private func windowDidClose(_ closed: OnboardingWindowController?) {
         onWindowClose?()
         // A replaced window: the presenter already let it go.
         guard let closed, closed === controller else { return }
         controller = nil
+        let waiters = closeWaiters
+        closeWaiters = []
+        waiters.forEach { $0.resume() }
     }
 }

@@ -6,8 +6,9 @@
 // ellipsis (#28774's review). Now the action shrinks inside the row and ends in an ellipsis; the
 // detail and grid rows keep theirs inside too.
 //
-// The rows are the real WorkflowTasks, rendered to markup, then laid out in real Chromium from the
-// Session Info's stylesheets. CI fails the file when Chromium cannot launch (requireBrowserLane).
+// The rows are the real WorkflowAgentRow, inside the lists an opened phase draws them in (phases
+// start closed, so WorkflowTasks' own markup has no agent rows), rendered to markup, then laid out
+// in real Chromium from the Session Info's stylesheets. CI fails the file when Chromium cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -17,7 +18,7 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 await requireBrowserLane("workflow-agent-compact-browser.test.tsx", async () => {
   setDefaultTimeout(60_000);
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const { WorkflowTasks } = await import("../src/agent-session/acpmux/session-info/WorkflowTasks");
+  const { WorkflowAgentRow } = await import("../src/agent-session/acpmux/session-info/WorkflowTasks");
   const { createWorkflowAdapter } = await import("../src/agent-session/acpmux/summary/foldWorkflows");
   const { workflowFixture } = await import("../src/agent-session/acpmux/summary/workflowFixture");
   const { chromium } = await import("playwright");
@@ -32,7 +33,28 @@ await requireBrowserLane("workflow-agent-compact-browser.test.tsx", async () => 
     (["compact", "detail", "grid"] as const).map((variant) => [
       variant,
       renderToStaticMarkup(
-        <WorkflowTasks workflows={workflows} onOpenWorkflowAgent={() => undefined} agentRowVariant={variant} />,
+        <div className="acpmux-workflow-tasks">
+          {workflows.map((workflow) => (
+            <section key={workflow.id} className="acpmux-workflow-task">
+              <ul className="acpmux-session-info-list acpmux-workflow-task__phases">
+                <li className="acpmux-workflow-phase">
+                  <ul className="acpmux-session-info-list acpmux-workflow-phase__agents">
+                    {workflow.agents.map((agent) => (
+                      <WorkflowAgentRow
+                        key={agent.id}
+                        workflow={workflow}
+                        agent={agent}
+                        now={NOW}
+                        onOpenWorkflowAgent={() => undefined}
+                        variant={variant}
+                      />
+                    ))}
+                  </ul>
+                </li>
+              </ul>
+            </section>
+          ))}
+        </div>,
       ),
     ]),
   );

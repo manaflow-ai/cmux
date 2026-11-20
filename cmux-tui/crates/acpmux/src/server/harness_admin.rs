@@ -32,6 +32,7 @@
 //! registries for cached installations. It never enters harness_health's
 //! probe/auto-update path, and preserves failed-source timestamps.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -175,7 +176,63 @@ pub(super) async fn handle(
     let text = |key: &str| params.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
     let reply = match m {
         method::MUX_HARNESS_ADD => {
-            let p = AddParams::from_json(params).map_err(rpc_error)?;
+            // An endpoint's key comes with its add (`apiKey`), so the id check, the profile and
+            // the key are one locked step (`admin::add_endpoint_keyed`). It never reaches the
+            // profile: it is taken out here and goes only to the store command's stdin.
+            let endpoint = text("example").and_then(crate::byo_endpoint::Kind::from_example);
+            let mut params = params.clone();
+            let key = match params.as_object_mut().and_then(|o| o.remove("apiKey")) {
+                Some(Value::String(v)) if endpoint.is_some() => {
+                    Some(zeroize::Zeroizing::new(v.trim().to_owned())).filter(|v| !v.is_empty())
+                }
+                None | Some(Value::Null) => None,
+                Some(_) if endpoint.is_some() => {
+                    return Err(RpcError::invalid_params("apiKey must be a string"));
+                }
+                Some(_) => {
+                    return Err(rpc_error(AdminError::SecretInline(
+                        "apiKey goes only with example anthropic-endpoint or openai-endpoint"
+                            .into(),
+                    )));
+                }
+            };
+            let mut p = AddParams::from_json(&params).map_err(rpc_error)?;
+            // A taken id is refused first, before the `*` read below can fail some other way: a
+            // page never takes a failed add of an id it did not get for its own.
+            if endpoint.is_some() {
+                let cfg = hub.config.read().await;
+                admin::endpoint_id_free(&p, &sources, &admin::taken_elsewhere(&cfg, &sources))
+                    .map_err(rpc_error)?;
+            }
+            // `*`: the endpoint's own model list, read with the key this add brings or the stored one.
+            admin::fetch_endpoint_models(
+                &mut p,
+                key.as_deref().map(String::as_str),
+                &sources,
+                profiles::keychain_lookup,
+            )
+            .await
+            .map_err(rpc_error)?;
+            if endpoint.is_some() {
+                let cfg = hub.config.read().await.clone();
+                let added = tokio::task::spawn_blocking(move || {
+                    admin::add_endpoint_keyed(
+                        &p,
+                        &sources,
+                        &admin::EndpointKey {
+                            value: key.as_deref().map(String::as_str),
+                            store: &crate::cli::harness_secret::run_store,
+                            taken: &admin::taken_elsewhere(&cfg, &sources),
+                        },
+                    )
+                })
+                .await
+                .map_err(joined)?
+                .map_err(rpc_error)?;
+                hub.reload_and_announce().await;
+                return Ok(json!({"id": added.id, "path": added.path,
+                    "diagnostics": added.diagnostics, "secret": added.secret}));
+            }
             let registry = match &p.registry {
                 Some(rid) => {
                     let reg = crate::cli::harness_registry::registry(false)
@@ -205,14 +262,20 @@ pub(super) async fn handle(
         method::MUX_HARNESS_REMOVE => {
             let id =
                 text("id").ok_or_else(|| RpcError::invalid_params("id is required"))?.to_owned();
+            // `forgetKey`: the caller owns this add and drops it for good (no Undo), so the
+            // endpoint's own Keychain items go too. Otherwise they stay for Undo.
+            let forget_key = params.get("forgetKey").and_then(Value::as_bool).unwrap_or(false);
             let cfg = hub.config.read().await.clone();
-            let removed =
-                tokio::task::spawn_blocking(move || admin::remove(&id, &cfg, &sources, &home))
-                    .await
-                    .map_err(joined)?
-                    .map_err(rpc_error)?;
+            let removed = tokio::task::spawn_blocking(move || {
+                let forget: &dyn Fn(&_) -> _ = &crate::cli::harness_secret::run_delete;
+                admin::remove(&id, &cfg, &sources, &home, forget_key.then_some(forget))
+            })
+            .await
+            .map_err(joined)?
+            .map_err(rpc_error)?;
             hub.reload_and_announce().await;
-            json!({"id": removed.id, "backup": removed.backup})
+            // A key `forgetKey` could not delete: removed (Undo still works), and `keyError` says why.
+            json!({"id": removed.id, "backup": removed.backup, "keyError": removed.key_error})
         }
         method::MUX_HARNESS_RESTORE => {
             let backup = text("backup")
@@ -242,7 +305,30 @@ pub(super) async fn handle(
                 timeout: Duration::from_secs(secs),
                 lookup_env: Box::new(crate::login_env::reference_var),
                 lookup_keychain: Box::new(profiles::keychain_lookup),
+                extra_env: BTreeMap::new(),
             };
+            // `chief: true` (the Chief editor's check): an open-source brain is checked the way
+            // a Chief turn runs it, from the Chief's own brain home with the person's provider
+            // keys blanked, never from the person's own home.
+            let mut opts = opts;
+            if params.get("chief").and_then(Value::as_bool) == Some(true)
+                && let Some(profile) = cfg.harnesses.get(&id)
+            {
+                let family = crate::config::derive_family(&id, profile);
+                match crate::config::chief_builtins::brain_check_env(
+                    &family,
+                    &crate::config::chief_builtins::Context::current(),
+                    text("chiefId"),
+                ) {
+                    Some(Ok(env)) => opts.extra_env = env,
+                    Some(Err(e)) => {
+                        return Ok(
+                            json!({"id": id, "ok": false, "steps": [{"name": "brain home", "status": "fail", "ok": false, "detail": e}]}),
+                        );
+                    }
+                    None => {}
+                }
+            }
             admin::doctor_value(&doctor(&cfg, &id, &opts).await)
         }
         method::MUX_HARNESS_SECRET_SET => {
@@ -335,7 +421,15 @@ pub(super) async fn handle(
 /// marked a start-mode notice (`hub/start_mode.rs`), which only local
 /// connections get (a remote-origin connection's chats get no start mode).
 pub(super) fn watch_note(conn: &super::Conn, note: Value) {
-    if let Some(state) = note.get(crate::peer_states::STATE_NOTE) {
+    if let Some(state) = note.get(super::connections::CONNECTIONS_NOTE) {
+        // Model connections (`server/connections.rs`): this machine's own, never to Web or a peer.
+        if !conn.origin.web_class() {
+            conn.send(&crate::rpc::Message::notification(
+                method::MUX_CONNECTIONS_CHANGED,
+                state.clone(),
+            ));
+        }
+    } else if let Some(state) = note.get(crate::peer_states::STATE_NOTE) {
         conn.send(&crate::rpc::Message::notification(
             method::MUX_PEER_STATE_CHANGED,
             state.clone(),

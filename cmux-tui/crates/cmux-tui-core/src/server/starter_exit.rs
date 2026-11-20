@@ -47,7 +47,7 @@ impl Starter {
 
     /// Whether `pid` still names this process (not a later one that reused
     /// the pid).
-    fn still_running(self) -> bool {
+    pub(crate) fn still_running(self) -> bool {
         crate::state::status_owners::process_is_running(self.pid)
             && same_process(self.started_ms, crate::process_identity::started_ms(self.pid))
     }

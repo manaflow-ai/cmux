@@ -67,7 +67,7 @@ import Testing
     /// starting Sparkle. (Manual checks are the path that survived the passive-pill gating.)
     @Test func devLikeBundleManualCheckIsSuppressed() throws {
         let suiteName = "com.cmuxterm.updatertests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let defaults = try #require(UserDefaults(testSuiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let controller = UpdateController(
@@ -90,7 +90,7 @@ import Testing
     /// leaves the model idle, whichever build is running.
     @Test func managedPolicyKeepsTheUpdaterOffAndSuppressesManualChecks() throws {
         let suiteName = "com.cmuxterm.updatertests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let defaults = try #require(UserDefaults(testSuiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let controller = UpdateController(
@@ -114,7 +114,7 @@ import Testing
     /// permission-reset path cannot undo it.)
     @Test func devLikeBundleDisablesAutomaticChecks() throws {
         let suiteName = "com.cmuxterm.updatertests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let defaults = try #require(UserDefaults(testSuiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         _ = UpdateController(
@@ -130,7 +130,7 @@ import Testing
     /// The public release train keeps automatic checks enabled.
     @Test func publicBundleLeavesAutomaticChecksEnabled() throws {
         let suiteName = "com.cmuxterm.updatertests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let defaults = try #require(UserDefaults(testSuiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         _ = UpdateController(

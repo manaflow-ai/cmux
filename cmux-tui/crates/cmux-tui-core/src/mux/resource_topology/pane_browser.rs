@@ -18,13 +18,20 @@ pub(crate) const PANE_BROWSER_URL_FIELD: &str = "pane_browser_url";
 /// `up`) that holds only one new tab: one `pane.split` commit and one
 /// `pane-added` delta, under the caller-minted `pane_id` and `split_id` when
 /// given. A conversation tab's split (`conversation-tab-split-v1`) and a
-/// frontend browser tab's split (`frontend-browser-tab-split-v1`) both use it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// frontend browser tab's split (`frontend-browser-tab-split-v1`) both use it,
+/// and so does a Reopen Closed tab whose pane is gone, split off its neighbor
+/// again at its old share (`ratio`).
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TabSplit {
     pub(crate) pane: PaneId,
     pub(crate) direction: &'static str,
     pub(crate) pane_id: Option<String>,
     pub(crate) split_id: Option<String>,
+    /// The new pane's share of the split (default one half).
+    pub(crate) ratio: Option<f32>,
+    /// `split-around-v1`: the split whose whole subtree the new split wraps;
+    /// `pane` must be its last leaf.
+    pub(crate) around: Option<SplitId>,
 }
 
 /// Fields that only a terminal pane can use.
@@ -179,8 +186,16 @@ impl Mux {
         mut fields: Map<String, Value>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
-        let TabSplit { pane, direction, pane_id, split_id } = split;
+        let TabSplit { pane, direction, pane_id, split_id, ratio, around } = split;
         fields.insert(PANE_BROWSER_URL_FIELD.into(), Value::String(url));
+        if let Some(around) = around {
+            fields.insert(AROUND_SPLIT_FIELD.into(), Value::from(around));
+        }
+        if let Some(ratio) = ratio {
+            fields.insert("ratio".into(), Value::from(f64::from(ratio)));
+        }
+        // A Reopen Closed creation takes the closed tab's own id here too.
+        tab_strip::reopen_identity::insert_field(&mut fields);
         if let Some(pane_id) = pane_id {
             fields.insert(CLIENT_PANE_ID_FIELD.into(), Value::String(pane_id));
         }

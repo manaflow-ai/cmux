@@ -62,7 +62,8 @@ extension HomeService {
     }
 
     /// The notice row of a conversation: on the local Chief, agents off in this build session (cx-tgf4h)
-    /// or its organizing status while a turn waits; else the merge notice.
+    /// or its organizing status while a turn waits; else where the Chief runs (a move, a rollback, a
+    /// fork); else the merge notice.
     func conversationNotice(for id: ConversationID) -> String? {
         let isLocalChief = HomeChiefName.select(from: conversations)?.id == id.rawValue
         // The copy notice shows where the user is: on the Hosted Chief, or on the local Chief while it keeps the tab;
@@ -71,7 +72,14 @@ extension HomeService {
             let onHosted = cloudChiefs.hosted?.mainConversation == id.rawValue
             if onHosted || (hostedChief.isCopyNotice && isLocalChief && hostedChief.pending) { return notice }
         }
-        return (isLocalChief ? (HomeBrainHost.agentsDisabledNotice() ?? replyNotice ?? settleNotice) : nil) ?? migrationNotice
+        let local = isLocalChief ? (HomeBrainHost.agentsDisabledNotice() ?? replyNotice ?? settleNotice) : nil
+        return local ?? teleportNotice(for: id) ?? migrationNotice
+    }
+
+    /// Where the Chief runs, on the conversations that show its location chip (``showsTeleport(conversation:)``):
+    /// a move that runs or failed, where it went and when, a rollback, or its fork in cmux Cloud.
+    func teleportNotice(for id: ConversationID) -> String? {
+        showsTeleport(conversation: id.rawValue) ? services.chiefTeleport.notice() : nil
     }
 
     /// What Home shows when it cannot show conversations.

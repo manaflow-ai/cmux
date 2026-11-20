@@ -194,6 +194,13 @@ extension UpdateController {
         set { driver.skipsBuildsThrough = newValue }
     }
 
+    /// A found build waits for the person's click (``acceptAvailableUpdate()``) even when updates
+    /// install in the background: the host sets it while the build the person picked runs.
+    public var asksBeforeInstalling: Bool {
+        get { driver.asksBeforeInstalling }
+        set { driver.asksBeforeInstalling = newValue }
+    }
+
     /// Whether the host refuses a found build by its `sparkle:version` (cmux NEXT: a pulled
     /// build): it is dismissed when found, before any download or prompt, and never accepted.
     public var refusesUpdate: (@MainActor (String) -> Bool)? {

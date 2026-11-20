@@ -82,6 +82,12 @@ impl Mux {
             self.emit(MuxEvent::SurfaceExited(id, None));
             return;
         }
+        // Its last output's publications commit before the exit does (an
+        // ended terminal commits none), and before the creation fences, which a
+        // registry wait here must not hold.
+        if let Some(surface) = self.surface(id) {
+            self.settle_terminal_publications(&surface);
+        }
         let _creation_handoff = self.resource_creation_handoff.write().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
         if let Some(surface) = self.surface(id)
@@ -207,18 +213,27 @@ impl Mux {
         // logged before it, so the cause is durable once the exit is
         // visible: an owner stopped right then still names it after its
         // restart (the dead tab's cause comes back from the log).
+        // The root is read in its own statement: the surface options lock is
+        // daemon-wide (every create, close and reap takes it) and must not be
+        // held across this file and stderr I/O.
         #[cfg(any(unix, windows))]
-        let host_loss =
-            self.surface_options.lock().unwrap().terminal_host_root.clone().map(|root| {
-                let mut loss = crate::terminal_loss_log::HostLoss::read(
-                    &root.join(format!("{terminal_id}.json")),
-                    terminal_id,
-                    incarnation,
-                    end,
-                );
-                loss.log();
-                loss
-            });
+        let host_root = self
+            .surface_options
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .terminal_host_root
+            .clone();
+        #[cfg(any(unix, windows))]
+        let host_loss = host_root.map(|root| {
+            let mut loss = crate::terminal_loss_log::HostLoss::read(
+                &root.join(format!("{terminal_id}.json")),
+                terminal_id,
+                incarnation,
+                end,
+            );
+            loss.log();
+            loss
+        });
         // An `on_exit` shell restart below needs a host root (`host_loss` is
         // read from it).
         #[cfg(unix)]
@@ -613,6 +628,8 @@ impl Mux {
                     None,
                     false,
                     None,
+                    // As before this parameter: this commit's changes may seed the fold.
+                    true,
                 )?;
                 (commit.resource.revision, commit.workspace_revision)
             }

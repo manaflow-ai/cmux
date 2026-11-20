@@ -214,12 +214,11 @@ import Testing
         #expect(tracker.reads.last?.screenRect.size == NSSize(width: 420, height: 600))
     }
 
-    /// cmux#26037: with `browserResize.dragResize` at `resizeSync`, a divider drag makes the shown page's window wait
-    /// for its frame at each new size from the drag's first move until its release landed, with no held page size (the
-    /// page lays out live). The end reaches the page window that heard the start.
-    @Test func aResizeSyncDragMakesThePageWindowWaitUntilTheReleaseLanded() throws {
-        Self.setDragResize(.resizeSync)
-        defer { Self.setDragResize(nil) }
+    /// cmux#26037: a divider drag joins the shown page's window to the
+    /// drag from the drag's first move until its release landed, with no held page size (the page lays out live). The
+    /// end reaches the page window that heard the start. cmux-ad m18/m19: a pane never waits for a page, so the drag
+    /// deadline is 0 by default and the page window is never asked to hold a frame.
+    @Test func aResizeSyncDragJoinsThePageWindowAndNeverWaitsForIt() throws {
         let (runtime, root) = try Self.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, first, container) = try Self.liveHost(runtime)
@@ -233,123 +232,16 @@ import Testing
         first.container.paneResizeGestureDidChange(active: true)
         #expect(host.hostView.layerHosting.inPaneDrag)
         #expect(first.container.heldPageSize == nil, "the page lays out live")
-        let wait = try #require(TabSpyShim.resizeSyncs.last)
-        #expect(wait.browser == 10)
-        // The 16 ms default, under half the shortest frame of this host's displays.
-        #expect(wait.timeoutMs > 0 && wait.timeoutMs <= 16)
+        #expect(!TabSpyShim.resizeSyncs.contains { $0.timeoutMs > 0 }, "the drag asked a page to hold a frame: \(TabSpyShim.resizeSyncs)")
         first.container.paneResizeGestureDidChange(active: false)
         #expect(!host.hostView.layerHosting.inPaneDrag)
         #expect(first.container.syncedDragHostings.isEmpty)
-        #expect(TabSpyShim.resizeSyncs.map(\.browser) == [10, 10])
-        #expect(TabSpyShim.resizeSyncs.last?.timeoutMs == 0, "a page in its own window stops waiting when the drag lands")
-    }
-
-    /// cmux-ad m6 1b, the interim browser contract for key resizes (FRAME OWNER REFACTOR, STATUS 11198; Lawrence: "tabbar
-    /// moves smoothly on ctrl shift hjkl but browsers/terminals do not anymore"). Through a key resize's hold the page keeps
-    /// its size, never scaled, and its top-left corner stays on the page area's top-left in every frame, so it moves with
-    /// its pane's leading and top edges as the tab strip does; the pane clips it and the page's own backdrop fills the
-    /// rest. S3 kept it on the pane edges that do not move: a pane whose leading edge moves slid over a page that stood
-    /// still (on the films, 0 of 190 motion frames with the page's left edge on its pane's). The pane's leading edge moves
-    /// right (the pane shrinks), then left past its start (it grows), its trailing edge still, as a key resize moves it.
-    @Test func aKeyResizeHoldKeepsThePageOnThePageAreasTopLeft() throws {
-        let (runtime, root) = try Self.runtime()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let (host, first, _) = try Self.liveHost(runtime)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: .borderless, backing: .buffered, defer: true)
-        window.isReleasedWhenClosed = false
-        defer { window.closeAfterTest() }
-        first.container.frame = NSRect(x: 200, y: 0, width: 600, height: 500)  // the pane's page area, its leading edge at x 200
-        window.contentView?.addSubview(first.container)
-        first.container.layoutSubtreeIfNeeded()
-        let page = host.hostView
-        let held = page.frame.size
-        try #require(page.superview === first.container && held.width > 0 && held.height > 0, "SETUP: the page is not shown at a size")
-        // The pane's trailing edge stays: S3's hold rides it (`PaneHostView` picks the edge that does not move).
-        first.container.holdPage(for: PaneMotionHold(trailing: true, bottom: false))
-        try #require(first.container.heldPageSize == held, "SETUP: the page does not hold through the key resize")
-        var misses: [String] = []
-        // The leading edge's offset from its start in each frame: right 120 pt, left to -120 pt, back to its start.
-        let shrink: [CGFloat] = (0...12).map { CGFloat($0) * 10 }
-        let grow: [CGFloat] = (0...12).map { CGFloat(12 - 2 * $0) * 10 }
-        let back: [CGFloat] = (0...12).map { CGFloat($0 - 12) * 10 }
-        let steps: [CGFloat] = shrink + grow + back
-        for (frame, dx) in steps.enumerated() {
-            first.container.frame = NSRect(x: 200 + dx, y: 0, width: 600 - dx, height: 500)
-            first.container.layoutSubtreeIfNeeded()
-            let area = first.container.bounds  // no DevTools, side panel or fit: the page area is the container
-            if abs(page.frame.minX - area.minX) > 0.5 || abs(page.frame.maxY - area.maxY) > 0.5 {
-                misses.append("frame \(frame): the page at \(page.frame) in its area \(area)")
-            }
-            if page.frame.size != held { misses.append("frame \(frame): the page at \(page.frame.size), held at \(held)") }
-        }
-        #expect(misses.isEmpty, "\(misses.count) of \(steps.count) frames do not show the page on its area's top-left: \(misses.prefix(3))")
-        #expect(first.container.layer?.masksToBounds == true, "the pane does not clip the held page")
-        #expect(page.pageSeeThrough || first.container.layer?.backgroundColor == first.pageBackdropColor,
-                "the area beside the held page is not the page's own backdrop")
-        first.container.holdPage(for: nil)
-        first.container.layoutSubtreeIfNeeded()
-        #expect(page.frame == first.container.bounds, "the page did not take its area's size when the hold ended")
-    }
-
-    /// #32253 review nit (lead 12:5xZ: a per-frame layout during a drag is a bottleneck): DevTools began (WILL_OPEN)
-    /// and never reported opened, so its room went back but its views stay, hidden (Chromium holds the host). Such
-    /// views take no room, so the page holds during a hold-mode divider drag as with no DevTools: no layout per frame.
-    @Test func aFailedDevToolsOpenStillLetsThePageHoldDuringADrag() async throws {
-        Self.setDragResize(.hold)
-        defer { Self.setDragResize(nil) }
-        let (runtime, root) = try Self.runtime()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let (_, first, container) = try Self.liveHost(runtime)
-        let window = NSWindow(contentRect: container.frame, styleMask: .borderless, backing: .buffered, defer: true)
-        window.isReleasedWhenClosed = false
-        defer { window.closeAfterTest() }
-        first.container.frame = container.frame  // a real page size: a zero-size page never holds
-        window.contentView?.addSubview(first.container)
-        let clock = ManualClock()
-        first.devToolsController.openTimer = DemandTimer(owner: "test", clock: clock)
-        first.devToolsController.layout.dock = .right
-        first.devToolsController.willOpen()
-        try await clock.waitForSleeper()
-        clock.advance(by: CEFDevToolsController.openedLimit)
-        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-        while first.devToolsController.reservesRoom, ContinuousClock.now < deadline { await Task.yield() }
-        try #require(!first.devToolsController.reservesRoom, "the unreported open gave its room back")
-        try #require(first.host.hostView.frame.width > 0, "the page has a size")
-        try #require(first.devToolsController.views != nil, "its views stay, hidden")
-
-        first.container.paneResizeGestureDidChange(active: true)
-        #expect(first.container.heldPageSize != nil, "the page holds its size during the drag")
-        first.container.paneResizeGestureDidChange(active: false)
-        #expect(first.container.heldPageSize == nil)
-    }
-
-    /// A docked DevTools that takes room still keeps the page laid out live (it places the page itself).
-    @Test func anOpenDockedDevToolsStillLaysThePageOutLive() throws {
-        Self.setDragResize(.hold)
-        defer { Self.setDragResize(nil) }
-        let (runtime, root) = try Self.runtime()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let (_, first, container) = try Self.liveHost(runtime)
-        let window = NSWindow(contentRect: container.frame, styleMask: .borderless, backing: .buffered, defer: true)
-        window.isReleasedWhenClosed = false
-        defer { window.closeAfterTest() }
-        first.container.frame = container.frame
-        window.contentView?.addSubview(first.container)
-        first.devToolsController.layout.dock = .bottom
-        first.devToolsController.willOpen()
-        first.devToolsController.opened(browser: 20, docked: true)
-        try #require(first.devToolsController.reservesRoom)
-        try #require(first.host.hostView.frame.width > 0, "the page has a size, so only DevTools' room stops the hold")
-        first.container.paneResizeGestureDidChange(active: true)
-        #expect(first.container.heldPageSize == nil)
-        first.container.paneResizeGestureDidChange(active: false)
+        #expect(!TabSpyShim.resizeSyncs.contains { $0.timeoutMs > 0 }, "a page waited at the drag's end: \(TabSpyShim.resizeSyncs)")
     }
 
     /// Review 1 of cmux#26037: a container that leaves its window mid-drag (its tab closed or moved) may never hear
     /// the drag's end, which the listener holds weakly; it hands its share back as it leaves.
     @Test func aContainerLeavingItsWindowMidDragEndsItsWait() throws {
-        Self.setDragResize(.resizeSync)
-        defer { Self.setDragResize(nil) }
         let (runtime, root) = try Self.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, first, container) = try Self.liveHost(runtime)
@@ -366,12 +258,11 @@ import Testing
         #expect(first.container.syncedDragHostings.isEmpty)
     }
 
-    /// A docked DevTools joins the wait when it opens after the first drag move, or when its parked
-    /// tab becomes visible. Hiding it again releases only its wait, while the shared page stays synced.
+    /// A docked DevTools joins the drag when it opens after the first drag move, or when its parked tab becomes
+    /// visible, and is never asked to wait (the drag deadline is 0). Hiding it again releases only its share, while
+    /// the shared page stays in the drag.
     @Test(arguments: [false, true])
     func dockedDevToolsJoiningAResizeSyncDragWaitsUntilHidden(_ initiallyParked: Bool) throws {
-        Self.setDragResize(.resizeSync)
-        defer { Self.setDragResize(nil) }
         let (runtime, root) = try Self.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, first, container) = try Self.liveHost(runtime)
@@ -398,7 +289,7 @@ import Testing
 
         let devTools = try #require(first.devToolsController.views?.host.layerHosting)
         #expect(devTools.inPaneDrag)
-        #expect(TabSpyShim.resizeSyncs.contains { $0.browser == 20 && $0.timeoutMs > 0 })
+        #expect(!TabSpyShim.resizeSyncs.contains { $0.browser == 20 && $0.timeoutMs > 0 }, "DevTools was asked to hold a frame (m18: a pane never waits for a page)")
         first.container.layoutContent()
         first.container.isHidden = true
         #expect(!devTools.inPaneDrag, "hidden DevTools spends no frame wait")
@@ -408,36 +299,7 @@ import Testing
         #expect(!devTools.inPaneDrag, "repeated layouts did not acquire duplicate shares")
     }
 
-    /// Every other mode leaves the page window's wait alone.
-    @Test func aDragInAnotherModeMakesNoPageWindowWait() throws {
-        let (runtime, root) = try Self.runtime()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let (host, first, container) = try Self.liveHost(runtime)
-        // In the app the tab's own content view is the pane's container (`CEFTabContentView.viewDidMoveToWindow`).
-        let window = NSWindow(contentRect: container.frame, styleMask: .borderless, backing: .buffered, defer: true)
-        window.isReleasedWhenClosed = false
-        defer { window.closeAfterTest() }
-        window.contentView?.addSubview(first.container)
-        defer { Self.setDragResize(nil) }
-        TabSpyShim.resizeSyncs = []
-        for mode in [BrowserDragResize.live, .hold, .synced] {
-            Self.setDragResize(mode)
-            first.container.paneResizeGestureDidChange(active: true)
-            #expect(!host.hostView.layerHosting.inPaneDrag, "\(mode)")
-            first.container.paneResizeGestureDidChange(active: false)
-        }
-        #expect(TabSpyShim.resizeSyncs.isEmpty)
-    }
-
     // MARK: Fixtures
-
-    /// Sets Debug Settings `browserResize.dragResize` (nil: the default).
-    private static func setDragResize(_ mode: BrowserDragResize?) {
-        TunableStore.shared.activate(file: nil)
-        TunableStore.shared.register([BrowserResizeTunables.dragResize.descriptor])
-        TunableStore.shared.set(BrowserResizeTunables.dragResize.key, mode.map { .choice($0.rawValue) })
-        #expect(BrowserResizeTunables.dragResize.value == mode ?? .default)
-    }
 
     /// A runtime that outlives the test: a shown tab schedules work (its side panel refresh) that
     /// reads its runtime through an unowned reference after the test returned.

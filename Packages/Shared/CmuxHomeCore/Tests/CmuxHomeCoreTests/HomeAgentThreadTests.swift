@@ -232,4 +232,18 @@ struct HomeAgentThreadTests {
         // An agent the read no longer names keeps its last place.
         #expect(store.agentSession("a2", in: conversation)?.session == "s-82")
     }
+    /// While it runs, the store reads the owner's agent starts (a queued agent that starts with no word in
+    /// the chat, a1019 2026-11-06): the set when it starts, then each change; an agent stays started.
+    @MainActor @Test func theStoreReadsTheOwnersAgentStartsWhileItRuns() async {
+        let source = MockHomeSource(options: .immediate)
+        let store = HomeStore(source: source)
+        await source.setStartedAgents(["a1"])
+        store.start()
+        defer { store.stop() }
+        await waitUntil { store.startedAgents.contains("a1") }
+        #expect(store.startedAgents == ["a1"])
+        await source.setStartedAgents(["a2"])
+        await waitUntil { store.startedAgents.contains("a2") }
+        #expect(store.startedAgents == ["a1", "a2"])
+    }
 }

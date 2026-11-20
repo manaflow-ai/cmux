@@ -61,6 +61,10 @@ def hard_ancestors(job: str) -> set[str]:
         for parent in needs(child):
             if f"needs.{parent}.result != 'success'" in condition:
                 continue
+            # Nor a need it reads only for outputs: a `!cancelled()` job that never tests that need's result runs
+            # whatever it was (build-sign-notarize-nightly reads legacy-identity-target's outputs only).
+            if "!cancelled()" in condition and f"needs.{parent}.result" not in condition:
+                continue
             if parent not in seen:
                 seen.add(parent)
                 stack.append(parent)
@@ -83,11 +87,14 @@ class PeersAreDerived(unittest.TestCase):
         # Every job between a peer and build-sign-notarize-nightly runs only when
         # its needs succeeded, or reads a peer-free result: no `result` test on a peer.
         for peer in derived_peers():
-            between = descendants(peer) & ancestors("build-sign-notarize-nightly")
+            between = descendants(peer) & hard_ancestors("build-sign-notarize-nightly")
             for job in between:
                 condition = str(JOBS[job].get("if", ""))
                 for other in derived_peers():
-                    self.assertNotIn(f"needs.{other}.result", condition, f"{job} tolerates {other} failing")
+                    # Requiring a peer's success (`== 'success'`) tolerates nothing; any other test of its
+                    # result (`!= 'success'`, `== 'failure'`, ...) would let the job run after it failed.
+                    rest = condition.replace(f"needs.{other}.result == 'success'", "")
+                    self.assertNotIn(f"needs.{other}.result", rest, f"{job} tolerates {other} failing")
                 if "always()" in condition or "!cancelled()" in condition:
                     # Such a job may still run only on its own needs' success.
                     self.assertTrue(all(f"needs.{n}.result == 'success'" in condition or n not in between | derived_peers()
@@ -130,7 +137,8 @@ class StepsAreWired(unittest.TestCase):
         first = self.steps[self.index("Upload unsigned nightly app")]
         retry = self.steps[self.index("Upload unsigned nightly app (retry)")]
         self.assertEqual((first["timeout-minutes"], first["continue-on-error"], first["id"]), (10, True, "upload-unsigned"))
-        self.assertEqual(retry["if"], "steps.upload-unsigned.outcome == 'failure'")
+        # A doomed run's stop step fails before the first try, which is then skipped, so the retry never runs.
+        self.assertEqual(retry["if"], f"!cancelled() && steps.upload-unsigned.outcome == 'failure' && ({first['if']})")
         self.assertEqual(retry["timeout-minutes"], 10)
         self.assertEqual(retry["with"]["overwrite"], True)
         self.assertEqual({k: v for k, v in retry["with"].items() if k != "overwrite"},

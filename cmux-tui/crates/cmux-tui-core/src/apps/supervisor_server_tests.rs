@@ -269,7 +269,10 @@ fn host_link_get_answers_the_daemon_values_and_needs_its_scope() {
     let bundled = root.0.join("bundled");
     write_server_app(&bundled, "linked", probe_server(&linked, "cmux.host.link.get", true));
     write_server_app(&bundled, "unscoped", probe_server(&unscoped, "cmux.host.link.get", false));
-    write_server_app(&bundled, "relay", probe_server(&relay, "cmux.credential.relay", true));
+    // The relay server also holds the credential relay scope (as the Cloud server does).
+    let mut relay_server = probe_server(&relay, "cmux.credential.relay", true);
+    relay_server["scopes"]["op:cmux.credential.relay"] = json!("Call the cmux Cloud API.");
+    write_server_app(&bundled, "relay", relay_server);
     let state = root.0.join("state");
     let f = fixture_with(&[], Duration::from_secs(60), root);
     for app in ["cmux/linked", "cmux/unscoped", "cmux/relay"] {
@@ -322,6 +325,24 @@ fn host_link_get_answers_the_daemon_values_and_needs_its_scope() {
     );
     std::thread::sleep(Duration::from_millis(200));
     assert_eq!(frames(&unscoped, 1).len(), 1);
+    // A pushed Cloud event (apps-team-event) reaches only the server that
+    // holds the credential relay scope, as a team.event line.
+    let data = json!({ "v": 1, "t": "state", "machine": "vm_x", "revision": 2, "state": null });
+    assert_eq!(
+        f.supervisor.team_event("cloud.machine.state", &data).unwrap(),
+        json!({ "servers": 1 })
+    );
+    // The relay server's lines: its host.error, the link change, then this.
+    let pushed = &frames(&relay, 3)[2];
+    assert_eq!(
+        pushed,
+        &json!({ "type": "team.event", "event": "cloud.machine.state", "data": data })
+    );
+    assert!(f.supervisor.team_event("user.changed", &data).is_err(), "only cloud.* events");
+    let big = json!({ "blob": "x".repeat(crate::apps::host_ops::TEAM_EVENT_MAX_BYTES) });
+    assert!(f.supervisor.team_event("cloud.machine.state", &big).is_err(), "bounded");
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(frames(&linked, 2).len(), 2, "the link server got no team event");
 }
 
 /// Makes the server app `cmux/<dir>` a terminal connector whose user runs of

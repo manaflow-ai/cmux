@@ -97,7 +97,7 @@ async fn a_spawn_records_the_store_roots_its_env_names_and_they_survive_a_reload
     let hub = Hub::new(cfg, store);
     let (tx, in_rx) = mpsc::channel(64);
     let (out_tx, mut rx) = mpsc::channel(4096);
-    tokio::spawn(serve_connection(hub, in_rx, out_tx));
+    tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
     request(&tx, &mut rx, 1, method::INITIALIZE, json!({"protocolVersion": 1})).await.unwrap();
     let cwd = root.join("work");
     let params =
@@ -105,7 +105,9 @@ async fn a_spawn_records_the_store_roots_its_env_names_and_they_survive_a_reload
     let s = request(&tx, &mut rx, 2, method::SESSION_NEW, params).await.unwrap();
     let id = s["sessionId"].as_str().unwrap().to_owned();
 
-    // A fresh store over the same folder reads what the spawn wrote.
+    // A fresh store over the same folder reads what the spawn wrote, after the old daemon's
+    // shutdown seal: in one process the journal's lock passes to the next open only on it.
+    hub.seal();
     let reread = acpmux::store::open(&store_cfg, &state).unwrap();
     let meta = reread.load(&id).unwrap().expect("the session meta file");
     let mut roots = meta.harness_roots.clone();

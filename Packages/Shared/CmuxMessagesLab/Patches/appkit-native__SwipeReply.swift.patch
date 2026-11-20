@@ -27,7 +27,37 @@
          cell.layer.addSublayer(arrow)
          move(by: dx)
          return true
-@@ -179,9 +181,9 @@
+@@ -141,18 +143,25 @@
+         armed = nowArmed
+     }
+ 
++    /// cmux: the spring that brings the row back (damping ratio 1), built in one place so
++    /// `NoBounceSpringsTests` steps the animation the swipe adds.
++    static func returnSpring() -> CASpringAnimation {
++        let back = CASpringAnimation(keyPath: "sublayerTransform")
++        back.mass = 1
++        back.stiffness = pow(2 * .pi / Tuning.returnResponse, 2)
++        back.damping = 4 * .pi / Tuning.returnResponse
++        return back
++    }
++
+     private func end(cancelled: Bool) {
+         claimed = false
+         swallowMomentum = true
+         guard let cell else { return }
+         let from = cell.layer.sublayerTransform
+         cell.layer.sublayerTransform = CATransform3DIdentity
+-        let back = CASpringAnimation(keyPath: "sublayerTransform")
++        let back = Self.returnSpring() // cmux: built in one place (above)
+         back.fromValue = NSValue(caTransform3D: from)
+         back.toValue = NSValue(caTransform3D: CATransform3DIdentity)
+-        back.mass = 1
+-        back.stiffness = pow(2 * .pi / Tuning.returnResponse, 2)
+-        back.damping = 4 * .pi / Tuning.returnResponse
+         back.duration = back.settlingDuration
+         cell.layer.add(back, forKey: "swipe.back")
+         // The arrow fades out, then leaves the cell (unless a new swipe took it).
+@@ -179,9 +188,9 @@
          let cfg = NSImage.SymbolConfiguration(pointSize: Tuning.arrowSize * 0.7, weight: .semibold)
              .applying(.init(paletteColors: [NSColor(white: 0.6, alpha: 1)]))
          guard let sym = NSImage(systemSymbolName: "arrowshape.turn.up.left.fill", accessibilityDescription: nil)?.withSymbolConfiguration(cfg) else { return nil }
@@ -39,7 +69,7 @@
          NSGraphicsContext.saveGraphicsState()
          NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
          let sz = sym.size, r = CGFloat(px)
-@@ -201,42 +203,47 @@
+@@ -201,42 +210,47 @@
  enum SwipeCheck {
      static func fromArguments() -> String? {
          let a = ProcessInfo.processInfo.arguments

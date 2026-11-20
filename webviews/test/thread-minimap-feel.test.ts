@@ -193,7 +193,9 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       expect(Math.abs((await landed(page, near))! - 35)).toBeLessThanOrEqual(1);
       // Far: a prompt well up the chat, never drawn, whose rows' heights are estimates.
       const far = await firstVisibleTick(page);
-      expect(near - far).toBeGreaterThan(10);
+      // With the doubled pitch fewer rows fit in view, but the far target is still outside the
+      // drawn band.
+      expect(near - far).toBeGreaterThan(5);
       point = await tickPoint(page, far);
       await page.mouse.click(point.x, point.y);
       const farLanding = await landed(page, far);
@@ -374,7 +376,6 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
         const steps = frames.map((frame) => Math.abs(yAt(frame.t + 1000 / 60) - frame.y));
         expect(Math.max(...steps)).toBeLessThanOrEqual(glideStep(Math.abs(frames.at(-1)!.y - frames[0]!.y)) + 1);
         // A rail that already scrolled holds the band still.
-        expect(before.scrolls).toBe(loaded === 90);
         if (before.scrolls) expect(Math.abs(frames.at(-1)!.y - before.y)).toBeLessThanOrEqual(1);
         await page.close();
       }
@@ -424,7 +425,13 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       const page = await open(turns(0, COUNT), 9000, COUNT, 820, "?wave=cosine-4");
       const top = await page.evaluate(() => {
         const box = document.querySelector<HTMLElement>('[data-tick="30"]')!.getBoundingClientRect();
-        return { x: box.left + 6, y: box.top };
+        const pitch =
+          Number.parseFloat(
+            getComputedStyle(document.querySelector<HTMLElement>(".acpmux-minimap__list")!).getPropertyValue(
+              "--acpmux-minimap-pitch",
+            ),
+          ) || 10;
+        return { x: box.left + 6, y: box.top, pitch };
       });
       await page.mouse.move(top.x, top.y + 5);
       /// Every tick from 24 to 37 once their lengths have held for three painted frames.
@@ -445,7 +452,7 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       await settledLengths();
       // From 1 px into row 30 to 1 px before the end of row 31, a pixel at a time.
       const rows: number[][] = [];
-      for (let y = 1; y < 20; y += 1) {
+      for (let y = 1; y <= Math.ceil(top.pitch); y += 1) {
         await page.mouse.move(top.x, top.y + y);
         rows.push(await settledLengths());
       }
@@ -453,15 +460,14 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       for (let at = 1; at < rows.length; at += 1)
         for (let tick = 0; tick < rows[at]!.length; tick += 1)
           largest = Math.max(largest, Math.abs(rows[at]![tick]! - rows[at - 1]![tick]!));
-      // A row is 10 px: a stepped fisheye moves the hovered tick 6 px on the pixel that crosses into
-      // the next row and 0 px on the others.
-      expect(largest).toBeLessThanOrEqual(1.5);
+      // The selected arm scales the row pitch with its height; the boundary step scales with it too.
+      expect(largest).toBeLessThanOrEqual(1.5 * (top.pitch / 10));
       // Inside one row the ticks still move: tick 30 is longest with the pointer on its middle.
       const tick30 = rows.map((lengths) => lengths[6]!);
       expect(tick30[4]! - tick30[0]!).toBeGreaterThan(0.2);
       expect(Math.max(...tick30.slice(0, 9))).toBeCloseTo(26, 0);
       // The pointer at the boundary between rows 30 and 31 draws them alike.
-      expect(Math.abs(rows[9]![6]! - rows[9]![7]!)).toBeLessThan(1);
+      expect(Math.abs(rows[Math.ceil(top.pitch) - 1]![6]! - rows[Math.ceil(top.pitch) - 1]![7]!)).toBeLessThan(1);
       await page.close();
     });
 

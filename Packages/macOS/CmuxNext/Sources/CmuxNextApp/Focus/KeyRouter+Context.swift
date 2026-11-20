@@ -146,7 +146,7 @@ extension KeyRouter {
                      omnibarListOpen: focusedAddressBar(in: controller)?.isShowingSuggestions == true,
                      internalPage: focusedInternalPage(in: controller),
                      showsPageHistory: services?.locationTrail.pageHistory(in: controller) != nil,
-                     topPage: controller.shownTopPage == .home ? "home" : nil,
+                     topPage: controller.shownTopPage == .home ? "home" : controller.shownTopPage == .page(.importHistory) ? KeyBindingDefaults.historyImportTopPage : nil,
                      pageKeySequencePending: editor.map { services?.viewers.editorPages.keySequencePending(on: $0) ?? false } ?? false,
                      textBoxFocused: window.firstResponder is TextBoxTextView,
                      sidebarMultiSelection: controller.sidebar.model.selection.count > 1,

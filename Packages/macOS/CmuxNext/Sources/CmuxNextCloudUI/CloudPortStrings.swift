@@ -19,14 +19,6 @@ public struct CloudPortNames: Equatable {
 /// next command. Keys live in Resources/CloudPorts.xcstrings with every app locale.
 public struct CloudPortStrings {
     public init() {}
-    /// A machine on the classic link (`/api/vm` and `cmux-tui remote connect`): the Cloud app
-    /// server keeps no forward for it.
-    public static func classicLink(_ names: CloudPortNames) -> String {
-        String(format: String(localized: "cloud.ports.classicLink",
-                              defaultValue: "Machine `%1$@` uses the classic Cloud link, which keeps no port forwards on this Mac. Run `cmux cloud open-browser --target machine:%2$@ --port %3$@` to open the port in a browser tab, or `cmux cloud machine-link --target machine:%2$@ --port %3$@` for its URL.",
-                              table: "CloudPorts", bundle: .module), names.name, names.id, names.port)
-    }
-
     /// `port-close` of a port that has no forward.
     public static func noForward(_ names: CloudPortNames) -> String {
         String(format: String(localized: "cloud.ports.noForward",

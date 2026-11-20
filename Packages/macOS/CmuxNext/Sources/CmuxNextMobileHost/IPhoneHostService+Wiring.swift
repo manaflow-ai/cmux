@@ -1,5 +1,6 @@
 public import CmuxNextAgentPane
 public import CmuxNextCloud
+public import CmuxNextCompat
 import CmuxNextDaemon
 public import CmuxNextDaemonService
 public import CmuxNextMobile
@@ -40,6 +41,9 @@ extension IPhoneHostService {
                      settings: @escaping @MainActor @Sendable () -> SettingsController?,
                      bundleID: String?, computerName: @escaping @Sendable () async -> String,
                      processEnvironment: [String: String] = ProcessInfo.processInfo.environment) {
+        // A failed runtime Cloud selection is inert: do not pair the phone host
+        // with a development mobile API or reuse production pairing state.
+        guard !auth.configuration.apiBaseURL.isFileURL else { return }
         let bundled = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux-mobile-host", isDirectory: false)
         // Debug builds may point at another hostd or service; a release build never does.
         #if DEBUG
@@ -55,9 +59,11 @@ extension IPhoneHostService {
         #endif
         let executable = [override, bundled].compactMap { $0 }.first { FileManager.default.isExecutableFile(atPath: $0.path) }
         // Each Worker accepts only its own sign-in project's tokens.
-        guard let base = serviceOverride ?? (auth.configuration.isProductionAuth ? Self.productionAPI : Self.developmentAPI) else { return }
-        let state = MobileHostStateDirectory(parent: DaemonLauncher.applicationSupportDirectory()
-            .appendingPathComponent(bundleID ?? "com.cmuxterm.app.next", isDirectory: true)).resolve()
+        guard let base = auth.configuration.runtimeSelection?.mobileOrigin ?? serviceOverride ?? (auth.configuration.isProductionAuth ? Self.productionAPI : Self.developmentAPI) else { return }
+        let stateRoot = Self.stateRoot(applicationSupport: DaemonLauncher.applicationSupportDirectory(), bundleID: bundleID)
+        let state = MobileHostStateDirectory(parent: auth.configuration.runtimeSelection?.storageNamespace.map {
+            stateRoot.appendingPathComponent($0, isDirectory: true)
+        } ?? stateRoot).resolve()
         // The phone's browser tabs stream from this build's own remote browser host
         // (Contents/Helpers, every configuration on arm64).
         let browserHosts: (any MobileHostBrowserHosting)? = IPhoneBrowserHosts.available()
@@ -74,14 +80,24 @@ extension IPhoneHostService {
             executable: executable,
             baseURL: base,
             stackProjectID: auth.configuration.stackProjectID,
+            buildSpace: auth.configuration.buildSpace,
             stateDirectory: state,
+            keychainName: MobileHostPairedStore.sealName(bundleID: bundleID ?? "com.cmuxterm.app.next",
+                                                         storageNamespace: auth.configuration.runtimeSelection?.storageNamespace),
+            pairingSealName: MobileHostPairedStore.sealName(bundleID: bundleID ?? "com.cmuxterm.app.next",
+                                                            storageNamespace: auth.configuration.runtimeSelection?.storageNamespace,
+                                                            adHocCode: MobileHostPairedStore.adHocCodeIdentity()),
             accessToken: { force in
                 if force { return try await auth.coordinator.forceRefreshAccessToken() }
                 return try await auth.tokens().access
             },
             daemonSocket: { [weak daemon] in
                 guard let daemon else { throw DaemonError.notConnected }
-                return try await daemon.endpoint().socketPath
+                do {
+                    return try await daemon.endpoint().socketPath
+                } catch DaemonError.endpointBlocked(let reason) {
+                    throw DaemonSocketBlocked(reason: reason)
+                }
             },
             acpmux: {
                 guard let host = await acpmuxHost(),
@@ -94,19 +110,7 @@ extension IPhoneHostService {
                 let home = FileManager.default.homeDirectoryForCurrentUser.path
                 return (chats.roots + chats.managedRoots).map { $0.hasPrefix("~/") ? home + $0.dropFirst() : $0 }
             },
-            workspaceFolders: { [weak daemon] in
-                var folders: [String] = []
-                for workspace in daemon?.store.workspaces ?? [] {
-                    for screen in workspace.screens {
-                        for pane in screen.panes {
-                            for case let cwd? in pane.tabs.map(\.cwd) where cwd.hasPrefix("/") && !folders.contains(cwd) {
-                                folders.append(cwd)
-                            }
-                        }
-                    }
-                }
-                return folders
-            },
+            workspaces: { [weak daemon] in daemon?.store.workspaces ?? [] },
             agentTabHost: agentTabHost,
             newChatPicks: newChatPicks,
             computerName: { if let nameOverride { return nameOverride } else { return await computerName() } },
@@ -115,6 +119,8 @@ extension IPhoneHostService {
             surfaceHosts: surfaceHosts,
             cloudLinks: cloudLinks ?? { MobileHostCloudLinks() },
             pairingSeed: IPhonePairingSeed.fromEnvironment(processEnvironment),
+            devAutoApprove: IPhoneDevAutoApprove.fromLaunch(environment: processEnvironment),
+            macDevTag: IPhoneDevAutoApprove.macDevTag(),
             chief: chief
         )
     }
@@ -127,5 +133,13 @@ extension IPhoneHostService {
             userID: user.id, teamID: MobileHostLaunch.teamID(selected: team, userID: user.id),
             teamName: team.flatMap { id in auth.teams.first { $0.id == id }?.displayName },
             email: user.primaryEmail)
+    }
+
+    /// hostd's state folder before the Cloud namespace: `<Application Support>/<folder>`, the bundle id's folder
+    /// (``BuildIdentity/stateFolderName(for:)`` of `build`, this process's by default), so two DEV copies never
+    /// share a phone pairing.
+    public nonisolated static func stateRoot(applicationSupport: URL, bundleID: String?,
+                                             build: BuildIdentity = BuildStatePaths.current.build) -> URL {
+        applicationSupport.appendingPathComponent(build.stateFolderName(for: bundleID) ?? "com.cmuxterm.app.next", isDirectory: true)
     }
 }

@@ -197,10 +197,21 @@ pub struct ShellLaunch {
 /// integrated is integrated too: its scripts are what keep its history off
 /// after the startup files ran ([`keep_no_history`]).
 pub fn shell_launch(command: Option<Vec<String>>, env: Vec<(String, String)>) -> ShellLaunch {
+    shell_launch_in(command, env, &scripts_root)
+}
+
+/// [`shell_launch`] with the scripts written under `root` (the daemon's state directory:
+/// [`scripts_root`]; a test's own directory).
+fn shell_launch_in(
+    command: Option<Vec<String>>,
+    env: Vec<(String, String)>,
+    root: &dyn Fn() -> Option<PathBuf>,
+) -> ShellLaunch {
+    let inherited = |key: &str| std::env::var(key).ok();
     match command.filter(|command| !command.is_empty()) {
-        None => integrate_default_shell(vec![crate::platform::default_shell()], env),
+        None => integrate_in(vec![crate::platform::default_shell()], env, &inherited, root),
         Some(command) if needs_incognito_integration(&command, &env) => {
-            integrate_default_shell(command, env)
+            integrate_in(command, env, &inherited, root)
         }
         Some(command) => ShellLaunch { command, env },
     }
@@ -213,17 +224,12 @@ pub fn keys_to_unset_in_child(env: &[(String, String)]) -> Vec<&'static str> {
 }
 
 /// [`keys_to_unset_in_child`] over the daemon's own environment `inherited`:
-/// [`cmux_pty::UNSET_IN_TERMINAL_CHILDREN`] and the incognito markers a
-/// launch with environment `env` must not inherit.
+/// the incognito markers a launch with environment `env` must not inherit.
 fn keys_to_unset_in_child_from(
     env: &[(String, String)],
     inherited: &dyn Fn(&str) -> Option<String>,
 ) -> Vec<&'static str> {
-    cmux_pty::UNSET_IN_TERMINAL_CHILDREN
-        .iter()
-        .copied()
-        .chain(inherited_keys_to_unset_from(env, inherited))
-        .collect()
+    inherited_keys_to_unset_from(env, inherited)
 }
 
 fn inherited_keys_to_unset_from(
@@ -343,6 +349,16 @@ fn integrate_with(
     extra_env: Vec<(String, String)>,
     inherited: &dyn Fn(&str) -> Option<String>,
 ) -> ShellLaunch {
+    integrate_in(command, extra_env, inherited, &scripts_root)
+}
+
+/// [`integrate_with`] with the scripts written under `root`.
+fn integrate_in(
+    command: Vec<String>,
+    extra_env: Vec<(String, String)>,
+    inherited: &dyn Fn(&str) -> Option<String>,
+    root: &dyn Fn() -> Option<PathBuf>,
+) -> ShellLaunch {
     let launch_env = extra_env.clone();
     let own = move |key: &str| -> Option<String> {
         launch_env.iter().rev().find(|(name, _)| name == key).map(|(_, value)| value.clone())
@@ -382,7 +398,7 @@ fn integrate_with(
     let Some(shell) = shell else {
         return ShellLaunch { env: features_only(extra_env), command };
     };
-    let Some(root) = scripts_root().and_then(|root| materialize(&root).ok()) else {
+    let Some(root) = root().and_then(|root| materialize(&root).ok()) else {
         // Fail closed: an incognito shell whose history hook cannot run
         // reads no startup files.
         let command = if incognito { without_startup_files(shell, command) } else { command };

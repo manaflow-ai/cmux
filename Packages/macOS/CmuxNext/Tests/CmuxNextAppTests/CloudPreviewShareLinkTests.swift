@@ -1,4 +1,7 @@
+import CmuxNextActions
+@testable import CmuxNextApp
 @testable import CmuxNextCloud
+import CmuxNextCloudUI
 import Foundation
 import Testing
 
@@ -82,5 +85,25 @@ struct CloudPreviewShareLinkTests {
         let revoke = try #require(requests.last)
         #expect(revoke.httpMethod == "DELETE")
         #expect(revoke.url?.absoluteString == "https://platform.invalid/v1/cloud/machines/vm_abc/previews/3000/links/link_123")
+    }
+
+    /// Copy Link and `cloud machine-link --port` get their URL here: the platform's share link for the
+    /// port, https only; with no platform preview origin, no link and no request.
+    @MainActor @Test func aPortLinkIsThePlatformsShareLink() async throws {
+        let api = CloudAPIClient.workerMachines(baseURL: try #require(URL(string: "https://worker.invalid")),
+                                                accessToken: { "access" }, teamID: { "team_1" }, session: session())
+            .previewClient(baseURL: try #require(URL(string: "https://platform.invalid")))
+        let names = CloudPortNames(name: "devbox", id: "vm_abc", port: 3000)
+        let created = try await CloudHandlers.previewShareLink(api, machine: "vm_abc", port: 3000, names: names)
+        #expect(created.url == "https://preview.example/?cmux_share=secret")
+        #expect(PreviewLinksAPI.requests.map { $0.url?.absoluteString } == ["https://platform.invalid/v1/cloud/machines/vm_abc/previews/3000/links"])
+
+        do {
+            _ = try await CloudHandlers.previewShareLink(nil, machine: "vm_abc", port: 3000, names: names)
+            Issue.record("a link with no preview API")
+        } catch let failure as ActionFailure {
+            #expect(failure.message == CloudPortStrings.noLink(names))
+        }
+        #expect(PreviewLinksAPI.requests.count == 1)
     }
 }

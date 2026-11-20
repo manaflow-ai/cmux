@@ -29,8 +29,9 @@ public final class SettingsApplier {
     @discardableResult
     public func apply(_ snapshot: CmuxConfigSnapshot) -> [SettingsDiagnostic] {
         var diagnostics = snapshot.diagnostics
-        if diagnostics.contains(where: { $0.kind == .unreadableFile }) {
-            // Keep the last good state rather than resetting everything.
+        if diagnostics.contains(where: { $0.kind == .unreadableFile && $0.file == nil }) {
+            // Keep the last good state rather than resetting everything. A theme file that does not
+            // parse holds nothing back: its last good text (or none) is already in the snapshot.
             return diagnostics
         }
 
@@ -38,6 +39,8 @@ public final class SettingsApplier {
         if design.customDensities != snapshot.customDensities { design.customDensities = snapshot.customDensities }
         let density = snapshot.selectedDensity
         if design.densityTokens != density { design.densityTokens = density }
+        let densityFromThemeFile = snapshot.themeDensity != nil
+        if design.densityFromThemeFile != densityFromThemeFile { design.densityFromThemeFile = densityFromThemeFile }
         let uiScale = DesignSettings.clampedUIScale(CGFloat(snapshot.uiScale))
         if design.uiScale != uiScale { design.uiScale = uiScale }
         let interfaceScale = DesignSettings.clampedInterfaceScale(CGFloat(snapshot.interfaceScale))
@@ -46,16 +49,14 @@ public final class SettingsApplier {
         if design.agentPaneZoom != agentPaneZoom { design.agentPaneZoom = agentPaneZoom }
         if design.animationSpeed != snapshot.animationSpeed { design.animationSpeed = snapshot.animationSpeed }
         if design.enabledAnimations != snapshot.animationKinds.enabled { design.enabledAnimations = snapshot.animationKinds.enabled }
-        if design.animationBounce != snapshot.animationKinds.bounce { design.animationBounce = snapshot.animationKinds.bounce }
         if design.paneAnimations != snapshot.paneAnimations { design.paneAnimations = snapshot.paneAnimations }
         if design.calmMode != snapshot.calmMode { design.calmMode = snapshot.calmMode }
         if design.animationsEnabled != snapshot.motionCategories.enabled { design.animationsEnabled = snapshot.motionCategories.enabled }
         if design.disabledAnimationCategories != snapshot.motionCategories.disabled {
             design.disabledAnimationCategories = snapshot.motionCategories.disabled
         }
-        if design.classicHome != snapshot.classicHome { design.classicHome = snapshot.classicHome }
         if design.homeChannelsEnabled != snapshot.homeChannelsEnabled { design.homeChannelsEnabled = snapshot.homeChannelsEnabled }
-        let chiefBubblesThemed = snapshot.homeChiefBubbleStyle == HomeChiefBubbleStyleSetting.theme
+        let chiefBubblesThemed = snapshot.homeChiefBubbleStyle == HomeChiefBubbleStyle.theme.rawValue
         if design.homeChiefBubblesThemed != chiefBubblesThemed { design.homeChiefBubblesThemed = chiefBubblesThemed }
         if design.homeBubbleColors != snapshot.homeBubbleColors { design.homeBubbleColors = snapshot.homeBubbleColors }
         if design.homeChiefPetEnabled != snapshot.homeChiefPetEnabled { design.homeChiefPetEnabled = snapshot.homeChiefPetEnabled }
@@ -67,6 +68,8 @@ public final class SettingsApplier {
         if design.stripScrollbar != snapshot.stripScrollbar { design.stripScrollbar = snapshot.stripScrollbar }
         if design.sidebarSections != snapshot.sidebarSections { design.sidebarSections = snapshot.sidebarSections }
         if design.hoverCardsEnabled != snapshot.hoverCards.enabled { design.hoverCardsEnabled = snapshot.hoverCards.enabled }
+        let pageDeveloperTools = AppPageDevToolsSetting().value(in: snapshot.root)
+        if design.pageDeveloperTools != pageDeveloperTools { design.pageDeveloperTools = pageDeveloperTools }
         if design.colorTransition != snapshot.colorTransition.transition { design.colorTransition = snapshot.colorTransition.transition }
         if design.inactiveWindowDim != snapshot.inactiveWindowDim { design.inactiveWindowDim = snapshot.inactiveWindowDim }
         if design.wallpaperTint != snapshot.wallpaperTint { design.wallpaperTint = snapshot.wallpaperTint }
@@ -105,6 +108,7 @@ public final class SettingsApplier {
         if design.plusButton != snapshot.plusButton { design.plusButton = snapshot.plusButton }
         Self.applyPlacement(snapshot, to: design)
         if design.borders != snapshot.borders { design.borders = snapshot.borders }
+        if design.fontSmoothing != snapshot.fontSmoothing { design.fontSmoothing = snapshot.fontSmoothing }
         if design.focusIndicator != snapshot.focusIndicator { design.focusIndicator = snapshot.focusIndicator }
         if design.inactiveTabStyle != snapshot.inactiveTabStyle { design.inactiveTabStyle = snapshot.inactiveTabStyle }
         for key in MetricKey.allCases {

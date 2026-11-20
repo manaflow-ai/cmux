@@ -76,7 +76,6 @@ import Testing
         list.groupEditor.ordersFront = false
         defer {
             list.groupEditor.hide()
-            list.groupEditor.bubble?.close()
             window.close()
         }
         list.reload(animated: false)

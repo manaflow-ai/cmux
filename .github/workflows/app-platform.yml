@@ -18,6 +18,7 @@ on:
       - cmux-tui/crates/cmux-app-host/**
       - samples/apps/**
       - first-party-apps/**
+      - examples/extensions/**
       - Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/**
       - scripts/cmux-next/check-app-platform.sh
       - scripts/cmux-next/sync-app-runtime.sh
@@ -28,6 +29,7 @@ on:
       - cmux-tui/crates/cmux-app-host/**
       - samples/apps/**
       - first-party-apps/**
+      - examples/extensions/**
       - Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/**
       - scripts/cmux-next/check-app-platform.sh
       - scripts/cmux-next/sync-app-runtime.sh
@@ -40,6 +42,10 @@ permissions:
 concurrency:
   group: app-platform-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 jobs:
   check:

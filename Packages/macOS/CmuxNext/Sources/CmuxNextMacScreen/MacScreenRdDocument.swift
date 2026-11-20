@@ -79,11 +79,13 @@ nonisolated struct MacScreenRdDocument: Equatable, Sendable {
     }
 
     /// The stream size and rate a quality preset asks the host for (nil width: the display's own,
-    /// fitted to 3840x2160). `refresh`: the viewer's display rate.
-    static func wish(_ quality: ScreenQuality, refresh: Int) -> (maxWidth: Int?, maxFps: Int) {
+    /// fitted to 3840x2160). `refresh`: the viewer's display rate. `paneWidth`: the pane's screen
+    /// area in pixels; Auto streams no wider (a Retina host's full size into a smaller pane costs
+    /// capture, encode, network and decode time for pixels nobody sees), and at least 1280 wide.
+    static func wish(_ quality: ScreenQuality, refresh: Int, paneWidth: Int? = nil) -> (maxWidth: Int?, maxFps: Int) {
         let refresh = max(30, min(refresh, 120))
         return switch quality {
-        case .auto: (nil, refresh)
+        case .auto: (paneWidth.map { max(1280, ($0 + 15) / 16 * 16) }, refresh)
         case .smooth: (1920, refresh)
         case .low: (1280, min(refresh, 60))
         case .medium: (1920, min(refresh, 60))

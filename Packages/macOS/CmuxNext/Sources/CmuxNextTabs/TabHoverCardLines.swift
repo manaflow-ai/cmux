@@ -51,6 +51,7 @@ struct TabHoverCardLines: Equatable {
         case .needsInput?: return .attention
         case .failed?: return .danger
         case .idle?: return .secondary
+        case .done?: return .success
         case nil: break
         }
         switch item.status {
@@ -73,6 +74,7 @@ struct TabHoverCardLines: Equatable {
         case .idle: Strings.hoverIdle
         case .failed: Strings.axFailure
         case .running: Strings.axBusy
+        case .done: Strings.axSuccess
         case nil: nil
         }
         let duration: String? = word == nil ? nil : facts.since.map { Self.elapsed(since: $0, now: now) }

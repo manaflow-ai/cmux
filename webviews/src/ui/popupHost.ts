@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import { usePopupHost } from "./UiProvider";
 import type { NativePopupTransport } from "./nativePopup";
 import type { NativePopupEvent } from "./popupProtocol";
+import { onVisualViewport, visualViewportScale } from "./visualViewportBox";
 
 export interface PopupItem {
   id: string;
@@ -198,7 +199,18 @@ export function naturalHeight(popup: HTMLElement): number {
     if (list.scrollHeight <= list.clientHeight + 1) continue;
     const style = getComputedStyle(list);
     if (!/auto|scroll/.test(style.overflowY)) continue;
-    const cap = parseFloat(style.getPropertyValue("--popup-scroll-cap"));
+    let cap = parseFloat(style.getPropertyValue("--popup-scroll-cap"));
+    // A row viewport inherits the shell's designed cap, which already includes its padding.
+    // Count that padding once when moving scrolling off the glass surface.
+    const shell = list.parentElement;
+    if (
+      Number.isFinite(cap) &&
+      list.classList.contains("ui-popup-scroll") &&
+      shell?.classList.contains("ui-popup-scroll-shell")
+    ) {
+      const outer = getComputedStyle(shell);
+      cap = Math.max(0, cap - (parseFloat(outer.paddingTop) || 0) - (parseFloat(outer.paddingBottom) || 0));
+    }
     const designed = Number.isFinite(cap) ? Math.min(list.scrollHeight, cap) : list.scrollHeight;
     hidden += Math.max(0, designed - list.clientHeight);
   }
@@ -306,14 +318,18 @@ export function useEscapingPopup(
       const at = anchorRef.current();
       if (!at) return null;
       const { items, highlighted } = popupItems(element, kind, active);
-      const box = at.getBoundingClientRect();
+      // Where the anchor shows under a trackpad pinch, so the App's popup opens beside it.
+      // A virtual anchor (a pointer, a plain box) has no document: the page's own window.
+      const view = ("ownerDocument" in at ? (at as Element).ownerDocument?.defaultView : undefined) ?? window;
+      const box = onVisualViewport(at.getBoundingClientRect(), view);
       return {
         items,
         highlighted,
         anchor: { left: box.left, top: box.top, right: box.right, bottom: box.bottom },
         side,
         align,
-        width: kind === "tooltip" ? textWidth(element) : element.getBoundingClientRect().width,
+        width:
+          (kind === "tooltip" ? textWidth(element) : element.getBoundingClientRect().width) * visualViewportScale(view),
         kind,
       };
     };
@@ -347,8 +363,8 @@ export function useEscapingPopup(
       const room = at?.getBoundingClientRect();
       const fits =
         !room ||
-        (fitsInPage(room, naturalHeight(element), gap, innerHeight, flip ? undefined : side) &&
-          (kind !== "tooltip" || wraps || textWidth(element) <= innerWidth - 2 * EDGE));
+        (fitsInPage(room, naturalHeight(element), gap, window.innerHeight, flip ? undefined : side) &&
+          (kind !== "tooltip" || wraps || textWidth(element) <= window.innerWidth - 2 * EDGE));
       if (!flat || items.length === 0 || fits) return;
       const first = model();
       if (!first) return;

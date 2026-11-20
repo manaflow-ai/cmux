@@ -8,7 +8,8 @@
 // `answeredBy {id, name}` (a paired device's is `{device, feedItem}`, a question's ancestor
 // `{session, name}`). Presence and typing are ephemeral (`_acpmux/presence`), never in the log.
 
-/// One person in a chat. `avatar` is a picture's data URL; none draws their initials.
+/// One person in a chat. `avatar` is a picture's data URL, or the https profile picture the daemon
+/// stamped on a signed-in author (`fromAvatar`); none draws their initials.
 export type Participant = { id: string; name: string; avatar?: string };
 
 /// Who else has the chat open, and who of them is typing; this reader is never in either list.
@@ -35,14 +36,29 @@ export function displayName(value: unknown): string | undefined {
 const identity = (value: unknown): string | undefined =>
   typeof value === "string" && value.trim() && value.length <= MAX_ID ? value.trim() : undefined;
 
-/// Only an inline picture: a link would load from wherever a record points.
-const picture = (value: unknown): string | undefined =>
-  typeof value === "string" && /^data:image\/(png|jpeg|gif|webp);base64,/.test(value) ? value : undefined;
+/// Longest profile picture link the pane keeps, in UTF-8 bytes, as the daemon bounds an author's `avatar`.
+const MAX_AVATAR_URL = 1024;
 
-export function participant(id: unknown, name: unknown, avatar?: unknown): Participant | undefined {
+/// An inline picture; with `links`, also an https link. Only an author's picture may be a link: the
+/// daemon stamps it from the platform's verified sign-in (`fromAvatar`, a queued author's `avatar`),
+/// never from a field a client names. Anything else would load from wherever a record points.
+const picture = (value: unknown, links = false): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  if (/^data:image\/(png|jpeg|gif|webp);base64,/.test(value)) return value;
+  if (!links || !value.startsWith("https://") || new TextEncoder().encode(value).length > MAX_AVATAR_URL)
+    return undefined;
+  try {
+    return new URL(value).protocol === "https:" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+/// `links`: the picture may be an https link (an author the daemon stamped, see `picture`).
+export function participant(id: unknown, name: unknown, avatar?: unknown, links = false): Participant | undefined {
   const key = identity(id);
   if (!key) return undefined;
-  const shown = picture(avatar);
+  const shown = picture(avatar, links);
   return { id: key, name: displayName(name) ?? displayName(key) ?? "?", ...(shown && { avatar: shown }) };
 }
 
@@ -51,11 +67,16 @@ export function participant(id: unknown, name: unknown, avatar?: unknown): Parti
 export const isGuest = (person: Participant | undefined): boolean => person?.id.startsWith("guest:") === true;
 
 /// The person who sent a `user_message` or `queued` record, or undefined for the chat owner's own.
+/// Their picture is acpmux's `fromAvatar` (a signed-in guest's profile picture), else their initials.
 export function promptAuthor(msg: { _meta?: { provenance?: unknown } } | undefined): Participant | undefined {
   const provenance = msg?._meta?.provenance as Record<string, unknown> | undefined;
   if (provenance?.kind !== "person_message") return undefined;
-  return participant(provenance.from, provenance.fromName, provenance.fromAvatar);
+  return participant(provenance.from, provenance.fromName, provenance.fromAvatar, true);
 }
+
+/// The author acpmux lists on a queued prompt (`QueuedAuthor {id, name, avatar?}`).
+export const queuedAuthor = (author: { id?: unknown; name?: unknown; avatar?: unknown } | null | undefined) =>
+  participant(author?.id, author?.name, author?.avatar, true);
 
 /// The person who answered an ask (`permission_decision.answeredBy {id, name}`), or undefined when
 /// acpmux names a device, a session or nobody (null: the owner answered).

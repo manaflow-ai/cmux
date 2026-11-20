@@ -17,6 +17,17 @@ struct ChatOpenTraceTests {
         #expect(abs(record.longestEmptyMilliseconds - 310) < 0.5)
     }
 
+    /// A chat's copy drawn before its bundle reveals the page on the page's own report, with Blink's
+    /// contentful paint in: that is content, not an empty page waiting for the paint probe, whose
+    /// report reached the host about 600 ms later on the fleet's restores (4 "flashes" at 71daaae9).
+    @Test func aRevealedPageWithAContentfulPaintIsContent() {
+        #expect(ChatOpenTrace.Surface.shownPage(probed: false, pageReported: true, contentfulPaint: true) == .page)
+        #expect(ChatOpenTrace.Surface.shownPage(probed: true, pageReported: false, contentfulPaint: false) == .page)
+        // The watchdog's reveal has no page report, and a reveal before any contentful paint shows nothing yet.
+        #expect(ChatOpenTrace.Surface.shownPage(probed: false, pageReported: false, contentfulPaint: true) == .pageEmpty)
+        #expect(ChatOpenTrace.Surface.shownPage(probed: false, pageReported: true, contentfulPaint: false) == .pageEmpty)
+    }
+
     @Test func anEmptyStretchStillOnScreenAtTheEndCounts() {
         var record = ChatOpenTrace.Record(id: 1, launch: false, armedAt: 0)
         record.marks[ChatOpenTrace.Mark.action.rawValue] = 0
@@ -58,6 +69,28 @@ struct ChatOpenTraceTests {
         #expect(!trace.takeMakingTracedPage(), "a second Chromium page took the traced page's pane")
         _ = trace.finish(timedOut: false)
         #expect(!trace.isTraced(page: traced))
+    }
+
+    /// #36060: under load, a spare page warming during the open marked first and latched the trace, so
+    /// the opened pane's bind was refused: no `pane_made`, no frame sampled, no first content (the
+    /// subagent case's load arm, 0/5 valid). The first pane to bind is the open's, and its page with it.
+    @Test func theOpenedPanesPageTakesOverFromAPageThatMarkedBeforeIt() {
+        let trace = ChatOpenTrace()
+        #expect(trace.begin())
+        let spare = NSObject()
+        let opened = NSObject()
+        trace.mark(.navigationStart, page: spare)
+        trace.mark(.pagePainted, page: spare)
+        let pane = NSView()
+        #expect(trace.bind(view: pane, page: opened, surface: { .cover }, engine: { "test" }), "the opened pane's bind was refused")
+        #expect(trace.has(.paneMade))
+        #expect(trace.isTraced(page: opened))
+        #expect(!trace.isTraced(page: spare), "the spare stayed the traced page")
+        #expect(!trace.has(.pagePainted), "the spare's paint counted as the opened chat's")
+        #expect(!trace.has(.navigationStart), "the spare's navigation counted as the opened chat's")
+        trace.mark(.pagePainted, page: opened)
+        #expect(trace.has(.pagePainted))
+        _ = trace.finish(timedOut: false)
     }
 
     @Test func aHeldOpenHasNoEmptyStretch() {

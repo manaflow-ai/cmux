@@ -257,7 +257,7 @@ pub fn turn_preset(
         BTreeMap::new()
     };
     if family == Family::Claude {
-        env.extend(session_dir::QUIET_ENV.map(|(k, v)| (k.to_owned(), v.to_owned())));
+        env.extend(session_dir::claude_session_env());
     }
     // Only acpmux's cmux MCP server (cx-4a5w2), as acpmux's built-in turn
     // presets set it for a Chief that sends no env.
@@ -392,7 +392,7 @@ pub fn subagent_preset(
     };
     env.insert(session_dir::SUBAGENT_ENV.to_owned(), "1".to_owned());
     if family == Family::Claude {
-        env.extend(session_dir::QUIET_ENV.map(|(k, v)| (k.to_owned(), v.to_owned())));
+        env.extend(session_dir::claude_session_env());
     }
     // Subagents' cmux calls reach the same app daemon as the Chief's.
     env.extend(pinned.clone());
@@ -748,6 +748,18 @@ fn start(
     daemon_socket: &str,
     source: Source,
 ) -> Result<String, String> {
+    // The memory files (memory_files.rs): notes, standing rules and open
+    // loops beside the chat. A store that cannot open is kept in memory for
+    // this start, so the tools still answer.
+    let memory_files = Arc::new(
+        crate::memory_files::MemoryFiles::open_in(&paths.root).unwrap_or_else(|e| {
+            log(format!(
+                "{e}; memory files kept in memory until the next start"
+            ));
+            crate::memory_files::MemoryFiles::open(Path::new(":memory:"))
+                .expect("an in-memory SQLite database")
+        }),
+    );
     let exe = std::env::current_exe()
         .and_then(|p| p.canonicalize())
         .map_err(|e| format!("finding this executable: {e}"))?;
@@ -824,7 +836,13 @@ fn start(
     // (and compactions') system text after everything above; subagents keep
     // the text without it (they are not this Chief). Its grant limits the
     // turn's tools (chief_profile.rs).
-    let chief_tools = Arc::new(load_chief_tools(&source, daemon_socket, &membership)?);
+    // `chiefs` create_channel goes through the app's control socket
+    // (chief_channel.rs): the daemon holds no cloud session.
+    let chief_tools = Arc::new(
+        load_chief_tools(&source, daemon_socket, &membership)?.with_channels(
+            crate::chief_channel::ChannelMaker::from_env(&|k: &str| env(k)),
+        ),
+    );
     let sub_instructions = instructions.clone();
     let instructions = chief_tools.instructions(instructions);
     // The optional coordinator contact belongs only to this Chief's turns;
@@ -876,6 +894,61 @@ fn start(
         ),
         Source::Local { .. } => (Some("unknown".to_owned()), None, None),
     };
+    // A panic goes to `<optchat root>/panics.jsonl`; the cmux-next app sends
+    // it to Sentry under the telemetry choice (RustPanicSource.chief).
+    {
+        let mut fields = cmux_panic_log::Fields::new();
+        fields.insert("process".into(), "optchat-chief".into());
+        fields.insert("pid".into(), std::process::id().into());
+        fields.insert("version".into(), env!("CARGO_PKG_VERSION").into());
+        fields.insert("build".into(), BUILD.into());
+        cmux_panic_log::install(paths.root.join("panics.jsonl"), fields, |_| false);
+    }
+    // Product analytics (analytics/mod.rs): content-free events to PostHog
+    // under the telemetry choice, re-read every few minutes.
+    {
+        let cloud = matches!(source, Source::Cloud { .. });
+        let exe = std::env::current_exe().ok();
+        let channel = crate::analytics::channel(
+            if cloud { "cloud" } else { "local" },
+            &|k| std::env::var(k).ok(),
+            exe.as_deref(),
+        );
+        let release = crate::analytics::release_build(&channel);
+        let config = crate::analytics::Config {
+            source: if cloud { "cloud" } else { "local" },
+            person: if cloud {
+                person.clone().filter(|p| p != "unknown")
+            } else {
+                None
+            },
+            team: if cloud { team.clone() } else { None },
+            build: BUILD.to_owned(),
+            channel,
+            app_version: env("CMUX_CHIEF_APP_VERSION"),
+            engine: if engine_choice.as_deref() == Some("native") {
+                "native"
+            } else {
+                "acpmux"
+            },
+            endpoint: env("CMUX_CHIEF_ANALYTICS_ENDPOINT")
+                .filter(|_| cfg!(debug_assertions))
+                .unwrap_or_else(crate::analytics::Config::endpoint),
+        };
+        if let Some(analytics) = crate::analytics::Analytics::open(&paths.root, config, move || {
+            crate::analytics::consent::read(release)
+        }) {
+            log(format!(
+                "analytics: {}",
+                if analytics.is_on() {
+                    "on"
+                } else {
+                    "off (telemetry choice)"
+                }
+            ));
+            trace.set_analytics(analytics);
+        }
+    }
     trace.emit(
         "usage.identity",
         json!({
@@ -917,6 +990,9 @@ fn start(
     let uses_acpmux = !(engine_choice.as_deref() == Some("native") && route == CompactRoute::Api);
     let mut families = BTreeMap::new();
     let mut profiles_by_name: BTreeMap<String, String> = BTreeMap::new();
+    // The open-source brains (brain_home.rs): each one's state, and its home written for an
+    // installed one; read from acpmux's answer below.
+    let mut brain_states = crate::brain_home::States::new();
     // Claude only through acpmux's own Claude Code adapter (harness_gate):
     // each harness is found by kind and command, and a refused one leaves
     // the host up with each of its sessions refused in the chat.
@@ -946,6 +1022,21 @@ fn start(
                 families.insert(name.clone(), p.family);
                 profiles_by_name.insert(name.clone(), p.profile.clone());
             }
+        }
+        {
+            let mut setup = crate::brain_home::BrainSetup::from_choice(&engine_choice_file, paths);
+            // OpenClaw takes no per-session MCP servers: cmux's go into its own config.
+            let cmux_cli = pinned
+                .get(crate::cmux_env::BUNDLED_CLI_KEY)
+                .map(std::path::PathBuf::from)
+                .or_else(|| exe.parent().map(|bin| bin.join("cmux")))
+                .filter(|cli| cli.is_file());
+            setup.mcp_servers = crate::brain_home::chief_mcp_servers(
+                paths,
+                &exe.display().to_string(),
+                cmux_cli.as_deref(),
+            );
+            brain_states = crate::brain_home::prepare(paths, &answer, &setup, &|line| log(line));
         }
         // Nothing set: the configured CodeRouter route when acpmux has one,
         // else the user's own Claude CLI (default_harness).
@@ -1020,10 +1111,26 @@ fn start(
         chiefs_tool: chief_tools.grant().allows("chiefs"),
     };
     session_dir::write(paths, &setup).map_err(|e| format!("writing the session directory: {e}"))?;
+    // The open-source brains read the same instructions (brain_home.rs).
+    if let Err(e) = std::fs::read_to_string(paths.session.join("AGENTS.md"))
+        .and_then(|text| crate::brain_home::write_instructions(paths, &brain_states, &text))
+    {
+        log(format!("brains: writing the Chief's instructions: {e}"));
+    }
     // The skills cmux ships, shared by every Chief (skills.rs); a failure
     // costs only the skill, never the host.
     if let Err(e) = crate::skills::install_builtin(&crate::skills::shared_dir(&paths.home)) {
         eprintln!("optchat-chief: installing the shipped Chief skills: {e}");
+    }
+    // The person's Claude Code skills cmux.json names (`chief.claudeSkills`,
+    // default every `emil-*` skill) join the shared Chief skills
+    // (slash_skills.rs).
+    let linked = crate::slash_skills::link_default_claude_skills(&paths.home);
+    if !linked.is_empty() {
+        eprintln!(
+            "optchat-chief: linked Claude skills into the Chief skills: {}",
+            linked.join(", ")
+        );
     }
     // The tool packs cmux ships (toolpacks.rs); their skills reach each
     // Chief through session_dir::write (toolpacks::sync_skills).
@@ -1188,6 +1295,89 @@ fn start(
     if let Some(other) = other_preset {
         required.push(other);
     }
+    // Each installed brain's turn preset: the Chief's own home for it, cmux's Chief tools only.
+    let mut brains = crate::brain_home::BrainTurns {
+        root: Some(paths.root.clone()),
+        ..Default::default()
+    };
+    for brain in &crate::brain_home::BRAINS {
+        let Some(state) = brain_states.get(brain.family) else {
+            continue;
+        };
+        let ready = if state.state == "ready" {
+            Ok(())
+        } else {
+            Err(state.reason.clone().unwrap_or_else(|| state.state.clone()))
+        };
+        let harness = state
+            .harness
+            .clone()
+            .unwrap_or_else(|| brain.family.to_owned());
+        let admitted = families.contains_key(&harness);
+        let preset = (ready.is_ok() && admitted).then(|| {
+            let name = crate::brain_home::turn_preset_name(home, brain);
+            let mut env = session_dir::isolation_env(paths);
+            let (servers_key, servers) = session_dir::TURN_TOOL_SERVERS;
+            env.insert(servers_key.to_owned(), servers.to_owned());
+            env.insert(
+                session_dir::TURN_TOOLS_ENV.to_owned(),
+                session_dir::CHIEF_CMUX_TOOLS.join(","),
+            );
+            env.insert(
+                brain.home_env.to_owned(),
+                crate::brain_home::dir(paths, brain).display().to_string(),
+            );
+            for key in crate::brain_home::PROVIDER_KEYS {
+                env.insert(key.to_owned(), String::new());
+            }
+            env.extend(pinned.clone());
+            required.push(crate::acpmux::Preset {
+                name: name.clone(),
+                harness: profiles_by_name
+                    .get(&harness)
+                    .cloned()
+                    .unwrap_or(harness.clone()),
+                env,
+                args: Vec::new(),
+                system_prompt: None,
+            });
+            name
+        });
+        let ready = match ready {
+            Ok(()) if !admitted => Err(format!("acpmux does not run {harness}")),
+            other => other,
+        };
+        brains.by_harness.insert(
+            harness,
+            crate::brain_home::BrainTurn {
+                brain,
+                preset,
+                ready,
+                retry_at: None,
+                ran: 0,
+            },
+        );
+    }
+    // OpenClaw's `acp` bridge needs its Gateway: one per Chief while this host runs.
+    let _openclaw_gateway = brain_states
+        .get("openclaw")
+        .filter(|s| s.state == "ready")
+        .and_then(|s| s.program.clone())
+        .and_then(|program| {
+            let brain = crate::brain_home::brain("openclaw")?;
+            crate::brain_home_openclaw::Gateway::start(
+                std::path::Path::new(&program),
+                &crate::brain_home::dir(paths, brain),
+                &|line| log(line),
+            )
+            .map_err(|e| {
+                log(format!("openclaw: starting its Gateway: {e}"));
+                if let Some(state) = brain_states.get("openclaw").and_then(|s| s.harness.clone()) {
+                    brains.disable(&state, &format!("its Gateway did not start: {e}"));
+                }
+            })
+            .ok()
+        });
     let agents = Acpmux::new(acpmux_socket.clone(), preset, required);
     // A Chief that moved here reaches the subagents its move handed to this
     // machine's default acpmux daemon (placed_agents.rs); the brain and the
@@ -1405,6 +1595,15 @@ fn start(
                     .map(|v| v.to_string())
                     .map_err(late)
             }
+            ControlRequest::StartSubagent(name) => {
+                let (reply, answer) = channel();
+                tx.send(Input::StartSubagent { name, reply })
+                    .map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
             ControlRequest::StopSubagent(name) => {
                 let (reply, answer) = channel();
                 tx.send(Input::StopSubagent { name, reply })
@@ -1433,6 +1632,15 @@ fn start(
             ControlRequest::Retry(message) => {
                 let (reply, answer) = channel();
                 tx.send(Input::Retry { message, reply }).map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
+            ControlRequest::Redescribe(notes) => {
+                let (reply, answer) = channel();
+                tx.send(Input::Redescribe { notes, reply })
+                    .map_err(stopping)?;
                 answer
                     .recv_timeout(wait)
                     .map(|v| v.to_string())
@@ -1572,7 +1780,10 @@ fn start(
         )
         .with_trace(trace.clone())
         .with_person(paths.person.clone())
+        .with_memory_files(memory_files.clone())
         .with_pinned_harness(sub_set.is_some())
+        // goal.rs: Claude subagents work under /goal on Opus 5.5 until done.
+        .with_goal(true)
         .with_engine_file(Some(crate::engine::path(home)))
         .with_families(families.clone())
         .with_harness_grant(chief_tools.clone())
@@ -1635,13 +1846,37 @@ fn start(
             Arc::new(|line: &str| log(line)),
         );
     }
+    // The memory's one change book: the inspector's edits and the chat's
+    // deleted messages (brain/inbox.rs) share its journal and rebuild worker.
+    let memory_editor = crate::inspect::edit::Editor::open(chat.clone(), &paths.root);
+    // The MCP hub (mcp_hub): servers the Chief adds itself; a task's result
+    // and a subscribed event reach the brain as a note, as a peer Chief's do.
+    let mcp_hub = crate::mcp_hub::McpHub::new_for(
+        paths.root.join("mcp"),
+        // One store of connections for the machine: every Chief home and
+        // acpmux's connect card (mcp_hub::store).
+        crate::mcp_hub::store::shared_dir(),
+        Some(crate::skills::chief_dir(home)),
+        {
+            let tx = Mutex::new(tx.clone());
+            Arc::new(move |text: String| {
+                let _ = tx
+                    .lock()
+                    .expect("mcp tx")
+                    .send(Input::PeerChiefNote { text });
+            })
+        },
+        // It sees the servers the person's scope on the connect card gives this Chief.
+        crate::mcp_hub::Viewer::Chief(crate::paths::home_id(home)),
+    );
+    mcp_hub.start();
     crate::tools::serve_all(
         &paths.tools_socket,
         crate::tools::Served {
             memory: chat.clone(),
             orchestrator,
             control: Some(control),
-            inspector: start_inspector(paths, &chat, &claude_text),
+            inspector: start_inspector(paths, &chat, &claude_text, &memory_editor),
             chief: Some(chief_tools.clone()),
             // The turn names of `Settings::turn_prefix`, the subagent names
             // of the sub preset (`optchat-sub-<home id>-<id>`).
@@ -1650,6 +1885,19 @@ fn start(
                 &crate::paths::home_id(home),
             )),
             peers,
+            fork: Some(Arc::new(crate::migrate_fork::ForkPeer::new(
+                home.to_path_buf(),
+                {
+                    let tx = Mutex::new(tx.clone());
+                    Arc::new(move |text| {
+                        tx.lock()
+                            .expect("fork tx")
+                            .send(Input::PeerChiefNote { text })
+                            .is_ok()
+                    })
+                },
+            ))),
+            mcp: Some(mcp_hub.clone()),
         },
     )
     .map_err(|e| format!("serving the memory tools: {e}"))?;
@@ -1758,6 +2006,7 @@ fn start(
         engine_file: Some(crate::engine::path(home)),
         families,
         codex_preset,
+        brains,
         settings_file: paths.root.join("settings.json"),
         trace_dir: Some(paths.root.join("traces")),
         cache_ttl: cache_ttl_env,
@@ -1803,6 +2052,7 @@ fn start(
     )
     .on_turn_end(Arc::new(move |key: &str| persister.turn_ended(key)))
     .with_trace(trace.clone())
+    .with_memory_editor(Some(memory_editor.clone()))
     .with_settle_status(crate::settle_status::SettleStatus::new(
         &paths.settle_status,
     ))
@@ -1863,6 +2113,34 @@ fn start(
     if let Some(describer) = describer {
         brain.set_describer(describer);
     }
+    brain.set_memory_files(memory_files.clone());
+    // Check-ins (check_in.rs): auto by default, OPTCHAT_CHECK_INS=mornings|off.
+    brain.set_check_ins(crate::check_in::Mode::parse(
+        env("OPTCHAT_CHECK_INS").as_deref(),
+    ));
+    // The nightly memory review (dream.rs) on the same deny-all sessions as
+    // the reaction classifier; the Messages API route has none.
+    // Opus 5.5 on a Claude compactor; another family needs the model named.
+    let review_model = env("OPTCHAT_MEMORY_REVIEW_MODEL")
+        .or_else(|| (compactor_family == Family::Claude).then(|| "claude-opus-5-5".to_owned()));
+    match (&judge, review_model) {
+        (Some(judge), Some(model)) if env("OPTCHAT_MEMORY_REVIEW").as_deref() != Some("0") => {
+            crate::dream::spawn_nightly(
+                Arc::new(crate::dream::JudgeDream {
+                    judge: judge.clone(),
+                    model: model.clone(),
+                }),
+                model,
+                memory_files.clone(),
+                paths.memory_db.clone(),
+                paths.person.clone(),
+                Arc::new(|line: &str| log(line)),
+            );
+        }
+        _ => log(
+            "memory review: off (no deny-all model route, a compactor family with no OPTCHAT_MEMORY_REVIEW_MODEL, or OPTCHAT_MEMORY_REVIEW=0)",
+        ),
+    }
     if let Some(judge) = judge {
         brain.set_reaction_judge(judge);
     }
@@ -1918,7 +2196,7 @@ fn start(
                 },
                 Arc::new(crate::cloud::auth::InstallTokens::new(
                     *install,
-                    Arc::new(crate::cloud::auth::UreqHttp),
+                    Arc::new(crate::cloud::auth::UreqHttp::new()),
                 )),
                 sink,
                 brain_log,
@@ -2266,6 +2544,25 @@ pub fn probe_until_ready(
     }
 }
 
+/// Whether `error` is a harness start that ran out of time: acpmux's start
+/// deadline (`agent_start did not finish within 90s; ...`, its
+/// `deadline_exceeded` error) or Chief's own wait on its `session/new`. Any
+/// other request that went unanswered is not a start, and stays a fault.
+/// A harness acpmux saw stop working says "did no work", which is not this:
+/// no wait cures it, though a fresh harness may start (`turn::is_hung_start`:
+/// the reply ledger tries again, with no cuts). A loaded or
+/// memory-starved machine (2026-11-04: swap full, the harness in page-in
+/// waits) is a wait, never a fault to post: the start works when it can.
+pub fn start_stall(error: &str) -> bool {
+    [
+        "did not finish within",
+        "did not start within",
+        "session/new: no answer within",
+    ]
+    .iter()
+    .any(|t| error.contains(t))
+}
+
 /// How long the start-up probe waits before it tries again after `error`
 /// (its `attempt`-th failure, from 0); None: no retry (a real fault).
 pub fn probe_retry_wait(error: &str, attempt: u32) -> Option<std::time::Duration> {
@@ -2273,6 +2570,9 @@ pub fn probe_retry_wait(error: &str, attempt: u32) -> Option<std::time::Duration
     const MAX: Duration = Duration::from_secs(120);
     if let Some(wait) = optchat_host::capacity_wait(error) {
         return Some(wait.min(MAX));
+    }
+    if start_stall(error) {
+        return Some(Duration::from_secs(1u64 << attempt.min(16)).min(MAX));
     }
     let lower = error.to_ascii_lowercase();
     let transient = [
@@ -2327,12 +2627,12 @@ fn start_inspector(
     paths: &Paths,
     chat: &Arc<OptChat>,
     system_text: &str,
+    editor: &Arc<crate::inspect::edit::Editor>,
 ) -> Option<Arc<crate::inspect::Inspector>> {
     let _ = std::fs::remove_file(&paths.inspector);
     if env("OPTCHAT_INSPECTOR").as_deref() == Some("0") {
         return None;
     }
-    let editor = crate::inspect::edit::Editor::open(chat.clone(), &paths.root);
     let inspector = Arc::new(
         crate::inspect::Inspector::new(
             chat.clone(),
@@ -2340,7 +2640,7 @@ fn start_inspector(
             paths.settle_status.clone(),
             system_text.to_owned(),
         )
-        .with_editor(editor),
+        .with_editor(editor.clone()),
     );
     if env("OPTCHAT_INSPECTOR_WEB").as_deref() != Some("1") {
         log("memory inspector: native (through the daemon); web page off");

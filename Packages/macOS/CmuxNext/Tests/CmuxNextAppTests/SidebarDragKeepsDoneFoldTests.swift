@@ -59,11 +59,8 @@ import Testing
     /// Drags `a` to the top, then down past the last row, a few points per frame: every frame draws the same rows
     /// (the two Done rows too), never a folded workspace; the drop draws the order the last frame showed.
     @Test func aDragKeepsTheDoneRowsFoldedOnEveryFrame() throws {
-        // `sidebar.doneFold` on (its default), whatever another suite left in the store.
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
-        TunableStore.shared.set(SidebarTunables.doneFold.key, .bool(true))
-        defer { TunableStore.shared.set(SidebarTunables.doneFold.key, nil) }
         let (list, window) = Self.list()
         defer { window.close() }
         let dragged = SidebarRowKey.workspace(WorkspaceID("a"))
@@ -200,8 +197,6 @@ import Testing
     @Test func aGroupDragCarriesItsDoneRow() throws {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
-        TunableStore.shared.set(SidebarTunables.doneFold.key, .bool(true))
-        defer { TunableStore.shared.set(SidebarTunables.doneFold.key, nil) }
         let (list, window) = Self.list()
         defer { window.close() }
         let fold = SidebarRowKey.doneFold(SidebarDoneFoldID(section: Self.section, group: Self.group))
@@ -251,8 +246,6 @@ import Testing
     @Test func aDragThatCarriesADoneRowDrawsItsRowsTogether() throws {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
-        TunableStore.shared.set(SidebarTunables.doneFold.key, .bool(true))
-        defer { TunableStore.shared.set(SidebarTunables.doneFold.key, nil) }
         let loose = SidebarDoneFoldID(section: Self.section, group: nil)
         _ = NSApplication.shared
         let model = SidebarModel(sections: [SidebarSection(kind: .machine(Self.machine), nodes: [

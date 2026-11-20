@@ -87,12 +87,28 @@ impl AppError {
     /// `key` nearly matched (`session_name::not_found`'s `data.candidates`), so the caller
     /// can pick one without listing every session.
     pub fn no_session_from(key: &str, e: &anyhow::Error) -> Self {
-        let candidates: Vec<String> = e
-            .downcast_ref::<crate::client::DaemonError>()
-            .and_then(|d| d.0.data.as_ref())
+        let data = e.downcast_ref::<crate::client::DaemonError>().and_then(|d| d.0.data.as_ref());
+        let candidates: Vec<String> = data
             .and_then(|d| d.get("candidates")?.as_array())
             .map(|c| c.iter().filter_map(|n| n.as_str().map(str::to_owned)).collect())
             .unwrap_or_default();
+        // A send's refusal names the machine it looked on (`hub/no_session.rs`): `no session
+        // NAME on HOST; did you mean: a, b, c`.
+        let field = |k: &str| data.and_then(|d| d.get(k)?.as_str()).filter(|v| !v.is_empty());
+        if let (Some(host), Some(name)) = (field("host"), field("name")) {
+            let tail = if candidates.is_empty() {
+                "run `acpmux ls` for its sessions".to_owned()
+            } else {
+                format!("did you mean: {}", candidates.join(", "))
+            };
+            return Self::new(
+                Code::NoSession,
+                "no_session",
+                format!("no session {name} on {host}; {tail}"),
+            )
+            .with_data(serde_json::json!({"reason": "no_session", "session": key,
+                "candidates": candidates, "host": host, "name": name}));
+        }
         if candidates.is_empty() {
             return Self::no_session(key);
         }
@@ -217,8 +233,13 @@ pub fn classify(e: &anyhow::Error) -> AppError {
 /// The exit code and detail an error's message gives.
 fn classify_message(e: &anyhow::Error, msg: String) -> AppError {
     let lower = msg.to_lowercase();
-    if e.is::<crate::client::TransportClosed>() {
-        return AppError::new(Code::Runtime, "daemon_closed", msg).retryable();
+    if let Some(closed) = e.downcast_ref::<crate::client::TransportClosed>() {
+        // Why it closed, as codes (`client::closed_cause`): a panic stays told apart from a restart.
+        let mut data = serde_json::json!({"cause": closed.cause});
+        if let Some(panic) = &closed.panic {
+            data["panic"] = panic.clone();
+        }
+        return AppError::new(Code::Runtime, "daemon_closed", msg).retryable().with_data(data);
     }
     if lower.contains("no session matches")
         || lower.contains("unknown session")
@@ -391,6 +412,30 @@ mod typed_error_tests {
         );
         assert_eq!(plain.message, AppError::no_session("x").message);
         assert!(crate::cli::send_relay::no_such_session(&app.into()));
+    }
+
+    /// A send's refusal names the machine and the closest names there (`hub/no_session.rs`).
+    #[test]
+    fn a_send_refusal_names_the_host_and_the_closest_names() {
+        let refused =
+            daemon(RpcError::invalid_params("no session: h/proc-title").with_data(json!({
+            "reason": "no_session", "host": "h", "name": "proc-title",
+            "candidates": ["feed-lane", "lane"]})));
+        let app = AppError::no_session_from("h/proc-title", &refused);
+        assert_eq!((app.code, app.detail.as_str()), (Code::NoSession, "no_session"));
+        assert_eq!(app.message, "no session proc-title on h; did you mean: feed-lane, lane");
+        // `--json` keeps the refusal's whole shape.
+        assert_eq!(
+            app.envelope()["error"]["data"],
+            json!({"reason": "no_session", "session": "h/proc-title", "host": "h",
+                   "name": "proc-title", "candidates": ["feed-lane", "lane"]})
+        );
+        let none = daemon(RpcError::invalid_params("no session: h/x").with_data(json!({
+            "reason": "no_session", "host": "h", "name": "x", "candidates": []})));
+        assert_eq!(
+            AppError::no_session_from("h/x", &none).message,
+            "no session x on h; run `acpmux ls` for its sessions"
+        );
     }
 
     /// An error with nothing to add prints as before.

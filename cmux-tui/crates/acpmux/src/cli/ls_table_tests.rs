@@ -76,6 +76,19 @@ fn stuck_says_why_in_a_few_words() {
         (json!({"state": "stuck", "stuckReason": "harness_unavailable"}), "stuck", "harness down"),
         (json!({"state": "idle", "lane": {"state": "failed"}}), "idle", "failed turn"),
         (
+            json!({"harnessSandboxFailed": NOW - 60_000, "harnessSandboxFailing": true}),
+            "running",
+            "harness sandbox",
+        ),
+        // A stalled turn or a question still shows while it fails.
+        (
+            json!({"harnessSandboxFailing": true,
+                   "lane": {"state": "working", "stalledSince": NOW - 12 * 60_000}}),
+            "running",
+            "stalled 12m",
+        ),
+        (json!({"harnessSandboxFailing": true, "lane": {"state": "input"}}), "running", "question"),
+        (
             json!({"lane": {"state": "working", "stalledSince": NOW - 12 * 60_000}}),
             "running",
             "stalled 12m",
@@ -89,6 +102,53 @@ fn stuck_says_why_in_a_few_words() {
         assert_eq!(cells.last().copied(), Some(why), "{patch}: {out}");
         assert!(out.starts_with("NAME  STATE"), "{out}");
         assert!(out.lines().next().unwrap().ends_with("STUCK"), "{out}");
+    }
+}
+
+/// A refusal its harness recovered from (`harnessSandboxFailed` without `harnessSandboxFailing`)
+/// is history: the row needs no one.
+#[test]
+fn a_recovered_harness_sandbox_says_nothing() {
+    let past = json!({"harnessSandboxFailed": NOW - 60_000, "harnessSandboxFailing": false});
+    let out = compact(&[with(lane("x"), past)]);
+    assert!(!out.contains("harness sandbox"), "{out}");
+    assert!(!out.lines().next().unwrap().ends_with("STUCK"), "{out}");
+}
+
+/// An older daemon or a peer sends only `harnessSandboxFailed`, which then meant it fails: the
+/// row still warns. An explicit `harnessSandboxFailing: false` is a recovery and says nothing.
+#[test]
+fn an_older_row_with_only_the_first_refusal_still_warns() {
+    let old = json!({"harnessSandboxFailed": NOW - 60_000});
+    let out = compact(&[with(lane("x"), old)]);
+    assert!(out.lines().nth(1).unwrap().ends_with("harness sandbox"), "{out}");
+    let recovered = json!({"harnessSandboxFailed": NOW - 60_000, "harnessSandboxFailing": false});
+    let out = compact(&[with(lane("x"), recovered)]);
+    assert!(!out.contains("harness sandbox"), "{out}");
+}
+
+/// The STUCK cell of a lane whose harness refuses every command, compact and wide (printed for
+/// review with `--nocapture`), beside a recovered one and a healthy one.
+#[test]
+fn a_failing_harness_sandbox_shows_in_compact_and_wide() {
+    let rows = [
+        with(
+            lane("model-picker"),
+            json!({"harnessSandboxFailed": NOW - 60_000, "harnessSandboxFailing": true}),
+        ),
+        with(
+            lane("recovered"),
+            json!({"harnessSandboxFailed": NOW - 60_000, "harnessSandboxFailing": false}),
+        ),
+        lane("healthy"),
+    ];
+    for wide in [false, true] {
+        let out = render(&rows, Some(&[]), View { all: false, wide }, false, NOW);
+        println!("{out}");
+        let line = |name: &str| out.lines().find(|l| l.starts_with(name)).unwrap().to_owned();
+        assert!(out.lines().next().unwrap().contains("STUCK"), "{out}");
+        assert!(line("model-picker").contains("harness sandbox"), "{out}");
+        assert!(!line("recovered").contains("harness sandbox"), "{out}");
     }
 }
 
@@ -152,6 +212,22 @@ fn warn_is_one_word_and_shows_only_while_a_row_has_one() {
         ),
         "{wide}"
     );
+}
+
+/// A live agent host on another build than the daemon's (`hostBuildDiffers`) shows in WARN: `other
+/// build` in the compact view, with the host's build in wide; a host on the daemon's build or no
+/// host shows nothing.
+#[test]
+fn warn_names_a_live_host_on_another_build() {
+    let current = with(lane("new"), json!({"hostBuild": "def", "hostBuildDiffers": false}));
+    assert!(!compact(&[lane("a"), current.clone()]).contains("WARN"));
+    let old = with(lane("old"), json!({"hostBuild": "abc", "hostBuildDiffers": true}));
+    let out = compact(&[current, old.clone()]);
+    assert!(out.lines().next().unwrap().ends_with("WARN"), "{out}");
+    assert!(out.lines().any(|l| l.starts_with("old") && l.ends_with("other build")), "{out}");
+    assert!(out.lines().any(|l| l.starts_with("new") && !l.contains("other build")), "{out}");
+    let wide = render(&[old], Some(&[]), View { all: false, wide: true }, false, NOW);
+    assert!(wide.contains("other build: abc"), "{wide}");
 }
 
 #[test]
@@ -252,4 +328,48 @@ fn a_lane_keeps_its_row_once_its_chat_is_titled() {
     // The daemon's own name stays hidden once the chat is titled.
     let unnamed = with(lane("codex-2"), json!({"harness": "codex", "titleSource": "generated"}));
     assert!(compact(&[unnamed]).contains("1 unnamed"));
+}
+
+#[test]
+fn a_down_peer_the_fleet_registry_pauses_reads_paused_not_unknown() {
+    // 2026-11-04: 69 sessions on idle-stopped and on-demand GCP lane VMs read unknown.
+    let reg = json!({"machines": {
+        "gcp-codex-lane-12": {"status": "idle-stopped (2026-11-03: its last whole lane-VM sweep ...)"},
+        "gcp-agent-lane-3": {"on_demand": true, "aliases": ["agent-lane-3"]},
+        "fs-lane-1": {"retired": true},
+        "gcp-agent-lane-2": {"status": "up"},
+    }});
+    let pauses = pauses_of(&reg);
+    assert_eq!(pauses.get("gcp-codex-lane-12").map(String::as_str), Some("idle-stopped"));
+    assert_eq!(pauses.get("agent-lane-3").map(String::as_str), Some("on demand"));
+    assert_eq!(pauses.get("fs-lane-1").map(String::as_str), Some("retired"));
+    assert!(!pauses.contains_key("gcp-agent-lane-2"), "{pauses:?}");
+    let down = |peer: &str| {
+        with(
+            lane(&format!("{peer}/l")),
+            json!({"peer": peer, "peerState": "reconnecting", "stale": true}),
+        )
+    };
+    let peers = [
+        json!({"name": "gcp-codex-lane-12", "state": "reconnecting", "downSince": NOW - 60_000}),
+        json!({"name": "gcp-agent-lane-2", "state": "offline", "downSince": null}),
+    ];
+    let rows = [down("gcp-codex-lane-12"), down("gcp-agent-lane-2")];
+    let out = render_paused(&rows, Some(&peers), View::default(), false, NOW, &pauses);
+    let line = |p: &str| out.lines().find(|l| l.starts_with(&format!("{p}/l"))).unwrap().to_owned();
+    assert!(line("gcp-codex-lane-12").contains(" paused "), "{out}");
+    assert!(line("gcp-codex-lane-12").ends_with("host idle-stopped"), "{out}");
+    // A peer the registry means to be up keeps UNKNOWN.
+    assert!(line("gcp-agent-lane-2").contains(" unknown "), "{out}");
+    assert!(line("gcp-agent-lane-2").ends_with("peer reconnecting"), "{out}");
+    assert!(
+        out.contains(
+            "PAUSED gcp-codex-lane-12: idle-stopped in the fleet registry, peer reconnecting for 1m; \
+             its sessions are last known, not live"
+        ),
+        "{out}"
+    );
+    assert!(out.contains("UNKNOWN gcp-agent-lane-2: peer offline;"), "{out}");
+    // Without the registry (render), every down peer is UNKNOWN as before.
+    assert!(!render(&rows, Some(&peers), View::default(), false, NOW).contains("PAUSED"));
 }

@@ -126,7 +126,6 @@ extension ActionContext {
         (.omnibarFocused, "omnibarFocused"), (.codeEditorFocused, "codeEditorFocused"),
         (.homeChannelsEnabled, "homeChannelsEnabled"), (.webViewFocused, "webViewFocused"),
         (.markdownReadOnlyFocused, "markdownReadOnlyFocused"), (.markdownEditorFocused, "markdownEditorFocused"),
-        (.sideSessions, "sideSessions"),
     ]
 
     /// The bits a window's focus decides; the rest are app-wide facts.

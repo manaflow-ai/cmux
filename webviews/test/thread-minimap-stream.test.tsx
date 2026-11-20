@@ -10,6 +10,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { MinimapTurns } from "../src/agent-session/acpmux/threadMinimap/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { teardownDom } from "./support/domTeardown";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 setDefaultTimeout(120_000);
 
@@ -101,13 +102,9 @@ setBookmarkTransport({
   set: async (sessionId) => ({ sessionId, bookmarks: [] }),
 });
 
-afterAll(() => {
+afterAll(async () => {
   setBookmarkTransport(undefined);
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
   if (stringsBefore) strings.__cmuxPaneStrings = stringsBefore;
   else delete strings.__cmuxPaneStrings;
   delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
@@ -214,7 +211,8 @@ test("a new prompt adds its tick, and the earlier ones keep theirs", async () =>
     const window = (count: number) => {
       const list = host.querySelector<HTMLElement>(".acpmux-minimap__list")!;
       const height = Number.parseFloat(list.parentElement!.style.height);
-      return tickRanges(count, list.scrollTop, height).flatMap(([from, to]) =>
+      const pitch = Number.parseFloat(list.style.getPropertyValue("--acpmux-minimap-pitch"));
+      return tickRanges(count, list.scrollTop, height, [], pitch).flatMap(([from, to]) =>
         Array.from({ length: to - from }, (_, offset) => from + offset),
       );
     };

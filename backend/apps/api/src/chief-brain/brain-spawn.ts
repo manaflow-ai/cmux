@@ -182,9 +182,9 @@ export const spawnTool = (host: SpawnHost): ToolRegistration<typeof Args> => ({
 // ------------------------------------------------------------------ settings object: slots
 
 const childStub = (env: Env, s: ChildStart) =>
-  env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(childObject(s.agent, s.conversation, s.n))) as unknown as { spawnStart(s: ChildStart): Promise<{ ended: boolean }> }
+  env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(childObject(s.agent, s.conversation, s.n)))
 const parentStub = (env: Env, s: ChildStart) =>
-  env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(`${s.agent}/${s.conversation}`)) as unknown as { spawnReport(n: number, status: "done" | "failed", report: string): Promise<unknown> }
+  env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(`${s.agent}/${s.conversation}`))
 /** Starts of one child before it is given up (a failed report goes to the parent). */
 const START_TRIES = 5
 

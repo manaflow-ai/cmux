@@ -7,6 +7,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -48,14 +49,11 @@ const { SubsessionContext, SubsessionStore } = await import("../src/agent-sessio
 const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
 const { resetLinkStore } = await import("../src/agent-session/acpmux/chips/linkStore");
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
   setChipHost(undefined);
   resetLinkStore();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const PNG =
@@ -102,7 +100,7 @@ async function render(
       </SubsessionContext.Provider>,
     ),
   );
-  await act(async () => host.querySelector<HTMLButtonElement>(".cv-disclosure__toggle")!.click());
+  await act(async () => host.querySelector<HTMLButtonElement>(".cv-agentmsg__toggle")!.click());
   // The chips ask the host in a microtask; their answers draw on the next.
   for (let i = 0; i < 4; i++) await act(async () => await new Promise((done) => setTimeout(done, 0)));
   return asked;

@@ -11,6 +11,17 @@
 //!
 //! Output's scroll position changes publish here too, once per frame
 //! ([`FrameRequests::defer_scroll`]), not once per output chunk (perf100).
+//!
+//! A synchronized update (DEC private mode 2026, `CSI ? 2026 h` ... `CSI ?
+//! 2026 l`) draws as one frame: while the program holds the mode, a render
+//! viewer gets no frame of the half-drawn screen, and the frame after the
+//! update ends shows all of it. A program that never ends the mode is shown
+//! again after [`SYNCHRONIZED_OUTPUT_HOLD`], Ghostty's own bound (termio
+//! `sync_reset_ms`), so a crash mid-update never freezes the view. Only
+//! output is held: a frame a client's action asks for (resize, reconnect,
+//! a stream replacement) is built at once. A held terminal stays on the
+//! deadline heap once, checked again each cadence, however much output the
+//! update writes.
 
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, VecDeque};
@@ -20,6 +31,12 @@ use super::*;
 use crate::panic_free::RecoverPoison;
 
 const RENDER_FRAME_CADENCE: Duration = Duration::from_millis(8);
+
+/// DEC private mode 2026, synchronized output.
+const SYNCHRONIZED_OUTPUT: u16 = 2026;
+
+/// The longest a synchronized update holds a terminal's frames.
+pub(super) const SYNCHRONIZED_OUTPUT_HOLD: Duration = Duration::from_millis(1000);
 
 /// The bit of `Slot::requested` that asks for the output event.
 const ANNOUNCE: u64 = 1 << 63;
@@ -39,6 +56,18 @@ struct Slot {
     queued: AtomicBool,
     /// Nanoseconds since [`epoch`] of this terminal's last frame; 0: never.
     last_frame: AtomicU64,
+    /// Nanoseconds since [`epoch`] when the producer first saw the terminal
+    /// in a synchronized update that still holds; 0: none.
+    sync_since: AtomicU64,
+    /// The terminal's synchronized update start count when the producer
+    /// last saw it in an update (`Terminal::synchronized_update_starts`).
+    /// Another count means a new update began since, even when the last one
+    /// ended and the next began between two looks.
+    sync_starts: AtomicU64,
+    /// The hold that runs (or ran out) began because a new update started
+    /// after an expired one, and no frame was built since: it ends with a
+    /// frame before another new update can hold again.
+    sync_restarted: AtomicBool,
     surface: Mutex<Weak<Surface>>,
 }
 
@@ -234,8 +263,37 @@ fn run() {
                 continue;
             }
             let surface = slot.surface.lock().recover_poison().clone();
-            if produce(&surface, requested, announce) {
-                slot.last_frame.store(nanos_since_epoch(Instant::now()), Ordering::Release);
+            // One thread builds every terminal's frames: a panic building one
+            // (a bug, a poisoned lock) must not end it for all of them. The
+            // request is dropped; the terminal's next request queues it again.
+            let produced = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                produce(&slot, &surface, requested, announce)
+            }))
+            .unwrap_or_else(|_| {
+                // Not eprintln, which panics when stderr fails.
+                let _ = writeln!(std::io::stderr(), "cmux-tui: building a render frame panicked");
+                Produced::Done(false)
+            });
+            match produced {
+                Produced::Done(true) => {
+                    slot.last_frame.store(nanos_since_epoch(Instant::now()), Ordering::Release);
+                }
+                Produced::Done(false) => {}
+                // The request stays, and so does the slot: it is checked
+                // again after a cadence (or at the hold's end), and output
+                // meanwhile only raises its generation. A request that queued
+                // the slot since the clear already put it back.
+                Produced::Held(until) => {
+                    let _ =
+                        slot.requested.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
+                            Some((old & !ANNOUNCE).max(requested) | (old & ANNOUNCE))
+                        });
+                    if !slot.queued.swap(true, Ordering::SeqCst) {
+                        let again = (Instant::now() + RENDER_FRAME_CADENCE).min(until);
+                        order += 1;
+                        waiting.push(Reverse(Deadline(again, order, Arc::downgrade(&slot))));
+                    }
+                }
             }
         }
     }
@@ -265,17 +323,81 @@ impl FrameRequests {
     }
 }
 
-/// Build one terminal's frame and publish output's scroll position; true
-/// when a frame, a colors flush or a scroll position went out.
-fn produce(surface: &Weak<Surface>, requested: u64, announce: bool) -> bool {
-    let Some(surface) = surface.upgrade() else { return false };
-    let Some(pty) = surface.as_pty() else { return false };
+/// What [`produce`] did with a terminal's request.
+enum Produced {
+    /// Whether a frame, a colors flush or a scroll position went out.
+    Done(bool),
+    /// A synchronized update holds the frame until at most this instant.
+    Held(Instant),
+}
+
+/// Whether a synchronized update holds `slot`'s frame now, and until when.
+/// `update`: the update the terminal holds open (mode 2026), by its start
+/// count; `None` when it holds none. The hold starts when the producer
+/// first sees the mode and ends when the mode is off or after
+/// [`SYNCHRONIZED_OUTPUT_HOLD`]. An update that began after a hold ran out
+/// holds again, even when the program ended the old one and began this one
+/// between two looks, unless that hold was itself such a restart and no
+/// frame was built since; one that began while a hold runs keeps that
+/// hold's end. So a program that starts updates nonstop is shown at least
+/// every other hold.
+fn sync_hold(slot: &Slot, update: Option<u64>, now: Instant) -> Option<Instant> {
+    let Some(starts) = update else {
+        slot.sync_since.store(0, Ordering::Release);
+        slot.sync_restarted.store(false, Ordering::Release);
+        return None;
+    };
+    let seen = slot.sync_starts.swap(starts, Ordering::AcqRel);
+    let since_nanos = slot.sync_since.load(Ordering::Acquire);
+    if seen != starts
+        && since_nanos != 0
+        && epoch() + Duration::from_nanos(since_nanos) + SYNCHRONIZED_OUTPUT_HOLD <= now
+        && !slot.sync_restarted.swap(true, Ordering::AcqRel)
+    {
+        slot.sync_since.store(0, Ordering::Release);
+    }
+    let since = match slot.sync_since.load(Ordering::Acquire) {
+        0 => {
+            slot.sync_since.store(nanos_since_epoch(now), Ordering::Release);
+            now
+        }
+        nanos => epoch() + Duration::from_nanos(nanos),
+    };
+    let until = since + SYNCHRONIZED_OUTPUT_HOLD;
+    if now < until {
+        return Some(until);
+    }
+    // The hold ran out: this look builds a frame.
+    slot.sync_restarted.store(false, Ordering::Release);
+    None
+}
+
+/// Build one terminal's frame and publish output's scroll position, unless
+/// a synchronized update holds it for a render viewer. `announce` marks a
+/// request that is not only output's (a client's action): it is never held.
+fn produce(slot: &Slot, surface: &Weak<Surface>, requested: u64, announce: bool) -> Produced {
+    let Some(surface) = surface.upgrade() else { return Produced::Done(false) };
+    let Some(pty) = surface.as_pty() else { return Produced::Done(false) };
     #[cfg(test)]
-    if let Some(hook) = pty.frame_producer_before_upgrade.lock().recover_poison().clone() {
-        hook();
+    {
+        // Cloned first: the hook runs (and may panic) without the hook's lock.
+        let hook = pty.frame_producer_before_upgrade.lock().recover_poison().clone();
+        if let Some(hook) = hook {
+            hook();
+        }
     }
     // A poisoned terminal lock skips this frame; the next output requests one.
-    let Ok(term) = pty.term.lock() else { return false };
+    let Ok(term) = pty.term.lock() else { return Produced::Done(false) };
+    // Only a render viewer draws the half-drawn screen; with none, no frame is
+    // built and the output event is not held.
+    let viewed = pty.render.lock().is_ok_and(|render| !render.taps.is_empty());
+    let update = (viewed && term.mode(SYNCHRONIZED_OUTPUT, false))
+        .then(|| term.synchronized_update_starts());
+    if let Some(until) = sync_hold(slot, update, Instant::now())
+        && !announce
+    {
+        return Produced::Held(until);
+    }
     let generation = requested.max(pty.render_generation.load(Ordering::Acquire));
     let colors_pending = pty.attach_colors_pending.load(Ordering::Acquire);
     if colors_pending {
@@ -298,7 +420,7 @@ fn produce(surface: &Weak<Surface>, requested: u64, announce: bool) -> bool {
         .mux
         .upgrade()
         .is_some_and(|mux| pty.frame_requests.flush_scroll(&mux, pty.event_surface_id));
-    built || colors_pending || scrolled
+    Produced::Done(built || colors_pending || scrolled)
 }
 
 #[cfg(test)]

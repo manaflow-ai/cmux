@@ -2,7 +2,8 @@
 //! folder (`--cwd`) and run a command (`--shell <script>` or exact argv after
 //! `--`), as classic `cmux new-workspace --cwd --command` did. It opens in
 //! the background unless `--focus` is given, and goes where
-//! `workspaces.newPlacement` puts it unless `--top` puts it first.
+//! `workspaces.newPlacement` puts it unless `--top` puts it first; run from a
+//! cmux terminal, below that terminal's workspace.
 
 use super::*;
 
@@ -32,6 +33,13 @@ pub(super) fn workspace_create(
     // `workspaces.newPlacement` says: an agent's workspace on top (#29875).
     if flags.boolean("top") {
         params.insert("placement".into(), Value::String("top".into()));
+    } else if let Some(key) = std::env::var("CMUX_WORKSPACE_ID").ok().filter(|key| !key.is_empty())
+    {
+        // Run from a cmux terminal: the new workspace goes below the one
+        // the script runs in, not next to the person's selection
+        // (ask-48544d7525). A place hint only; an older daemon gets the
+        // request without it (wire/workspace_created_by.rs).
+        params.insert("created_by".into(), json!({"kind": "script", "workspace": key}));
     }
     // The daemon refuses these with --empty: there is no terminal to launch.
     if let Some(cwd) = flags.take("cwd") {

@@ -82,6 +82,7 @@ pub(super) fn pack_loose(
                 // `umask 077`), including ones no longer loose when it is
                 // reused.
                 permissions: 0o600,
+                id: None,
             });
         }
     }

@@ -10,6 +10,9 @@
 //! - a mutation whose read timed out: the daemon may still be running it, and
 //!   only its own replay, not a second run, may answer the key;
 //! - a protocol error: the next try would get the same answer.
+//!
+//! A failure before the request was sent (its preflight) is tried again for
+//! every request: nothing reached the daemon.
 
 use std::cell::{Cell, RefCell};
 use std::time::Duration;
@@ -87,19 +90,23 @@ impl Tries {
     /// Whether the current try, which failed with `failure`, may be made
     /// again. Records the failure when it may.
     pub(super) fn may_retry(&self, failure: Failure) -> bool {
-        let allowed = self.may_retry_before_send(failure);
+        let allowed =
+            decide(self.mutation || self.waits, self.stream, failure) && self.tries_left();
         if allowed {
             *self.previous.borrow_mut() = Some(failure);
         }
         allowed
     }
 
-    /// A capability hello can drop before the resource request is sent. Use
-    /// the same retry policy without marking that unsent request's outcome unknown.
+    /// A preflight (the capability hello) failed before the resource request
+    /// was sent: nothing reached the daemon, so a drop or a timeout is tried
+    /// again for every request, and the unsent request's outcome is not unknown.
     pub(super) fn may_retry_before_send(&self, failure: Failure) -> bool {
-        decide(self.mutation || self.waits, self.stream, failure)
-            && !self.disabled
-            && self.made.get() <= BACKOFF.len()
+        decide_before_send(failure) && self.tries_left()
+    }
+
+    fn tries_left(&self) -> bool {
+        !self.disabled && self.made.get() <= BACKOFF.len()
     }
 
     /// Whether an earlier try sent the request and failed: a later try that
@@ -127,6 +134,11 @@ fn decide(no_timeout_retry: bool, stream: bool, failure: Failure) -> bool {
         Failure::Timeout => !no_timeout_retry,
         Failure::Other => false,
     }
+}
+
+/// Before the request is sent, only a protocol error is final.
+fn decide_before_send(failure: Failure) -> bool {
+    matches!(failure, Failure::Dropped | Failure::Timeout)
 }
 
 /// `wait`, or the debug build's `CMUX_TEST_RETRY_BACKOFF_MS` (a release build

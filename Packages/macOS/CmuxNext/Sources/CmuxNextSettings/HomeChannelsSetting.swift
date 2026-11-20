@@ -1,3 +1,6 @@
+// The path and default are generated from schemas/settings/source/home.json
+// (Schema/SettingsSchema+Home.generated.swift).
+
 public import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
@@ -8,7 +11,6 @@ import CmuxNextDesign
 /// (`home.enableChannels`, `home.disableChannels`). Disabling it while Channels shows selects Home.
 public nonisolated struct HomeChannelsSetting {
     public nonisolated init() {}
-    public static let configPath = ["home", "channelsEnabled"]
 }
 
 extension HomeChannelsSetting {
@@ -52,10 +54,14 @@ extension CmuxConfigSnapshot {
     mutating func takeHome(_ root: JSONValue) {
         if let diagnostic = HomeChiefEngineSetting.parse(root).1 { diagnostics.append(diagnostic) }
         take(HomeKeepLocationSetting.parse(root), \.homeKeepLocation)
-        take(Self.parseLabsToggle(root, path: HomeChannelsSetting.configPath, fallback: false), \.homeChannelsEnabled)
-        take(Self.parseLabsToggle(root, path: HomeFeedRowsSetting.configPath, fallback: true), \.homeFeedInChief)
-        take(Self.parseLabsToggle(root, path: HomeChiefPetSetting.configPath, fallback: false), \.homeChiefPetEnabled)
+        take(Self.parseLabsToggle(root, path: HomeChannelsSetting.configPath, fallback: HomeChannelsSetting.fallback), \.homeChannelsEnabled)
+        take(Self.parseLabsToggle(root, path: HomeFeedRowsSetting.configPath, fallback: HomeFeedRowsSetting.fallback), \.homeFeedInChief)
+        take(Self.parseLabsToggle(root, path: HomeChiefPetSetting.configPath, fallback: HomeChiefPetSetting.fallback), \.homeChiefPetEnabled)
         take(HomeChiefPetSetting.parseMascot(root), \.homeChiefPetMascot)
+        take(ChiefDockSetting.parseEdge(root), \.chiefDockEdge)
+        take(ChiefDockSetting.parseStyle(root), \.chiefPanelStyle)
+        take(Self.parseLabsToggle(root, path: ChiefDockSetting.seesScreenPath, fallback: ChiefDockSetting.seesScreenDefault), \.chiefPanelSeesScreen)
+        take(Self.parseLabsToggle(root, path: ChiefDockSetting.openBesidePath, fallback: ChiefDockSetting.openBesideDefault), \.chiefDockOpenBeside)
         take(HomeServerSetting.parse(root), \.homeServer)
         take(ChiefReactionSettings.parse(root), \.chiefReactions)
         take(HomeBubbleColorsSetting.parse(root), \.homeBubbleColors)

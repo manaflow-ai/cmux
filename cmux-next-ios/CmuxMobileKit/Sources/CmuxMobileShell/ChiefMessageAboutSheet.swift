@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxSpinner
 import SwiftUI
 
 /// Send Message… on a workspace or a tab (the Mac's `home.messageAbout`): a message to the
@@ -60,7 +61,7 @@ struct ChiefMessageAboutSheet: View {
                 }
             }
         }
-        .overlay { if sending { ProgressView().controlSize(.large) } }
+        .overlay { if sending { CmuxSpinner().controlSize(.large) } }
         .interactiveDismissDisabled(sending)
         .presentationDetents([.medium, .large])
         .onAppear { focused = true }

@@ -1,0 +1,171 @@
+{
+  "version": "pressure-digest/1",
+  "about": "Inputs (ShadowInputs JSON, as `acpmux machine verdict` reads them) and the pressure_digest each must give, in cmux (cmux-host-budget pressure_digest.rs) and leo-workspace (tools/shadow_admission.py pressure_digest). The canonical text: one compact JSON object, keys sorted: host (trimmed, up to its first dot, ASCII lowercased, always), cores (when over 0), load1, psi_cpu_some_avg10, available_fraction, swap_growth_mb_per_min (when finite), mem_pressure (when set and not unknown), swap_used_fraction (used/total clamped to 0..1, when total is over 0). Non-integers are written with three decimals (half to even on the exact binary value), trailing zeros and point dropped, -0 as 0. Left out: now_ms, health_at_ms, previous, ram_total_bytes, sessions, new_session. Hash: FNV-1a 64 over the UTF-8 text, written fnv1a64: and 16 hex digits. The same file is in both repositories; change both together.",
+  "vectors": [
+    {
+      "name": "calm-32-core-host",
+      "note": "Every pressure reading set.",
+      "input": {
+        "host": "lane-host",
+        "now_ms": 1762400000000,
+        "health_at_ms": 1762399980000,
+        "cores": 32,
+        "load1": 8.0,
+        "mem_pressure": "normal",
+        "available_fraction": 0.55,
+        "ram_total_bytes": 137438953472,
+        "swap_used_bytes": 1073741824,
+        "swap_total_bytes": 34359738368,
+        "swap_growth_mb_per_min": 0.0
+      },
+      "canonical": "{\"available_fraction\":0.55,\"cores\":32,\"host\":\"lane-host\",\"load1\":8,\"mem_pressure\":\"normal\",\"swap_growth_mb_per_min\":0,\"swap_used_fraction\":0.031}",
+      "pressure_digest": "fnv1a64:f3cec53d0a7499b0",
+      "inputs_digest": "fnv1a64:357d76a5e7c90153"
+    },
+    {
+      "name": "same-readings-other-clock-and-state",
+      "note": "The same readings judged later, by a caller with its own previous state, a full DNS name in another case, other RAM total and sessions: the same pressure_digest as calm-32-core-host (its inputs_digest differs).",
+      "input": {
+        "host": "Lane-Host.example.ts.net",
+        "now_ms": 1762400099000,
+        "health_at_ms": 1762400090000,
+        "cores": 32,
+        "load1": 8.0,
+        "mem_pressure": "normal",
+        "available_fraction": 0.55,
+        "ram_total_bytes": 68719476736,
+        "swap_used_bytes": 1073741824,
+        "swap_total_bytes": 34359738368,
+        "swap_growth_mb_per_min": 0.0,
+        "sessions": [
+          {
+            "active": true,
+            "cpu_cores": 0.9,
+            "rss_bytes": 900000000
+          }
+        ],
+        "new_session": {
+          "cpu_cores": 2.0,
+          "rss_bytes": 2147483648
+        },
+        "previous": {
+          "sample_at_ms": 1762399920000,
+          "cpu": {
+            "state": "pressured",
+            "hot": 1,
+            "calm": 0
+          },
+          "mem": {
+            "state": "ok",
+            "hot": 0,
+            "calm": 0
+          }
+        }
+      },
+      "canonical": "{\"available_fraction\":0.55,\"cores\":32,\"host\":\"lane-host\",\"load1\":8,\"mem_pressure\":\"normal\",\"swap_growth_mb_per_min\":0,\"swap_used_fraction\":0.031}",
+      "pressure_digest": "fnv1a64:f3cec53d0a7499b0",
+      "inputs_digest": "fnv1a64:aeef2847b58a6db8"
+    },
+    {
+      "name": "same-swap-fraction-other-bytes",
+      "note": "Swap bytes that differ but give the same fraction to three decimals: the same pressure_digest as calm-32-core-host.",
+      "input": {
+        "host": "lane-host",
+        "now_ms": 1762400000000,
+        "health_at_ms": 1762399980000,
+        "cores": 32,
+        "load1": 8.0,
+        "mem_pressure": "normal",
+        "available_fraction": 0.55,
+        "ram_total_bytes": 137438953472,
+        "swap_used_bytes": 1073741825,
+        "swap_total_bytes": 34359738368,
+        "swap_growth_mb_per_min": 0.0
+      },
+      "canonical": "{\"available_fraction\":0.55,\"cores\":32,\"host\":\"lane-host\",\"load1\":8,\"mem_pressure\":\"normal\",\"swap_growth_mb_per_min\":0,\"swap_used_fraction\":0.031}",
+      "pressure_digest": "fnv1a64:f3cec53d0a7499b0",
+      "inputs_digest": "fnv1a64:35807aa5e7cb3df6"
+    },
+    {
+      "name": "busier-load",
+      "note": "load1 9.0 instead of 8.0: a different pressure_digest.",
+      "input": {
+        "host": "lane-host",
+        "now_ms": 1762400000000,
+        "health_at_ms": 1762399980000,
+        "cores": 32,
+        "load1": 9.0,
+        "mem_pressure": "normal",
+        "available_fraction": 0.55,
+        "ram_total_bytes": 137438953472,
+        "swap_used_bytes": 1073741824,
+        "swap_total_bytes": 34359738368,
+        "swap_growth_mb_per_min": 0.0
+      },
+      "canonical": "{\"available_fraction\":0.55,\"cores\":32,\"host\":\"lane-host\",\"load1\":9,\"mem_pressure\":\"normal\",\"swap_growth_mb_per_min\":0,\"swap_used_fraction\":0.031}",
+      "pressure_digest": "fnv1a64:7574cbd176e2f461",
+      "inputs_digest": "fnv1a64:65c11ff642eb5b56"
+    },
+    {
+      "name": "rounding-ties-half-even",
+      "note": "0.0625 and 2.0625 are exact binary ties at three decimals: both languages write 0.062 and 2.062.",
+      "input": {
+        "host": "tie",
+        "cores": 4,
+        "load1": 2.0625,
+        "available_fraction": 0.0625,
+        "psi_cpu_some_avg10": 12.3456,
+        "swap_growth_mb_per_min": -0.0001
+      },
+      "canonical": "{\"available_fraction\":0.062,\"cores\":4,\"host\":\"tie\",\"load1\":2.062,\"psi_cpu_some_avg10\":12.346,\"swap_growth_mb_per_min\":0}",
+      "pressure_digest": "fnv1a64:3de099277155a8e6",
+      "inputs_digest": "fnv1a64:445e4bbb2dd3e65d"
+    },
+    {
+      "name": "unknown-pressure-and-zero-cores-left-out",
+      "note": "mem_pressure unknown and cores 0 read as no reading, so they are left out; swap used over total clamps to 1.",
+      "input": {
+        "host": "h",
+        "cores": 0,
+        "load1": 3.0,
+        "mem_pressure": "unknown",
+        "swap_used_bytes": 10,
+        "swap_total_bytes": 5
+      },
+      "canonical": "{\"host\":\"h\",\"load1\":3,\"swap_used_fraction\":1}",
+      "pressure_digest": "fnv1a64:b0da86ac862dcee4",
+      "inputs_digest": "fnv1a64:785edf4d70157121"
+    },
+    {
+      "name": "no-readings",
+      "note": "Only a host: just the host member.",
+      "input": {
+        "host": "  Bare.Host  "
+      },
+      "canonical": "{\"host\":\"bare\"}",
+      "pressure_digest": "fnv1a64:3d880a73a524d3fd",
+      "inputs_digest": "fnv1a64:30d19f0208873bd9"
+    },
+    {
+      "name": "empty",
+      "note": "Nothing at all: host is the empty string.",
+      "input": {},
+      "canonical": "{\"host\":\"\"}",
+      "pressure_digest": "fnv1a64:615b400f7f848445",
+      "inputs_digest": "fnv1a64:615b400f7f848445"
+    },
+    {
+      "name": "non-ascii-host",
+      "note": "Only ASCII letters are lowercased; non-ASCII is kept as is.",
+      "input": {
+        "host": "Hôte-Ü.local",
+        "mem_pressure": "critical",
+        "swap_used_bytes": 0,
+        "swap_total_bytes": 0
+      },
+      "canonical": "{\"host\":\"hôte-Ü\",\"mem_pressure\":\"critical\"}",
+      "pressure_digest": "fnv1a64:e506bb93aca539d5",
+      "inputs_digest": "fnv1a64:68e22d68bdeea3e1"
+    }
+  ]
+}

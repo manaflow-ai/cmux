@@ -17,6 +17,23 @@ test("an empty rawInput update keeps a draft tool call's command", () => {
   expect(isDraftCall(updated.tool!)).toBe(false);
 });
 
+test("persists built-in tool provenance across a result update", () => {
+  const draft = mergeToolItem(
+    undefined,
+    {
+      title: "ToolSearch",
+      kind: "other",
+      status: "in_progress",
+      _meta: { claude: { tool: "ToolSearch" } },
+    },
+    "search-1",
+    "",
+    1,
+  );
+  const result = mergeToolItem(draft, { status: "completed", output: "Loaded tools" }, "search-1", "", 2);
+  expect(result.tool?.provenance).toEqual({ claudeTool: "ToolSearch" });
+});
+
 test("pi's bash output, streamed as _meta.terminal_output, adds up, and its exit code is read", () => {
   // pi-acp 0.0.34: a terminal call with the command as its title, then output deltas.
   const call = mergeToolItem(
@@ -65,4 +82,11 @@ test("a shell call's exit code: rawOutput.exit_code first, then OpenCode's metad
     2,
   );
   expect(both.tool?.exitCode).toBe(0);
+});
+
+test("a shell call with Bash's description but no command yet is still a draft", () => {
+  // Its row would read "Running a command" (the row never shows the description), so it waits.
+  expect(
+    isDraftCall({ id: "call-2", title: "Bash", kind: "execute", status: "in_progress", description: "List the runs" }),
+  ).toBe(true);
 });

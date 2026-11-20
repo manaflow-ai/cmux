@@ -59,8 +59,11 @@ export default componentEntry<Props>({
   load: async () => ListOverflow,
   styles: () => Promise.all([import("../styles.css"), import("./sessionInfo.css")]),
   variants: {
-    tasks: { note: "Forty background tasks scroll within their section.", props: { section: "tasks" } },
-    servers: { note: "Forty development servers scroll within their section.", props: { section: "servers" } },
+    tasks: {
+      note: "Forty background tasks: the section grows with them and the panel scrolls.",
+      props: { section: "tasks" },
+    },
+    servers: { note: "Forty development servers, task rows that the panel scrolls.", props: { section: "servers" } },
     subagents: {
       note: "The expanded ended-agents list scrolls within its section.",
       props: { section: "subagents" },

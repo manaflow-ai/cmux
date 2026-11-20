@@ -36,13 +36,10 @@ struct SidebarToggleSettlementTests {
         let store = TunableStore.shared
         store.activate(file: nil)
         store.register(SidebarTunables.all)
-        let holdKey = SidebarTunables.slideHoldsContent.key
         let collapseKey = SidebarTunables.collapseMotion.key
-        let savedHold = store.override(holdKey), savedCollapse = store.override(collapseKey)
-        store.set(holdKey, nil)
+        let savedCollapse = store.override(collapseKey)
         store.set(collapseKey, nil)
         defer {
-            store.set(holdKey, savedHold)
             store.set(collapseKey, savedCollapse)
             design.animationsEnabled = saved.0
             design.disabledAnimationCategories = saved.1

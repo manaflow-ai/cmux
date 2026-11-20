@@ -3,6 +3,7 @@
 // render these; tests cover them without a DOM.
 import type { DiffSource } from "./diff/generated/protocol";
 import type { DiffItem } from "./diff-stream";
+import type { PlainEnglishAvailability } from "./diff-viewer/hunkSummaries";
 import { fileName } from "./diff-stream";
 import type { IconName } from "./icons";
 import type { DiffViewerLabelKey } from "./labels";
@@ -209,7 +210,8 @@ export type OverflowMenuItemId =
   | "word-diffs"
   | "hide-whitespace"
   | "hide-imports"
-  | "copy-git-apply";
+  | "copy-git-apply"
+  | "plain-english";
 
 export type OverflowMenuItem = {
   id: OverflowMenuItemId;
@@ -298,7 +300,7 @@ export function overflowMenuItems(
 // Floating toolbar pill
 // ---------------------------------------------------------------------------
 
-export type PillButtonId = "options" | "find" | "refresh" | "wrap" | "expand" | "layout" | "files";
+export type PillButtonId = "options" | "find" | "plainEnglish" | "refresh" | "wrap" | "expand" | "layout" | "files";
 
 export type PillButton = {
   id: PillButtonId;
@@ -323,16 +325,35 @@ const LAYOUT_NEXT_LABEL = {
   unified: "switchToAutoLayout",
 } as const satisfies Record<DiffViewerOptions["layout"], DiffViewerLabelKey>;
 
-export function toolbarPillButtons(state: {
-  options: Pick<DiffViewerOptions, "collapsed" | "layout" | "wordWrap">;
-  filesVisible: boolean;
-  optionsOpen: boolean;
-  findOpen: boolean;
-}): PillButton[] {
+/**
+ * Plain English (diff-viewer/PlainEnglishView.tsx): whether it shows, and whether a harness here
+ * can write the sentences. Off with its reason as the label while none can.
+ */
+export type PlainEnglishPill = {
+  on: boolean;
+  availability: PlainEnglishAvailability;
+  /** A narrow viewer (`PLAIN_ENGLISH_MENU_ONLY`): the toggle is only in the "..." menu, so the pill
+   * keeps its width and the source controls beside it stay whole. */
+  menuOnly?: boolean;
+};
+
+/** Below this the pill has no room for one more button (test/diff-toolbar-narrow.test.ts). */
+export const PLAIN_ENGLISH_MENU_ONLY = "(max-width: 600px)";
+
+export function toolbarPillButtons(
+  state: {
+    options: Pick<DiffViewerOptions, "collapsed" | "layout" | "wordWrap">;
+    filesVisible: boolean;
+    optionsOpen: boolean;
+    findOpen: boolean;
+  },
+  plainEnglish?: PlainEnglishPill,
+): PillButton[] {
   const { options } = state;
   return [
     { id: "options", domId: "options-button", icon: "dots", labelKey: "options", expanded: state.optionsOpen },
     { id: "find", domId: "find-toggle", icon: "fileSearch", labelKey: "findInDiff", pressed: state.findOpen },
+    ...(plainEnglish && !plainEnglish.menuOnly ? [plainEnglishButton(plainEnglish)] : []),
     { id: "refresh", domId: "refresh-button", icon: "pillRefresh", labelKey: "refresh" },
     { id: "wrap", domId: "wrap-toggle", icon: "pillWrap", labelKey: "wordWrap", pressed: options.wordWrap },
     {
@@ -356,6 +377,31 @@ export function toolbarPillButtons(state: {
       pressed: state.filesVisible,
     },
   ];
+}
+
+function plainEnglishButton({ on, availability }: PlainEnglishPill): PillButton {
+  const button = { id: "plainEnglish", domId: "plain-english-toggle", icon: "book" } as const;
+  switch (availability.kind) {
+    case "ready":
+      return { ...button, labelKey: on ? "plainEnglishOn" : "plainEnglish", pressed: on };
+    case "checking":
+      return { ...button, labelKey: "plainEnglishChecking", pressed: false, unavailable: true };
+    case "unavailable":
+      return { ...button, labelKey: availability.reasonKey, pressed: false, unavailable: true };
+  }
+}
+
+/** Plain English's "..." menu row, at every width: checked while it shows, off with its reason. */
+export function plainEnglishMenuItem({ on, availability }: PlainEnglishPill): OverflowMenuItem {
+  const item = { id: "plain-english", icon: "book", labelKey: "plainEnglish" } as const;
+  switch (availability.kind) {
+    case "ready":
+      return { ...item, checked: on, available: true };
+    case "checking":
+      return { ...item, checked: false, available: false, unavailableKey: "plainEnglishChecking" };
+    case "unavailable":
+      return { ...item, checked: false, available: false, unavailableKey: availability.reasonKey };
+  }
 }
 
 /** Roving focus inside a toolbar or menu: the index `key` moves to, or null. */

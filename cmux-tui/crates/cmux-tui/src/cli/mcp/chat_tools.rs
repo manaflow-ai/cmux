@@ -25,6 +25,11 @@ pub(super) const APP_SEND: &str = "app_chat_send";
 /// sender's app when no harness environment says (chief/caller.rs).
 static CLIENT: OnceLock<String> = OnceLock::new();
 
+/// The MCP client's name, once `initialize` gave one.
+pub(super) fn client_name() -> Option<&'static str> {
+    CLIENT.get().map(String::as_str)
+}
+
 /// Keeps the client's name from an `initialize` request's params.
 pub(super) fn remember_client(params: &Value) {
     let info = params.get("clientInfo");
@@ -36,6 +41,15 @@ pub(super) fn remember_client(params: &Value) {
     if let Some(name) = name {
         let _ = CLIENT.set(name.to_owned());
     }
+}
+
+/// The sender's app of a client that gave no name: a program speaks MCP, never the person, so
+/// its message is still an agent's (chief/caller.rs), shown as an unnamed client's.
+const UNNAMED_CLIENT: &str = "MCP client";
+
+/// The app a `chat_send` names as its sender: the client's name, else [`UNNAMED_CLIENT`].
+fn sender_app(client: Option<&String>) -> &str {
+    client.map(String::as_str).unwrap_or(UNNAMED_CLIENT)
 }
 
 /// The longest a `chat_send` waits for a Chief's reply.
@@ -184,9 +198,7 @@ fn run(words: &[String], applied: bool) -> Value {
     let mut command = Command::new(program);
     command.arg("--json").args(words).stdin(Stdio::null()).stdout(Stdio::piped());
     command.stderr(Stdio::piped());
-    if let Some(name) = CLIENT.get() {
-        command.env(super::super::chief::caller::SENDER_APP_ENV, name);
-    }
+    command.env(super::super::chief::caller::SENDER_APP_ENV, sender_app(CLIENT.get()));
     let output = command.output();
     let output = match output {
         Ok(output) => output,
@@ -261,6 +273,19 @@ mod tests {
 
     fn words_of(name: &str, value: Value) -> Vec<String> {
         words(name, &args(value)).and_then(Result::ok).unwrap_or_default()
+    }
+
+    #[test]
+    fn a_client_that_gave_no_name_still_sends_as_an_agent_never_as_the_person() {
+        assert_eq!(sender_app(None), UNNAMED_CLIENT);
+        assert_eq!(sender_app(Some(&"Grok bot".to_owned())), "Grok bot");
+        // The CLI reads the app it is given as an agent's sender, not the person's.
+        let env = |key: &str| {
+            (key == super::super::super::chief::caller::SENDER_APP_ENV)
+                .then(|| UNNAMED_CLIENT.to_owned())
+        };
+        let sent = super::super::super::chief::caller::sender(None, None, None, &env, &|| None);
+        assert_eq!(sent.expect("an agent's sender").shown(), UNNAMED_CLIENT);
     }
 
     #[test]

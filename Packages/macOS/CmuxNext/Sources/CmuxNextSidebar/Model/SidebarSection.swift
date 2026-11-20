@@ -15,17 +15,22 @@ public nonisolated struct SidebarCustomSection: Hashable, Sendable {
     public var id: String
     public var title: String?
     public var showsTitle: Bool
+    /// The document band that owns this section. Projection customization
+    /// reorders only inside this band, preserving fixed app/sidebar regions.
+    public var region: SidebarRegion
 
-    public init(id: String, title: String? = nil, showsTitle: Bool = false) {
+    public init(id: String, title: String? = nil, showsTitle: Bool = false, region: SidebarRegion = .middle) {
         self.id = id
         self.title = title
         self.showsTitle = showsTitle
+        self.region = region
     }
 }
 
 /// Machine metadata for a machine section header.
 public nonisolated struct SidebarMachine: Hashable, Sendable {
-    public nonisolated enum Kind: Hashable, Sendable {
+    /// Raw values are the `sidebar_bridge` rules' words.
+    public nonisolated enum Kind: String, Hashable, Sendable {
         case local
         case cloud
         case ssh
@@ -33,7 +38,8 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
         case server
     }
 
-    public nonisolated enum Status: Hashable, Sendable {
+    /// Raw values are the `sidebar_bridge` rules' words.
+    public nonisolated enum Status: String, Hashable, Sendable {
         case connected
         case connecting
         /// The link to the machine dropped (sleep, a network drop or
@@ -88,6 +94,13 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
     public var name: String
     public var kind: Kind
     public var status: Status
+    /// A verified macOS device in the device hub; nil for Linux or an unresolved machine.
+    public var screenDeviceID: String?
+    /// A known Mac stays visible while offline, with its screen action disabled.
+    public var screenAvailable = true
+    /// This Mac shares its screen now (`HubDevice.macScreenShared`): the row on screen and the headers draw the
+    /// sharing badge at rest. Always false for other machines.
+    public var screenShared = false
     /// Tooltip for the header: why an update is needed and what it enables.
     public var detail: String?
     /// The machine's own icon (`session-icon-v1`, from the home session
@@ -155,15 +168,6 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
             guard let rate = hourlyRateUsd, let seconds = runningSeconds(now: now) else { return nil }
             return rate * seconds / 3600
         }
-    }
-
-    /// A connected machine whose link redials reads as reconnecting
-    /// (cx-z5oif): its socket stays up, so its connection cannot tell.
-    public func redialing(_ redialing: Bool) -> SidebarMachine {
-        guard redialing, status == .connected || status == .updateAvailable else { return self }
-        var machine = self
-        machine.status = .reconnecting
-        return machine
     }
 }
 

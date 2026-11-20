@@ -401,6 +401,9 @@ def test_themes_and_gobject_get_pinned_texts() -> None:
 Z2D_NEXT = "z2d-0.12.1-j5P_Hsw8EQAKyZTQICCQnAH2xYkLDW8k9uefbsYdfPZ-"
 THEMES_NEXT = "N-V-__8AAM94BAAFk_hn4UW0x_OBD2g0vOwexeAAyWNNo4eB"
 GOBJECT_NEXT = "gobject-0.3.2-Skun7F6HogCMynX2JqeSHS7xr-8pK4ob-qRFIcEasVi3"
+# ghostty-next a6b9048e (upstream Ghostty c7f68a7f merged): newer themes and gobject releases.
+THEMES_NEXT_2 = "N-V-__8AAIs9BgCF_swp81fS2tAWIJytW8NCUa6EbSOygPE3"
+GOBJECT_NEXT_2 = "gobject-0.3.2-Skun7LuIogBbEh-6WrLeEzMaRCnOMB3eOf__RaPYSMCZ"
 
 
 def test_ghostty_next_packages_get_pinned_texts() -> None:
@@ -410,25 +413,77 @@ def test_ghostty_next_packages_get_pinned_texts() -> None:
     other two reuse texts that are byte-equal upstream."""
     manifest = json.loads((PINNED / "MANIFEST.json").read_text())
     assert manifest["packages"]["z2d@0.12.1"]["packages"] == [Z2D_NEXT]
-    with tempfile.TemporaryDirectory(prefix="cmux-ghostty-next-") as raw:
+    for themes, gobject in ((THEMES_NEXT, GOBJECT_NEXT), (THEMES_NEXT_2, GOBJECT_NEXT_2)):
+        with tempfile.TemporaryDirectory(prefix="cmux-ghostty-next-") as raw:
+            work = Path(raw)
+            source, cache = build_fixture(work)
+            add_themes_and_gobject(source, themes, gobject)
+            output = work / "collected"
+            assert collect_in_process(source, cache, output, z2d=Z2D_NEXT) == 0, themes
+            collected = json.loads((output / "SOURCE-MANIFEST.json").read_text())
+            assert collected["unresolved_packages"] == []
+            z2d = {e["source"]: e for e in collected["license_files"] if e["package"] == Z2D_NEXT}
+            for item in manifest["packages"]["z2d@0.12.1"]["files"]:
+                entry = z2d[item["upstream"]]
+                assert (output / entry["destination"]).read_bytes() == (PINNED / item["path"]).read_bytes()
+            offer = (output / z2d[f"source-offer:{Z2D_NEXT}"]["destination"]).read_text()
+            assert "z2d 0.12.1 is licensed under the Mozilla Public License 2.0" in offer
+            assert "7dbae85c81784dba9988320bf9543ed9a81350c8" in offer
+            assert "upstream tag v0.12.1" in offer
+            packages = {e["package"] for e in collected["license_files"]}
+            assert themes in packages and gobject in packages
+
+
+
+Z2D_LICENSED = "z2d-0.13.2-j5P_HkkVFAAtOSQPRTS7wbZLbYs7oETRn7nUKSUwDjM_"
+
+
+def add_licensed_mpl_package(source: Path, name: str) -> Path:
+    """A package that keeps its MPL-2.0 LICENSE and COPYING (z2d 0.13.2's .paths)."""
+    package = source / "zig-pkg" / name
+    (package / "src").mkdir(parents=True)
+    (package / "src/z2d.zig").write_text("// SPDX-License-Identifier: MPL-2.0\n")
+    for file in ("LICENSE", "COPYING"):
+        shutil.copyfile(PINNED / "z2d-0.12.1" / file, package / file)
+    return package
+
+
+def test_licensed_mpl_package_still_gets_a_source_offer() -> None:
+    """z2d 0.13.2 ships its own MPL-2.0 texts, which the license-name scan
+    collects; the reviewed z2d@0.13.2 entry still adds its source offer. An
+    MPL-2.0 package without a reviewed offer stops the collection."""
+    manifest = json.loads((PINNED / "MANIFEST.json").read_text())
+    assert manifest["packages"]["z2d@0.13.2"]["packages"] == [Z2D_LICENSED]
+    assert manifest["packages"]["z2d@0.13.2"]["files"] == []
+    with tempfile.TemporaryDirectory(prefix="cmux-ghostty-mpl-") as raw:
         work = Path(raw)
         source, cache = build_fixture(work)
-        add_themes_and_gobject(source, THEMES_NEXT, GOBJECT_NEXT)
+        add_licensed_mpl_package(source, Z2D_LICENSED)
         output = work / "collected"
-        assert collect_in_process(source, cache, output, z2d=Z2D_NEXT) == 0
+        assert collect_in_process(source, cache, output) == 0
         collected = json.loads((output / "SOURCE-MANIFEST.json").read_text())
         assert collected["unresolved_packages"] == []
-        z2d = {e["source"]: e for e in collected["license_files"] if e["package"] == Z2D_NEXT}
-        for item in manifest["packages"]["z2d@0.12.1"]["files"]:
-            entry = z2d[item["upstream"]]
-            assert (output / entry["destination"]).read_bytes() == (PINNED / item["path"]).read_bytes()
-        offer = (output / z2d[f"source-offer:{Z2D_NEXT}"]["destination"]).read_text()
-        assert "z2d 0.12.1 is licensed under the Mozilla Public License 2.0" in offer
-        assert "7dbae85c81784dba9988320bf9543ed9a81350c8" in offer
-        assert "upstream tag v0.12.1" in offer
-        packages = {e["package"] for e in collected["license_files"]}
-        assert THEMES_NEXT in packages and GOBJECT_NEXT in packages
-
+        sources = {e["source"]: e for e in collected["license_files"]}
+        for file in ("LICENSE", "COPYING"):
+            entry = sources[f"zig-pkg/{Z2D_LICENSED}/{file}"]
+            assert (output / entry["destination"]).read_bytes() == (PINNED / "z2d-0.12.1" / file).read_bytes()
+        offer_entry = sources[f"source-offer:{Z2D_LICENSED}"]
+        assert offer_entry["source_kind"] == "generated-source-offer"
+        assert offer_entry["destination"].endswith("z2d@0.13.2-SOURCE-OFFER.txt")
+        offer = (output / offer_entry["destination"]).read_text()
+        assert "z2d 0.13.2 is licensed under the Mozilla Public License 2.0" in offer
+        assert "https://github.com/vancluever/z2d/tree/8787d71bac42d9aab00428ccb37a4fd453418761" in offer
+        assert "upstream tag v0.13.2" in offer
+        assert RELEASE_OFFER in offer
+        # The z2d 0.11.0 fixture keeps its pinned texts and its own offer.
+        assert f"source-offer:{Z2D}" in sources
+        verified = run(VERIFIER, "--root", output, "--revision", REVISION)
+        assert verified.returncode == 0, verified.stderr
+    with tempfile.TemporaryDirectory(prefix="cmux-ghostty-mpl-") as raw:
+        work = Path(raw)
+        source, cache = build_fixture(work)
+        add_licensed_mpl_package(source, "z2d-0.14.0-UnreviewedMplPackageXXXXXXXXXXXXXXXXXXXXXXXX")
+        assert collect_in_process(source, cache, work / "collected") != 0
 
 def test_vendored_directory_without_license_is_unresolved() -> None:
     """A pkg/ or vendor/ directory with third-party code and no license file
@@ -680,6 +735,7 @@ def main() -> int:
     test_known_zig_pkg_licenses()
     test_themes_and_gobject_get_pinned_texts()
     test_ghostty_next_packages_get_pinned_texts()
+    test_licensed_mpl_package_still_gets_a_source_offer()
     test_freetype_tree_carries_the_ftl_and_its_sub_licenses()
     test_freetype_texts_must_match_the_package()
     test_verifier_rejects_long_destination()

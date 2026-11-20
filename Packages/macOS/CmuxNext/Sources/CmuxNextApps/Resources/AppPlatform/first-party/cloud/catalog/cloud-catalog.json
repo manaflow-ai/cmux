@@ -134,9 +134,10 @@
           "vm_kind": {
             "enum": [
               "owner",
-              "team"
+              "team",
+              "unknown"
             ],
-            "description": "The signed-in caller's kind on this machine, from the Worker's connect_info for this link (cmux-platform#89). Only owner grants owner privileges (vm_kind owner on agent-session start and trust); it ends with the link."
+            "description": "The signed-in caller's kind on this machine, from the Worker's connect_info for this link (cmux-platform#89). Only owner grants owner privileges (vm_kind owner on agent-session start and trust); unknown (no owner or team answer could be read) grants nothing and is no teammate's machine; it ends with the link."
           }
         },
         "required": [

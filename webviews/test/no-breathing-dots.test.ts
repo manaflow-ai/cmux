@@ -19,6 +19,12 @@ type Loop = { file: string; keyframes: string; selector: string; props: string[]
  *  `goneWith`: the open change that removes or adds the entry, so it may match nothing. */
 const ALLOWED: { file: string; keyframes: string; selector: string; why: string; goneWith?: string }[] = [
   {
+    file: "agent-session/acpmux/markdownField.css",
+    keyframes: "acpmux-md-caret-blink",
+    selector: ".acpmux-md-caret",
+    why: "the composer's text caret, drawn on a line that holds an attachment so it stays the text's height (#40941); it blinks as the native caret it stands in for, only while the field has focus",
+  },
+  {
     file: "agent-session/acpmux/conversation/conversation.css",
     keyframes: "cmux-breathe",
     selector: '[data-working-look="breathe"] .cv-spinner[data-working]',
@@ -29,6 +35,12 @@ const ALLOWED: { file: string; keyframes: string; selector: string; why: string;
     keyframes: "acpmux-mic-wait",
     selector: ".acpmux-mic",
     why: "the mic button while dictation starts",
+  },
+  {
+    file: "pages/home-messages/transcript/transcript.css",
+    keyframes: "mt-dot",
+    selector: ".mt-typing i",
+    why: "the Messages typing bubble's three dots (the native transcript's typing indicator, shown only while someone types; still under the motion gate), not a status dot",
   },
   {
     file: "agent-session/acpmux/newtab/screen.css",
@@ -43,10 +55,16 @@ const ALLOWED: { file: string; keyframes: string; selector: string; why: string;
     why: "RUNNING-WAVE (#23995): one shimmer sweeping across Session Info's running subagent avatars, which replaced their out-of-step breathing; Static, Reduce Motion and the motion gate stop it",
   },
   {
-    file: "pages/apps/styles.css",
+    file: "ui/skeleton.css",
     keyframes: "cmux-breathe",
-    selector: ".apps-skeleton",
-    why: "the Apps page's loading skeleton",
+    selector: ".ui-skeleton",
+    why: "the shared loading skeleton (ui/Skeleton.tsx, moved from the Apps page's own), a placeholder block rather than a status dot; Static, Reduce Motion and the motion gate hold it still",
+  },
+  {
+    file: "ui/Skeleton.gallery.css",
+    keyframes: "ui-skeleton-gallery-pulse",
+    selector: '[data-look="pulse"] .ui-skeleton',
+    why: "the gallery's pulse variant of the loading skeleton, a look to compare rather than a status dot; the app never loads this sheet",
   },
   {
     file: "pages/cloud/styles.css",

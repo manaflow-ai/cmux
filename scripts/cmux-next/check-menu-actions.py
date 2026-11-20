@@ -88,7 +88,9 @@ def main(argv):
         print("Context menu rows must run a registered action (ActionRegistry.makeContextMenu or makeMenuItem),")
         print("not an inline selector: a menu-only path drifts from the palette, shortcut and CLI path.")
         for failure in failures:
-            print(f"  {failure}")
+            # `error:` makes each its own error line, so a base red of this guard is matched against the base's
+            # run of it (scripts/ci/base_red_excuse.py) instead of refusing every PR as "no error line to match".
+            print(f"error: {failure}")
         return 1
     lowered = [rel for rel, n in allowed.items() if found.get(rel, 0) < n]
     if lowered:

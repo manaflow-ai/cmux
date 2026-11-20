@@ -31,6 +31,8 @@ export type NativeInfoRow = {
   title: string;
   /// The row's existing harness mark, when it is an agent.
   harness?: string;
+  /// Stable identity ink from shared `agentTone(id)`, separate from status.
+  identityTone?: number;
   /// A retrying agent uses the native spinner instead of its harness glyph.
   working?: boolean;
   /// A regular running row's shared Session Info wave position and cadence.

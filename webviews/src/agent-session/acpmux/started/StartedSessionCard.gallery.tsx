@@ -1,7 +1,8 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 import { componentEntry } from "../../../gallery/format";
 import { Markdown } from "../conversation/Markdown";
-import { StartedMentionsContext, StartedSessionCards } from "./StartedSessionCard";
+import { StartedSessionCards } from "./StartedSessionCard";
+import { StartedMentionsContext } from "./startedSessionCardModel";
 import { type StartedSession, sessionMentions } from "./startedSessions";
 
 type Props = { started: StartedSession[]; reply?: string };
@@ -54,7 +55,6 @@ export default componentEntry<Props>({
   covers: [
     "agent-session/acpmux/started/StartedSessionCard.tsx#StartedSessionCards",
     "agent-session/acpmux/started/StartedSessionCard.tsx#StartedSessionCard",
-    "agent-session/acpmux/started/StartedSessionCard.tsx#StartedMentionsContext",
     "agent-session/acpmux/started/StartedSessionCard.tsx#StartedSessionChip",
   ],
   styles: () => import("../styles.css"),

@@ -463,6 +463,18 @@ impl BrowserInputDispatcher {
             .is_some_and(|failure| failed_browser_resize_blocks(failure, desired))
     }
 
+    /// When the earliest failed resize may be sent again: the app loop's idle
+    /// wait ends there, so a failed resize does not depend on unrelated user
+    /// input to run again.
+    pub fn next_resize_retry(&self) -> Option<Instant> {
+        self.failed_resizes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values()
+            .filter_map(|failure| failure.retry_after)
+            .min()
+    }
+
     /// The app event loop uses this deadline as a scheduled retry wakeup, so
     /// a failed resize does not depend on unrelated user input to run again.
     pub fn resize_retry_due(&self) -> bool {

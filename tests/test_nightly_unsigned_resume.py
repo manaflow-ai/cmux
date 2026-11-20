@@ -3,11 +3,14 @@
 import importlib.util
 import copy
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
+import sys
+import tarfile
 import tempfile
 import unittest
 from unittest import mock
@@ -15,15 +18,20 @@ import zipfile
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 spec = importlib.util.spec_from_file_location("artifact_download", ROOT / "scripts/ci/download-run-artifact.py")
 download = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(download)
 spec = importlib.util.spec_from_file_location("unsigned_resume", ROOT / "scripts/ci/resume-unsigned-nightly.py")
 resume = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(resume)
-spec = importlib.util.spec_from_file_location("nightly_decide_tests", ROOT / "tests/test_ci_nightly_push_throttle.py")
-decisions = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(decisions)
+# Imported by name, never loaded by path: one module object per file, so a test that patches it
+# patches what every other test reads (tests/test_script_module_loads.py).
+import sys  # noqa: E402
+if str(ROOT / "tests") not in sys.path:
+    sys.path.insert(0, str(ROOT / "tests"))
+import test_ci_nightly_push_throttle as decisions  # noqa: E402
 
 
 class ArtifactDigestTests(unittest.TestCase):
@@ -174,6 +182,34 @@ class ResumeTests(unittest.TestCase):
                 resume.extract(archive, Path(tmp) / "out")
             self.assertFalse((Path(tmp) / "escape").exists())
 
+    def _app_tarball(self, root, version_name="cmux.app/Contents/Resources/bin/cmux-tui.version"):
+        # A real unsigned app: frameworks carry Versions/Current symlinks
+        # (run 41889001795 refused every resume on them).
+        app = root / "app"
+        app.mkdir(parents=True)
+        body = f"commit={'b' * 40}\n".encode()
+        with tarfile.open(app / "cmux-nightly-unsigned.tar.gz", "w:gz") as archive:
+            link = tarfile.TarInfo("cmux.app/Contents/Frameworks/Sparkle.framework/Versions/Current")
+            link.type, link.linkname = tarfile.SYMTYPE, "B"
+            archive.addfile(link)
+            entry = tarfile.TarInfo(version_name)
+            entry.size = len(body)
+            archive.addfile(entry, io.BytesIO(body))
+        return app
+
+    def test_bundled_client_commit_reads_an_app_with_framework_symlinks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app = self._app_tarball(Path(tmp))
+            self.assertEqual(resume.bundled_client_commit(Path(tmp)), "b" * 40)
+            # Nothing is unpacked beside the archive the signers download.
+            self.assertEqual(sorted(p.name for p in app.iterdir()), ["cmux-nightly-unsigned.tar.gz"])
+
+    def test_bundled_client_commit_refuses_a_traversing_version_member(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._app_tarball(Path(tmp), "../cmux.app/Contents/Resources/bin/cmux-tui.version")
+            with self.assertRaises(SystemExit):
+                resume.bundled_client_commit(Path(tmp))
+
 
 class WorkflowRoutingTests(unittest.TestCase):
     @classmethod
@@ -196,6 +232,8 @@ class WorkflowRoutingTests(unittest.TestCase):
                            lambda m: repr(pools[m.group(1)]), condition)
         condition = re.sub(r"\bvars\.[\w.-]+", "''", condition)
         condition = condition.replace("&&", " and ").replace("||", " or ")
+        # `!x` (an upload retry's `!cancelled()`), never the `!=` operator.
+        condition = re.sub(r"!(?!=)", " not ", condition)
         return eval(condition, {"__builtins__": {}}, {"always": lambda: True, "success": lambda: True,
                                                       "failure": lambda: False, "cancelled": lambda: False,
                                                       "true": True, "false": False})
@@ -208,8 +246,11 @@ class WorkflowRoutingTests(unittest.TestCase):
         for name, native_runner, resume_runner in (("build-nightly-app", "glaeda-nightly-only-m4pro", "glaeda-nightly-only-m4pro"),
                                                    ("build-nightly-ghostty-cli-helper", "glaeda-nightly-std-xcode-26.6", "glaeda-nightly-std-xcode-26.6")):
             with self.subTest(name=name):
-                self.assertEqual(self.evaluate(self.jobs[name]["runs-on"], True), resume_runner)
-                self.assertEqual(self.evaluate(self.jobs[name]["runs-on"], False), native_runner)
+                cells = workflow_jobs.runs_on_cells(self.jobs[name])
+                self.assertIsNotNone(cells, "a runs-on matrix nothing resolves")
+                self.assertEqual(len(cells), 1, cells)
+                self.assertEqual(self.evaluate(cells[0], True), resume_runner)
+                self.assertEqual(self.evaluate(cells[0], False), native_runner)
 
     def test_resume_selects_restore_and_zero_native_or_cache_work(self):
         for name in ("build-nightly-app", "build-nightly-ghostty-cli-helper"):
@@ -231,12 +272,20 @@ class WorkflowRoutingTests(unittest.TestCase):
         self.assertIn("Build nightly app (Release)", selected)
         self.assertNotIn("Restore the original unsigned nightly inputs", selected)
 
-    def test_resume_keeps_normal_publication_and_forces_past_same_tip_skip(self):
+    def test_a_loop_retry_never_resumes_an_unsigned_run(self):
+        # The loop's retry runs at the head when dispatched, which can be newer than the saved app's commit:
+        # a retry that names an unsigned run would publish that older app for the head, so decide refuses it.
+        result = decisions.run_decide(event="workflow_dispatch", ref="refs/heads/nightly-next",
+                                      tag_sha=decisions.HEAD_SHA,
+                                      extra_env={"UNSIGNED_RUN": "123", "UNSIGNED_ATTEMPT": "1", "LOOP_RETRY": "1"})
+        self.assertIn("failed", result["outputs"])
+        self.assertNotIn("should_build", result["outputs"])
+
+    def test_a_resume_from_outside_the_loop_builds_nothing(self):
         result = decisions.run_decide(event="workflow_dispatch", ref="refs/heads/nightly-next",
                                       tag_sha=decisions.HEAD_SHA,
                                       extra_env={"UNSIGNED_RUN": "123", "UNSIGNED_ATTEMPT": "1"})
-        self.assertEqual(result["outputs"]["should_build"], "true")
-        self.assertEqual(result["outputs"]["should_publish"], "true")
+        self.assertEqual(result["outputs"]["should_build"], "false")
 
     def test_resume_is_rejected_on_wrong_track_or_conflicting_modes(self):
         for ref, extra in (("refs/heads/main", {}), ("refs/heads/nightly-next", {"FAST_BUILD": "true"}),

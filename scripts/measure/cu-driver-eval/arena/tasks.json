@@ -1,0 +1,83 @@
+{
+  "about": "The arena's task suite (README.md). Each task: setup (what the runner prepares and starts), prompt ({target} and {code} are filled from the app's state after setup), check (what the runner reads afterwards; the agent's own words count only for an answer task), and tags. The prompt never names a tool, so every engine and model gets the same words.",
+  "preamble": "You are using a Mac through the computer-use tools you have. Use only those tools; there is no shell. Do not ask questions: finish the task, then reply with one short line (or exactly the value the task asks for).",
+  "tasks": [
+    {
+      "id": "form-fill",
+      "tags": ["form"],
+      "setup": {"arena": ["form"]},
+      "prompt": "In the Arena app's \"Arena Form\" window, create an account: Name \"Ada Lovelace\", Email \"ada@example.com\", Plan \"Team\", tick \"I agree to the terms\", then press Submit.",
+      "check": {"state": "form", "equals": {"name": "Ada Lovelace", "email": "ada@example.com", "plan": "Team", "agree": true, "submitted": true}}
+    },
+    {
+      "id": "settings-pane",
+      "tags": ["settings", "navigation"],
+      "setup": {"arena": ["settings"]},
+      "prompt": "In the Arena app's \"Arena Settings\" window, go to the Advanced pane, set Scrollback lines to 5000 and turn off \"Send usage data\". Change nothing else.",
+      "check": {"state": "settings", "equals": {"scrollback": "5000", "telemetry": false, "restore": false, "theme": "System"}}
+    },
+    {
+      "id": "read-label",
+      "tags": ["read"],
+      "setup": {"arena": ["readout"]},
+      "prompt": "The Arena app's \"Arena Readout\" window shows a one-time code. Reply with only the code.",
+      "check": {"answer_state": "readout", "key": "code"}
+    },
+    {
+      "id": "read-canvas",
+      "tags": ["read", "vision"],
+      "setup": {"arena": ["canvas"]},
+      "prompt": "The Arena app's \"Arena Canvas\" window shows a one-time code. Reply with only the code.",
+      "check": {"answer_state": "canvas", "key": "code"}
+    },
+    {
+      "id": "modal-recover",
+      "tags": ["recovery"],
+      "setup": {"arena": ["modal"]},
+      "prompt": "In the Arena app's \"Arena Modal\" window, create a project named \"Orbit\" and press Save.",
+      "check": {"state": "modal", "equals": {"sheet": "discarded", "project": "Orbit", "submitted": true}}
+    },
+    {
+      "id": "list-scroll",
+      "tags": ["navigation", "scroll"],
+      "setup": {"arena": ["list"]},
+      "prompt": "In the Arena app's \"Arena List\" window, mark Invoice {target} as Paid. Leave every other invoice as it is.",
+      "check": {"state": "list", "equals_state_key": {"paid": ["target"]}}
+    },
+    {
+      "id": "minimized-recover",
+      "tags": ["form", "recovery"],
+      "setup": {"arena": ["minimized"]},
+      "prompt": "In the Arena app's \"Arena Minimized\" window, fill in Name \"Grace Hopper\" and Email \"grace@example.com\", then press Submit.",
+      "check": {"state": "minimized", "equals": {"name": "Grace Hopper", "email": "grace@example.com", "submitted": true}}
+    },
+    {
+      "id": "two-windows",
+      "tags": ["multi-step", "read", "form"],
+      "setup": {"arena": ["readout", "form"]},
+      "prompt": "Read the one-time code in the \"Arena Readout\" window, type it into the Name field of the \"Arena Form\" window, then press Submit there.",
+      "check": {"state": "form", "equals_state_key": {"name": ["readout", "code"]}, "equals": {"submitted": true}}
+    },
+    {
+      "id": "textedit-save",
+      "tags": ["system-app", "multi-step", "dialog"],
+      "setup": {"textedit": true, "remove": ["~/Documents/arena-note.txt", "~/Documents/arena-note.rtf"]},
+      "prompt": "Open TextEdit, make a new document, type exactly \"Thunderdome checks pass.\" and save it in the Documents folder as \"arena-note\".",
+      "check": {"file_text": ["~/Documents/arena-note.txt", "~/Documents/arena-note.rtf"], "contains": "Thunderdome checks pass."}
+    },
+    {
+      "id": "calculator",
+      "tags": ["system-app", "read"],
+      "setup": {"calculator": true},
+      "prompt": "Use the Calculator app to compute 4817 × 293, leave the result on its display, and reply with only the result.",
+      "check": {"answer": "1411381", "ax_value": {"app": "com.apple.calculator", "contains": "1411381"}}
+    },
+    {
+      "id": "finder-move",
+      "tags": ["system-app", "multi-step", "files"],
+      "setup": {"files": {"~/Desktop/arena-report.txt": "quarterly numbers\n"}, "remove": ["~/Desktop/Thunderdome"]},
+      "prompt": "Using Finder, make a new folder named \"Thunderdome\" on the Desktop and move arena-report.txt from the Desktop into it.",
+      "check": {"exists": ["~/Desktop/Thunderdome/arena-report.txt"], "missing": ["~/Desktop/arena-report.txt"]}
+    }
+  ]
+}

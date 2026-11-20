@@ -7,7 +7,8 @@ import { useState } from "react";
 import { Button } from "../../../ui/Button";
 import { useSettingsState, useStore } from "../context";
 import { Icon } from "../icons";
-import type { ThemeOverride } from "../ops";
+import { SETTINGS_SENTENCES, type ThemeOverride } from "../ops";
+import { userMessage } from "../../shared/userMessage";
 import { locale, t } from "../strings";
 
 /** "background and foreground" in the page's language. */
@@ -41,7 +42,7 @@ export function ThemeOverrides({ disabled }: { disabled: boolean }) {
     setBusy(true);
     try {
       const reply = await store.releaseThemeOverrides();
-      setError(reply.ok ? null : reply.error.message);
+      setError(reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES));
     } finally {
       setBusy(false);
     }

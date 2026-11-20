@@ -94,6 +94,12 @@ pub(super) fn sections(package: &Package) -> Vec<Section> {
                 .filter_map(|entry| Some((entry.get("id")?.as_str()?, entry)))
                 .collect()
         };
+    // One section per contribution id, the first entry's: a repeated id
+    // hashes to the same section id, and two adds of one id in a placement
+    // would fail the document transaction for every app placed with it.
+    let mut seen = std::collections::HashSet::new();
+    let entries: Vec<(&str, &Value)> =
+        entries.into_iter().filter(|(id, _)| seen.insert(*id)).collect();
     entries
         .into_iter()
         .map(|(id, options)| {
@@ -156,28 +162,30 @@ pub(super) fn place(
 }
 
 /// Seed receipts once, before startup installs any defaults or customization.
-/// Only metadata is written: an upgrade must not add, move or remove sections.
+/// Only metadata is written: an upgrade must not add, move or remove sections. So it is
+/// written as metadata, not as a sidebar commit: it takes no resource revision and
+/// publishes no change (a fresh daemon's first real change is revision 1).
 pub(super) fn initialize(mux: &crate::Mux, existing: &[Section]) -> anyhow::Result<()> {
     if mux.read_registry_state(|connection| has_receipt(connection, INITIALIZED))? {
         return Ok(());
     }
-    mux.commit_sidebar_ops(
-        &WorkspaceMutation::daemon_local("apps.sidebar.initialize"),
-        "apps.sidebar.initialize",
-        &json!({"existing": existing}),
-        |transaction, _| {
-            if !has_receipt(transaction, INITIALIZED)? {
-                for section in existing {
-                    if let Some(key) = receipt_key(section) {
-                        write_receipt(transaction, &key)?;
-                    }
+    mux.write_registry_meta(|transaction| {
+        // A migration that failed at open leaves no document: no marker, so the next
+        // start initializes again and automatic placement stays off meanwhile.
+        anyhow::ensure!(
+            crate::state::sidebar_doc_store::is_migrated(transaction)?,
+            "sidebar document unavailable: its migration did not complete"
+        );
+        if !has_receipt(transaction, INITIALIZED)? {
+            for section in existing {
+                if let Some(key) = receipt_key(section) {
+                    write_receipt(transaction, &key)?;
                 }
-                write_receipt(transaction, INITIALIZED)?;
             }
-            Ok(Vec::new())
-        },
-    )?;
-    Ok(())
+            write_receipt(transaction, INITIALIZED)?;
+        }
+        Ok(())
+    })
 }
 
 fn receipt_key(section: &Section) -> Option<String> {
@@ -251,6 +259,7 @@ mod tests {
                 "export": "render", "title": "Recent PRs",
                 "options": {"defaultRegion": "bottom", "maxRows": 8}
             }}}),
+            fragment: None,
         }
     }
 
@@ -340,5 +349,21 @@ mod tests {
         );
         assert_eq!(sections[0].region, Region::Bottom);
         assert_eq!(sections[1].region, Region::Middle);
+    }
+
+    /// A repeated contribution id gives one section, the first entry's
+    /// (base red: each entry gave a section with the same hashed id, and a
+    /// placement of both added one id twice).
+    #[test]
+    fn a_repeated_section_id_gives_one_section() {
+        let mut app = package();
+        app.manifest = json!({"contributes": {"sidebarSections": (0..200)
+            .map(|i| json!({"id": format!("s{}", i % 7), "title": "T", "defaultRegion": if i < 7 { "bottom" } else { "top" }, "render": "render"}))
+            .collect::<Vec<_>>()}});
+        let sections = sections(&app);
+        assert_eq!(sections.len(), 7);
+        let ids: std::collections::HashSet<&str> = sections.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids.len(), 7);
+        assert!(sections.iter().all(|s| s.region == Region::Bottom), "the first entry wins");
     }
 }

@@ -8,6 +8,12 @@
 // An invite (a person the owner invited by account) is `/i/<share_id>`: no secret at all. The room
 // signs the visitor in with their cmux account before it serves the page, and Join POSTs `accept`
 // with only the attempt id; the room takes the account and the name from that sign-in.
+//
+// A link guest who is signed in to cmux on the room's site joins as that account (Leo,
+// 2026-11-07: "if you imagine the Google Docs sharing flow, you just come in with your Gmail
+// account and that's it"): the page asks the room `whoami` first and shows "Join as <name>". The
+// redeem body stays `{attempt_id, secret, name}`; the room adds the account from its own verified
+// sign-in, never from anything this page sends.
 import { displayName } from "../acpmux/multiplayer/participants";
 
 /** A share or secret id as the daemon makes them: 128-bit, URL-safe. */
@@ -40,6 +46,22 @@ export type RedeemRequest = { attempt_id: string; secret: string; name: string }
 export type Redeem = (shareId: string, request: RedeemRequest) => Promise<RedeemResult>;
 export type AcceptRequest = { attempt_id: string };
 export type Accept = (shareId: string, request: AcceptRequest) => Promise<RedeemResult>;
+
+/** Who the room's own sign-in says this visitor is (`POST /whoami`); never their account or email. */
+export type WhoAmI = { signedIn: false } | { signedIn: true; name: string; avatarUrl?: string };
+export type WhoAmIFetch = (shareId: string) => Promise<WhoAmI>;
+
+const ANONYMOUS: WhoAmI = { signedIn: false };
+
+/** A profile picture the page may load: an https URL of at most 1024 bytes, as the daemon bounds it. */
+export function avatarUrl(value: unknown): string | undefined {
+  if (typeof value !== "string" || new TextEncoder().encode(value).length > 1024) return undefined;
+  try {
+    return new URL(value).protocol === "https:" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 const KNOWN: ReadonlySet<string> = new Set([
   "share.expired",
@@ -114,9 +136,19 @@ export const joinedAs = (shareId: string, storage: Storage, invite = false) => {
 /** The name this tab joined the share with. */
 export const joinedName = (shareId: string, storage: Storage) => storage.getItem(key(shareId, "name")) ?? undefined;
 
-/** The role this tab's invitee joined with, when the room named one (on an invite page, an invite's only). */
-export const joinedRole = (shareId: string, storage: Storage, invite = false) =>
-  invite && joinedVia(shareId, storage) !== "invite" ? undefined : role(storage.getItem(key(shareId, "role")));
+/**
+ * The role this tab joined with (on an invite page, an invite's only). A tab that joined by the
+ * link watches only, unless its redeem named `talk` (it joined as a signed-in account).
+ */
+export const joinedRole = (shareId: string, storage: Storage, invite = false): GuestRole | undefined => {
+  const via = joinedVia(shareId, storage);
+  if (invite && via !== "invite") return undefined;
+  const kept = role(storage.getItem(key(shareId, "role")));
+  // A link guest watches unless the redeem named `talk` (a signed-in account on a talk link); the
+  // daemon refuses an anonymous guest's messages whatever this tab kept.
+  if (via === "link" && storage.getItem(key(shareId, "joined")) !== null) return kept ?? "view";
+  return kept;
+};
 
 export function rememberJoined(
   shareId: string,
@@ -177,3 +209,30 @@ export const redeemOverFetch = (
 export const acceptOverFetch = (
   fetcher: (url: string, init: RequestInit) => Promise<Response> = (url, init) => fetch(url, init),
 ): Accept => join(fetcher, "accept");
+
+/**
+ * The room's `whoami`, over fetch: same origin, the sign-in cookie sent, no body. Anything but a
+ * signed-in answer (anonymous, a room without the route, a failure) is anonymous, so the page
+ * falls back to the name prompt.
+ */
+export const whoamiOverFetch =
+  (fetcher: (url: string, init: RequestInit) => Promise<Response> = (url, init) => fetch(url, init)): WhoAmIFetch =>
+  async (shareId) => {
+    try {
+      const response = await fetcher(`/v1/chat-shares/${encodeURIComponent(shareId)}/whoami`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+      if (!response.ok) return ANONYMOUS;
+      const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      // The account's name as the daemon takes one (hidden characters dropped, one line, 64 at most).
+      const name = joinName(displayName(body.name) ?? "");
+      if (body.signed_in !== true || !name) return ANONYMOUS;
+      const avatar = avatarUrl(body.avatar_url);
+      return { signedIn: true, name, ...(avatar ? { avatarUrl: avatar } : {}) };
+    } catch {
+      return ANONYMOUS;
+    }
+  };

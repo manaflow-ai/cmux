@@ -2,10 +2,11 @@
 // One finished turn per harness family, folded as its row of turnFoldStyle.ts says (Leo, 2026-11-04:
 // "do it for chatgpt, do the proper folds for however the other harnessses/model families fold
 // (muse, gemini)", then, on Claude: "you can't do it for Claude ... it's just too lossy if you do it
-// for Claude"). The same turn (two runs of calls, the chatter between them, then the conclusion)
-// draws as ChatGPT's "Worked for 12m 16s ›" over the reply for Codex, and in place with no turn fold,
-// each run on its own line, for Claude, Gemini and Muse. Claude's whole-turn "Worked for" is an
-// opt-in only: compare its two arms (claudeTurnFold.experiment.ts) in this entry's compare view.
+// for Claude"). For Codex parity (Lucas, 2026-11-06) every family now folds a finished turn under one
+// "Worked for 12m 16s ›" over the reply: Codex's header counts the messages between the work, and
+// Claude's, Gemini's and Muse's folds keep each run's own line inside. Claude's older in-place look
+// (no turn fold) is the `runs` arm: compare both (claudeTurnFold.experiment.ts) in this entry's
+// compare view.
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { Play } from "../../../gallery/play";
@@ -75,7 +76,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/TurnRows.tsx#WorkedFor",
     "agent-session/acpmux/conversation/TurnRows.tsx#ToolRows",
   ],
-  // Claude's finished turn, runs in place (shipped) or under one Worked for (the opt-in), opened.
+  // Claude's finished turn, under one Worked for (shipped) or runs in place (the older arm), opened.
   experiment: {
     definition: claudeTurnFold,
     script: [{ name: "Open the turn's Worked for, where it has one", run: openWorked }],
@@ -84,22 +85,22 @@ export default agentPaneEntry({
     claude: variant(
       "claude",
       "claude",
-      "Claude, by default: no turn fold; each run of calls folds into its own line in place, the chatter between them in sight, as Claude desktop draws a turn. Its whole-turn Worked for is an opt-in (compare view).",
+      "Claude, by default: one closed Worked for over the reply (Codex parity); opened, each run of calls folds into its own line. The older in-place look, with no turn fold, is the runs arm (compare view).",
     ),
     codex: variant(
       "codex",
       "codex",
-      "Codex and ChatGPT: the same closed fold; with messages between the work, Codex's header counts them.",
+      "Codex and ChatGPT: the same closed fold; the reply between the runs stays in sight, never counted as a folded message.",
     ),
     gemini: variant(
       "gemini",
       "gemini",
-      "Gemini CLI: no turn fold; each run of calls folds into its own line in place, as its tool boxes group them.",
+      "Gemini CLI: one closed Worked for over the reply (Codex parity); opened, each run of calls folds into its own line.",
     ),
     muse: variant(
       "muse",
       "muse",
-      "Muse Code: no reference of how its app ends a turn, so no turn fold; per-run lines in place.",
+      "Muse Code: one closed Worked for over the reply (Codex parity), per-run lines inside.",
     ),
   },
 });

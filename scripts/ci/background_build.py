@@ -28,6 +28,15 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cmux-next'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 
 def paths(state: Path, name: str) -> dict[str, Path]:
@@ -129,7 +138,7 @@ def stop(state: Path) -> int:
                 os.killpg(group, sig)
             except (ProcessLookupError, PermissionError):
                 break
-            print(f"sent {signal.Signals(sig).name} to {name} (process group {group})")
+            safe_print(f"sent {signal.Signals(sig).name} to {name} (process group {group})")
             if sig == signal.SIGTERM:
                 time.sleep(2)
     return 0

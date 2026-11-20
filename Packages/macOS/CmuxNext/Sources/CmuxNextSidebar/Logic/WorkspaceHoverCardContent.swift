@@ -93,7 +93,7 @@ struct WorkspaceHoverCardContent: Equatable {
     }
 
     /// The card for `workspace` as `options` lay it out (u3320), with its `timeline` (newest first).
-    /// `looked`: when the person last looked at it (`sidebar.sinceLooked`), for the line that says
+    /// `looked`: when the person last looked at it (`SidebarLookedStore`), for the line that says
     /// what its agents did since. `pullRequests`: the row's pull request badge
     /// (`SidebarSessionTree.pullRequests`), for the repository and the state; `home`: this Mac's
     /// home folder, which is no fact.
@@ -246,6 +246,10 @@ struct WorkspaceHoverCardContent: Equatable {
         // What its agents run below their turns now: how many subagents and commands, and which
         // (Leo 2026-11-01: "being able to see the # of associated subagents and whatnot").
         facts += WorkspaceHoverCardWork.facts(detail)
+        // Terminals the freeing tier ended at their prompt; showing the workspace starts them again.
+        if case let freed = workspace.tabs.filter(\.isFreed).count, freed > 0 {
+            facts.append(Fact(icon: .actionSnooze, text: Strings.freedTerminals(freed), lines: 2, kind: "freed"))
+        }
         for presence in workspace.presence.prefix(2) {
             facts.append(Fact(icon: toolIcon(presence.activity), text: Strings.presenceLine(presence), kind: "presence"))
         }
@@ -258,7 +262,7 @@ struct WorkspaceHoverCardContent: Equatable {
             // that is not connected says how, in its color, under it.
             let tone = connectionTone(remote.status)
             facts.append(Fact(icon: hostIcon(remote), text: remote.kind == .cloud ? Strings.hoverCloud : remote.name,
-                              mark: remote.kind == .cloud ? nil : "globe", kind: "machine",
+                              mark: remote.kind == .cloud ? nil : Self.machineSymbol(remote) ?? "globe", kind: "machine",
                               accessory: .dot(tone), machine: remote.name))
             if let word = connectionWord(remote.status) {
                 facts.append(Fact(icon: .statusDisconnected, text: word, kind: "machineStatus", ink: tone))
@@ -495,6 +499,13 @@ struct WorkspaceHoverCardContent: Equatable {
         case .conflict, .draft: .attention
         case .closed: .tertiary
         }
+    }
+
+    /// The SF Symbol a machine's header draws when it has one (its own icon, else the device kind its daemon
+    /// reported; `MachineRegistry.withMachineIcons`), so the card's machine line matches the sidebar header.
+    private static func machineSymbol(_ machine: SidebarMachine) -> String? {
+        if case .symbol(let name, _)? = machine.icon { return name }
+        return nil
     }
 
     /// The title's existing kind glyph; the remote identity row uses a globe.

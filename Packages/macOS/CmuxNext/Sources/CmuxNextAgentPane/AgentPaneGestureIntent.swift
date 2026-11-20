@@ -35,9 +35,20 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
         "session/set_mode": ["modeId"],
         "session/set_config_option": ["configId", "value"],
         "session/prompt": ["promptId"],
+        "chat.fix_from_link": ["url"],
+        // A Cloud send reserves its native Send gesture before waiting for the speculative
+        // machine lease; the hand-off redeems the ticket once that lease settles.
+        "cloud.startChat": ["key"],
         // cx-0q7o: the person's pick of one option of one prompt; only such an allow is signed
         // for another daemon run.
         "_acpmux/permission_respond": ["sessionId", "permissionId", "optionId"],
+        // The person's Build pick on a plan approval: which ask, and here, worktree or compare.
+        "_acpmux/plan/build": ["permissionId", "target"],
+    ]
+
+    /// Optional scalar launch selections still participate in exact ticket matching.
+    public static let optionalKeys: [String: Set<String>] = [
+        "chat.fix_from_link": ["cwd", "harness", "model"],
     ]
 
     /// Intent params a method may add to its keys: objects, each held as its canonical digest. A
@@ -52,12 +63,17 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
     /// and only a prompt to that chat redeems it.
     public static let bindingKeys: [String: Set<String>] = [
         "session/prompt": ["sessionId"],
+        "_acpmux/plan/build": ["sessionId"],
     ]
 
     /// How long a ticket waits for its frame: a pick held while a harness starts, or a prompt held
     /// while the user answers the folder trust question.
     public var lifetime: TimeInterval {
-        method == "session/prompt" ? AgentPaneUserGestures.heldPromptLifetime : AgentPaneUserGestures.ticketLifetime
+        switch method {
+        case "session/prompt", "chat.fix_from_link": return AgentPaneUserGestures.heldPromptLifetime
+        case "cloud.startChat": return AgentPaneUserGestures.cloudStartTicketLifetime
+        default: return AgentPaneUserGestures.ticketLifetime
+        }
     }
 
     public var method: String
@@ -73,7 +89,7 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
               let intent = gestureParams["intent"] as? [String: Any], Set(intent.keys) == ["method", "params"],
               let method = intent["method"] as? String, let keys = Self.methods[method],
               let raw = intent["params"] as? [String: Any], keys.isSubset(of: raw.keys),
-              Set(raw.keys).subtracting(keys).isSubset(of: (Self.objectKeys[method] ?? []).union(Self.bindingKeys[method] ?? []))
+              Set(raw.keys).subtracting(keys).isSubset(of: (Self.objectKeys[method] ?? []).union(Self.bindingKeys[method] ?? []).union(Self.optionalKeys[method] ?? []))
         else { return nil }
         var params: [String: AgentPaneJSONScalar] = [:]
         for (key, value) in raw {
@@ -82,7 +98,7 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
                 sessionId = session
                 continue
             }
-            if !keys.contains(key) {
+            if !keys.contains(key) && Self.optionalKeys[method]?.contains(key) != true {
                 // A question's answers or annotations: an object, by its canonical digest.
                 guard value is [String: Any], let digest = AcpmuxSecretKey.canonicalDigest(value) else { return nil }
                 params[key] = .string(digest)
@@ -110,7 +126,8 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
         switch (method, params["configId"], params["promptId"], params["permissionId"]) {
         case ("session/set_config_option", .string(let config)?, _, _): return method + "#" + config
         case ("session/prompt", _, .string(let promptId)?, _): return method + "#" + promptId
-        case ("_acpmux/permission_respond", _, _, .string(let permissionId)?): return method + "#" + permissionId
+        case ("_acpmux/permission_respond", _, _, .string(let permissionId)?),
+             ("_acpmux/plan/build", _, _, .string(let permissionId)?): return method + "#" + permissionId
         default: return method
         }
     }
@@ -183,6 +200,16 @@ public nonisolated struct AgentPaneGesturePick: Equatable, Sendable {
             self.params = (acpmux?["promptId"] as? String).map {
                 ["promptId": .string(AgentPaneHandoffPrompt(id: $0).ownID)]
             }
+            return
+        }
+        // A Cloud hand-off carries attachments and other non-gesture fields. Bind its ticket to
+        // the send UUID only; the native start validates the complete request separately.
+        if method == "cloud.startChat" {
+            guard let key = params["key"] as? String else {
+                self.params = nil
+                return
+            }
+            self.params = ["key": .string(key)]
             return
         }
         // A permission answer's pick names its session too (the ticket binds the prompt), and a

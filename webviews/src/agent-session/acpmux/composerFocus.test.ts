@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import React from "react";
 import { ACTIVATION_SETTLE_MS, shouldBlurComposerOnPress, useComposerKeyboard } from "./composerFocus";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -17,6 +18,7 @@ afterEach(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -113,10 +115,13 @@ describe("composer click-away focus", () => {
     const { editor } = fixture();
     const document = editor.ownerDocument;
     const layer = document.createElement("div");
-    layer.className = "acpmux-picker-layer acpmux-composer-plus";
+    layer.className = "ui-positioner";
+    const popup = document.createElement("div");
+    popup.className = "ui-popup acpmux-menu acpmux-composer-plus";
     const row = document.createElement("div");
-    row.className = "acpmux-menu-item";
-    layer.append(row);
+    row.className = "ui-menu-item";
+    popup.append(row);
+    layer.append(popup);
     document.body.append(layer);
     expect(shouldBlurComposerOnPress(row, editor)).toBe(false);
   });

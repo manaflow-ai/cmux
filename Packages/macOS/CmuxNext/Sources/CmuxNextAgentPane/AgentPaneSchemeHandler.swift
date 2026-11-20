@@ -28,6 +28,7 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
 
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
         WebDevOverrideWatcher.shared.served(webView) // a web-dev.json change reloads it
+        WebProjection.shared.served(webView, isDocument: task.request.mainDocumentURL == task.request.url) // a projection window's pane loads from its server
         if task.request.httpMethod.map({ $0 == "GET" }) ?? true,
            let url = task.request.url, AgentPaneRenderFrame.isFrame(url) {
             let data = AgentPaneRenderFrame.document
@@ -38,14 +39,24 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
             task.didFinish()
             return
         }
-        if task.request.httpMethod.map({ $0 == "GET" }) ?? true, let url = task.request.url, let media = Self.mediaFile(for: url) {
+        // The page's drawn-copy script (AgentPageResources on the page host): this host keeps none.
+        if task.request.httpMethod.map({ $0 == "GET" }) ?? true, let url = task.request.url, url.path == "/\(AgentPaneChatSnapshots.prefix)/chat.js" {
+            let data = Data("self.\(AgentPaneChatSnapshots.global)=null;".utf8)
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
+                                           headerFields: Self.headers(for: URL(fileURLWithPath: "chat.js"), length: data.count))
+            task.didReceive(response ?? URLResponse(url: url, mimeType: "text/javascript", expectedContentLength: data.count, textEncodingName: "utf-8"))
+            task.didReceive(data)
+            task.didFinish()
+            return
+        }
+        if task.request.httpMethod.map({ $0 == "GET" }) ?? true, let url = task.request.url, let media = Self.mediaSource(for: url) {
             return serveMedia(media, url: url, task: task)
         }
         if task.request.httpMethod.map({ $0 == "GET" }) ?? true, let url = task.request.url, Self.isLibrary(url) {
             return serveLibrary(url: url, task: task)
         }
         if task.request.httpMethod.map({ $0 == "GET" }) ?? true, let url = task.request.url,
-           let server = WebDevOverride.current.server, let remote = Self.devServerURL(for: url, server: server) {
+           let server = WebProjection.shared.override(for: webView).server, let remote = Self.devServerURL(for: url, server: server) {
             return serveDevServer(remote, server: server, url: url, task: task)
         }
         guard task.request.httpMethod.map({ $0 == "GET" }) ?? true,
@@ -61,9 +72,9 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
         let root = root, live = servedRoot != root
         // task-owner: one file read per scheme task; a stopped task is never answered
         Task { @MainActor [weak self] in
-            // An active web update (WebBundleOverlay) serves its copy of the same file, unless
-            // the web-dev.json overlay already serves this one.
-            let served = live ? root : await WebBundleOverlay.shared.root(for: root)
+            // The web update this pane loaded with (WebBundleServedViews) serves its copy of the
+            // same file, unless the web-dev.json overlay already serves this one.
+            let served = live ? root : await WebBundleServedViews.shared.root(for: root, in: webView)
             let file = served == root ? file : Self.fileURL(for: url, root: served) ?? file
             let data = await Self.read(file)
             guard let self, self.active.remove(id) != nil else { return }

@@ -11,7 +11,17 @@ export function parseLayout(value: string | null | undefined): MachineLayout {
   return value === "cards" ? "cards" : "rows";
 }
 
-export type IntentKind = "create" | "start" | "pause" | "rename" | "resize" | "delete" | "idle" | "upgrade";
+export type IntentKind =
+  | "create"
+  | "start"
+  | "pause"
+  | "rename"
+  | "resize"
+  | "delete"
+  | "idle"
+  | "upgrade"
+  | "keep"
+  | "archive";
 
 /** One typed intent the page sent and the owner has not echoed or rejected yet. */
 export interface PendingIntent {
@@ -21,6 +31,8 @@ export interface PendingIntent {
   name?: string;
   memoryMb?: number;
   idle?: number | null;
+  /** The pin a Keep toggle set (`cloud.machine.keep`). */
+  keep?: boolean;
   /** The machine id the owner answered for a create (or a restore). */
   result_id?: string;
   /** The owner answered; its next event for the machine is the echo. */
@@ -35,6 +47,13 @@ export interface MachineRow {
   status: MachineStatus;
   machine?: CloudMachine;
   pending?: IntentKind;
+  /**
+   * The idle policy the newest unanswered idle change set (`null` = never pause), shown at once in
+   * place of the mirror's; undefined while none is waiting.
+   */
+  idle?: number | null;
+  /** The pin the newest unanswered Keep toggle set, shown at once in place of the mirror's. */
+  keep?: boolean;
   /** Imported from cmux Cloud classic: read-only until upgraded (contract 4). */
   classic?: boolean;
 }
@@ -93,20 +112,37 @@ export function settled(intent: PendingIntent, machines: CloudMachine[], revisio
       return (machine.idle_policy?.idle_seconds ?? 0) === (intent.idle ?? 0);
     case "upgrade":
       return !machine.classic;
+    case "keep":
+      return !!machine.keep === !!intent.keep;
+    case "archive":
+      // The platform marks it (`delete_reason: requested`), archives it, then removes it.
+      return machine.delete_reason === "requested";
   }
 }
+
+/**
+ * Quick edits whose outcome the page already knows (a rename, the idle policy): the row shows the new
+ * value at once, with no pending label and nothing held; a refusal drops the intent, which puts the
+ * mirror's value back, and the page's one error line says why.
+ */
+export const QUICK_INTENTS = new Set<IntentKind>(["rename", "idle", "keep"]);
 
 /** The rows the list draws: every mirrored machine with its newest pending intent, then creates. */
 export function visibleRows(machines: CloudMachine[], pending: PendingIntent[]): MachineRow[] {
   const rows: MachineRow[] = machines.map((machine) => {
-    const intents = pending.filter((intent) => intent.machine === machine.id);
-    const rename = [...intents].reverse().find((intent) => intent.kind === "rename");
+    // Newest first.
+    const intents = pending.filter((intent) => intent.machine === machine.id).reverse();
+    const rename = intents.find((intent) => intent.kind === "rename");
+    const idle = intents.find((intent) => intent.kind === "idle");
+    const keep = intents.find((intent) => intent.kind === "keep");
     return {
       id: machine.id,
       title: rename?.name ?? machineTitle(machine),
       status: machine.status,
       machine,
-      pending: intents.at(-1)?.kind,
+      pending: intents.find((intent) => !QUICK_INTENTS.has(intent.kind))?.kind,
+      ...(idle ? { idle: idle.idle ?? null } : {}),
+      ...(keep ? { keep: !!keep.keep } : {}),
       ...(machine.classic ? { classic: true } : {}),
     };
   });
@@ -138,6 +174,8 @@ export const IntentLabel: Record<IntentKind, StringKey> = {
   delete: L.pendingDelete,
   idle: L.pendingIdle,
   upgrade: L.pendingUpgrade,
+  keep: L.pendingKeep,
+  archive: L.pendingArchive,
 };
 
 /** A status between two steady states: the dot shows it as in progress. */

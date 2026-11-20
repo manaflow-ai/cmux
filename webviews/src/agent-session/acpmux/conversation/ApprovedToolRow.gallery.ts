@@ -41,7 +41,8 @@ const openWork: Play = async (ctx) => {
     [...ctx.document.querySelectorAll<HTMLButtonElement>("button[aria-expanded='false']")].find((node) =>
       /Worked for|Ran \d/.test(node.textContent ?? ""),
     );
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-tool"), { capMs: 10_000 });
+  // A finished Claude turn draws its Worked for line alone until it opens (Codex parity).
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-tool, button.cv-worked"), { capMs: 10_000 });
   for (let i = 0; i < 3 && fold(); i++) fold()!.click();
 };
 

@@ -1,43 +1,22 @@
-// Where a Claude Code chat's session started (sessionStart.ts), in the quiet one-line style of the
-// transcript's other notes (a background task's end, a compaction): "Claude Code · Opus 5.5 · sr2".
+// A Claude Code chat's model and route, in the quiet one-line style of the transcript's other notes
+// (a background task's end, a compaction): "Claude Code · Sonnet 5.5 · sr2". The transcript draws
+// it nowhere (Lucas, 2026-11-06: it landed inside the first turn's work and read as noise;
+// rows/SessionStartRow.tsx), so it lives in the gallery and its unit test; /status says the same
+// facts (Leo, 2026-11-05: "why does it even show that ... like we know what it is ... giving tmi").
 // The whole of it (Claude Code's version, the model id, the route, the folder) shows on hover and
-// opens under the line on a click. Nothing else: how the chat compacts is not an event, so it does
-// not take a transcript row; each compaction shows as its own note when it happens (Leo
-// 2026-10-21: no "cmux manages compaction" explainer in the transcript).
+// opens under the line on a click.
 import { useId } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxSessionStart } from "../model";
-import { modelIdName } from "../defaultChoice";
 import { ChevronRight, TerminalSquare } from "./icons";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
-import { foldHome, routeOf } from "./sessionStart";
+import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
+import { sessionStartLabels } from "./sessionStart";
 
-export function SessionStartNote({ start }: { start: AcpmuxSessionStart }) {
+export function SessionStartNote({ start, id = "details" }: { start: AcpmuxSessionStart; id?: string }) {
   const t = useT();
-  const [open, setOpen] = useTranscriptDisclosure("sessionStart:details");
+  const [open, setOpen] = useTranscriptDisclosure(`sessionStart:${id}`);
   const detailsId = useId();
-  const route = routeOf(start.harness);
-  const short = [
-    t("sessionStart.agent"),
-    start.model ? modelIdName(start.model, t) : undefined,
-    route === "sr2"
-      ? t("sessionStart.routeShort.sr2")
-      : route === "coderouter"
-        ? t("sessionStart.routeShort.coderouter")
-        : undefined,
-  ].filter((fact): fact is string => !!fact);
-  const facts = [
-    t("sessionStart.claudeCode", { version: start.version }),
-    start.model,
-    route === "sr2"
-      ? t("sessionStart.route.sr2")
-      : route === "coderouter"
-        ? t("sessionStart.route.coderouter")
-        : t("sessionStart.route.own"),
-    start.cwd ? foldHome(start.cwd) : undefined,
-  ]
-    .filter((fact): fact is string => !!fact)
-    .join(" · ");
+  const { short, facts } = sessionStartLabels(start, t);
   return (
     <div className="cv-tools">
       <button
@@ -52,12 +31,8 @@ export function SessionStartNote({ start }: { start: AcpmuxSessionStart }) {
         <span className="cv-tool__icon">
           <TerminalSquare />
         </span>
-        <span className="cv-tool__text">{short.join(" · ")}</span>
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
+        <span className="cv-tool__text">{short}</span>
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {open && (
         <div id={detailsId} className="cv-session-start__detail selectable">

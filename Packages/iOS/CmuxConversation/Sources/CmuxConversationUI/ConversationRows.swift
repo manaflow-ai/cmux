@@ -473,6 +473,7 @@ enum ConversationRowBuilder {
             message.mentions = []
             message.textRuns = []
             message.links = []
+            message.tables = []
         }
         if message.isScheduled, let scheduledAt = message.scheduledAt {
             // Scheduled messages trail everything, typing included.

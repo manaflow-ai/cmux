@@ -187,7 +187,7 @@ enum ChiefMemoryImportHandlers {
 extension PageDescriptor {
     static let importHistory = PageDescriptor(
         id: "cmux.import-history", resource: "import-history", namespaces: ["cmux.importHistory."],
-        nativeOps: [PageNativeOp.clipboardWrite])
+        nativeOps: [PageNativeOp.clipboardWrite], followsChatZoom: true) // shown over Home: zooms with the Chief chat
 }
 
 extension InternalPageID {

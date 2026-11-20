@@ -14,7 +14,7 @@ public import WebKit
 /// `gallery.openStage` (palette, `cmux action run gallery.openStage --entry agent-pane.composer`;
 /// CmuxNextApp's `AppActions` binds it) opens one tab per run: the entry's stage (`variant` picks one),
 /// else the gallery's index. The server is web-dev.json's `gallery`, else
-/// ``WebDevOverride/defaultGallery``. NIGHTLY, cmux NEXT DEV and Debug only (``WebDevOverride/isEnabled``).
+/// ``WebDevOverride/defaultGallery``. Every build (``WebDevOverride/isEnabled``); off with cmux Live.
 ///
 /// This keeps which stage each tab shows: a run sets ``next`` around its open, and the tab it opens
 /// keeps it. A tab restored at launch has none and shows the gallery's index.
@@ -121,17 +121,17 @@ public final class GalleryStageView: NSView, WKNavigationDelegate {
         webView.load(URLRequest(url: url))
         // task-owner: one per stage view; ends with the view (weak self) or its deinit
         scaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.userScale) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale, Typography.pageDensityScale, Typography.pageDensityTextScale, Typography.pageRowTextScale) }) {
                 guard let self else { return }
                 self.applyScale()
             }
         }
     }
 
-    // Not an isolated deinit, as PageWebView's (cx-t7hu).
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // The task handle is Sendable and cancels from any thread: a release off main cleans up too.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated { scaleObservation?.cancel() }
+        scaleObservation?.cancel()
     }
 
     @available(*, unavailable)

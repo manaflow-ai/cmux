@@ -6,6 +6,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { teardownDom } from "./support/domTeardown";
 // These tests drive the compact (Codex) rail; the default arm draws no minimap (layout.experiment.ts).
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
@@ -14,6 +15,7 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
   pretendToBeVisual: true,
   virtualConsole: new VirtualConsole(),
 });
+
 const resizeObservers = new Set<{ fire(): void }>();
 const scope = globalThis as Record<string, unknown>;
 const replacements: Record<string, unknown> = {
@@ -62,6 +64,13 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { config
 // Wide enough for the minimap's pane-edge rail in these layout tests.
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1040 });
 const offsets = new WeakMap<object, number>();
+// Read the pitch the mounted rail gives CSS; jsdom does not lay out its rows.
+const railPitch = () =>
+  Number.parseFloat(
+    dom.window.document
+      .querySelector<HTMLElement>(".acpmux-minimap__list")!
+      .style.getPropertyValue("--acpmux-minimap-pitch"),
+  );
 Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
   configurable: true,
   get(this: object) {
@@ -79,11 +88,11 @@ dom.window.document.addEventListener(
     const tick = (event.target as HTMLElement).closest?.<HTMLElement>("[data-tick]");
     const list = tick?.closest<HTMLElement>(".acpmux-minimap__list");
     if (!tick || !list) return;
-    const top = Number(tick.dataset.tick) * 10;
+    const top = Number(tick.dataset.tick) * railPitch();
     const room = Number.parseFloat(list.parentElement!.style.height);
     const at = list.scrollTop;
-    if (top >= at && top + 10 <= at + room) return;
-    list.scrollTop = top < at ? top : top + 10 - room;
+    if (top >= at && top + railPitch() <= at + room) return;
+    list.scrollTop = top < at ? top : top + railPitch() - room;
     list.dispatchEvent(new dom.window.Event("scroll"));
   },
   true,
@@ -96,15 +105,17 @@ dom.window.HTMLElement.prototype.scrollTo = function (this: HTMLElement, options
 } as typeof HTMLElement.prototype.scrollTo;
 
 const { act } = await import("react");
+// The minimap places its band in the frame after a scroll event, as a browser runs it.
+const scrolledFrame = (target: EventTarget) =>
+  act(async () => {
+    target.dispatchEvent(new dom.window.Event("scroll"));
+    await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
+  });
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const row = (id: string, kind: string, text?: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 });
@@ -146,7 +157,10 @@ test("a 2,000-turn chat draws a bounded number of ticks, and the keyboard reache
     expect(tick(0)).toBeNull();
     const height = [...list.children].reduce(
       (sum, child) =>
-        sum + (child.querySelector("[data-tick]") ? 10 : Number.parseFloat((child as HTMLElement).style.height) || 0),
+        sum +
+        (child.querySelector("[data-tick]")
+          ? railPitch()
+          : Number.parseFloat((child as HTMLElement).style.height) || 0),
       0,
     );
     expect(height).toBe(TURNS * 10);
@@ -422,7 +436,7 @@ test("a focused tick that goes away with its chat is not held drawn when the cha
     await show(long, "long-away-a");
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     scroller.scrollTop = 0;
-    await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    await scrolledFrame(scroller);
     expect(document.querySelector(`[data-tick="0"]`)).not.toBeNull();
     expect(document.querySelector(`[data-tick="1999"]`)).toBeNull();
   } finally {
@@ -447,7 +461,7 @@ test("a focused tick whose rail hides and comes back in the same chat is not hel
   const scroller = () => document.querySelector<HTMLElement>(".acpmux-scroll")!;
   const scrollTo = async (top: number) => {
     scroller().scrollTop = top;
-    await act(async () => void scroller().dispatchEvent(new dom.window.Event("scroll")));
+    await scrolledFrame(scroller());
   };
   try {
     const long = span(0, 2000);
@@ -489,7 +503,7 @@ test("a keyboard-focused tick whose rail hides comes back with no tick held and 
   const scroller = () => document.querySelector<HTMLElement>(".acpmux-scroll")!;
   const scrollTo = async (top: number) => {
     scroller().scrollTop = top;
-    await act(async () => void scroller().dispatchEvent(new dom.window.Event("scroll")));
+    await scrolledFrame(scroller());
   };
   try {
     const long = span(0, 2000);
@@ -547,7 +561,10 @@ test("a scrolled rail hidden for lack of room comes back at its place, its rows 
     expect(list).not.toBe(before);
     expect(list.scrollTop).toBeGreaterThan(1000);
     const height = Number.parseFloat(list.parentElement!.style.height);
-    for (const row of [Math.floor(list.scrollTop / 10), Math.floor((list.scrollTop + height) / 10) - 1])
+    for (const row of [
+      Math.floor(list.scrollTop / railPitch()),
+      Math.floor((list.scrollTop + height) / railPitch()) - 1,
+    ])
       expect(document.querySelector(`[data-tick="${row}"]`)).not.toBeNull();
     expect(document.querySelector(`[data-tick="1999"]`)).not.toBeNull();
   } finally {

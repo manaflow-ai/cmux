@@ -47,6 +47,24 @@ fn err_json(out: Result<Value, CloudError>) -> Value {
 }
 
 #[test]
+fn create_options_reach_backend_and_preserve_its_capability_refusal() {
+    let mut s = server();
+    let args = json!({"name":"custom", "size":{"cpu":2,"memory_mb":4096,"disk_mb":16384},
+        "size_name":"medium", "idle_seconds":0,
+        "bootstrap":{"kind":"shell","contents_base64":"ZWNobyBvaw==","repo":null},
+        "machine_config_base64":"e30="});
+    s.control_plane_mut().answer("cloud.machine.create", args.clone(), Some("capabilities-key"),
+        json!({"error":{"code":"validation.invalid","message":"Bootstrap is unavailable on this backend",
+            "retryable":false,"details":{"capability":"create.bootstrap"}}}));
+    let error =
+        err_json(s.handle(&mutation("cloud.machine.create", args.clone(), "capabilities-key")));
+    assert_eq!(s.control_plane().calls.last().unwrap().params, args);
+    assert_eq!(error["message"], "Bootstrap is unavailable on this backend");
+    assert_eq!(error["upstream_code"], "validation.invalid");
+    assert_eq!(s.projection().len(), 0, "a refused option never creates a machine");
+}
+
+#[test]
 fn list_pages_follow_the_cursor() {
     let mut s = server();
     let first = s.handle(&Request::new("cloud.machine.list", json!({ "limit": 2 })));
@@ -517,5 +535,43 @@ fn every_vector_op_the_server_serves_reaches_the_backend_by_its_wire_name() {
         if let Err(e) = &out {
             assert_ne!(e.upstream_code.as_deref(), Some("vector.missing"), "{}", case["name"]);
         }
+    }
+}
+
+/// A backend snapshot as `cloud.snapshot.list` and `create` answer it, at `revision`.
+fn snapshot_at(revision: &str) -> Value {
+    json!({ "id": snap(9), "machine": vm(1), "name": null, "size_mb": 512, "status": "ready",
+        "created_at": 1_790_000_000_000i64, "revision": revision })
+}
+
+/// `cloud.snapshot.list` of one machine, when the backend lists `snapshot`.
+fn list_answering(snapshot: Value) -> Result<Value, CloudError> {
+    let mut s = server();
+    let params = json!({ "machine": vm(1) });
+    let answer = json!({ "snapshots": [snapshot] });
+    s.control_plane_mut().answer("cloud.snapshot.list", params.clone(), None, answer);
+    s.handle(&Request::new("cloud.snapshot.list", params))
+}
+
+/// `cloud.snapshot.create`, when the backend answers `snapshot`.
+fn create_answering(snapshot: Value) -> Result<Value, CloudError> {
+    let mut s = server();
+    let args = json!({ "machine": vm(1), "name": "one" });
+    let answer = json!({ "snapshot": snapshot });
+    s.control_plane_mut().answer("cloud.snapshot.create", args.clone(), Some("key-rev"), answer);
+    s.handle(&mutation("cloud.snapshot.create", args, "key-rev"))
+}
+
+#[test]
+fn a_snapshot_revision_is_a_checked_decimal() {
+    let list = list_answering(snapshot_at("007")).expect("lists");
+    assert_eq!(list["snapshots"][0]["revision"], "7", "{list}");
+    let made = create_answering(snapshot_at("007")).expect("creates");
+    assert_eq!(made["snapshot"]["revision"], "7", "{made}");
+    for bad in ["", "7a", "-1", "0x2"] {
+        let listed = err_json(list_answering(snapshot_at(bad)));
+        assert_eq!(listed["code"], "cmux.cloud.bad_response", "{bad:?}: {listed}");
+        let created = err_json(create_answering(snapshot_at(bad)));
+        assert_eq!(created["code"], "cmux.cloud.bad_response", "{bad:?}: {created}");
     }
 }

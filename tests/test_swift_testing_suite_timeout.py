@@ -11,6 +11,13 @@ import subprocess
 import sys
 import tempfile
 import unittest
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -19,14 +26,15 @@ RUNNER_DEADLINE_SECONDS = 180
 
 
 def run_runner(
-    package: pathlib.Path, env: dict[str, str], default_direct: str | None = "0"
+    package: pathlib.Path, env: dict[str, str], default_direct: str | None = "0",
+    extra_args: tuple[str, ...] = (),
 ) -> subprocess.CompletedProcess[str]:
     # The swift-test-per-suite tests below pin the fallback path
     # (CMUX_SWIFT_TEST_DIRECT=0); the direct tests set 1; None keeps the default.
     if default_direct is not None and "CMUX_SWIFT_TEST_DIRECT" not in env:
         env = {**env, "CMUX_SWIFT_TEST_DIRECT": default_direct}
     process = subprocess.Popen(
-        [str(RUNNER), str(package)],
+        [str(RUNNER), str(package), *extra_args],
         cwd=ROOT,
         env=env,
         text=True,
@@ -899,6 +907,63 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
                 self.assertIn("CMUX_SWIFT_TEST_SUITE_JOBS", completed.stdout)
                 self.assertFalse((temp / "calls.txt").exists())
 
+    def _admission_run(self, repetitions: str, failure: str = ""):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = pathlib.Path(temp_dir)
+            self._write_fake_swift(temp,
+                "import pathlib\n"
+                "with open(os.environ['ADMISSION_PIDS'], 'a') as pids:\n"
+                "    pids.write(str(os.getpid()) + '\\n')\n"
+                "count = len(pathlib.Path(os.environ['ADMISSION_PIDS']).read_text().splitlines())\n"
+                "if count == 3:\n"
+                "    failure = os.environ.get('ADMISSION_FAILURE', '')\n"
+                "    if failure == 'timeout': raise SystemExit(124)\n"
+                "    if failure == 'fail': raise SystemExit(7)\n"
+                "    if failure == 'empty': raise SystemExit(0)\n"
+                "    if failure == 'locked':\n"
+                "        print('unable to attach DB: database is locked')\n"
+                "        raise SystemExit(1)\n"
+                "print('Test run with 1 test passed after 0.001 seconds.')\n")
+            package = temp / "ExampleTests"
+            package.mkdir()
+            env = self._jobs_env(temp, ["Alpha"], "1")
+            env.update(ADMISSION_PIDS=str(temp / "pids"), ADMISSION_FAILURE=failure)
+            completed = run_runner(package, env, extra_args=("--repeat", repetitions))
+            calls = temp / "calls.txt"
+            pids = temp / "pids"
+            return (completed, calls.read_text().splitlines() if calls.exists() else [],
+                    pids.read_text().splitlines() if pids.exists() else [])
+
+    def test_admission_builds_once_and_runs_twenty_fresh_processes(self) -> None:
+        completed, calls, pids = self._admission_run("20")
+        self.assertEqual(completed.returncode, 0, completed.stdout)
+        self.assertEqual(len(calls), 21, calls)
+        self.assertIn("test list", calls[0])
+        self.assertTrue(all("--skip-build" in call for call in calls[1:]), calls)
+        self.assertEqual(len(set(pids)), 20, pids)
+        self.assertIn("20/20 passed (no retries)", completed.stdout)
+        self.assertEqual(completed.stdout.count("ci-repeat "), 20)
+
+    def test_admission_keeps_the_first_failed_repetition(self) -> None:
+        for failure, status in (("fail", 7), ("timeout", 124), ("locked", 1), ("empty", 1)):
+            with self.subTest(failure=failure):
+                completed, calls, pids = self._admission_run("20", failure)
+                self.assertEqual(completed.returncode, status, completed.stdout)
+                self.assertEqual(len(calls), 4, calls)
+                self.assertEqual(len(pids), 3, pids)
+                self.assertIn("2/20 passed (no retries)", completed.stdout)
+                self.assertNotIn("retrying", completed.stdout)
+                self.assertNotIn("20/20 passed", completed.stdout)
+
+    def test_invalid_admission_count_is_refused_before_building(self) -> None:
+        for count in ("0", "-1", "two", "10000", "99999999999999999999"):
+            with self.subTest(count=count):
+                completed, calls, pids = self._admission_run(count)
+                self.assertEqual(completed.returncode, 2, completed.stdout)
+                self.assertIn("--repeat", completed.stdout)
+                self.assertEqual(calls, [])
+                self.assertEqual(pids, [])
+
     def _shard_run(self, shard: str, suites: list[str]) -> tuple[subprocess.CompletedProcess[str], list[str]]:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp = pathlib.Path(temp_dir)
@@ -971,6 +1036,104 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 2, completed.stdout)
         self.assertIn("CMUX_SWIFT_TEST_SUITES names Zulu", completed.stdout)
         self.assertEqual(len(calls), 1, calls)
+
+    # Test sources for the pre-build name scan: every way a suite's name reaches
+    # the source that a declaration regex could miss.
+    SUITE_SOURCES = {
+        "Tests/ExampleTests/AlphaTests.swift": "import Testing\n@Suite struct Alpha {\n  @Test func one() {}\n}\n",
+        # Attributes on their own lines, a display name, a trait, a global actor.
+        "Tests/ExampleTests/BravoTests.swift": (
+            "import Testing\n"
+            "@Suite(\n"
+            "    \"Bravo display name\",\n"
+            "    .serialized\n"
+            ")\n"
+            "@MainActor\n"
+            "final class Bravo {\n"
+            "  @Test func one() {}\n"
+            "}\n"
+        ),
+        "Tests/ExampleTests/CharlieTests.swift": "import XCTest\nfinal class Charlie: XCTestCase {\n  func testOne() {}\n}\n",
+        # A nested suite, and a suite whose tests live in an extension of it.
+        "Tests/ExampleTests/Nested.swift": (
+            "import Testing\n"
+            "enum Outer {}\n"
+            "extension Outer {\n"
+            "  @Suite(\"Inner\") struct Inner {\n"
+            "    @Test func one() {}\n"
+            "  }\n"
+            "}\n"
+            "extension Delta {\n"
+            "  @Test func one() {}\n"
+            "}\n"
+        ),
+    }
+
+    def _sources_run(self, only: str, other_package_suite: str = "") -> tuple[subprocess.CompletedProcess[str], list[str]]:
+        """A package under Packages/ with test sources; another package beside it
+        declares other_package_suite in its own tests."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = pathlib.Path(temp_dir)
+            self._write_fake_swift(temp, "print('Test run with 1 test passed after 0.001 seconds.')\n")
+            package = temp / "Packages" / "macOS" / "ExampleTests"
+            for relative, text in self.SUITE_SOURCES.items():
+                (package / relative).parent.mkdir(parents=True, exist_ok=True)
+                (package / relative).write_text(text, encoding="utf-8")
+            if other_package_suite:
+                other = temp / "Packages" / "macOS" / "OtherKit"
+                (other / "Tests" / "OtherKitTests").mkdir(parents=True)
+                (other / "Package.swift").write_text("// OtherKit\n", encoding="utf-8")
+                (other / "Tests" / "OtherKitTests" / "Suite.swift").write_text(
+                    f"import Testing\n@Suite\nstruct {other_package_suite} {{}}\n", encoding="utf-8")
+            env = self._jobs_env(temp, ["Alpha", "Bravo", "Charlie", "Inner", "Delta"], "2")
+            env["CMUX_SWIFT_TEST_SUITES"] = only
+            completed = run_runner(package, env)
+            calls_path = temp / "calls.txt"
+            calls = calls_path.read_text(encoding="utf-8").splitlines() if calls_path.exists() else []
+            return completed, calls
+
+    def test_a_name_no_test_source_mentions_is_refused_before_the_build(self) -> None:
+        """A typo cost a whole build (11 and 58 minutes on the fleet, 2026-11-16)
+        before the check after `swift test list` refused it. Now no swift build
+        or list runs: the fake records every such call."""
+        for only in ("Zulu", "Alpha,Zulu", "ExampleTests.Zulu", "Alph"):
+            with self.subTest(only=only):
+                completed, calls = self._sources_run(only)
+                self.assertEqual(completed.returncode, 2, completed.stdout)
+                bad = only.split(",")[-1]
+                self.assertIn(f"CMUX_SWIFT_TEST_SUITES names {bad}, which is not a suite of", completed.stdout)
+                self.assertEqual(calls, [], completed.stdout)
+                self.assertNotIn("ci-phase build-and-list", completed.stdout)
+
+    def test_a_refused_name_says_which_package_has_it(self) -> None:
+        completed, calls = self._sources_run("MacScreenHubTests", other_package_suite="MacScreenHubTests")
+        self.assertEqual(completed.returncode, 2, completed.stdout)
+        self.assertIn("MacScreenHubTests is in Packages/macOS/OtherKit", completed.stdout)
+        self.assertEqual(calls, [], completed.stdout)
+
+    def test_names_the_test_sources_declare_pass_the_scan(self) -> None:
+        """Bare and Target.Suite names, a multi-line attribute, an XCTest class, a
+        nested suite with a display name and a suite extended elsewhere all pass
+        the scan and run after the build."""
+        for only, ran in (
+            ("Alpha", ["Alpha"]),
+            ("ExampleTests.Alpha", ["Alpha"]),
+            ("Bravo", ["Bravo"]),
+            ("Charlie,Inner,Delta", ["Charlie", "Delta", "Inner"]),
+        ):
+            with self.subTest(only=only):
+                completed, calls = self._sources_run(only)
+                self.assertEqual(completed.returncode, 0, completed.stdout)
+                self.assertIn("test list", calls[0])
+                self.assertEqual(
+                    sorted(next(s for s in ran if f".{s}/" in call) for call in calls[1:]), ran, completed.stdout)
+
+    def test_a_package_without_test_sources_leaves_the_names_to_the_build(self) -> None:
+        """No source to scan: the scan cannot tell, so the build and its list decide."""
+        completed, calls = self._suites_run("Zulu", ["Alpha"])
+        self.assertEqual(completed.returncode, 2, completed.stdout)
+        self.assertIn("CMUX_SWIFT_TEST_SUITES names Zulu", completed.stdout)
+        self.assertIn("test list", calls[0])
 
     def test_an_invalid_suite_list_is_refused_before_the_build(self) -> None:
         for only in ("Alpha;rm", ",Alpha", "Alpha,", "Al pha", "^Alpha/"):

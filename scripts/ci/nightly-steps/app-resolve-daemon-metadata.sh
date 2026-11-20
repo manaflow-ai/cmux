@@ -15,7 +15,7 @@ if [[ "$track" == "nightly-next" && "${DECIDE_SHOULD_PUBLISH}" == "true" ]]; the
   # ever offers a downgrade after a switch between the two.
   feeds=()
   for appcast in appcast.xml appcast-arm64.xml appcast-x86_64.xml; do
-    feeds+=(--feed-if-present "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
+    feeds+=(--feed "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
   done
   python3 scripts/ci/nightly_version.py check-build --build "$build" "${feeds[@]}"
 fi

@@ -1,0 +1,13 @@
+{
+  "source": "schemas/settings/source/notifications.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Notifications.generated.swift",
+  "type": "NotificationSettingsSchema",
+  "lists": {
+    "dismissal": ["dismissalDescriptors", "NotificationPreferences"],
+    "banners": ["bannerDescriptors", "NotificationPreferences"],
+    "feedMirror": ["feedMirrorDescriptors", null],
+    "attention": ["attentionDescriptors", "AttentionSettings"],
+    "mutedWorkspaces": ["mutedWorkspacesDescriptors", "NotificationPreferences"],
+    "sounds": ["soundDescriptors", "NotificationSoundPreferences"]
+  }
+}

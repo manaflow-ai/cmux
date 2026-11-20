@@ -28,6 +28,8 @@ public final class CEFEngine: BrowserEngine {
     public let signInCallbacks: CEFSignInCallbacks
     let lifecycleTrace: BrowserLifecycleTrace
     let contextMenus: BrowserContextMenuBuilder
+    /// The framework load ``beginEarlyLoad(_:)`` begins, from any thread; the runtime takes it with the stores (`adoptStores`).
+    nonisolated let earlyLoad = CEFEarlyLoad(loader: { CEFRuntime.loadLibrary($0) })
 
     /// The runtime to start, nil while none is available.
     var layout: CEFRuntimeLayout? { runtimeSource.layout }
@@ -87,6 +89,11 @@ public final class CEFEngine: BrowserEngine {
     /// True once CEF has been initialized in this process.
     public var isRunning: Bool { CEFRuntime.shared.state == .ready }
 
+    /// Sends every first-party page file to its page host while `live` (the live web loop,
+    /// web-dev.json); false when this Chromium cannot.
+    @discardableResult
+    public func setLivePages(_ live: Bool) -> Bool { CEFRuntime.shared.setLivePages(live) }
+
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
         adoptStores()
         try await CEFRuntime.shared.start(layout: layout)
@@ -144,6 +151,23 @@ public final class CEFEngine: BrowserEngine {
         guard layout != nil else { return }
         adoptStores()
         CEFRuntime.shared.preload(layout: layout)
+    }
+
+    /// Starts mapping the shim and the framework of `layout` now, from any thread, on a background task, for a
+    /// caller that knows a Chromium page will ask soon (a restored Chromium chat). No Chromium code runs and
+    /// nothing touches the loader on the calling thread; `CefInitialize` still waits for a page (or the warm
+    /// start) on the main thread. Idempotent: a later call keeps the first call's load. The runtime's first start
+    /// or preload of the same layout takes this load and loads nothing again; for another layout it loads its own.
+    public nonisolated func beginEarlyLoad(_ layout: CEFRuntimeLayout) {
+        earlyLoad.begin(layout)
+    }
+
+    /// Holds every Chromium start's `CefInitialize` until `gate` opens (the first window frame), so a
+    /// framework `preload` mapped at launch never puts `CefInitialize` ahead of that frame (CMUX-571).
+    /// nil holds nothing: a launch that wants Chromium ready before its first frame (its visible
+    /// restored pane is a Chromium chat) passes nil, and its start runs `CefInitialize` at once.
+    public func initializeAfter(_ gate: FirstFrameGate?) {
+        CEFRuntime.shared.initializeAfter = gate
     }
 
     /// Runs `CefInitialize` before any Chromium tab needs it, when a caller
@@ -223,7 +247,7 @@ public final class CEFEngine: BrowserEngine {
     /// True when Chromium opened `profile` in this process: its directory
     /// may be removed only after the next launch.
     public func hasOpened(_ profile: BrowserProfileID) -> Bool {
-        CEFRuntime.shared.usedProfiles.contains(profile) || CEFRuntime.shared.extensionStores.hasStore(for: profile)
+        CEFRuntime.shared.hasOpened(profile)
     }
 
     /// Recent renderer and helper process failures (`debug.crashes`).
@@ -257,7 +281,7 @@ public final class CEFEngine: BrowserEngine {
     public var pumpStats: CEFPumpStats? { CEFRuntime.shared.pump?.stats }
 
     /// What the fork's page tracker read from host views (for `debug.cef`).
-    public var trackerStats: CEFTrackerStats { CEFHostView.trackerStats }
+    public var trackerStats: CEFTrackerStats { CEFHostView.trackerStats.with(hostedPages: hostedPageFields) }
 
     /// Chromium asked for a window (a link, `window.open`,
     /// `chrome.windows.create`) and no Chromium window of its profile exists:
@@ -337,6 +361,7 @@ public final class CEFEngine: BrowserEngine {
     /// (not in `init`: the runtime is built on Chromium's first use, not at launch).
     func adoptStores() {
         CEFRuntime.shared.adopt(stores: stores, signInCallbacks: signInCallbacks)
+        CEFRuntime.shared.adopt(earlyLoad: earlyLoad)
     }
 
     private func makeReadyTab(_ configuration: BrowserTabConfiguration) -> CEFTab {
@@ -361,10 +386,10 @@ public final class CEFEngine: BrowserEngine {
 
     /// Quit ordering for a live CEF: closes every browser, waits (async, the
     /// run loop keeps pumping) until the fork reports no Chromium windows or
-    /// `timeout` passes, commits the cookie stores, runs `beforeEngineStop`
+    /// `timeout` passes, commits the cookie stores, awaits `beforeEngineStop`
     /// right before the main thread blocks in CefShutdown, then calls it. The
     /// App awaits this from `applicationShouldTerminate`. No-op when CEF never started.
-    public func shutdown(timeout: Duration = .seconds(3), beforeEngineStop: @MainActor () -> Void = {}) async {
+    public func shutdown(timeout: Duration = .seconds(3), beforeEngineStop: @MainActor () async -> Void) async {
         await CEFRuntime.shared.shutdown(timeout: timeout, beforeEngineStop: beforeEngineStop)
     }
 }

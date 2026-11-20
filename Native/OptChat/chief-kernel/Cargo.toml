@@ -5,9 +5,9 @@ edition = "2024"
 description = "The Chief kernel's pure core: prompt rendering, the tool contract and the ledger fold; native and wasm32, no I/O"
 license = "GPL-3.0-or-later"
 publish = false
+# In the OptChat workspace (optchat-chief's Cargo.lock).
+workspace = "../optchat-chief"
 
-# Its own workspace and lockfile, like the other OptChat crates.
-[workspace]
 
 [dependencies]
 optchat-core = { path = "../optchat-core" }

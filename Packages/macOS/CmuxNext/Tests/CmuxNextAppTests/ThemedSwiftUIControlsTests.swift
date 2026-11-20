@@ -3,17 +3,15 @@ import AppKit
 @testable import CmuxNextApps
 @testable import CmuxNextBookmarks
 import CmuxNextDesign
-@testable import CmuxNextHistory
 import CmuxNextTestSupport
 import SwiftUI
 import Testing
 
-/// Theme sweep 3, batch D: SwiftUI panes drew AppKit's controls whatever the room's theme: History's
-/// search and the bookmark editor's name were `.roundedBorder` fields (system bezel, text and gray
+/// Theme sweep 3, batch D: SwiftUI panes drew AppKit's controls whatever the room's theme: a search
+/// field and the bookmark editor's name were `.roundedBorder` fields (system bezel, text and gray
 /// placeholder), the folder choice a stock pop-up, and Accounts' refresh a gray `ProgressView`.
 /// Hosted in a purple room, each draws the scope's tokens: the field's ink and hint, the pop-up's
-/// theme bezel, the spinner's loading ink (Accounts' refresh and an app scene's indeterminate
-/// `ProgressView`).
+/// theme bezel, the spinner's loading ink (Accounts' refresh).
 @MainActor @Suite(.serialized, .closesItsWindows) struct ThemedSwiftUIControlsTests {
     /// `view` hosted in a window whose content roots the purple room.
     private static func host(_ view: some View, _ scope: ThemeScope, size: NSSize = NSSize(width: 520, height: 480)) throws -> (NSWindow, NSView) {
@@ -26,9 +24,15 @@ import Testing
         return (window, hosting)
     }
 
-    @Test func historySearchIsAThemedField() throws {
+    /// A search field as a SwiftUI pane draws it (the native History page's was the first; it is a
+    /// React page now).
+    private static var searchField: some View {
+        ThemedField(text: .constant(""), placeholder: "Search", font: Typography.subtitle, focusOnAppear: true)
+    }
+
+    @Test func aSearchFieldIsAThemedField() throws {
         let scope = try ThemedOverlayColorsTests.purpleRoom()
-        let (window, root) = try Self.host(HistoryPageView(model: HistoryPageModel(), appearance: HistoryPageAppearance()), scope)
+        let (window, root) = try Self.host(Self.searchField, scope)
         defer { window.contentView = nil; window.close() }
         let fields = HomeSheetThemeTests.editableFields(in: root)
         #expect(fields.count == 1, "the search field")
@@ -74,25 +78,11 @@ import Testing
         #expect(ThemedOverlayColorsTests.same(loading, scope.perform { Palette.textSecondary }), "\(loading)")
     }
 
-    @Test func anAppSceneSpinnerDrawsTheTheme() throws {
-        let scope = try ThemedOverlayColorsTests.purpleRoom()
-        let model = AppSceneModel()
-        model.apply([.create(id: "busy", type: "ProgressView", props: [:]), .root(id: "busy")])
-        let (window, root) = try Self.host(AppSceneNodeView(model: model, id: "busy"), scope, size: NSSize(width: 120, height: 60))
-        defer { window.contentView = nil; window.close() }
-        #expect(Self.all(NSProgressIndicator.self, in: root).isEmpty, "no AppKit spinner: it draws the appearance's gray")
-        let spinner = try #require(Self.all(StatusIndicatorView.self, in: root).first { !$0.isHidden }, "a visible themed spinner")
-        #expect(spinner.state == .busy)
-        spinner.updateLayer()
-        let loading = try #require(spinner.indicator.colors.flatMap { NSColor(cgColor: $0.loading) })
-        #expect(ThemedOverlayColorsTests.same(loading, scope.perform { Palette.textSecondary }), "\(loading)")
-    }
-
     /// A search that took the keyboard when it first appeared takes it again when its view comes
     /// back to the window (its tab shown again), as SwiftUI's `.onAppear` focus did.
     @Test func aSearchTakesTheKeyboardAgainWhenItComesBack() throws {
         let scope = try ThemedOverlayColorsTests.purpleRoom()
-        let (window, root) = try Self.host(HistoryPageView(model: HistoryPageModel(), appearance: HistoryPageAppearance()), scope)
+        let (window, root) = try Self.host(Self.searchField, scope)
         defer { window.contentView = nil; window.close() }
         let field = try #require(HomeSheetThemeTests.editableFields(in: root).first)
         #expect(Self.isEditing(field, in: window), "the search takes the keyboard when it appears")

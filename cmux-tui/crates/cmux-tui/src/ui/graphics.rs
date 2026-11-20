@@ -10,6 +10,7 @@ use std::time::Instant;
 
 use base64::Engine as _;
 use cmux_tui_core::{BrowserFrame, Rect, SurfaceId};
+use crossterm::event::HostReply;
 use ghostty_vt::{KittyImage, KittyImageFormat, KittyPlacement};
 
 const ESC: &str = "\x1b";
@@ -1181,6 +1182,17 @@ fn split_pending_input(bytes: &[u8]) -> StartupTerminalInput {
     let mut events = Vec::new();
     let mut offset = 0;
     while offset < bytes.len() {
+        // A host's late OSC reply (a color query `host_colors.rs` stopped
+        // waiting for) is no input: drop it, or wait for its end.
+        let rest = bytes.get(offset..).unwrap_or_default();
+        match host_reply(rest) {
+            HostReply::Complete(length) => {
+                offset += length;
+                continue;
+            }
+            HostReply::Partial if rest.len() > 2 => break,
+            HostReply::Partial | HostReply::NotAReply => {}
+        }
         if let Some((event, consumed)) = parse_one_input_event(&bytes[offset..]) {
             events.push(event);
             offset += consumed;
@@ -1200,6 +1212,21 @@ fn parse_incomplete_input_lossy(bytes: &[u8]) -> Vec<crossterm::event::Event> {
     let mut events = Vec::new();
     let mut offset = 0;
     while offset < bytes.len() {
+        // The start of a host color reply whose end never came is still no
+        // input; an `ESC ]` that is only the start of one (`ESC ]`, `ESC ] 1`,
+        // `ESC ] 11`) is Alt+], and the bytes after it are keys.
+        let rest = bytes.get(offset..).unwrap_or_default();
+        if host_reply(rest) == HostReply::Partial {
+            if rest.len() >= REPLY_TEXT_START {
+                break;
+            }
+            events.push(crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Char(']'),
+                crossterm::event::KeyModifiers::ALT,
+            )));
+            offset += 2;
+            continue;
+        }
         if let Some((event, consumed)) = parse_one_input_event(&bytes[offset..]) {
             events.push(event);
             offset += consumed;
@@ -1268,24 +1295,36 @@ pub(crate) fn finish_startup_input(
     pending.events
 }
 
+/// Where a host color reply's text starts: after `ESC ] 1 0 ;` or
+/// `ESC ] 1 1 ;`.
+const REPLY_TEXT_START: usize = 5;
+
+/// A host OSC reply at the start of `bytes` (vendored Crossterm's scanner;
+/// `vendor/crossterm/CMUX_PATCH.md`).
+fn host_reply(bytes: &[u8]) -> HostReply {
+    crossterm::event::scan_host_reply(bytes)
+}
+
 fn parse_one_input_event(bytes: &[u8]) -> Option<(crossterm::event::Event, usize)> {
     let minimum = usize::from(bytes.first() == Some(&b'\x1b') && bytes.len() > 1) + 1;
     for end in minimum..=bytes.len() {
-        let Some(event) = parse_startup_input_event(&bytes[..end]) else { continue };
-        return Some((event, end));
+        let Some((event, used)) = parse_startup_input_event(&bytes[..end]) else { continue };
+        return Some((event, used.min(end)));
     }
     None
 }
 
+/// The event at the start of `bytes` and how many bytes it used (Alt+]
+/// from an `ESC ]` that is no host reply uses 2; the rest are keys).
 #[cfg(unix)]
-fn parse_startup_input_event(bytes: &[u8]) -> Option<crossterm::event::Event> {
-    crossterm::event::parse_event_from_bytes(bytes, true).ok().flatten()
+fn parse_startup_input_event(bytes: &[u8]) -> Option<(crossterm::event::Event, usize)> {
+    crossterm::event::parse_event_len_from_bytes(bytes, true).ok().flatten()
 }
 
 #[cfg(not(unix))]
-fn parse_startup_input_event(bytes: &[u8]) -> Option<crossterm::event::Event> {
+fn parse_startup_input_event(bytes: &[u8]) -> Option<(crossterm::event::Event, usize)> {
     let event = terminput::Event::parse_from(bytes).ok().flatten()?;
-    terminput_crossterm::to_crossterm(event).ok()
+    terminput_crossterm::to_crossterm(event).ok().map(|event| (event, bytes.len()))
 }
 
 #[cfg(test)]
@@ -1364,6 +1403,69 @@ mod tests {
                 && mouse.row == 3
                 && last.code == KeyCode::Char('b')
         ));
+    }
+
+    /// W5-Q (bench round 4 screen #4): a host's OSC 10/11 color reply that
+    /// arrives with the startup probe replies is no input. It once became
+    /// Alt+] and typed text in the first pane. A key typed after it stays.
+    #[cfg(unix)]
+    #[test]
+    fn w5q_startup_input_drops_host_color_replies() {
+        use crossterm::event::{Event, KeyCode};
+
+        let bytes = b"\x1b]10;rgb:fdfd/ffff/f1f1\x1b\\\x1b]11;rgb:2727/2828/2222\x07\x1b[?62;22ca";
+        let parsed = parse_terminal_probe(bytes);
+        assert!(parsed.primary_device_attributes);
+        let input = split_pending_input(&parsed.pending_input);
+        assert!(input.incomplete.is_empty(), "left over: {:?}", input.incomplete);
+        assert!(
+            matches!(input.events.as_slice(), [Event::Key(key)] if key.code == KeyCode::Char('a')),
+            "a color reply became input: {:?}",
+            input.events
+        );
+
+        // The reply's end came after the probe: the rest still is no input.
+        let mut pending = split_pending_input(b"\x1b]11;rgb:2727/28");
+        pending.append(b"28/2222\x1b\\b");
+        assert!(pending.incomplete.is_empty(), "left over: {:?}", pending.incomplete);
+        assert!(
+            matches!(pending.events.as_slice(), [Event::Key(key)] if key.code == KeyCode::Char('b')),
+            "a split color reply became input: {:?}",
+            pending.events
+        );
+    }
+
+    /// W5-Q review (PR B finding 3): Alt+] typed while the client probes
+    /// the host is Alt+], and the keys after it in the same read stay. The
+    /// startup reader once took the key after `ESC ]` with it, and a lone
+    /// `ESC ]` became Esc and `]`.
+    #[cfg(unix)]
+    #[test]
+    fn w5q_startup_input_keeps_alt_right_bracket_and_the_keys_after_it() {
+        use crossterm::event::{Event, KeyCode, KeyModifiers};
+
+        let keys = |events: &[Event]| -> Vec<(KeyCode, KeyModifiers)> {
+            events
+                .iter()
+                .filter_map(|event| event.as_key_event().map(|key| (key.code, key.modifiers)))
+                .collect()
+        };
+        let alt = (KeyCode::Char(']'), KeyModifiers::ALT);
+        let input = split_pending_input(b"\x1b]a");
+        assert!(input.incomplete.is_empty(), "left over: {:?}", input.incomplete);
+        assert_eq!(keys(&input.events), [alt, (KeyCode::Char('a'), KeyModifiers::NONE)]);
+
+        let input = split_pending_input(b"\x1b]\x1b[A");
+        assert_eq!(keys(&input.events), [alt, (KeyCode::Up, KeyModifiers::NONE)]);
+
+        // Nothing came after a lone `ESC ]` before the startup wait ended.
+        assert_eq!(keys(&parse_incomplete_input_lossy(b"\x1b]")), [alt]);
+        assert_eq!(
+            keys(&parse_incomplete_input_lossy(b"\x1b]1")),
+            [alt, (KeyCode::Char('1'), KeyModifiers::NONE)]
+        );
+        // The start of a color reply whose end never came is still no input.
+        assert!(parse_incomplete_input_lossy(b"\x1b]11;rgb:27").is_empty());
     }
 
     #[test]

@@ -4,7 +4,7 @@ public import CmuxNextDaemonService
 public import CmuxNextDesign
 public import Foundation
 import CmuxNextAgentActivity
-import CmuxNextHome
+import CmuxNextHomeModel
 public import CmuxNextPages
 
 extension PageDescriptor {

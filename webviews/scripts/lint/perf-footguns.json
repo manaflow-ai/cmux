@@ -1,0 +1,8 @@
+{
+  "jsPlugins": ["./perf-footguns.mjs"],
+  "categories": { "correctness": "off" },
+  "rules": {
+    "cmux-perf/layout-thrash-in-loop": "warn",
+    "cmux-perf/layout-read-after-write": "warn"
+  }
+}

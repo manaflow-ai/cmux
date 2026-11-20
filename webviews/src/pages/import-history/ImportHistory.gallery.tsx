@@ -9,6 +9,7 @@ type Props = {
   empty?: boolean;
   paste?: boolean;
   autodetected?: boolean;
+  open?: boolean;
 };
 
 export default componentEntry<Props>({
@@ -24,31 +25,40 @@ export default componentEntry<Props>({
   ],
   load: async () => (await import("./galleryFixture")).ImportHistoryGallery,
   styles: async () => {
+    await import("../../ui/ui.css");
     await import("../shared/pageBase.css");
     await import("./styles.css");
   },
   variants: {
     list: {
-      note: "Recommended: one aligned list keeps every source visible and its action beside it.",
+      note: "Recommended: one row per tool in alphabetical order; its checkbox brings chats and memories, and Sources opens them apart.",
       props: { layout: "list" },
     },
-    cards: {
-      note: "Two columns trade a shorter list for more eye movement.",
-      props: { layout: "cards" },
+    "list-open": {
+      note: "The same list with every tool's Sources open: Chats, then Memories, each source with its path.",
+      props: { layout: "list", open: true },
     },
-    compact: {
-      note: "A denser checklist for narrow or short panes.",
-      props: { layout: "compact" },
+    chips: {
+      note: "A Chats and a Memories toggle on each tool's row; picking a kind needs no disclosure, but every row is busier.",
+      props: { layout: "chips" },
+    },
+    cards: {
+      note: "Each tool its own card with every source listed; the most to read before the first click.",
+      props: { layout: "cards" },
     },
     "nothing-detected": { props: { empty: true } },
     detecting: { props: { phase: "detecting" } },
-    importing: { props: { phase: "importing" } },
+    importing: { props: { phase: "importing", open: true } },
     done: { props: { phase: "done" } },
     error: { props: { phase: "error" } },
     "paste-summary": { props: { paste: true } },
+    "paste-summary-open": {
+      note: "A source's paste box open under its row: help, Copy, label and text box start at the title's edge, as the path does.",
+      props: { paste: true, open: true },
+    },
     autodetected: {
       note: "Archives found in the usual export folders are checked inline; manual pick remains available on each archive row.",
-      props: { autodetected: true },
+      props: { autodetected: true, open: true },
     },
   },
 });

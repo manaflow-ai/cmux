@@ -6,22 +6,32 @@ import { ImportHistory, type HistoryLayout } from "./ImportHistory";
 import { initialRows, ImportHistoryStore, type Phase, type HistorySnapshot } from "./model";
 import { MockImportHistoryProvider } from "./mockProvider";
 
+const SAMPLE_PATHS: Record<string, string> = {
+  "claude-code": "~/.claude/projects",
+  codex: "~/.codex/memories",
+  "codex-sessions": "~/.codex/sessions",
+  "claude-memory": "~/.claude/CLAUDE.md",
+};
+
 export function ImportHistoryGallery({
   layout,
   phase = "ready",
   empty = false,
   paste = false,
   autodetected = false,
+  open = false,
 }: {
   layout?: HistoryLayout;
   phase?: Phase;
   empty?: boolean;
   paste?: boolean;
   autodetected?: boolean;
+  open?: boolean;
 }) {
   const [store] = useState(() => {
     const rows = initialRows().map((row) => {
-      if (row.kind === "local" && !empty && phase !== "detecting") return { ...row, source: row.id, selected: true };
+      if (row.kind === "local" && !empty && phase !== "detecting")
+        return { ...row, source: row.id, name: SAMPLE_PATHS[row.id], selected: true };
       if (autodetected && row.id === "chatgpt")
         return {
           ...row,
@@ -77,5 +87,5 @@ export function ImportHistoryGallery({
     return new ImportHistoryStore(new MockImportHistoryProvider(empty), fixture);
   });
   const [strings] = useState(() => createStrings(table));
-  return <ImportHistory store={store} strings={strings} layout={layout} />;
+  return <ImportHistory store={store} strings={strings} layout={layout} defaultOpen={open} />;
 }

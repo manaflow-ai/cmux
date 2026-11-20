@@ -7,6 +7,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { ReleaseNotes } from "../src/pages/changelog/types";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "location", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -25,11 +26,8 @@ beforeAll(() => {
   });
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 const entry = (id: string, category: "new" | "improved" | "fixed", title: string, summary: string) => ({
@@ -102,13 +100,19 @@ test("each day lists its changes under their app area, one line each, newest day
     ]),
   ]);
   expect(areas).toEqual([
-    // A curated change's summary is cut to its first sentence.
+    // A curated change's summary shows whole, wrapped rather than cut (Leo 2026-11-07: "i just
+    // still think it might be a bit too narrow in the full screen").
     [true, "Sidebar", "1", [["Each machine shows its cost", "In the sidebar, next to its name."]]],
     [
       true,
       "Agent Chat",
       "1",
-      [["Links reuse the browser pane beside your chat", "A link opens in the pane you already have."]],
+      [
+        [
+          "Links reuse the browser pane beside your chat",
+          "A link opens in the pane you already have. Unread dots wait for background agents.",
+        ],
+      ],
     ],
     // A change with no curated note: its readable title under its area.
     [true, "Sidebar", "1", [["Rows keep their place while you rename them", undefined]]],

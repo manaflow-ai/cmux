@@ -52,8 +52,8 @@ await requireBrowserLane("model-search.browser.test.ts", async () => {
     return page;
   }
 
-  /// Search groups are sibling headings in the models column. Long names may ellipsize;
-  /// their full text stays in the title, and their boxes must stay inside the row.
+  /// Search groups are sibling headings in the models column. Long names wrap; the name's tooltip is
+  /// the name alone, a same-named row shows its id under it, and their boxes must stay inside the row.
   const read = (page: Page) =>
     page.evaluate(() => {
       const menu = document.querySelector<HTMLElement>(".acpmux-cols")!;
@@ -70,7 +70,8 @@ await requireBrowserLane("model-search.browser.test.ts", async () => {
           {
             name: label.textContent ?? "",
             heading,
-            title: row.title,
+            title: label.title,
+            id: row.querySelector<HTMLElement>(".acpmux-cols-id")?.textContent ?? "",
             labelInside: text.left >= area.left && text.right <= area.right + 1,
             ellipsis: getComputedStyle(label).textOverflow,
             height: area.height,
@@ -110,9 +111,11 @@ await requireBrowserLane("model-search.browser.test.ts", async () => {
     // Pi's OpenRouter names differ only at their end (Thinking, Mini, Nano).
     const pi = rows.filter((row) => row.name.startsWith("OpenAI: GPT-6.1 Sol"));
     expect(pi.map((row) => row.name.split(" ")[3])).toEqual(["Thinking", "Mini", "Nano"]);
-    expect(rows.every((row) => row.labelInside && row.ellipsis === "ellipsis")).toBe(true);
+    // Names wrap rather than ellipsize (Lawrence 2026-11-05: "cant see full model name").
+    expect(rows.every((row) => row.labelInside && row.ellipsis === "clip")).toBe(true);
     expect(rows.every((row) => row.height >= 26)).toBe(true);
-    expect(rows.every((row) => row.title.includes(row.name) && row.title.includes(row.heading))).toBe(true);
+    // The tooltip is the name alone (Lucas 2026-11-11); the heading names the harness.
+    expect(rows.every((row) => row.title === row.name)).toBe(true);
     await page.close();
   });
 
@@ -140,14 +143,14 @@ await requireBrowserLane("model-search.browser.test.ts", async () => {
     expect(new Set(picked).size).toBe(2);
   });
 
-  test("same-named routes have distinguishable tooltips", async () => {
+  test("same-named routes show distinguishable model ids", async () => {
     const page = await searched("sol 6.1");
     const { rows } = await read(page);
     const routes = rows.filter((row) => row.heading === "OpenCode" && row.name === "GPT-6.1 Sol");
     expect(routes).toHaveLength(2);
-    // The old list showed IDs inline. Compact column labels need the tooltip to retain that
-    // distinction when both routes have the same model name and provider.
-    expect(new Set(routes.map((row) => row.title)).size).toBe(2);
+    // Both routes have the same name and provider: each shows its model id under the name.
+    expect(routes.every((row) => row.id !== "")).toBe(true);
+    expect(new Set(routes.map((row) => row.id)).size).toBe(2);
     await page.close();
   });
 

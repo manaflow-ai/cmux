@@ -8,6 +8,22 @@ use super::{
     SYSTEMD_UNIT,
 };
 
+/// Shell asking systemd for a unit's effective settings, never its files:
+/// `acpmux_show UNIT PROP` (`systemctl --user show -p PROP --value`), and
+/// `acpmux_runs_daemon UNIT`, true when its effective command is an acpmux
+/// binary running `daemon run` (its `argv[]`, in `$acpmux_a`). systemd has
+/// already joined every drop-in (the unit's, a name prefix's such as
+/// `acpmux-agent-.service.d`, `service.d`), whitespace, continued lines and
+/// specifiers, so what this reads is what would run. A command behind a
+/// wrapper (`/usr/bin/env ACPMUX_HOME=... acpmux daemon run`) is not the
+/// daemon's: its home is in its arguments, where no check here looks.
+pub(super) const UNIT_SHOW: &str = r#"acpmux_show() { systemctl --user show "$1" -p "$2" --value 2>/dev/null; }
+acpmux_runs_daemon() { acpmux_a=$(acpmux_show "$1" ExecStart | sed -n 's/^.*argv\[\]=\(.*\) ; ignore_errors=.*$/\1/p' | tail -1)
+  case "${acpmux_a%% *}" in *=*) return 1;; esac
+  case "${acpmux_a%% *}" in */acpmux|*/acpmux[-._]*) ;; *) return 1;; esac
+  case "${acpmux_a#* }" in "daemon run"|"daemon run "*) ;; *) return 1;; esac; }
+"#;
+
 /// What a script prints before it refuses (exit 3) to move a hand-written
 /// unit, followed by the reason's code; the message goes to stderr.
 pub(super) const REFUSED: &str = "ACPMUX_REFUSED=";
@@ -33,14 +49,31 @@ pub(super) const MIGRATING: &str = "ACPMUX_MIGRATING=";
 /// `host_update.rs`). `daemon run` takes its listen address from `--listen`
 /// alone, so a `--listen` the home's config.json does not also name is
 /// refused rather than moved; `--log` is dropped, and any other argument is
-/// refused.
+/// refused. A unit whose daemon is not running (`$p` empty, a stopped or
+/// disabled unit) is read from systemd's effective settings instead
+/// ([`UNIT_SHOW`]): its command and its `Environment=` assignments. One that
+/// quotes or escapes a value, reads an `EnvironmentFile=`, or takes a drop-in
+/// from anywhere but its own `.d` folder or the `service.d` every service
+/// shares (a name prefix's, `/etc`'s) is refused: a value read wrong would
+/// move the daemon to another home, and a setting left behind would change
+/// how it runs.
 const MIGRATE_PLAN: &str = r#"d=~/.config/systemd/user; n=$d/acpmux.service.d; t=
 refuse() { [ -z "$t" ] || rm -rf "$t"; echo "ACPMUX_REFUSED=$1"; echo "$2" >&2; exit 3; }
 fail() { [ -z "$t" ] || rm -rf "$t"; exit 1; }
 unwritten() { refuse writeFailed "the files for moving the daemon from $u to acpmux.service could not be written (is the disk full?): free space, then run this again"; }
 [ -f "$d/$u" ] || refuse unitElsewhere "the daemon of ~/.acpmux runs under $u, whose unit file is not in $d: move it to acpmux.service by hand"
 t=$(mktemp -d) && mkdir "$t/d" || unwritten
-envof() { tr '\000' '\n' < "/proc/$p/environ" 2>/dev/null | sed -n "s/^$1=//p" | head -1; }
+pe=/proc/$p/environ; pa=/proc/$p/cmdline
+if [ -z "$p" ]; then pe=$t/environ; pa=$t/cmdline
+acpmux_e=$(acpmux_show "$u" Environment)
+case "$acpmux_e" in *[\"\'\\]*) refuse unitSettings "$u sets its environment in a way acpmux does not copy into a unit: move it to acpmux.service by hand";; esac
+[ -z "$(acpmux_show "$u" EnvironmentFiles)" ] || refuse unitSettings "$u reads an EnvironmentFile=, which acpmux does not copy into a unit: move it to acpmux.service by hand"
+for acpmux_x in $(acpmux_show "$u" DropInPaths); do case "${acpmux_x%/*}" in "$d/$u.d"|*/service.d) ;; *) refuse unitSettings "$u takes settings from $acpmux_x, which acpmux does not copy into a unit: move it to acpmux.service by hand";; esac; done
+acpmux_runs_daemon "$u" || refuse unitSettings "$u does not run acpmux daemon run itself: move it to acpmux.service by hand"
+printf '%s\n' "$acpmux_e" | tr ' ' '\000' > "$pe" || unwritten
+printf '%s\n' "$acpmux_a" | tr ' ' '\000' > "$pa" || unwritten
+fi
+envof() { tr '\000' '\n' < "$pe" 2>/dev/null | sed -n "s/^$1=//p" | tail -1; }
 carry() { case "$2" in *[!A-Za-z0-9/._+@:-]*) refuse unitSettings "$u sets $1 to a value acpmux does not copy into a unit: move it to acpmux.service by hand";; esac; printf 'Environment=%s=%s\n' "$1" "$2" >> "$t/env" || unwritten; }
 h=$(envof ACPMUX_HOME); s=$(envof ACPMUX_SOCKET)
 if [ -n "$h" ] && [ "$h" != "$dh" ]; then carry ACPMUX_HOME "$h"; fi
@@ -56,7 +89,7 @@ while read -r x; do
 case "$k" in --listen) l=$x; k=; continue;; --log) k=; continue;; esac
 case "$x" in --listen|--log) k=$x;; --listen=*) l=${x#--listen=};; --log=*|'') ;; *) refuse unitArgs "$u runs the daemon with $x, which acpmux.service does not pass: move it by hand";; esac
 done <<ACPMUX_ARGS
-$(tr '\000' '\n' < "/proc/$p/cmdline" 2>/dev/null | sed '1,/^run$/d')
+$(tr '\000' '\n' < "$pa" 2>/dev/null | sed '1,/^run$/d')
 ACPMUX_ARGS
 if [ -n "$l" ] && ! grep -q "\"listen\": *\"$l\"" "${h:-$HOME/.acpmux}/config.json" 2>/dev/null; then refuse listenConflict "$u runs the daemon with --listen $l, which is not the websocket.listen of its config.json, and acpmux.service reads the address only from there: set it to $l, then run this again"; fi
 "#;
@@ -128,7 +161,7 @@ systemctl --user daemon-reload && systemctl --user enable --now "$u"
 "#;
 
 /// Moves a daemon that runs under a hand-written acpmux unit (`$u` from
-/// [`super::DAEMON_UNIT`]) to `acpmux.service`, keeping its agents; nothing for any
+/// [`super::daemon_unit`]) to `acpmux.service`, keeping its agents; nothing for any
 /// other daemon. `dry` (the probe before an update) only checks the plan.
 /// It refuses (exit 3, [`REFUSED`]) before changing anything; once it
 /// changed something it prints [`MIGRATING`] and ends the script, with
@@ -146,14 +179,21 @@ pub(super) fn migrate(dry: bool) -> String {
     };
     let old = super::old_unit_check();
     format!(
-        "if [ -n \"$u\" ] && [ \"$u\" != acpmux.service ]; then\ndh={REMOTE_HOME}\n{old}{MIGRATE_PLAN}cat > \"$t/acpmux.service\" <<'ACPMUX_UNIT' || unwritten\n{SYSTEMD_UNIT}ACPMUX_UNIT\n{MIGRATE_CONFLICTS}{apply}fi\n"
+        "if [ -n \"$u\" ] && [ \"$u\" != acpmux.service ]; then\ndh={REMOTE_HOME}\n{UNIT_SHOW}{old}{MIGRATE_PLAN}cat > \"$t/acpmux.service\" <<'ACPMUX_UNIT' || unwritten\n{SYSTEMD_UNIT}ACPMUX_UNIT\n{MIGRATE_CONFLICTS}{apply}fi\n"
     )
 }
 
 /// Moves the daemon back to the hand-written `unit` and puts the previous
 /// binary back; None for a unit name that is not plain.
 pub(super) fn migrate_back(unit: &str) -> Option<String> {
+    unit_back(unit).map(|back| format!("{RESTORE_PREV}\n{back}"))
+}
+
+/// Moves the daemon back to the hand-written `unit`, the binary as it is:
+/// setup's undo of a move it started ([`super::setup_restart`]), which pushed
+/// no binary. None for a unit name that is not plain.
+pub(super) fn unit_back(unit: &str) -> Option<String> {
     let plain = unit.ends_with(".service")
         && unit.bytes().all(|b| b.is_ascii_alphanumeric() || b"@._-".contains(&b));
-    plain.then(|| format!("u={unit}\n{RESTORE_PREV}\n{MIGRATE_BACK}"))
+    plain.then(|| format!("u={unit}\n{MIGRATE_BACK}"))
 }

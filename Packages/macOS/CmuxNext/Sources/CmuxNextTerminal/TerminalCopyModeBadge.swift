@@ -11,11 +11,15 @@ final class TerminalCopyModeBadge: NSView {
         String(localized: "terminal.copyMode.indicator", defaultValue: "vim", bundle: .module)
     }
 
+    override func layout() {
+        super.layout()
+        layer?.cornerRadius = Metrics.capsuleRadius(bounds.size) // a pill: half its height
+    }
+
     init() {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
-        layer?.cornerRadius = 14
         layer?.masksToBounds = true
         layer?.borderWidth = Metrics.lineWidth(1)
 

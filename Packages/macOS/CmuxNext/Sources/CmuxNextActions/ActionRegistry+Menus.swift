@@ -84,7 +84,9 @@ final class ActionMenuTarget: NSObject, NSMenuItemValidation {
 
     @objc func performAction(_ sender: NSMenuItem) {
         guard let registry, let payload = Self.payload(of: sender) else { return }
-        registry.perform(payload.id, invocation: payload.invocation(in: registry))
+        var invocation = payload.invocation(in: registry)
+        invocation.menuPick = !registry.isDispatchingKeyDown() // a key equivalent's own key dispatch names the person
+        registry.perform(payload.id, invocation: invocation)
     }
 
     /// A key equivalent also asks the registry's `menuKeyEquivalentGate`,

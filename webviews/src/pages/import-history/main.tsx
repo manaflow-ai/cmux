@@ -1,4 +1,5 @@
 import "../shared/desktop";
+import "../shared/transientMaterial";
 import { createRoot } from "react-dom/client";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
 import { createPageClient, type PageClient } from "../shared/pageClient";
@@ -7,6 +8,7 @@ import table from "./generated/strings.json";
 import { ImportHistory } from "./ImportHistory";
 import { ImportHistoryStore } from "./model";
 import { MockImportHistoryProvider } from "./mockProvider";
+import "../../ui/ui.css";
 import "../shared/pageBase.css";
 import "./styles.css";
 

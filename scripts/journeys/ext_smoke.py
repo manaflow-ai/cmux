@@ -327,13 +327,15 @@ def cond_smoke_daemon_lines(j, want, cache):
 
 
 def cond_smoke_frame(j, want, cache):
-    """A fresh frame of the window that is not blank (the step's screenshot; the app state proves the rest)."""
+    """A fresh frame of the window that is not blank (the step's screenshot; the app state proves the rest). A `lacks`
+    check is not judged on a band read in which a band that shows ink read no text (driver.lacks_not_judged); a `lacks`
+    text that the read finds fails it."""
     j.checks += 1
     image = j.app.snapshot(j.out / f"check-{j.checks:02d}.png")
     lines = j.app.read_text(image)
     present = [t for t in j.sub(want.get("lacks", [])) if D.ocr_contains(lines, t)]
-    detail = {"image": image.name, "lines": len(lines), "present": present, "text": lines[-8:]}
-    partial = D.lacks_not_judged(want, lines)
+    detail = {"image": image.name, "lines": len(lines), "present": present, "text": lines[-8:], **D.band_detail(lines)}
+    partial = D.lacks_not_judged(want, lines, present)
     if partial:
         return False, dict(detail, lacks_not_judged=partial)
     return len(lines) >= int(want.get("min_lines", 3)) and not present, detail

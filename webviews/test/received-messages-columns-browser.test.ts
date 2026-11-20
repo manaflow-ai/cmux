@@ -97,7 +97,7 @@ await requireBrowserLane("received-messages-columns-browser.test.ts", async () =
         };
         const head = document.querySelector(".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle")!;
         const icon = head.querySelector(":scope > .cv-tool__icon")!;
-        const lines = [...document.querySelectorAll(".cv-lane-batch__body .cv-received > .cv-disclosure__line")].filter(
+        const lines = [...document.querySelectorAll(".cv-lane-batch__body .cv-received > .cv-agentmsg__line")].filter(
           visible,
         );
         return {

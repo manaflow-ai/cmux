@@ -1,4 +1,5 @@
 public import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextSettings
 import Observation
 
@@ -14,8 +15,11 @@ import Observation
 /// the build reads (descriptors, bindings, shortcut and chord overrides,
 /// disabled features) rebuilds it. Unavailable reasons read app state, such
 /// as the sidebar document a new workspace changes, so they are observed
-/// apart: a change there re-reads only the reasons, and publishes only when
-/// one differs. Changes in one main-actor turn coalesce into one refresh.
+/// apart, each action's on its own: a change there re-reads only the reasons
+/// of the actions that read it (SWITCH STALL: every workspace switch re-read
+/// all of them, 5 ms, and rebuilt the published catalog, 3.5 ms), patches
+/// those in the published catalog, and publishes only when one differs.
+/// Changes in one main-actor turn coalesce into one refresh.
 @MainActor
 public final class RegistryControlBridge: ControlActionExecutor {
     public let registry: ActionRegistry
@@ -29,18 +33,25 @@ public final class RegistryControlBridge: ControlActionExecutor {
     /// The last built catalog; nil until the first attach.
     private var built: BuiltCatalog?
     private var structureIsStale = true
+    /// Every action's reason must be read again (the first build, new ids, a new attach).
     private var reasonsAreStale = true
     private var refreshIsScheduled = false
-    /// The current arming of each observation. Both read the bound actions,
-    /// so one change fires both; the refresh re-arms them, and an arming
-    /// that is no longer current is ignored when it fires.
+    /// The current arming of the structure observation; an arming that is no
+    /// longer current is ignored when it fires.
     private var structureArming = 0
-    private var reasonsArming = 0
-    /// How many times the per-action info was built, the reasons were read,
-    /// and a reason observation fired on the main actor (tests).
+    /// The reason observations' generation: a full read arms one per action
+    /// under a new one, and a firing of an older one is ignored. Each reads
+    /// the bound actions, so a binding change fires all of them once.
+    private var reasonsGeneration: UInt64 = 0
+    /// The actions whose reason observation fired since the last refresh.
+    private let firedReasons = FiredReasons()
+    /// How many times the per-action info was built, the reasons were read
+    /// (a refresh that read any), the reasons read one by one, and a reason
+    /// observation fired (tests).
     private(set) var structureBuilds = 0
     private(set) var reasonReads = 0
-    private(set) var reasonFirings = 0
+    private(set) var reasonEntryReads = 0
+    var reasonFirings: Int { firedReasons.firings }
 
     public init(registry: ActionRegistry) {
         self.registry = registry
@@ -72,28 +83,45 @@ public final class RegistryControlBridge: ControlActionExecutor {
         refreshIsScheduled = false
         guard isObserving else { return }
         var changed = publish
+        var rebuilt = false
         if structureIsStale || built == nil {
             structureIsStale = false
             let previous = built
             var next = buildObservingStructure()
             if let previous, previous.ids == next.ids, !reasonsAreStale {
-                // The same actions, and the reason observation has not fired:
-                // keep its reasons. Arming another would leave this one
-                // registered (an observation ends only when it fires).
+                // The same actions: keep their reasons and their armed
+                // observations (arming another would leave the old one
+                // registered: an observation ends only when it fires). A
+                // binding change fired them all, so they are read below.
                 next.apply(reasons: previous.reasons)
             } else {
                 reasonsAreStale = true
             }
             built = next
             changed = true
+            rebuilt = true
         }
-        if reasonsAreStale, var catalog = built {
+        // `built` is patched in place (no second copy of the actions next to the published one).
+        if reasonsAreStale, let ids = built?.ids {
             reasonsAreStale = false
-            if catalog.apply(reasons: readObservingReasons(catalog.ids)) { changed = true }
-            built = catalog
+            reasonsGeneration &+= 1
+            _ = firedReasons.take(generation: reasonsGeneration)
+            reasonReads += 1
+            let reasons = ids.enumerated().map { readObservingReason(at: $0.offset, id: $0.element) }
+            if built?.apply(reasons: reasons) == true { changed = true }
+        } else if let ids = built?.ids {
+            let fired = firedReasons.take(generation: reasonsGeneration)
+            if !fired.isEmpty { reasonReads += 1 }
+            for index in fired {
+                guard let id = ids[checked: index] else { continue }
+                let reason = readObservingReason(at: index, id: id)
+                if built?.setReason(reason, at: index) == true { changed = true }
+            }
         }
         guard changed, let current = built else { return }
-        router?.updateCatalog(current.catalog(contextMask: registry.context.rawValue))
+        // Only a reason changed: the bridge knows the actions differ, so the
+        // router skips its comparison of every action.
+        router?.updateCatalog(current.catalog(contextMask: registry.context.rawValue), actionsChanged: rebuilt || publish ? nil : true)
     }
 
     private func scheduleRefresh() {
@@ -122,28 +150,24 @@ public final class RegistryControlBridge: ControlActionExecutor {
         }
     }
 
-    /// Reads every action's unavailable reason under observation. Reasons
-    /// read observable app state (daemon capabilities, the sidebar), so a
-    /// change there re-reads them. It also reads the descriptors and actions
-    /// the ids come from, so whenever the ids change this observation has
-    /// fired, and a refresh that arms the next one leaves none behind.
-    private func readObservingReasons(_ ids: [ActionID]) -> [String?] {
-        reasonsArming += 1
-        reasonReads += 1
-        let (epoch, arming) = (epoch, reasonsArming)
+    /// Reads one action's unavailable reason under its own observation.
+    /// Reasons read observable app state (daemon capabilities, the sidebar),
+    /// so a change there re-reads the reasons of the actions that read it,
+    /// and no other. It also reads the descriptors and actions the ids come
+    /// from, so whenever the ids change every reason observation has fired,
+    /// and a full read that arms the next ones leaves none behind.
+    private func readObservingReason(at index: Int, id: ActionID) -> String? {
+        reasonEntryReads += 1
+        let (fired, generation) = (firedReasons, reasonsGeneration)
         return withObservationTracking {
             _ = registry.descriptors
             _ = registry.actions
-            return ids.map { registry.unavailableReason(for: $0) }
+            return registry.unavailableReason(for: id)
         } onChange: { [weak self] in
-            // task-owner: observation re-arm; ends when its epoch or arming is not current (state-audit R1)
-            Task { @MainActor in
-                guard let self else { return }
-                self.reasonFirings += 1
-                guard self.isObserving, epoch == self.epoch, arming == self.reasonsArming else { return }
-                self.reasonsAreStale = true
-                self.scheduleRefresh()
-            }
+            // A binding change fires every action's at once: one task refreshes for all of them.
+            guard fired.note(index, generation: generation) else { return }
+            // task-owner: one coalesced reason refresh; does nothing once detached or after a newer full read (state-audit R1)
+            Task { @MainActor in self?.scheduleRefresh() }
         }
     }
 
@@ -306,7 +330,8 @@ public final class RegistryControlBridge: ControlActionExecutor {
                 choices: cases.map { ControlArgumentInfo.Choice(value: $0.value, title: $0.title) }
             )
         case .target(let kind):
-            ControlArgumentInfo(name: argument.name, title: argument.title, kind: .target, isRequired: argument.isRequired, targetKind: kind.rawValue)
+            ControlArgumentInfo(name: argument.name, title: argument.title, kind: .target, isRequired: argument.isRequired, targetKind: kind.rawValue,
+                                isSuppliedByTarget: argument.isSuppliedByTarget)
         }
     }
 
@@ -336,6 +361,5 @@ public final class RegistryControlBridge: ControlActionExecutor {
         (.cloudWorkspace, "cloudWorkspace"),
         (.homeChannelsEnabled, "homeChannelsEnabled"),
         (.webViewFocused, "webViewFocused"),
-        (.sideSessions, "sideSessions"),
     ]
 }

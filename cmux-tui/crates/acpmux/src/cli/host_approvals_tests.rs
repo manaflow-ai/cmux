@@ -14,6 +14,15 @@ struct Fake {
     own: Option<Value>,
     /// The remote's enrolled Macs; None: its acpmux has no `host approvals`.
     remote: RefCell<Option<Vec<Value>>>,
+    /// This Mac's paired phones (`thisMacPhones`) and the device id they are under.
+    phones: RefCell<Vec<Value>>,
+    device: &'static str,
+    /// The remote's `host approvals` listing answers this text instead (a broken listing).
+    listing: RefCell<Option<&'static str>>,
+    /// The app has not sent its device id: no `thisMacPhonePrefix`.
+    no_device: std::cell::Cell<bool>,
+    /// The local daemon predates phone enrollment: no `thisMacPhones` or prefix at all.
+    old_daemon: std::cell::Cell<bool>,
     scripts: RefCell<Vec<String>>,
 }
 
@@ -23,7 +32,59 @@ impl Fake {
             json!({"id": "mac-1", "name": "Leo's Mac", "publicKey": KEY,
                    "fingerprint": crate::hub::approvers::fingerprint(&unhex(KEY))})
         });
-        Self { own, remote: RefCell::new(remote), scripts: RefCell::new(Vec::new()) }
+        Self {
+            own,
+            remote: RefCell::new(remote),
+            phones: RefCell::new(Vec::new()),
+            device: "mac-device-1",
+            listing: RefCell::new(None),
+            no_device: std::cell::Cell::new(false),
+            old_daemon: std::cell::Cell::new(false),
+            scripts: RefCell::new(Vec::new()),
+        }
+    }
+
+    /// Pairs a phone with `key` on this Mac (as `ApproverSet::peer_entries` lists it).
+    fn pair(&self, phone: &str, key: &str) {
+        let id = crate::hub::approvers::peer_phone_id(self.device, phone).unwrap();
+        let mut phones = self.phones.borrow_mut();
+        phones.retain(|p| p["id"] != id.as_str());
+        phones.push(json!({"id": id, "name": phone, "publicKey": key,
+                           "fingerprint": crate::hub::approvers::fingerprint(&unhex(key))}));
+    }
+
+    fn unpair(&self, phone: &str) {
+        let id = crate::hub::approvers::peer_phone_id(self.device, phone).unwrap();
+        self.phones.borrow_mut().retain(|p| p["id"] != id.as_str());
+    }
+
+    fn remote_ids(&self) -> Vec<String> {
+        let remote = self.remote.borrow();
+        remote.iter().flatten().map(|m| m["id"].as_str().unwrap().to_owned()).collect()
+    }
+}
+
+/// The value after `flag` in a `host approvals add` script, its shell quotes taken off.
+fn arg(script: &str, flag: &str) -> String {
+    let rest = &script[script.find(flag).unwrap() + flag.len() + 1..];
+    if let Some(quoted) = rest.strip_prefix('\'') {
+        let mut out = String::new();
+        let mut rest = quoted;
+        loop {
+            let end = rest.find('\'').unwrap();
+            out.push_str(&rest[..end]);
+            rest = &rest[end + 1..];
+            match rest.strip_prefix("\\''") {
+                Some(more) => {
+                    out.push('\'');
+                    rest = more;
+                }
+                None => break,
+            }
+        }
+        out
+    } else {
+        rest.split(' ').next().unwrap().to_owned()
     }
 }
 
@@ -34,7 +95,14 @@ fn unhex(s: &str) -> Vec<u8> {
 impl Io for Fake {
     async fn rpc(&self, method: &str, _params: Value) -> Result<Value> {
         assert_eq!(method, "_acpmux/mac_approvers");
-        Ok(json!({"macs": [], "thisMac": self.own}))
+        if self.old_daemon.get() {
+            return Ok(json!({"macs": [], "thisMac": self.own}));
+        }
+        Ok(json!({
+            "macs": [], "thisMac": self.own, "thisMacPhones": *self.phones.borrow(),
+            "thisMacPhonePrefix": (!self.no_device.get())
+                .then(|| crate::hub::approvers::peer_phone_prefix(self.device)),
+        }))
     }
 
     fn ssh(&self, argv: &[String]) -> Ran {
@@ -50,22 +118,38 @@ impl Io for Fake {
             };
         };
         if script.ends_with("host approvals") {
+            if let Some(text) = *self.listing.borrow() {
+                return Ran { ok: true, stdout: text.into(), stderr: String::new() };
+            }
             return Ran {
                 ok: true,
                 stdout: json!({"macs": macs}).to_string(),
                 stderr: String::new(),
             };
         }
-        if script.contains("host approvals rm") {
-            assert!(script.ends_with("host approvals rm mac-1"), "{script}");
-            macs.retain(|m| m["id"] != "mac-1");
+        if let Some(at) = script.find("host approvals rm ") {
+            let id = arg(&script[at..], "rm");
+            assert!(macs.iter().any(|m| m["id"] == id.as_str()), "removed {id}, not there");
+            macs.retain(|m| m["id"] != id.as_str());
             return Ran { ok: true, stdout: "{}".into(), stderr: String::new() };
         }
-        assert!(script.contains("host approvals add --id mac-1 --key 04"), "{script}");
-        // The name reaches the remote shell quoted.
-        assert!(script.contains("--name 'Leo'\\''s Mac'"), "{script}");
-        let fingerprint = crate::hub::approvers::fingerprint(&unhex(KEY));
-        macs.push(json!({"id": "mac-1", "name": "Leo's Mac", "fingerprint": fingerprint}));
+        assert!(script.contains("host approvals add --id "), "{script}");
+        let (id, key, name) = (arg(&script, "--id"), arg(&script, "--key"), arg(&script, "--name"));
+        if id == "mac-1" {
+            // The name reaches the remote shell quoted.
+            assert!(script.contains("--name 'Leo'\\''s Mac'"), "{script}");
+        }
+        let fingerprint = crate::hub::approvers::fingerprint(&unhex(&key));
+        macs.retain(|m| m["id"] != id.as_str());
+        // The peer's file holds at most MAX_APPROVERS (`host approvals add`'s `change`).
+        if macs.len() >= crate::hub::approvers::MAX_APPROVERS {
+            return Ran {
+                ok: false,
+                stdout: String::new(),
+                stderr: "error: at most 16 Macs".into(),
+            };
+        }
+        macs.push(json!({"id": id, "name": name, "fingerprint": fingerprint}));
         Ran { ok: true, stdout: "{}".into(), stderr: String::new() }
     }
 
@@ -230,4 +314,131 @@ fn a_running_daemon_whose_socket_does_not_answer_fails_the_change() {
     assert!(e.contains("did not answer") && e.contains("connection refused"), "{e}");
     assert!(block(reload_on(Ok(&FakeDaemon(true)), &lock)).unwrap());
     drop(held);
+}
+
+/// Another phone key: a different 65-byte point (only its shape is checked here).
+const PHONE_KEY: &str = "04aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const NEW_PHONE_KEY: &str = "04bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+#[test]
+fn enroll_brings_this_macs_paired_phones_and_keeps_them_current() {
+    let fake = Fake::new(true, Some(Vec::new()));
+    fake.pair("iphone-1", PHONE_KEY);
+    let phone = crate::hub::approvers::peer_phone_id(fake.device, "iphone-1").unwrap();
+    assert!(phone.starts_with("phone:") && phone.ends_with(":iphone-1"), "{phone}");
+    let r = run(&fake, true);
+    assert_eq!(r.state, StepState::Fixed, "{r:?}");
+    assert!(r.detail.contains("and its paired phones"), "{r:?}");
+    assert_eq!(fake.remote_ids(), ["mac-1", phone.as_str()]);
+    assert_eq!(run(&fake, true).state, StepState::Ok);
+    // A phone paired again with a new key: doctor warns, --fix replaces the key.
+    fake.pair("iphone-1", NEW_PHONE_KEY);
+    let r = run(&fake, false);
+    assert_eq!(r.state, StepState::Warn, "{r:?}");
+    assert!(r.detail.contains("paired phones"), "{r:?}");
+    assert_eq!(run(&fake, true).state, StepState::Fixed);
+    let fingerprint = crate::hub::approvers::fingerprint(&unhex(NEW_PHONE_KEY));
+    assert!(
+        fake.remote.borrow().iter().flatten().any(|m| m["fingerprint"] == fingerprint.as_str())
+    );
+    // Unpaired here: removed there.
+    fake.unpair("iphone-1");
+    assert_eq!(run(&fake, true).state, StepState::Fixed);
+    assert_eq!(fake.remote_ids(), ["mac-1"]);
+}
+
+#[test]
+fn enroll_leaves_another_macs_phones_and_unenroll_takes_only_this_macs() {
+    let fake = Fake::new(true, Some(Vec::new()));
+    let other = crate::hub::approvers::peer_phone_id("mac-device-2", "iphone-9").unwrap();
+    fake.remote.borrow_mut().as_mut().unwrap().push(json!({"id": other, "name": "x",
+        "fingerprint": crate::hub::approvers::fingerprint(&unhex(PHONE_KEY))}));
+    fake.pair("iphone-1", PHONE_KEY);
+    assert_eq!(run(&fake, true).state, StepState::Fixed);
+    assert_eq!(fake.remote_ids().len(), 3);
+    assert_eq!(block(unenroll_with(&fake, &target())).state, StepState::Fixed);
+    assert_eq!(fake.remote_ids(), [other.as_str()]);
+}
+
+#[test]
+fn unenroll_changes_nothing_when_the_peers_list_cannot_be_read() {
+    let fake = Fake::new(true, Some(Vec::new()));
+    fake.pair("iphone-1", PHONE_KEY);
+    assert_eq!(run(&fake, true).state, StepState::Fixed);
+    for broken in ["not json", "{}", r#"{"macs":"x"}"#] {
+        *fake.listing.borrow_mut() = Some(broken);
+        let before = fake.scripts.borrow().len();
+        let r = block(unenroll_with(&fake, &target()));
+        assert_eq!(r.state, StepState::Warn, "{broken}: {r:?}");
+        assert!(r.detail.contains("nothing was unenrolled"), "{r:?}");
+        // Only the listing ran: no rm, the Mac and its phone are still there.
+        assert_eq!(fake.scripts.borrow().len(), before + 1);
+        assert_eq!(fake.remote_ids().len(), 2);
+    }
+    *fake.listing.borrow_mut() = None;
+    assert_eq!(block(unenroll_with(&fake, &target())).state, StepState::Fixed);
+    assert!(fake.remote_ids().is_empty());
+}
+
+#[test]
+fn unenroll_refuses_while_phones_are_there_and_the_app_gave_no_device_id() {
+    let fake = Fake::new(true, Some(Vec::new()));
+    fake.pair("iphone-1", PHONE_KEY);
+    assert_eq!(run(&fake, true).state, StepState::Fixed);
+    fake.no_device.set(true);
+    let r = block(unenroll_with(&fake, &target()));
+    assert_eq!(r.state, StepState::Warn, "{r:?}");
+    assert_eq!(fake.remote_ids().len(), 2);
+    // With no phone there, the Mac's own key goes as before.
+    fake.no_device.set(false);
+    fake.unpair("iphone-1");
+    assert_eq!(run(&fake, true).state, StepState::Fixed);
+    fake.no_device.set(true);
+    assert_eq!(block(unenroll_with(&fake, &target())).state, StepState::Fixed);
+    assert!(fake.remote_ids().is_empty());
+}
+
+#[test]
+fn fix_makes_room_on_a_full_peer_by_removing_unpaired_phones_first() {
+    let fake = Fake::new(true, Some(Vec::new()));
+    fake.pair("iphone-old", PHONE_KEY);
+    assert_eq!(run(&fake, true).state, StepState::Fixed);
+    // The peer is full: this Mac, its old phone and 14 other Macs.
+    for n in 0..crate::hub::approvers::MAX_APPROVERS - 2 {
+        fake.remote
+            .borrow_mut()
+            .as_mut()
+            .unwrap()
+            .push(json!({"id": format!("other-{n}"), "fingerprint": "x"}));
+    }
+    // The old phone unpaired, a new one paired: --fix converges in one run.
+    fake.unpair("iphone-old");
+    fake.pair("iphone-new", NEW_PHONE_KEY);
+    let r = run(&fake, true);
+    assert_eq!(r.state, StepState::Fixed, "{r:?}");
+    let new = crate::hub::approvers::peer_phone_id(fake.device, "iphone-new").unwrap();
+    let old = crate::hub::approvers::peer_phone_id(fake.device, "iphone-old").unwrap();
+    let ids = fake.remote_ids();
+    assert!(ids.contains(&new) && !ids.contains(&old), "{ids:?}");
+    // The Mac's own key gone there too: the stale phone still goes before the Mac's key is added.
+    fake.remote.borrow_mut().as_mut().unwrap().retain(|m| m["id"] != "mac-1");
+    fake.remote.borrow_mut().as_mut().unwrap().push(json!({"id": "other-x", "fingerprint": "x"}));
+    fake.unpair("iphone-new");
+    assert_eq!(run(&fake, true).state, StepState::Fixed);
+    assert!(fake.remote_ids().contains(&"mac-1".to_owned()));
+}
+
+#[test]
+fn an_older_local_daemon_warns_that_its_phones_were_not_enrolled() {
+    let fake = Fake::new(true, Some(Vec::new()));
+    fake.old_daemon.set(true);
+    // Enrolling the Mac still works, but says the phones were left out.
+    let r = run(&fake, true);
+    assert_eq!(r.state, StepState::Warn, "{r:?}");
+    assert!(r.detail.contains("too old to enroll its paired phones"), "{r:?}");
+    assert_eq!(fake.remote_ids(), ["mac-1"]);
+    // Doctor again: the Mac is there, the phones are still unknown, never "Ok".
+    let r = run(&fake, false);
+    assert_eq!(r.state, StepState::Warn, "{r:?}");
+    assert!(r.fix.as_deref().unwrap_or("").contains("Update acpmux"), "{r:?}");
 }

@@ -18,7 +18,7 @@ import type { PluginOption } from "vite-plus";
 import base from "./vite.config";
 import { galleryHost, galleryModules } from "./dev-server/galleryHost";
 import { galleryLive } from "./dev-server/galleryLive";
-import { cmuxDevServer, diffWorkerEntry } from "./dev-server/plugins";
+import { cmuxDevServer, diffWorkerEntry, galleryOptimizeDeps } from "./dev-server/plugins";
 
 const webviewsRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(webviewsRoot, "..");
@@ -45,15 +45,22 @@ export default {
     galleryHost({ mount: urlBase }),
     galleryLive({ webviewsRoot, repoRoot }),
   ],
+  // The left-out dev server set these. Without its entries the first scan found only the shell's
+  // dependencies, and a stage that imported another (a Base UI part) re-optimized mid-run, renaming
+  // the shared chunks under the open pages (accent-glass-invariants-3, run 41942282745).
+  optimizeDeps: { ...base.optimizeDeps, ...galleryOptimizeDeps },
   server: {
     host: "127.0.0.1",
     port: Number(process.env.CMUX_GALLERY_DEV_PORT) || 4210,
     strictPort: true,
     allowedHosts,
-    // The UI font's WOFF2 lives with the app's resources (src/gallery/frame/uiFont.ts).
     fs: {
       strict: true,
-      allow: [webviewsRoot, path.join(repoRoot, "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts")],
+      allow: [
+        webviewsRoot,
+        // Gallery-only licensed candidates; no production import uses this directory.
+        path.join(repoRoot, "design/icons/neko-candidates"),
+      ],
     },
     // Behind tailscale serve the page is https://<host>:<public port>/<base>; the socket goes there too.
     ws: publicPort ? { protocol: "wss", clientPort: publicPort } : {},

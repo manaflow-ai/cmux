@@ -6,7 +6,7 @@
 // by its path (`file.drag`), which the host drags only from inside the chat's folders. A drag on
 // anything else (text, a link) stays the page's.
 import { postNative } from "../native";
-import { dataUrl } from "./ImageViewer";
+import { dataUrl } from "./imageViewerModel";
 
 type Post = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 

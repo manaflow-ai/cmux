@@ -64,6 +64,7 @@ await requireBrowserLane("thread-rail-fast-scroll-edges.test.ts", async () => {
   const record = (page: Page, pointerY: number) =>
     page.evaluate((pointerY) => {
       const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+      const pitch = Number.parseFloat(getComputedStyle(list).getPropertyValue("--acpmux-minimap-pitch"));
       const count = Number(list.querySelector("li[aria-setsize]")?.getAttribute("aria-setsize") ?? 0);
       const frames: Frame[] = [];
       let drawn = new Map<number, HTMLElement>();
@@ -76,8 +77,8 @@ await requireBrowserLane("thread-rail-fast-scroll-edges.test.ts", async () => {
           const faded: number[] = [];
           let undrawn = 0;
           // Every row the view shows at least half of.
-          const first = Math.max(0, Math.ceil(top / 10 - 0.5));
-          const last = Math.min(count, Math.floor((top + height) / 10 + 0.5));
+          const first = Math.max(0, Math.ceil(top / pitch - 0.5));
+          const last = Math.min(count, Math.floor((top + height) / pitch + 0.5));
           for (let row = first; row < last; row++) {
             const tick = drawn.get(row);
             if (tick) {
@@ -108,7 +109,7 @@ await requireBrowserLane("thread-rail-fast-scroll-edges.test.ts", async () => {
               row += 1;
               continue;
             }
-            const rows = Math.round(Number.parseFloat(item.style.height) / 10);
+            const rows = Math.round(Number.parseFloat(item.style.height) / pitch);
             gaps.push([row, row + rows, getComputedStyle(item).backgroundImage.includes("gradient")]);
             row += rows;
           }
@@ -218,20 +219,21 @@ await requireBrowserLane("thread-rail-fast-scroll-edges.test.ts", async () => {
             Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined))),
           );
           const box = (await list.boundingBox())!;
-          // Twenty resting rows from a third of the way down (the lit band is at the list's foot).
+          // A resting band from a third of the way down (the lit band is at the list's foot).
           const band = { x: box.x, y: box.y + Math.round(box.height / 3), width: box.width, height: 200 };
           const atRest = await opened.screenshot({ clip: band, scale: "device" });
           const shown = await list.evaluate(async (node) => {
+            const pitch = Number.parseFloat(getComputedStyle(node).getPropertyValue("--acpmux-minimap-pitch"));
             const hold = (event: Event) => event.stopImmediatePropagation();
             window.addEventListener("scroll", hold, { capture: true });
             // A view and a half, in whole rows (so the rows land where rows were), past the drawn
             // rows, as one fast wheel step moves it.
-            node.scrollTop -= Math.round((node.clientHeight * 1.5) / 10) * 10;
+            node.scrollTop -= Math.round((node.clientHeight * 1.5) / pitch) * pitch;
             await window.cmuxPaintFrame();
             await window.cmuxPaintFrame();
             const top = node.scrollTop;
-            const first = Math.ceil(top / 10 - 0.5);
-            const last = Math.floor((top + node.clientHeight) / 10 + 0.5);
+            const first = Math.ceil(top / pitch - 0.5);
+            const last = Math.floor((top + node.clientHeight) / pitch + 0.5);
             const drawn = new Set(
               [...node.querySelectorAll<HTMLElement>("[data-tick]")].map((tick) => Number(tick.dataset.tick)),
             );
