@@ -620,6 +620,10 @@
 .acpmux-attachment:focus-within .acpmux-attachment-remove {
   opacity: 1;
 }
+/* A failed chip in the prompt keeps its remove control visible. */
+.acpmux-md-inline-chip > .acpmux-attachment-failed > .acpmux-attachment-remove {
+  opacity: 1;
+}
 :is(.acpmux-composer, .nt-box) .acpmux-attachment-remove:hover {
   background: color-mix(in srgb, var(--agent-text) 82%, var(--acpmux-base, Canvas));
 }
