@@ -250,21 +250,45 @@ struct AgentIncomingCard: View {
         .padding(.vertical, 8)
     }
 
-    /// The message's first line of text, its Markdown marks left out: a code fence's marker line
-    /// (```` ```swift ````), a thematic break and a line with nothing left once its marks are gone are skipped, and a
-    /// link shows its text, so a closed message never previews as `swift` or `[docs](https://…)`.
+    /// The message's first line of text as the open message draws it: read with the transcript's own
+    /// Markdown parser, so a fence, a rule and display math are skipped, a table shows its header
+    /// cells, a list or task its first item, and inline marks (emphasis, code, strike, links) go. A
+    /// closed message never previews as `swift`, `| a | b |`, `[ ] todo` or `[docs](https://…)`.
     static func firstLine(_ text: String) -> String {
-        for line in text.split(whereSeparator: \.isNewline) {
-            // A fence's marker line and a thematic break (`---`, `***`) are syntax, not text.
-            if line.range(of: #"^\s*(?:```|~~~|(?:[-*_]\s*){3,}$)"#, options: .regularExpression) != nil { continue }
-            let plain = String(line)
-                .replacingOccurrences(of: #"^\s*(?:#{1,6}\s+|>\s?|[-*+]\s+|\d+[.)]\s+)"#, with: "", options: .regularExpression)
-                .replacingOccurrences(of: #"!?\[([^\]]*)\]\([^)]*\)"#, with: "$1", options: .regularExpression)
-                .replacingOccurrences(of: #"[*_`]"#, with: "", options: .regularExpression)
-                .trimmingCharacters(in: .whitespaces)
-            if !plain.isEmpty { return plain }
+        var math: String?
+        for block in MarkdownDocument(parsing: text).blocks {
+            let lines: [String]
+            switch block.kind {
+            case .heading(_, let text), .paragraph(let text), .quote(let text):
+                lines = text.split(whereSeparator: \.isNewline).map { plainInline(String($0)) }
+            case .list(let list):
+                lines = list.items.map { plainInline($0.text) }
+            case .table(let table):
+                lines = [table.header.map(plainInline).filter { !$0.isEmpty }.joined(separator: " · ")]
+            case .code(_, let code, _):
+                // Code is shown as written: its characters are the text, not syntax.
+                lines = code.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+            case .math(let tex):
+                // A formula's TeX is a last resort, for a message that is only math.
+                if math == nil { math = tex.trimmingCharacters(in: .whitespacesAndNewlines) }
+                continue
+            case .rule:
+                continue
+            }
+            if let line = lines.first(where: { !$0.isEmpty }) { return line }
         }
-        return ""
+        return math ?? ""
+    }
+
+    /// A line's inline Markdown (emphasis, code, strike, links) as the plain characters it draws; a
+    /// line of marks alone (`**`) is nothing.
+    private static func plainInline(_ line: String) -> String {
+        let parsed = try? AttributedString(
+            markdown: line,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace, failurePolicy: .returnPartiallyParsedIfPossible)
+        )
+        let plain = (parsed.map { String($0.characters) } ?? line).trimmingCharacters(in: .whitespaces)
+        return plain.allSatisfy { "*_~`".contains($0) } ? "" : plain
     }
 }
 
