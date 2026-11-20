@@ -79,6 +79,19 @@ Otherwise it falls back to the `app-ffi-repin` pull request, which the app
 compile proves before it lands. Dry run until `CMUX_NEXT_BASE_AUTOFIX` is
 `1`, like the base autofix.
 
+A GitHub call that the re-pin makes and GitHub refuses for its rate limit
+(HTTP 429, a 403 whose message names a rate limit, or `x-ratelimit-remaining:
+0`) waits and asks again. The wait comes from the refusal's `retry-after`
+header. Without that header, it waits until `x-ratelimit-reset`. Without
+either, it waits 60 s, then doubles. One run waits at most
+`REPIN_RATE_LIMIT_WAIT_S` (600 s) in all. When the refusal still stands after
+that, or the reset is further off, the job fails with "Re-pin rate-limited"
+and the reason, and its failure step starts `app-ffi-repin.yml`. Before
+this, a rate-limited read of the open re-pin pull request counted as a failed
+read. The job then ended green with "left app-ffi-repin alone": on
+2026-11-20, runs 44804668946, 44820694017 and 44823028309 all did that, and
+#48065 kept an older pin.
+
 There is no merge queue on `feat-cmux-next`. next-autoland lands that pull
 request with no review receipt (`repin_bot_exempt`) once its checks finish, and judges it
 first on every pass. Its runner-lost reds get one rerun. The base's pin check
