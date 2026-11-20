@@ -126,6 +126,47 @@ pub fn check_sources(s: &Services<'_>) -> Result<()> {
             return Err(refuse(format!("loads {name} from {fragment} (load state {state})")));
         }
     }
+    if system(s) {
+        check_app_instances(s)?;
+    }
+    Ok(())
+}
+
+/// The app server instances uninstall stops (`cmux-app-server@*.service`):
+/// each must come from the template cmux writes. A list systemd cannot give
+/// changes nothing.
+fn check_app_instances(s: &Services<'_>) -> Result<()> {
+    let template = unit_dir(s)?.join(APP_TEMPLATE);
+    let list = systemctl(s).args([
+        "list-units",
+        "--all",
+        "--plain",
+        "--no-legend",
+        "--full",
+        APP_INSTANCES,
+    ]);
+    let out = s.runner.run(&list).map_err(|e| Error::io(list.display(), e))?;
+    if !out.ok() {
+        return Err(Error::rejected(format!(
+            "cmux cannot list the app server units (`{}` failed), so it changes nothing",
+            list.display()
+        )));
+    }
+    for unit in out.stdout_text().lines().filter_map(|l| l.split_whitespace().next()) {
+        if !unit.starts_with("cmux-app-server@") || !unit.ends_with(".service") {
+            continue;
+        }
+        let show = systemctl(s).args(["show", "--property=FragmentPath", "--value", unit]);
+        let out = s.runner.run(&show).map_err(|e| Error::io(show.display(), e))?;
+        let fragment = out.stdout_text();
+        if !out.ok() || Path::new(fragment.trim()) != template {
+            return Err(Error::rejected(format!(
+                "systemd runs {unit} from {}, not from {} (the template cmux writes), so cmux leaves it, and everything it may use, alone; nothing was changed",
+                if fragment.trim().is_empty() { "no unit file" } else { fragment.trim() },
+                template.display()
+            )));
+        }
+    }
     Ok(())
 }
 
