@@ -27,6 +27,7 @@ import { runScroll } from "../agent-session/acpmux/conversation/runScroll.experi
 import { thumbMotion } from "../agent-session/acpmux/conversation/thumbMotion.experiment";
 import { oneRowPerCall } from "../agent-session/acpmux/conversation/oneRowPerCall.experiment";
 import { backgroundHintRoom } from "../agent-session/acpmux/conversation/backgroundHintRoom.experiment";
+import { backgroundHintLabel } from "../agent-session/acpmux/conversation/backgroundHintLabel.experiment";
 import { threadMinimapLayout } from "../agent-session/acpmux/threadMinimap/layout.experiment";
 import { threadMinimapHeight } from "../agent-session/acpmux/threadMinimap/height.experiment";
 import { threadMinimapGutter } from "../agent-session/acpmux/threadMinimap/gutter.experiment";
@@ -153,6 +154,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   thumbMotion,
   oneRowPerCall,
   backgroundHintRoom,
+  backgroundHintLabel,
   trayPanelLook,
   trayRowLook,
   trayStopLook,

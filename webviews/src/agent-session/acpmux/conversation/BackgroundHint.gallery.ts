@@ -70,11 +70,19 @@ const hoverHoldsCounts = async (ctx: PlayContext) => {
       throw new Error("the live line's times or tokens overlap under the pointer");
 };
 
+/// Point at the live line, so its hint shows.
+const hover = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector(LINE));
+  await ctx.hover({ selector: LINE });
+};
+
 export default agentPaneEntry({
   id: "agent-pane.background-hint",
   title: "Ctrl-B background hint",
   area: "Agent pane",
   height: 360,
+  // Narrow is a narrow pane (Leo, 2026-11-20, "when i have the panes shrunk"): there the hint gives way.
+  widths: { narrow: 280 },
   covers: ["agent-session/acpmux/conversation/BackgroundHint.tsx"],
   // Where the hint keeps its room (variant long-hovered): the line's end (shipped), right after the
   // tokens, or shown there at rest.
@@ -89,6 +97,32 @@ export default agentPaneEntry({
       note: 'Leo, 2026-11-06, on "8s · 2m5 1.4K toke" drawn over itself while he hovered the line\'s right edge: "this flickers". A long command with its time, the turn\'s and its tokens; hovered, the hint fades in its kept room and every count holds still.',
       snapshot: running("claude", true, long, 1_400),
       play: hoverHoldsCounts,
+    },
+    // What the hint says (backgroundHintLabel.experiment.ts; Leo, 2026-11-20: "the ctrl b to run in
+    // background is just too much too long and to obtrusive at default because it reserves so much
+    // shit"). Each is hovered so the hint shows; at rest only its kept room does.
+    "label-key": {
+      experiments: { "background-hint-label": "key" },
+      note: "Shipped: a ⌃B key cap at the line's end, its tooltip saying what it does. The command keeps the room the words took.",
+      snapshot: running("claude", true, described),
+      play: hover,
+    },
+    "label-fit": {
+      experiments: { "background-hint-label": "fit" },
+      note: "The full words on a line 560 px wide or more, the ⌃B key cap on a narrower one.",
+      snapshot: running("claude", true, described),
+      play: hover,
+    },
+    "label-words": {
+      experiments: { "background-hint-label": "words" },
+      note: "Before: “⌃B to run in background”, about 160 px kept on every line while a command runs.",
+      snapshot: running("claude", true, described),
+      play: hover,
+    },
+    tight: {
+      note: "At the narrow width (a 280 px pane) the hint leaves the line first, room and all, so the command keeps its words before its time. Ctrl-B still moves it.",
+      snapshot: running("claude", true, described),
+      play: hover,
     },
     claude: {
       note: "A Claude Code chat's running command: the row ends with the Ctrl-B hint.",

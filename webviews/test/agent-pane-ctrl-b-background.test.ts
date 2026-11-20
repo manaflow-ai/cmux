@@ -303,7 +303,7 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
     // The command in flight draws no row of its own: the live line at the turn's foot names it and offers the
     // hint its row did (Thinking.tsx).
     const line = page.locator(".cv-worked.is-below");
-    const hint = line.getByText("⌃B to run in background");
+    const hint = line.getByRole("button", { name: translate("tools.backgroundHintLabel") });
     await hint.waitFor({ timeout: 5_000 });
     expect(await line.locator(".cv-thinking").textContent()).toBe("Running cargo test --workspace");
     // The hint shows only while the pointer is on the line (Leo, 2026-10-21).
@@ -337,7 +337,7 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
   test("Ctrl-B in the composer moves the chat's running work to the background", async () => {
     backgrounded.length = 0;
     const page = await open(CLAUDE);
-    await page.getByText("⌃B to run in background").waitFor({ timeout: 5_000 });
+    await page.locator(".cv-command__bg").waitFor({ timeout: 5_000 });
     await composer(page).click();
     await page.keyboard.press("Control+b");
     expect(await requested()).toEqual([{ sessionId: CLAUDE }]);
@@ -354,7 +354,8 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
     const line = page.locator(".cv-worked.is-below");
     const hint = line.getByRole("button", { name: translate("tools.backgroundHintLabel") });
     await hint.waitFor({ timeout: 5_000 });
-    expect(await hint.textContent()).toBe("⌃B to run in background");
+    // A key cap by default (Leo, 2026-11-20: the full words were "too long and to obtrusive").
+    expect(await hint.locator(".cv-command__bg-key").textContent()).toBe("⌃B");
     // Away from the page: Ctrl-B never reaches it, the click does.
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await line.hover();
@@ -378,7 +379,7 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
 
   test("work that moved says so, and a command still in the foreground a moment later says it stayed", async () => {
     const page = await open(CLAUDE);
-    await page.getByText("⌃B to run in background").waitFor({ timeout: 5_000 });
+    await page.locator(".cv-command__bg").waitFor({ timeout: 5_000 });
     await composer(page).click();
     await page.keyboard.press("Control+b");
     expect(await requested()).toEqual([{ sessionId: CLAUDE }]);
@@ -394,7 +395,7 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
   test("nothing in the foreground: a notice says so, and the next key clears it", async () => {
     backgroundReply = "nothing";
     const page = await open(CLAUDE);
-    await page.getByText("⌃B to run in background").waitFor({ timeout: 5_000 });
+    await page.locator(".cv-command__bg").waitFor({ timeout: 5_000 });
     await composer(page).click();
     await page.keyboard.press("Control+b");
     await noticeText(page, "nothing").waitFor({ timeout: 5_000 });
@@ -406,7 +407,7 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
   test("a refused request: a notice says the chat can't move work", async () => {
     backgroundReply = "refused";
     const page = await open(CLAUDE);
-    await page.getByText("⌃B to run in background").waitFor({ timeout: 5_000 });
+    await page.locator(".cv-command__bg").waitFor({ timeout: 5_000 });
     await composer(page).click();
     await page.keyboard.press("Control+b");
     await noticeText(page, "refused").waitFor({ timeout: 5_000 });
@@ -416,7 +417,7 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
   test("no answer: after the request's 10 s deadline a notice says the work still runs", async () => {
     backgroundReply = "silent";
     const page = await open(CLAUDE);
-    await page.getByText("⌃B to run in background").waitFor({ timeout: 5_000 });
+    await page.locator(".cv-command__bg").waitFor({ timeout: 5_000 });
     await composer(page).click();
     await page.keyboard.press("Control+b");
     expect(await requested()).toEqual([{ sessionId: CLAUDE }]);
@@ -427,7 +428,7 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
   test("the connection closes mid-request: a notice says it was lost, not that the agent didn't answer", async () => {
     backgroundReply = "closed";
     const page = await open(CLAUDE);
-    await page.getByText("⌃B to run in background").waitFor({ timeout: 5_000 });
+    await page.locator(".cv-command__bg").waitFor({ timeout: 5_000 });
     await composer(page).click();
     await page.keyboard.press("Control+b");
     expect(await requested()).toEqual([{ sessionId: CLAUDE }]);
@@ -457,13 +458,13 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
     expect(await composer(page).innerText()).toContain("X");
     expect(await sentBackground(page)).toEqual([]);
     expect(backgrounded).toEqual([]);
-    expect(await page.getByText("⌃B to run in background").count()).toBe(0);
+    expect(await page.locator(".cv-command__bg").count()).toBe(0);
     await page.close();
   });
 
   test("the model router's chat, Claude Code named `cmux`, shows the hint and moves its work", async () => {
     const page = await open(ROUTER);
-    await page.getByText("⌃B to run in background").waitFor({ timeout: 5_000 });
+    await page.locator(".cv-command__bg").waitFor({ timeout: 5_000 });
     await composer(page).click();
     await page.keyboard.press("Control+b");
     expect(await requested()).toEqual([{ sessionId: ROUTER }]);
@@ -483,7 +484,7 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
       expect(await ctrlBTaken(page)).toEqual([false]);
       expect(await sentBackground(page)).toEqual([]);
       expect(backgrounded).toEqual([]);
-      expect(await page.getByText("⌃B to run in background").count()).toBe(0);
+      expect(await page.locator(".cv-command__bg").count()).toBe(0);
       await page.close();
     });
   }

@@ -2723,6 +2723,14 @@ pre.cv-math-source {
   max-width: 100%;
   overflow: visible;
 }
+/* A line whose lit copy has no time of its own (the turn's clock over the work, a running call's own
+   time after the words, RunningTime.tsx) lights its words alone: the words' box holds the band, so
+   the lit copy is cut where the words are and never reaches the time after them (Leo, 2026-11-20:
+   "the glimmer animation shows the text overlaid the timestamp"). With a lit time, the row's box
+   holds it, words and time together, as the lit copy lays them out. */
+.cv-thinking.is-shimmer:not(:has(.cv-shimmer__lit-time)) {
+  position: relative;
+}
 .cv-shimmer__row {
   position: relative;
   display: inline-flex;
@@ -2769,10 +2777,22 @@ pre.cv-math-source {
 .cv-worked__lead {
   color: inherit;
 }
+.cv-shimmer__clip,
 .cv-shimmer__band {
   display: none;
 }
 @media (prefers-reduced-motion: no-preference) {
+  /* The band's still clip (ShimmerText.tsx): the words' box, so the moving band and its lit copy
+     never draw past it, at any width and at any point of the sweep. */
+  :root:not([data-status-indicators="static"]) .cv-shimmer__clip {
+    display: block;
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
   /* SPINNERS-OFF-MAIN: a band masked to a soft stripe slides across the dim words while its lit copy
      slides back by as much, so the lit words hold still under the moving stripe. Transform only: the
      compositor runs both loops, the page paints nothing per frame. */
@@ -4670,6 +4690,47 @@ button.cv-video-frames__frame:focus-visible {
   outline: 2px solid var(--agent-accent, currentColor);
   outline-offset: 1px;
   border-radius: var(--ds-radius-sm);
+}
+/* What it says (backgroundHintLabel.experiment.ts). Its room is kept even before it fades in, so its
+   words cost the command theirs: by default a ⌃B key cap, its tooltip saying the rest (Leo,
+   2026-11-20: "the ctrl b to run in background is just too much too long and to obtrusive at default
+   because it reserves so much shit"). The cap's ring is a shadow and its padding only sideways, so
+   its glyphs keep the line's face, size and baseline (#33160). */
+.cv-command__bg-key {
+  padding: 0 4px;
+  border-radius: var(--ds-radius-sm);
+  box-shadow: inset 0 0 0 1px var(--cv-rule);
+  font: inherit;
+  letter-spacing: inherit;
+}
+.cv-command__bg-words {
+  display: none;
+}
+.cv-command__bg[data-label="words"] > .cv-command__bg-key {
+  display: none;
+}
+.cv-command__bg[data-label="words"] > .cv-command__bg-words {
+  display: inline;
+}
+/* The live lines measure themselves, so the hint can give way to the command's words. */
+:is(.cv-worked, .cv-activity) {
+  container: cv-live-line / inline-size;
+}
+/* `fit`: the full words only on a wide line. */
+@container cv-live-line (width >= 560px) {
+  .cv-command__bg[data-label="fit"] > .cv-command__bg-key {
+    display: none;
+  }
+  .cv-command__bg[data-label="fit"] > .cv-command__bg-words {
+    display: inline;
+  }
+}
+/* A tight line (a narrow pane) drops the hint first, its room and all, so the command keeps its
+   words before the time; the button's work stays on Ctrl-B. */
+@container cv-live-line (width < 300px) {
+  :is(.cv-worked, .cv-activity) .cv-command__bg {
+    display: none;
+  }
 }
 /* A message to another agent (MessageCard.tsx) is the shared agent message row
    (AgentMessageRow.css). Opened, its text grows in place under the line, at the line's text

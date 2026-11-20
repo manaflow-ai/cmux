@@ -27,9 +27,14 @@ export function ShimmerText({
   return (
     <>
       <span className="cv-shimmer__base">{baseText}</span>
-      <span ref={band} className="cv-shimmer__band" aria-hidden="true">
-        <span className="cv-shimmer__lit" data-text={lit ? undefined : text}>
-          {lit}
+      {/* A still clip around the moving band, as RowShimmer's: the lit words never draw past the
+          words' own box, onto the line's timer (Leo, 2026-11-20, in a narrow pane: the shimmer "shows
+          the text overlaid the timestamp when it gets to that part of the animation"). */}
+      <span className="cv-shimmer__clip" aria-hidden="true">
+        <span ref={band} className="cv-shimmer__band">
+          <span className="cv-shimmer__lit" data-text={lit ? undefined : text}>
+            {lit}
+          </span>
         </span>
       </span>
     </>
