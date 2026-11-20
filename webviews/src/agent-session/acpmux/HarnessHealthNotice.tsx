@@ -184,10 +184,11 @@ export function HarnessHealthNotice({
   // What failed, in the updater's or the host's own words, for Details.
   let detail: string | undefined;
   if (kind === "signedOut") {
-    text = health.auth === "expired" ? t("turn.authExpired") : t("harness.signedOut", { agent: name });
+    // Names whose sign-in it is and the one fix, as the composer's notice does (sessionAuth.ts).
+    text = t(health.auth === "expired" ? "auth.login.expired" : "auth.login.signedOut", { agent: name });
     buttons = (
       <button type="button" data-notice-action="login" onClick={() => run(signedOut!)}>
-        {t("harness.logIn")}
+        {t("auth.fix.signInTo", { name })}
       </button>
     );
   } else if (state?.phase === "updated") {
