@@ -6,8 +6,12 @@ name: cmux-next React Doctor
 # fail; warnings are reported only. Local run: `bun run react-doctor`.
 #
 # Every pull request (no paths): feat-cmux-next requires `React Doctor (changed
-# React projects)`, and a required check must report. The gate scans only the
-# projects the change touches and exits green at once when it touches none.
+# React projects)`, and a required check must report. The `changes` job picks
+# the projects the change touches on the owned control runner, which starts
+# within a minute; when the change touches none, the required job is skipped,
+# which GitHub counts as passing, so a docs-only or Swift-only pull request
+# never waits for a Linux build runner (2026-11-19: #47471 sat queued for hours
+# on a Blacksmith label with no runner). Otherwise the gate scans those projects.
 # Pushes to feat-cmux-next scan every project, the whole tree as it now is: base
 # stays red for as long as any project is over its baseline, whatever the push
 # touched. A push run that scanned only what the push changed let one red push
@@ -33,8 +37,46 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Which React projects the change touches. Python and git only, so it runs on the
+  # owned control runner (vars.CI_CONTROL_RUNNER), never on the build pools the scan
+  # needs. A fork's pull request never reaches a persistent host: it takes a fixed
+  # Blacksmith label.
+  changes:
+    name: React Doctor scope
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || vars.CI_CONTROL_RUNNER || 'cmux-gcp-nightly-x64' }}
+    timeout-minutes: 5
+    outputs:
+      projects: ${{ steps.scope.outputs.projects }}
+    steps:
+      # A pull request checks out its merge commit; HEAD^1 is the base it merges into.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      # A push or a dispatch scans every project (see the top). A failed diff fails
+      # this job, and a failed `changes` runs the scan (the gate's `if`).
+      - name: Which React projects does the change touch
+        id: scope
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            base="$(git rev-parse HEAD^1)"
+            projects="$(git diff --name-only "$base" HEAD | python3 -c 'import sys; sys.path.insert(0, "scripts/ci"); import react_doctor_gate as g; print(" ".join(g.select_projects(sys.stdin.read().split())))')"
+          else
+            projects="all"
+          fi
+          echo "projects=$projects" >> "$GITHUB_OUTPUT"
+          echo "projects: ${projects:-none}"
+          if [ -z "$projects" ]; then
+            echo "::notice title=React Doctor::no React project changed; the required check passes as skipped"
+          fi
+
   react-doctor:
     name: React Doctor (changed React projects)
+    needs: changes
+    # A scope job that failed or was skipped never skips the gate (a skip passes a required check).
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.projects != '') }}
     # Blacksmith, never GitHub-hosted; fork pull requests get a fixed Blacksmith label.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 30
