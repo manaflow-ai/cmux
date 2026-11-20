@@ -287,7 +287,7 @@ impl Hub {
                 }
             }
         };
-        let Some(target) = self.bridge_target(session).await else {
+        let Ok(target) = self.bridge_target(session).await else {
             fail("the app no longer runs this chat");
             self.append(
                 session,
