@@ -67,6 +67,7 @@ on:
       - scripts/ci/macho_weaken.py
       - scripts/ci/macos-cross.sh
       - scripts/ci/cargo-groups.sh
+      - scripts/ci/cmux-tui-mac-cargo-builds.sh
       - scripts/ci/acpmux-build-features.sh
       - scripts/ci/tailnet-go.sh
       - scripts/ci/macos-stubs/**
@@ -79,13 +80,25 @@ on:
       - mux/packages/brain/conformance/**
       - skills/cmux-acpmux/SKILL.md
       - skills/cmux-browser/**
-      - skills/cmux-cua/**
+      - skills/cmux-computer-use/**
       - skills/cmux-customization/**
       - skills/cmux-live/**
       - skills/cmux/SKILL.md
       - .xcode-version
       - schemas/**
       - plans/cmux-next/**
+      # A plan doc no Swift target names reaches no tier (cmux_next_route.py unread_doc), so a pull request of
+      # only those starts no run. The ones a target names, or a generated one, are put back by name;
+      # tests/test_ci_docs_only_prs.py routes every plan doc this leaves out and fails on one that reaches a tier.
+      - "!plans/cmux-next/**/*.md"
+      - plans/cmux-next/actions.md
+      - plans/cmux-next/browser-repl/README.md
+      - plans/cmux-next/feed/prototypes/webkit-duplicate/README.md
+      - plans/cmux-next/formal/README.md
+      - plans/cmux-next/helium-density/README.md
+      - plans/cmux-next/home-messaging-invites/REPORT.md
+      - plans/cmux-next/markdown-omnibar-DESIGN.md
+      - plans/cmux-next/spec-proposals/visuals/README.md
       - docs/mdm/**
       - docs/configuration.md
       # Why: docs/ci/cmux-next-workflow-notes.md#note-353
@@ -124,7 +137,6 @@ on:
       - tests/test_web_ota_pointer.sh
       - tests/test_web_ota_publication_contract.py
       - scripts/cmux-next/web-ota-pointer.py
-      - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
       - scripts/ci/cmux_next_base_merge_carry.py
@@ -425,6 +437,7 @@ on:
       - scripts/ci/macho_weaken.py
       - scripts/ci/macos-cross.sh
       - scripts/ci/cargo-groups.sh
+      - scripts/ci/cmux-tui-mac-cargo-builds.sh
       - scripts/ci/acpmux-build-features.sh
       - scripts/ci/tailnet-go.sh
       - scripts/ci/macos-stubs/**
@@ -437,7 +450,7 @@ on:
       - mux/packages/brain/conformance/**
       - skills/cmux-acpmux/SKILL.md
       - skills/cmux-browser/**
-      - skills/cmux-cua/**
+      - skills/cmux-computer-use/**
       - skills/cmux-customization/**
       - skills/cmux-live/**
       - skills/cmux/SKILL.md
@@ -477,7 +490,6 @@ on:
       - tests/test_web_ota_pointer.sh
       - tests/test_web_ota_publication_contract.py
       - scripts/cmux-next/web-ota-pointer.py
-      - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
       - scripts/ci/cmux_next_base_merge_carry.py
@@ -794,11 +806,15 @@ jobs:
 
   # feat-cmux-next push CI is the Swift app build only (Lawrence, 2026-10-10): its
   # Why: docs/ci/cmux-next-workflow-notes.md#note-11
+  # Its Linux control jobs (this one, the placements, release-compile-fast-admission, compile-status and its handoff)
+  # take cmux-gcp-nightly-jit-x64 on a push's attempt 1: one-job JIT VMs only nightly paths name, kept warm by
+  # cmuxterm-hq gha-runners, so the NEXT nightly path never queues behind PR CI on the shared Linux pools
+  # (ask-2e27ea2c31). A re-run falls through to the pools.
   push-head-preflight:
     # Why: docs/ci/cmux-next-workflow-notes.md#note-87
     if: ${{ !cancelled() && inputs.same_tree_sha == '' }}
     name: cmux-next push head preflight
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
     timeout-minutes: 2
     permissions:
       actions: write
@@ -839,7 +855,7 @@ jobs:
     if: ${{ always() && !cancelled() && inputs.same_tree_sha == '' }}
     name: cmux-next path routing
     # Why: docs/ci/cmux-next-workflow-notes.md#note-358
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' path_route ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' path_route ') && needs.portable-placement.outputs.mini_runner || github.run_attempt == 1 && fromJSON(vars.RUNNER_POOLS).hosted_saturated && fromJSON(vars.RUNNER_POOLS).linux_2 || github.run_attempt == 1 && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' path_route ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' path_route ') && needs.portable-placement.outputs.mini_runner || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     # Why: docs/ci/cmux-next-workflow-notes.md#note-88
     timeout-minutes: 8
     permissions:
@@ -1300,7 +1316,7 @@ jobs:
     # Why: docs/ci/cmux-next-workflow-notes.md#note-369
     if: ${{ !cancelled() && ((inputs.same_tree_sha == '' && needs.push-head-preflight.outputs.current == 'true' && needs.path_route.outputs.macos == 'true') || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready')) && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) }}
     name: cmux-next macOS placement
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
     # Why: docs/ci/cmux-next-workflow-notes.md#note-108
     timeout-minutes: 8
     # Why: docs/ci/cmux-next-workflow-notes.md#note-16
@@ -1524,7 +1540,7 @@ jobs:
     name: portable job placement
     # Why: docs/ci/cmux-next-workflow-notes.md#note-126
     if: ${{ !cancelled() && vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' && inputs.dev_daily != true && inputs.base_tier != true && inputs.same_tree_sha == '' && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || github.run_attempt == 1 && fromJSON(vars.RUNNER_POOLS).hosted_saturated && fromJSON(vars.RUNNER_POOLS).linux_2 || github.run_attempt == 1 && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 4
     permissions:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-127
@@ -1835,6 +1851,7 @@ jobs:
             bash scripts/ci/tests/cmux-tui-base-red.test.sh
             bash scripts/ci/tests/package-test-lane-suite-args.test.sh
             bash scripts/ci/tests/package-test-lane-sdkroot.test.sh
+            bash scripts/ci/tests/swiftpm-resolve-seeds-artifacts.test.sh
             bash scripts/ci/tests/ios-sim-fetch-commit.test.sh
             bash scripts/ci/tests/first-turn-cost-count-fallback.test.sh
             bash scripts/ci/tests/first-turn-cost-route-probe.test.sh
@@ -2664,6 +2681,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-174
       - name: Give this job its own bun
@@ -2886,7 +2904,7 @@ jobs:
     needs: [path_route, push-head-preflight]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && vars.CI_PR_POOL_OWNED == '1' && needs.path_route.outputs.macos == 'true' && github.run_attempt == 1 }}
     name: cmux-next app compile placement
-    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # Why: docs/ci/cmux-next-workflow-notes.md#note-179
     timeout-minutes: 6
     permissions:
@@ -3547,6 +3565,9 @@ jobs:
         id: spm-root
         if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && ((contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true') }}
         continue-on-error: true
+        env:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-409
+          CMUX_FAST_TIER_OWNED_SEED: ${{ (vars.CI_FAST_TIER_OWNED_SEED || '1') != '0' && '1' || '' }}
         run: |
           python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
@@ -3554,19 +3575,22 @@ jobs:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-401
       - name: Compute fast-tier cache keys
         id: fast-cache-key
-        if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && ((!contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true') }}
-        run: scripts/cmux-next/fast-tier-cache-key.sh >> "$GITHUB_OUTPUT"
+        if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && ((!contains(runner.name, '-glaeda') || steps.spm-root.outputs.seed == '1') && steps.reuse.outputs.hit != 'true') }}
+        env:
+          # The seed's key holds the path it was built at: the seed root on an owned mini.
+          CMUX_FAST_CACHE_WORKSPACE: ${{ steps.spm-root.outputs.root || github.workspace }}
+        run: scripts/cmux-next/fast-tier-cache-key.sh "$CMUX_FAST_CACHE_WORKSPACE" >> "$GITHUB_OUTPUT"
 
       - name: Restore the CmuxNext build
         id: fast-cache-restore
-        if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && ((!contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true') }}
+        if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && ((!contains(runner.name, '-glaeda') || steps.spm-root.outputs.seed == '1') && steps.reuse.outputs.hit != 'true') }}
         continue-on-error: true
         uses: ./.github/actions/cache-restore
         env:
           CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
           backend: r2
-          path: Packages/macOS/CmuxNext/.build
+          path: ${{ format('{0}/Packages/macOS/CmuxNext/.build', steps.spm-root.outputs.root || github.workspace) }}
           key: ${{ steps.fast-cache-key.outputs.swift-key }}
           restore-keys: ${{ steps.fast-cache-key.outputs.swift-prefix }}
 
@@ -3576,7 +3600,10 @@ jobs:
         env:
           MATCHED: ${{ steps.fast-cache-restore.outputs.cache-matched-key }}
           PREFIX: ${{ steps.fast-cache-key.outputs.swift-prefix }}
-        run: echo "commit=${MATCHED#"$PREFIX"}" >> "$GITHUB_OUTPUT"
+          SEED_ROOT: ${{ steps.spm-root.outputs.seed }}
+        run: |
+          echo "commit=${MATCHED#"$PREFIX"}" >> "$GITHUB_OUTPUT"
+          if [[ "$SEED_ROOT" == 1 ]]; then python3 scripts/ci/owned_spm_scratch.py seeded; fi
 
       - name: Restore the CmuxHomeRender build of that seed
         if: ${{ (steps.fast-cache-seed.outputs.commit != '') && steps.reuse.outputs.hit != 'true' }}
@@ -3586,14 +3613,16 @@ jobs:
           CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
           backend: r2
-          path: Packages/Shared/CmuxHomeRender/.build
+          path: ${{ format('{0}/Packages/Shared/CmuxHomeRender/.build', steps.spm-root.outputs.root || github.workspace) }}
           key: ${{ steps.fast-cache-key.outputs.home-prefix }}${{ steps.fast-cache-seed.outputs.commit }}
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-203
       - name: Replay the seed's input times
         if: ${{ (steps.fast-cache-seed.outputs.commit != '') && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
-        run: python3 -I scripts/ci/e2e_warm_derived_data.py replay "$GITHUB_WORKSPACE" Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json
+        env:
+          ROOT: ${{ steps.spm-root.outputs.root || github.workspace }}
+        run: python3 -I scripts/ci/e2e_warm_derived_data.py replay "$ROOT" "$ROOT/Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json"
 
       - name: Run the fast tier
         id: fast-tier-run
@@ -4062,6 +4091,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-226
       - name: Give this job its own bun
@@ -4596,6 +4626,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-253
       - name: Give this job its own bun
@@ -5041,6 +5072,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-273
       - name: Give this job its own bun
@@ -5457,7 +5489,7 @@ jobs:
     needs: release-compile-fast
     if: ${{ always() && !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile-fast.result != 'skipped' && needs.release-compile-fast.result != 'cancelled' && needs.release-compile-fast.outputs.verdict != 'unavailable' && needs.release-compile-fast.outputs.verdict != '' }}
     name: cmux-next Release compile (Xcode 26)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
     permissions:
       actions: write
       contents: read
@@ -6070,6 +6102,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-316
       - name: Give this job its own bun
@@ -6525,7 +6558,7 @@ jobs:
     environment:
       name: ci-routing-agent
       deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
     timeout-minutes: 8
     permissions:
       actions: read
@@ -6688,6 +6721,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Give this job its own bun
         if: steps.dev-product.outputs.hit != 'true'
         run: scripts/cmux-next/private-bun.sh
@@ -7140,7 +7174,7 @@ jobs:
     if: ${{ !cancelled() && needs.path_route.result == 'success' && needs.path_route.outputs.native == 'true' && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') }}
     name: cmux-next fleet Release compile
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }} # ephemeral-required: holds a statuses write App token; ephemeral Blacksmith VM, checks nothing out
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }} # ephemeral-required: holds a statuses write App token; ephemeral Blacksmith VM, checks nothing out
     timeout-minutes: 58
     permissions: {}
     outputs:
@@ -7303,7 +7337,7 @@ jobs:
     if: ${{ always() && !cancelled() && needs.compile-status.outputs.handoff != '' }}
     name: cmux-next fleet Release compile (handoff)
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }} # ephemeral-required: holds a statuses write App token; ephemeral Blacksmith VM, checks nothing out
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }} # ephemeral-required: holds a statuses write App token; ephemeral Blacksmith VM, checks nothing out
     timeout-minutes: 58
     permissions: {}
     steps:
