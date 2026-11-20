@@ -1,6 +1,21 @@
 --- a/Sources/MessagesLabHome/Vendor/appkit-native/SwipeReply.swift
 +++ b/Sources/MessagesLabHome/Vendor/appkit-native/SwipeReply.swift
-@@ -76,11 +76,12 @@
+@@ -53,9 +53,13 @@
+     }
+ 
+     func install() {
+-        monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] e in self?.handle(e) ?? e }
++        monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] e in self?.monitored(e) ?? e }
+     }
+ 
++    /// cmux: the monitor's answer for one event (nil: taken, the scroll view never sees it);
++    /// `HomeSwipeReplyTests` feeds phased streams through it.
++    func monitored(_ e: NSEvent, at: CGPoint? = nil) -> NSEvent? { handle(e, at: at) ?? e }
++
+     /// Returns nil when the event is consumed.
+     /// `at`: a host point for the check (`--swipe-check`), whose events have no window.
+     @discardableResult
+@@ -76,11 +80,12 @@
          }
          if let held = pending {
              pending = nil
@@ -15,7 +30,7 @@
              return e
          }
          guard claimed else { return e }
-@@ -104,8 +105,9 @@
+@@ -104,8 +109,9 @@
          armed = false
          cell.layer.removeAnimation(forKey: "swipe.back")
          arrow.removeAllAnimations()
@@ -27,7 +42,7 @@
          cell.layer.addSublayer(arrow)
          move(by: dx)
          return true
-@@ -141,18 +143,25 @@
+@@ -141,18 +147,25 @@
          armed = nowArmed
      }
  
@@ -57,7 +72,7 @@
          back.duration = back.settlingDuration
          cell.layer.add(back, forKey: "swipe.back")
          // The arrow fades out, then leaves the cell (unless a new swipe took it).
-@@ -179,9 +188,9 @@
+@@ -179,9 +192,9 @@
          let cfg = NSImage.SymbolConfiguration(pointSize: Tuning.arrowSize * 0.7, weight: .semibold)
              .applying(.init(paletteColors: [NSColor(white: 0.6, alpha: 1)]))
          guard let sym = NSImage(systemSymbolName: "arrowshape.turn.up.left.fill", accessibilityDescription: nil)?.withSymbolConfiguration(cfg) else { return nil }
@@ -69,7 +84,7 @@
          NSGraphicsContext.saveGraphicsState()
          NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
          let sz = sym.size, r = CGFloat(px)
-@@ -201,42 +210,47 @@
+@@ -201,42 +214,47 @@
  enum SwipeCheck {
      static func fromArguments() -> String? {
          let a = ProcessInfo.processInfo.arguments
