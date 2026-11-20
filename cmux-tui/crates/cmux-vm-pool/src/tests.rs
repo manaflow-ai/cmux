@@ -232,3 +232,23 @@ fn scheduler_pauses_only_after_the_idle_window_and_keeps_the_floor() {
     s.tick(3_000, &machines, &busy, 0);
     assert!(!s.tick(3_500, &machines, &roster, 0).pause.contains(&"id-fsp-a".to_owned()));
 }
+
+#[test]
+fn totals_count_slots_and_busy_pool_runners_only() {
+    let machines = vec![
+        machine(Provider::Gcp, "g-1", Power::Running, 4),
+        machine(Provider::Freestyle, "fsp-a", Power::Paused, 1),
+    ];
+    let roster = vec![
+        runner("g-1-1", true, true),
+        runner("g-1-2", true, false),
+        runner("g-1-3", false, false),
+        runner("fsp-a", false, false),
+        runner("someone-else", true, true),
+    ];
+    let t = plan::totals(&machines, &roster);
+    assert_eq!(t["slots"], 5);
+    assert_eq!((t["running"].clone(), t["paused"].clone()), (json!(1), json!(1)));
+    assert_eq!((t["runners_listed"].clone(), t["runners_online"].clone()), (json!(4), json!(2)));
+    assert_eq!((t["runners_busy"].clone(), t["runners_idle"].clone()), (json!(1), json!(1)));
+}

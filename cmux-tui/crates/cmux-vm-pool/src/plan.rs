@@ -72,3 +72,24 @@ pub fn wanted_runners(picked: &[&Machine], roster: &[Runner]) -> HashSet<String>
         .map(|r| r.name.clone())
         .collect()
 }
+
+/// The pool's size and use: machines by power state, runner slots, and the pool's runners in GitHub
+/// (online, busy, idle). With queued jobs beside it, this is "slots busy against jobs queued".
+pub fn totals(machines: &[Machine], roster: &[Runner]) -> serde_json::Value {
+    let count = |power: Power| machines.iter().filter(|m| m.power == power).count();
+    let pool: Vec<&Runner> =
+        roster.iter().filter(|r| machines.iter().any(|m| m.owns_runner(&r.name))).collect();
+    let online = pool.iter().filter(|r| r.online).count();
+    let busy = pool.iter().filter(|r| r.online && r.busy).count();
+    serde_json::json!({
+        "machines": machines.len(),
+        "running": count(Power::Running),
+        "paused": count(Power::Paused),
+        "stopped": count(Power::Stopped),
+        "slots": machines.iter().map(|m| u64::from(m.slots.max(1))).sum::<u64>(),
+        "runners_listed": pool.len(),
+        "runners_online": online,
+        "runners_busy": busy,
+        "runners_idle": online - busy,
+    })
+}

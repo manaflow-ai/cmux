@@ -413,8 +413,37 @@ async fn ls(
             m.slots
         ));
     }
-    emit(out, args.json, &json!({"machines": rows}), &text);
+    // Slots busy against jobs queued: the pool's size against its demand (`--feed` and `--repo` add queued).
+    let mut totals = plan::totals(&machines, &roster);
+    if let Some(feed) = &args.feed {
+        totals["queued"] = json!(read_queued(&pool.client, feed, &args.repos, &args.label).await?);
+    }
+    text.push_str(&format!("totals: {totals}\n"));
+    emit(out, args.json, &json!({"machines": rows, "totals": totals}), &text);
     Ok(())
+}
+
+/// Queued jobs for `label` across `repos`, from the build controller's webhook feed.
+async fn read_queued(
+    client: &reqwest::Client,
+    feed: &str,
+    repos: &[String],
+    label: &str,
+) -> Result<u32, String> {
+    let mut queued = 0u32;
+    for repo in repos {
+        let url = format!("{}/v1/github/actions?repo={repo}&recent=0", feed.trim_end_matches('/'));
+        let body: Value = client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("{url}: {e}"))?
+            .json()
+            .await
+            .map_err(|e| format!("{url}: {e}"))?;
+        queued = queued.saturating_add(feed_queued(&body, label));
+    }
+    Ok(queued)
 }
 
 async fn up(
@@ -605,24 +634,13 @@ async fn schedule(
     });
     loop {
         let tick_started = Instant::now();
-        let mut queued = 0u32;
-        let mut feed_error = None;
-        for repo in &args.repos {
-            let url =
-                format!("{}/v1/github/actions?repo={repo}&recent=0", feed.trim_end_matches('/'));
-            match pool.client.get(&url).send().await {
-                Ok(response) => match response.json::<Value>().await {
-                    Ok(body) => {
-                        queued = queued.saturating_add(feed_queued(&body, &scheduler.policy.label))
-                    }
-                    Err(e) => feed_error = Some(format!("{url}: {e}")),
-                },
-                Err(e) => feed_error = Some(format!("{url}: {e}")),
-            }
-        }
-        let (machines, roster) = futures_util::join!(pool.machines(), pool.roster());
-        match (machines, roster, feed_error) {
-            (Ok(machines), Ok(roster), None) => {
+        let (queued, machines, roster) = futures_util::join!(
+            read_queued(&pool.client, &feed, &args.repos, &scheduler.policy.label),
+            pool.machines(),
+            pool.roster()
+        );
+        match (machines, roster, queued) {
+            (Ok(machines), Ok(roster), Ok(queued)) => {
                 let decision = scheduler.tick(now_ms(), &machines, &roster, queued);
                 let resume: Vec<&Machine> =
                     machines.iter().filter(|m| decision.resume.contains(&m.id)).collect();
@@ -646,8 +664,11 @@ async fn schedule(
             }
             (m, r, f) => {
                 // A read failed: decide nothing this tick (never pause on a partial view).
-                let why =
-                    [m.err(), r.err(), f].into_iter().flatten().collect::<Vec<_>>().join("; ");
+                let why = [m.err(), r.err(), f.err()]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+                    .join("; ");
                 eprintln!("cmux vm pool: schedule: skipped a tick: {why}");
             }
         }
