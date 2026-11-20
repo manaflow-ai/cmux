@@ -74,6 +74,13 @@ use super::*;
 use std::sync::Mutex as StdMutex;
 use std::time::Duration;
 
+#[cfg(test)]
+thread_local! {
+    static BEFORE_LIFT_APPEND: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const {
+        std::cell::RefCell::new(None)
+    };
+}
+
 /// The context past which a chat is compacted before its first turn after a reset.
 /// 200K: no chat under 300K got a 429 on 2026-11-16 to 11-18 (1,272 turns), and a request past
 /// 200K input tokens is a long-context request, with the provider's lower limits.
@@ -147,7 +154,35 @@ struct HoldState {
     noticed_at: Option<u64>,
 }
 
+/// Held before `append_lock`, matching normal rate-limit writes. Keeping the hold's state
+/// and its journal boundary in one critical section also excludes a stale timer lift.
+pub(super) struct RetryPark<'a>(std::sync::MutexGuard<'a, HoldState>);
+
+impl RetryPark<'_> {
+    /// The caller also owns the retry and append locks; success is a durable park.
+    pub(super) fn persist(&mut self, hub: &Hub, session: &Session) -> Result<(), RpcError> {
+        let s = &mut self.0;
+        if s.until.is_none() && s.parked.is_none() && s.strikes == 0 {
+            return Ok(());
+        }
+        hub.persist_retry_park_boundary_locked(
+            session,
+            "rate_limit_parked",
+            json!({"turnId": s.turn, "strikes": s.strikes, "noticed": false, "why": "handoff"}),
+        )?;
+        s.continuation = false;
+        s.parked = Some(now_ms());
+        s.until = Some(u64::MAX);
+        session.rate_hold.changed.notify_waiters();
+        Ok(())
+    }
+}
+
 impl RateHold {
+    pub(super) fn lock_for_retry_park(&self) -> RetryPark<'_> {
+        RetryPark(self.lock())
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, HoldState> {
         self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
@@ -285,7 +320,7 @@ impl Hub {
     /// close woke, or that skipped, leaves it parked.
     fn lift_hold(&self, session: &Session, of: Option<&str>, why: &str) {
         let hold = &session.rate_hold;
-        let (turn, strikes) = {
+        {
             let mut s = hold.lock();
             if s.until.is_none()
                 || s.parked.is_some()
@@ -295,11 +330,18 @@ impl Hub {
             }
             s.until = None;
             s.continuation = false;
-            (s.turn.take(), s.strikes)
-        };
+            let msg = json!({"turnId": s.turn.take(), "why": why, "strikes": s.strikes});
+            #[cfg(test)]
+            BEFORE_LIFT_APPEND.with(|slot| {
+                if let Some(hook) = slot.borrow_mut().take() {
+                    hook();
+                }
+            });
+            // Publish before releasing state, as hold_for_rate_limit does. Otherwise
+            // a delayed timer can append 'lifted' after a newer durable handoff park.
+            self.append(session, "mux", "rate_limit_lifted", msg);
+        }
         hold.changed.notify_waiters();
-        let msg = json!({"turnId": turn, "why": why, "strikes": strikes});
-        self.append(session, "mux", "rate_limit_lifted", msg);
         session.queue_moved.notify_waiters();
     }
 
@@ -467,7 +509,7 @@ impl Hub {
     /// ([`Hub::rate_hold_due`]). With none waiting the hold ends, and when anything queued the
     /// queue's next turn carries the continuation's words. None when the chat is not parked.
     pub(super) fn unpark_rate_hold(&self, session: &Arc<Session>, why: &str) -> Option<Unparked> {
-        let (turn, waits, strikes) = {
+        let (turn, waits) = {
             let mut s = session.rate_hold.lock();
             s.parked?;
             s.parked = None;
@@ -475,14 +517,14 @@ impl Hub {
             if s.continuation {
                 s.until = Some(now_ms());
             }
-            (s.turn.clone(), s.continuation, s.strikes)
+            self.append(
+                session,
+                "mux",
+                "rate_limit_unparked",
+                json!({"turnId": s.turn, "why": why, "continues": s.continuation, "strikes": s.strikes}),
+            );
+            (s.turn.clone(), s.continuation)
         };
-        self.append(
-            session,
-            "mux",
-            "rate_limit_unparked",
-            json!({"turnId": turn, "why": why, "continues": waits, "strikes": strikes}),
-        );
         // The person acted: a person's Stop's hold of other agents' messages ends (`cancel.rs`).
         // The limit still holds them until the continuation folds them, or the lift below.
         let stop_hold = session.stop_hold.load(std::sync::atomic::Ordering::SeqCst);
@@ -743,6 +785,70 @@ pub(crate) fn until_line(until: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn park_retry_serializes_a_delayed_timer_lift_before_its_durable_park() {
+        let mut config = crate::config::Config::default();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+        let meta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id":"park-race", "name":"Park race",
+            "harness":"fake", "cwd":"/tmp", "status":"idle", "createdAt":1, "updatedAt":1
+        }))
+        .unwrap();
+        store.save(&meta).unwrap();
+        let hub = Hub::new(config, store);
+        let session = hub.resolve("park-race").unwrap();
+        let last = json!({"promptId":"p", "turnId":"t", "status":"failed", "errorText":"HTTP 429"});
+        hub.append(&session, "mux", "turn_result", last.clone());
+        session.meta.lock().unwrap().last_turn = Some(last);
+        session.rate_hold.lock().strikes = 1;
+        hub.hold_for_rate_limit(&session, "t", now_ms() + 60_000, false);
+        let revision = Hub::revision(&session);
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let lifting = {
+            let (hub, session) = (hub.clone(), session.clone());
+            std::thread::spawn(move || {
+                BEFORE_LIFT_APPEND.with(|slot| {
+                    *slot.borrow_mut() = Some(Box::new(move || {
+                        entered_tx.send(()).unwrap();
+                        release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                    }));
+                });
+                hub.lift_rate_hold(&session, "reset");
+            })
+        };
+        entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        // The old implementation released state before the append: it would fail here,
+        // permitting a new park to be followed in the journal by this stale timer lift.
+        assert!(session.rate_hold.state.try_lock().is_err());
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (result_tx, result_rx) = std::sync::mpsc::channel();
+        let parking = {
+            let (hub, session) = (hub.clone(), session.clone());
+            std::thread::spawn(move || {
+                started_tx.send(()).unwrap();
+                result_tx.send(hub.park_retry(&session, revision)).unwrap();
+            })
+        };
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        release_tx.send(()).unwrap();
+        let error = result_rx.recv_timeout(Duration::from_secs(5)).unwrap().unwrap_err();
+        lifting.join().unwrap();
+        parking.join().unwrap();
+        assert_eq!(error.data.unwrap()["reason"], "revision_moved");
+        hub.park_retry(&session, Hub::revision(&session)).unwrap();
+        let events = hub.store.events(&session.id, 0, 100).unwrap();
+        let lifted = events.iter().position(|e| e.kind == "rate_limit_lifted").unwrap();
+        let parked = events.iter().position(|e| e.kind == "rate_limit_parked").unwrap();
+        assert!(lifted < parked);
+        // Erase only memory and read the exact persisted ordering back.
+        *session.rate_hold.lock() = HoldState::default();
+        session.rate_hold.restored.store(false, Ordering::SeqCst);
+        hub.restore_rate_hold(&session);
+        assert!(session.rate_hold.parked().is_some());
+    }
 
     #[test]
     fn the_backoff_doubles_from_its_base_up_to_half_an_hour() {

@@ -195,6 +195,12 @@ impl Hub {
         {
             return Some("queued");
         }
+        self.background_busy_with(session)
+    }
+
+    /// Work or transfer state beyond the turn and queue. A retry handoff uses these same
+    /// checks, but deliberately permits its waiting retry under the retry admission lock.
+    pub(super) fn background_busy_with(&self, session: &Session) -> Option<&'static str> {
         if !session.pending_permissions().is_empty()
             || session.asks_in_flight.load(Ordering::SeqCst) > 0
             || self.secrets.waiting_in(&session.id)

@@ -277,6 +277,7 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::AgentPairResumeParams>(method::MUX_AGENT_PAIR_RESUME, Request),
         keyed::<params::AgentHoldParams>(method::MUX_AGENT_HOLD, Request),
         request::<RetryParams, RetryResult>(method::MUX_RETRY),
+        request::<ParkRetryParams, ParkRetryResult>(method::MUX_PARK_RETRY),
         request::<auth::SessionAuthParams, auth::SessionAuthResult>(method::MUX_SESSION_AUTH),
         keyed::<params::ProcessListParams>(method::MUX_PROCESS_LIST, Request),
         keyed::<params::ProcessTailParams>(method::MUX_PROCESS_TAIL, Request),

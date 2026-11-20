@@ -713,6 +713,16 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/park_retry",
+      "params": {
+        "$ref": "#/types/ParkRetryParams"
+      },
+      "result": {
+        "$ref": "#/types/ParkRetryResult"
+      }
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/session/auth",
       "params": {
         "$ref": "#/types/SessionAuthParams"
@@ -4376,6 +4386,47 @@
         "outcome": true,
         "sessionId": true
       },
+      "type": "object"
+    },
+    "ParkRetryParams": {
+      "additionalProperties": false,
+      "description": "Local-only atomic retry park before handing a failed session's work off.",
+      "properties": {
+        "expectRevision": {
+          "description": "Session lastSeq observed by the caller; required even if no retry currently waits.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "expectRevision"
+      ],
+      "type": "object"
+    },
+    "ParkRetryResult": {
+      "properties": {
+        "parked": {
+          "type": "boolean"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "revision",
+        "parked"
+      ],
       "type": "object"
     },
     "Participant": {

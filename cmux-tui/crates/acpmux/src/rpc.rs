@@ -530,6 +530,8 @@ pub mod method {
     pub const MUX_AGENT_HOLD: &str = "_acpmux/agent_hold";
     /// Retry a chat's failed last turn now (`hub/auto_resume/retry_turn.rs`).
     pub const MUX_RETRY: &str = "_acpmux/retry";
+    /// Atomically park an observed failed turn's retry, without cancelling its process.
+    pub const MUX_PARK_RETRY: &str = "_acpmux/park_retry";
     /// What this daemon knows of a chat's sign-in (`hub/session_auth.rs`).
     pub const MUX_SESSION_AUTH: &str = "_acpmux/session/auth";
     pub const MUX_INFO: &str = "_acpmux/info";

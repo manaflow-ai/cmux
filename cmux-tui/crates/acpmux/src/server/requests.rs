@@ -3501,6 +3501,7 @@ async fn dispatch_request_with_identity(
         | method::MUX_AGENT_PAIR_RESUME
         | method::MUX_AGENT_HOLD
         | method::MUX_RETRY
+        | method::MUX_PARK_RETRY
         | method::MUX_INBOX_DIGEST => super::agent_messages::handle(hub, conn, m, &params).await,
         method::MUX_PERMISSION_GROUPS => {
             let s = hub.resolve(session_key(&params)?)?;

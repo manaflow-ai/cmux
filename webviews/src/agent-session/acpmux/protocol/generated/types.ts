@@ -811,6 +811,19 @@ export interface OfferRespondParams {
   sessionId?: unknown;
 }
 
+/** Local-only atomic retry park before handing a failed session's work off. */
+export interface ParkRetryParams {
+  /** Session lastSeq observed by the caller; required even if no retry currently waits. */
+  expectRevision: number;
+  sessionId: string;
+}
+
+export type ParkRetryResult = {
+  parked: boolean;
+  revision: number;
+  sessionId: string;
+} & Record<string, unknown>;
+
 /**
  * One person in a chat. The hub never marks the caller's own entry: a connection may carry
  * several people, so the client compares ids (a caller with no author is `owner`).

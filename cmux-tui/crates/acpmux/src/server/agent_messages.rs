@@ -41,6 +41,20 @@ pub(super) async fn handle(
     m: &str,
     params: &Value,
 ) -> Result<Value, RpcError> {
+    if m == method::MUX_PARK_RETRY {
+        if conn.origin != Origin::Local {
+            return Err(RpcError::invalid_params(
+                "retry park is accepted only over the local unix socket",
+            ));
+        }
+        let request: crate::protocol::session::ParkRetryParams =
+            serde_json::from_value(params.clone())
+                .map_err(|e| RpcError::invalid_params(format!("invalid retry park: {e}")))?;
+        let s = hub.resolve(session_key(params)?)?;
+        hub.session_log(&s).await;
+        return serde_json::to_value(hub.park_retry(&s, request.expect_revision)?)
+            .map_err(|e| RpcError::internal(e.to_string()));
+    }
     if m == method::MUX_RETRY {
         return retry(hub, conn, params).await;
     }
@@ -163,5 +177,39 @@ mod person_prompt_tests {
         assert!(!counts_as_person_prompt(true, false, false), "another agent's message");
         assert!(!counts_as_person_prompt(false, true, false), "a trigger's delivery");
         assert!(!counts_as_person_prompt(false, false, true), "a send from inside a session");
+    }
+}
+
+#[cfg(test)]
+mod park_retry_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn park_retry_refuses_every_nonlocal_origin() {
+        let mut config = crate::config::Config::default();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+        let hub = Hub::new(config, store);
+        for (origin, auth) in [
+            (Origin::Web, crate::server::ConnAuth::ListenerToken),
+            (Origin::LocalApp, crate::server::ConnAuth::LocalApp),
+            (Origin::Peer, crate::server::ConnAuth::PeerToken),
+            (Origin::Peer, crate::server::ConnAuth::CarrierOwner),
+        ] {
+            let mut params = serde_json::json!({"sessionId":"source", "expectRevision":7});
+            assert!(
+                crate::server::remote_guard::check(
+                    &hub,
+                    origin,
+                    auth,
+                    None,
+                    method::MUX_PARK_RETRY,
+                    &mut params,
+                    false,
+                )
+                .await
+                .is_err()
+            );
+        }
     }
 }
