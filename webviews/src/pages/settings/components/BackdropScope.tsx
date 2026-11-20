@@ -2,7 +2,7 @@
 // that workspace, which can keep its own background over appearance.background.
 import { Button } from "../../../ui/Button";
 import { watchPress } from "../../../ui/pressRelease";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useStore } from "../context";
 import type { WorkspaceBackground } from "../ops";
 import { t } from "../strings";
@@ -117,7 +117,9 @@ export function WorkspaceOpacity({
   // releases, as its pointerup did.
   const stopPress = useRef<() => void>(undefined);
   const releaseRef = useRef(release);
-  releaseRef.current = release;
+  useLayoutEffect(() => {
+    releaseRef.current = release;
+  });
   useEffect(() => () => stopPress.current?.(), []);
   return (
     <div className="rows">

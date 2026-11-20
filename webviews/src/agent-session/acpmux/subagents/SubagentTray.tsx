@@ -539,6 +539,10 @@ export const SubagentTray = memo(function SubagentTray({
       }),
     [t, items, finished, waiting, working, chatHarness, kindsArm, kindLine],
   );
+  // The rim drag's watch (pressRelease.ts); a tray gone mid-drag leaves no listener behind. Above the
+  // empty tray's early return, so the hooks run on every render; with no drag it stops nothing.
+  const stopRim = useRef<() => void>(undefined);
+  useEffect(() => () => stopRim.current?.(), []);
   if (items.length === 0 && finished.length === 0 && !planned) return null;
   // The counts, split by kind, then what ended and failed (trayHeadKinds.ts; Leo, 2026-11-03: "the
   // top bit aka what the collapsed area shows i think can show much more interesting stuf fthan it
@@ -622,9 +626,6 @@ export const SubagentTray = memo(function SubagentTray({
   // The top rim drags the list taller or shorter (trayResize.ts): up from folded opens it, down past
   // its last line folds it, a double-click goes back to the default five lines.
   const resizes = !(headed && opensPanel === "header");
-  // The rim drag's watch (pressRelease.ts); a tray gone mid-drag leaves no listener behind.
-  const stopRim = useRef<() => void>(undefined);
-  useEffect(() => () => stopRim.current?.(), []);
   const onRimDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     const list = trayNode.current?.querySelector<HTMLElement>(".acpmux-running-tray__list");

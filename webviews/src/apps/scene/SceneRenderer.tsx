@@ -4,6 +4,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
@@ -230,9 +231,12 @@ function SceneSlider({ node, dispatch, disabled }: { node: SceneNode; dispatch: 
     last.current = appValue;
     setShown(appValue);
   };
-  // The press's end (pressRelease.ts) runs this render's endDrag: the app's latest value shows.
+  // The press's end (pressRelease.ts) runs the last committed render's endDrag: the app's latest
+  // value shows. Kept in a layout effect, before any later event, never written during render.
   const endNow = useRef(endDrag);
-  endNow.current = endDrag;
+  useLayoutEffect(() => {
+    endNow.current = endDrag;
+  });
   useEffect(() => () => stopPress.current?.(), []);
   return (
     <input
