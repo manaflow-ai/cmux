@@ -169,8 +169,8 @@ impl Hub {
     /// (its `initialize`), which only this reattach answers. Two at once make one link
     /// (`ChildAgent::reattach_if_lost`). Whether `child` is alive after it. False, and nothing
     /// reached, for an agent that exited, whose host is dead (its live lock, bounded as `readopt`
-    /// waits for it), whose link broke because an entry could not be logged (the next request
-    /// reattaches it: a full disk must not loop here), that another agent took the session from,
+    /// waits for it), whose link broke because an entry could not be logged (`reach_broken_link`
+    /// retries that one with a backoff: a full disk must not loop here), that another agent took the session from,
     /// or under MDM's off (an unheard agent ends then, `end_every_managed_full_access`).
     pub(super) async fn reach_lost_link(
         self: &Arc<Self>,
@@ -225,6 +225,61 @@ impl Hub {
                 tracing::warn!(session = %session.id, "agent host reattach after a lost link failed: {e:#}");
                 false
             }
+        }
+    }
+
+    /// Reach `child` again after its link broke on an entry the store could not log (a full disk,
+    /// F20): the reattach replays from the last logged entry, so the open turn gets its words and
+    /// its answer and the prompts queued behind it run. The next request cannot do it: it queues
+    /// behind that turn, which nothing else ends. While the store still cannot log, the replay
+    /// breaks the link again and this tries again after a backoff (250 ms doubling to 5 s), so a
+    /// full disk costs one connect and one failed write per try, never a loop. One per link
+    /// (`ChildAgent::claim_broken_retry`); it ends once the link reads clean, or the agent exits,
+    /// is replaced or ended, or the hub shuts down.
+    pub(super) async fn reach_broken_link(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
+    ) {
+        const FIRST: std::time::Duration = std::time::Duration::from_millis(250);
+        const MOST: std::time::Duration = std::time::Duration::from_secs(5);
+        let mut backoff = FIRST;
+        loop {
+            tokio::time::sleep(backoff).await;
+            let still_asked =
+                session.child.lock().await.as_ref().is_some_and(|c| Arc::ptr_eq(c, child));
+            let over = !still_asked
+                || child.has_exited()
+                || child.is_retired()
+                || child.ended_on_purpose()
+                || self.shutting_down()
+                || self.full_access_managed_off();
+            if over || !child.is_broken() {
+                child.release_broken_retry();
+                // A break between the look and the release found this retry still claimed and
+                // started none: take it again.
+                if over || !child.is_broken() || !child.claim_broken_retry() {
+                    return;
+                }
+            }
+            let off = self.off_latch();
+            match child.reattach_if_lost().await {
+                Ok(true) => {
+                    self.append(
+                        session,
+                        "mux",
+                        "host_reattached",
+                        json!({"reason": "entry_unlogged"}),
+                    );
+                    let _ = self.judged_after_reattach(session, child, &off).await;
+                }
+                Ok(false) => {}
+                Err(e) => tracing::warn!(
+                    session = %session.id,
+                    "agent host reattach after an unlogged entry failed: {e:#}"
+                ),
+            }
+            backoff = (backoff * 2).min(MOST);
         }
     }
 
