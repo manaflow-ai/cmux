@@ -73,7 +73,17 @@ def variants(spec):
 
 
 def set_tunables(tunables):
-    """Write (or remove) the tag's debug-tunables.json in every state root the launch may read."""
+    """Write (or remove) the tag's debug-tunables.json in every state root the launch may read. The file's shape is the
+    app's ({"version": 1, "values": {...}}, as cef-layer-verify.py writes it); a flat object is wrapped. A variant that
+    names `browser.inTreePages` also sets CMUX_IN_TREE_PAGES for its launches (in_tree_mode.py: the environment wins
+    over the file, and bench_launch passes it on), so the mode cannot come from anywhere else."""
+    if tunables is not None and "values" not in tunables:
+        tunables = {"version": 1, "values": tunables}
+    values = (tunables or {}).get("values") or {}
+    if "browser.inTreePages" in values:
+        os.environ["CMUX_IN_TREE_PAGES"] = "1" if values["browser.inTreePages"] else "0"
+    else:
+        os.environ["CMUX_IN_TREE_PAGES"] = "0"  # the OFF variant is off whatever the build's default
     written = []
     for root in tag_state_roots(opts.tag):
         path = os.path.join(root, "debug-tunables.json")
