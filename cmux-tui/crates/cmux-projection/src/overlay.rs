@@ -18,13 +18,15 @@ use std::os::unix::fs::{FileExt as _, MetadataExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::manifest::{Kind, Manifest, ROOT};
 use crate::{Fetch, FetchError};
 
 /// The size of a chunk of a big file, and the largest file fetched whole.
 pub const CHUNK: u64 = 4 * 1024 * 1024;
+/// The lower-byte cache is bounded per projection so a broad search cannot fill the machine disk.
+pub const CACHE_BUDGET_BYTES: u64 = 512 * 1024 * 1024;
 /// The most files one directory readahead batch asks for.
 const BATCH_FILES: usize = 256;
 /// The most bytes one directory readahead batch asks for.
@@ -84,6 +86,110 @@ struct Inner {
     next: u64,
 }
 
+#[derive(Clone, Copy)]
+struct CacheEntry {
+    modified: SystemTime,
+    size: u64,
+}
+
+/// The lower cache's admission index. It is built once when an overlay opens, then updated while
+/// the admission mutex is held; a store therefore never rescans or resorts the cache directory.
+#[derive(Default)]
+struct CacheIndex {
+    entries: BTreeMap<PathBuf, CacheEntry>,
+    order: BTreeSet<(SystemTime, PathBuf)>,
+    bytes: u64,
+}
+
+impl CacheIndex {
+    fn load(cache: &Path) -> anyhow::Result<Self> {
+        let mut index = Self::default();
+        for entry in fs::read_dir(cache)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.file_name().and_then(|name| name.to_str()) == Some("manifest-id") {
+                continue;
+            }
+            let metadata = fs::symlink_metadata(&path)?;
+            if !metadata.file_type().is_file() {
+                continue;
+            }
+            index.insert(path, metadata.modified()?, metadata.len());
+        }
+        Ok(index)
+    }
+
+    fn insert(&mut self, path: PathBuf, modified: SystemTime, size: u64) {
+        self.remove(&path);
+        self.bytes = self.bytes.saturating_add(size);
+        self.order.insert((modified, path.clone()));
+        self.entries.insert(path, CacheEntry { modified, size });
+    }
+
+    fn remove(&mut self, path: &Path) -> Option<CacheEntry> {
+        let entry = self.entries.remove(path)?;
+        self.order.remove(&(entry.modified, path.to_owned()));
+        self.bytes = self.bytes.saturating_sub(entry.size);
+        Some(entry)
+    }
+
+    /// Makes room for `incoming`, excluding `protected` from eviction. A failed deletion refuses
+    /// admission, so the caller cannot rename a new object past the budget.
+    fn admit(&mut self, incoming: u64, protected: &Path, budget: u64) -> bool {
+        let replacing = self.entries.get(protected).map_or(0, |entry| entry.size);
+        let mut used = self.bytes.saturating_sub(replacing);
+        while used.saturating_add(incoming) > budget {
+            let Some((_, path)) = (match self.order.iter().next().cloned() {
+                Some((_, path)) if path.as_path() == protected => self.order.iter().nth(1).cloned(),
+                first => first,
+            }) else {
+                return false;
+            };
+            let size = self.entries.get(&path).map_or(0, |entry| entry.size);
+            match fs::remove_file(&path) {
+                Ok(()) => {
+                    self.remove(&path);
+                    used = used.saturating_sub(size);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    self.remove(&path);
+                    used = used.saturating_sub(size);
+                }
+                Err(_) => return false,
+            }
+        }
+        true
+    }
+
+    fn trim(&mut self, budget: u64) -> anyhow::Result<()> {
+        while self.bytes > budget {
+            let Some((_, path)) = self.order.iter().next().cloned() else {
+                anyhow::bail!("cache occupancy cannot be reduced to its budget");
+            };
+            let before = self.entries.len();
+            match fs::remove_file(&path) {
+                Ok(()) => {
+                    self.remove(&path);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    self.remove(&path);
+                }
+                Err(error) => {
+                    return Err(anyhow::anyhow!(
+                        "cannot trim cache entry {}: {error}",
+                        path.display()
+                    ));
+                }
+            }
+            anyhow::ensure!(
+                self.entries.len() < before || self.bytes <= budget,
+                "cache trim made no progress"
+            );
+        }
+        Ok(())
+    }
+}
+
 /// A projected folder as the machine sees it.
 pub struct Overlay {
     manifest: Arc<Manifest>,
@@ -91,6 +197,7 @@ pub struct Overlay {
     owner: (u32, u32),
     upper: PathBuf,
     cache: PathBuf,
+    cache_admission: Mutex<CacheIndex>,
     scratch: PathBuf,
     whiteouts_file: PathBuf,
     inner: Mutex<Inner>,
@@ -180,6 +287,8 @@ impl Overlay {
             fs::create_dir_all(&cache)?;
             fs::write(&id_file, &id)?;
         }
+        let mut cache_index = CacheIndex::load(&cache)?;
+        cache_index.trim(CACHE_BUDGET_BYTES)?;
         if scratch.exists() {
             fs::remove_dir_all(&scratch)?;
         }
@@ -194,6 +303,7 @@ impl Overlay {
             owner,
             upper,
             cache,
+            cache_admission: Mutex::new(cache_index),
             scratch,
             whiteouts_file,
             inner: Mutex::new(Inner { whiteouts, next, ..Inner::default() }),
@@ -500,15 +610,38 @@ impl Overlay {
     }
 
     fn cached(&self, key: Key) -> Option<Vec<u8>> {
+        if !self.fetch.cache() {
+            return None;
+        }
         let bytes = fs::read(self.cache_path(key)).ok()?;
         self.cache_hits.fetch_add(1, Ordering::Relaxed);
         Some(bytes)
     }
 
     fn store(&self, key: Key, bytes: &[u8]) {
+        if !self.fetch.cache() {
+            return;
+        }
+        let Ok(size) = u64::try_from(bytes.len()) else { return };
+        if size == 0 || size > CACHE_BUDGET_BYTES {
+            return;
+        }
         let temp = self.scratch_path();
-        if fs::write(&temp, bytes).is_ok() && fs::rename(&temp, self.cache_path(key)).is_err() {
-            let _ = fs::remove_file(&temp);
+        if fs::write(&temp, bytes).is_ok() {
+            let target = self.cache_path(key);
+            let mut admission = self.cache_admission.lock().unwrap_or_else(PoisonError::into_inner);
+            if !admission.admit(size, &target, CACHE_BUDGET_BYTES) {
+                let _ = fs::remove_file(&temp);
+                return;
+            }
+            if fs::rename(&temp, &target).is_err() {
+                let _ = fs::remove_file(&temp);
+            } else {
+                let modified = fs::metadata(&target)
+                    .and_then(|metadata| metadata.modified())
+                    .unwrap_or_else(|_| SystemTime::now());
+                admission.insert(target, modified, size);
+            }
         }
     }
 
@@ -544,7 +677,8 @@ impl Overlay {
         }
         let mut batch = vec![index];
         let mut bytes = self.manifest.entry(index).map_or(0, |entry| entry.size);
-        if let Some(entry) = self.manifest.entry(index) {
+        // A source with no cache answers one file at a time: read ahead would be thrown away.
+        if let Some(entry) = self.manifest.entry(index).filter(|_| self.fetch.cache()) {
             let folder = self.manifest.path_of(entry.parent);
             let (first, siblings) = self.manifest.children(entry.parent);
             let mut inflight = self.inflight.lock().unwrap_or_else(PoisonError::into_inner);

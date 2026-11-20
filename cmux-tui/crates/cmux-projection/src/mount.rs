@@ -52,6 +52,30 @@ impl Drop for Mounted {
 
 /// Mounts `overlay` at `at` (an existing, empty folder).
 pub fn mount(overlay: Arc<Overlay>, at: &Path) -> anyhow::Result<Mounted> {
+    let session = fuser::spawn_mount2(filesystem(overlay)?, at, &options())?;
+    Ok(Mounted { session: Some(session) })
+}
+
+/// Mounts `overlay` at `at` and serves it on this thread until it is unmounted from outside
+/// (`fusermount3 -u`). `mounted` runs once the mount is up, before the first request.
+pub fn serve(overlay: Arc<Overlay>, at: &Path, mounted: impl FnOnce()) -> anyhow::Result<()> {
+    let mut session = fuser::Session::new(filesystem(overlay)?, at, &options())?;
+    mounted();
+    session.run()?;
+    Ok(())
+}
+
+fn options() -> [MountOption; 5] {
+    [
+        MountOption::FSName("cmux-projection".into()),
+        MountOption::Subtype("cmux".into()),
+        MountOption::DefaultPermissions,
+        MountOption::NoAtime,
+        MountOption::RW,
+    ]
+}
+
+fn filesystem(overlay: Arc<Overlay>) -> anyhow::Result<Fs> {
     let (sender, receiver) = channel::<Job>();
     let receiver = Arc::new(Mutex::new(receiver));
     for index in 0..WORKERS {
@@ -66,16 +90,7 @@ pub fn mount(overlay: Arc<Overlay>, at: &Path) -> anyhow::Result<Mounted> {
             }
         })?;
     }
-    let fs = Fs { overlay, jobs: sender, listings: HashMap::new(), next_handle: AtomicU64::new(1) };
-    let options = [
-        MountOption::FSName("cmux-projection".into()),
-        MountOption::Subtype("cmux".into()),
-        MountOption::DefaultPermissions,
-        MountOption::NoAtime,
-        MountOption::RW,
-    ];
-    let session = fuser::spawn_mount2(fs, at, &options)?;
-    Ok(Mounted { session: Some(session) })
+    Ok(Fs { overlay, jobs: sender, listings: HashMap::new(), next_handle: AtomicU64::new(1) })
 }
 
 /// Lazily unmounts whatever is mounted at `at` (a dead mount a daemon restart left), ignoring

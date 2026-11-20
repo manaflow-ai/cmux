@@ -8,7 +8,7 @@
 //! What goes in is decided by the Mac (the copy's own rules, `sync_cli/local.rs`): a path that is
 //! not in the manifest can never be asked for.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io::Read as _;
 
 use serde::{Deserialize, Serialize};
@@ -18,8 +18,12 @@ pub const ROOT: u32 = 0;
 
 /// The most entries a manifest holds (a decode refuses more).
 pub const MAX_ENTRIES: usize = 20_000_000;
-/// The most bytes a manifest decodes to (a decode refuses more).
-const MAX_DECODED_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+/// The most serialized bytes a manifest decodes to (a decode refuses more).
+///
+/// This is deliberately far below the 512 MiB wire limit: deserializing the bincode value also
+/// allocates its vectors and strings, so allowing multi-gigabyte expansion would let a compressed
+/// manifest exhaust the daemon before the entry limit is checked.
+const MAX_DECODED_BYTES: u64 = 256 * 1024 * 1024;
 /// The longest name the manifest takes (Linux's own limit).
 const MAX_NAME_BYTES: usize = 255;
 
@@ -78,13 +82,31 @@ struct Node {
     mtime_ns: i64,
     link: Option<String>,
     children: BTreeMap<String, Node>,
+    folded_names: BTreeMap<String, String>,
+}
+
+/// Whether two names that differ only in letter case are one name, as the source's file system
+/// has it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Case {
+    /// A Mac folder (APFS, HFS+): `Foo` and `foo` are one file there, so a listing with both
+    /// cannot be the Mac's and is refused.
+    Insensitive,
+    /// A git commit, as `git checkout` makes it on Linux: `Foo` and `foo` are two files.
+    Sensitive,
 }
 
 impl Manifest {
-    /// The manifest of `items`. A folder above an item that is not itself listed is added (mode
-    /// 0755, the folder's own `root_mtime_ns`). Refuses a bad path, a path listed twice, and an
-    /// item below a file or a link.
+    /// The manifest of a Mac folder's `items` ([`Manifest::build_with`], [`Case::Insensitive`]).
     pub fn build(root_mtime_ns: i64, items: Vec<Item>) -> anyhow::Result<Self> {
+        Self::build_with(root_mtime_ns, items, Case::Insensitive)
+    }
+
+    /// The manifest of `items`. A folder above an item that is not itself listed is added (mode
+    /// 0755, the folder's own `root_mtime_ns`). Refuses a bad path, a path listed twice, an item
+    /// below a file or a link, and, when `case` is [`Case::Insensitive`], two names of one folder
+    /// that differ only in case.
+    pub fn build_with(root_mtime_ns: i64, items: Vec<Item>, case: Case) -> anyhow::Result<Self> {
         let mut root =
             Node { kind: Some(Kind::Dir), mode: 0o755, mtime_ns: root_mtime_ns, ..Node::default() };
         for item in items {
@@ -92,6 +114,9 @@ impl Manifest {
             let (last, above) = names.split_last().ok_or_else(|| anyhow::anyhow!("empty path"))?;
             let mut at = &mut root;
             for name in above {
+                if case == Case::Insensitive {
+                    ensure_case_unique(&mut at.folded_names, name, &item.path)?;
+                }
                 anyhow::ensure!(
                     matches!(at.kind, None | Some(Kind::Dir)),
                     "{} is below a file",
@@ -108,6 +133,9 @@ impl Manifest {
                 "{} is below a file",
                 item.path
             );
+            if case == Case::Insensitive {
+                ensure_case_unique(&mut at.folded_names, last, &item.path)?;
+            }
             let node = at.children.entry((*last).to_owned()).or_default();
             anyhow::ensure!(
                 node.kind.is_none() || (node.kind == Some(Kind::Dir) && item.kind == Kind::Dir),
@@ -235,9 +263,15 @@ impl Manifest {
     /// A manifest from [`Manifest::encode`]'s bytes, checked: every parent and child range is in
     /// bounds and agrees, every name is one component, and a folder's children are sorted.
     pub fn decode(bytes: &[u8]) -> anyhow::Result<Self> {
+        Self::decode_with_limit(bytes, MAX_DECODED_BYTES)
+    }
+
+    fn decode_with_limit(bytes: &[u8], max_decoded_bytes: u64) -> anyhow::Result<Self> {
         let mut raw = Vec::new();
-        zstd::Decoder::new(bytes)?.take(MAX_DECODED_BYTES + 1).read_to_end(&mut raw)?;
-        anyhow::ensure!(raw.len() as u64 <= MAX_DECODED_BYTES, "the manifest is too large");
+        zstd::Decoder::new(bytes)?
+            .take(max_decoded_bytes.saturating_add(1))
+            .read_to_end(&mut raw)?;
+        anyhow::ensure!(raw.len() as u64 <= max_decoded_bytes, "the manifest is too large");
         let manifest: Self = bincode::deserialize(&raw)?;
         manifest.check()?;
         Ok(manifest)
@@ -246,7 +280,8 @@ impl Manifest {
     fn check(&self) -> anyhow::Result<()> {
         anyhow::ensure!(!self.entries.is_empty(), "the manifest has no folder");
         anyhow::ensure!(self.entries.len() <= MAX_ENTRIES, "more than {MAX_ENTRIES} paths");
-        let root = self.entries.first().ok_or_else(|| anyhow::anyhow!("the manifest has no folder"))?;
+        let root =
+            self.entries.first().ok_or_else(|| anyhow::anyhow!("the manifest has no folder"))?;
         anyhow::ensure!(
             root.kind == Kind::Dir && root.name.is_empty(),
             "entry 0 is not the folder"
@@ -271,6 +306,7 @@ impl Manifest {
                 .ok_or_else(|| anyhow::anyhow!("entry {index}'s children are out of range"))?;
             anyhow::ensure!(entry.children == 0 || start > index, "entry {index} loops");
             let mut before: Option<&Entry> = None;
+            let mut folded_names = BTreeSet::new();
             for ((child, seen), node) in seen
                 .iter_mut()
                 .enumerate()
@@ -282,13 +318,38 @@ impl Manifest {
                 *seen = true;
                 anyhow::ensure!(node.parent as usize == index, "entry {child}'s folder disagrees");
                 if let Some(before) = before {
-                    anyhow::ensure!(before.name < node.name, "entry {index}'s children are not sorted");
+                    anyhow::ensure!(
+                        before.name < node.name,
+                        "entry {index}'s children are not sorted"
+                    );
                 }
+                anyhow::ensure!(
+                    folded_names.insert(node.name.to_lowercase()),
+                    "entry {index} has case-insensitive sibling collisions"
+                );
                 before = Some(node);
             }
         }
         Ok(())
     }
+}
+
+fn ensure_case_unique(
+    folded_names: &mut BTreeMap<String, String>,
+    name: &str,
+    path: &str,
+) -> anyhow::Result<()> {
+    let folded = name.to_lowercase();
+    match folded_names.entry(folded) {
+        std::collections::btree_map::Entry::Occupied(existing) => anyhow::ensure!(
+            existing.get() == name,
+            "{path} collides with a case-insensitive sibling"
+        ),
+        std::collections::btree_map::Entry::Vacant(slot) => {
+            slot.insert(name.to_owned());
+        }
+    }
+    Ok(())
 }
 
 fn entry(name: String, parent: u32, node: Node) -> Entry {
