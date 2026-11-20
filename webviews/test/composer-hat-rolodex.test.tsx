@@ -105,7 +105,9 @@ async function hat(agents: Subagent[], commands: BackgroundCommand[]) {
   const thumb = (key: string) => host.querySelector<HTMLElement>(`[data-rolodex-key="${key}"]`);
   const hover = async (node: Element) =>
     act(async () => {
-      node.dispatchEvent(new dom.window.MouseEvent("pointerover", { bubbles: true, relatedTarget: button }));
+      node.dispatchEvent(
+        new dom.window.MouseEvent("pointerover", { bubbles: true, relatedTarget: dom.window.document.body }),
+      );
     });
   const leave = async (node: Element) =>
     act(async () => {

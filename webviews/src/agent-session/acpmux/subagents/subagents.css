@@ -755,17 +755,16 @@ button.cv-subagent > :last-child {
   pointer-events: none;
 }
 .acpmux-running-tray__stack[data-rolodex] {
-  /* The lifted mark draws over the header's top edge, never clipped by the stack. */
-  overflow: visible;
+  /* Room for the hit boxes and the lifted mark inside the stack's clip (it still gives way to the
+     title in a narrow hat), taken back by the margins so the row never grows. */
+  padding: 2px;
+  margin: -2px;
 }
 .acpmux-running-tray__stack[data-rolodex="pop"] .acpmux-running-tray__stack-mark {
   transition: transform var(--agent-motion-hover, 120ms) var(--agent-ease-out);
 }
 .acpmux-running-tray__stack[data-rolodex="pop"] .acpmux-running-tray__thumb[data-peeked] .acpmux-running-tray__stack-mark {
   transform: translateY(-1.5px) scale(1.2);
-}
-.acpmux-running-tray__thumb[data-peeked] .acpmux-running-tray__stack-mark {
-  color: var(--agent-text);
 }
 :root:is([data-cmux-motion="reduced"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-agent-motion="off"])
   .acpmux-running-tray__stack[data-rolodex="pop"]

@@ -565,8 +565,12 @@ export const SubagentTray = memo(function SubagentTray({
   // them and be able to open up that sub-agent"): the mark under the pointer names its line in the
   // header's words, and a click on it opens that line. A lone item's header already names it.
   const thumbs = rolodex !== "off" && !lone && head === "stack" && drawnMarks.length > 0;
+  // A peek holds only while its mark is drawn: a mark that leaves, or a stack that goes (a lone item,
+  // the `off` arm), lets the header go back to its own words, and a later stack starts unpeeked.
+  const peekDrawn = thumbs && peekKey !== undefined && drawnMarks.some((mark) => mark.key === peekKey);
+  if (peekKey !== undefined && !peekDrawn) setPeekKey(undefined);
   const peeked =
-    thumbs && peekKey !== undefined ? peekOf(t, language, peekKey, [...items, ...finished], waiting) : undefined;
+    peekDrawn && peekKey !== undefined ? peekOf(t, language, peekKey, [...items, ...finished], waiting) : undefined;
   const title = counts.text;
   // Its subagents and the chats it started run, or a command does: the header's mark is lit.
   const commands = items.filter((item) => item.kind === "command").length;
@@ -626,6 +630,16 @@ export const SubagentTray = memo(function SubagentTray({
       </TrayRow>
     );
   });
+  // The header's click: it opens the panel (the `header` arm) or expands and folds the hat in place.
+  const toggle = () => {
+    if (opensPanel === "header") {
+      onOpenPanel?.();
+      return;
+    }
+    setTuckQuiet(true);
+    setOpened(!open);
+    rememberTrayOpen(chat, !open);
+  };
   // A click on one of the header's marks opens what it stands for, never the hat's fold: a subagent's
   // view, a chat the agent started, a lone command's terminal. The commands' shared mark (and a chat
   // with nowhere to open) opens the hat on its lines instead.
@@ -645,18 +659,7 @@ export const SubagentTray = memo(function SubagentTray({
       onOpenCommand(commands[0]);
       return;
     }
-    if (!open && opensPanel !== "header") toggle();
-    else if (opensPanel === "header") onOpenPanel?.();
-  };
-  // The header's click: it opens the panel (the `header` arm) or expands and folds the hat in place.
-  const toggle = () => {
-    if (opensPanel === "header") {
-      onOpenPanel?.();
-      return;
-    }
-    setTuckQuiet(true);
-    setOpened(!open);
-    rememberTrayOpen(chat, !open);
+    if (!open) toggle();
   };
   // The top rim drags the list taller or shorter (trayResize.ts): up from folded opens it, down past
   // its last line folds it, a double-click goes back to the default five lines.
