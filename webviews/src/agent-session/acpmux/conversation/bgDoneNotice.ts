@@ -1,11 +1,19 @@
 // A background command's finish that acpmux sends the agent as a prompt (`bg-done-<task>`, a notice
 // from acpmux with the task's id and description): the turn it starts is the agent's own, not the
 // person's. It draws as a background turn (backgroundTurns.ts): one line under the turn before it,
-// "Background task finished: <task>", and the agent's acknowledgement draws nothing; a failure's line
-// says so with its exit code, in the failure look, over the agent's reply, which says why. While the finish waits for the next turn it draws nothing, so no
+// "Background task finished: <task>". An acknowledgement that says nothing (dots alone,
+// backgroundTurns.ts `saysNothing`) draws nothing; a reply with words draws under the line, as a
+// failure's does, which says so with its exit code, in the failure look. The agent's reply to the
+// person is never hidden (Leo, 2026-11-06: "your intermediate message got lost. that can never
+// happen"; 2026-11-17, on these replies gone under their lines: "im seeing no outputs from chats
+// again"). While the finish waits for the next turn it draws nothing, so no
 // notice sits pinned under a running turn (Lucas, 2026-11-14: "it should keep its place in the
 // turn, not move and stay sticky"; "not sure this makes much sense ... outside of the main turn").
 import { translate } from "../i18n";
+
+/// Whether background turn `id` (its `background_turn` id) is a background command's finish acpmux
+/// sent as a prompt (`bgDoneNotice`'s prompt id).
+export const isBgDoneTurn = (id: string) => id.startsWith("bg-done-");
 
 export type BgDone = { promptId: string; description: string; failed: boolean; exit?: number };
 
@@ -14,7 +22,7 @@ const text = (value: unknown) => (typeof value === "string" && value ? value : u
 /// The background finish `msg` (a `user_message` or `queued` record) carries, or undefined.
 export function bgDoneNotice(msg: Record<string, unknown> | undefined): BgDone | undefined {
   const promptId = text(msg?.promptId);
-  if (!promptId?.startsWith("bg-done-")) return undefined;
+  if (!promptId || !isBgDoneTurn(promptId)) return undefined;
   const meta = msg?._meta as { provenance?: Record<string, unknown> } | undefined;
   const provenance = meta?.provenance;
   const taskId = text(provenance?.bgTaskId);

@@ -150,7 +150,8 @@ import { chatPerfCapture } from "./chatPerfCapture";
 import { acpmuxPerf } from "./perf";
 import { BUSY_TRIES, busyDelay, RequestBudget, waitsForSlot } from "./requestBudget";
 import { translate } from "./i18n";
-import { bgDoneNotice, bgDoneStarted } from "./conversation/bgDoneNotice";
+import { bgDoneNotice, bgDoneStarted, isBgDoneTurn } from "./conversation/bgDoneNotice";
+import { foldsLikeCodex } from "./conversation/turnFoldStyle";
 import { approvePlan, clearPlanScope, editPaths, rememberPlanEdit } from "./planScopeDriftStore";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import {
@@ -3777,6 +3778,9 @@ export class AcpmuxDirectClient {
   private closed = false;
   /// Replay clients are intentionally detached from a socket but still publish seek snapshots.
   private replayMode = false;
+  /// The harness a replayed log's `created` record names: a replay has no session summary, and the
+  /// fold of a background finish's reply depends on the family (`settleReaction`).
+  private loggedHarness: string | undefined;
   /// A `fed` client (the guest page's) has no socket either, but draws what it is fed until `dispose`.
   private fedMode = false;
   private selectionGeneration = 0;
@@ -4005,6 +4009,8 @@ export class AcpmuxDirectClient {
     client.events = events
       .filter((event) => event.seq > 0 && (event.sessionId ?? sessionId) === sessionId)
       .sort((a, b) => a.seq - b.seq);
+    const harness: unknown = client.events.find((event) => event.kind === "created")?.msg.harness;
+    client.loggedHarness = typeof harness === "string" ? harness : undefined;
     client.replayThrough = 0;
     return client;
   }
@@ -9329,9 +9335,18 @@ export class AcpmuxDirectClient {
     const row = this.rows.get(id);
     const line = row?.background;
     if (!row || !line || line.ownTurn) return;
-    // A background command's finish acpmux sent as a prompt folds under its line however it ended,
-    // its failure said on the line (conversation/bgDoneNotice.ts; Lucas, 2026-11-14).
-    if (turn.startsWith("bg-done-")) return;
+    // A background command's finish acpmux sent as a prompt keeps its line however it ended, its
+    // failure said on the line (conversation/bgDoneNotice.ts; Lucas, 2026-11-14). In a Codex or
+    // ChatGPT chat its reply folds under it, the minimal conclusion fold (#44710). In any other
+    // family's only a reply that says nothing folds: one with words is the agent's own, drawn under
+    // the line (backgroundTurns.ts `headsBackground`), never hidden (Leo, 2026-11-17: "im seeing no
+    // outputs from chats again"; 2026-11-04: "doesn't make sense to fold claude's transcripts like that").
+    if (isBgDoneTurn(turn)) {
+      const family = this.summary?.family ?? this.summary?.harness ?? this.loggedHarness;
+      if (!foldsLikeCodex(family) && !saysNothing(this.rows.backgroundReply(turn)))
+        this.rows.set(id, { ...row, version: row.version + 1, background: { ...line, ownTurn: true } });
+      return;
+    }
     if (!this.reactionOrigins.has(turn) && line.cause?.weight !== "failure") return;
     if (line.quiet !== true && line.cause?.weight !== "silent") return;
     if (saysNothing(this.rows.backgroundReply(turn))) return;

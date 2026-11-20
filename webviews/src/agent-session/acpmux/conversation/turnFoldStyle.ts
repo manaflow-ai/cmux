@@ -60,6 +60,15 @@ export const CLAUDE_IN_PLACE: TurnFoldStyle = {
   countsCalls: false,
 };
 
+/// Whether a harness family is one the table folds as ChatGPT and Codex do (`CODEX`): the minimal
+/// conclusion fold, which "can only necessarily make sense for them" (Leo, 2026-11-04). Only there
+/// does a background finish's reply fold under its line (direct.ts `settleReaction`); Claude's,
+/// Gemini's, Muse's and a family not yet known draw.
+export function foldsLikeCodex(family: string | undefined): boolean {
+  const key = agentKey(family);
+  return !!key && Object.hasOwn(TURN_FOLD_STYLES, key) && TURN_FOLD_STYLES[key] === CODEX;
+}
+
 /// The fold style of a harness family (acpmux's summary `family`); undefined folds as Codex does.
 /// `claudeInPlace` defaults to the experiment's arm, so a Claude turn keeps its runs in place only there.
 export function turnFoldStyle(
