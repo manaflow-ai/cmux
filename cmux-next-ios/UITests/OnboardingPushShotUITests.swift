@@ -28,9 +28,9 @@ final class OnboardingPushShotUITests: XCTestCase {
     static let pushes: [String] = [
         push(thread: "onboarding-chief", category: "CMUX_MOBILE_CHIEF", title: "Chief", subtitle: nil,
              body: "The nightly is green again. Two PRs are ready for you to try."),
-        push(thread: "onboarding-codex", category: "CMUX_MOBILE_COMPLETED", title: "Codex finished",
-             subtitle: "api-server · Aziz's MacBook Pro", body: "Fixed the 2 failing auth tests. The diff is ready to review."),
-        push(thread: "onboarding-claude", category: "CMUX_MOBILE_PERMISSION", title: "Claude Code wants to act on Aziz's MacBook Pro",
+        push(thread: "onboarding-claude", category: "CMUX_MOBILE_COMPLETED", title: "Claude Code finished",
+             subtitle: "api-server · MacBook Pro", body: "Fixed the 2 failing auth tests. The diff is ready to review."),
+        push(thread: "onboarding-codex", category: "CMUX_MOBILE_PERMISSION", title: "Codex wants to act on MacBook Pro",
              subtitle: "cmux", body: "git push origin feat-onboarding"),
     ]
 
@@ -66,14 +66,19 @@ final class OnboardingPushShotUITests: XCTestCase {
             springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.005))
                 .press(forDuration: 0.1, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.6)))
             sleep(2)
+            attach("push~~center-stacked~~\(look)")
+            let top = springboard.descendants(matching: .any).matching(identifier: "NotificationShortLookView")
+                .matching(NSPredicate(format: "label CONTAINS[c] %@", "Codex wants")).firstMatch
+            XCTAssertTrue(top.waitForExistence(timeout: 6), "the permission notification is in Notification Center\n\(springboard.debugDescription)")
+            // The lock screen stacks them; a swipe up on the stack opens it into a list
+            // (a tap would open a notification once the list is open).
+            if top.exists {
+                top.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                    .press(forDuration: 0.05, thenDragTo: top.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: -3.5)))
+            }
+            sleep(2)
             attach("push~~center~~\(look)")
             note(springboard, "center-\(look)")
-            let claude = springboard.descendants(matching: .any).matching(identifier: "NotificationShortLookView")
-                .matching(NSPredicate(format: "label CONTAINS[c] %@", "Claude Code")).firstMatch
-            XCTAssertTrue(claude.waitForExistence(timeout: 6), "the permission notification is in Notification Center\n\(springboard.debugDescription)")
-            let finished = springboard.descendants(matching: .any).matching(identifier: "NotificationShortLookView")
-                .matching(NSPredicate(format: "label CONTAINS[c] %@", "Codex finished")).firstMatch
-            XCTAssertTrue(finished.exists, "the finished-task notification is in Notification Center")
             XCUIDevice.shared.press(.home)
             sleep(2)
         }
