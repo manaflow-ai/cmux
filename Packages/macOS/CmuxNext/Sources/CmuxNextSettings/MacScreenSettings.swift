@@ -8,9 +8,15 @@
 ///   or the CLI opens waits at the Connect card for the person's click. Off,
 ///   one on the person's own device starts viewing at once
 ///   (`MacScreenPages.agentMayStartViewing`).
+/// - `shareWithoutAsking` (off by default): the person's standing yes to Share
+///   This Mac. On, a share request from the signed-in owner's own CLI, agents
+///   or devices turns sharing on with no sheet while Screen Recording is
+///   granted; each device's access still decides who views or controls.
+///   Finishing the Share This Mac sheet once turns it on; MDM can force it.
 public nonisolated struct MacScreenSettings: Sendable, Equatable {
     public var systemShortcuts = MacScreenSettings.systemShortcutsDefault
     public var onlyPersonStartsViewing = MacScreenSettings.onlyPersonStartsViewingDefault
+    public var shareWithoutAsking = MacScreenSettings.shareWithoutAskingDefault
 
     public init() {}
 
@@ -19,6 +25,7 @@ public nonisolated struct MacScreenSettings: Sendable, Equatable {
         guard var reader = ConfigFieldReader(root, at: ["macScreen"], diagnostics: &diagnostics) else { return settings }
         if let value = reader.bool("systemShortcuts") { settings.systemShortcuts = value }
         if let value = reader.bool("onlyPersonStartsViewing") { settings.onlyPersonStartsViewing = value }
+        if let value = reader.bool("shareWithoutAsking") { settings.shareWithoutAsking = value }
         diagnostics = reader.diagnostics
         return settings
     }

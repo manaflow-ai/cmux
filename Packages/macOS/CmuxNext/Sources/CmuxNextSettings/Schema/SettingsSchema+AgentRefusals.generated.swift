@@ -173,6 +173,8 @@ extension SettingsSchema {
         "macScreen.systemShortcuts": .userOnly,
         // It decides whether an agent may start viewing the person's own screens without their click; an agent never loosens it.
         "macScreen.onlyPersonStartsViewing": .userOnly,
+        // It is the person's standing yes to Share This Mac; an agent that could set it would approve its own share request. cmux Remote: the person's call.
+        "macScreen.shareWithoutAsking": .userOnly,
         // cmux Remote: the person's call.
         "remote.endSharingOnQuit": .userOnly,
         // Always spends about 2 to 3 times the data on every remote connection, and Off gives up loss protection; only the person picks it.

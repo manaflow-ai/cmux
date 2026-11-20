@@ -3902,10 +3902,10 @@
       "title" : "Relay Only",
       "type" : "boolean"
     },
-    "macScreen.onlyPersonStartsViewing" : {
+    "macScreen.shareWithoutAsking" : {
       "default" : false,
-      "description" : "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first.",
-      "title" : "Only Your Click Starts Viewing a Screen",
+      "description" : "Your own cmux CLI, agents and devices turn sharing on with no sheet. Each device's access still applies.",
+      "title" : "Share This Mac Without Asking",
       "type" : "boolean"
     },
     "macScreen.systemShortcuts" : {

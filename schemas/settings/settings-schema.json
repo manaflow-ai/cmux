@@ -1885,7 +1885,8 @@
           {
             "key" : "settings.group.macScreenKeyboard",
             "rows" : [
-              "macScreen.systemShortcuts"
+              "macScreen.systemShortcuts",
+              "macScreen.shareWithoutAsking"
             ],
             "title" : {
               "key" : "settings.group.macScreenKeyboard",
@@ -2050,16 +2051,7 @@
           "server"
         ],
         "groups" : [
-          {
-            "key" : "settings.group.screenSharing",
-            "rows" : [
-              "macScreen.onlyPersonStartsViewing"
-            ],
-            "title" : {
-              "key" : "settings.group.screenSharing",
-              "text" : "Screen Sharing"
-            }
-          }
+
         ],
         "id" : "devices",
         "lead" : [
@@ -107176,31 +107168,28 @@
       "default" : false,
       "default_label" : null,
       "group" : {
-        "key" : "settings.group.screenSharing",
-        "text" : "Screen Sharing"
+        "key" : "settings.group.macScreenKeyboard",
+        "text" : "Mac Screen"
       },
       "help" : {
-        "key" : "settings.macScreen.onlyPersonStartsViewing.help",
-        "text" : "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first."
+        "key" : "settings.macScreen.shareWithoutAsking.help",
+        "text" : "Your own cmux CLI, agents and devices turn sharing on with no sheet. Each device's access still applies."
       },
       "kept_on_reset_all" : false,
-      "key" : "macScreen.onlyPersonStartsViewing",
+      "key" : "macScreen.shareWithoutAsking",
       "keywords" : [
-        "screen sharing",
         "mac screen",
-        "agents",
-        "automation",
-        "cli",
-        "view",
-        "control",
-        "click",
-        "approve"
+        "remote",
+        "screen sharing",
+        "share this mac",
+        "confirm",
+        "ask"
       ],
       "kind" : "toggle",
       "page_hidden" : false,
       "path" : [
         "macScreen",
-        "onlyPersonStartsViewing"
+        "shareWithoutAsking"
       ],
       "placeholder" : null,
       "refuses" : [
@@ -107208,10 +107197,10 @@
         1,
         null
       ],
-      "section" : "machines",
+      "section" : "keyboard",
       "summary" : {
-        "key" : "settings.macScreen.onlyPersonStartsViewing.summary",
-        "text" : "Agents can't start viewing your screens"
+        "key" : "settings.macScreen.shareWithoutAsking.summary",
+        "text" : "Sharing turns on without asking"
       },
       "surfaces" : {
         "cli" : {
@@ -107270,7 +107259,7 @@
             "palette.toggleSetting"
           ],
           "reason" : null,
-          "row" : "setting:macScreen.onlyPersonStartsViewing"
+          "row" : "setting:macScreen.shareWithoutAsking"
         },
         "socket" : {
           "aliases" : [
@@ -107297,8 +107286,8 @@
         }
       },
       "title" : {
-        "key" : "settings.macScreen.onlyPersonStartsViewing",
-        "text" : "Only Your Click Starts Viewing a Screen"
+        "key" : "settings.macScreen.shareWithoutAsking",
+        "text" : "Share This Mac Without Asking"
       },
       "validation" : "portable"
     },
