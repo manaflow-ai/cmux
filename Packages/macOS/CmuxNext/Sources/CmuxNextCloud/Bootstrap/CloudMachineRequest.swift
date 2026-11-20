@@ -7,7 +7,20 @@ public import Foundation
 /// `cmux cloud new-machine --persistent --size medium --name lane-vm-1 --bootstrap lane
 /// --bootstrap-script tools/lane-vm-bootstrap` (leo-workspace machines/lane-vms.md). A bare
 /// New Cloud Machine (palette, menu, a plain CLI run) is ``isDefault`` and takes the old path.
+public struct CloudMachineCreatePolicy: Sendable {
+    public var asksFirst: Bool
+    public var pauseAgentMachines: Bool
+
+    public init(asksFirst: Bool = false, pauseAgentMachines: Bool = false) {
+        self.asksFirst = asksFirst
+        self.pauseAgentMachines = pauseAgentMachines
+    }
+}
+
 public struct CloudMachineRequest: Equatable, Sendable {
+    /// The first supported idle-pause interval for the Mac pause/resume experiment.
+    /// The server accepts only the values in ``CloudMachine/idlePauseChoices``.
+    public static let experimentIdlePauseMinutes = 15
     public var name: String?
     /// The size's name (`medium`) and its memory, which the create sends (`memoryMb`); the
     /// server's size ladder picks the vCPUs from it.
@@ -99,6 +112,14 @@ public struct CloudMachineRequest: Equatable, Sendable {
     }
 
     public var isDefault: Bool { name == nil && size == nil && !persistent && bootstrapPath == nil && machineConfigPath == nil && repo == nil }
+
+    /// The idle policy a new machine receives. The experiment is opt-in and only
+    /// applies to nonpersistent machines; persistent machines retain their explicit
+    /// no-idle-pause contract.
+    public func idlePauseMinutes(pauseAgentMachines: Bool) -> Int? {
+        if persistent { return 0 }
+        return pauseAgentMachines ? Self.experimentIdlePauseMinutes : nil
+    }
 
     /// The create takes the plain path (the New Cloud Workspace dialog, or the bare create). One with an
     /// ``environment`` never does: that path would make the machine without it.
