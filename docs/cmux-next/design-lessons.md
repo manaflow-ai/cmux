@@ -122,3 +122,11 @@ Reopen steps), `f9c0d5145216` (removing someone from a team left their route tok
   ([#25826](https://github.com/manaflow-ai/cmux/pull/25826) does this). 60% of reverts say only "This reverts commit X".
 - A failing test written first proves something only if it fails for the right reason. Read the failure before you
   write the fix ([#32065](https://github.com/manaflow-ai/cmux/pull/32065) fixed a test that never passed).
+
+## 8. Reply waits do not choose placement
+
+**Class:** an optional wait disabled the startup deadline, and routing used the absence of that deadline to bypass automatic machine placement.
+
+**Rule:** preserve target resolution when an output or wait option changes. A reply wait has its own timeout after the bounded launch. Keep pure receipt formatting on a domain value with an instance surface rather than a public static-only namespace.
+
+**Detector:** `automatic_placement_with_wait_keeps_the_start_budget_and_turn_timeout` exercises local and remote picks, with and without `--wait`, and keeps the explicit reply timeout. `scripts/lint-ios-package-conventions.sh` rejects public static-only Swift namespaces.

@@ -99,7 +99,9 @@ pub(super) fn find_with(
         start.on = Some(host.to_owned());
     }
     let route = match lookup(&start)? {
-        Route::Here => local_route(start.on.as_deref().expect("named machine")),
+        Route::Here => local_route(start.on.as_deref().ok_or_else(|| json!({
+            "code":"chat_target.unavailable", "message":"Placement selected no machine.", "retryable":true
+        }))?),
         route => route,
     };
     Ok((route, start))
