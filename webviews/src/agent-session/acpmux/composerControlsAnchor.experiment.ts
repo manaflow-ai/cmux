@@ -19,7 +19,8 @@ export const composerControlsAnchor = defineExperiment({
     },
     "own-row": {
       label: "Own row",
-      description: "The prompt spans the box; +, the mic and Send stand on a row under it, as Claude and Codex draw it.",
+      description:
+        "The prompt spans the box; +, the mic and Send stand on a row under it, as Claude and Codex draw it.",
     },
     "first-line": {
       label: "First line (before)",
