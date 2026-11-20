@@ -584,6 +584,29 @@ class PlanTest(unittest.TestCase):
         (contents / "Info.plist").write_text("plist")
         self.assertEqual(hv._artifact_app(bundle), outer)
 
+    def test_failed_fleet_steps_say_why_instead_of_crashing(self):
+        scratch = Path(self.tmp.name) / "scratch"
+
+        def fails_on(step, code, out):
+            def run(argv, **kwargs):
+                if argv[1] == step:
+                    return subprocess.CompletedProcess(argv, code, out, "")
+                if argv[1:3] == ["build", "cmux"]:
+                    return subprocess.CompletedProcess(argv, 0, '{"id":"job-9"}', "")
+                return subprocess.CompletedProcess(argv, 0, "", "")
+            return run
+
+        for step, code, out, said in (("build", 1, "builder refused\n", "builder refused"),
+                                      ("build", 0, "not json", "no job id: not json"),
+                                      ("wait", 4, "job timed out\n", "job timed out"),
+                                      ("artifact", 2, "no artifact\n", "cmux-ci artifact job-9: no artifact")):
+            with self.subTest(step=step, code=code), \
+                    unittest.mock.patch.object(hv, "_ci_client", return_value="/fake/cmux-ci"), \
+                    unittest.mock.patch.object(hv.subprocess, "run", side_effect=fails_on(step, code, out)):
+                with self.assertRaises(hv.LookError) as raised:
+                    hv.build_swift_app(self.fx.repo, {"head": self.fx.base}, f"sha:{self.fx.base}", scratch)
+                self.assertIn(said, str(raised.exception))
+
     def test_swift_app_fallback_builds_a_clean_ref_with_cmux_ci(self):
         head = self.fx.change({"Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift": "struct App { let x = 3 }\n"})
         scratch = Path(self.tmp.name) / "scratch"
