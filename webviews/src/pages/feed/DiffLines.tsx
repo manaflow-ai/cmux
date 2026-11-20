@@ -129,20 +129,31 @@ export function DiffLines({ lines, tone }: { lines: readonly string[]; tone: (li
   };
   useEffect(() => {
     const document = body.current?.ownerDocument;
-    if (!document) return;
-    // A press may end outside the lines (a drag out of them).
+    const window = document?.defaultView;
+    if (!document || !window) return;
+    // A press may end outside the lines (a drag out of them), or where the document never hears its
+    // pointerup: released outside the window, or after the window lost focus mid-press. The window's
+    // blur, or the press losing its pointer capture, ends it too.
     const onRelease = () => {
       if (pressed.current < 0) return;
       pressed.current = -1;
       repin();
     };
+    // Only the window's own blur: an element's reaches the window in the capture phase alone.
+    const onBlur = (event: Event) => {
+      if (event.target === window) onRelease();
+    };
     document.addEventListener("selectionchange", repin);
     document.addEventListener("pointerup", onRelease, true);
     document.addEventListener("pointercancel", onRelease, true);
+    document.addEventListener("lostpointercapture", onRelease, true);
+    window.addEventListener("blur", onBlur);
     return () => {
       document.removeEventListener("selectionchange", repin);
       document.removeEventListener("pointerup", onRelease, true);
       document.removeEventListener("pointercancel", onRelease, true);
+      document.removeEventListener("lostpointercapture", onRelease, true);
+      window.removeEventListener("blur", onBlur);
     };
   }, [repin]);
 
