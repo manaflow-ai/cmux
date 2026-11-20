@@ -32,7 +32,7 @@ One commit pushed to two branches at once starts two runs that each adopt it
 (the app FFI re-pin pushes its signed commit to its staging ref, then to
 app-ffi-repin: runs 43596039910 and 43596045323, 2026-11-14). The two manifests
 differ only in attestationUrl, the run that wrote them, so the later write-once
-upload hit the earlier one, went red, and merge_hold held the re-pin PR while
+upload hit the earlier one, went red, and land-judge held the re-pin PR while
 the base's FFI pin check went red past its 2 h. The later run keeps the
 earlier publication when it is the same adoption by another run of this
 repository.
