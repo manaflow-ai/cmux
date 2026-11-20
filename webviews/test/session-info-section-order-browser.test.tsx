@@ -165,6 +165,12 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
               .slice(1)
               .map((slot, index) => slot.getBoundingClientRect().top - slots[index]!.getBoundingClientRect().bottom),
             rules: slots.filter((slot) => getComputedStyle(slot, "::before").content !== "none").length,
+            // A rule that matches but draws nothing (its color variable unset where the sections are, which
+            // makes its border-top invalid) is the line not showing up.
+            painted: slots.filter((slot) => {
+              const line = getComputedStyle(slot, "::before");
+              return line.content !== "none" && line.borderTopStyle === "solid" && parseFloat(line.borderTopWidth) > 0;
+            }).length,
             // A section that draws, after one that draws: the slots the divider rule selects.
             between: slots.filter((slot) => {
               const before = slot.previousElementSibling as HTMLElement | null;
@@ -181,17 +187,21 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
         for (const gap of geometry.gaps) expect(gap).toBeCloseTo(gridLength("gap"), 1);
         expect(geometry.between).toBeGreaterThanOrEqual(4);
         expect(geometry.rules).toBe(geometry.between);
-        // The panel with its dividers and with them switched off, for a person to look at: written only
-        // when a CI run collects files (`cmux-ci test --artifact`, $FAST_CHECKS_OUT).
+        expect(geometry.painted, "dividers that draw a line").toBe(geometry.between);
+        // The panel with its dividers differs from it with them switched off. Both are written for a person
+        // to look at when a CI run collects files (`cmux-ci test --artifact`, $FAST_CHECKS_OUT).
+        await page.evaluate(() => document.documentElement.setAttribute("data-theme", "dark"));
+        const body = page.locator(".acpmux-session-info__body");
+        const withLines = await body.screenshot();
+        await page.addStyleTag({ content: ".acpmux-session-info-slot::before { content: none !important }" });
+        const withoutLines = await body.screenshot();
+        expect(withLines.equals(withoutLines), "the panel looks the same with its dividers off").toBe(false);
         const out = process.env.FAST_CHECKS_OUT;
         if (out) {
           const { mkdirSync, writeFileSync } = await import("node:fs");
           mkdirSync(out, { recursive: true });
-          await page.evaluate(() => document.documentElement.setAttribute("data-theme", "dark"));
-          const body = page.locator(".acpmux-session-info__body");
-          writeFileSync(path.join(out, "session-info-dividers.png"), await body.screenshot());
-          await page.addStyleTag({ content: ".acpmux-session-info-slot::before { content: none !important }" });
-          writeFileSync(path.join(out, "session-info-no-dividers.png"), await body.screenshot());
+          writeFileSync(path.join(out, "session-info-dividers.png"), withLines);
+          writeFileSync(path.join(out, "session-info-no-dividers.png"), withoutLines);
         }
       } finally {
         await page.close();
