@@ -33,14 +33,9 @@ import Testing
         cg.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: Double(dx))
         cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase?.rawValue ?? 0)
         cg.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentum?.rawValue ?? 0)
-        cg.timestamp = machTicks(seconds: 1_000 + t)
+        // `NSEvent.timestamp` reads a CGEvent's time as nanoseconds since startup.
+        cg.timestamp = CGEventTimestamp((1_000 + t) * 1e9)
         return try #require(NSEvent(cgEvent: cg))
-    }
-
-    private static func machTicks(seconds: TimeInterval) -> CGEventTimestamp {
-        var tb = mach_timebase_info_data_t()
-        mach_timebase_info(&tb)
-        return CGEventTimestamp(seconds * 1e9 * Double(tb.denom) / Double(tb.numer))
     }
 
     /// The rig and the middle of its newest Chief bubble (host points).
