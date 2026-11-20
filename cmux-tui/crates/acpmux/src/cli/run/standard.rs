@@ -807,6 +807,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let (mesh_prompt, mesh_steer) = (prompt_id.clone(), steer);
             let sent = async move {
                 let client = before_deadline(deadline, &session, connect(true)).await?;
+                note_fanout(&client, &session, &text, prompt_id.from_agent.as_deref()).await;
                 if harness_agent {
                     let named = prompt_id.from_agent.as_deref();
                     let sender = crate::cli::sender::sending_as_on(&client, named).await;
@@ -1559,6 +1560,32 @@ fn held_message_line(h: &Value) -> String {
         g("session"),
         g("answer")
     )
+}
+
+/// How long a send waits for the daemon to note it (`send_fanout.rs`) before it goes on.
+const FANOUT_NOTE_WAIT: std::time::Duration = std::time::Duration::from_millis(300);
+
+/// Notes this send with the daemon and writes its warning to stderr when this caller has sent
+/// the same prompt to many sessions within a minute (`send_fanout.rs`). Never refuses or
+/// delays the send past [`FANOUT_NOTE_WAIT`]; a daemon without the method answers nothing.
+async fn note_fanout(
+    client: &crate::client::Client,
+    session: &str,
+    text: &str,
+    from: Option<&str>,
+) {
+    let params = json!({
+        "hash": crate::send_fanout::prompt_hash(text),
+        "session": session,
+        "machine": crate::send_fanout::machine_of(session),
+        "from": from,
+    });
+    let note = client.request(method::MUX_SEND_FANOUT, params);
+    if let Ok(Ok(reply)) = tokio::time::timeout(FANOUT_NOTE_WAIT, note).await
+        && let Some(line) = crate::send_fanout::warning(&reply)
+    {
+        eprintln!("{line}");
+    }
 }
 
 /// Parse the compact durations accepted by `ls --since` (`30m`, `24h`, `7d`, or combinations).
