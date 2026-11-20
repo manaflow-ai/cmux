@@ -62,7 +62,10 @@ UNTRACKED = re.compile(
     # including static relative imports, until its parser can follow them.
     r"|\bfrom\s*" + JS_COMMENT + JS_GAP + r"[\"']"
     r"|\bimport\s*" + JS_COMMENT + JS_GAP + r"(?=[({*\"'`])"
-    r"|\brequire" + JS_GAP + r"\("
+    # Plain require("./module") is already an edge. Only grammar the graph
+    # cannot read (a gap before the paren, comments, or a computed path) taints it.
+    r"|\brequire(?=\s|/)" + JS_GAP + r"\("
+    r"|\brequire\((?!\s*[\"'])\s*(?=[\w$({\[/`])"
     r"|import" + JS_GAP + r"\((?!\s*[\"'`])\s*(?=[\w$({\[/])"
     r"|import" + JS_GAP + r"\(" + JS_GAP + r"`[^`]*\$\{"
     r"|(from\s+|import\(\s*)[\"']cmux:|Bun\.spawn")

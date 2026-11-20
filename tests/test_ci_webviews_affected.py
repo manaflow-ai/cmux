@@ -155,6 +155,12 @@ class SelectTest(unittest.TestCase):
         self.assertEqual(self.change("webviews/src/other.ts"),
                          with_always("webviews/test/other.test.ts", "webviews/test/tools.test.ts"))
 
+    def test_plain_static_require_stays_in_the_import_graph(self) -> None:
+        (self.root / "webviews/src/tools.ts").write_text('const other = require("./other");\n')
+        self.assertEqual(self.change("webviews/src/leaf.ts"), with_always("webviews/test/leaf.test.ts"))
+        self.assertEqual(self.change("webviews/src/other.ts"),
+                         with_always("webviews/test/other.test.ts", "webviews/test/tools.test.ts"))
+
     def test_computed_imports_and_package_loads_still_run(self) -> None:
         for expression in ('import(name)', 'import( name )', 'import(/* runtime */ name)',
                            'import /* runtime */ (name)', 'import /* runtime */ ( name )',
