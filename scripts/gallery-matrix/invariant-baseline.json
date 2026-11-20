@@ -491,15 +491,6 @@
     "agent-pane.composer-context#folder-pinned-search": [
       "menu-fit:div[aria-label=\"Folder\"]"
     ],
-    "agent-pane.composer-context#folder-short-note": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
-    "agent-pane.composer-context#folder-short-note-de": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
-    "agent-pane.composer-context#folder-short-note-fr": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
     "agent-pane.composer-context#framework-marks": [
       "menu-fit:div[aria-label=\"Folder\"]"
     ],

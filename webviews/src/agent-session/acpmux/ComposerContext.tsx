@@ -158,6 +158,7 @@ export function ComposerContext({
   machineFolders,
   onBrowseProject,
   onNewWorktree,
+  onGitHubHere,
   onNewProject,
   newProject = false,
   newProjectName,
@@ -176,7 +177,6 @@ export function ComposerContext({
   onMoveTo,
   saved,
   onRefreshMachines: onRefreshPeers,
-  folderNote,
   onComputer,
   onRepick,
   cloudMachines,
@@ -226,6 +226,10 @@ export function ComposerContext({
   onBrowseProject?(request?: BrowseRequest): Promise<BrowseResult> | BrowseResult | void;
   /// New Worktree (cx-lyqio.2): a new chat on this Mac starts in a worktree of its folder.
   onNewWorktree?(cwd: string): void;
+  /// A GitHub repository (`owner/name`) picked for a new chat on this Mac: the host finds this Mac's checkout of
+  /// it (one of `candidates`, the folders here whose remote names it) or clones it, and the chat starts in a new
+  /// worktree of that. Without it a GitHub pick moves the chat to Cloud.
+  onGitHubHere?(repo: string, candidates: string[]): void;
   /// A new chat's New Project (FolderPopover, newtab/newProject.ts); `newProject` while it is the choice:
   /// the strip reads New Project until the send makes the folder.
   onNewProject?(): void;
@@ -272,9 +276,6 @@ export function ComposerContext({
   /// The machine list opened, and every few seconds while it stays open: read the machines and
   /// their status again.
   onRefreshMachines?(): void;
-  /// A quiet line in the folder menu: where a new chat starts while it has no folder (its
-  /// workspace's private folder).
-  folderNote?: string;
   /// A new chat's machine was picked (`local` for this Mac) where no folder of it is known; with a
   /// known folder the pick is `onProject(folder, peer)`.
   onComputer?(computer: string): void;
@@ -734,12 +735,38 @@ export function ComposerContext({
   );
   // A folder pick is always the folder (the page's project, which Cloud sends and recent projects
   // record), then the saved environment that is only that folder, if there is one.
+  // A new chat on this Mac (This Mac picked: not Cloud, not Sandboxed, not another machine or a saved environment).
+  const gitHubHere = () =>
+    !started &&
+    !readOnly &&
+    runMode?.mode !== "cloud" &&
+    runMode?.mode !== "sandboxed" &&
+    currentComputer?.kind === "local" &&
+    !savedPick &&
+    waitingName === undefined;
   const pickFolder = (cwd: string) => {
     folderPicks.current += 1;
     setBrowseError(undefined);
     onCloudMachinePicked?.(undefined);
-    // A GitHub repository runs on Cloud: its pick with This Mac still picked moves the new chat there.
-    if (githubFolderRepo(cwd) && runMode && runMode.mode !== "cloud" && !started && !readOnly) runMode.onMode("cloud");
+    const repo = githubFolderRepo(cwd);
+    // A GitHub repository picked with This Mac picked runs here: this Mac's checkout of it, cloned first when
+    // there is none, in a new worktree for the chat.
+    if (repo && onGitHubHere && gitHubHere()) {
+      const name = repo.toLowerCase();
+      // The repository's main checkout first (a worktree's folder is one too, but the host makes worktrees of the main one).
+      const candidates = [
+        ...new Set(
+          folders
+            .filter((folder) => folder.repo?.github?.toLowerCase() === name)
+            .flatMap((folder) => [folder.repo!.root, folder.id])
+            .filter((path) => path.startsWith("/")),
+        ),
+      ];
+      onGitHubHere(repo, candidates);
+      return;
+    }
+    // Anywhere else (another machine) a GitHub repository runs on Cloud: its pick moves the new chat there.
+    if (repo && runMode && runMode.mode !== "cloud" && !started && !readOnly) runMode.onMode("cloud");
     onProject?.(cwd);
     const environment = savedRows && savedFolders.find((candidate) => normalizeCwd(candidate.folder) === cwd);
     if (environment) savedRows.onPick(environment.id);
@@ -1024,12 +1051,18 @@ export function ComposerContext({
               noProject={(noProject || !currentFolder) && !newProject}
               onNewWorktree={currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined}
               {...(onNewProject ? { onNewProject } : {})}
-              {...((folderDetail ?? folderNote) && !currentFolder ? { note: folderDetail ?? folderNote } : {})}
               {...(extra ? { extra } : {})}
-              // A new chat that can run on Cloud also offers the person's GitHub repositories, with This
-              // Mac picked too: Connect to GitHub is found without knowing to pick Cloud first, and a
-              // repository's pick moves the chat to Cloud (pickFolder).
-              {...((cloudSide || (runMode !== undefined && !started)) && !sandboxPicked && !readOnly ? { github } : {})}
+              // A new chat on Cloud or on this Mac also offers the person's GitHub repositories, with This Mac
+              // picked too, so Connect to GitHub is found without knowing to pick Cloud first. On Cloud the
+              // machine clones the pick; with This Mac picked the pick is this Mac's checkout of it, cloned
+              // first when there is none, in a new worktree (onGitHubHere). Where neither applies (another
+              // machine) a pick moves the chat to Cloud (pickFolder).
+              {...((cloudSide ||
+                (!started && (runMode !== undefined || (onGitHubHere !== undefined && gitHubHere())))) &&
+              !sandboxPicked &&
+              !readOnly
+                ? { github, githubFirst: cloudSide }
+                : {})}
             />
           ) : (
             <LocationPicker

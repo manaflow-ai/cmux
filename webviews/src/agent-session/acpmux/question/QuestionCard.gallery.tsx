@@ -47,6 +47,7 @@ function QuestionCardInPane({ otherText, look, answeredLook, uiFont, ...props }:
     const root = pane.current;
     if (!otherText || !root) return;
     // After the mount's effects, so the card's own update runs as it does for a click.
+    // gallery-capture: the `otherText` arms' play `typed` waits for the typed answer.
     const timer = setTimeout(() => {
       root.querySelector<HTMLElement>(".acpmux-question-other-choice")?.click();
       const field = root.querySelector<HTMLInputElement | HTMLTextAreaElement>(
@@ -77,9 +78,21 @@ function QuestionCardInPane({ otherText, look, answeredLook, uiFont, ...props }:
   );
 }
 
+/// The capture moment of an `otherText` arm: its custom answer typed (the mount's timer above),
+/// not the frame before it.
+const typed =
+  (otherText: string): Play =>
+  ({ waitFor, document }) =>
+    waitFor(
+      () =>
+        document.querySelector<HTMLInputElement | HTMLTextAreaElement>(".acpmux-question-other :is(input, textarea)")
+          ?.value === otherText,
+    );
+
 const variant = (question: unknown, note: string, otherText?: string) => ({
   note,
   props: { question: question as AgentQuestion, onReply: () => undefined, otherText },
+  ...(otherText ? { play: typed(otherText) } : {}),
 });
 
 /// The preview fixture with each mockup wrapped in a Markdown fence, as agents often send it: the
