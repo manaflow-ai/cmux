@@ -157,9 +157,16 @@ def trace_stats(trace, sent_host_s=None):
     t0 = (trace or {}).get("t0_s")
     sent = (sent_host_s - t0) * 1000 if _number(sent_host_s) and _number(t0) and t0 > 0 else None
     if sent is not None:
-        # One tick before the input stays in, as the reference the first move is measured against.
-        before = [x for x in samples if x["t"] < sent]
-        samples = before[-1:] + [x for x in samples if x["t"] >= sent]
+        # A tick's `t` is its vsync (link.timestamp), not when its callback read the layout: a callback that ran
+        # after the key went in (late behind frame_strip's own main-thread turn) shows the post-key layout under a
+        # time up to one refresh before the input. So the reference the first move is measured against is the last
+        # tick a full refresh before the input, whose callback ran before the next vsync and so before the key; the
+        # ticks in that last refresh count as after the input. Taking the last tick before `sent` made a one-tick
+        # close read "nothing moved after the input" whenever that tick's callback came late (nightly 01fc64af3:
+        # 32 close rounds of browser and chat cells, their movers the layout after the close only).
+        lead = refresh or 16.67
+        before = [x for x in samples if x["t"] <= sent - lead]
+        samples = before[-1:] + [x for x in samples if x["t"] > sent - lead]
     movers = trace_movers(samples)
     first = last = None
     turns, ticks, ends = {}, set(), {}
@@ -190,8 +197,9 @@ def trace_stats(trace, sent_host_s=None):
            "frame_max_ms": max(intervals) if intervals else None, "dropped_frames": dropped,
            "retargets": len(ticks), "retargeted": turns, "movers": len(movers), "aligned": sent is not None}
     if sent is not None:
-        out["layout_first_ms"] = round(first - sent, 1) if first is not None else None
-        out["layout_settled_ms"] = round(last - sent, 1) if last is not None else None
+        # A move first read at a tick stamped before the input was read after it: 0 ms from the input, never less.
+        out["layout_first_ms"] = round(max(0.0, first - sent), 1) if first is not None else None
+        out["layout_settled_ms"] = round(max(0.0, last - sent), 1) if last is not None else None
     # What settled last (mover, its last move from the input or the trace's start, that move's largest step in points,
     # its values before and after that move, how many ticks it moved): a settle the screen never shows (a hidden view,
     # a page window that jumps once, an index that moved to another page) reads here.
@@ -216,7 +224,7 @@ def _width_change(start, sample):
 
 def pane_width_change(samples):
     """The panes' summed frame width at the trace's last tick minus at its first, over the panes in both (points):
-    negative when the panes narrowed (a right sidebar opened beside them), positive when they widened (it closed),
+    negative when the panes narrowed (a sidebar opened beside them), positive when they widened (it closed),
     None without a pane in both. The side pane's toggle is one key for both ways, so this says which way it went."""
     return _width_change(_pane_widths(samples[0]), samples[-1]) if samples else None
 
@@ -419,17 +427,21 @@ def table(report):
     return "\n".join(lines)
 
 
-def headline(cells, flat):
+def headline(cells, flat, unsettled_ms=None):
     """The goal check's one number: the worst cell's settled time over all transitions, with the cell, its
-    transition and the worst flatness ratio. A cell with a failed or unsettled round is the worst (settled None)."""
+    transition and the worst flatness ratio. A cell with a failed round is the worst (settled None: nothing was
+    measured). A round still moving when its strip ended settled no sooner than the strip, `unsettled_ms`: the cell
+    counts at least that (`settled_at_least`), so a slow cell still gives the check a number, never a pass."""
     worst = None
     for cell, per in cells.items():
         for name, summary in per.items():
-            value = summary.get("settled_ms")
-            if summary.get("unsettled") or summary.get("failed_rounds") or value is None:
+            value, floor = summary.get("settled_ms"), False
+            if summary.get("unsettled") and not summary.get("failed_rounds") and _number(unsettled_ms):
+                value, floor = max(value, unsettled_ms) if _number(value) else unsettled_ms, True
+            elif summary.get("unsettled") or summary.get("failed_rounds") or value is None:
                 value = float("inf")
             if worst is None or value > worst["settled_ms"]:
-                worst = {"cell": cell, "transition": name, "settled_ms": value}
+                worst = {"cell": cell, "transition": name, "settled_ms": value, "settled_at_least": floor}
     if worst is None:
         return {}
     if worst["settled_ms"] == float("inf"):

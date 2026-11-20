@@ -123,7 +123,10 @@ Flags: `--prompt-arg` (prompt as the last argument), `--last-block` (only the
 prompt's last text block: for a program that keeps its own memory),
 `--after-echo` (drop output up to the frame that echoes the prompt),
 `--instructions` (prefix the session folder's AGENTS.md), `--tty` (a terminal as
-its stdout and controlling terminal, for a program that prints only there).
+its stdout and controlling terminal, for a program that prints only there),
+`--prints-only` (the program only prints and changes nothing, such as a test
+or echo program: the agent then keeps any permission policy, so a remote start's
+`ask` runs it; never for a program that edits files or runs commands).
 Example: `--example unii`.
 
 ## Where cmux looks
