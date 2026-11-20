@@ -302,3 +302,19 @@ async fn finished_shared_member_never_falls_back_when_authority_is_missing() {
     assert!(hub.fleet_call("fleet_resume", json!({"reason": "try"})).await.is_err());
     assert!(hub.bind_fleet("local").await.is_err());
 }
+
+#[tokio::test]
+async fn finished_shared_pause_gates_direct_notice_and_restored_queue_runner() {
+    let hub = memory_hub();
+    let session = chat(&hub);
+    hub.bind_fleet("local").await.unwrap();
+    let mut opts = PromptOptions::default();
+    opts.provenance = Some(json!({"kind": "notice"}));
+    let mut notice = Box::pin(hub.run_prompt(&session, Vec::new(), "notice", false, opts));
+    assert!(futures::poll!(&mut notice).is_pending());
+    hub.finish_session(&session, "finished while the notice waited").unwrap();
+    hub.fleet_call("fleet_resume", json!({"reason": "release"})).await.unwrap();
+    let error = notice.await.unwrap_err();
+    assert_eq!(error.data.unwrap()["reason"], "session.finished");
+    assert!(session.child.lock().await.is_none());
+}

@@ -5,6 +5,7 @@ use super::*;
 pub(crate) const METHOD: &str = "_acpmux/session_lifecycle";
 
 impl Hub {
+    #[cfg(test)]
     pub(crate) fn set_fleet_pause(&self, paused: bool, reason: &str) -> Result<Value, RpcError> {
         if reason.trim().is_empty() {
             return Err(RpcError::invalid_params("a reason is required"));

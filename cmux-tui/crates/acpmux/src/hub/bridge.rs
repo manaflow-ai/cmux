@@ -227,6 +227,25 @@ impl Hub {
         client: &str,
         opts: &mut PromptOptions,
     ) -> Option<Result<Value, RpcError>> {
+        session.meta().watching.as_ref()?;
+        let permit = match self.admit_background(session, opts).await {
+            Ok(permit) => permit,
+            Err(error) => return Some(Err(error)),
+        };
+        let result = self.bridged_prompt_admitted(session, blocks, client, opts).await;
+        if let Some(permit) = permit {
+            permit.complete().await;
+        }
+        result
+    }
+
+    async fn bridged_prompt_admitted(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        blocks: &[Value],
+        client: &str,
+        opts: &mut PromptOptions,
+    ) -> Option<Result<Value, RpcError>> {
         let watching = session.meta().watching?;
         let family = watching.family.clone();
         if family != "claude" && family != "codex" {

@@ -23,6 +23,8 @@ pub(super) enum Binding {
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 struct Durable {
+    #[serde(skip)]
+    unreadable: bool,
     paused: Option<String>,
     #[serde(default)]
     binding: Option<Binding>,
@@ -52,11 +54,13 @@ impl Admission {
                     })
                     .unwrap_or_else(|e| Durable {
                         paused: Some(format!("resume admission state is unreadable: {e}")),
+                        unreadable: true,
                         ..Default::default()
                     }),
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => Durable::default(),
                 Err(e) => Durable {
                     paused: Some(format!("resume admission state is unreadable: {e}")),
+                    unreadable: true,
                     ..Default::default()
                 },
             })
@@ -78,6 +82,11 @@ impl Admission {
 
     pub(crate) fn pause(&self, reason: Option<&str>) -> Result<(), RpcError> {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.durable.unreadable {
+            return Err(RpcError::invalid_params(
+                "repair unreadable fleet state before changing pause",
+            ));
+        }
         let mut next = state.durable.clone();
         next.paused = reason.map(str::to_owned);
         self.persist(&next)?;
@@ -101,6 +110,9 @@ impl Admission {
 
     pub(super) fn bind(&self, binding: Binding) -> Result<(), RpcError> {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.durable.unreadable {
+            return Err(RpcError::invalid_params("repair unreadable fleet state before binding"));
+        }
         if let Some(old) = &state.durable.binding {
             return if old == &binding {
                 Ok(())
@@ -389,6 +401,9 @@ mod tests {
         admission.pause(None).unwrap();
         assert!(Admission::open(Some(dir.path())).start(false, || Ok(())).is_ok());
         std::fs::write(dir.path().join("resume-admission.json"), b"broken").unwrap();
-        assert!(Admission::open(Some(dir.path())).start(false, || Ok(())).is_err());
+        let corrupt = Admission::open(Some(dir.path()));
+        assert!(corrupt.start(false, || Ok(())).is_err());
+        assert!(corrupt.pause(None).is_err());
+        assert!(corrupt.bind(Binding::Authority { id: "replacement".into() }).is_err());
     }
 }
