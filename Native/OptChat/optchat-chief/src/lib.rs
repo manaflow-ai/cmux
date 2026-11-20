@@ -109,4 +109,5 @@ pub mod version_tool;
 pub mod voice;
 pub mod wake;
 pub mod watch;
+mod watch_route;
 pub mod workspaces;
