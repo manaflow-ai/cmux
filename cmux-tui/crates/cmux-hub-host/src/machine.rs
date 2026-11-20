@@ -227,7 +227,7 @@ mod tests {
         let path = dir.join("cmux-device-hub/machine.key");
         let first = load_secret(&path).expect("made");
         assert_eq!(first.len(), SECRET_LEN);
-        assert_eq!(load_secret(&path), Some(first.clone()));
+        assert_eq!(load_secret(&path), Some(first));
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
         // No temporary file is left beside it.
