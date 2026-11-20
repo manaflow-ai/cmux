@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""launch-ready.sh's summary: per side LR-MEDIAN, LR-REOPENED, LR-USABLE and LR-SURFACE, and LR-SURFACE-DIFF when an
-A/B's arms first showed different surfaces.
+"""launch-ready.sh's summary: per side LR-MEDIAN, LR-REOPENED, LR-USABLE and LR-SURFACE, LR-KEYS with --keys 1, and
+LR-SURFACE-DIFF when an A/B's arms first showed different surfaces.
 
   launch-ready-summary.py RUNS_JSONL [--state kept|bare] [--case update] [--daemon cold] [--snapshot unknown|foreign]
-                          [--front home|tab]
+                          [--front home|tab] [--keys 1]
 
 The launch reopens exactly where the person was, Home included (Leo, 2026-11-18: "fresh startup opening home is obv
 fine but if it's not first time and the user was on a workspace and a tab, obv just take them there"; "ofc reopening
@@ -15,6 +15,8 @@ home if they were prev on home is fine"). Each case's expectation is one entry o
   foreign  snapshot=foreign: no foreign windows drawn (no launch_snapshot_shown), then this home's own last front
   unknown  snapshot=unknown: the snapshot's front workspace no longer exists in the daemon, so Home
 front=home|tab seeds the priming launch's front; every measured launch is then judged against that front.
+keys=1 (--keys 1): LR-KEYS SIDE MEDIAN N/M, the side's median first_key_ms (the first key Home's box kept, ms from
+process start) over the measured launches whose sent message held a key, and how many of the M measured launches sent one.
 A front's compare key: Home when Home is in front (`home`, or topPage "home", or the focused tab's page "home-dock"),
 else (workspace, tab): the front window's shown workspace key and its focused pane's selected tab id.
 kept, cold and foreign judge every launch after the priming one (or the stress3 seed), the preruns included, against
@@ -136,7 +138,7 @@ def fill_seed_fronts(rows, out):
                 r["front"] = json.load(handle)
 
 
-def summarize(rows, case="kept", seeded=""):
+def summarize(rows, case="kept", seeded="", keys=False):
     """Prints the summary; returns the lines' data: {side: {"failed": [...], "surface": first}}."""
     expect, result = EXPECT[case], {}
     print("LR-CASE", case, f"expect={expect}" + (f" front={seeded}" if seeded else ""), flush=True)
@@ -217,6 +219,11 @@ def summarize(rows, case="kept", seeded=""):
         print("LR-MEDIAN", side, json.dumps(med), flush=True)
         print("LR-REOPENED", side, med["reopened"], f"case={case}", flush=True)
         print("LR-USABLE", side, med["usable"], flush=True)
+        if keys:
+            firsts = [r["first_key_ms"] for r in runs if r.get("first_key_ms") is not None]
+            landed = sum(1 for r in runs if (r.get("keys_landed") or 0) > 0)
+            median = round(statistics.median(firsts), 1) if firsts else None
+            print("LR-KEYS", side, median, f"{landed}/{len(runs)}", flush=True)
         mix = ",".join(f"{k}:{v}" for k, v in sorted(surfaces.items()))
         print("LR-SURFACE", side, f"first={first} home_page_drawn={drawn}/{measured} mix={mix}", flush=True)
         # layout=1: what moved after the first frame, per measured launch (moved_pt, changes) and its median and highest.
@@ -256,12 +263,13 @@ def main(argv=None):
     parser.add_argument("--daemon", default="", choices=["", "warm", "cold"])
     parser.add_argument("--snapshot", default="own", choices=["own", "unknown", "foreign"])
     parser.add_argument("--front", default="", choices=["", "home", "tab"])
+    parser.add_argument("--keys", default="0", choices=["0", "1"])
     parser.add_argument("--out", default="", help="the step's output folder (the stress3 seed's front file)")
     args = parser.parse_args(argv)
     rows = [json.loads(line) for line in open(args.runs) if line.strip()]
     if args.out:
         fill_seed_fronts(rows, args.out)
-    summarize(rows, case_name(args.state, args.case, args.daemon, args.snapshot), args.front)
+    summarize(rows, case_name(args.state, args.case, args.daemon, args.snapshot), args.front, args.keys == "1")
     return 0
 
 
