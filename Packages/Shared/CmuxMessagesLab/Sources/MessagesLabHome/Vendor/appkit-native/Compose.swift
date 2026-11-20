@@ -175,7 +175,7 @@ final class FieldTextView: NSTextView {
             // window's first layout: --caret-log line (-1675, -57, 0, 0), the caret hidden; the layout
             // that brought the field in moved no view of the field, so the caret stayed hidden).
             let local: CGRect
-            if let r = caretRect(at: sel.location, upstream: textLayoutManager?.textSelections.first?.affinity == .upstream) {
+            if let r = caretRect(at: sel.location, upstream: textLayoutManager.map { $0.textSelections.first?.affinity == .upstream } ?? (selectionAffinity == .upstream)) {
                 local = CGRect(x: r.minX + Self.caretDX, y: r.minY, width: Self.caretWidth, height: 17)
             } else {
                 // cmux: AppKit's own rect, never the emoji picker's anchor (`pickerAnchor`).
@@ -268,6 +268,9 @@ final class FieldTextView: NSTextView {
     /// Spell checking while typing, off the keystroke frame (SpellCheck.swift); the Edit
     /// menu's "Check Spelling While Typing" switches it.
     lazy var spell = DeferredSpellChecker(view: self)
+    /// cmux: each paragraph's writing direction from its text, the TextKit 1 text storage's delegate
+    /// (ComposeParagraphDirection.swift).
+    let paragraphDirection = ComposeParagraphDirection()
     /// Enables the host's opt-in composer spell checking without changing the system-wide setting.
     func setSpellCheckingEnabled(_ enabled: Bool) {
         if DeferredSpellChecker.useAppKit {
@@ -409,7 +412,11 @@ final class FieldTextView: NSTextView {
     /// left the field at its end).
     /// UPSTREAM: the caret at a soft wrap is at the end of the line above (the selection's affinity).
     private func caretRect(at index: Int, upstream: Bool = false) -> CGRect? {
-        guard let tlm = textLayoutManager, let tcm = tlm.textContentManager,
+        // cmux: the composer field is TextKit 1 (`ComposeTextView`, NSTextView+TextKit1Lines.swift).
+        guard let tlm = textLayoutManager else {
+            return caretRect(at: index, upstream: upstream) { textKit1CaretSegment(at: index, upstream: $0) }
+        }
+        guard let tcm = tlm.textContentManager,
               let loc = tcm.location(tcm.documentRange.location, offsetBy: index) else { return nil }
         // The whole text is laid out again only when an edit or a new container width can have
         // changed a line since the last time (or the caret's own line is not laid out): over a laid-out
@@ -446,7 +453,7 @@ final class FieldTextView: NSTextView {
             tlm.ensureLayout(for: tlm.documentRange)
             laidOut = state
         }
-        func segment(upstream: Bool) -> CGRect? {
+        return caretRect(at: index, upstream: upstream) { upstream in
             var line: CGRect?
             tlm.enumerateTextSegments(in: NSTextRange(location: loc), type: .standard,
                                       options: upstream ? [.rangeNotRequired, .upstreamAffinity] : [.rangeNotRequired]) { _, r, _, _ in
@@ -454,6 +461,10 @@ final class FieldTextView: NSTextView {
             }
             return line
         }
+    }
+    /// cmux: the caret's rect from its line's segment (`segment(upstream)`, either TextKit's), with
+    /// the inline pictures' rules.
+    private func caretRect(at index: Int, upstream: Bool, segment: (Bool) -> CGRect?) -> CGRect? {
         let o = textContainerOrigin
         // cmux: a picture takes its whole line, as in Messages (ComposeInlineAttachment).
         let storageText = textStorage
@@ -466,12 +477,12 @@ final class FieldTextView: NSTextView {
         let previous: unichar? = index > 0 && index <= length ? (storageText?.string as NSString?)?.character(at: index - 1) : nil
         // Right after a picture, where nothing follows on its line (the end, a line break or another
         // picture), the caret starts the line under it: the next character goes there.
-        if picture(index - 1), next == nil || next == 0x0A || picture(index), let above = segment(upstream: true) {
+        if picture(index - 1), next == nil || next == 0x0A || picture(index), let above = segment(true) {
             return CGRect(x: o.x, y: above.maxY + Fixture.lineHeight / 2 + o.y + Self.caretDY, width: Self.caretWidth, height: 17)
         }
         // Just before a picture that follows text, the caret ends the text's line above it.
         let beforePicture = picture(index) && previous != nil && previous != 0x0A && !picture(index - 1)
-        guard let l = segment(upstream: upstream || beforePicture) else { return nil }
+        guard let l = segment(upstream || beforePicture) else { return nil }
         // cmux: on a line an inline picture makes taller the text sits at the bottom, so the caret
         // is on the line's last text line, not its middle (Draft+InlineMarks.swift).
         let y = l.height > Fixture.lineHeight + 0.5 ? l.maxY - Fixture.lineHeight / 2 : l.midY
@@ -482,6 +493,7 @@ final class FieldTextView: NSTextView {
     func caretRects(at indices: [Int]) -> (kept: [CGRect?], fresh: [CGRect?]) {
         let kept = indices.map { caretRect(at: $0) }
         if let tlm = textLayoutManager { tlm.invalidateLayout(for: tlm.documentRange) }
+        else if let lm = layoutManager { lm.invalidateLayout(forCharacterRange: NSRange(location: 0, length: textStorage?.length ?? 0), actualCharacterRange: nil) }  // cmux: TextKit 1
         laidOut = nil
         return (kept, indices.map { caretRect(at: $0) })
     }
@@ -649,8 +661,10 @@ final class ComposeTextView {
     var text: String { view.string }
     private var scrolled: NSObjectProtocol?
     init() {
-        // TextKit 2, as UITextView on Catalyst.
-        view = FieldTextView(usingTextLayoutManager: true)
+        // cmux: TextKit 1, not Catalyst's TextKit 2: TextKit 2 lays out and draws an edited paragraph
+        // whole, so a key at the end of a long one cost the whole paragraph (NSTextView+TextKit1Lines.swift).
+        view = FieldTextView(usingTextLayoutManager: false)
+        view.textStorage?.delegate = view.paragraphDirection
         view.wantsLayer = true
         clip.wantsLayer = true
         clip.layer?.masksToBounds = true
@@ -738,7 +752,7 @@ final class ComposeTextView {
         // after the drag, its caret line under the field).
         let width = size.width - 2 * view.textContainerInset.width
         if let c = view.textContainer, c.size.width != width { c.size = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude) }
-        if rewrap, let tlm = view.textLayoutManager { tlm.ensureLayout(for: tlm.documentRange) }
+        if rewrap, let tlm = view.textLayoutManager { tlm.ensureLayout(for: tlm.documentRange) } else if rewrap { view.textKit1LayOutAll() }
         view.sizeToFit()
         view.keepCaretInView()
         // The caret view is the clip's sibling: a move of the clip alone (a window height change)
@@ -892,7 +906,8 @@ final class ComposeView: UIView {
         // cmux: the memo's draft against this one by their UTF-8 bytes (the drafts are native,
         // String+NativeCopy.swift): an append keeps the earlier lines when the old draft's code units
         // start the new one, the offsets `starts` holds; Swift's `hasPrefix` compared normalized text.
-        if let m = linesMemo, m.width == w, m.text.utf8.count == text.utf8.count, m.text.utf8.elementsEqual(text.utf8) { return m.count }
+        // One memcmp of the two native drafts (String+UTF8Prefix.swift).
+        if let m = linesMemo, m.width == w, m.text.utf8.count == text.utf8.count, text.utf8HasPrefix(m.text) { return m.count }
         if text.isEmpty {
             let n = TextLayout.make(" ", runs: [], maxWidth: w, font: ComposeView.font).lines.count
             emptyLinesMemo = (w, n)
@@ -903,7 +918,7 @@ final class ComposeView: UIView {
         // cost follows the change, not the draft (perf-lead.md issue 5, typing-frame-bench.py).
         let u = text as NSString
         var keep = 0, from = 0
-        if let m = linesMemo, m.width == w, text.utf8.count > m.text.utf8.count, text.utf8.starts(with: m.text.utf8),
+        if let m = linesMemo, m.width == w, text.utf8.count > m.text.utf8.count, text.utf8HasPrefix(m.text),
            let second = m.starts.dropLast().last {
             keep = m.starts.count - 2
             from = second
