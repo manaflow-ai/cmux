@@ -16,7 +16,20 @@ function tap(host: FakeHost, title: string) {
   const node = host.findNode("m", (n) => n.type === "Row" && n.props.title === title)!
   host.dispatch("m", node, "tap", { gesture: "g1" })
 }
-const nodes = (host: FakeHost) => [...host.tree("m").nodes.values()]
+// A remove detaches a subtree; the FakeHost map can still contain its old
+// descendant records. Assert what is reachable from the mounted scene root.
+function nodes(host: FakeHost) {
+  const tree = host.tree("m")
+  const visible: Array<{ type: string; props: Record<string, unknown>; children: string[] }> = []
+  const walk = (id: string) => {
+    const node = tree.nodes.get(id)
+    if (!node) return
+    visible.push(node)
+    node.children.forEach(walk)
+  }
+  walk(tree.root)
+  return visible
+}
 
 describe("Board Store pane", () => {
   test("selects an explicit local recipient and renders one thread with both host sources", async () => {
