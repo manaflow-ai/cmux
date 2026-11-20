@@ -848,6 +848,8 @@ fn short_usage(name: &str, verb: &Verb) -> String {
         "ls" | "list" => format!("cmux vm {name}"),
         "exec" => "cmux vm exec [NAME|ID] -- COMMAND...".to_owned(),
         "rename" => "cmux vm rename [NAME|ID] NEW_NAME".to_owned(),
+        // `--all`: every running VM (vm_short.rs `pause_all`).
+        "pause" | "shutdown" => format!("cmux vm {name} [NAME|ID | --all]"),
         _ if flags.is_empty() => format!("cmux vm {name} [NAME|ID]"),
         _ => format!("cmux vm {name} [NAME|ID] {flags}"),
     }
