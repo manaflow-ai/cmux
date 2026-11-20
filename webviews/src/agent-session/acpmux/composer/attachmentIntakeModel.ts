@@ -135,6 +135,8 @@ export type PendingAttachment = {
   id: string;
   name: string;
   image: boolean;
+  /// The agent takes this image as a file, so its pending chip uses the file's height.
+  imageAsFile?: boolean;
   /// A movie (videoAttachments.ts isVideoName): its tile is the square the video's poster will
   /// fill, loading or failed, never a long strip with its name.
   video?: boolean;
@@ -446,18 +448,26 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     // The chat the gesture was made in, its upload and its paths, as the gesture's own task had them.
     const current = chat?.options ?? live.current.options;
     const batch = { scope: current.scope };
+    const linkImages = !current.allowImages && Boolean((dropped && current.localPaths) || (uploads && current.upload));
     // In the paste's or drop's own task, so React draws them before the next frame.
-    const shown: PendingAttachment[] = files.map((file) => ({
-      id: again ?? crypto.randomUUID(),
-      name: file.name,
-      image: isImageFile(file),
-      ...(isVideoName(file.name) ? { video: true } : {}),
-      ...(!isMadeFile(file) && (isImageFile(file) || isVideoName(file.name)) ? { sizing: true } : {}),
-      scope: batch.scope,
-    }));
+    const shown: PendingAttachment[] = files.map((file) => {
+      const image = isImageFile(file);
+      const video = isVideoName(file.name);
+      const imageAsFile = image && !video && linkImages;
+      return {
+        id: again ?? crypto.randomUUID(),
+        name: file.name,
+        image: image && !imageAsFile,
+        ...(imageAsFile ? { imageAsFile: true } : {}),
+        ...(video ? { video: true } : {}),
+        ...(!isMadeFile(file) && ((image && !imageAsFile) || video) ? { sizing: true } : {}),
+        scope: batch.scope,
+      };
+    });
     // Each image's own picture, on its tile while the tile still loads.
     files.forEach((file, index) => {
-      const id = shown[index]!.id;
+      const { id, imageAsFile } = shown[index]!;
+      if (imageAsFile) return;
       // A video's shape from its header, the one read its chip takes too (intakeFiles.ts).
       const video = Boolean(shown[index]!.sizing) && !isMadeFile(file) && isVideoName(file.name);
       // One that may show its own picture is held for it, not only for its header.

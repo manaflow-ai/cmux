@@ -167,7 +167,7 @@ export function AttachmentStrip({
 /// A file still being read: an image's tile in the shape of an image chip, or a file's chip with its
 /// name, with a spinner and a × that cancels it. One that could not be attached says why, with
 /// Retry.
-function PendingChip({
+export function PendingChip({
   chip,
   onCancel,
   onRetry,
