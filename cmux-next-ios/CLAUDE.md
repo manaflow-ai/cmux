@@ -21,11 +21,12 @@ covers your change:
 | Swift live code, `scripts/live-code/ios-sim.sh patch OUT FILE.swift` ([#45397](https://github.com/manaflow-ai/cmux/pull/45397), draft) | about 1.9 s | DEBUG simulator builds only. A patch that changes a `some View` type (a view or modifier added or removed) is refused; rebuild for those |
 | Always-on simulator, `scripts/ios-live/ios-live` ([#45435](https://github.com/manaflow-ai/cmux/pull/45435), once it lands) | 1.9 s live, about 16 s rebuild | One driver at a time: `ios-live lease take` before anything that touches the app; `shot`, `tree`, `status`, `log` need no lease. Leave it running. See `scripts/ios-live/README.md` |
 
-## Hand-off command (under verification)
+## Hand-off command
 
 This is the root [CLAUDE.md](../CLAUDE.md#finishing-a-task) "Finishing a task" hand-off for the
-iPhone app. Its phone leg has not yet had one green end-to-end run; report any failure as the
-phone's blocker. It leaves the task's build on every connected iPhone,
+iPhone app. Its phone leg passed end to end on 2026-11-18 on a real iPhone 16 Plus (tag
+`phone-e2e-1118`, [#46718](https://github.com/manaflow-ai/cmux/pull/46718)) in all three modes:
+default, `--manual-pairing` and `--no-auth`. Report any failure as the phone's blocker. It leaves the task's build on every connected iPhone,
 signed in and paired with the same-tag Mac build, from one command at the pushed head:
 
 ```bash
