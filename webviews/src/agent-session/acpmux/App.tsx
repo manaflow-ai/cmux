@@ -2432,6 +2432,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (id: string) => agentName(id, catalog.find((entry) => entry.id === id)?.name),
     [catalog],
   );
+  // The menus list the harnesses they offer: not a hidden one (the `cmux` router fallback runs
+  // Claude Code's own `claude`, which its Claude Code row updates), a terminal or a model router.
+  const harnessOffered = useCallback(
+    (id: string) => catalog.find((entry) => entry.id === id)?.pickable !== false,
+    [catalog],
+  );
   const harnessUpdates = useHarnessUpdateList({
     rows: healthRows,
     offer: updateOffer,
@@ -2439,6 +2445,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     nameFor: harnessName,
     native: callNative,
     onUpdated: recheckHealth,
+    offered: harnessOffered,
   });
   // The forum's current rules on this Mac (hq#2570), pinned above the composer: read when the pane
   // connects or opens a chat, and at each turn's start and end, when the chat's agent is told the
