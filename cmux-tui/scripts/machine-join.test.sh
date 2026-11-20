@@ -74,6 +74,11 @@ for tool in install mv; do
     printf '#!/bin/sh\n'
     printf '. "%s/record.sh"\n' "$fakes"
     printf 'case "$*" in *.cmux-rd.new*) [ ! -f "$HOME/rd-%s-fail" ] || { echo "%s: Read-only file system" >&2; exit 1; } ;; esac\n' "$tool" "$tool"
+    # With ~/rd-install-changes, the copy in bin is not the file that was checked (another
+    # writer of ~/.local/bin, a disk that flipped a byte): it must not be moved into place.
+    if [ "$tool" = install ]; then
+      printf 'case "$*" in *.cmux-rd.new*) if [ -f "$HOME/rd-install-changes" ]; then "%s" "$@" || exit; eval "last=\\${$#}"; echo changed >>"$last"; exit 0; fi ;; esac\n' "$real"
+    fi
     printf 'exec "%s" "$@"\n' "$real"
   } >"$shims/$tool"
   chmod 755 "$shims/$tool"
@@ -778,6 +783,18 @@ suite() {
     check "rd $step fails: no temp file left in bin" test ! -e "$d/home/.local/bin/.cmux-rd.new"
     check "rd $step fails: the join's last step ran" grep -q "^acpmux daemon restart" "$d/log/argv"
   done
+
+  # The file in bin is checked, not only the download: a copy that differs from the
+  # channel's sha256 is never moved into place, and the old cmux-rd stays.
+  new_case linux-cmux-rd-copy-changed
+  old_rd
+  : >"$d/home/rd-install-changes"
+  run_join env
+  check "rd copy changed: the join still exits 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "rd copy changed: one line" eval '[ "$(rd_lines)" = 1 ]'
+  check "rd copy changed: says so" out_has "cmux-rd did not install (checksum verification failed for the copy in $d/home/.local/bin"
+  check "rd copy changed: the old cmux-rd untouched" old_rd_kept
+  check "rd copy changed: no temp file left in bin" test ! -e "$d/home/.local/bin/.cmux-rd.new"
 
   # A directory where cmux-rd goes: one clear line, left as it is, nothing fetched.
   new_case linux-cmux-rd-directory
