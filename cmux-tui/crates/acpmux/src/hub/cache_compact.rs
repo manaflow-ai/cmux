@@ -199,17 +199,26 @@ impl Hub {
             })),
             ..PromptOptions::default()
         };
+        self.spawn_compaction_before_prompt(session, opts);
+        let _ = tokio::time::timeout(BEFORE_PROMPT_ACCEPT, accepted).await;
+    }
+
+    /// Starts the compaction's prompt as the hub scope's task. Not async: `prompt_with` awaits
+    /// `compact_before_prompt`, so a future that calls `prompt_with` built inside an async fn of
+    /// its own would make its type recursive, and the compiler could not prove it `Send` (as
+    /// `turn_cap.rs` and `retry_turn.rs` start theirs from a plain fn).
+    fn spawn_compaction_before_prompt(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        opts: PromptOptions,
+    ) {
         let blocks = vec![json!({"type": "text", "text": "/compact"})];
         let (hub, target) = (self.clone(), session.clone());
-        let compaction: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> = Box::pin(
-            async move {
-                if let Err(e) = hub.prompt_with(&target, blocks, "acpmux", false, opts).await {
-                    tracing::info!(session = %target.id, error = ?e, "compaction before the prompt not run");
-                }
-            },
-        );
-        self.scope.spawn_named("compact-before-prompt", compaction);
-        let _ = tokio::time::timeout(BEFORE_PROMPT_ACCEPT, accepted).await;
+        self.scope.spawn_named("compact-before-prompt", async move {
+            if let Err(e) = hub.prompt_with(&target, blocks, "acpmux", false, opts).await {
+                tracing::info!(session = %target.id, error = ?e, "compaction before the prompt not run");
+            }
+        });
     }
 
     /// Ends `session`'s armed timer, if one is.
