@@ -3,7 +3,8 @@
  *
  * A Cloud create made four provider calls in a row (exact-slug recovery read, boot image read, create, resize) and
  * the platform then attached the VM to its mesh with a fifth and sixth. Here: the two reads before the create run
- * together; a create may name the mesh to join, so the VM is on its network from the provider's create and the later
+ * together when both are due (a retry in an isolate that has not read the image; a first attempt makes neither once
+ * the image is read, see create-final-size.test.ts); a create may name the mesh to join, so the VM is on its network from the provider's create and the later
  * attach makes no provider attach call; and one vm_create line (one vm_start line for a wake) says where the time went.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -65,8 +66,12 @@ describe("the provider reads before a create", () => {
   const imageKey = () => h.addServiceKey({ id: "cloud-driver", scopes: ["vm:read", "vm:write"], labels: { role: "cloud" } });
   const imageCreate = (key: string, requestKey?: string) => create(key, { image: IMAGE, labels: { role: "cloud" } }, requestKey, { "x-cmux-team-id": TEAM });
 
-  it("reads the boot image while the exact-slug recovery read is still in flight", async () => {
+  it("reads the boot image while a retry's exact-slug recovery read is still in flight", async () => {
     const key = await imageKey();
+    // Both reads are due only on a retry (a first attempt reads no slug) whose image must be read again: the first
+    // attempt's send is refused by the provider, which makes nothing and forgets the image's earlier read.
+    h.upstream.fail("create", 400);
+    expect((await imageCreate(key, "create-timing-overlap")).status).toBe(503);
     const provider = h.upstream.fetch;
     let recovering = false;
     let overlapped: boolean | null = null;
@@ -81,9 +86,17 @@ describe("the provider reads before a create", () => {
       }
       return provider(request);
     };
-    expect((await imageCreate(key)).status).toBe(201);
+    expect((await imageCreate(key, "create-timing-overlap")).status).toBe(201);
     expect(overlapped).toBe(true);
-    expect(providerCreates()).toHaveLength(1);
+    expect(providerCreates()).toHaveLength(2);
+  });
+
+  it("makes neither read on a first attempt with an image this isolate has read", async () => {
+    const key = await imageKey();
+    expect((await imageCreate(key)).status).toBe(201);
+    const before = h.upstreamRequests.length;
+    expect((await imageCreate(key)).status).toBe(201);
+    expect(h.upstreamRequests.slice(before).map((call) => `${call.method} ${call.path}`)).toEqual(["POST /v5/vms"]);
   });
 
   it("still refuses the create, sending nothing, when the boot image cannot be read", async () => {
@@ -105,11 +118,14 @@ describe("the provider reads before a create", () => {
     expect(h.upstream.vms.size).toBe(1);
   });
 
-  it("still fails on a recovery read the provider did not answer, without sending a create", async () => {
+  it("still fails a retry on a recovery read the provider did not answer, without sending a create", async () => {
     const key = await imageKey();
+    // The first attempt's VM is made upstream but not recorded, so the retry must read its exact slug.
+    h.recordFault.before = 1;
+    expect((await imageCreate(key, "create-timing-unread-slug")).status).toBe(503);
     h.upstream.fail("get", 500);
-    expect((await imageCreate(key)).status).toBe(503);
-    expect(providerCreates()).toHaveLength(0);
+    expect((await imageCreate(key, "create-timing-unread-slug")).status).toBe(503);
+    expect(providerCreates()).toHaveLength(1);
   });
 });
 
@@ -238,7 +254,9 @@ describe("the vm_create and vm_start lines", () => {
     expect(lines).toHaveLength(1);
     const line = lines[0]!;
     expect(line).toMatchObject({ event: "vm_create", vmId, ok: true, recovered: false, verifyImageMs: null, meshAtCreate: false, providerTotalMs: 13_250, providerTimingsMs: { schedule: 120, boot: 9_800 } });
-    for (const field of ["preMs", "recoverMs", "createMs", "resizeMs", "recordMs", "totalMs"]) expect(Number(line[field]), field).toBeGreaterThanOrEqual(0);
+    // A first attempt reads no slug; no approved image was booted, and the size asked needed a resize.
+    expect(line).toMatchObject({ recoverMs: null, bootVariant: null, resized: true });
+    for (const field of ["preMs", "createMs", "resizeMs", "recordMs", "totalMs"]) expect(typeof line[field], field).toBe("number");
     expect(typeof line["resizeMs"]).toBe("number");
     expect(Number(line["totalMs"])).toBeGreaterThanOrEqual(Number(line["createMs"]));
     expect(JSON.stringify(line)).not.toContain(TEAM);

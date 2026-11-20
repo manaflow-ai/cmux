@@ -84,7 +84,8 @@ export interface CreateVmSpec {
   readonly environment: string;
   /**
    * Filled as the create runs, for the handler's vm_create line: recoverMs, verifyImageMs, createMs, recoverAfterMs,
-   * resizeMs (each only when that provider call was made), `recovered`, and the provider's own `providerTotalMs` and
+   * resizeMs (each only when that provider call was made), `recovered`, `bootVariant` (set once the create reaches the
+   * provider: what an approved image booted, null without one), and the provider's own `providerTotalMs` and
    * `providerTimingsMs` when its create answer carried them.
    */
   readonly phases?: TimedPhases;

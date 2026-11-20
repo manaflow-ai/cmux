@@ -191,7 +191,7 @@ const createRecorded = <C, S, M = never>(
     // Where this create's time goes, logged once as vm_create when it reached the provider (success or failure).
     const phases: TimedPhases = {};
     return yield* createRecordedTimed(caller, spec, proofs, attempt, phases).pipe(
-      Effect.onExit((exit) => "recoverMs" in phases
+      Effect.onExit((exit) => "bootVariant" in phases
         ? Effect.flatMap(Clock.currentTimeMillis, (at) => logTimedEvent("vm_create", vmCreateLine(phases, {
             ok: Exit.isSuccess(exit), enteredAt: attempt.entered ?? started, preMs: started - (attempt.entered ?? started),
             totalMs: at - (attempt.entered ?? started), meshId: proofs.mesh?.mesh.value ?? null,
@@ -202,7 +202,10 @@ const createRecorded = <C, S, M = never>(
 
 /**
  * The vm_create line: one per create that reached the provider. A phase that made no provider call is null
- * (verifyImageMs without an approved image, createMs when the VM was recovered, resizeMs without a grow).
+ * (recoverMs on a first attempt, verifyImageMs without an approved image or for one already read, createMs when the
+ * VM was recovered, resizeMs without a grow). `bootVariant` is what an approved image booted ("base": its own
+ * snapshot; otherwise the size variant's name, e.g. "large"), null without an approved image; `resized` is whether a
+ * provider resize call followed.
  */
 const vmCreateLine = (phases: TimedPhases, request: { readonly ok: boolean; readonly enteredAt: number; readonly preMs: number; readonly totalMs: number; readonly meshId: string | null }) => ({
   vmId: phases["vmId"] ?? null,
@@ -215,6 +218,8 @@ const vmCreateLine = (phases: TimedPhases, request: { readonly ok: boolean; read
   createMs: phases["createMs"] ?? null,
   recoverAfterMs: phases["recoverAfterMs"] ?? null,
   resizeMs: phases["resizeMs"] ?? null,
+  bootVariant: phases["bootVariant"] ?? null,
+  resized: "resizeMs" in phases,
   recordMs: phases["recordMs"] ?? null,
   meshAtCreate: request.meshId !== null,
   ...(request.meshId === null ? {} : { meshId: request.meshId, meshJoined: phases["meshJoined"] ?? false, memberMs: phases["memberMs"] ?? null }),

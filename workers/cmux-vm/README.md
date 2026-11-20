@@ -361,11 +361,33 @@ Operators configure `VM_BOOT_IMAGES` as a JSON array (at most 32 entries):
 
 Missing configuration gives an empty catalog. Invalid configuration disables
 approved images while ordinary creation remains available. Each entry requires
-at least one service. Before creating, the API resolves the configured snapshot
-and requires its canonical ID to match exactly; mutable aliases or unavailable
-images produce 503 without falling back to a base image. Prepare images without
+at least one service. Before the first create with a snapshot, the API resolves
+it and requires its canonical ID to match exactly; mutable aliases or unavailable
+images produce 503 without falling back to a base image. A snapshot id is
+immutable, so that answer is kept for the life of the isolate and later creates
+make no read; a create that fails and makes nothing forgets it, and the next
+create reads again first. Prepare images without
 embedded credentials. Snapshot references and service approvals stay private;
 the catalog exposes only `id`, `revision` and `displayName`.
+
+An entry may also list the same image baked at another size, as `large`:
+
+```json
+"large": { "snapshotId": "<immutable operator snapshot id>",
+           "vcpus": 4, "memoryMib": 16384, "diskMib": 65536 }
+```
+
+A create that names the image and asks for `resources` equal to that size on
+all three axes boots the variant's snapshot: the VM is made at its final size
+and no resize call follows. Any other create (another size, a missing axis, no
+`resources`) boots `snapshotId` and grows, as an entry without `large` does.
+The size listed must be the size the snapshot boots at; when it is smaller,
+the create still grows to what was asked. A malformed `large` is dropped and
+the entry keeps working. The public image and the creation receipt are the
+same with or without it. A retry boots what its first attempt journaled: a
+create journaled before the entry listed `large` finishes on `snapshotId`, and
+one journaled on a variant the list has since lost fails (503) rather than
+boot another snapshot, so withdraw an image by removing its entry.
 The list keeps `VM_BOOT_IMAGES` order and says so with `order: "configured"`:
 the first entry is the image in use. A caller that follows the list (the cloud
 platform picks the first entry, or the last on an append-only list) must treat a
@@ -612,11 +634,15 @@ shape of the mesh handler's `mesh_vm_attach` line (`wrangler tail`, or the
 public VM id (and mesh id) and no tenant, provider id or request body.
 
 - `vm_create`: one per `POST /v1/vms` (or fork) that reached the provider,
-  success or failure (`ok`). `recoverMs` (the exact-slug read), `verifyImageMs`
-  (the boot image read, in flight with it; null without an approved image),
-  `createMs` (the provider create; null when the VM was recovered),
-  `recoverAfterMs` (the read after a failed create; null otherwise),
-  `resizeMs` (null without a grow), `recordMs` (the ownership write),
+  success or failure (`ok`). `recoverMs` (the exact-slug read, made only by
+  a retry; null on a first attempt), `verifyImageMs` (the boot image read, in
+  flight with it; null without an approved image and for a snapshot this
+  isolate has already read), `createMs` (the provider create; null when the
+  VM was recovered), `recoverAfterMs` (the read after a failed create; null
+  otherwise), `resizeMs` (null without a grow), `bootVariant` (what an approved
+  image booted: `base` for its own snapshot, else the variant, e.g. `large`;
+  null without an approved image), `resized` (whether a provider resize call
+  followed), `recordMs` (the ownership write),
   `preMs` (handler entry to the first provider call: validation, idempotency,
   quota), `totalMs`, `recovered`, `meshAtCreate` (with `meshId`, `meshJoined`
   and `memberMs` when a mesh was named), and the provider's own
