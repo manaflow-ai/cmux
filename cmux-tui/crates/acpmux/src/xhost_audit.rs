@@ -48,6 +48,14 @@ fn append(line: &Value) -> anyhow::Result<()> {
     append_to(&path(), line)
 }
 
+/// Append `line` to another owner-only log of the home (the app launch audit,
+/// `server/app_launch.rs`) the same way; an error is said on stderr and never fails the caller.
+pub fn append_line(path: &std::path::Path, line: &Value) {
+    if let Err(e) = append_to(path, line) {
+        eprintln!("acpmux: cannot write the audit log {}: {e}", path.display());
+    }
+}
+
 fn append_to(path: &std::path::Path, line: &Value) -> anyhow::Result<()> {
     if let Some(dir) = path.parent() {
         crate::config::private_state_dir(dir)?;

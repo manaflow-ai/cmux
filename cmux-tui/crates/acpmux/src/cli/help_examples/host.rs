@@ -1,4 +1,5 @@
-//! `acpmux machine …` help examples, old spelling `acpmux host …` (see `help_examples/mod.rs`).
+//! `acpmux machine …` help examples, old spelling `acpmux host …`, and `acpmux app …` (an app
+//! on a machine); see `help_examples/mod.rs`.
 
 use super::Example;
 
@@ -442,6 +443,34 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "Print the keys for another folder as JSON",
                 "acpmux machine deps key ~/src/app --json",
             ),
+        ],
+    ),
+    (
+        "app",
+        &[
+            ("Open Safari on another machine", "acpmux app launch --machine mini-3 Safari"),
+            ("List the apps this machine can open", "acpmux app list"),
+        ],
+    ),
+    (
+        "app launch",
+        &[
+            (
+                "Open Safari on mini-3, behind its front window",
+                "acpmux app launch --on mini-3 Safari",
+            ),
+            ("Open cmux here and bring it to the front", "acpmux app launch --activate cmux"),
+            (
+                "Open a page in Safari on mini-3",
+                "acpmux app launch --machine mini-3 Safari -- https://example.com",
+            ),
+        ],
+    ),
+    (
+        "app list",
+        &[
+            ("List what mini-3 runs and can open", "acpmux app list --machine mini-3"),
+            ("List every app here, not only the first 40", "acpmux app list --all"),
         ],
     ),
 ];

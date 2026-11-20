@@ -4,6 +4,7 @@
 //! `orchestrate` holds the commands other agents and scripts call; `handoff`
 //! is `continue`; `errors` maps every failure to one exit code and envelope.
 
+pub mod app;
 pub mod beads;
 pub(crate) use crate::bounded_child;
 pub mod bridge;

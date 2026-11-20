@@ -248,6 +248,37 @@ pub(crate) fn job_home(job_print: &str) -> Option<std::path::PathBuf> {
         .flatten()
 }
 
+/// Why a program cannot go to the GUI session (`login_session::in_gui_session`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum GuiSession {
+    /// The login window is up (or the console cannot be read): nobody is logged in.
+    Nobody,
+    /// Another user is at the screen.
+    OtherUser(u32),
+}
+
+/// The command that runs `argv` in `uid`'s GUI session, with `console` the uid at the screen
+/// (None: the login window) and `here` whether this process already runs in that session:
+/// `argv` itself then, else `launchctl asuser <uid> argv`, which reaches the logged-in session
+/// from an ssh-started daemon.
+pub(crate) fn gui_session_argv(
+    argv: Vec<String>,
+    uid: u32,
+    console: Option<u32>,
+    here: Option<bool>,
+) -> Result<Vec<String>, GuiSession> {
+    match console {
+        None => Err(GuiSession::Nobody),
+        Some(at) if at != uid => Err(GuiSession::OtherUser(at)),
+        Some(_) if here == Some(true) => Ok(argv),
+        Some(_) => {
+            let mut wrapped = vec!["/bin/launchctl".to_owned(), "asuser".into(), uid.to_string()];
+            wrapped.extend(argv);
+            Ok(wrapped)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -451,5 +482,19 @@ mod tests {
         assert!(line.contains("log in at the screen"), "{line}");
         // Agents already running keep the session they started in: the fix says how to end them.
         assert!(line.contains("--end-agents"), "{line}");
+    }
+
+    #[test]
+    fn a_program_goes_to_the_gui_session_only_of_the_user_at_the_screen() {
+        let open = || vec!["/usr/bin/open".to_owned(), "-a".into(), "/Applications/X.app".into()];
+        assert_eq!(gui_session_argv(open(), 501, Some(501), Some(true)), Ok(open()));
+        let wrapped = gui_session_argv(open(), 501, Some(501), Some(false)).unwrap();
+        assert_eq!(wrapped[..3], ["/bin/launchctl", "asuser", "501"]);
+        assert_eq!(wrapped[3..], open()[..]);
+        assert_eq!(gui_session_argv(open(), 501, None, None), Err(GuiSession::Nobody));
+        assert_eq!(
+            gui_session_argv(open(), 501, Some(502), Some(true)),
+            Err(GuiSession::OtherUser(502))
+        );
     }
 }

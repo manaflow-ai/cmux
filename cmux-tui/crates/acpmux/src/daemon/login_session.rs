@@ -37,6 +37,23 @@ pub(crate) fn in_login_session() -> Option<bool> {
     (status == 0).then_some(attributes & HAS_GRAPHIC_ACCESS != 0)
 }
 
+/// Who is at the screen: the uid that owns `/dev/console`; None at the login window (root owns
+/// it then) or when it cannot be read.
+pub(crate) fn console_uid() -> Option<u32> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata("/dev/console").ok().map(|m| m.uid()).filter(|uid| *uid != 0)
+}
+
+/// The command that runs `argv` in this user's GUI (Aqua) session: the one way the daemon puts a
+/// program there (an app launch, `app_launch/macos.rs`). See `login_placement::gui_session_argv`.
+pub(crate) fn in_gui_session(
+    argv: Vec<String>,
+) -> std::result::Result<Vec<String>, super::login_placement::GuiSession> {
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    super::login_placement::gui_session_argv(argv, uid, console_uid(), in_login_session())
+}
+
 /// How long one `launchctl` call may take before it is killed: a stalled launchd never holds a
 /// start past its budget.
 const LAUNCHCTL_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);

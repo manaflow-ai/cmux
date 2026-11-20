@@ -138,6 +138,25 @@ pub static ACTIONS: &[Action] = &[
         starts_terminal: true,
         ..Action::DEFAULT
     },
+    // Leo (2026-11-16): "it's not like i can just easily say "launch this app" from my comuputer
+    // (maybe that should be a feature)". The palette asks for the machine and the app, then sends
+    // acpmux's `_acpmux/app_launch`, as `cmux app launch --on MACHINE APP` does. MCP has its own
+    // `app_launch` tool (with arguments), so this row stays out of MCP.
+    Action {
+        id: "machine.launchApp",
+        group: GROUP,
+        title: t("RemoteActions", "action.machine.launchApp", "Open App on Machine…"),
+        description: Some("Opens an app on a connected machine (--machine) in its logged-in session, behind the window in front. --app is a name, a bundle or desktop entry id, or an absolute path."),
+        keywords: &["launch", "open", "start", "run", "app", "application", "remote", "machine", "peer"],
+        category: "remote",
+        symbol: "macwindow.badge.plus",
+        surfaces: PALETTE,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), mcp_exemption: Some("systemChange"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::MACHINE, args::APP],
+        cli_name: "app launch",
+        request: Some(Request { lane: RequestLane::Acpmux, operation: "_acpmux/app_launch", params: &[RequestParam { name: "machine", source: ParamSource::Argument("machine") }, RequestParam { name: "app", source: ParamSource::Argument("app") }] }),
+        ..Action::DEFAULT
+    },
     Action {
         id: "remote.openRemote",
         group: GROUP,

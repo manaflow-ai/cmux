@@ -73,6 +73,17 @@ impl Asking for ThisMachine {
     fn allow_agents(&self) -> Result<Value, Value> {
         Err(json!({"code": "unavailable", "message": "the cmux app runs on a Mac"}))
     }
+
+    /// NIGHTLY by its path, not `cmux`: the target's acpmux names its own bundle `cmux` first,
+    /// which may be another build. `cmux app launch` bounds itself (its wait plus 30 s).
+    fn launch_nightly(&self, machine: &str) -> (Option<i32>, String) {
+        let Ok(mut command) = super::super::cmux() else { return (None, String::new()) };
+        let args = ["app", "launch", "--on", machine, APP, "--hidden", "--json"];
+        match command.args(args).stdin(Stdio::null()).stderr(Stdio::null()).output() {
+            Ok(out) => (out.status.code(), String::from_utf8_lossy(&out.stdout).into_owned()),
+            Err(_) => (None, String::new()),
+        }
+    }
 }
 
 /// `cmux <args>` on this machine as JSON (stdout may be empty); an unknown verb (exit 2, or a

@@ -5,10 +5,10 @@ use serde_json::Value;
 
 use super::{
     action_tools, agent_dispatch_tools, agent_events_tool, agent_tools, agent_wait_tool,
-    automation_tools, browser_tools, chat_tools, cloud_repo_tools, customize_library_tool,
-    customize_tools, device_tools, keybinding_tools, keys_tools, live_code_tools, open_tool,
-    remote_tools, render_tool, settings_tools, terminal_talk_tools, v2_tools, video_tools,
-    workflow_tools,
+    app_launch_tools, automation_tools, browser_tools, chat_tools, cloud_repo_tools,
+    customize_library_tool, customize_tools, device_tools, keybinding_tools, keys_tools,
+    live_code_tools, open_tool, remote_tools, render_tool, settings_tools, terminal_talk_tools,
+    v2_tools, video_tools, workflow_tools,
 };
 
 pub(super) fn first_party() -> Vec<Value> {
@@ -33,6 +33,7 @@ pub(super) fn first_party() -> Vec<Value> {
     tools.extend(video_tools::descriptors());
     tools.extend(remote_tools::TOOLS.iter().map(remote_tools::RemoteTool::descriptor_json));
     tools.extend(device_tools::descriptors());
+    tools.extend(app_launch_tools::descriptors());
     tools.extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
     tools.extend(automation_tools::descriptors());
     tools.extend(customize_tools::descriptors());

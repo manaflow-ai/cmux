@@ -33,6 +33,11 @@ fn cases() -> Vec<Case> {
             argv: &["room", "unpin", "--workspace", "ws_00000000000000000000000000000004"],
             values: vec![("target:workspace", json!("ws_00000000000000000000000000000004"))],
         },
+        Case {
+            id: "machine.launchApp",
+            argv: &["app", "launch", "--on", "mini", "Safari"],
+            values: vec![("argument:machine", json!("mini")), ("argument:app", json!("Safari"))],
+        },
     ]
 }
 
@@ -50,6 +55,11 @@ fn sent_by_cli(argv: &[&str]) -> Result<(RequestLane, String, Value), String> {
     match super::app::parse(&args) {
         Ok(Some(super::app::AppCommand::Call { method, params, .. })) => {
             return Ok((RequestLane::App, method.to_owned(), params));
+        }
+        // `cmux app launch|list` runs acpmux, which sends one daemon request.
+        Ok(Some(super::app::AppCommand::AppLaunch(command))) => {
+            let (operation, params) = command.request();
+            return Ok((RequestLane::Acpmux, operation.to_owned(), params));
         }
         Ok(Some(other)) => {
             return Err(format!("`{}` is not one app call: {other:?}", argv.join(" ")));
