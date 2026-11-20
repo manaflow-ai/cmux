@@ -16613,6 +16613,97 @@ class ConditionalCiReads(unittest.TestCase):
             excuse.JUDGEMENT_READS.reset(token)
         self.assertEqual([r["conditional"] for r in self.calls_since()], [False])
 
+class CutSearchConsumers(unittest.TestCase):
+    """cmux#47687's review: every consumer of a base search the read cap cut short says "incomplete" with a retry time,
+    never the words of a search read to its end (a cut read as a verdict, cmuxterm-hq#14126's class)."""
+
+    @staticmethod
+    def no_verdict_runs(github, name, count, first_id=1000, event="workflow_dispatch"):
+        # Base runs whose job NAME was skipped: each costs a job read and holds no verdict. Each is newer than every
+        # fixture's red base run, so a search meets them first.
+        for offset in range(count):
+            run_id = first_id + offset
+            github.jobs[run_id] = dict(failed_job(run_id, run_id, BASE_SHA, name=name), conclusion="skipped",
+                                       steps=[])
+        return [{"id": first_id + offset, "event": event, "head_branch": "feat-cmux-next", "status": "completed",
+                 "conclusion": "success", "head_sha": BASE_SHA,
+                 "created_at": f"2026-11-16T{23 - offset // 60:02d}:{59 - offset % 60:02d}:00Z"}
+                for offset in range(count)]
+
+    def assert_incomplete(self, said):
+        self.assertRegex(said, rf"^'[^']+': {excuse.INCOMPLETE} {excuse.BASE_JOB_READS} job lists .*not a verdict: "
+                               r"retry after \d\d:\d\dZ")
+
+    def test_f1_a_cut_search_of_the_base_callers_workflow_is_incomplete(self):
+        # ci.yml has no feat-cmux-next verdict at all; cmux-next-web.yml's search is cut before its red run 40.
+        github = WebShardBaseGitHub()
+        github.base_runs = []
+        github.pushed_runs = self.no_verdict_runs(github, WEB_SHARD, excuse.BASE_JOB_READS + 5, event="push") + [
+            run for run in github.pushed_runs if run["id"] == 40]
+        with self.assertRaises(excuse.Refused) as cut:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assert_incomplete(str(cut.exception))
+        self.assertNotIn("has a verdict for it to compare with", str(cut.exception))
+
+    def test_f2_a_cut_is_one_searchs_not_every_later_job_of_the_workflow(self):
+        github = FakeGitHub()
+        runs = self.no_verdict_runs(github, SWIFT, excuse.BASE_JOB_READS + 5)
+        evidence = excuse.Evidence(REPO, "feat-cmux-next", github)
+        evidence.listed[7] = runs
+        job_reads, base_jobs = {}, {}
+        self.assertEqual(list(excuse.base_verdicts(REPO, 7, SWIFT, github, evidence, base_jobs, job_reads)), [])
+        self.assertEqual(excuse.search_cut(job_reads, SWIFT, 7), excuse.BASE_JOB_READS)
+        # A second job of the same workflow whose search reads only kept lists has nothing left unread.
+        evidence.listed[7] = [run for run in runs if run["id"] in base_jobs]
+        self.assertEqual(list(excuse.base_verdicts(REPO, 7, "other job", github, evidence, base_jobs, job_reads)), [])
+        self.assertIsNone(excuse.search_cut(job_reads, "other job", 7))
+        self.assertEqual(excuse.search_cut(job_reads, SWIFT, 7), excuse.BASE_JOB_READS)
+
+    def test_f3_a_window_extension_cut_short_is_incomplete_not_a_pass(self):
+        # One newer red that fails other tests, then more runs without a verdict than the cap, then the matching red.
+        github = FakeGitHub()
+        github.jobs[4] = failed_job(4, 22, BASE_SHA)
+        github.logs[4] = log(SWIFT, TEST_STEP, OTHER, "##[error]1 red test: palette()")
+        newer = {"id": 22, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                 "conclusion": "failure", "head_sha": BASE_SHA, "created_at": "2026-11-17T00:00:00Z"}
+        github.base_runs = [newer] + self.no_verdict_runs(github, SWIFT, excuse.BASE_JOB_READS + 5) + github.base_runs
+        with self.assertRaises(excuse.Refused) as cut:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assert_incomplete(str(cut.exception))
+
+    def test_followup_an_unplaced_heads_window_cut_short_is_incomplete_not_its_own_red(self):
+        # #47971's review F1: an unplaced head is compared whole within one red base verdict. The newest red fails
+        # another test; the search is cut before the older red that fails the head's own, which was never read.
+        unplaced = UnplacedSignature()
+        github = FakeGitHub()
+        github.jobs = {1: unplaced.job(), 2: dict(unplaced.job(), id=2, run_id=20, head_sha=BASE_SHA),
+                       4: dict(unplaced.job(), id=4, run_id=22, head_sha=BASE_SHA)}
+        github.logs = {1: framed_log(unplaced.lines(NEW_RED), SWIFT), 2: framed_log(unplaced.lines(NEW_RED), SWIFT),
+                       4: framed_log(unplaced.lines(OLD_RED), SWIFT)}
+        newer = {"id": 22, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                 "conclusion": "failure", "head_sha": BASE_SHA, "created_at": "2026-11-17T00:00:00Z"}
+        github.base_runs = [newer] + self.no_verdict_runs(github, SWIFT, excuse.BASE_JOB_READS + 5) + github.base_runs
+        with self.assertRaises(excuse.Refused) as cut:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assert_incomplete(str(cut.exception))
+
+    def test_f4_the_shared_catalog_search_cut_short_is_incomplete(self):
+        github = SharedCatalogGitHub()
+        github.base_runs = self.no_verdict_runs(github, SharedCatalogGitHub.GEN, excuse.BASE_JOB_READS + 5,
+                                                event="push") + github.base_runs
+        with self.assertRaises(excuse.Refused) as cut:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assert_incomplete(str(cut.exception))
+        self.assertNotIn(f"no red '{excuse.GENERATED_BASE_JOB}'", str(cut.exception))
+
+    def test_f4_a_stacked_parents_search_cut_short_is_incomplete(self):
+        parent = excuse.StackedParent(47687, "a" * 40)
+        with self.assertRaises(excuse.Refused) as cut:
+            excuse.stacked_parent_verdicts(SWIFT, "lane/x", parent, iter(()), cut=lambda: excuse.BASE_JOB_READS)
+        self.assert_incomplete(str(cut.exception))
+        with self.assertRaisesRegex(excuse.Refused, "has no completed run of this workflow"):
+            excuse.stacked_parent_verdicts(SWIFT, "lane/x", parent, iter(()))
+
 
 if __name__ == "__main__":
     unittest.main()
