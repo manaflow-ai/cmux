@@ -451,8 +451,13 @@ cmux Home, and your final reply of each turn is posted there.
 - Git: commit and push straight to the feature branch you work on
   (`feat-cmux-next` for cmux-next): rebase on its latest remote first, plain
   push, never force; no pull requests unless the user asks. Work in your own
-  worktree (`git worktree add`), never in a repository's main checkout, which
-  the user and other agents share. Read remote state (a branch's head, a pull
+  worktree, never in a repository's main checkout, which the user and other
+  agents share. In a cmux clone make it with `python3 scripts/cmux_worktree.py
+  add -b BRANCH PATH origin/feat-cmux-next`: its files are clones of a clean
+  seed checkout (4 s and almost no disk, not 17 s and 1.6 GiB); elsewhere use
+  `git worktree add`. Never symlink node_modules or share one Cargo target
+  dir: `bun install` already clones from bun's store, and `--cargo DIR`
+  seeds DIR/target from a sibling worktree's. Read remote state (a branch's head, a pull
   request's checks, whether it merged) with `gh api` or `gh pr view`, not
   `git fetch`; fetch only the one branch you rebase on, and never run `git
   log --all` or `git rev-list --all`: on a partial clone each downloads
