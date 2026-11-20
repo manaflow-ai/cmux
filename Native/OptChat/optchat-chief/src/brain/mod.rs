@@ -1139,6 +1139,9 @@ pub struct Brain {
     last_memory_block: Option<String>,
     /// The running wake run (memory.rs), when the turn is one.
     wake_run: Option<memory::WakeRunState>,
+    /// The planned time (ms) of each wake note queued (a follow-up's or
+    /// sleep's time, a check-in slot), by its text, for `scheduled_at`.
+    wake_planned: std::collections::HashMap<String, i64>,
     /// A wake run whose turn was cut: its resume turn goes on as it.
     cut_wake_run: Option<memory::WakeRunState>,
     /// This Chief's measured $/token rates and when they were read.
@@ -1325,6 +1328,7 @@ impl Brain {
             last_memory_block: None,
             wake_run: None,
             cut_wake_run: None,
+            wake_planned: std::collections::HashMap::new(),
             rates: None,
 
             cuts: 0,

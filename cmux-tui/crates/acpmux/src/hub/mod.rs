@@ -196,6 +196,7 @@ mod models_view;
 pub(crate) mod native_messaging;
 mod page_first;
 mod paging;
+pub(crate) mod permission_modes;
 mod personal_stats;
 mod policy_gate;
 mod policy_mode;
