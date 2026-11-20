@@ -86,35 +86,12 @@ final class MobilePairingPageProvider: PageProvider {
         case Self.statusOp:
             return await status()
         case Self.setAllowedOp:
-            guard context.userGesture || context.isConfirmedUser else {
-                throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
-            }
-            guard let on = params["on"]?.boolValue else { throw PageError.invalidParams("on is required") }
-            try await dependencies.write(Self.switchPath, .bool(on))
-            return .object([:])
+            return try await dependencies.host.setAllowedFromPage(params: params, context: context, write: dependencies.write)
         case Self.answerPairOp:
-            // Which phone reaches this Mac: the person's own click or key only, never a script.
-            guard context.userGesture else {
-                throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
-            }
-            guard let id = params["id"]?.stringValue, !id.isEmpty else { throw PageError.invalidParams("id is required") }
-            guard case .bool(let allow)? = params["allow"] else { throw PageError.invalidParams("allow is required") }
-            guard dependencies.host.answerPairRequest(id: id, allow: allow) else {
-                throw PageError.invalidParams("no request from that phone is waiting")
-            }
-            return .object([:])
+            return try dependencies.host.answerPairFromPage(params: params, context: context)
         case Self.revokePhoneOp:
-            guard context.page == "cmux.mobile-pairing", context.userGesture else {
-                throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
-            }
-            guard dependencies.revocationEnabled(), dependencies.signedIn() else { throw PageError.unknownOp(op) }
-            guard let id = params["id"]?.stringValue,
-                  dependencies.host.locallyApprovedPhoneRows.contains(where: { $0["id"]?.stringValue == id }) else {
-                throw PageError.invalidParams("no local approval for that phone")
-            }
-            // This Mac's approval only. removePhone(id:) also deletes the account registration.
-            dependencies.host.revokePhone(id: id)
-            return .object([:])
+            return try dependencies.host.revokePhoneFromPage(op: op, params: params, context: context,
+                enabled: dependencies.revocationEnabled(), signedIn: dependencies.signedIn())
         default:
             throw PageError.unknownOp(op)
         }
