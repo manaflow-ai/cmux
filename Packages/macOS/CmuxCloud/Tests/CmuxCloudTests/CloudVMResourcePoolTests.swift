@@ -203,7 +203,8 @@ struct CloudVMResourcePoolTests {
     }
 
     @Test
-    func validatorCapsAdvertisedDiskAtTheCurrentPlanCeiling() throws {
+    func validatorCapsALegacyServersAdvertisedDiskAtThePlanTable() throws {
+        // No lockedMemoryOptionsMb: an older control plane whose ceilings may be stale.
         let pro = try CloudVMResizePlanValidator().plan(from: [
             "planId": "pro",
             "maxDiskMb": 256 * 1_024,
@@ -214,6 +215,58 @@ struct CloudVMResourcePoolTests {
         ])
         #expect(pro.limits.maxDiskMb == 128 * 1_024)
         #expect(go.limits.maxDiskMb == 128 * 1_024)
+    }
+
+    /// #47612: the server owns plan policy. A current control plane's ceilings
+    /// are used as published, so a server-side plan change (raising or
+    /// lowering a limit) takes effect without a client release. Only the
+    /// provider's largest machine bounds them.
+    @Test
+    func validatorUsesACurrentServersCeilingsWithoutAClientTable() throws {
+        let validator = CloudVMResizePlanValidator()
+        let raised = try validator.plan(from: [
+            "planId": "go",
+            "maxVcpus": 12,
+            "maxMemoryMb": 24 * 1_024,
+            "maxDiskMb": 192 * 1_024,
+            "lockedMemoryOptionsMb": [] as [Int],
+        ])
+        #expect(raised.limits.maxVcpus == 12)
+        #expect(raised.limits.maxMemoryMb == 24 * 1_024)
+        #expect(raised.limits.maxDiskMb == 192 * 1_024)
+
+        let lowered = try validator.plan(from: [
+            "planId": "max",
+            "maxVcpus": 4,
+            "maxMemoryMb": 8 * 1_024,
+            "maxDiskMb": 32 * 1_024,
+            "lockedMemoryOptionsMb": [] as [Int],
+        ])
+        #expect(lowered.limits.maxVcpus == 4)
+        #expect(lowered.limits.maxMemoryMb == 8 * 1_024)
+        #expect(lowered.limits.maxDiskMb == 32 * 1_024)
+
+        let unknownPlan = try validator.plan(from: [
+            "planId": "enterprise-2027",
+            "maxVcpus": 16,
+            "maxMemoryMb": 32 * 1_024,
+            "maxDiskMb": 256 * 1_024,
+            "lockedMemoryOptionsMb": [] as [Int],
+        ])
+        #expect(unknownPlan.limits.maxVcpus == 16)
+        #expect(unknownPlan.limits.maxMemoryMb == 32 * 1_024)
+        #expect(unknownPlan.limits.maxDiskMb == 256 * 1_024)
+
+        let overProvider = try validator.plan(from: [
+            "planId": "max",
+            "maxVcpus": 64,
+            "maxMemoryMb": 128 * 1_024,
+            "maxDiskMb": 512 * 1_024,
+            "lockedMemoryOptionsMb": [] as [Int],
+        ])
+        #expect(overProvider.limits.maxVcpus == 32)
+        #expect(overProvider.limits.maxMemoryMb == 64 * 1_024)
+        #expect(overProvider.limits.maxDiskMb == 256 * 1_024)
     }
 
     /// Every plan's resize ceilings must match /pricing and the server's
