@@ -81,6 +81,33 @@ class DiskAndGpuTest(unittest.TestCase):
         self.assertEqual(got["in_use_system_memory_mb"], 200.0)
         self.assertIn("error", bm.gpu_summary([]))
 
+    def test_page_frames_window_sums_by_visibility(self):
+        # Page 0 visible at 60 frames/s; page 1 hidden and still beating, no frames; page 2 frozen (no beat).
+        before = {0: {"raf": 100, "vis": "visible", "at": 1.0}, 1: {"raf": 50, "vis": "hidden", "at": 1.0},
+                  2: {"raf": 70, "vis": "hidden", "at": 1.0}}
+        after = {0: {"raf": 700, "vis": "visible", "at": 11.0}, 1: {"raf": 50, "vis": "hidden", "at": 11.0},
+                 2: {"raf": 70, "vis": "hidden", "at": 1.0}}
+        got = bm.PageFrames.window(before, after, 10.0)
+        self.assertEqual(got["visible"], {"pages": 1, "frames_per_s": 60.0, "max_page_frames_per_s": 60.0, "reporting": 1})
+        self.assertEqual(got["hidden"], {"pages": 2, "frames_per_s": 0.0, "max_page_frames_per_s": 0.0, "reporting": 1})
+
+    def test_page_axis_reports_frames_priorities_and_show_latency(self):
+        def page_sample(label, items, hidden_fps):
+            s = sample(label, items, 100.0 + items, 0.1, 0.0)
+            s["kinds"]["cef-renderer"]["priorities"] = {"47": {"n": 1, "cpu_pct": 0.1}, "28": {"n": items, "cpu_pct": 0.0}}
+            s["page_frames"] = {"hidden": {"pages": items, "frames_per_s": hidden_fps, "max_page_frames_per_s": 0.0,
+                                           "reporting": items}}
+            return s
+        axis = {"axis": "page-hidden", "samples": [sample("idle-launch", 0, 100.0, 0.1, 0.0),
+                                                   page_sample("items-10", 10, 0.0)],
+                "show_latency": [{"page": 0, "first_frame_ms": 42.0}]}
+        lines = report.page_lines(axis)
+        self.assertIn('renderer_priorities={"47":{"n":1', lines[1])
+        self.assertEqual(lines[-1], 'page-hidden show_latency=[{"page":0,"first_frame_ms":42.0}]')
+        text = report.markdown(report.summarize([axis]))
+        self.assertIn("| items-10 | 10 | hidden: 10 pages 0.00/s (max 0.00) | 47: 1 (0.100 %); 28: 10 (0.000 %) |", text)
+        self.assertIn("Show latency, request to first frame (ms): 42", text)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -216,6 +216,19 @@ class TransitionTests(unittest.TestCase):
         row = ssm.transition(self.strip(sent, [frame(5)]), t, static=False)
         self.assertIn("nothing moved", row["error"])
 
+    def test_a_tick_stamped_just_before_the_input_but_drawn_after_it_is_the_move(self):
+        # A display-link tick carries its vsync's time (link.timestamp), not the time its callback read the layout:
+        # a callback that runs after the key went in (the main thread was in frame_strip's own turn) shows the
+        # post-key layout under a time up to one refresh before `sent_host_s`. A close is a one-tick jump, so that
+        # tick held the whole move and the round read "nothing moved after the input" (nightly 01fc64af3: 32 close
+        # rounds with browser or chat panes, the movers of the layout after the close only).
+        t, sent = self.aligned([1000, 1000, 600, 600, 600, 600], sent_t=18.0)
+        row = ssm.transition(self.strip(sent, [frame(5, ob=0.2, cb=0.3)] + [frame(10 + i * 8) for i in range(8)]), t,
+                             static=False)
+        self.assertNotIn("error", row)
+        self.assertEqual(row["first_frame_ms"], 0)
+        self.assertEqual(row["pane_width_change"], -400.0)
+
     def test_a_failed_strip_fails_the_round(self):
         t, sent = self.aligned([1000, 1000, 800, 700, 700])
         row = ssm.transition({"error": "no frames"}, t, static=True)
