@@ -3160,7 +3160,9 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_INBOX_SUBSCRIPTION_SET
         | method::MUX_INBOX_SUBSCRIPTION_REMOVE
-        | method::MUX_INBOX_SUBSCRIPTIONS => {
+        | method::MUX_INBOX_SUBSCRIPTIONS
+        | method::MUX_INBOX_SUBSCRIPTION_GRANT
+        | method::MUX_INBOX_SUBSCRIPTION_REVOKE => {
             let s = hub.resolve(session_key(&params)?)?;
             // A binding belongs to the resolved recipient.  The person's connection may manage
             // it, or the recipient's own agent may manage its own threads; no other session may
@@ -3183,12 +3185,28 @@ async fn dispatch_request_with_identity(
                     .filter(|v| !v.is_empty())
                     .ok_or_else(|| RpcError::invalid_params("threadId is required"))
             };
+            let owner = || {
+                let owner_id = params
+                    .get("ownerSessionId")
+                    .and_then(Value::as_str)
+                    .filter(|v| !v.is_empty())
+                    .ok_or_else(|| RpcError::invalid_params("ownerSessionId is required"))?;
+                hub.resolve(owner_id)
+            };
             match m {
                 method::MUX_INBOX_SUBSCRIPTION_SET => hub.set_inbox_subscription(&s, thread()?),
                 method::MUX_INBOX_SUBSCRIPTION_REMOVE => {
                     hub.remove_inbox_subscription(&s, thread()?)
                 }
-                _ => hub.inbox_subscriptions(&s),
+                method::MUX_INBOX_SUBSCRIPTIONS => hub.inbox_subscriptions(&s),
+                method::MUX_INBOX_SUBSCRIPTION_GRANT => {
+                    let owner = owner()?;
+                    hub.grant_inbox_subscription(&s, thread()?, &owner)
+                }
+                _ => {
+                    let owner = owner()?;
+                    hub.revoke_inbox_subscription(&s, thread()?, &owner)
+                }
             }
         }
         method::MUX_INBOX_THREADS | method::MUX_INBOX_THREAD | method::MUX_INBOX_REPLY => {

@@ -384,9 +384,20 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_INBOX_THREADS, Request),
         keyed::<params::InboxThreadParams>(method::MUX_INBOX_THREAD, Request),
         untyped(method::MUX_INBOX_REPLY, Request),
-        untyped(method::MUX_INBOX_SUBSCRIPTION_SET, Request),
-        untyped(method::MUX_INBOX_SUBSCRIPTION_REMOVE, Request),
-        untyped(method::MUX_INBOX_SUBSCRIPTIONS, Request),
+        keyed::<params::InboxSubscriptionSetParams>(method::MUX_INBOX_SUBSCRIPTION_SET, Request),
+        keyed::<params::InboxSubscriptionRemoveParams>(
+            method::MUX_INBOX_SUBSCRIPTION_REMOVE,
+            Request,
+        ),
+        keyed::<params::InboxSubscriptionsParams>(method::MUX_INBOX_SUBSCRIPTIONS, Request),
+        keyed::<params::InboxSubscriptionGrantParams>(
+            method::MUX_INBOX_SUBSCRIPTION_GRANT,
+            Request,
+        ),
+        keyed::<params::InboxSubscriptionRevokeParams>(
+            method::MUX_INBOX_SUBSCRIPTION_REVOKE,
+            Request,
+        ),
         untyped(method::MUX_PERSON_ENROLL, Request),
         untyped(method::MUX_COMPUTER_USE_CALL, Request),
         untyped(method::MUX_COMPUTER_USE_MACHINES, Request),
