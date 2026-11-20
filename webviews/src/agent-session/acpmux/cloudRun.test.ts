@@ -7,6 +7,7 @@ import type { AcpmuxHostConfig } from "./direct";
 import {
   cloudFolderGrants,
   cloudPageRefusal,
+  pageOnOtherMachine,
   cloudRunsHere,
   cloudSendAfterCheck,
   heldPromptShown,
@@ -645,4 +646,29 @@ test("a Cloud start from a page with no pick goes as it is", async () => {
   );
   await call("cloud.startChat", { key: "k", task: "1+1", home: true });
   expect(calls).toEqual([{ key: "k", task: "1+1", home: true }]);
+});
+
+// cmux#47679: a second Cloud chat in a Cloud chat's workspace (a new tab or split there opens on the Cloud
+// machine) offered Cloud, and Enter sent `cloud.startChat`, which the host refuses from a page on another
+// machine: "Cloud isn't available for this chat", stalled at Clone repository. The new chat runs on that
+// machine already, so Enter starts it in this pane and Cloud is never offered or picked there.
+test("a page whose chat runs on another machine never offers or picks Cloud", () => {
+  expect(pageOnOtherMachine({ cloudMachineID: "m-1" })).toBe(true);
+  expect(pageOnOtherMachine({ origin: "remote" })).toBe(true);
+  expect(pageOnOtherMachine({ origin: "peer" })).toBe(true);
+  expect(pageOnOtherMachine({ summary: { peer: "devbox" } })).toBe(true);
+  expect(pageOnOtherMachine({ summary: { hostKind: "cloud" } })).toBe(true);
+  // This Mac's page: a new chat there may start on Cloud.
+  expect(pageOnOtherMachine({})).toBe(false);
+  expect(pageOnOtherMachine({ origin: "local", summary: { hostKind: "local" } })).toBe(false);
+  expect(pageOnOtherMachine({ origin: "unknown", summary: { peer: "" } })).toBe(false);
+
+  const source = readFileSync(join(import.meta.dir, "App.tsx"), "utf8");
+  expect(source).toMatch(
+    /const onOtherMachinePage = pageOnOtherMachine\(\{ cloudMachineID, origin: snapshot\.origin, summary: snapshot\.summary \}\);/,
+  );
+  expect(source).toMatch(
+    /const cloudOfferable = !onOtherMachinePage && \(sandboxOfferable \|\| emptyLocalChat \|\| pickOnlyChat\);/,
+  );
+  expect(source).toMatch(/const cloudPicked = sandbox\.mode === "cloud" && !onOtherMachinePage && /);
 });
