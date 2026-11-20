@@ -681,6 +681,7 @@ struct ShellView: View {
             PushRegistration.shared.setPreferences(preferences)
         }
         .onAppear {
+            LaunchMarks.shared.markNextFrame("shell_frame")
             NotificationRouter.shared.isShowing = { [weak shell] route in shell?.isShowing(route) ?? false }
             // On the model SwiftUI keeps (init also builds throwaway ones).
             FeedRouting.shared.openTerminal = { [weak shell] item in shell?.openTerminal(item) }
