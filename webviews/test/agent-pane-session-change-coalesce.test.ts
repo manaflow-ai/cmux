@@ -12,6 +12,8 @@
 import { afterAll, beforeAll, beforeEach, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
+import { settleReact } from "./support/domTeardown";
+import { resetKeptTailsForTests } from "../src/agent-session/acpmux/tailCache";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -30,14 +32,18 @@ beforeAll(() => {
   Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, get: () => visibility });
 });
 
-afterAll(() => {
+afterAll(async () => {
   AcpmuxDirectClient.scheduleFrame = savedSchedule;
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];
 });
 
 beforeEach(() => {
+  // Each test is a fresh page: its chat starts at seq 1, so a tail an earlier test's client kept of
+  // the same chat id would stand in front of it (session ids are never reused in the app).
+  resetKeptTailsForTests();
   frames = [];
   AcpmuxDirectClient.scheduleFrame = (run) => void frames.push(run);
 });

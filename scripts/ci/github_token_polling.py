@@ -46,12 +46,33 @@ from __future__ import annotations
 
 import ast
 import re
+import sys
 from pathlib import Path
 from typing import Iterable, Iterator
 
 import yaml
 
-OWN_TOKEN = re.compile(r"\$\{\{[^}]*\b(github\.token|secrets\.GITHUB_TOKEN)\b[^}]*\}\}")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
+
+_OWN_TOKEN_REFERENCE = re.compile(r"\b(github\.token|secrets\.GITHUB_TOKEN)\b", re.IGNORECASE)
+
+
+class _OwnToken:
+    """`github.token` or `secrets.GITHUB_TOKEN` (any case, as GitHub reads contexts) inside some `${{ }}` of a value.
+    gh_expressions finds each expression: `[^}]*` stopped at a `}` in a string literal
+    (`${{ format('{0}}}', github.token) }}`), so the token after it was missed. A `${{` that never ends counts as
+    the token, so a step is judged rather than passed."""
+
+    def search(self, text: str) -> bool:
+        try:
+            found = gh_expressions.contents(text)
+        except gh_expressions.Unterminated:
+            return True
+        return any(_OWN_TOKEN_REFERENCE.search(expression) for expression in found)
+
+
+OWN_TOKEN = _OwnToken()
 SHELL_API = re.compile(r"^(gh)$")
 GH_VERBS = {"api", "run", "pr", "issue", "release", "workflow", "label", "search", "cache"}
 API_TEXT = re.compile(r"api\.github\.com")
@@ -472,9 +493,19 @@ def dotted(node: ast.AST) -> str:
     return ""
 
 
+def python_http_call(name: str) -> bool:
+    """Whether a dotted callable name makes an HTTP call: urlopen, or deadline_http.request or .stream (a
+    download read as it comes), the transport scripts/ci calls instead of urlopen
+    (tests/test_ci_no_bare_urlopen.py)."""
+    if name.endswith("urlopen"):
+        return True
+    return any(name == f"deadline_http.{call}" or name.endswith(f".deadline_http.{call}")
+               for call in ("request", "stream"))
+
+
 def python_call_is_api(call: ast.Call) -> bool:
     name = dotted(call.func)
-    if name.endswith("urlopen") or name.split(".")[-1] in ("gh_json", "gh_api", "gh_run", "gh_items"):
+    if python_http_call(name) or name.split(".")[-1] in ("gh_json", "gh_api", "gh_run", "gh_items"):
         return True
     for arg in call.args:
         if isinstance(arg, ast.List) and len(arg.elts) >= 2 and isinstance(arg.elts[0], ast.Constant) \
@@ -538,7 +569,7 @@ def python_polls(text: str) -> str | None:
             bodies += methods.get(last, [])
         for target in aliases.get(last, ()):
             short = target.split(".")[-1]
-            api = api or target.endswith("urlopen") or short in ("gh_json", "gh_api", "gh_run", "gh_items")
+            api = api or python_http_call(target) or short in ("gh_json", "gh_api", "gh_run", "gh_items")
             if short in functions:
                 bodies.append(functions[short])
             bodies += methods.get(short, [])

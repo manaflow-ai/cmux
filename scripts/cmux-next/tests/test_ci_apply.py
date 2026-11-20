@@ -56,6 +56,15 @@ class PlanTests(unittest.TestCase):
         p = lane([("M", "webviews/src/a.tsx"), ("M", "cmux-tui/crates/cmux-tui-core/src/a.rs")])
         self.assertEqual((p["lane"], p["appliers"]), ("web+daemon", ["web", "daemon"]))
 
+    def test_a_pull_request_into_main_or_an_unknown_base_builds_clean(self):
+        # Stakes decide before the diff: main ships to everyone, so even a docs-only PR into it takes no lane.
+        for base in ("main", None):
+            with self.subTest(base=base):
+                p = lane([("M", "docs/x.md")], base_ref=base)
+                self.assertEqual(p["lane"], "full")
+                self.assertTrue(any(why.startswith(f"base {base or 'not given'}") for why in p["fallback"]))
+        self.assertEqual(lane([("M", "docs/x.md")], base_ref="feat-cmux-next")["lane"], "no-app")
+
     def test_full_ci_label_and_non_pr_events_build_clean(self):
         self.assertEqual(lane([("M", "webviews/src/a.tsx")], labels={"full-ci"})["lane"], "full")
         self.assertEqual(lane([("M", "webviews/src/a.tsx")], event="push")["lane"], "full")

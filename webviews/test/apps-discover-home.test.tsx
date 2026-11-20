@@ -10,6 +10,7 @@ import { AppsPage } from "../src/pages/apps/AppsPage";
 import type { AppsSnapshot, AppsStore } from "../src/pages/apps/store";
 import type { CatalogApp } from "../src/pages/apps/types";
 import { languageDirection, UiProvider } from "../src/ui/UiProvider";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -29,12 +30,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const strings: Strings = { language: "en", t: (key) => key, format: (key) => key };

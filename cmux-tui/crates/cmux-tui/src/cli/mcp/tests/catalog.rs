@@ -59,6 +59,11 @@ fn every_tool_is_reachable_from_the_cmux_cli_and_no_excluded_operation_is() {
             continue;
         }
         if let Some((args, _)) = cases.iter().find(|(_, operation)| operation == wire) {
+            // The `session` and `client` scopes are on `cmux` too since #38290, and their
+            // operations stay off MCP (v2_tools.rs, SESSION_REASON and its siblings).
+            if matches!(args.first(), Some(&"session" | &"client")) {
+                continue;
+            }
             assert_eq!(
                 sends(args.as_slice()),
                 None,

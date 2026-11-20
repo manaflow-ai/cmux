@@ -67,6 +67,7 @@ final class CaptureSceneRegistry {
         if definition.name == Self.workspaceAutoNameScene {
             return await renderWorkspaceAutoName(params, definition: definition, windowID: targetWindowID)
         }
+        if definition.name.hasPrefix("permission-feed-peer") { return await renderPermissionFeedPeer(params, scene: definition.name, windowID: targetWindowID) }
         if definition.name == Self.sessionInfoNativeScene { AgentPaneSessionInfoDebugState.widenCaptureWindow(targetWindow.window) }
 
         // Every scene starts from the same dense production fixture. Scene-specific controls below
@@ -270,7 +271,7 @@ final class CaptureSceneRegistry {
         CaptureSceneDefinition(name: "sidebar-tiles", description: "Showcase rail and workspace tiles."),
         CaptureSceneDefinition(name: "settings", description: "Showcase window with the settings destination available."),
         CaptureSceneDefinition(name: "history-narrow", description: "Narrow history destination fixture."),
-        CaptureSceneDefinition(name: sessionInfoNativeScene,
+        CaptureSceneDefinition(name: "session-info-native", // literal: cmux-ci capture greps for it
                                description: "Native Session Info open on a dense agent chat, full length below the header."),
         CaptureSceneDefinition(name: "cloud-start-session-ask", description: "An agent's cmux cloud start-session ask card in its chat."),
         CaptureSceneDefinition(name: "cloud-agent-machines",
@@ -286,6 +287,8 @@ final class CaptureSceneRegistry {
         // A literal name: cmux-ci capture finds scenes by `CaptureSceneDefinition(name: "…")`.
         CaptureSceneDefinition(name: "cloud-machine-disconnected",
                                description: "Two Cloud machine headers: a running machine whose app link dropped, and one whose connect the provider refused."),
+        CaptureSceneDefinition(name: "permission-feed-peer", description: "Chief Home's Needs you lists a peer's prompt the feed bridge found at recovery. Regression: before #41240 the bridge reads the peer's prompts by its raw id and finds none."),
+        CaptureSceneDefinition(name: "permission-feed-peer-resolved", description: "permission-feed-peer, then the prompt is answered elsewhere: the bridge withdraws it. Regression: cfcd0c55d64f (#41240's head) keeps it; #41295 withdraws it."),
         CaptureSceneDefinition(name: "home-chief-long-draft",
                                description: "The home-chief scene with a long draft that grows the field up into the first-run panel; the panel drops what does not fit and nothing it shows runs under the field."),
     ]
@@ -450,7 +453,7 @@ extension CaptureSceneRegistry {
         for (id, name, workspace) in [(Self.openedMachineID, "my-vm", "my-project"), (Self.agentMachineIDs[0], "lane-vm-1", "workspace-1"),
                                       (Self.agentMachineIDs[1], "test-vm-2", "workspace-1")] {
             // Never connected: the scene sets the tree itself, and no connect runs its op.
-            let resolver = CloudConnectOpResolver(run: { _, _, _, _ in throw CloudAppOpError(code: "capture", message: "capture") })
+            let resolver = CloudEndedLinkResolver(error: .unsupported)
             let session = CloudMachineSession(machine: CloudMachine(id: id, status: .running, displayName: name),
                                               appLink: CloudLinkSession(key: CloudLinkKey(machine: id), resolver: resolver),
                                               localIdentity: { nil }, mainWork: services.mainWork)
@@ -718,9 +721,9 @@ extension CaptureSceneRegistry {
 extension CaptureSceneRegistry {
     static let cloudMachineDisconnectedScene = "cloud-machine-disconnected"
     /// The machine whose link dropped, then the one whose connect the provider refused, with each one's connect error.
-    static let endedLinkMachines: [(id: String, name: String, code: String, message: String)] = [
-        ("capture-vm-dropped", "dropped-link-vm", "cmux.cloud.link_down", "the machine's link went down"),
-        ("capture-vm-refused", "refused-vm", "vm_start_failed", "the provider could not start this machine"),
+    static let endedLinkMachines: [(id: String, name: String, error: CloudLinkError)] = [
+        ("capture-vm-dropped", "dropped-link-vm", .disconnected(reason: "the machine's link went down")),
+        ("capture-vm-refused", "refused-vm", .failed(code: "vm_start_failed", message: "the provider could not start this machine")),
     ]
 
     /// Shows the settled showcase window's sidebar, adds both machines with a header per computer
@@ -747,8 +750,7 @@ extension CaptureSceneRegistry {
         // Machine headers draw only with a section per computer.
         DesignSettings.shared.sidebarSections.groupsByComputer = true
         for machine in Self.endedLinkMachines {
-            let (code, message) = (machine.code, machine.message)
-            let resolver = CloudConnectOpResolver(run: { _, _, _, _ in throw CloudAppOpError(code: code, message: message) })
+            let resolver = CloudEndedLinkResolver(error: machine.error)
             let session = CloudMachineSession(machine: CloudMachine(id: machine.id, status: .running, displayName: machine.name),
                                               appLink: CloudLinkSession(key: CloudLinkKey(machine: machine.id), resolver: resolver),
                                               localIdentity: { nil }, mainWork: services.mainWork)
@@ -759,7 +761,7 @@ extension CaptureSceneRegistry {
             session.daemon.store.apply(snapshot: DaemonTree(registryID: "s-\(machine.id)", workspaces: [
                 WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "ws-\(machine.id)"), name: "workspace-1"),
             ]))
-            // A click's connect: its `cloud.machine.connect` fails, and the link ends.
+            // A click's connect fails, and the link ends.
             session.connect(origin: .user)
         }
         services.windows.reconcileMembership()

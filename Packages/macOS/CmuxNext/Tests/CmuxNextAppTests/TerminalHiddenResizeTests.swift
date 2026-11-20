@@ -86,14 +86,24 @@ import Testing
         let unchanged = await grids()
         #expect(unchanged.isEmpty, "a hide and show with no change sent the PTY \(unchanged)")
 
-        // A key resize the host follows: each size is live, its grid waits in the coalescer's window. Two sizes in one
-        // turn, then the hide in the same turn (no await: the 25 ms window cannot end in between).
+        // A key resize the host follows: each size is live. Two sizes in one turn, then the hide in the same turn (no
+        // await: no refresh or 25 ms window can end in between). While its refresh sent nothing, the first grid goes at
+        // once (RESIZE P0 7); else it waits in the coalescer's window. This rig's window is not on screen, so its
+        // presenter may never tick to clear the refresh the last send spent: both paths are exact here, and the at-once
+        // rule itself is TerminalGridReportCoalescerTests (10) and (11). The second size waits in the window either way.
+        let coalescer = session.surfaceView.gridReports.coalescer
+        let sentBefore = coalescer.lastSent
         session.view.followPaneMotion(PaneMotionHold(trailing: false, bottom: false), heldSize: session.view.bounds.size)
         session.view.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
         workspace.layoutSubtreeIfNeeded()
+        let first = try #require(session.surfaceView.fittedGrid)
+        try #require(first != sentBefore, "the 760x520 size did not change the grid (\(first))")
+        let wentAtOnce = coalescer.lastSent == first
+        #expect(wentAtOnce ? !coalescer.isWaiting : coalescer.pending == first,
+                "the first grid neither went nor waits (sent \(String(describing: coalescer.lastSent)))")
+        let atOnce = wentAtOnce ? [first] : []
         session.view.frame = NSRect(x: 0, y: 0, width: 700, height: 480)
         workspace.layoutSubtreeIfNeeded()
-        let coalescer = session.surfaceView.gridReports.coalescer
         let newest = try #require(session.surfaceView.fittedGrid)
         try #require(coalescer.pending == newest,
                      "the followed resize did not leave its newest grid \(newest) waiting (pending \(String(describing: coalescer.pending)))")
@@ -102,7 +112,7 @@ import Testing
         session.view.followPaneMotion(nil, heldSize: nil)
         workspace.layoutSubtreeIfNeeded()
         let hidden = await grids()
-        #expect(hidden.isEmpty, "the dropped window or the hidden view sent \(hidden)")
+        #expect(hidden == atOnce, "the dropped window or the hidden view sent \(hidden) (before the hide: \(atOnce))")
 
         // Shown again at the same size: the newest grid goes, once.
         workspace.isHidden = false
@@ -140,8 +150,11 @@ import Testing
         }
         _ = await grids()
 
-        // A followed key resize leaves a grid waiting; the hide drops it and keeps a grid for the show.
+        // A followed key resize leaves a grid waiting (its second size in one turn: the first went at once, RESIZE P0 7);
+        // the hide drops it and keeps a grid for the show.
         session.view.followPaneMotion(PaneMotionHold(trailing: false, bottom: false), heldSize: session.view.bounds.size)
+        session.view.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
+        workspace.layoutSubtreeIfNeeded()
         session.view.frame = NSRect(x: 0, y: 0, width: 700, height: 480)
         workspace.layoutSubtreeIfNeeded()
         let coalescer = session.surfaceView.gridReports.coalescer
@@ -206,10 +219,13 @@ import Testing
         let start = await grids()
         let g0 = try #require(start.last ?? session.surfaceView.fittedGrid, "SETUP: no grid at rest")
 
-        // The key spring: the host follows its pane; the new size's grid G1 waits in the 25 ms window.
+        // The key spring: the host follows its pane; its first size's grid goes at once (RESIZE P0 7), and the next size's
+        // grid G1, in the same refresh, waits in the window.
         let surface = session.surfaceView
         workspace.onSpring = true
         session.view.followPaneMotion(PaneMotionHold(trailing: false, bottom: false), heldSize: session.view.bounds.size)
+        session.view.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
+        workspace.layoutSubtreeIfNeeded()
         session.view.frame = NSRect(x: 0, y: 0, width: 700, height: 480)
         workspace.layoutSubtreeIfNeeded()
         let g1 = try #require(surface.fittedGrid)

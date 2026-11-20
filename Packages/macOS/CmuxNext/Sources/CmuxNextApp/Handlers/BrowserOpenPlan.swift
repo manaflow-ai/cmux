@@ -1,57 +1,55 @@
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextWindowRules
 import Foundation
 
 /// What `openBrowser` (TabLifecycle.newBrowser) does with its `url` and
-/// `engine` arguments, before any pane or daemon work. Pure, so every path
-/// that opens a browser tab from text shares one guard. The plan is plain
-/// data (nonisolated, so its Equatable conformance is too); `make` runs on
-/// the main actor.
+/// `engine` arguments, before any pane or daemon work. The rule is Rust's
+/// (cmux-window-rules `tabs::browser_open`); this reads the URL resolver's
+/// answers for both engines (Foundation's URL parsing stays here) and maps
+/// a refusal to its text.
 nonisolated struct BrowserOpenPlan: Equatable, Sendable {
     nonisolated enum Outcome: Equatable, Sendable {
         case refuse(String)
         case open(BrowserOpenPlan)
-        /// `chrome://settings`: Settings > Browser opens instead of a tab
-        /// (ChromiumPageRoute).
+        /// `chrome://settings`: Settings > Browser opens instead of a tab (ChromiumPageRoute).
         case browserSettings
-        /// `chrome://password-manager`: the Passwords page opens instead of a
-        /// tab (ChromiumPageRoute).
+        /// `chrome://password-manager`: the Passwords page opens instead of a tab (ChromiumPageRoute).
         case passwordsPage
     }
 
     /// The page to load; nil opens the default page.
     var url: URL?
-    /// The engine the tab opens with: the caller's, or Chromium for a
-    /// Chromium internal page.
+    /// The engine the tab opens with: the caller's, or Chromium for a Chromium internal page.
     var engine: String?
 
     @MainActor
     static func make(url text: String?, engine requested: String?, origin: ActionOrigin) -> Outcome {
-        var engine = requested
-        let route = text.flatMap { ChromiumPageRoute(typed: $0) }
-        // A Chromium internal page opens in a Chromium tab (never searched in
-        // WebKit); a page cmux shows itself opens in any tab.
-        if engine == nil, let text, ChromiumInternalURL(typed: text.trimmingCharacters(in: .whitespacesAndNewlines)) != nil,
-           route?.isCmuxOwned != true {
-            engine = BrowserEngineTag.cef.rawValue
+        let typed = text.flatMap { ChromiumInternalURL(typed: $0.trimmingCharacters(in: .whitespacesAndNewlines)) } != nil
+        let facts = WindowRules.BrowserOpenFacts(
+            hasText: text != nil, engine: requested, agent: origin != .user, chromiumInternal: typed,
+            cmuxOwned: text.flatMap { ChromiumPageRoute(typed: $0) }?.isCmuxOwned == true,
+            webkit: text.flatMap { resolution($0, chromium: false) }, chromium: text.flatMap { resolution($0, chromium: true) }
+        )
+        switch WindowRules().browserOpen(facts) {
+        case .refuse("agentChromiumPage")?: return .refuse(MiscHandlerStrings.agentChromiumPage)
+        case .refuse?, nil: return .refuse(MiscHandlerStrings.invalidURL(text ?? ""))
+        case .open(let url, let engine)?: return .open(BrowserOpenPlan(url: url.flatMap(URL.init(string:)), engine: engine))
+        case .browserSettings?: return .browserSettings
+        case .passwordsPage?: return .passwordsPage
         }
-        var url: URL?
-        if let text {
-            let chromium = engine == BrowserEngineTag.cef.rawValue
-            guard let resolved = BrowserURLResolver(allowsChromiumSchemes: chromium).url(for: text) else {
-                return .refuse(MiscHandlerStrings.invalidURL(text))
-            }
-            // Agents never open Chromium's own pages (plans/cmux-next/passwords.md, section 2).
-            if origin != .user, AgentURLPolicy.refuses(resolved) {
-                return .refuse(MiscHandlerStrings.agentChromiumPage)
-            }
-            switch ChromiumPageRoute(resolved) {
-            case .cmuxPage(let page)?: url = page
-            case .browserSettings?: return .browserSettings
-            case .passwordsPage?: return .passwordsPage
-            case .chromium?, nil: url = resolved
-            }
+    }
+
+    /// `text` resolved for a Chromium or a WebKit tab, with its agent policy and its page route.
+    private static func resolution(_ text: String, chromium: Bool) -> WindowRules.Resolution? {
+        guard let url = BrowserURLResolver(allowsChromiumSchemes: chromium).url(for: text) else { return nil }
+        let (route, page): (String?, String?) = switch ChromiumPageRoute(url) {
+        case .cmuxPage(let page)?: ("cmuxPage", page.absoluteString)
+        case .browserSettings?: ("browserSettings", nil)
+        case .passwordsPage?: ("passwordsPage", nil)
+        case .chromium?: ("chromium", nil)
+        case nil: (nil, nil)
         }
-        return .open(BrowserOpenPlan(url: url, engine: engine))
+        return WindowRules.Resolution(url: url.absoluteString, agentRefuses: AgentURLPolicy.refuses(url), route: route, page: page)
     }
 }

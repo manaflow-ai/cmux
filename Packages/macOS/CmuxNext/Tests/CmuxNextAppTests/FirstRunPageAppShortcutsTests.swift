@@ -4,6 +4,7 @@ import AppKit
 import CmuxNextDaemon
 import CmuxNextFocus
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -27,9 +28,13 @@ struct FirstRunPageAppShortcutsTests {
         func makeView(for key: String, in window: WindowController?) -> NSView { NSView() }
     }
 
+    /// Onboarding is off at a plain launch (since 5bef23242326, `AppEnvironment.skipsOnboarding`). These tests
+    /// turn it on, as `CMUX_NEXT_ONBOARDING=1` does for a person, so that the first-run page can show.
+    private static let onboardingOn = ["CMUX_NEXT_ONBOARDING": "1"]
+
     private static func showFirstRunPage(_ services: AppServices, _ controller: WindowController) throws {
         let suite = "cmux-first-run-keys-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         services.pages.register(FirstRunPage())
         services.onboarding.showHistoryAtFirstRun(isFirstRun: true, defaults: defaults)
@@ -49,7 +54,7 @@ struct FirstRunPageAppShortcutsTests {
     /// Ctrl-` over the page: New Terminal Tab runs, the window leaves the page for its workspace,
     /// and a new terminal has the focus (what the journeys' `new_terminal` step waits for).
     @Test func newTerminalKeyOverTheFirstRunPageMakesAFocusedTerminal() async throws {
-        try await PasswordManagerRouteTests.withApp { services, _ in
+        try await PasswordManagerRouteTests.withApp(environment: Self.onboardingOn) { services, _ in
             let controller = try #require(services.windows.active)
             try Self.showFirstRunPage(services, controller)
             let before = Set(PasswordManagerRouteTests.tabs(services).map(\.id))
@@ -68,7 +73,7 @@ struct FirstRunPageAppShortcutsTests {
     /// The action budget sees the leave: the `newSurface` run that Ctrl-` starts over the page is
     /// timed from before the window leaves the page (ActionBudgetMonitor, < 10 ms to the commit).
     @Test func theNewTerminalKeysTimingIncludesTheLeave() async throws {
-        try await PasswordManagerRouteTests.withApp { services, _ in
+        try await PasswordManagerRouteTests.withApp(environment: Self.onboardingOn) { services, _ in
             let controller = try #require(services.windows.active)
             try Self.showFirstRunPage(services, controller)
             @MainActor final class Seen { var sample: ActionTimingSample?; var leftAt: UInt64? }
@@ -92,7 +97,7 @@ struct FirstRunPageAppShortcutsTests {
 
     /// The class, not one key: New Tab (Cmd-T) over the page opens a tab in the workspace too.
     @Test func newTabKeyOverTheFirstRunPageOpensATab() async throws {
-        try await PasswordManagerRouteTests.withApp { services, _ in
+        try await PasswordManagerRouteTests.withApp(environment: Self.onboardingOn) { services, _ in
             let controller = try #require(services.windows.active)
             try Self.showFirstRunPage(services, controller)
             let before = Set(PasswordManagerRouteTests.tabs(services).map(\.id))
@@ -111,7 +116,7 @@ struct FirstRunPageAppShortcutsTests {
     /// (pages have no tabs), the page stays, and the page's own keys (Tab, Return, Space) are not
     /// taken by the app.
     @Test func closeTabStaysRefusedAndThePageKeepsItsKeys() async throws {
-        try await PasswordManagerRouteTests.withApp { services, _ in
+        try await PasswordManagerRouteTests.withApp(environment: Self.onboardingOn) { services, _ in
             let controller = try #require(services.windows.active)
             try Self.showFirstRunPage(services, controller)
             let before = Set(PasswordManagerRouteTests.tabs(services).map(\.id))
@@ -136,7 +141,7 @@ struct FirstRunPageAppShortcutsTests {
     /// sees: the page stays and no tab is added to the workspace parked under it (on #34547 the
     /// run went on with no focused pane and filled a tab into that parked workspace).
     @Test func aScriptsNewTabOverTheFirstRunPageIsRefused() async throws {
-        try await PasswordManagerRouteTests.withApp { services, _ in
+        try await PasswordManagerRouteTests.withApp(environment: Self.onboardingOn) { services, _ in
             let controller = try #require(services.windows.active)
             try Self.showFirstRunPage(services, controller)
             let before = Set(PasswordManagerRouteTests.tabs(services).map(\.id))
@@ -159,9 +164,18 @@ struct FirstRunPageAppShortcutsTests {
         }
     }
 
-    /// Every action the rule names exists in the catalog and carries the flag (a rename must not drop one silently).
+    /// The actions that open a new tab or pane in the window's workspace (the New Tab family and the
+    /// new panes) are exactly the ones the Rust catalog flags (a rename must not drop one silently).
     @Test func everyContentOpenerIsACatalogAction() {
-        let flagged = Set(ActionCatalog.all.filter(\.opensWorkspaceContent).map(\.id))
-        #expect(flagged == ActionCatalog.workspaceContentActionIDs, "missing: \(ActionCatalog.workspaceContentActionIDs.subtracting(flagged))")
+        let openers: Set<ActionID> = [
+            "newSurface", "newTab.default", "newTab.afterCurrent", "newTab.atStart", "newTab.atEnd", "newTab.toRight", "newTab.ofKind",
+            "openBrowser", "openBrowser.chromium", "openBrowser.webkit", "reopenClosedBrowserPanel",
+            "splitRight", "splitDown", "newColumn", "newColumnLeft", "newRow", "newPaneAutoLayout",
+        ]
+        // The floating pane rows can be in the catalog before the App code that runs them (`FloatingPanePlaceholders`):
+        // such a row opens nothing yet, so it is not in this set. The change that binds their handlers puts each of
+        // them that opens content into `openers` and takes the subtraction out.
+        let flagged = Set(ActionCatalog.all.filter(\.opensWorkspaceContent).map(\.id)).subtracting(FloatingPanePlaceholders.ids)
+        #expect(flagged == openers, "missing: \(openers.subtracting(flagged)), extra: \(flagged.subtracting(openers))")
     }
 }

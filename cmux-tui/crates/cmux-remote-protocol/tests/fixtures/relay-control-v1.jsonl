@@ -1,6 +1,8 @@
 {"type":"register","protocol":1,"slot":"slot_test","ticket":"register-ticket"}
 {"type":"registered","lease_seconds":30}
 {"type":"connect","protocol":1,"slot":"slot_test","ticket":"connect-ticket","lane":"interactive","generation":7}
+{"type":"connect","protocol":1,"slot":"slot_test","ticket":"connect-ticket","lane":"interactive","generation":7,"accepts_parked":true}
+{"type":"parked","lane":"interactive","generation":7}
 {"type":"allocated","circuit":"circuit_test","lane":"interactive","generation":7,"join_ticket":"client-join-ticket"}
 {"type":"incoming","circuit":"circuit_test","lane":"interactive","generation":7,"join_ticket":"daemon-join-ticket"}
 {"type":"join","protocol":1,"slot":"slot_test","circuit":"circuit_test","lane":"interactive","generation":7,"ticket":"client-join-ticket","role":"client"}

@@ -123,7 +123,17 @@ fn row_model(row: &Value) -> Option<LiveModel> {
             .cloned()
             .unwrap_or_default(),
         is_default: row.get("isDefault").and_then(Value::as_bool) == Some(true),
+        upgrade: upgrade(row, id),
     })
+}
+
+/// The model Codex's catalog moves this one to: `upgrade` (an id), else `upgradeInfo.model`.
+/// gpt-5.6-terra and gpt-5.5 name gpt-6-sol there, so they are legacy; gpt-6.1-sol names none.
+fn upgrade(row: &Value, id: &str) -> Option<String> {
+    text(row, "upgrade")
+        .or_else(|| row.get("upgradeInfo").and_then(|info| text(info, "model")))
+        .filter(|to| *to != id)
+        .map(str::to_owned)
 }
 
 /// Whether a tier faster than the default exists (`serviceTiers`, else

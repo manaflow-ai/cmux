@@ -10,6 +10,7 @@ import {
   type DiffViewerAppearance,
 } from "./appearance";
 import { pageSyntaxVariable, syntaxRoleColors, syntaxTokenRules, type SyntaxRoleName } from "./syntax-theme";
+import { MOTION_MS } from "./motion/scale.generated";
 
 export type DiffViewerOptions = {
   collapsed: boolean;
@@ -59,10 +60,20 @@ export type DrawnDiffOptions = Omit<DiffViewerOptions, "layout"> & { layout: "sp
 /** Height of a file header row; also the virtualizer's header metric. */
 export const DIFF_FILE_HEADER_HEIGHT = 38;
 
-export function codeViewOptions(options: DrawnDiffOptions, appearance: DiffViewerAppearance): CodeViewOptions<any> {
+/**
+ * `lineHeight` is the drawn code line (diff-viewer/fontZoom.ts): the virtualizer estimates a file's height from it,
+ * so it must be the line the CSS draws, at every zoom.
+ */
+export function codeViewOptions(
+  options: DrawnDiffOptions,
+  appearance: DiffViewerAppearance,
+  lineHeight?: number,
+): CodeViewOptions<any> {
   return {
     layout: { paddingTop: 0, gap: 1, paddingBottom: 0 },
-    itemMetrics: { diffHeaderHeight: DIFF_FILE_HEADER_HEIGHT },
+    itemMetrics: lineHeight
+      ? { diffHeaderHeight: DIFF_FILE_HEADER_HEIGHT, lineHeight }
+      : { diffHeaderHeight: DIFF_FILE_HEADER_HEIGHT },
     diffStyle: options.layout,
     diffIndicators: options.diffIndicators,
     overflow: options.wordWrap ? "wrap" : "scroll",
@@ -157,6 +168,11 @@ export function codeViewUnsafeCSS(): string {
       user-select: text;
       cursor: text;
     }
+    /* The page's selection (desktop.css), which does not reach into this shadow root: the fill fit
+       to the surface under it (ui/adaptiveSelection.ts), else the Ghostty config's color. */
+    ::selection {
+      background-color: var(--cmux-selection-fill, var(--cmux-text-selection, Highlight));
+    }
     /* A line listener (Cmd-click opens the file, openFile.ts) makes Pierre show a pointer on
        every line; the text cursor stays, since a plain click selects text. */
     [data-interactive-lines] [data-line] {
@@ -221,10 +237,18 @@ export function codeViewUnsafeCSS(): string {
       color: light-dark(#fff, #08233f);
       cursor: default;
       transform: scale(0.9);
-      transition: transform 80ms ease;
+      transition: transform ${MOTION_MS.quick}ms ease;
     }
     [data-utility-button]:hover {
       transform: scale(1.1);
+    }
+    /* Pierre hangs the comment button 1lh - 1ch past the line numbers, which clears the code only
+       behind classic signs' 2ch: behind the bars or no signs (1ch; Pierre writes no data-indicators
+       for none) it covered the first characters, and a drag
+       from there began a comment instead of selecting the code. It ends where the code text
+       begins, 1 px short so its hover scale stays clear too. */
+    pre:not([data-indicators='classic']) [data-utility-button] {
+      margin-right: calc(1px - 1ch);
     }
     [data-utility-button] [data-icon] {
       width: 12px;

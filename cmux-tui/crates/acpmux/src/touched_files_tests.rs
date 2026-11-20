@@ -202,14 +202,14 @@ fn a_topic_matches_most_of_its_significant_words() {
 #[test]
 fn a_row_reads_as_one_line() {
     let r = json!({
-        "name": "crate-split", "harness": "codex", "host": "big-red", "branch": "lane/crate-split",
+        "name": "crate-split", "harness": "codex", "host": "my-vm", "branch": "lane/crate-split",
         "pullRequests": ["https://github.com/o/r/pull/123"], "filesInCommon": 5,
         "files": [{"path": "a.rs", "edited": true}, {"path": "b.rs", "edited": false}],
         "agoMs": 12 * 60_000,
     });
     assert_eq!(
         row_line(&r),
-        "crate-split (codex on big-red, lane/crate-split, #123): edited a.rs; read b.rs; +3 more; 12m ago"
+        "crate-split (codex on my-vm, lane/crate-split, #123): edited a.rs; read b.rs; +3 more; 12m ago"
     );
 }
 

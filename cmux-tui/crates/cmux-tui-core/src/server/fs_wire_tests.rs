@@ -115,6 +115,28 @@ fn a_host_without_the_fs_owner_does_not_advertise_and_refuses_every_op() {
     }
 }
 
+/// `fs.stat` of a folder says how many bytes the machine still has for a
+/// writer there, so a copy can be refused before it starts; a file's stat
+/// does not. RED before the stat said it: a folder copy could only learn of
+/// a full disk from a refused write partway.
+#[test]
+fn a_folder_stat_names_the_free_bytes_and_a_file_stat_does_not() {
+    let home = Home::new("free");
+    let service = home.service();
+    let line = home.map(r#"{"id":1,"cmd":"fs.stat","path":"/home/cmux"}"#);
+    let answer = answer_line(Some(&service), true, "owner", &line);
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert!(answer["data"]["available_bytes"].as_u64().is_some_and(|free| free > 0), "{answer}");
+
+    let write = home
+        .map(r#"{"id":2,"cmd":"fs.write","path":"/home/cmux/a.txt","text":"a","mode":"create"}"#);
+    assert_eq!(answer_line(Some(&service), true, "owner", &write)["ok"], true);
+    let line = home.map(r#"{"id":3,"cmd":"fs.stat","path":"/home/cmux/a.txt"}"#);
+    let answer = answer_line(Some(&service), true, "owner", &line);
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert!(answer["data"].get("available_bytes").is_none(), "{answer}");
+}
+
 #[test]
 fn a_websocket_client_is_refused() {
     let home = Home::new("ws");
@@ -660,6 +682,57 @@ fn a_no_follow_write_refuses_a_symlink_anywhere_on_its_path() {
     assert_eq!(write(format!("{root}/real/deep/b.txt"), true)["ok"], true);
     assert_eq!(write(format!("{root}/app/c.txt"), false)["ok"], true);
     assert_eq!(std::fs::read_to_string(home.path.join("real/c.txt")).unwrap(), "new");
+}
+
+/// `fs-read-nofollow-v1`: a read that says `no_follow` reads nothing through
+/// a symlink, as a folder on the way or as the file, on a line or a
+/// stream; a link swapped in for a folder after a client looked is caught
+/// at the read. Without `no_follow` a link inside the root is followed as
+/// before.
+#[test]
+fn a_no_follow_read_refuses_a_symlink_anywhere_on_its_path() {
+    use std::os::unix::fs::symlink;
+    let home = Home::new("nofollow-read");
+    let service = home.service();
+    let root = home.path.display().to_string();
+    std::fs::create_dir_all(home.path.join("real/deep")).unwrap();
+    std::fs::write(home.path.join("real/deep/notes.md"), "notes").unwrap();
+    std::fs::write(home.path.join("secret.txt"), "secret").unwrap();
+    symlink("real", home.path.join("app")).unwrap();
+    symlink("../secret.txt", home.path.join("real/link.md")).unwrap();
+    let read = |path: String, no_follow: bool| {
+        let line = json!({ "id": 1, "cmd": "fs.read", "path": path, "max_bytes": 1024,
+            "no_follow": no_follow })
+        .to_string();
+        answer_line(Some(&service), true, "owner", &line)
+    };
+
+    for path in [format!("{root}/app/deep/notes.md"), format!("{root}/real/link.md")] {
+        let answer = read(path.clone(), true);
+        assert_eq!(answer["error_code"], "fs.symlink_in_path", "{path}: {answer}");
+    }
+    let plain = read(format!("{root}/real/deep/notes.md"), true);
+    assert_eq!(plain["data"]["text"], "notes", "{plain}");
+    let followed = read(format!("{root}/app/deep/notes.md"), false);
+    assert_eq!(followed["data"]["text"], "notes", "{followed}");
+    assert_eq!(read(format!("{root}/real/link.md"), false)["data"]["text"], "secret");
+
+    // The folder a client checked is swapped for a link to another folder
+    // holding a file of the same name: the no-follow read refuses it.
+    std::fs::create_dir_all(home.path.join("other/deep")).unwrap();
+    std::fs::write(home.path.join("other/deep/notes.md"), "other").unwrap();
+    std::fs::rename(home.path.join("real"), home.path.join("moved")).unwrap();
+    symlink("other", home.path.join("real")).unwrap();
+    let swapped = read(format!("{root}/real/deep/notes.md"), true);
+    assert_eq!(swapped["error_code"], "fs.symlink_in_path", "{swapped}");
+
+    // A stream read says it too.
+    let line = format!(
+        r#"{{"id":2,"cmd":"fs.read","path":"{root}/real/deep/notes.md","stream":true,"no_follow":true}}"#
+    );
+    let (_, output) = routed(&home, &line, &[]);
+    let replies = reply_lines(&output);
+    assert_eq!(replies[0]["error_code"], "fs.symlink_in_path", "{replies:?}");
 }
 
 /// A no-follow write stream is refused before `ready`, and a symlink put at

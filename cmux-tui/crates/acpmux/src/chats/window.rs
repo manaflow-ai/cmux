@@ -13,7 +13,32 @@ use std::collections::{HashMap, HashSet};
 use cmux_chat_index::{ChatIndex, IndexedChat};
 use serde_json::{Value, json};
 
+use super::search::Needle;
+use super::text::ChatText;
 use super::{ChatActivity, ChatQuery, chat_value, key_text, parse_key};
+
+#[cfg(test)]
+thread_local! {
+    /// How many row values this thread built: the cost a window's tests count.
+    static VALUES_BUILT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many row values this thread built so far (tests count a window's work with it).
+#[cfg(test)]
+pub(crate) fn values_built() -> usize {
+    VALUES_BUILT.with(std::cell::Cell::get)
+}
+
+/// A chat's row value as `_acpmux/chats` sends it, with its activity: the costly part of a row
+/// (the entry serialized, the activity fields cloned), so a window builds it only for a row it
+/// shows.
+fn row_value(chat: &IndexedChat, activity: &ChatActivity) -> Value {
+    #[cfg(test)]
+    VALUES_BUILT.with(|n| n.set(n.get() + 1));
+    let mut value = chat_value(chat);
+    activity.decorate(&mut value);
+    value
+}
 
 /// What a window shows: `{window, gen?, query?, harness?, folder?, account?, limit?, topLevel?,
 /// exclude?, keys?}`. `gen` is the client's generation of the window's spec: acpmux keeps the
@@ -26,7 +51,11 @@ use super::{ChatActivity, ChatQuery, chat_value, key_text, parse_key};
 /// `history` is the client's choice history as JSON text, `{now, frecency}` in the palette
 /// ranker's own shape (`cmux_palette_ranker::Frecency`, keys `chat:<key>`), so a chat the person
 /// chose before ranks as it did in the palette. `count` makes a no-query window report the
-/// `total` of chats it could show, so a client can say how many more there are.
+/// `total` of chats it could show, so a client can say how many more there are. `content` makes a
+/// query window also find chats by what was said in them (`text.rs`: every word of the query in
+/// one prompt or answer): after the chats its ranker found, the other chats that hold the words,
+/// newest first, each row with `match: {turn, role, snippet, highlights, matches}`, all counted in
+/// `total`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WindowSpec {
     pub window: String,
@@ -43,6 +72,8 @@ pub struct WindowSpec {
     /// The client's choice history, parsed once when the spec is read.
     history: Option<ParsedHistory>,
     count: bool,
+    /// A query also finds chats by what was said in them.
+    content: bool,
 }
 
 /// The client's choice history: the palette ranker's frecency and the clock it is read at.
@@ -125,11 +156,13 @@ impl WindowSpec {
             }
             Some(_) => return Err("history must be a JSON string".to_owned()),
         };
-        let count = match params.get("count") {
-            None | Some(Value::Null) => false,
-            Some(Value::Bool(on)) => *on,
-            Some(_) => return Err("count must be true or false".to_owned()),
+        let flag = |name: &str| match params.get(name) {
+            None | Some(Value::Null) => Ok(false),
+            Some(Value::Bool(on)) => Ok(*on),
+            Some(_) => Err(format!("{name} must be true or false")),
         };
+        let count = flag("count")?;
+        let content = flag("content")?;
         Ok(Self {
             window,
             generation,
@@ -141,6 +174,7 @@ impl WindowSpec {
             untitled,
             history,
             count,
+            content,
         })
     }
 }
@@ -149,13 +183,31 @@ impl WindowSpec {
 pub type Row = (String, Value);
 
 /// A window's rows now, and whether more chats pass its filter past them.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default)]
 pub struct WindowRows {
     pub rows: Vec<Row>,
     pub has_more: bool,
     /// How many chats matched the query (a query window only), so a client can say that more
     /// match than it shows.
     pub total: Option<usize>,
+    /// A query window that searches what was said, before every chat was read once: more chats may
+    /// match as they are read, so a client keeps the query open until this goes false.
+    pub filling: bool,
+    /// The chats a walk read but shows no row of: those a `topLevel` walk left out for their
+    /// `parent` (one whose parent goes would take a row, or past the page make `hasMore` true)
+    /// and the first chat past the page (folded, it may make `hasMore` false); a window that
+    /// ranks a query or counts its total keeps every chat it folded and no other. Their activity
+    /// recomputes the window ([`WindowState::shows_activity_of`]). Not shown, so not compared.
+    pub folded: HashSet<String>,
+}
+
+impl PartialEq for WindowRows {
+    fn eq(&self, other: &Self) -> bool {
+        self.rows == other.rows
+            && self.has_more == other.has_more
+            && self.total == other.total
+            && self.filling == other.filling
+    }
 }
 
 /// One chat as the palette ranker reads it: what the palette's chats page showed and searched
@@ -217,12 +269,13 @@ pub fn ranked(
 /// The rows of `spec` in `index`: one walk of the index in its order (newest first) that stops
 /// once the window is full and one more chat passes; a value is built only for a chat the filter
 /// and the exclusions pass.
-pub fn rows(spec: &WindowSpec, index: &ChatIndex, activity: &ChatActivity) -> WindowRows {
-    let decorated = |chat: &IndexedChat| {
-        let mut value = chat_value(chat);
-        activity.decorate(&mut value);
-        value
-    };
+pub fn rows(
+    spec: &WindowSpec,
+    index: &ChatIndex,
+    activity: &ChatActivity,
+    text: Option<&ChatText>,
+) -> WindowRows {
+    let decorated = |chat: &IndexedChat| row_value(chat, activity);
     if let Some(keys) = &spec.keys {
         let rows = keys
             .iter()
@@ -231,13 +284,14 @@ pub fn rows(spec: &WindowSpec, index: &ChatIndex, activity: &ChatActivity) -> Wi
                 Some((text.clone(), decorated(chat)))
             })
             .collect();
-        return WindowRows { rows, has_more: false, total: None };
+        return WindowRows { rows, ..WindowRows::default() };
     }
     if let Some(query) = &spec.query {
-        return ranked_rows(spec, query, index, activity);
+        return ranked_rows(spec, query, index, activity, text);
     }
     let mut window = WindowRows::default();
-    for chat in index.chats() {
+    // The index's kept order: a window that stops at its page reads the page, not every chat.
+    for chat in index.newest_first() {
         if !spec.filter.matches(chat) {
             continue;
         }
@@ -246,11 +300,15 @@ pub fn rows(spec: &WindowSpec, index: &ChatIndex, activity: &ChatActivity) -> Wi
             continue;
         }
         if spec.top_level && activity.has_parent(&key) {
+            // Past the page too: one that unfolds there makes `hasMore` true.
+            window.folded.insert(key);
             continue;
         }
         if window.rows.len() == spec.filter.limit {
             window.has_more = true;
             if !spec.count {
+                // The first chat past the page: folding it may make `hasMore` false.
+                window.folded.insert(key);
                 break;
             }
             // Counted only: no value is built for a chat past the page.
@@ -266,17 +324,23 @@ pub fn rows(spec: &WindowSpec, index: &ChatIndex, activity: &ChatActivity) -> Wi
 }
 
 /// A query window: every chat the filter and the exclusions pass, ranked by the palette ranker,
-/// the first `limit` of them and the total that matched.
+/// then (with `content`) the others whose text holds the query's words, newest first; the first
+/// `limit` of them and the total that matched. The ranker reads each chat's cheap rank entry; a
+/// row value (the entry serialized, its activity cloned) is built only for a row the window
+/// shows, so a keystroke builds at most `limit` of them however many chats match.
+// perf-hot: 150ms chats-window-query (p95 per keystroke over 2,000 chats)
 fn ranked_rows(
     spec: &WindowSpec,
     query: &str,
     index: &ChatIndex,
     activity: &ChatActivity,
+    text: Option<&ChatText>,
 ) -> WindowRows {
     let home = dirs::home_dir().map(|home| home.to_string_lossy().trim_end_matches('/').to_owned());
-    let mut candidates: Vec<(String, Value)> = Vec::new();
+    let mut candidates: Vec<(String, &IndexedChat)> = Vec::new();
     let mut entries = Vec::new();
-    for chat in index.chats() {
+    let mut folded = HashSet::new();
+    for chat in index.newest_first() {
         if !spec.filter.matches(chat) {
             continue;
         }
@@ -284,9 +348,9 @@ fn ranked_rows(
         if spec.exclude.contains(&key) {
             continue;
         }
-        let mut value = chat_value(chat);
-        activity.decorate(&mut value);
-        if spec.top_level && !value.get("parent").is_none_or(Value::is_null) {
+        if spec.top_level && activity.has_parent(&key) {
+            // Every one: one that unfolds counts in `total` (`WindowState::shows_activity_of`).
+            folded.insert(key);
             continue;
         }
         let entry = &chat.entry;
@@ -298,17 +362,41 @@ fn ranked_rows(
             entry.harness.id(),
             home.as_deref(),
         ));
-        candidates.push((key, value));
+        candidates.push((key, chat));
     }
     let order = ranked(query, entries, spec.history.as_ref().map(|h| (h.now, h.frecency.clone())));
-    let total = order.len();
-    let mut slots: Vec<Option<(String, Value)>> = candidates.into_iter().map(Some).collect();
-    let rows = order
-        .into_iter()
+    let mut total = order.len();
+    let mut rows: Vec<Row> = order
+        .iter()
         .take(spec.filter.limit)
-        .filter_map(|i| slots.get_mut(i).and_then(Option::take))
+        .filter_map(|&i| candidates.get(i))
+        .map(|(key, chat)| (key.clone(), row_value(chat, activity)))
         .collect();
-    WindowRows { rows, has_more: total > spec.filter.limit, total: Some(total) }
+    let needle = text.filter(|_| spec.content).zip(Needle::parse(query).ok());
+    let mut filling = false;
+    if let Some((text, needle)) = needle {
+        filling = !text.filled();
+        let found = text.search(&needle);
+        let titled: HashSet<usize> = order.into_iter().collect();
+        // The candidates are in the index's order: newest first.
+        for (i, (key, chat)) in candidates.iter().enumerate() {
+            let Some(hit) = found.get(key) else { continue };
+            if titled.contains(&i) {
+                continue;
+            }
+            total += 1;
+            if rows.len() >= spec.filter.limit {
+                continue;
+            }
+            let mut value = row_value(chat, activity);
+            if let (Some(said), Some(object)) = (ChatText::hit(hit, &needle), value.as_object_mut())
+            {
+                object.insert("match".into(), said);
+            }
+            rows.push((key.clone(), value));
+        }
+    }
+    WindowRows { rows, has_more: total > spec.filter.limit, total: Some(total), filling, folded }
 }
 
 /// What a window last sent its client, so the next message is a diff against it.
@@ -318,17 +406,65 @@ pub struct WindowState {
     revision: u64,
     /// None until the window's first message: that one sends every row.
     sent: Option<WindowRows>,
+    /// When the first tag its last rows read expires (`ChatActivity::expires_at`): past it, any
+    /// activity change recomputes the window, as every one did before activity was skipped.
+    expires_at: Option<u64>,
 }
 
 impl WindowState {
     /// A new window, or a window whose spec changed: its next message sends every row. The
     /// revision goes on from `revision`, so a client never takes an older message for a newer.
     pub fn new(spec: WindowSpec, revision: u64) -> Self {
-        Self { spec, revision, sent: None }
+        Self { spec, revision, sent: None, expires_at: None }
     }
 
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// The expiry of the activity the window's rows were read with (`expires_at`).
+    pub fn read_with(&mut self, activity: &ChatActivity) {
+        self.expires_at = activity.expires_at();
+    }
+
+    /// Whether an activity record of `kind` on a session that continues chat `chat` (None: a
+    /// session with no indexed chat) may change what this window shows, so its connection's
+    /// windows are recomputed (`server/chat_windows.rs`). A chat's activity changes its own row
+    /// (its `attention`, `preview`, `parent`) and, in a `topLevel` window, whether it is folded
+    /// under its parent; never the index order or the filter. So a window recomputes for a chat
+    /// it shows, names as a row's parent, folded or read past its page, and for a `tags` or
+    /// `purged` record (a parent's tags or its going decide whether its children fold). A
+    /// `topLevel` window that ranks a query or counts its total reads every chat's fold, and
+    /// keeps every chat it folded: there a chat counts when `folds_now` (whether it folds under
+    /// a parent now) says its fold moved, or the window shows it or names it as a row's parent.
+    /// Before, every status, turn and permission record of any session recomputed every window
+    /// of every connection: with ~3,000 chats, each read the whole index; and a ranked or counted
+    /// window still recomputed on every record of any chat (Leo 2026-11-04: "never ...
+    /// acceptable ... linear time growth degradation").
+    pub fn shows_activity_of(
+        &self,
+        chat: Option<&str>,
+        kind: &str,
+        folds_now: &mut dyn FnMut() -> bool,
+    ) -> bool {
+        let Some(sent) = &self.sent else { return true };
+        if matches!(kind, "tags" | "purged")
+            || self.expires_at.is_some_and(|at| crate::store::now_ms() >= at)
+        {
+            return true;
+        }
+        let Some(chat) = chat else { return false };
+        let shown = || {
+            sent.rows.iter().any(|(key, value)| {
+                key == chat || value.get("parent").and_then(Value::as_str) == Some(chat)
+            })
+        };
+        if self.spec.top_level && (self.spec.query.is_some() || self.spec.count) {
+            // `folded` holds every chat it folded (`rows`, `ranked_rows`), so a fold that stays
+            // moves no row and no `total`.
+            return sent.folded.contains(chat) != folds_now() || shown();
+        }
+        sent.folded.contains(chat) || shown()
     }
 
     /// The `_acpmux/chats_window_changed` params that bring the client from what it was sent to
@@ -343,6 +479,11 @@ impl WindowState {
             }
             Some(sent) => {
                 if *sent == next {
+                    // Nothing to send, but which chats fold within the page may have changed: a
+                    // later activity change of one of them must still recompute the window.
+                    if let Some(sent) = self.sent.as_mut() {
+                        sent.folded = next.folded;
+                    }
                     return None;
                 }
                 let before: HashMap<&str, &Value> =
@@ -366,11 +507,18 @@ impl WindowState {
             if let Some(total) = next.total {
                 object.insert("total".into(), json!(total));
             }
+            if next.filling {
+                object.insert("filling".into(), json!(true));
+            }
         }
         self.sent = Some(next);
         Some(message)
     }
 }
+
+#[cfg(test)]
+#[path = "window_scale_tests.rs"]
+mod scale_tests;
 
 #[cfg(test)]
 mod tests {
@@ -448,7 +596,12 @@ mod tests {
     fn a_query_window_reports_how_many_matched() {
         let mut state = WindowState::new(spec(json!({"window": "w", "query": "x"})), 0);
         let full = state
-            .next(WindowRows { rows: vec![row("a:1", "one")], has_more: true, total: Some(250) })
+            .next(WindowRows {
+                rows: vec![row("a:1", "one")],
+                has_more: true,
+                total: Some(250),
+                ..Default::default()
+            })
             .unwrap();
         assert_eq!(full["total"], 250);
         let mut plain = WindowState::new(spec(json!({"window": "w"})), 0);
@@ -475,6 +628,7 @@ mod tests {
             rows: vec![row("a:1", "one"), row("a:2", "two")],
             has_more: true,
             total: None,
+            ..Default::default()
         };
         let full = state.next(first.clone()).unwrap();
         assert_eq!(full["full"], true);
@@ -486,6 +640,7 @@ mod tests {
             rows: vec![row("a:2", "two"), row("a:1", "one, renamed")],
             has_more: true,
             total: None,
+            ..Default::default()
         };
         let diff = state.next(moved).unwrap();
         assert_eq!(diff["full"], false);
@@ -496,20 +651,97 @@ mod tests {
             rows: vec![row("a:2", "two"), row("a:1", "one, renamed")],
             has_more: false,
             total: None,
+            ..Default::default()
         };
         let diff = state.next(more).unwrap();
         assert_eq!(diff["rows"], json!([]), "only hasMore changed");
         assert_eq!(diff["hasMore"], false);
     }
 
+    /// A chat's activity change recomputes only the windows that may show it: before, every
+    /// status, turn and permission record of any session recomputed every window, each reading
+    /// the whole index.
+    #[test]
+    fn only_a_window_that_shows_a_chat_recomputes_for_its_activity() {
+        let mut state = WindowState::new(spec(json!({"window": "w", "topLevel": true})), 0);
+        assert!(state.shows_activity_of(Some("a:9"), "status", &mut || false), "nothing sent yet");
+        let parented = ("a:2".to_owned(), json!({"key": "a:2", "parent": "a:7"}));
+        let mut folded = HashSet::new();
+        folded.insert("a:5".to_owned());
+        state.next(WindowRows {
+            rows: vec![row("a:1", "one"), parented],
+            has_more: true,
+            total: None,
+            filling: false,
+            folded,
+        });
+        assert!(state.shows_activity_of(Some("a:1"), "status", &mut || false), "a row it shows");
+        assert!(state.shows_activity_of(Some("a:7"), "turn_end", &mut || false), "a row's parent");
+        assert!(
+            state.shows_activity_of(Some("a:5"), "status", &mut || false),
+            "folded or read past the page"
+        );
+        assert!(
+            !state.shows_activity_of(Some("a:9"), "status", &mut || false),
+            "a chat past the window"
+        );
+        assert!(!state.shows_activity_of(None, "status", &mut || false), "a session with no chat");
+        assert!(
+            state.shows_activity_of(Some("a:9"), "tags", &mut || false),
+            "tags may fold or unfold rows"
+        );
+        assert!(state.shows_activity_of(None, "purged", &mut || false));
+        // A refresh that sends nothing still keeps the chats it folded.
+        let parented = ("a:2".to_owned(), json!({"key": "a:2", "parent": "a:7"}));
+        let same = |folded: HashSet<String>| WindowRows {
+            rows: vec![row("a:1", "one"), parented.clone()],
+            has_more: true,
+            total: None,
+            filling: false,
+            folded,
+        };
+        assert_eq!(state.next(same(HashSet::from(["a:6".to_owned()]))), None);
+        assert!(
+            state.shows_activity_of(Some("a:6"), "status", &mut || false),
+            "a chat folded since"
+        );
+        assert!(
+            !state.shows_activity_of(Some("a:5"), "status", &mut || false),
+            "a chat no longer folded"
+        );
+        let mut ranked =
+            WindowState::new(spec(json!({"window": "q", "topLevel": true, "query": "x"})), 0);
+        ranked.next(WindowRows {
+            rows: vec![row("a:1", "one")],
+            folded: HashSet::from(["a:5".to_owned()]),
+            ..Default::default()
+        });
+        // A ranked window reads every chat's fold: a chat counts when its fold moved.
+        assert!(!ranked.shows_activity_of(Some("a:9"), "status", &mut || false), "fold stays");
+        assert!(!ranked.shows_activity_of(Some("a:5"), "status", &mut || true), "stays folded");
+        assert!(ranked.shows_activity_of(Some("a:9"), "status", &mut || true), "folds");
+        assert!(ranked.shows_activity_of(Some("a:5"), "status", &mut || false), "unfolds");
+        assert!(ranked.shows_activity_of(Some("a:1"), "status", &mut || false), "a row it shows");
+    }
+
     #[test]
     fn a_replaced_spec_sends_every_row_again_with_a_later_revision() {
         let mut state = WindowState::new(spec(json!({"window": "w"})), 0);
-        state.next(WindowRows { rows: vec![row("a:1", "one")], has_more: false, total: None });
+        state.next(WindowRows {
+            rows: vec![row("a:1", "one")],
+            has_more: false,
+            total: None,
+            ..Default::default()
+        });
         let mut replaced =
             WindowState::new(spec(json!({"window": "w", "limit": 5})), state.revision());
         let full = replaced
-            .next(WindowRows { rows: vec![row("a:1", "one")], has_more: false, total: None })
+            .next(WindowRows {
+                rows: vec![row("a:1", "one")],
+                has_more: false,
+                total: None,
+                ..Default::default()
+            })
             .unwrap();
         assert_eq!(full["full"], true);
         assert_eq!(full["revision"], 2);

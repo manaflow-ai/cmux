@@ -24,8 +24,7 @@ const words = (html: string) =>
     .replace(/&#x27;/g, "'")
     .replace(/\s+/g, " ")
     .trim();
-const liveLine = (rows: AcpmuxRow[]) =>
-  turnView(rows, new Set(), { working: true, liveRuns: true, lineBelow: true }).at(-1)!;
+const liveLine = (rows: AcpmuxRow[]) => turnView(rows, new Set(), { working: true }).at(-1)!;
 const drawn = (line: AcpmuxRow, now: number) =>
   renderToStaticMarkup(
     <Thinking since={line.at} now={() => now} turnTotal={line.turnTotal} retry={line.retry} below />,

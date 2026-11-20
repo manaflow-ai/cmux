@@ -153,6 +153,40 @@ test("grouped requests are left to their group card", async () => {
   expect(ids(asks)).toEqual(["solo"]);
 });
 
+// A sub-session's ordinary command approval is grouped (acpmux permission_groups.rs `eligible`):
+// the chat above it still draws it (subagents/childAsks.ts), so the tracker holds it apart.
+test("grouped requests are held apart for the chat above their sub-session, and leave when answered", async () => {
+  const { asks, reads } = tracker();
+  asks.pending({ sessionId: "s1", permissionId: "solo" });
+  const listed = asks.list();
+  asks.pending({ sessionId: "child", permissionId: "g1", groupId: "grp" });
+  expect(asks.listGrouped().map((ask) => ask.permission.permissionId)).toEqual(["g1"]);
+  expect(asks.list()).toBe(listed);
+  asks.session({ sessionId: "child", pendingPermissions: 2 });
+  reads[0]!.resolve([
+    { permissionId: "g1", groupId: "grp" },
+    { permissionId: "g2", groupId: "grp" },
+  ]);
+  await settle();
+  expect(asks.listGrouped().map((ask) => ask.permission.permissionId)).toEqual(["g1", "g2"]);
+  asks.session({ sessionId: "child", pendingPermissions: 0 });
+  expect(asks.listGrouped()).toEqual([]);
+  expect(ids(asks)).toEqual(["solo"]);
+});
+
+// A reissued request's notice may not name its group; the next read does. The ask moves to the
+// grouped list then, so it leaves Needs you for the chat above its sub-session.
+test("an ask a read finds grouped moves to the grouped list", async () => {
+  const { asks, reads } = tracker();
+  asks.pending({ sessionId: "child", permissionId: "g1" });
+  expect(ids(asks)).toEqual(["g1"]);
+  asks.session({ sessionId: "child", pendingPermissions: 1 }, "permission_request");
+  reads[0]!.resolve([{ permissionId: "g1", groupId: "grp" }]);
+  await settle();
+  expect(ids(asks)).toEqual([]);
+  expect(asks.listGrouped().map((ask) => ask.permission.permissionId)).toEqual(["g1"]);
+});
+
 test("asks found by a read (opened before the page saw them) are dated by the chat's last change", async () => {
   const { asks, reads } = tracker(() => 5000);
   asks.sessions([{ sessionId: "s1", pendingPermissions: 2, updatedAt: 1200 }]);
@@ -344,4 +378,31 @@ test("Ask about this sends a relay method the pane's allowlist takes, with param
   const known = literals(line!.slice(line!.indexOf("(")));
   // direct.ts `btw` sends exactly these.
   for (const key of ["sessionId", "question"]) expect(known).toContain(key);
+});
+
+// Thousands of chats come and go in a long-lived pane: one closed, or with nothing open, holds no
+// read number (test/state-growth.test.ts, session-churn: one entry per closed chat, for the pane's life).
+test("a chat closed or with nothing open keeps no read number, and a stale read is still dropped", async () => {
+  const { asks, reads } = tracker();
+  const held = () => (asks as unknown as { reads: Map<string, number> }).reads.size;
+  for (let n = 0; n < 500; n++) {
+    asks.session({ sessionId: `idle${n}`, pendingPermissions: 0 });
+    asks.session({ sessionId: `gone${n}`, pendingPermissions: 1 });
+    asks.forget(`gone${n}`);
+  }
+  expect(held()).toBe(0);
+  // Each forgotten chat's read was still out: none of them lands.
+  for (const read of reads) read.resolve([{ permissionId: `late-${read.sessionId}` }]);
+  await settle();
+  expect(ids(asks)).toEqual([]);
+  // A read that lands is done with its number too; an older one for the same chat stays dropped.
+  asks.session({ sessionId: "s1", pendingPermissions: 1 });
+  asks.session({ sessionId: "s1", pendingPermissions: 2 });
+  const [older, newer] = reads.slice(-2);
+  newer!.resolve([{ permissionId: "new" }]);
+  await settle();
+  older!.resolve([{ permissionId: "old" }]);
+  await settle();
+  expect(ids(asks)).toEqual(["new"]);
+  expect(held()).toBe(0);
 });

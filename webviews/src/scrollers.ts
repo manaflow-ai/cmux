@@ -14,7 +14,7 @@
 //
 // One exception: a minimal scroller (`MINIMAL_SCROLLER_ATTRIBUTE`, the agent chat's composer) keeps
 // its thin thumb the whole time its content overflows (Leo 2026-10-21), even under the scrollbar
-// fade (`SCROLLER_FADE_ATTRIBUTE`, on in the agent pane by default since Lawrence 2026-10-23, msg
+// fade (`SCROLLER_FADE_ATTRIBUTE`, on in the agent pane since Lawrence 2026-10-23, msg
 // 11494: "auto-fades away"), which fades the transcript's thumb only.
 //
 // Every scroller drawn here also widens and darkens its thumb while the pointer is near its
@@ -45,8 +45,8 @@ export const SCROLLING_HIDE_MS = 800;
  * the element scrolls, and `followShownScrollerFade` fades it between the two.
  */
 export const SHOWN_SCROLLER_ATTRIBUTE = "data-cmux-shown-scroller";
-/** On `<html>` when shown scrollers fade out at rest instead (opt-in: Debug Settings
-    `agentPane.debug.scrollerFade`, the agent theme's `scrollerFade`). */
+/** On `<html>` when shown scrollers fade out at rest instead (the agent pane sets it whenever its
+    host pushes a theme, acpmux paneTheme.ts `applyPaneTheme`). */
 export const SCROLLER_FADE_ATTRIBUTE = "data-cmux-scroller-fade";
 /** A shown scroller's full ink, in percent of the text color (`--cmux-scroller-thumb`'s). */
 const SHOWN_INK = 38;
@@ -54,6 +54,17 @@ const SHOWN_INK = 38;
 /// Reduce Motion and animations off, so 0 stays 0): the pane's 180 ms move is 240 ms, the motion
 /// scale's longest step, so the thumb is seen to fade (Leo 2026-10-29).
 const FADE_OUT_STRETCH = 4 / 3;
+
+/** The custom property a scroller's thumb takes its ink from, and that ink in full (percent). */
+export type ScrollerInk = { property: string; full: number };
+
+/**
+ * A sideways scroller's thumb ink (a wide table's, a Shell block's): percent of the thumb's color.
+ * `followShownScrollerFade(box, SIDEWAYS_INK)` steps it so the thumb fades in and out under the
+ * scrollbar fade instead of showing and hiding in one frame (user 2026-11-08: "this table thing
+ * needs better animation on appear/disappear").
+ */
+export const SIDEWAYS_INK: ScrollerInk = { property: "--cmux-sideways-ink", full: 100 };
 
 /** A duration custom property's value in ms (`120ms`, `0.18s`); 0 when it is unset or not one. */
 function durationMs(element: Element, property: string): number {
@@ -71,22 +82,32 @@ function durationMs(element: Element, property: string): number {
  * transition there showed the thumb and hid it with nothing between. Between fades the stylesheet's
  * ink applies. Returns the stop function.
  */
-export function followShownScrollerFade(element: HTMLElement): () => void {
+export function followShownScrollerFade(
+  element: HTMLElement,
+  ink: ScrollerInk = { property: "--cmux-shown-scroller-ink", full: SHOWN_INK },
+): () => void {
+  const { property: INK_PROPERTY, full } = ink;
   const view = element.ownerDocument.defaultView;
-  // A view that draws no frames (a test page made without them) runs no fade.
-  if (!view?.MutationObserver || typeof view.requestAnimationFrame !== "function") return () => {};
+  // A view that draws no frames (a test page made without them, or one that stubs only
+  // requestAnimationFrame: the stop function cancels a frame) runs no fade.
+  if (
+    !view?.MutationObserver ||
+    typeof view.requestAnimationFrame !== "function" ||
+    typeof view.cancelAnimationFrame !== "function"
+  )
+    return () => {};
   const root = element.ownerDocument.documentElement;
   /// The ink the stylesheet gives `element` now (none at rest under the fade, else full).
   const resting = () =>
-    root.hasAttribute(SCROLLER_FADE_ATTRIBUTE) && !element.hasAttribute(SCROLLING_ATTRIBUTE) ? 0 : SHOWN_INK;
+    root.hasAttribute(SCROLLER_FADE_ATTRIBUTE) && !element.hasAttribute(SCROLLING_ATTRIBUTE) ? 0 : full;
   /// The ink drawn now; a fade starts from it.
-  let ink = resting();
-  let target = ink;
+  let drawn = resting();
+  let target = drawn;
   let frame = 0;
   const settle = () => {
     view.cancelAnimationFrame(frame);
-    ink = target = resting();
-    element.style.removeProperty("--cmux-shown-scroller-ink");
+    drawn = target = resting();
+    element.style.removeProperty(INK_PROPERTY);
   };
   const fade = () => {
     const to = resting();
@@ -94,7 +115,7 @@ export function followShownScrollerFade(element: HTMLElement): () => void {
     if (to === target) return;
     if (!root.hasAttribute(SCROLLER_FADE_ATTRIBUTE)) return settle();
     target = to;
-    const from = ink;
+    const from = drawn;
     const ms =
       to > from
         ? durationMs(element, "--cmux-scroller-fade-in")
@@ -110,8 +131,8 @@ export function followShownScrollerFade(element: HTMLElement): () => void {
       // vanishing at once (Leo 2026-10-29: "the scroll thumb should fade instead of disappearing
       // instantly").
       const eased = to > from ? 1 - (1 - t) * (1 - t) : t * t * (3 - 2 * t);
-      ink = from + (to - from) * eased;
-      element.style.setProperty("--cmux-shown-scroller-ink", `${ink.toFixed(2)}%`);
+      drawn = from + (to - from) * eased;
+      element.style.setProperty(INK_PROPERTY, `${drawn.toFixed(2)}%`);
       frame = view.requestAnimationFrame(step);
     };
     step(start);
@@ -168,7 +189,9 @@ export function markScrolling(element: Element, timers: ScrollTimers = defaultTi
     element.removeAttribute(SCROLLING_ATTRIBUTE);
     return;
   }
-  element.setAttribute(SCROLLING_ATTRIBUTE, "");
+  // Set once per scroll, not on every step: each set is a DOM change that restyles the scroller and
+  // wakes every observer of the mark (Session Info's body took one per frame while it scrolled).
+  if (!element.hasAttribute(SCROLLING_ATTRIBUTE)) element.setAttribute(SCROLLING_ATTRIBUTE, "");
   pending.set(
     element,
     timers.set(() => {
@@ -204,18 +227,80 @@ export function wheelTarget(event: Pick<WheelEvent, "composedPath" | "deltaX" | 
 
 const installed = new WeakSet<Document>();
 
-/** When the user last turned a wheel, pressed a key or a button in each document (ms, `now()`). */
-const lastUserInput = new WeakMap<Document, number>();
+/** The user's last wheel, key or button in a document: when (ms, `now()`), what it was aimed at
+    (`path`: its composed path, innermost first, across shadow roots), and the key, for a key. */
+export type UserInput = { at: number; target: EventTarget | null; path?: readonly EventTarget[]; key?: string };
+
+/** The user's last input in each document. */
+const lastUserInput = new WeakMap<Document, UserInput>();
+
+/** The element that scrolled last in each document (<html> for the page's own scroller). */
+const lastScrolled = new WeakMap<Document, Element>();
+
+/** The element that scrolled last in `document`, however it scrolled, or null before any scroll
+    (or before `installScrollingMarks`). A reload keeps its position (pages/shared/pageHealth.ts). */
+export function lastScrolledElement(document: Document): Element | null {
+  return lastScrolled.get(document) ?? null;
+}
+
+/** Keys that scroll whatever the page scrolls by keyboard, wherever focus is (outside a text field).
+    "Spacebar" is an older engine's name for " ". */
+const SCROLLING_KEYS = new Set([
+  "PageUp",
+  "PageDown",
+  "Home",
+  "End",
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  " ",
+  "Spacebar",
+]);
+
+function editable(node: Node): boolean {
+  const element = node as HTMLElement;
+  return element.tagName === "INPUT" || element.tagName === "TEXTAREA" || element.isContentEditable === true;
+}
+
+/** Whether a key pressed on `node` is the control's own and scrolls nothing: Space on a button
+    presses it (a Send button sends), and a select takes the arrows. */
+function control(node: Node, key: string): boolean {
+  const element = node as HTMLElement;
+  if (element.tagName === "SELECT") return true;
+  return (
+    (key === " " || key === "Spacebar") && (element.tagName === "BUTTON" || element.getAttribute?.("role") === "button")
+  );
+}
+
+/** Whether `input` can have scrolled `element`: it was aimed inside it, or it is a scrolling key
+    pressed outside a text field. A key or button aimed elsewhere (Enter in a composer, a click on
+    Send) leaves the page to scroll it, and that is the page's scroll. */
+function reaches(input: UserInput, element: Element): boolean {
+  const target = (input.path?.[0] ?? input.target) as Node | null;
+  if (!target || typeof target.nodeType !== "number") return true;
+  // Content in a shadow root is not contained by the scroller around its host: its host, further
+  // out on the composed path, is.
+  for (const node of input.path ?? [target])
+    if ((node as Node).nodeType === 1 && element.contains(node as Node)) return true;
+  // Tab moves focus, from a text field too, and the page scrolls the newly focused item into view.
+  if (input.key === "Tab") return true;
+  return input.key !== undefined && SCROLLING_KEYS.has(input.key) && !editable(target) && !control(target, input.key);
+}
 
 /**
- * Whether a scroll event on `element` is the user's: always, except on a scroller whose thumb is
- * shown or fades by script (`SHOWN_SCROLLER_ATTRIBUTE`, `MINIMAL_SCROLLER_ATTRIBUTE`), where a
- * scroll with no wheel, key or button in the last `SCROLLING_HIDE_MS` is the page following new rows
- * or the caret, which must not flash the thumb (Leo 2026-10-21: it never flashes as rows arrive).
+ * Whether a scroll event on `element` is the user's. Right after a wheel, key or button (within
+ * `SCROLLING_HIDE_MS`), it is when that input could have scrolled it (`reaches`): a send's scroll
+ * after an Enter in the composer or a click on Send is the page's, and must not flash the thumb
+ * (Leo 2026-11-07: "the thumb scroll sidebar thing, like, kind of flashes for a second"). With no
+ * input that recent, it is on an ordinary scroller (a scroll by the track or a scroller of its own),
+ * and never on a scroller whose thumb is shown or fades by script (`SHOWN_SCROLLER_ATTRIBUTE`,
+ * `MINIMAL_SCROLLER_ATTRIBUTE`): that is the page following new rows or the caret, which must not
+ * flash the thumb (Leo 2026-10-21: it never flashes as rows arrive).
  */
-export function isUserScroll(element: Element, lastInput: number | undefined, now: number): boolean {
-  if (!element.hasAttribute(SHOWN_SCROLLER_ATTRIBUTE) && !element.hasAttribute(MINIMAL_SCROLLER_ATTRIBUTE)) return true;
-  return lastInput !== undefined && now - lastInput <= SCROLLING_HIDE_MS;
+export function isUserScroll(element: Element, lastInput: UserInput | undefined, now: number): boolean {
+  if (lastInput !== undefined && now - lastInput.at <= SCROLLING_HIDE_MS) return reaches(lastInput, element);
+  return !element.hasAttribute(SHOWN_SCROLLER_ATTRIBUTE) && !element.hasAttribute(MINIMAL_SCROLLER_ATTRIBUTE);
 }
 
 /**
@@ -236,15 +321,26 @@ export function installScrollingMarks(document: Document, timers: ScrollTimers =
     { capture: true, passive: true },
   );
   const now = () => document.defaultView?.performance.now() ?? Date.now();
-  const input = () => lastUserInput.set(document, now());
+  const input = (event: Event) =>
+    lastUserInput.set(document, {
+      at: now(),
+      target: event.target,
+      path: event.composedPath?.(),
+      key: event.type === "keydown" ? (event as KeyboardEvent).key : undefined,
+    });
   for (const type of ["wheel", "keydown", "pointerdown"])
     document.addEventListener(type, input, { capture: true, passive: true });
   document.addEventListener(
     "scroll",
     (event) => {
       const target = event.target;
-      if (target === document) markScrolling(document.documentElement, timers);
-      else if (
+      if (target === document) lastScrolled.set(document, document.documentElement);
+      else if (target && "setAttribute" in target) lastScrolled.set(document, target as Element);
+      // The page's own scroller is <html>, and it answers to the same rule as every other.
+      if (target === document) {
+        if (isUserScroll(document.documentElement, lastUserInput.get(document), now()))
+          markScrolling(document.documentElement, timers);
+      } else if (
         target &&
         "setAttribute" in target &&
         isUserScroll(target as Element, lastUserInput.get(document), now())
@@ -468,12 +564,19 @@ export const SIDEWAYS_SCROLLER_CSS = `
   min-width: 24px;
   border: 2px solid transparent;
   border-radius: var(--cmux-scroller-size, 8px);
-  background: var(--cmux-sideways-rest, ${SIDEWAYS_THUMB}) padding-box;
+  background: color-mix(in srgb, ${SIDEWAYS_THUMB} var(--cmux-sideways-ink, 100%), transparent) padding-box;
 }
 :root[${SCROLLER_FADE_ATTRIBUTE}] {
   --cmux-sideways-rest: transparent;
 }
-:root [${SIDEWAYS_SCROLLER_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb,
+/* Under the scrollbar fade the thumb rests at no ink and has full ink while it scrolls; between
+   the two, followShownScrollerFade steps --cmux-sideways-ink inline, once a frame. */
+:root[${SCROLLER_FADE_ATTRIBUTE}] [${SIDEWAYS_SCROLLER_ATTRIBUTE}] {
+  --cmux-sideways-ink: 0%;
+}
+:root[${SCROLLER_FADE_ATTRIBUTE}] [${SIDEWAYS_SCROLLER_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}] {
+  --cmux-sideways-ink: 100%;
+}
 :root [${SIDEWAYS_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:hover,
 :root [${SIDEWAYS_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:active {
   background-color: ${SIDEWAYS_THUMB};
@@ -601,6 +704,31 @@ export function scrollEdges(box: { scrollTop: number; clientHeight: number; scro
   };
 }
 
+/** On a sideways scroller (a wide table, an unwrapped code box) while content lies past its left
+    edge (it was scrolled) or its right edge. The stylesheet fades that edge out with a mask, so the
+    fade takes whatever background the box sits on, light or dark (user 2026-11-07: "markdown
+    missing fade now"). */
+export const MORE_LEFT_ATTRIBUTE = "data-more-left";
+export const MORE_RIGHT_ATTRIBUTE = "data-more-right";
+
+/** Which side edges of a scroller have content past them (a half pixel of slack for zoomed pages). */
+export function sidewaysEdges(box: { scrollLeft: number; clientWidth: number; scrollWidth: number }): {
+  left: boolean;
+  right: boolean;
+} {
+  return {
+    left: box.scrollLeft > 0.5,
+    right: box.scrollLeft + box.clientWidth < box.scrollWidth - 0.5,
+  };
+}
+
+/** Sets `MORE_LEFT_ATTRIBUTE` and `MORE_RIGHT_ATTRIBUTE` on `box` from where it is scrolled now. */
+export function markSidewaysEdges(box: Element): void {
+  const edges = sidewaysEdges(box);
+  if (box.hasAttribute(MORE_LEFT_ATTRIBUTE) !== edges.left) box.toggleAttribute(MORE_LEFT_ATTRIBUTE, edges.left);
+  if (box.hasAttribute(MORE_RIGHT_ATTRIBUTE) !== edges.right) box.toggleAttribute(MORE_RIGHT_ATTRIBUTE, edges.right);
+}
+
 /**
  * Keeps `MORE_ABOVE_ATTRIBUTE` and `MORE_BELOW_ATTRIBUTE` on `element` current: now, on every
  * scroll and whenever it or its content changes size. The fades they turn on have no transition:
@@ -688,6 +816,11 @@ export const CARD_SCROLLER_CSS = `
     chat's composer). See `MINIMAL_SCROLLER_CSS`. */
 export const MINIMAL_SCROLLER_ATTRIBUTE = "data-cmux-minimal-scroller";
 
+/** On a minimal scroller whose box is moving to a height its content fits (the composer's field
+    growing by a line, composer/fieldGrowth.ts): mid-move the content is taller than the box, yet
+    nothing will be left to scroll, so no thumb is drawn. See `MINIMAL_SCROLLER_CSS`. */
+export const SETTLING_SCROLLER_ATTRIBUTE = "data-cmux-scroller-settling";
+
 /**
  * The minimal scroller (Leo 2026-10-21: "IF THERE ARE THINGS TO SCROLL, JUST KEEP THE SCROLLBAR
  * IN THE COMPOSER, LIKE CLAUDE DOES."): a thin thumb in `--cmux-scroller-thumb` on no track, drawn
@@ -701,6 +834,12 @@ export const MINIMAL_SCROLLER_ATTRIBUTE = "data-cmux-minimal-scroller";
  * `--cmux-minimal-scroller-inset-end`, when set, replaces it at the bottom end (the composer's
  * track stops above Send, composerLocation.css). The `:root`
  * prefix outranks the legacy rule's hidden thumb above and the scroller's own `overflow-y`.
+ *
+ * While its box moves to a height the content fits (`SETTLING_SCROLLER_ATTRIBUTE`), the content
+ * overflows only until the move lands, so the thumb stays clear (Leo 2026-11-08: "when we have the
+ * composer grow a bit if it's not long enough to actually be scrollable stop showing a flash of the
+ * thumb scrollbar"). Only the thumb's ink goes: the lane, the overflow and the text's width stay,
+ * so nothing rewraps or moves when the move lands.
  */
 export const MINIMAL_SCROLLER_CSS = `
 :root [${MINIMAL_SCROLLER_ATTRIBUTE}] {
@@ -731,6 +870,11 @@ export const MINIMAL_SCROLLER_CSS = `
 :root[${SCROLLER_FADE_ATTRIBUTE}] [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:hover {
   border-width: var(--cmux-scroller-near-border);
   background-color: var(--cmux-scroller-thumb-near);
+}
+:root [${MINIMAL_SCROLLER_ATTRIBUTE}][${SETTLING_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb,
+:root [${MINIMAL_SCROLLER_ATTRIBUTE}][${SETTLING_SCROLLER_ATTRIBUTE}][${NEAR_ATTRIBUTE}]::-webkit-scrollbar-thumb,
+:root[${SCROLLER_FADE_ATTRIBUTE}] [${MINIMAL_SCROLLER_ATTRIBUTE}][${SETTLING_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:hover {
+  background: transparent;
 }
 `;
 

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextHomeModel
 import MessagesLabHome
 
 /// The top of the empty Chief conversation (`HomeFirstRunView`): the Chief's face, large, over two

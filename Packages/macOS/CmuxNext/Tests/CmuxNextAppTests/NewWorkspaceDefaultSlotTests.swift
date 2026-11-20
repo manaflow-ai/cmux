@@ -105,8 +105,9 @@ import Testing
     @Test func theInGroupSlotFollowsThePlacement() {
         let members = ["c", "d", "e"]
         #expect(NewWorkspaceDefaultSlot(placement: .top, current: "d").slot(inGroup: Self.g1, members: members) == .top(anchor: "c"))
-        #expect(NewWorkspaceDefaultSlot(placement: .afterCurrent, current: "d").slot(inGroup: Self.g1, members: members) == .below("d"))
-        #expect(NewWorkspaceDefaultSlot(placement: .afterCurrent, current: "a").slot(inGroup: Self.g1, members: members) == .top(anchor: "c"))
+        #expect(NewWorkspaceDefaultSlot(placement: .afterCurrent, current: "d").slot(inGroup: Self.g1, members: members)
+            == .first([.below("d"), .endOfGroup(Self.g1)]))
+        #expect(NewWorkspaceDefaultSlot(placement: .afterCurrent, current: "a").slot(inGroup: Self.g1, members: members) == .endOfGroup(Self.g1))
         #expect(NewWorkspaceDefaultSlot(placement: .bottom, current: "d").slot(inGroup: Self.g1, members: members) == .endOfGroup(Self.g1))
         #expect(NewWorkspaceDefaultSlot(placement: .top, current: nil).slot(inGroup: Self.g1, members: []) == .endOfGroup(Self.g1))
     }

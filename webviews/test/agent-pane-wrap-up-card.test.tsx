@@ -87,12 +87,16 @@ describe("a wrap-up in the transcript", () => {
     expect(nextSteps(drawn)[0]?.nextStep?.answer).toBeUndefined();
   });
 
-  test("another agent's notice after it keeps the recap and drops the question", () => {
+  // Leo, 2026-11-06: another agent's message answers nothing; the question stays the person's.
+  test("another agent's notice after it keeps the recap and the question", () => {
     const drawn = turnView(
       [...turn(input), user("Report from a helper", 1, { incoming: { kind: "notice", text: "Done" } })],
       new Set(),
     );
-    expect(nextSteps(drawn)[0]?.nextStep?.ask).toMatchObject({ recap: RECAP, question: "" });
+    const step = nextSteps(drawn)[0]?.nextStep;
+    expect(step?.ask.recap).toBe(RECAP);
+    expect(step?.ask.question).not.toBe("");
+    expect(step?.answer).toBeUndefined();
   });
 
   test("a turn with no answer text still gets the box, after its last row", () => {

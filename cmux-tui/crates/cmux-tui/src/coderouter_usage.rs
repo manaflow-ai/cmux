@@ -197,6 +197,24 @@ pub(crate) fn machine_source() -> Option<UsageSource> {
     )
 }
 
+/// `CMUX_VM_ID` alone, from the same places as [`machine_source`], with or
+/// without a coderouter origin. Never the bound instance id: that is the
+/// provider's, not the platform's `vm_…` id `secrets-v1` items are sealed for.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub(crate) fn machine_vm_id() -> Option<String> {
+    let etc = crate::agent_start_host::cloud_etc();
+    let files = [
+        read_env_file(default_env_file_path().as_deref()),
+        read_env_file(Some(&etc.file(IMAGE_ENV_FILE))),
+    ];
+    std::env::var(VM_ID_VAR)
+        .ok()
+        .into_iter()
+        .chain(files.iter().flatten().filter_map(|file| parse_env_exports(file).remove(VM_ID_VAR)))
+        .map(|value| value.trim().to_owned())
+        .find(|value| !value.is_empty())
+}
+
 fn read_env_file(path: Option<&Path>) -> Option<String> {
     std::fs::read_to_string(path?).ok()
 }

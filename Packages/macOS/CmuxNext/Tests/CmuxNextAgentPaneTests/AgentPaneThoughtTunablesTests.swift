@@ -18,17 +18,6 @@ struct AgentPaneThoughtTunablesTests {
             == ["thought-header": "preview"])
     }
 
-    /// The turn preview card (webviews conversation/PreviewCard.tsx) is off by default and sets no
-    /// attribute; on, `data-turn-preview-cards="on"`.
-    @Test func turnPreviewCardsAreOffByDefaultAndOnSetsTheirAttribute() {
-        #expect(AgentPaneTunables.turnPreviewCards.descriptor.key == "agentPane.debug.turnPreviewCards")
-        #expect(AgentPaneTunables.turnPreviewCards.defaultValue == false)
-        #expect(AgentPaneTunables.all.contains { $0.key == "agentPane.debug.turnPreviewCards" })
-        #expect(AgentPaneTunables.attributes(topStripStyle: .default).isEmpty)
-        #expect(AgentPaneTunables.attributes(topStripStyle: .default, turnPreviewCards: true)
-            == ["turn-preview-cards": "on"])
-    }
-
     /// Every finished thought folds by default (Leo 2026-10-20); the older tall-only folds set
     /// their attribute.
     @Test func thresholdDefaultsToEveryThoughtAndTheTallChoicesSetTheirAttribute() {

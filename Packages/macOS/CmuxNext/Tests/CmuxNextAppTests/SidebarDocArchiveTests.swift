@@ -117,7 +117,7 @@ import Testing
     @Test func anArchiveOnlyChangeShowsTheSameRowsAgain() {
         // Archive Workspaces Below archives the last rows: the live rows stay as they were (same order, same rows),
         // so a pass that lists them again must still arrange them, or the rows never draw archived (or fold).
-        let store = SidebarDocStore(remote: nil, mirror: nil)
+        let store = SidebarDocStore(remote: nil)
         store.shown = Self.projection(archived: [])
         let model = SidebarModel(sections: [])
         model.docDrag = SidebarDocDrag(document: store, item: { Self.drag.item($0) }, section: { id in id == .machine(.local) ? Self.machine : nil },

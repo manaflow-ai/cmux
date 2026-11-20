@@ -2,6 +2,7 @@ import CmuxNextAgentActivity
 @testable import CmuxNextAgentLanes
 import CmuxNextDesign
 @testable import CmuxNextApp
+import CmuxNextChiefPetWiring
 @testable import CmuxNextSidebar
 import Testing
 
@@ -80,11 +81,8 @@ struct ChiefSidebarItemTests {
     /// pic thing"): with no upload it keeps its plain glyph whatever character is picked.
     @Test func theChiefItemWearsNoDefaultPicture() {
         let layout = SidebarLayoutDocument(sections: [LayoutSection(id: LayoutSectionID("sec_top"), region: .top, items: [Self.chiefItem])])
-        func picture(_ mascot: String?) -> SidebarFavicon? {
-            SidebarBridge.itemInfo(for: layout, registered: { _ in true }, chiefMascot: mascot)[Self.chiefItem.id]?.favicon
-        }
-        #expect(picture("fox") == nil)
-        #expect(picture(nil) == nil)
+        #expect(SidebarBridge.itemInfo(for: layout, registered: { _ in true })[Self.chiefItem.id]?.favicon == nil)
+        #expect(ChiefSidebarPictures().favicon(still: nil, image: nil) == nil, "no upload: no picture")
     }
 
     @Test func foldedHidesOnlyIdleSubagentsInNumberOrder() {

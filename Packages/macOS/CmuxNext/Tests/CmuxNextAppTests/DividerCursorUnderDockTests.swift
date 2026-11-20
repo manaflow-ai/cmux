@@ -33,7 +33,7 @@ struct DividerCursorUnderDockTests {
             ])
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s", focusedPane: "p1")
             // A pinned style with divider lines (`borders`): the live one follows the process-wide
-            // DesignSettings, which a settings test leaves at the app's defaults (flat-sidebar-line, whose
+            // DesignSettings, which a settings test may leave at another style (flat-sidebar-line's
             // `none` separation draws no hover line) when it runs earlier in the same process.
             model.followsDesignMetrics = false
             root = LayoutRootView(model: model, contentProvider: provider)
@@ -95,7 +95,9 @@ struct DividerCursorUnderDockTests {
         pointer = CGPoint(x: beside.midX, y: beside.midY)
         screen.refreshDividerHover()
         #expect(handle.isHovered, "beside the dock the divider still hovers")
-        let lines = ScreenDividers(screen: screen).lineRects.filter { $0.intersects(handle.frame) }
+        // Only the split's own line: the dock's inner edge draws a line at rest too (#37655), a full-height
+        // one that crosses this handle's end and rightly sits on the dock's edge.
+        let lines = ScreenDividers(screen: screen).lineRects.filter { handle.frame.insetBy(dx: -1, dy: -1).contains($0) }
         try #require(!lines.isEmpty, "the hovered divider draws its line")
         for line in lines {
             let drawnUnder = line.intersection(cover)

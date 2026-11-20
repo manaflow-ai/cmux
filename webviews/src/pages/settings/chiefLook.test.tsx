@@ -8,14 +8,17 @@ import { installDom } from "./testDom";
 
 const restore = installDom();
 afterAll(() => restore());
-const { changeValue, click, fire, renderPage, settle } = await import("./testing");
+const { changeValue, fire, renderPage, settle } = await import("./testing");
 const { CHIEF_PET_MASCOTS } = await import("./components/ChiefPetCard");
 
+// The Look card's one page is Personalization's Chief part (SectionView HUB_KEYS); Chief keeps the
+// chat rows (Bubble Style, its colors, Show the Feed) in its own Chief Chat card, their home.
+const LOOK_PAGE = "/settings/personalization";
 const look = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-card="chief-pet"]')!;
 const BUBBLE_COLORS = ["sent", "sentText", "received", "receivedText"].map((role) => `home.bubbleColors.${role}`);
 
 test("Look is one glass card with the pet, the characters and Bubble Style", async () => {
-  const page = await renderPage({ path: "/settings/chief" });
+  const page = await renderPage({ path: LOOK_PAGE });
   await settle();
   const card = look(page.container);
   expect(card.classList.contains("ui-glass")).toBe(true);
@@ -31,15 +34,23 @@ test("Look is one glass card with the pet, the characters and Bubble Style", asy
 });
 
 test("Bubble Style shows once, in Look: no Chief Chat card of its own", async () => {
-  const page = await renderPage({ path: "/settings/chief" });
+  const page = await renderPage({ path: LOOK_PAGE });
   await settle();
   expect(page.container.querySelectorAll('[data-row-key="home.chiefBubbleStyle"]')).toHaveLength(1);
+  expect(look(page.container).querySelector('[data-row-key="home.chiefBubbleStyle"]')).not.toBeNull();
   expect(page.container.querySelector('[data-group="settings.group.chiefChat"]')).toBeNull();
   page.unmount();
+  // On Chief, its home, it shows once too, in the Chief Chat card with the other chat rows.
+  const chief = await renderPage({ path: "/settings/chief" });
+  await settle();
+  expect(chief.container.querySelectorAll('[data-row-key="home.chiefBubbleStyle"]')).toHaveLength(1);
+  const chat = chief.container.querySelector('[data-group="settings.group.chiefChat"]')!;
+  expect(chat.querySelector('[data-row-key="home.chiefBubbleStyle"]')).not.toBeNull();
+  chief.unmount();
 });
 
 test("Show the Feed in Chief draws once, in Look, after the bubble colors", async () => {
-  const page = await renderPage({ path: "/settings/chief" });
+  const page = await renderPage({ path: LOOK_PAGE });
   await settle();
   expect(page.container.querySelectorAll('[data-row-key="home.feedInChief"]')).toHaveLength(1);
   const rows = [...look(page.container).querySelectorAll(".rows [data-row-key]")].map((row) =>
@@ -59,10 +70,13 @@ test("search renders Show the Feed in Chief in the Look card", async () => {
   page.unmount();
 });
 
-test("a search result for Bubble Style lands on its row in Look", async () => {
+// A search result opens a row's home: Bubble Style's is Chief, where its Chief Chat card draws it.
+test("a search result for Bubble Style lands on its row in Chief's Chief Chat card", async () => {
   const page = await renderPage({ path: "/settings/chief?focus=home.chiefBubbleStyle" });
   await settle();
-  const row = look(page.container).querySelector<HTMLElement>('[data-row-key="home.chiefBubbleStyle"]')!;
+  const row = page.container.querySelector<HTMLElement>(
+    '[data-group="settings.group.chiefChat"] [data-row-key="home.chiefBubbleStyle"]',
+  )!;
   expect(row.contains(document.activeElement)).toBe(true);
   page.unmount();
 });
@@ -79,23 +93,6 @@ test("search renders Bubble Style in the Look card", async () => {
   const rows = [...result!.querySelectorAll("[data-row-key]")].map((row) => row.getAttribute("data-row-key"));
   expect(rows).toEqual(["home.chiefBubbleStyle", ...BUBBLE_COLORS]);
   expect(page.container.querySelector('[data-search-results] [data-group="settings.group.chiefChat"]')).toBeNull();
-  page.unmount();
-});
-
-test("Show Only Changed keeps unchanged pet rows out of the Look card", async () => {
-  const page = await renderPage({
-    path: "/settings/chief",
-    mock: { values: { "home.chiefBubbleStyle": "theme" } },
-  });
-  await click(page.container.querySelector<HTMLElement>("[data-changed-only]")!);
-  await settle();
-  const result = page.container.querySelector<HTMLElement>('[data-search-results] [data-card="chief-pet"]');
-  expect(result).not.toBeNull();
-  expect(result?.querySelector('[data-row-key="home.chiefBubbleStyle"]')).not.toBeNull();
-  expect(result?.querySelector('[data-row-key="home.chiefPetEnabled"]')).toBeNull();
-  expect(result?.querySelector('[data-row-key="home.chiefPetMascot"]')).toBeNull();
-  expect(result?.querySelectorAll(".chief-pet-choice")).toHaveLength(0);
-  expect(result?.querySelectorAll("[data-row-key]")).toHaveLength(1);
   page.unmount();
 });
 

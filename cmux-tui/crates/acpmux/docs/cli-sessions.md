@@ -15,8 +15,31 @@ with examples; `--json` on any command prints the raw response.
 | Get a session by name, creating it when missing | `acpmux ensure coord -m claude` |
 | Send a brief to the least-loaded allowed machine | `acpmux dispatch ~/notes/brief.md --machine auto` |
 | Run one prompt on several harnesses and compare | `acpmux compare -m claude -m codex "Why does this test flake?"` |
+| From an authenticated agent session, race implementations in separate worktrees with a reviewer | `acpmux race new -m codex/gpt-6.1-sol -m codex/gpt-6-astra --reviewer claude/opus --reviewer-effort medium "Fix the flaky test"` |
 
 Running the same `new --worktree ... --prompt-file ...` again reuses the session and sends nothing.
+
+Race CLI commands run inside an authenticated acpmux agent session. Omit `--parent` to use
+that agent's own chat, or name a descendant it can manage. `--parent CHAT` does not authorize
+an ordinary terminal. From an ordinary terminal, use the chat's **menu → Tools → Race models**
+control in cmux NEXT instead.
+
+`race new` starts candidates under that local parent chat and returns a race id. The daemon
+continues the race after the CLI exits; candidates inherit the parent's permission rules and
+sub-session limits. Each candidate works
+in its own Git worktree. The reviewer chooses a winner after the candidate turns finish;
+that choice does not certify passing tests or authorize a merge.
+
+From the same authenticated agent session, use `acpmux race show RACE` to read the replies,
+paths and decision, `race ls` to list races, and `race stats` for wins per model.
+`race stop RACE` cancels the race's sessions. Add the same `--parent` to these commands when
+the race belongs to a descendant. Losing sessions close after
+a successful review; their worktrees remain recoverable under normal retention. A failed
+review keeps the candidates available for inspection.
+
+Racing is available by default. To disable new races for a daemon, start it with
+`ACPMUX_DISABLE_RACES=1`; existing results remain readable and running races can still be
+stopped. Win rates count completed, reviewer-decided races, once per model per race.
 
 ## Talk to one
 

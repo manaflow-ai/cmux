@@ -3,6 +3,7 @@ import CmuxNextDesign
 
 /// Builds the bubble's pages from the model. Every control sends a
 /// `PageInfoCommand`; nothing here changes state directly.
+/// AppKit (plans/cmux-next/language-layers.md): a bubble on a native control is native chrome.
 @MainActor struct PageInfoPages {
     let model: PageInfoModel
     let send: (PageInfoCommand) -> Void

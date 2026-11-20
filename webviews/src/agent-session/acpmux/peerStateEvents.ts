@@ -1,3 +1,4 @@
+import { readPeerLinkDetail, type PeerLinkDetail } from "./linkState";
 import type { PeerLinkState } from "./protocol/generated/types";
 
 /// Every state acpmux sends (peer_link.rs `PeerState::as_str`). Notes carry the protocol's
@@ -5,11 +6,26 @@ import type { PeerLinkState } from "./protocol/generated/types";
 /// snapshot that dropped that row would leave the picker no state, so it would read the peer as ready.
 type LinkState = PeerLinkState | "restarting";
 const STATES = new Set<unknown>(["connecting", "connected", "degraded", "reconnecting", "restarting", "offline"]);
-type Link = { state: LinkState; connected: boolean; lastSeen: number | undefined; error: string | undefined };
+/// `detail`: acpmux's whole link state (`link`, `carrier`, `cause`, `since`, `nextRetryAt`), what the pane
+/// draws (linkState.ts); `state` stays the older word every other reader compares.
+type Link = {
+  state: LinkState;
+  connected: boolean;
+  lastSeen: number | undefined;
+  error: string | undefined;
+  detail: PeerLinkDetail | undefined;
+};
 type VersionedLink = { link: Link; revision: number };
 const object = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-const same = (a: Link | undefined, b: Link) => a?.state === b.state && a.lastSeen === b.lastSeen && a.error === b.error;
+const same = (a: Link | undefined, b: Link) =>
+  a?.state === b.state &&
+  a.lastSeen === b.lastSeen &&
+  a.error === b.error &&
+  a.detail?.link === b.detail?.link &&
+  a.detail?.carrier === b.detail?.carrier &&
+  a.detail?.cause === b.detail?.cause &&
+  a.detail?.nextRetryAt === b.detail?.nextRetryAt;
 
 /// One local/app connection's snapshot and pushed state. The daemon names both proven origins
 /// `local`; a peer daemon's connection never hears this host's peer inventory (#26860).
@@ -120,5 +136,7 @@ function observation(value: Record<string, unknown>): Link | undefined {
     // A full observation clears old nullable values when overlaid on an older status read.
     lastSeen: typeof value.lastSeen === "number" && Number.isFinite(value.lastSeen) ? value.lastSeen : undefined,
     error: typeof value.error === "string" ? value.error : undefined,
+    // Only a daemon that sends `link` has a whole state to draw; an older one's `state` says it.
+    detail: "link" in value ? readPeerLinkDetail(value) : undefined,
   };
 }

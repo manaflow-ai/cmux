@@ -8,15 +8,16 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextChiefViews
 import CmuxNextCompat
+import CmuxNextDaemon
 import CmuxNextDaemonRecovery
 import CmuxNextDesign
-import CmuxNextFeed
 import CmuxNextFloating
 import CmuxNextGitHubViewer
 import CmuxNextHistory
-import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextIcons
 import CmuxNextLayout
+import CmuxNextMacScreen
 import CmuxNextOnboarding
 import CmuxNextPages
 import CmuxNextPalette
@@ -25,7 +26,6 @@ import CmuxNextSettings
 import CmuxNextSettingsWindow
 import CmuxNextSidebar
 import CmuxNextTabs
-import CmuxNextTasks
 import CmuxNextWorkspaceNaming
 import Foundation
 
@@ -35,13 +35,12 @@ enum TunableCatalog {
     static var all: [TunableDescriptor] {
         // The Chief view gallery's toggle (its own line, so the busy list below merges cleanly).
         ChiefViewsPage.tunables +
-        DesignTunables.all + [IconFamily.tunable.descriptor] + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
+        DesignTunables.all + [IconFamily.tunable.descriptor] + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all + BrowserChromeTuning.descriptors
             + [AgentPaneTunables.sessionInfo.descriptor]
-            + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + DaemonTunables.all + FeedTunables.all
-            + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + ChiefPetTunables.all + HomeTunables.all + HomeTunables.headerPanels + [SidebarToggleIcon.tunable.descriptor] + BrowserImportTunables.all + NavigationTunables.all + BrowserPageTunables.all + AccountTunables.all + GitHubViewerTunables.all
+            + AgentActivityTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + DaemonTunables.all
+            + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + ChiefPetTunables.all + HomeTunables.all + HomeTunables.headerPanels + [SidebarToggleIcon.tunable.descriptor] + BrowserPageTunables.all + AccountTunables.all + GitHubViewerTunables.all
             + TitlebarHistoryTunables.all + CloudTunables.all
-            + HangFileTunables.all + HostPressureTunables.all
-            + BrowserHostTunables.all
+            + HangFileTunables.all + FocusLogTunables.all + HostPressureTunables.all + BrowserHostTunables.all + MacScreenTunables.all
     }
 }
 
@@ -88,6 +87,8 @@ final class DebugSettingsService: InternalPageProvider {
         let launch = services.environment.launch
         let url = Self.fileURL(environment: ProcessInfo.processInfo.environment, tag: launch.tag,
                                bundleID: launch.bundleID, build: launch.build)
+        // One lstat, and once one rename of a kept-name build's file out of classic's cmux, before the store reads it.
+        ClassicFolderItemsMove().moveDebugTunables(to: url, tag: launch.tag, bundleID: launch.bundleID)
         fileURL = url
         store.activate(file: url)
         // CmuxNextCloud does not see tunables; Release keeps CloudAuth's default (automatic).
@@ -103,24 +104,22 @@ final class DebugSettingsService: InternalPageProvider {
         return (TunableFile.decode(data)[IconFamily.tunable.key] as? String).flatMap(IconFamily.init(rawValue:)) ?? .pack
     }
 
-    /// `~/Library/Application Support/cmux/<tag or channel>/debug-tunables.json`
-    /// for a build that keeps its app names (``BuildIdentity/keepsAppNames``),
-    /// `cmux/builds/<key>/debug-tunables.json` for every other build, so no
-    /// build reads another's tunables (per-build isolation S5, cx-is1kf.6);
-    /// or the `CMUX_NEXT_DEBUG_TUNABLES_FILE` override.
+    /// `~/Library/Application Support/cmux-next/<tag or channel>/debug-tunables.json`
+    /// (``ClassicFolderItemsMove/debugTunables(tag:bundleID:)``, moved once at ``start()``) for a build
+    /// that keeps its app names (``BuildIdentity/keepsAppNames``), the folder of its daemon state
+    /// under `cmux-next` for every other build, so no build reads another's tunables (per-build
+    /// isolation S5, cx-is1kf.6); or the `CMUX_NEXT_DEBUG_TUNABLES_FILE` override.
     nonisolated static func fileURL(environment: [String: String], tag: String?, bundleID: String?,
                                     build: BuildIdentity? = nil,
                                     home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
         if let path = environment[fileOverrideKey]?.trimmingCharacters(in: .whitespaces), !path.isEmpty {
             return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         }
-        let cmux = home.appending(path: "Library/Application Support/cmux")
-        if let build, !build.keepsAppNames, let state = build.daemonStateDirectory(appSupport: cmux) {
+        let next = DaemonLauncher.nextSupport(home.appending(path: "Library/Application Support"))
+        if let build, !build.keepsAppNames, let state = build.daemonStateDirectory(appSupport: next) {
             return state.deletingLastPathComponent().appending(path: "debug-tunables.json")
         }
-        let folder = tag ?? (bundleID.map { $0.hasPrefix(DevTools.nightlyBundleID) ? "nightly" : "dev" } ?? "dev")
-        return cmux.appending(path: folder)
-            .appending(path: "debug-tunables.json")
+        return next.appending(path: ClassicFolderItemsMove.debugTunables(tag: tag, bundleID: bundleID))
     }
 
     /// Opens (or brings back) the window. Throws when this build has no
@@ -185,11 +184,10 @@ final class DebugSettingsService: InternalPageProvider {
         return model.makePaneView(scope: window?.themeScope ?? .app)
     }
 
-    /// The React page over `model` when Debug Settings `debugSettings.surface` is `web` (the
-    /// default), else nil (the SwiftUI view). Its own window has a standard title bar
-    /// (`DebugSettingsWindowController`), so the page needs no title bar inset.
+    /// The React page over `model`, or nil when the page cannot be made (the SwiftUI view then).
+    /// Its own window has a standard title bar (`DebugSettingsWindowController`), so the page needs
+    /// no title bar inset.
     private func webPage(model: DebugSettingsModel) -> PageWebView? {
-        guard PageTunables.debugSettings.value == .web else { return nil }
         let provider = DebugSettingsPageProvider(model: model, hangs: services.quit.watchdog?.episodes)
         let native = AppPageNativeProvider(services: services, page: .debugSettings)
         let routes = [PageRoute(prefix: "cmux.debug.tunables.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]

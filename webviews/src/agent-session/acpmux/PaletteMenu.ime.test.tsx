@@ -2,8 +2,10 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { PaletteMenu, paletteSections } from "./PaletteMenu";
+import { PaletteMenu } from "./PaletteMenu";
+import { paletteSections } from "./paletteMenuModel";
 import { translate, type Translate } from "./i18n";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -41,9 +43,10 @@ beforeEach(() => {
   root = createRoot(container);
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

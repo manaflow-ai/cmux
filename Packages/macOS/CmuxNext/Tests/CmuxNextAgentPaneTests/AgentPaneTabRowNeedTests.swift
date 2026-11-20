@@ -28,3 +28,25 @@ struct AgentPaneTabRowNeedTests {
         #expect(row.neededWidth == 180)
     }
 }
+
+/// A page that loaded again keeps its tools' place in the row until it reports (Leo 2026-11-07, Trace-ID
+/// ask-11b77f340e); a 0 it reports is its tools leaving the row.
+@MainActor
+struct AgentPaneTabRowReloadTests {
+    @Test func aReloadedPageKeepsItsPlaceUntilItReports() {
+        let row = AgentPaneTabRow()
+        row.report(width: 180)
+        row.pageLoaded()
+        #expect(row.sharedWidth(zoom: 1) == 180)
+        row.report(width: 0)
+        #expect(row.sharedWidth(zoom: 1) == nil)
+        #expect(row.sharedNeed(zoom: 1) == 180)
+    }
+
+    @Test func toolsThatLeaveGiveTheRowBack() {
+        let row = AgentPaneTabRow()
+        row.report(width: 180)
+        row.report(width: 0)
+        #expect(row.sharedWidth(zoom: 1) == nil)
+    }
+}

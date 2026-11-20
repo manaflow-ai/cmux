@@ -9,6 +9,8 @@ import { InstalledView } from "./InstalledView";
 import { CategoryBar, ItemCard, ItemRow } from "./items";
 import type { StoreTab } from "./model";
 import type { AppsSnapshot, AppsStore } from "./store";
+import { Skeleton } from "../../ui/Skeleton";
+import { SplitEdge } from "../../ui/SplitEdge";
 import { useUiDirection } from "../../ui/UiProvider";
 import { useLasting } from "../../ui/lasting";
 
@@ -186,7 +188,18 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
   if (snap.layout !== "split") return <div className="apps-scroll">{listing}</div>;
   return (
     <div className="apps-split">
-      <div className="apps-split-list">{listing}</div>
+      <div className="apps-split-side">
+        <div className="apps-split-list">{listing}</div>
+        {/* The list's line is the split's divider and drags as one (ui/SplitEdge.tsx). */}
+        <SplitEdge
+          side="right"
+          property="--apps-list-width"
+          storageKey="cmux.apps.list.width"
+          min={200}
+          max={560}
+          on="parent"
+        />
+      </div>
       <div className="apps-split-detail">
         {selected ? (
           <AppDetailView snap={snap} store={store} strings={strings} />
@@ -203,10 +216,10 @@ function LoadingGrid({ strings }: { strings: Strings }) {
     <div className="apps-grid apps-grid-loading" aria-busy="true" aria-label={strings.t("store.detail.loading")}>
       {Array.from({ length: 6 }, (_, index) => (
         <div className="apps-card-skeleton" key={index} aria-hidden="true">
-          <span className="apps-skeleton-icon" />
-          <span className="apps-skeleton-line wide" />
-          <span className="apps-skeleton-line" />
-          <span className="apps-skeleton-footer" />
+          <Skeleton className="apps-skeleton-icon" />
+          <Skeleton className="apps-skeleton-line wide" />
+          <Skeleton className="apps-skeleton-line" />
+          <Skeleton className="apps-skeleton-footer" />
         </div>
       ))}
     </div>

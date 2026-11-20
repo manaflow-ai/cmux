@@ -1006,12 +1006,15 @@ def run_profile(args: argparse.Namespace) -> int:
             try:
                 exit_code = wait_child_unreaped(child.pid, 5)
             except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(child.pid, signal.SIGKILL)
-                except (ProcessLookupError, PermissionError):
-                    pass
-                wait_child_unreaped(child.pid, None)
                 exit_code = 124
+            # After the grace period the whole group goes, whether or not the leader exited: a child that ignores
+            # SIGTERM would outlive it (cmux#41767 review F1).
+            try:
+                os.killpg(child.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+            if exit_code == 124:
+                wait_child_unreaped(child.pid, None)
         elapsed = time.monotonic() - started_monotonic
         try:
             settled_cleanly, cleanup_state = settle_process_group(

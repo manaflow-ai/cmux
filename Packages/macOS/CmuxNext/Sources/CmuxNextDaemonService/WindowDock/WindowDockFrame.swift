@@ -18,8 +18,24 @@ public protocol WindowDockFrame: AnyObject {
     var frameShownWorkspaceID: String? { get }
     /// The workspaces this window lists.
     var frameMembers: [String] { get }
-    /// The Chief dock armed by a link from the Chief (``ChiefDockLeave``). In memory only.
-    var chiefDockOnLeave: ChiefDockLeave? { get set }
+    /// `WorkspaceModel.id` of the window's Home, when it has one (classic Home has none).
+    var frameHome: String? { get }
+    /// The window's Chief panel (`WindowState.chiefPanel`), persisted in the window record.
+    var frameChiefPanel: ChiefPanel { get set }
+    /// Until this instant, the next workspace shown gets the floating Chief (a link from the Chief). In memory only.
+    var frameChiefPanelArm: ContinuousClock.Instant? { get set }
+    /// The Chief panel draws now.
+    var frameChiefPanelShown: Bool { get }
+    /// The keyboard is in the Chief panel.
+    var frameChiefPanelHasKeys: Bool { get }
+    /// Whether the shown Chief panel lies that way from the stage (``ChiefPanelView/lies(toward:docked:)``).
+    func frameChiefPanelLies(toward direction: LayoutDirection) -> Bool
+    /// The Chief panel's message box takes the keys.
+    func frameFocusChiefPanel()
+    /// The stage takes the keys: its pane nearest the panel when `direction` says where from, else its focused one.
+    func frameFocusStage(toward direction: LayoutDirection?)
+    /// Places the changed Chief panel now and saves the window record on settle.
+    func frameChiefPanelDidChange()
     /// Shows workspace `id` in this window; `thisWindow` keeps it here even when another window lists it.
     func frameShow(_ id: String, thisWindow: Bool)
     /// Opens a new workspace in this window (in `cwd`, or the focused workspace's directory); its id, nil on failure.

@@ -38,6 +38,10 @@ pub struct Interrupt {
     /// The turn carries another person's text: the native engine refuses
     /// its local effects (README "Remote-origin messages").
     gate: AtomicBool,
+    /// The Chief ended the turn with its own `stop` or `sleep`
+    /// (`request_own`): its last step is done, so the session may serve the
+    /// next turn (`Settings::keep_turn_session`).
+    own: AtomicBool,
     /// The running acpmux turn's signals, woken on a request.
     wake: Mutex<Option<Sender<TurnSignal>>>,
     /// Wakes [`Interrupt::wait`] on a request.
@@ -67,6 +71,17 @@ impl Interrupt {
         {
             let _ = tx.send(TurnSignal::Noted);
         }
+    }
+
+    /// `request` from the Chief's own `stop` or `sleep`: a clean end.
+    pub fn request_own(&self) {
+        self.own.store(true, Ordering::SeqCst);
+        self.request();
+    }
+
+    /// The Chief ended the turn with its own tool, and nothing else asked.
+    pub fn is_own(&self) -> bool {
+        self.own.load(Ordering::SeqCst) && !self.is_hard()
     }
 
     /// `request`, and the runner does not wait for a running tool call:
@@ -122,6 +137,7 @@ impl Interrupt {
     pub fn clear(&self) {
         self.wanted.store(false, Ordering::SeqCst);
         self.hard.store(false, Ordering::SeqCst);
+        self.own.store(false, Ordering::SeqCst);
     }
 
     fn wake_with(&self, tx: Option<Sender<TurnSignal>>) {
@@ -162,6 +178,10 @@ pub struct TurnStart {
     pub keep: bool,
     /// A kept session this turn does not reuse: ended before it starts.
     pub retire: Option<String>,
+    /// The permission mode an owner's Claude turn runs in
+    /// (`engine::permission_mode`, cmux#37392; Manual runs under `ask`);
+    /// None (a turn that carries another person's text): the session's own.
+    pub permission_mode: Option<String>,
 }
 
 /// A turn session kept after its turn (`Settings::keep_turn_session`): the
@@ -334,6 +354,15 @@ const START_NOTICE_EVERY: u64 = 10;
 /// (`brain/turns.rs` `cut_kind`).
 pub fn is_start_stall(error: &str) -> bool {
     crate::host::start_stall(error) || crate::subagents::is_transient_start_failure(error)
+}
+
+/// Whether a turn's start error is acpmux's for a harness that did no work for
+/// its whole wait (`hub/lifecycle.rs` `start_hung`): a Chief start waits on its
+/// harness (`waitStart`), so this, not a deadline, is how a start that stays
+/// stuck ends (#36028). acpmux ended that harness; a fresh one may start. Such a
+/// turn is rerun by the reply ledger alone, never cut: each try took minutes.
+pub fn is_hung_start(error: &str) -> bool {
+    error_head(error).contains("its agent did no work for")
 }
 
 /// An error's words before acpmux's process detail ("; its agent process
@@ -579,13 +608,42 @@ pub fn run_with_drafts(
             return refused(trace, start, &reason);
         }
     };
-    // codex under approve-all: no workspace-write sandbox, so the turn's
-    // cmux calls reach the app and daemon sockets (E6). Before the prompt.
-    if let Some(mode) = crate::acpmux::chief_session_mode(admitted.family, &start.session.policy)
-        && let Err(e) = agents.set_mode(&session, mode)
+    // A Manual turn on a Claude harness runs under `ask` (brain/turns.rs, from
+    // the brain's guess of the family): under any other policy acpmux would
+    // allow every ask, so a session that turned out Claude is refused.
+    if admitted.family == crate::acpmux::Family::Claude
+        && start.permission_mode.as_deref() == Some("default")
+        && start.session.policy != crate::approval::ASK
     {
+        let reason = format!(
+            "the turn's permission mode is Manual, but its session runs under {}",
+            start.session.policy
+        );
+        log(&format!("turn {}: {reason}", start.key));
+        let _ = agents.end_session(&session);
+        return refused(trace, start, &reason);
+    }
+    // codex under approve-all: no workspace-write sandbox, so the turn's
+    // cmux calls reach the app and daemon sockets (E6). A Claude turn under
+    // approve-all: the Chief's permission mode (cmux#37392), set on a kept
+    // session too, so a change applies from the next turn. Before the prompt.
+    if let Some(mode) = crate::acpmux::chief_turn_mode(
+        admitted.family,
+        &start.session.policy,
+        start.permission_mode.as_deref(),
+    ) && let Err(e) = agents.set_mode(&session, mode)
+    {
+        // A narrower mode the person or the Chief chose (Auto, Manual) that did
+        // not apply: the session may run wider (a kept bypass session, or
+        // Claude Code's own Auto under Manual), so the turn never runs in it.
+        if admitted.family == crate::acpmux::Family::Claude && mode != "bypassPermissions" {
+            let reason = format!("the turn's permission mode {mode} did not apply: {e}");
+            log(&format!("turn {}: {reason}", start.key));
+            let _ = agents.end_session(&session);
+            return refused(trace, start, &reason);
+        }
         log(&format!(
-            "turn {}: {e}; its cmux calls may be sandboxed",
+            "turn {}: {e}; it runs in the session's current mode",
             start.key
         ));
     }
@@ -933,12 +991,16 @@ pub fn run_with_drafts(
     let cancelled = is_cancelled(error.as_deref());
     // Only a clean end keeps the session: a failed, stopped or moved one may
     // hold a half-done step, and the next turn starts from the view again.
+    // The Chief's own `stop` or `sleep` is a clean end: its tool answered and
+    // the turn has nothing left to do (Nov 15-18: 98% of turns end so, and
+    // none was kept; tests/kept_turn_session.rs).
+    let own_end = cancelled && interrupt.is_own();
     let kept = (start.keep
         && orphan.is_none()
         && moved.is_none()
-        && error.is_none()
+        && (error.is_none() || own_end)
         && !answer_failed
-        && !cancelled
+        && (!cancelled || own_end)
         && fold.ended().is_some())
     .then(|| Kept {
         session: session.clone(),

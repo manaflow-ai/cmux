@@ -14,7 +14,7 @@ import Testing
     }
 
     @Test func anAppSectionIsAddedAsAnAppSectionOfTheDocument() throws {
-        let store = SidebarDocStore(remote: nil, mirror: nil)
+        let store = SidebarDocStore(remote: nil)
         let ops = try store.docOps(for: [.sectionAdd(Self.appSection("acme.weather#forecast"), index: 0)], layout: Self.layout)
         try #require(ops.count == 1, "\(ops)")
         #expect(ops[0]["op"] as? String == "section.add")
@@ -28,7 +28,7 @@ import Testing
 
     @Test(arguments: [nil, "", "acme.weather", "#forecast"])
     func anAppSectionWithoutAValidContributionIsRefusedAsSuch(_ contribution: String?) {
-        let store = SidebarDocStore(remote: nil, mirror: nil)
+        let store = SidebarDocStore(remote: nil)
         do {
             let ops = try store.docOps(for: [.sectionAdd(Self.appSection(contribution), index: 0)], layout: Self.layout)
             Issue.record("an app section with contribution \(String(describing: contribution)) was planned: \(ops)")
@@ -39,7 +39,7 @@ import Testing
 
     /// An app section holds no items: one added with items is refused, nothing is sent.
     @Test func anAppSectionWithItemsIsRefusedAsSuch() {
-        let store = SidebarDocStore(remote: nil, mirror: nil)
+        let store = SidebarDocStore(remote: nil)
         let item = LayoutItem(id: LayoutItemID("itm_x"), ref: .app("cmux/app-store"))
         do {
             let ops = try store.docOps(for: [.sectionAdd(Self.appSection("acme.weather#forecast", items: [item]), index: 0)], layout: Self.layout)
@@ -51,7 +51,7 @@ import Testing
 
     /// The workspace list is exactly one section (L1): a second one is refused as that.
     @Test func aSecondWorkspaceListIsRefusedAsTheWorkspaceList() {
-        let store = SidebarDocStore(remote: nil, mirror: nil)
+        let store = SidebarDocStore(remote: nil)
         let section = LayoutSection(id: LayoutSectionID("sec_more"), region: .middle, content: .workspaces)
         do {
             let ops = try store.docOps(for: [.sectionAdd(section, index: 0)], layout: Self.layout)

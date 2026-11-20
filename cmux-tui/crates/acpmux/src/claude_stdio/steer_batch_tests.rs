@@ -175,11 +175,126 @@ async fn a_line_read_first_stands_and_the_new_message_goes_next() {
     assert!(answer(&read, 2).is_none(), "the first answered twice");
 }
 
-/// The X on one message of a line of several, or on one held for a line written again: nothing
-/// is taken back (`withdrawn: false`), as for a message Claude Code read first, and every message
-/// still goes in the one line.
+/// The X on one message of a line of several that waits: Claude Code drops the line, the message
+/// is taken back (`withdrawn: true`, its steer answered withdrawn), and the line's other messages
+/// go in again as one line, each answered at its echo (Leo, 2026-11-06: "I can't ... cancel and
+/// edit these messages. Why? Is it because the ... codex thing sent them?").
 #[tokio::test]
-async fn a_withdraw_of_a_batched_message_takes_nothing_back() {
+async fn a_withdraw_of_one_batched_message_takes_it_back_and_keeps_the_others() {
+    let (t, mut q) = stepping().await;
+    for (id, sender) in [(2, "lane-a"), (3, "codex-lane"), (4, "lane-c")] {
+        write(&t, &mut q, &from(id, sender, &format!("text {id}"))).await;
+        q.settle(&t).await;
+    }
+    assert_eq!(q.waiting.len(), 1, "{:#?}", q.waiting);
+    let withdraw = Message::request(
+        8,
+        method::MUX_STEER_WITHDRAW,
+        json!({"sessionId": "acp-1", "promptId": "p3"}),
+    );
+    let Outbound::Lines(lines) = t.outbound(&withdraw).await else {
+        panic!("a batched message was refused at once")
+    };
+    q.take(lines);
+    let answers = q.settle(&t).await;
+    assert_eq!(answer(&answers, 8).unwrap().unwrap()["withdrawn"], true, "{answers:?}");
+    assert!(answer(&answers, 3).unwrap().unwrap_err().starts_with(STEER_WITHDRAWN), "{answers:?}");
+    assert!(answer(&answers, 2).is_none() && answer(&answers, 4).is_none(), "{answers:?}");
+    assert_eq!(q.waiting.len(), 1, "{:#?}", q.waiting);
+    let text = text_of(&q.waiting[0]);
+    assert!(text.starts_with("2 messages from 2 sessions"), "{text}");
+    assert!(
+        text.contains("text 2") && text.contains("text 4") && !text.contains("text 3"),
+        "{text}"
+    );
+    let read = t.inbound(&echo(&q.waiting[0])).await;
+    for id in [2, 4] {
+        assert_eq!(answer(&read, id).unwrap().unwrap()["stopReason"], "steered", "{id}");
+    }
+    assert!(answer(&read, 3).is_none(), "the withdrawn message answered twice");
+}
+
+fn withdraw(n: i64, prompt_id: &str) -> Message {
+    let p = json!({"sessionId": "acp-1", "promptId": prompt_id});
+    Message::request(n, method::MUX_STEER_WITHDRAW, p)
+}
+
+/// Review of #37203: a line written again goes in after every line waiting then, so only the
+/// newest waiting line gives one of its messages back. One in an older line stays, and the
+/// lines keep the order their messages came in.
+#[tokio::test]
+async fn a_withdraw_keeps_the_order_of_lines_past_the_cap() {
+    let (t, mut q) = stepping().await;
+    let big = |i: usize| format!("{i}:{}", "x".repeat(BATCH_MAX_BYTES * 2 / 5));
+    for (i, sender) in SENDERS.iter().enumerate() {
+        write(&t, &mut q, &from(i as i64 + 2, sender, &big(i))).await;
+        q.settle(&t).await;
+    }
+    write(&t, &mut q, &from(5, "lane-d", "text 5")).await;
+    q.settle(&t).await;
+    assert_eq!(q.waiting.len(), 2, "{:#?}", q.waiting.iter().map(text_of).collect::<Vec<_>>());
+    let Outbound::Reply(reply) = t.outbound(&withdraw(8, "p2")).await else {
+        panic!("a message of the older line was dropped to be written after the newer one")
+    };
+    assert_eq!(answer(&[reply], 8).unwrap().unwrap()["withdrawn"], false);
+    let Outbound::Lines(lines) = t.outbound(&withdraw(9, "p5")).await else {
+        panic!("the newest line's message was refused")
+    };
+    q.take(lines);
+    let answers = q.settle(&t).await;
+    assert_eq!(answer(&answers, 9).unwrap().unwrap()["withdrawn"], true, "{answers:?}");
+    assert!(answer(&answers, 5).unwrap().unwrap_err().starts_with(STEER_WITHDRAWN));
+    let texts: Vec<String> = q.waiting.iter().map(text_of).collect();
+    assert_eq!(texts.len(), 2);
+    assert!(texts[0].contains(&big(0)) && texts[0].contains(&big(1)), "first line moved");
+    assert!(texts[1].contains(&big(2)) && !texts[1].contains("text 5"), "{}", texts[1].len());
+    for (line, ids) in [(&q.waiting[0], [2, 3]), (&q.waiting[1], [4, 4])] {
+        let read = t.inbound(&echo(line)).await;
+        for id in ids {
+            assert_eq!(answer(&read, id).unwrap().unwrap()["stopReason"], "steered", "{id}");
+        }
+    }
+}
+
+/// Review of #37203: a message that comes while a withdraw's drop is on its way waits for it,
+/// with no second drop of the same line, then goes in after the line's other messages; the
+/// withdraw still takes its message back.
+#[tokio::test]
+async fn a_message_during_a_withdraw_waits_for_it_and_goes_in_last() {
+    let (t, mut q) = stepping().await;
+    for (id, sender) in [(2, "lane-a"), (3, "codex-lane"), (4, "lane-c")] {
+        write(&t, &mut q, &from(id, sender, &format!("text {id}"))).await;
+        q.settle(&t).await;
+    }
+    let Outbound::Lines(lines) = t.outbound(&withdraw(8, "p3")).await else {
+        panic!("a batched message was refused at once")
+    };
+    q.take(lines);
+    write(&t, &mut q, &from(5, "lane-d", "text 5")).await;
+    assert_eq!(q.drops.len(), 1, "a second drop of the line: {:#?}", q.drops);
+    let Outbound::Reply(reply) = t.outbound(&withdraw(9, "p5")).await else {
+        panic!("a held message was asked to be dropped")
+    };
+    assert_eq!(answer(&[reply], 9).unwrap().unwrap()["withdrawn"], false);
+    let answers = q.settle(&t).await;
+    assert_eq!(answer(&answers, 8).unwrap().unwrap()["withdrawn"], true, "{answers:?}");
+    assert!(answer(&answers, 3).unwrap().unwrap_err().starts_with(STEER_WITHDRAWN));
+    assert_eq!(q.waiting.len(), 1, "{:#?}", q.waiting);
+    let text = text_of(&q.waiting[0]);
+    let at = |s: &str| text.find(s).unwrap_or_else(|| panic!("{s} missing: {text}"));
+    assert!(at("text 2") < at("text 4") && at("text 4") < at("text 5"), "{text}");
+    assert!(!text.contains("text 3"), "{text}");
+    let read = t.inbound(&echo(&q.waiting[0])).await;
+    for id in [2, 4, 5] {
+        assert_eq!(answer(&read, id).unwrap().unwrap()["stopReason"], "steered", "{id}");
+    }
+}
+
+/// The X on a message of a line being written again, or on one held for it: nothing is taken
+/// back (`withdrawn: false`) until that drop is answered, as for a message Claude Code read
+/// first, and every message still goes in the one line.
+#[tokio::test]
+async fn a_withdraw_of_a_message_being_rebatched_takes_nothing_back() {
     let (t, mut q) = stepping().await;
     for (id, sender) in [(2, "lane-a"), (3, "lane-b")] {
         write(&t, &mut q, &from(id, sender, &format!("text {id}"))).await;
@@ -255,6 +370,31 @@ async fn a_refused_drop_leaves_each_line_as_it_was() {
     assert!(q.drops.is_empty(), "asked to drop again");
     let texts: Vec<String> = q.waiting.iter().map(text_of).collect();
     assert_eq!(texts, ["first", "second", "third"]);
+}
+
+/// Review of #37203: Claude Code that refuses the drop a withdraw asked for (`cancel_async_message`
+/// unsupported) is not asked to drop a line again: the withdraw takes nothing back, and the next
+/// message goes in as its own line, as after a refused rebatch.
+#[tokio::test]
+async fn a_refused_withdraw_drop_is_not_asked_again() {
+    let (t, mut q) = stepping().await;
+    for (id, sender) in [(2, "lane-a"), (3, "codex-lane")] {
+        write(&t, &mut q, &from(id, sender, &format!("text {id}"))).await;
+        q.settle(&t).await;
+    }
+    let Outbound::Lines(lines) = t.outbound(&withdraw(8, "p3")).await else {
+        panic!("a batched message was refused at once")
+    };
+    q.take(lines);
+    let drop = q.drops.remove(0);
+    let refused = json!({"type": "control_response", "response": {"subtype": "error", "request_id": drop["request_id"], "error": "Unsupported control request subtype: cancel_async_message"}});
+    let answers = t.inbound(&refused).await;
+    assert_eq!(answer(&answers, 8).unwrap().unwrap()["withdrawn"], false, "{answers:?}");
+    q.take(t.take_stdin_replies().await);
+    write(&t, &mut q, &from(4, "lane-c", "text 4")).await;
+    assert!(q.drops.is_empty(), "asked to drop again: {:#?}", q.drops);
+    assert_eq!(q.waiting.len(), 2, "{:#?}", q.waiting.iter().map(text_of).collect::<Vec<_>>());
+    assert_eq!(text_of(&q.waiting[1]), "text 4");
 }
 
 /// The answer was lost while messages were held for a drop: each held message is answered too,

@@ -283,10 +283,11 @@ public final class ChiefFailureLog: @unchecked Sendable {
     }
 }
 
-/// What the bar over the Chief conversation shows: Chief's open question,
-/// else Try Again for Chief's newest turn when it failed.
+/// What the bar over the Chief conversation shows: Try Again for Chief's
+/// newest turn when it failed, why Chief is unavailable, or the Mac away.
+/// Chief's open questions get no bar (Aziz 2026-11-10: "get rid of this
+/// toast"): Chief asks in its message, and a reply in the chat answers it.
 public enum ChiefBarItem: Equatable, Sendable {
-    case question(AgentQuestion)
     /// `id` is the failed message's id.
     case failure(id: String, ChiefTurnFailure)
     /// The Mac's Chief can't be reached: why, and whether Try Again is running.

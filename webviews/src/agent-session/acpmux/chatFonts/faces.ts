@@ -6,12 +6,15 @@ import atkinson from "./AtkinsonHyperlegibleNext-latin-wght.woff2";
 import cmuxSans from "./cmuxSans-latin-wght.woff2";
 import geist from "./Geist-latin-wght.woff2";
 import hanken from "./HankenGrotesk-latin-wght.woff2";
+import inter from "./Inter-latin-wght.woff2";
 import plex from "./IBMPlexSans-latin-wght.woff2";
 import roboto from "./Roboto-latin-wght.woff2";
 import sourceSans from "./SourceSans3-latin-wght.woff2";
 import { BUNDLED_FAMILY, type BundledChatFont } from "../chatUiFont";
 
 const FILES: Record<BundledChatFont, string> = {
+  "inter-tuned": inter,
+  inter,
   roboto,
   plex,
   "source-sans": sourceSans,
@@ -24,7 +27,8 @@ const FILES: Record<BundledChatFont, string> = {
 /** Declares `font`'s face (the Latin subset of its weight axis) in this document, once, and
  * resolves when it has loaded (or failed to, which leaves the stack's next face drawing). */
 export async function installChatFontFace(font: BundledChatFont): Promise<void> {
-  const id = `cmux-chat-font-${font}`;
+  // By family: cmux Inter's two choices share one face.
+  const id = `cmux-chat-font-${BUNDLED_FAMILY[font].replaceAll(" ", "-")}`;
   if (!document.getElementById(id)) {
     const style = document.createElement("style");
     style.id = id;

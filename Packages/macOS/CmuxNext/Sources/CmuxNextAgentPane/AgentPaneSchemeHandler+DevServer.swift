@@ -45,7 +45,10 @@ extension AgentPaneSchemeHandler {
         Task { @MainActor [weak self] in
             var reply: (Data, [String: String])?
             let request = server.request(for: remote)
-            if let (body, response) = await PageDevServer.fetch(request), server.answered(response, to: request), response.statusCode < 400 {
+            // The document must be HTML, else the bundled pane: an answer drawn as text shows its source.
+            let document = remote.path.hasSuffix("/agent-pane/index.html")
+            if let (body, response) = await PageDevServer.fetch(request), server.answered(response, to: request), response.statusCode < 400,
+               !document || PageDevServer.isHTML(response.value(forHTTPHeaderField: "Content-Type")) {
                 let type = response.value(forHTTPHeaderField: "Content-Type") ?? "application/octet-stream"
                 var headers = ["Content-Type": type, "Content-Length": String(body.count), "Cache-Control": "no-store",
                                "X-Content-Type-Options": "nosniff"]

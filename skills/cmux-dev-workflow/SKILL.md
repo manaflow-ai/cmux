@@ -50,3 +50,8 @@ The installed pre-commit hook normalizes staged project files and registers new
 Python tests in `tests/test-execution.d/` (one file per area). Preserve it and
 run `python3 scripts/verify-local.py --only project` after project edits. Toolchain
 pin changes are deliberate team decisions; see [project normalization](references/xcode-project-normalization.md).
+
+## Hooks and lints
+
+Web lints, the cmux-next pre-push gate and the post-edit and pre-commit hooks:
+[hooks and lints](references/hooks-and-lints.md).

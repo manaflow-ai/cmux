@@ -8,10 +8,11 @@
 // own: compare the arms of traySurface.experiment.ts (view Compare arms); `tint` ships.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, row, user } from "../../../gallery/fixtures/acpmux";
-import { minutesAgo } from "../../../gallery/clock";
+import { recentRun } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
 import { traySurfaceLook } from "./traySurface.experiment";
+import { RUNNING_TRAY_LIST_LINE } from "./subagentSelectors";
 
 const ended = (name: string, minutes: number, ran: number): Subagent => ({
   id: `agent-${name.toLowerCase().replaceAll(" ", "-")}`,
@@ -19,8 +20,8 @@ const ended = (name: string, minutes: number, ran: number): Subagent => ({
   name,
   task: name,
   state: "completed",
-  startedAt: minutesAgo(minutes),
-  endedAt: minutesAgo(minutes - ran),
+  // What ended lingers in the hat only for its grace (trayLinger.ts): it ended just now.
+  ...recentRun(minutes, ran),
 });
 
 const settled = (count: number) =>
@@ -47,7 +48,7 @@ const open = async (ctx: PlayContext) => {
   const head = () => ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
   await ctx.waitFor(head);
   if (head()!.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: ".acpmux-running-tray__head" });
-  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray__list .acpmux-agent-line").length >= 4);
+  await ctx.waitFor(() => ctx.document.querySelectorAll(RUNNING_TRAY_LIST_LINE).length >= 4);
   if (ctx.document.querySelector(".acpmux-running-tray__finished")) throw new Error("the tray has no View all");
   const mark = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head .acpmux-lineage__icon");
   if (mark && getComputedStyle(mark).visibility !== "hidden") throw new Error("the header shows no mark");

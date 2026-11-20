@@ -14,6 +14,7 @@ struct ConductorImportWireTests {
         "setup": "bun install", "teardown": null, "run": [{"id": "web", "command": "bun dev"}],
         "aliases": [["CONDUCTOR_PORT", "CMUX_PORT"]], "worktreeinclude": [".env"], "env_names": ["API_KEY"],
         "notes": [{"code": "not-imported", "detail": "spotlight_testing"}],
+        "recipe": {"project_path": "/Users/me/src/app", "setup": "bun install", "run": "bun dev", "include": [".env"]},
         "workspaces": [
          {"id": "w-lima", "name": "lima", "branch": "leo/lima", "path": "/Users/me/conductor/workspaces/app/lima",
           "disposition": {"kind": "adopt"}, "checked": true,
@@ -46,6 +47,11 @@ struct ConductorImportWireTests {
         #expect(plan.adopting.first?.workspace.chats?.transcripts == 2)
         #expect(plan.recoverable.map(\.id) == ["w-oslo"])
         #expect(plan.recoverable.first?.disposition.from == "0123abcd")
+        // A recipe saves as cmux's worktree recipe; a project without one (r2) saves none.
+        #expect(plan.recipes.map(\.project.repoID) == ["r1"])
+        #expect(plan.recipes.first?.recipe.worktree == .object([
+            "setup": .string("bun install"), "run": .string("bun dev"), "include": .array([.string(".env")]),
+        ]))
     }
 
     @Test func nothingFoundIsNoPlan() throws {

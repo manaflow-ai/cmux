@@ -153,8 +153,7 @@ pub(super) fn open_in_app(
     // The caller's session: no session named, by the server's options or
     // by the call (a named session is in `global.session` or the plan).
     let named = plan.params.get("session").and_then(Value::as_str);
-    let caller_route = global.socket.is_none()
-        && global.session.is_none()
+    let caller_route = super::wire::routes_to_caller_session(global)
         && named.is_none_or(|session| session == "current");
     let _ = reader.get_mut().set_read_timeout(super::wire::response_read_timeout(plan, true));
     Some(open(reader, &mut app, plan, caller_route, key))
@@ -190,7 +189,7 @@ pub(super) fn open(
     let opened = run_open(app, url, engine, target.as_deref(), caller.as_ref(), &key);
     let (reply, tab, on_default_pane) = match opened {
         // The window shows a page: no focused pane to open in.
-        Err(failure) if target.is_none() && never_ran(&failure) => {
+        Err(failure) if target.is_none() && opens_on_default_pane(&failure) => {
             // No default pane either: the app's refusal says why.
             let Ok(default) = read(reader, ResourceOperation::TabGet, default_pane_tab(&route))
                 .and_then(|tab| string_field(&tab, "id", "tab"))
@@ -278,6 +277,15 @@ pub(super) fn never_ran(failure: &Failure) -> bool {
     let Failure::Resource(error) = failure else { return false };
     let details = &error["details"];
     error["code"] == "unavailable" || details["not_run"] == true || details["state"] == "not_run"
+}
+
+/// Whether an untargeted run the app refused opens on the daemon's default
+/// pane instead (the window shows a page, so there is no focused pane). A
+/// caller the app cannot place (`caller_unavailable`) never does: the default
+/// pane is the focused workspace, Home, not the agent's own (user, 2026-11-18).
+pub(super) fn opens_on_default_pane(failure: &Failure) -> bool {
+    never_ran(failure)
+        && !matches!(failure, Failure::Resource(error) if error["code"] == "caller_unavailable")
 }
 
 /// The `tab.get` selector for the shown tab of the daemon's default pane
@@ -463,7 +471,10 @@ fn mutate(
     send_request(reader, &encoded)?;
     match read_response(reader, &id).map_err(response_failure)? {
         Ok(result) => Ok(result),
-        Err(error) => Err(Failure::Resource(error)),
+        Err(error) => Err(Failure::Resource(
+            super::older_daemon::replace(reader, &error, operation.wire_name(), None)
+                .unwrap_or(error),
+        )),
     }
 }
 

@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { useAppPanelSections } from "./panels";
 import { MockAppPanelsClient } from "./panelsMock";
+import { teardownDom } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
 const globals = globalThis as Record<string, unknown>;
@@ -18,12 +19,8 @@ const replacements = {
 };
 const saved = Object.keys(replacements).map((key) => [key, key in globals, globals[key]] as const);
 Object.assign(globals, replacements);
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) globals[key] = value;
-    else delete globals[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope: globals });
 });
 
 class Host extends MockAppPanelsClient {
@@ -69,4 +66,40 @@ test("new inline contexts keep mounts; switching chat and closing pane release t
     container.remove();
   }
   expect(host.count("unmount")).toBe(4);
+});
+
+function Sections({ host }: { host: Host }) {
+  const panels = useAppPanelSections({ session_id: "chat", cwd: "/projects/atlas" }, host);
+  return <>{panels.map((panel) => panel.node)}</>;
+}
+
+test("a mount draws its scene, then the failure row in its place, reloads from it and reports its height", async () => {
+  const host = new Host();
+  host.panels = host.panels.slice(0, 1);
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => {
+      root.render(<Sections host={host} />);
+    });
+    const mount = container.querySelector<HTMLElement>(".cmux-app-scene-mount")!;
+    expect(mount.getAttribute("data-status")).toBe("ready");
+    expect(mount.querySelectorAll('[data-app-type="Row"]')).toHaveLength(3);
+    // The first layout report (JSDOM measures 0).
+    expect(host.layouts).toEqual([{ mount_id: "mock-panel-1", height: 0 }]);
+    await act(async () => {
+      host.status("mock-panel-1", "failed", "init: TypeError: x is not a function");
+    });
+    expect(mount.getAttribute("data-status")).toBe("failed");
+    expect(mount.querySelector('[data-app-type="Row"]')).toBeNull();
+    const reload = mount.querySelector<HTMLButtonElement>('[data-action="reload"]')!;
+    const before = host.count("reload");
+    act(() => reload.click());
+    expect(host.count("reload")).toBe(before + 1);
+    expect(host.reloads).toEqual(["mock-panel-1"]);
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
 });

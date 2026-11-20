@@ -49,7 +49,13 @@ struct WorkspaceFoldLineModel: Equatable {
     var typeSize: DynamicTypeSize
     var canReconnect: Bool
     var sameNames: MacNameDisambiguation
-    var now: Date
+}
+
+/// A view that reads the minute clock in its own body, so a tick redraws it and not the list
+/// that holds it (a Mac line's "Last seen 4m ago").
+struct OnMinute<Content: View>: View {
+    let content: (Date) -> Content
+    var body: some View { content(MinuteClock.shared.now) }
 }
 
 /// The Workspaces list's sections and items, as the collection shows them.
@@ -132,6 +138,9 @@ struct WorkspacesCollection: UIViewRepresentable {
 /// navigation bar's scroll edge, the search drawer and the tab bar's
 /// minimize on scroll follow it.
 final class WorkspacesCollectionView: UICollectionView {
+    /// VoiceOver's three-finger scroll down at the top refreshes, as it does with `UIRefreshControl`.
+    var accessibilityRefresh: (() -> Bool)?
+
     override func didMoveToWindow() {
         super.didMoveToWindow()
         guard window != nil else { return }
@@ -144,6 +153,11 @@ final class WorkspacesCollectionView: UICollectionView {
             }
             responder = next
         }
+    }
+
+    override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
+        if direction == .up, accessibilityRefresh?() == true { return true }
+        return super.accessibilityScroll(direction)
     }
 }
 
@@ -178,6 +192,9 @@ final class WorkspacesHeightCache {
     private(set) var hits = 0
 
     func height(_ key: Key, width: CGFloat) -> CGFloat? {
+        // A Mac line's "Last seen 4m ago" moves on in its own view (`OnMinute`) with no new
+        // value, so its height is measured each time, never cached (a few lines, one per Mac).
+        if case .fold = key.item { return nil }
         if let shape = shape(key.item), let known = shapes[shape], known.width == width {
             hits += 1
             return known.height
@@ -188,6 +205,7 @@ final class WorkspacesHeightCache {
     }
 
     func store(_ key: Key, width: CGFloat, height: CGFloat) {
+        if case .fold = key.item { return }
         if let shape = shape(key.item) {
             shapes[shape] = (width, height)
         } else {
@@ -274,7 +292,8 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
     private var pendingAnimated = false
     private var applyScheduled = false
     private var membershipKey: Int?
-    private var refreshControl: UIRefreshControl?
+    /// Pull to refresh under the search field (`ListPullToRefresh` says why not `UIRefreshControl`).
+    private var pullToRefresh: ListPullToRefresh?
     /// Snapshots and reconfigures applied (tests and the rig read them).
     private(set) var applyCount = 0
     private(set) var reconfigureCount = 0
@@ -503,21 +522,34 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
     }
 
     private func configureRefresh(_ wanted: Bool) {
-        guard let collectionView, wanted != (refreshControl != nil) else { return }
+        guard let collectionView, wanted != (pullToRefresh != nil) else { return }
         if wanted {
-            let refresh = UIRefreshControl()
-            refresh.addAction(UIAction { [weak self, weak refresh] _ in
-                Task { @MainActor in
-                    await self?.actions?.refresh?()
-                    refresh?.endRefreshing()
-                }
-            }, for: .valueChanged)
-            collectionView.refreshControl = refresh
-            refreshControl = refresh
+            pullToRefresh = ListPullToRefresh(scrollView: collectionView) { [weak self] in
+                await self?.actions?.refresh?()
+            }
+            collectionView.accessibilityRefresh = { [weak self] in self?.pullToRefresh?.accessibilityRefresh() ?? false }
         } else {
-            collectionView.refreshControl = nil
-            refreshControl = nil
+            pullToRefresh?.detach()
+            pullToRefresh = nil
+            collectionView.accessibilityRefresh = nil
         }
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        pullToRefresh?.scrolled()
+    }
+
+    func scrollViewDidChangeAdjustedContentInset(_ scrollView: UIScrollView) {
+        pullToRefresh?.scrolled()
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        pullToRefresh?.endedDecelerating()
+    }
+
+    func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,
+                                   targetContentOffset: UnsafeMutablePointer<CGPoint>) {
+        pullToRefresh?.willEndDragging(targetContentOffset: targetContentOffset)
     }
 
     // MARK: Rows

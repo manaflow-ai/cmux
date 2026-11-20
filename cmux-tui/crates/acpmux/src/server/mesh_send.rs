@@ -92,7 +92,7 @@ pub(super) async fn relay(
             let carried = carried(&delivery.request, &delivery.target).ok()?;
             let message = OutMessage {
                 to,
-                from: sender(hub, delivery.caller.as_deref(), carried.named),
+                from: sender(hub, delivery.caller.as_deref(), carried.named, carried.claim),
                 kind: Kind::Prompt,
                 op: None,
                 body: carried.body,
@@ -114,13 +114,14 @@ pub(super) async fn relay(
     }))
 }
 
-/// What the relay carries of a `session/prompt` request: its text, its mode, its prompt id and
-/// the display name it claims.
+/// What the relay carries of a `session/prompt` request: its text, its mode, its prompt id, the
+/// display name it claims and the harness it says it came from.
 struct Carried {
     body: String,
     mode: Mode,
     prompt_id: String,
     named: Option<String>,
+    claim: Option<Value>,
 }
 
 /// `request` as the relay carries it, or the refusal for what it cannot carry: an attachment,
@@ -167,16 +168,19 @@ fn carried(request: &Value, target: &str) -> Result<Carried, RpcError> {
             .filter(|id| !id.is_empty())
             .map_or_else(|| uuid::Uuid::now_v7().to_string(), str::to_owned),
         named: field("fromAgent").and_then(Value::as_str).map(str::to_owned),
+        // Sanitized, without what this daemon checked: the receiver keeps it as the sender's word.
+        claim: field(crate::sender_harness::META_KEY).and_then(crate::sender_harness::sanitized),
     })
 }
 
 /// The proven caller names the sender; `fromAgent` (anything a client writes) only when no
-/// session is proven, as a display name.
-fn sender(hub: &Hub, caller: Option<&str>, named: Option<String>) -> Sender {
+/// session is proven, as a display name. `claim` is provenance only, never the sender.
+fn sender(hub: &Hub, caller: Option<&str>, named: Option<String>, claim: Option<Value>) -> Sender {
     Sender {
         name: caller.map(|id| hub.session_name(id)).or(named),
         session_id: caller.map(str::to_owned),
         host: Some(crate::pairing::machine_name()),
+        claim,
         ..Sender::default()
     }
 }
@@ -201,7 +205,7 @@ pub(super) async fn send(
     let caller = conn.caller().filter(|_| !conn.is_person());
     let message = OutMessage {
         to: recipient(target),
-        from: sender(hub, caller, carried.named),
+        from: sender(hub, caller, carried.named, carried.claim),
         kind: Kind::Prompt,
         op: None,
         body: carried.body,

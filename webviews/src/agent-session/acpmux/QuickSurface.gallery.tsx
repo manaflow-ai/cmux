@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 import { componentEntry } from "../../gallery/format";
 import { QuickSurface } from "./QuickSurface";
-import type { FloatingStatus, QuickFloating } from "./FloatingChat";
+import type { FloatingStatus, QuickFloating } from "./floatingChatModel";
 
 type Props = {
   mode: "empty" | "transcript" | "waiting" | "long" | "floating" | "compact";

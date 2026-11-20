@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+public import CmuxNextHomeModel
 
 /// The first-run panel's inputs from the host (`HomeFirstRunView`): shortcuts, agents, the
 /// Chief's face, the pet row's state and the hero's Debug Settings switch; and the

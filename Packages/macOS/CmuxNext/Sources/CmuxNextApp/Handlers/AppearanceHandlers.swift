@@ -2,6 +2,7 @@ import CmuxNextActions
 import CoreGraphics
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 
 /// Animation speed, titlebar style, interface size (the chrome body
 /// font; terminal fonts come from the Ghostty config) and pane chrome
@@ -16,17 +17,16 @@ enum AppearanceHandlers {
         registry.bind("appearance.customize", run: { invocation in
             try context.services.settingsWindow.show(section: .appearance, focus: invocation.allowsViewChange)
         })
-        // Change Background… (the window's or a chat's empty-space menu) opens Settings on the art
-        // picker, which can also set the clicked (else the shown) workspace's own background.
+        // Personalization… (the profile menu) opens Settings > Personalization; Change Background… (the
+        // window's or a chat's empty-space menu) opens it on its art picker, which can also set the
+        // clicked (else the shown) workspace's own background.
+        registry.bindEffect("appearance.personalize", requires: nil, effect: { invocation in
+            try context.services.settingsWindow.show(section: nil, focus: invocation.allowsViewChange, route: SettingsDeepLink.personalizationRoute())
+            return .done
+        })
         registry.bind("appearance.changeBackground", run: { invocation in
-            let settings = context.services.settingsWindow
-            let workspace = context.scope(invocation).workspace?.id
-            do {
-                try settings.show(section: .appearance, setting: "appearance.background", focus: invocation.allowsViewChange,
-                                  route: SettingsWindowService.backgroundRoute(workspace: workspace))
-            } catch {
-                try settings.show(section: .appearance, focus: invocation.allowsViewChange)
-            }
+            let route = SettingsDeepLink.personalizationRoute(part: "background", workspace: context.scope(invocation).workspace?.id)
+            try context.services.settingsWindow.show(section: nil, focus: invocation.allowsViewChange, route: route)
         })
         let save: SettingChoiceActions.Save = { path, value in
             if let managed = context.services.settings?.managedKey(forPath: path) { return RefusalStrings.settingManaged(managed.key) }
@@ -61,14 +61,14 @@ enum AppearanceHandlers {
         }
         registry.bind("appearance.glass.lens.toggle", run: { _ in GlassLensMode.choose(GlassLensMode.tunable.value(in: tunables).lensToggled, in: tunables) })
         // On while the Debug choice refracts (Lens or Spectrum): the toggle turns either back to Plain Glass.
-        ActionTargetTitles.setPaletteState("appearance.glass.lens.toggle", in: registry) { GlassLensMode.tunable.value(in: tunables) != .plain }
+        ActionTargetTitles.setPaletteSettingState("appearance.glass.lens.toggle", in: registry) { GlassLensMode.tunable.value(in: tunables) != .plain }
         registry.bind("appearance.interfaceSize.reset", run: { _ in
             let path = context.design.interfaceSizePath; try requireUnmanaged(path, context); context.design.resetInterfaceSize()
             context.writeSetting("reset interface size", path, nil, reloadOnFailure: true)
         })
     }
 
-    private static let uiScalePath = UIScaleSetting().configPath
+    private static let uiScalePath = UIScaleSetting.configPath
 
     /// `window.titlebar`: applied at once, then written to cmux.json.
     private static func setTitlebar(_ style: TitlebarStyle, _ context: AppActionContext) throws {
@@ -96,7 +96,7 @@ enum AppearanceHandlers {
 
     private static func resetUIScale(_ context: AppActionContext) throws {
         try requireUnmanaged(uiScalePath, context)
-        context.design.uiScale = CGFloat(UIScaleSetting().fallback)
+        context.design.uiScale = CGFloat(UIScaleSetting.fallback)
         context.writeSetting("reset interface scale", uiScalePath, nil, reloadOnFailure: true)
     }
 

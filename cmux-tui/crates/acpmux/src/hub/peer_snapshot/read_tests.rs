@@ -49,7 +49,11 @@ fn sign_out_clears_queued_peer_snapshots_and_bars_late_old_instance_captures() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-ps-clear");
     let hub = hub_at(dir.path());
     let peer = add_idle_peer(&hub, "huge-blue");
-    hub.apply_peer_notice("huge-blue", peer.generation, PeerNotice::Sessions(vec![row(42)]));
+    hub.apply_peer_notice(
+        "huge-blue",
+        peer.generation,
+        PeerNotice::sessions_from_values(vec![row(42)]),
+    );
     capture(&hub, &peer, &page(1..=6));
     let query = json!({"host": "huge-blue", "sessionId": "m1"});
     assert_eq!(seqs(&hub.peer_snapshot(&query).unwrap()), vec![1, 2, 3, 4, 5, 6]);
@@ -62,7 +66,11 @@ fn sign_out_clears_queued_peer_snapshots_and_bars_late_old_instance_captures() {
     );
     assert_eq!(hub.clear_peer_snapshots().unwrap(), json!({"cleared": true}));
     // A pending watch and attach from that same peer cannot resurrect its disk copy.
-    hub.apply_peer_notice("huge-blue", peer.generation, PeerNotice::Sessions(vec![row(42)]));
+    hub.apply_peer_notice(
+        "huge-blue",
+        peer.generation,
+        PeerNotice::sessions_from_values(vec![row(42)]),
+    );
     capture(&hub, &peer, &page(1..=8));
     assert!(seqs(&hub.peer_snapshot(&query).unwrap()).is_empty());
     // No disk copy is left for a restarted daemon to read.
@@ -70,7 +78,11 @@ fn sign_out_clears_queued_peer_snapshots_and_bars_late_old_instance_captures() {
     assert!(!disk::path(&disk::root(&home), &("huge-blue".into(), "m1".into())).unwrap().exists());
     // A new account's new peer instance is allowed, even under the same peer/session names.
     let newer = add_idle_peer(&hub, "huge-blue");
-    hub.apply_peer_notice("huge-blue", newer.generation, PeerNotice::Sessions(vec![row(42)]));
+    hub.apply_peer_notice(
+        "huge-blue",
+        newer.generation,
+        PeerNotice::sessions_from_values(vec![row(42)]),
+    );
     capture(&hub, &newer, &page(1..=3));
     assert_eq!(seqs(&hub.peer_snapshot(&query).unwrap()), vec![1, 2, 3]);
 }
@@ -80,7 +92,11 @@ fn sign_out_clears_a_previous_runs_unread_copy_with_no_registered_peer() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-ps-clear-old");
     let old = hub_at(dir.path());
     let peer = add_idle_peer(&old, "huge-blue");
-    old.apply_peer_notice("huge-blue", peer.generation, PeerNotice::Sessions(vec![row(42)]));
+    old.apply_peer_notice(
+        "huge-blue",
+        peer.generation,
+        PeerNotice::sessions_from_values(vec![row(42)]),
+    );
     capture(&old, &peer, &page(1..=6));
     // A lease may already have ended; clearing must scan all files, not only live peers/rows.
     // Each daemon's shutdown seal passes the journal's lock to the next one.
@@ -98,7 +114,11 @@ fn offline_sign_out_removes_a_previous_runs_peer_snapshot_files() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-ps-offline");
     let old = hub_at(dir.path());
     let peer = add_idle_peer(&old, "huge-blue");
-    old.apply_peer_notice("huge-blue", peer.generation, PeerNotice::Sessions(vec![row(42)]));
+    old.apply_peer_notice(
+        "huge-blue",
+        peer.generation,
+        PeerNotice::sessions_from_values(vec![row(42)]),
+    );
     capture(&old, &peer, &page(1..=6));
     // The daemon's shutdown seal: the journal's lock passes to the next one.
     old.seal();
@@ -113,7 +133,11 @@ fn a_down_peers_chat_reads_stale_without_a_countdown_across_a_restart() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-psr");
     let hub = hub_at(dir.path());
     let peer = add_idle_peer(&hub, "huge-blue");
-    hub.apply_peer_notice("huge-blue", peer.generation, PeerNotice::Sessions(vec![row(42)]));
+    hub.apply_peer_notice(
+        "huge-blue",
+        peer.generation,
+        PeerNotice::sessions_from_values(vec![row(42)]),
+    );
     capture(&hub, &peer, &page(1..=6));
     let down = PeerNotice::Disconnected("connect timed out".into());
     hub.apply_peer_notice("huge-blue", peer.generation, down);
@@ -149,7 +173,7 @@ fn a_down_peers_chat_reads_stale_without_a_countdown_across_a_restart() {
     assert!(got["summary"].get("retry").is_none(), "{got}");
 
     // No row lists it any more (a lease that ended with its VM): host and id.
-    again.remote_sessions.lock().unwrap().retain(|_, _| false);
+    again.remote_sessions.write().retain(|_, _| false);
     let got = again.peer_snapshot(&json!({"host": "huge-blue", "sessionId": "m1"})).unwrap();
     assert_eq!(seqs(&got), (1..=6).collect::<Vec<_>>());
     assert_eq!(got["summary"]["name"], "huge-blue/lane", "the kept row");
@@ -164,10 +188,18 @@ fn a_row_with_another_generation_reads_nothing_and_its_listing_drops_the_copy() 
     let dir = cmux_unix_socket::short_test_dir("acpmux-psr");
     let hub = hub_at(dir.path());
     let peer = add_idle_peer(&hub, "huge-blue");
-    hub.apply_peer_notice("huge-blue", peer.generation, PeerNotice::Sessions(vec![row(42)]));
+    hub.apply_peer_notice(
+        "huge-blue",
+        peer.generation,
+        PeerNotice::sessions_from_values(vec![row(42)]),
+    );
     capture(&hub, &peer, &page(1..=3));
     // The peer recreated the session under the same id.
-    hub.apply_peer_notice("huge-blue", peer.generation, PeerNotice::Sessions(vec![row(43)]));
+    hub.apply_peer_notice(
+        "huge-blue",
+        peer.generation,
+        PeerNotice::sessions_from_values(vec![row(43)]),
+    );
     let got = hub.peer_snapshot(&json!({"sessionId": "huge-blue/lane"})).unwrap();
     assert_eq!((seqs(&got), got["lastSeq"].clone()), (vec![], json!(0)));
     hub.peer_snapshots.flush_now();
@@ -190,7 +222,11 @@ fn a_copy_that_does_not_read_whole_reads_as_none() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-psr");
     let hub = hub_at(dir.path());
     let peer = add_idle_peer(&hub, "huge-blue");
-    hub.apply_peer_notice("huge-blue", peer.generation, PeerNotice::Sessions(vec![row(42)]));
+    hub.apply_peer_notice(
+        "huge-blue",
+        peer.generation,
+        PeerNotice::sessions_from_values(vec![row(42)]),
+    );
     capture(&hub, &peer, &page(1..=6));
     let home = hub.store.peer_cache_dir().unwrap().parent().unwrap().to_owned();
     let file = disk::path(&disk::root(&home), &("huge-blue".into(), "m1".into())).unwrap();
@@ -212,7 +248,11 @@ fn a_loss_not_sent_yet_goes_before_a_read_of_its_peer() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-psr");
     let hub = hub_at(dir.path());
     let peer = add_idle_peer(&hub, "huge-blue");
-    hub.apply_peer_notice("huge-blue", peer.generation, PeerNotice::Sessions(vec![row(42)]));
+    hub.apply_peer_notice(
+        "huge-blue",
+        peer.generation,
+        PeerNotice::sessions_from_values(vec![row(42)]),
+    );
     capture(&hub, &peer, &page(1..=6));
     {
         // A purge of the peer's that could not be sent (no thread then): its loss waits.

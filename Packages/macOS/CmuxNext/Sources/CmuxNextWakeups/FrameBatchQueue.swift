@@ -6,7 +6,9 @@
 /// app has no frame wakeups. Two kinds:
 /// - A frame queue (``init(owner:scheduler:)``) runs all its work every frame, unbudgeted: work a
 ///   person's action caused (the content a tab switch shows, the page a new tab replaces) is never
-///   held or moved to a later frame. Its work runs as plain calls, with no per-item bookkeeping.
+///   held or moved to a later frame. Its work runs as plain calls, with no per-item bookkeeping; a frame queue on
+///   the app's scheduler (``init(owner:frameOn:)``: the daemon store drain) runs each item as an unbudgeted
+///   ``MainWorkClass/frame`` task of its owner, so the watchdog names it and its time is in the owner's record.
 /// - A budgeted queue (``init(owner:budgeted:on:)``: agent and CLI requests) ticks on
 ///   the app's one ``MainWorkScheduler`` after the higher classes: its work one task at a time, in
 ///   order, while ``MainFrameBudget`` lets the class run (never while a person's input is pending),
@@ -32,6 +34,8 @@ public final class FrameBatchQueue {
         switch source {
         case .frame(let scheduler):
             FrameClient(owner: owner, isAnimation: false, on: scheduler) { [weak self] _ in self?.drainAll() ?? false }
+        case .recordedFrame(let scheduler, let budget, let taskOwner):
+            FrameClient(owner: owner, isAnimation: false, on: scheduler) { [weak self] _ in self?.drainAll(budget, taskOwner) ?? false }
         case .budgeted(let budgeted, let work, let taskOwner):
             FrameClient(owner: owner, budgeted: budgeted, on: work) { [weak self] _, budget in
                 self?.drain(budget, budgeted.workClass, taskOwner) ?? false
@@ -42,6 +46,8 @@ public final class FrameBatchQueue {
     /// Where the queue's frames come from.
     private enum Source {
         case frame(FrameScheduler)
+        /// The app scheduler's frames, its budget (each item a recorded frame task) and the queue's interned owner.
+        case recordedFrame(FrameScheduler, MainFrameBudget, MainTaskOwner)
         /// The class, the app's scheduler, and the queue's owner interned on its board.
         case budgeted(BudgetedWorkClass, MainWorkScheduler, MainTaskOwner)
     }
@@ -55,6 +61,21 @@ public final class FrameBatchQueue {
         self.owner = owner
         workClass = .frame
         source = .frame(scheduler)
+        _ = client
+    }
+
+    /// A queue of frame work on the app's ``MainWorkScheduler``: all of it every frame, unbudgeted, on its link
+    /// (before the budgeted classes), each item run as a ``MainWorkClass/frame`` task of `owner` on its budget, so
+    /// the stall watchdog names it and `debug.main_budget` records its time (main-thread-scheduling.md G4: the
+    /// daemon store drain, owner `daemon.store.drain`).
+    ///
+    /// - Parameters:
+    ///   - owner: The queue's name in the ledger, debug.wakeups and the budget's owner record (interned here, once).
+    ///   - work: The app's one main-thread scheduler.
+    public init(owner: String, frameOn work: MainWorkScheduler) {
+        self.owner = owner
+        workClass = .frame
+        source = .recordedFrame(work.frames, work.budget, work.budget.board.owner(owner))
         _ = client
     }
 
@@ -104,6 +125,18 @@ public final class FrameBatchQueue {
     private func drainAll() -> Bool {
         let end = pending.count
         while head < end { takeHead()?() }
+        compact()
+        return head < pending.count
+    }
+
+    /// Runs everything queued before this frame, each item a frame task of `taskOwner` on `budget`; true while more
+    /// arrived during it.
+    private func drainAll(_ budget: MainFrameBudget, _ taskOwner: MainTaskOwner) -> Bool {
+        let end = pending.count
+        while head < end {
+            let work = takeHead()
+            budget.run(.frame, owner: taskOwner) { work?() }
+        }
         compact()
         return head < pending.count
     }

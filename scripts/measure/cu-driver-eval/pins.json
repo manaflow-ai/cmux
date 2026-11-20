@@ -61,5 +61,26 @@
       "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.38.0/cua-driver-rs-v0.38.0-skills.tar.gz",
       "sha256": "0fe3d607e7212d6c58072a2419163342061dcf5cb89ba1243dea593d7e33be0f"
     }
+  },
+  "arena": {
+    "about": "The computer-use arena (arena/README.md). engines: the open PR commits it builds (cu-fast cmux#36993, cu-rewrite cmux#37003, chief-desktop cmux#36515); bump a sha to measure a newer push, or pass cu_fast=/cu_rewrite=/chief_desktop= for one run.",
+    "engines": {
+      "cu-fast": "5afce481ace753ddff5c19426d07f27bef10009f",
+      "cu-rewrite": "44c9b14d556ae75c1ae3f0dfe4e1935fd66d681d",
+      "chief-desktop": "f2c598174fedfe817d094d519cd692407345a7ac"
+    },
+    "claude_code": {
+      "version": "2.1.310",
+      "url": "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/2.1.310/darwin-arm64/claude",
+      "sha256": "ffb64331bc0ee1b69efb7c2c428bd3ab516bc31b75bf60886b356c97c1c25ffd",
+      "why": "a Claude Code that knows claude-opus-5-5 and claude-sonnet-5-5 and --effort; the native binary"
+    },
+    "codex": {
+      "version": "0.164.0",
+      "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.164.0-darwin-arm64.tgz",
+      "sha256": "9b5a35be1975ceb332eaf274032f375b017ab644ff0165737ead03277fae77cd",
+      "bin_dir": "package/vendor/aarch64-apple-darwin/bin",
+      "why": "the Codex CLI the team's lanes run (codex-cli 0.164.0), as npm installs it: codex and the codex-code-mode-host it runs MCP tools through (the release tarball has no host, and every tool call failed without it)"
+    }
   }
 }

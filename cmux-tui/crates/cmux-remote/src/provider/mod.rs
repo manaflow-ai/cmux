@@ -5,9 +5,12 @@
 //! this boundary, so a relay or a TLS terminator is never an authority.
 
 mod dial;
+pub mod hedge;
 #[cfg(feature = "iroh-transport")]
 mod iroh;
 mod iroh_config;
+#[cfg(unix)]
+mod machine_pipe;
 #[cfg(unix)]
 pub mod overlay;
 mod relay;
@@ -42,13 +45,19 @@ pub use iroh::{
 pub use iroh_config::{
     CMUX_IROH_ALPN, IrohPathMode, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL,
 };
+#[cfg(unix)]
+pub use machine_pipe::{
+    MACHINE_PIPE_METHOD, MachinePipeDialer, machine_pipe_reply, machine_pipe_request,
+};
 pub use relay::{
     RelayClientConfig, RelayCredentialSource, RelayDaemonConfig, RelayDaemonRegistration,
-    RelayProvider, register_relay_daemon, register_relay_daemon_with_credentials,
+    RelayIncoming, RelayProvider, RelayTls, register_relay_daemon,
+    register_relay_daemon_with_credentials, register_relay_daemon_with_tls,
+    spawn_relay_daemon_registration,
 };
 pub use ssh::{
-    REMOTE_LINK_MUX_SOCKET_CAPABILITY, REMOTE_LINK_STRICT_FLAGS_CAPABILITY, SshProvider,
-    SshProviderConfig,
+    REMOTE_LINK_MUX_SOCKET_CAPABILITY, REMOTE_LINK_STRICT_FLAGS_CAPABILITY, SSH_STDERR_MARK,
+    SshProvider, SshProviderConfig, one_line, ssh_stderr_of,
 };
 pub use stream::LengthDelimitedLink;
 #[cfg(unix)]
@@ -138,7 +147,9 @@ pub struct LinkRequest {
 ///
 /// Device authentication includes enrolled devices and invitation enrollment.
 /// Carrier authentication is restricted to transports whose local endpoint
-/// verifies the peer independently, currently Unix sockets and SSH.
+/// verifies the peer independently, currently Unix sockets and SSH. A carrier
+/// grant proves itself (a signed token bound to the client's Noise key), so
+/// every transport may carry one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SupportedClientAuthModes {
     DeviceOnly,
@@ -149,11 +160,11 @@ impl SupportedClientAuthModes {
     pub fn supports(self, auth: AuthKind) -> bool {
         // Keep both enums exhaustive so new modes require an explicit trust-boundary decision.
         match (self, auth) {
-            (Self::DeviceOnly, AuthKind::Enrolled | AuthKind::Invitation) => true,
+            (Self::DeviceOnly, AuthKind::Enrolled | AuthKind::Invitation | AuthKind::Grant) => true,
             (Self::DeviceOnly, AuthKind::Carrier) => false,
             (
                 Self::DeviceOrCarrier,
-                AuthKind::Enrolled | AuthKind::Invitation | AuthKind::Carrier,
+                AuthKind::Enrolled | AuthKind::Invitation | AuthKind::Carrier | AuthKind::Grant,
             ) => true,
         }
     }
@@ -299,8 +310,24 @@ impl ProviderError {
     /// Whether a provider failed because its current carrier path disappeared
     /// or could not be established. Configuration, authentication, and
     /// protocol failures remain terminal.
+    ///
+    /// A far refusal ([`LinkError::Refused`]) counts as retryable here, as it did before it had
+    /// a type: an established link keeps redialing through one (a far daemon restarting answers
+    /// `service.off` for a moment). Only a first connect ends on it, by asking [`Self::refusal`]
+    /// first.
     pub fn is_retryable_carrier_failure(&self) -> bool {
-        matches!(self, Self::Link(LinkError::Closed | LinkError::Transport(_)))
+        matches!(
+            self,
+            Self::Link(LinkError::Closed | LinkError::Transport(_) | LinkError::Refused(_))
+        )
+    }
+
+    /// The far side's refusal, when it refused the route for good ([`LinkError::Refused`]).
+    pub fn refusal(&self) -> Option<&crate::link::Refusal> {
+        match self {
+            Self::Link(error) => error.refusal(),
+            _ => None,
+        }
     }
 }
 
@@ -315,6 +342,7 @@ impl fmt::Display for ProviderError {
                     AuthKind::Enrolled => "enrolled-device",
                     AuthKind::Invitation => "invitation",
                     AuthKind::Carrier => "carrier",
+                    AuthKind::Grant => "carrier-grant",
                 };
                 write!(
                     formatter,

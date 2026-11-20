@@ -453,3 +453,100 @@ fn layout_undo_after_a_reopen_leaves_the_reopened_splits() {
     assert_eq!(error.downcast_ref::<LayoutUndoError>(), Some(&LayoutUndoError::Unavailable));
     assert_eq!(layout_of(&mux, "undo"), before);
 }
+
+/// A conversation tab (an agent pane, or a viewer page) of `record` in `pane`,
+/// or moved into a new pane split right of it at 0.4 of the width, named `name`.
+fn named_conversation(
+    mux: &Arc<Mux>,
+    pane: PaneId,
+    split: bool,
+    record: Value,
+    name: &str,
+) -> SurfaceId {
+    use crate::state::conversation_tabs::ConversationTabTarget;
+    use crate::state::conversation_tabs_store::ConversationTabRecord;
+    let record = ConversationTabRecord::from_wire(&record).unwrap();
+    let target = ConversationTabTarget::Pane(Some(pane));
+    let surface = mux
+        .new_conversation_tab_as(&crate::Actor::local_user(), target, record, None, None, None)
+        .unwrap()
+        .surface
+        .id;
+    assert!(mux.rename_surface(surface, name.to_string()));
+    if split {
+        mux.move_tab_to_split(surface, pane, TabDropEdge::Right, Some(0.4), None).unwrap();
+    }
+    surface
+}
+
+/// Two agent panes side by side; close the right one, then Reopen Closed: it
+/// opens straight in its split on the right, under its own id, at its share,
+/// in one `pane-added`. The left (main) pane never lists it, so no client
+/// plays a tab open there before the right side opens (Leo 2026-11-07: "it
+/// should just reopen on the right straight up").
+#[test]
+fn a_reopened_right_agent_pane_opens_in_its_split_never_in_the_main_pane() {
+    let records = [
+        json!({"agent_session": {"host": "install:mac-test", "session": "ses-right"}}),
+        json!({"page": "markdown", "route": "/notes/plan.md"}),
+    ];
+    for (index, right_record) in records.into_iter().enumerate() {
+        let mux = Mux::new_for_test("closed-layout-right-agent", SurfaceOptions::default());
+        mux.new_workspace(Some("keeper".into()), None).unwrap();
+        let first = mux.new_workspace(Some("agents".into()), None).unwrap().id;
+        let left = pane_of(&mux, first);
+        let left_agent =
+            json!({"agent_session": {"host": "install:mac-test", "session": "ses-left"}});
+        named_conversation(&mux, left, false, left_agent, "left");
+        let right = named_conversation(&mux, left, true, right_record, "right");
+        let right_pane = pane_of(&mux, right);
+        assert_ne!(right_pane, left);
+        let right_id = mux.with_state(|state| state.resource_indexes.tab_ids[&right].to_string());
+        let before = layout_of(&mux, "agents");
+        assert!(mux.close_surface(right).unwrap());
+        assert_ne!(layout_of(&mux, "agents"), before, "the right pane closed with its tab");
+
+        let events = mux.subscribe();
+        let reopened = mutate(&mux, "closed.reopen", json!({}), &format!("reopen-{index}"));
+        assert_eq!(reopened["tab_ids"][0], right_id, "it comes back under its own id");
+        let deltas = events
+            .try_iter()
+            .filter_map(|event| match event {
+                MuxEvent::TreeDelta(delta) => Some(delta),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let in_main = deltas
+            .iter()
+            .filter(|delta| delta.pane == Some(left))
+            .filter(|delta| {
+                matches!(delta.kind, TreeDeltaKind::TabAdded | TreeDeltaKind::TabClosed)
+            })
+            .collect::<Vec<_>>();
+        assert!(in_main.is_empty(), "the main pane never lists the reopened tab: {in_main:?}");
+        let added = deltas
+            .iter()
+            .filter(|delta| delta.kind == TreeDeltaKind::PaneAdded)
+            .collect::<Vec<_>>();
+        assert_eq!(added.len(), 1, "one pane-added: {deltas:?}");
+        let tabs = added[0].entity["tabs"].as_array().unwrap();
+        assert_eq!(
+            tabs.len(),
+            1,
+            "the new pane holds the tab when it appears: {}",
+            added[0].entity
+        );
+        assert_eq!(layout_of(&mux, "agents"), before, "back in its split at its share");
+        // Layout undo right after has nothing to fold back: it never closes the reopened tab.
+        let reopened_pane = pane_of(
+            &mux,
+            mux.with_state(|state| {
+                state.resource_indexes.tabs[&TabPublicId::parse(right_id.clone()).unwrap()]
+            }),
+        );
+        let error = mux.undo_layout(reopened_pane, None, false).unwrap_err();
+        assert_eq!(error.downcast_ref::<LayoutUndoError>(), Some(&LayoutUndoError::Unavailable));
+        assert_eq!(layout_of(&mux, "agents"), before, "the undo left the reopened pane");
+        mux.shutdown();
+    }
+}

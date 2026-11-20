@@ -25,14 +25,46 @@ pub const OPTION: &str = "prompt-suggestions";
 /// Longest suggestion passed on; a longer one is not a next prompt.
 const MAX_CHARS: usize = 2_000;
 
-/// The global switch as the settings file says now (on when unset or unreadable).
-pub fn enabled_in_settings() -> bool {
-    match crate::user_settings::read() {
-        crate::user_settings::Settings::Parsed(doc) => {
-            crate::user_settings::value(&doc, SETTING).and_then(|v| v.as_bool()).unwrap_or(true)
-        }
-        _ => true,
+/// The value MDM or the team policy forces for [`SETTING`], as the app last pushed it
+/// (`_acpmux/chat_settings` `promptSuggestions`, `promptSuggestionsManaged`; kept in
+/// `start-mode.json` across a restart, `hub/start_mode_state.rs`): 0 nothing forced, 1 off, 2 on.
+/// acpmux reads only the settings file, so without the push a managed value never reached it.
+static MANAGED: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Records the forced value (`None`: nothing forces it).
+pub(crate) fn set_managed(forced: Option<bool>) {
+    let raw = match forced {
+        None => 0,
+        Some(false) => 1,
+        Some(true) => 2,
+    };
+    MANAGED.store(raw, Ordering::Relaxed);
+}
+
+pub(crate) fn managed() -> Option<bool> {
+    match MANAGED.load(Ordering::Relaxed) {
+        1 => Some(false),
+        2 => Some(true),
+        _ => None,
     }
+}
+
+/// The switch from a forced value and the file's: a forced value beats the file either way;
+/// with nothing forced, the file's value, on when unset.
+pub(crate) fn effective(forced: Option<bool>, file: Option<bool>) -> bool {
+    forced.or(file).unwrap_or(true)
+}
+
+/// The global switch now: what MDM or the team policy forces, else what the settings file says
+/// (on when unset or unreadable).
+pub fn enabled_in_settings() -> bool {
+    let file = match crate::user_settings::read() {
+        crate::user_settings::Settings::Parsed(doc) => {
+            crate::user_settings::value(&doc, SETTING).and_then(|v| v.as_bool())
+        }
+        _ => None,
+    };
+    effective(managed(), file)
 }
 
 /// A chat's saved `prompt-suggestions` value as its pick: on unless it says off.

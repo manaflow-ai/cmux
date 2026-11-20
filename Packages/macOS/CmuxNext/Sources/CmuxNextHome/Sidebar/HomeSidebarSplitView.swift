@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextHomeModel
 import Observation
 
 /// The Home page's two columns with a real divider: the resize cursor over a

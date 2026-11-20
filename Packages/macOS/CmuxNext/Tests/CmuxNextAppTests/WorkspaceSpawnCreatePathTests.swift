@@ -66,14 +66,22 @@ import Testing
     @Test func theRowRuleKeepsTheCurrentAnchorOnlyWhenPlacedFromIt() {
         let top = NewWorkspaceDefaultSlot(placement: .top, current: "w1"), after = NewWorkspaceDefaultSlot(placement: .afterCurrent, current: "w1")
         let plain = WorkspaceSpawn(newTabPage: true)
-        #expect(plain.placement(byDefault: top).row == top && plain.placement(byDefault: top).rule == top)
-        #expect(plain.placement(byDefault: nil).row == nil && plain.placement(byDefault: nil).rule == nil)
+        #expect(plain.placement(setting: top).row == top && plain.placement(setting: top).rule == top)
         var notFromCurrent = plain; notFromCurrent.placesFromCurrent = false
-        #expect(notFromCurrent.placement(byDefault: top).row?.current == nil)
-        #expect(notFromCurrent.placement(byDefault: after).row?.current == "w1", "afterCurrent always places after it")
+        #expect(notFromCurrent.placement(setting: top).row?.current == nil)
+        #expect(notFromCurrent.placement(setting: after).row?.current == "w1", "afterCurrent always places after it")
         var notBySetting = plain; notBySetting.placesBySetting = false
-        #expect(notBySetting.placement(byDefault: top).row?.current == nil)
-        #expect(notBySetting.placement(byDefault: top).rule == nil, "only a create placed by the setting gives the daemon a rule")
+        #expect(notBySetting.placement(setting: top).row?.current == nil)
+        #expect(notBySetting.placement(setting: top).rule == nil, "only a create placed by the setting gets a rule")
+    }
+
+    /// A create with a slot of its own (New Workspace Below) shows no default row, and keeps the rule as the fallback
+    /// for a slot whose anchor closes during the create, never the daemon's place (Leo 2026-11-06).
+    @Test func aCreateWithItsOwnSlotKeepsTheRuleOnlyAsItsFallback() {
+        let after = NewWorkspaceDefaultSlot(placement: .afterCurrent, current: "w1")
+        var below = WorkspaceSpawn(newTabPage: true); below.slot = .below("w2")
+        #expect(below.placement(setting: after).row == nil)
+        #expect(below.placement(setting: after).rule == after)
     }
 
     /// `WorkspaceSpawner.create`'s first terminal options, moved with the same answers.

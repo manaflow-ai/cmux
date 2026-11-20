@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextPages
 import CmuxNextCloud
 import Foundation
 

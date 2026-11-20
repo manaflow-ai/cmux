@@ -12,6 +12,7 @@ use serde_json::{Value, json};
 use crate::automation::{Automation, AutomationSpec, Body, Handoff};
 use crate::catch_up::CatchUp;
 use crate::clock::Zone;
+use crate::gate::Gate;
 use crate::trigger::Trigger;
 
 /// Where an automation can move.
@@ -113,6 +114,9 @@ pub struct ImportSpec {
     pub timeout_seconds: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sharing: Option<String>,
+    /// The condition and guardrails (a machine's import keeps them).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gate: Option<Gate>,
     pub handoff: ImportHandoff,
 }
 
@@ -138,6 +142,7 @@ pub fn export_spec(a: &Automation, handoff: &Handoff, local_zone: &str) -> Impor
         catch_up: Some(a.catch_up.name().to_string()),
         timeout_seconds: Some(a.timeout_seconds),
         sharing: None,
+        gate: (a.gate != Gate::default()).then(|| a.gate.clone()),
         handoff: ImportHandoff {
             id: handoff.id.clone(),
             from: a.home.clone(),
@@ -222,6 +227,7 @@ impl ImportSpec {
             catch_up,
             timeout_seconds: self.timeout_seconds.unwrap_or(30 * 60),
             enabled: self.enabled,
+            gate: self.gate.clone().unwrap_or_default(),
         })
     }
 }

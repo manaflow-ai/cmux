@@ -40,7 +40,10 @@ public final class ChatOpenTrace {
              // Whether the open's tab took the prewarmed page (`AgentTabStore.view(for:)`,
              // AgentPaneSpareReadiness): adopted it; found none parked; found one not ready (still
              // connecting, Low Power Mode, thermal); or the page refused (a person touched it).
-             spareAdopted, spareEmpty, spareUnready, spareRefused
+             spareAdopted, spareEmpty, spareUnready, spareRefused,
+             // A fork (Fork Conversation): the forking chat's page asked the host to open the fork
+             // (`chat.openTab`, after acpmux answered the fork).
+             forkOpenAsked
 
         /// The mark's name in `debug.chat_open_trace` results.
         public var name: String {
@@ -65,6 +68,7 @@ public final class ChatOpenTrace {
             case .spareEmpty: "spare_empty"
             case .spareUnready: "spare_unready"
             case .spareRefused: "spare_refused"
+            case .forkOpenAsked: "fork_open_asked"
             }
         }
     }
@@ -88,6 +92,15 @@ public final class ChatOpenTrace {
 
         /// Nothing of the chat and nothing kept: what reads as a black or empty pane.
         public var isEmpty: Bool { self == .cover || self == .pageEmpty }
+
+        /// A shown page's surface: content once its paint probe reported the first frame
+        /// (`probed`), or once the page's own after-render report revealed it (`pageReported`)
+        /// and Blink reported a contentful paint (`contentfulPaint`). A chat's copy drawn before
+        /// its bundle (webviews chatSnapshot/) is on screen then, while the probe's report can
+        /// reach a busy main thread at launch half a second later.
+        public static func shownPage(probed: Bool, pageReported: Bool, contentfulPaint: Bool) -> Surface {
+            probed || (pageReported && contentfulPaint) ? .page : .pageEmpty
+        }
     }
 
     /// One trace.

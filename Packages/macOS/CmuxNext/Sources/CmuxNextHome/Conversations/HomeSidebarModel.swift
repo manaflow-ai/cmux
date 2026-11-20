@@ -1,4 +1,5 @@
 public import CmuxHomeCore
+public import CmuxNextHomeModel
 public import Foundation
 
 /// One avatar circle: initials over a muted gradient picked from a stable seed.

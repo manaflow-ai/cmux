@@ -1,6 +1,8 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextOnboarding
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -23,7 +25,7 @@ struct HistoryFirstRunRoutingTests {
     @Test func noWindowKeepsTheOfferEligibleAndAShownPageConsumesIt() throws {
         _ = NSApplication.shared
         let suite = "cmux-history-first-run-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let key = "home.firstRun.historyImportShown"
         let services = AppServices(environment: AppEnvironment.current([:]))
@@ -60,7 +62,7 @@ struct HistoryFirstRunRoutingTests {
     @Test func aShowcaseLaunchKeepsItsWorkspaceShown() throws {
         _ = NSApplication.shared
         let suite = "cmux-history-showcase-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let services = AppServices(environment: AppEnvironment.current(["CMUX_NEXT_SHOWCASE": "1"]))
         let page = HistoryPage()
@@ -83,7 +85,7 @@ struct HistoryFirstRunRoutingTests {
 
     @Test func anExistingInstallationNeverGetsFirstRunHistory() throws {
         let suite = "cmux-history-upgrade-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let services = AppServices(environment: AppEnvironment.current([:]))
         let page = HistoryPage()
@@ -93,5 +95,18 @@ struct HistoryFirstRunRoutingTests {
         #expect(defaults.bool(forKey: "home.firstRun.historyImportShown"))
         services.onboarding.showHistoryAtFirstRun(isFirstRun: true, defaults: defaults)
         #expect(page.made == 0)
+    }
+
+    /// The hang-report card skips a first launch: it is first until Bring your history's once flag is set.
+    @Test func aLaunchIsFirstUntilTheHistoryStepRan() throws {
+        let suite = "cmux-history-first-launch-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        services.pages.register(HistoryPage())
+
+        #expect(OnboardingWindowPresenter.isFirstLaunch(defaults: defaults))
+        services.onboarding.showHistoryAtFirstRun(isFirstRun: false, defaults: defaults)
+        #expect(!OnboardingWindowPresenter.isFirstLaunch(defaults: defaults))
     }
 }

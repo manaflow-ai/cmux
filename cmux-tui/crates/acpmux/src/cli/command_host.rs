@@ -111,11 +111,50 @@ pub enum PeerCmd {
         #[arg(long)]
         local_only: bool,
     },
-    /// Request screen/control consent through the daemon. Changing it requires
-    /// the local app's person proof; a shell or agent cannot grant consent.
+    /// Record that the signed-in person signs out of the cmux app, before the app asks the daemon
+    /// to leave (no daemon needed): the daemon's next leave or start leaves the join signing in
+    /// made for `--user-id`, and nothing of another account's. The cmux app runs it.
+    LeaveIntent {
+        /// The platform user id of the account signing out.
+        #[arg(long)]
+        user_id: String,
+        /// When the app saw the sign-out (Unix ms; default: now). An intent from before that
+        /// account's last sign-in here is stale and not recorded.
+        #[arg(long)]
+        signed_out_at: Option<u64>,
+    },
+    /// Enroll this machine on the hub as the signed-in person, the way signing in to the cmux
+    /// app does: mints a single-use join token with the person's cmux access token, read from
+    /// stdin (never argv), and redeems it here, recorded under `--user-id`. A joined, revoked or
+    /// other person's machine, or one joined under no account, is left as it is, and with no
+    /// `--user-id` nothing is enrolled. For scripts; a box with no sign-in still uses a pair code
+    /// or join line.
+    EnrollSelf {
+        /// Read the cmux access token from stdin (required).
+        #[arg(long, required = true)]
+        access_token_stdin: bool,
+        /// Platform origin; defaults to CMUX_PLATFORM_ORIGIN or production.
+        #[arg(long, visible_alias = "origin")]
+        hub: Option<String>,
+        /// A DEV build's tag, added to this machine's name.
+        #[arg(long)]
+        build_tag: Option<String>,
+        /// The signed-in person's platform user id, the account the join is recorded under.
+        #[arg(long)]
+        user_id: Option<String>,
+    },
+    /// Screen/control consent. From the cmux app (its person proof), or as this Mac's admin
+    /// with sudo (`sudo acpmux machine consent grant --control`); a plain shell is refused.
     Consent {
         #[command(subcommand)]
         cmd: ConsentCmd,
+    },
+    /// This Mac's Cloud tunnel on the team mesh, through the daemon: attach, detach, rekey.
+    /// The daemon takes them only from the cmux app (its person proof), with the person's
+    /// cmux access token on stdin; a shell or agent is refused.
+    Tunnel {
+        #[command(subcommand)]
+        cmd: TunnelCmd,
     },
     /// The person's vault on this joined machine: env vars and API keys kept
     /// once for every machine, stored in the OS secret store and given to
@@ -148,6 +187,15 @@ pub enum PeerCmd {
         /// keeps it off across updates; remove it to turn the timer on).
         #[arg(long)]
         no_auto_update: bool,
+        /// Replace the machine's acpmux even when it is built from a newer
+        /// commit than this one (the machine refuses that otherwise).
+        #[arg(long)]
+        allow_downgrade: bool,
+        /// Restart the daemon even when an update restarted it in the last
+        /// hour. Without it the machine refuses inside that hour, in its own
+        /// install step, and nothing is changed.
+        #[arg(long)]
+        now: bool,
     },
     /// Copy this binary to a machine you added (or every one with --all) and restart
     /// its daemon. The previous binary is kept and put back when the
@@ -171,6 +219,18 @@ pub enum PeerCmd {
         /// than the one pushed, or one with local changes: never a move back.
         #[arg(long)]
         keep_newer: bool,
+        /// Restart the daemon even when an update (this one, another machine's,
+        /// or the machine's own acpmux-update.timer) restarted it in the last
+        /// hour. Without it such a machine is left alone (`busy`, reason
+        /// `restartWindow`) until the hour is over.
+        #[arg(long)]
+        now: bool,
+        /// Install the pushed binary even when the machine's acpmux is built
+        /// from a newer commit. Without it the machine refuses that move back
+        /// (`current`, reason `newerInstalled`) in its own install step, so a
+        /// push from an older build never undoes its self-update.
+        #[arg(long)]
+        allow_downgrade: bool,
     },
     /// Hold a machine (a machine name or its ssh host) off `machine update`: the
     /// update, `--all` and the app's own update queue leave it alone (`held`)
@@ -194,11 +254,17 @@ pub enum PeerCmd {
     /// the installed ~/.local/bin/acpmux differs from the channel's, download
     /// this machine's binary, check its sha256, install it and restart the
     /// daemon, agents kept; a daemon that does not come back on it is rolled
-    /// back. Prints the row `machine update` prints for a machine.
+    /// back. An update restarts the daemon at most once an hour, whichever
+    /// update it is (this one or `machine update` from another machine);
+    /// within the hour the machine is left alone until the next run. Prints
+    /// the row `machine update` prints for a machine.
     SelfUpdate {
         /// The channel to follow.
         #[arg(long, default_value = "feat-cmux-next")]
         channel: String,
+        /// Restart the daemon even when an update restarted it in the last hour.
+        #[arg(long)]
+        now: bool,
     },
     /// Add a machine in one go: check ssh, install this build, start the
     /// daemon, copy harness profiles and add it here (and, with --reverse,
@@ -262,6 +328,25 @@ pub enum PeerCmd {
         #[arg(long)]
         probe: bool,
     },
+    /// This machine's ssh public key: the one line a new machine lists in its
+    /// ~/.ssh/authorized_keys, and the command that adds it there. --create makes an
+    /// ed25519 key when this machine has none (never over an existing key).
+    Key {
+        #[arg(long)]
+        create: bool,
+    },
+    /// Claude Code and Codex on MACHINE (a machine name or ssh host): installed, signed
+    /// in, and what can be offered. Nothing installs or signs in unless a flag asks.
+    Agents {
+        #[arg(value_name = "MACHINE")]
+        target: String,
+        /// Install it there with its vendor's official installer (`harness install`).
+        #[arg(long, value_name = "ID", conflicts_with = "login")]
+        install: Option<String>,
+        /// Sign it in there, in this terminal (`harness login` over ssh -t).
+        #[arg(long, value_name = "ID")]
+        login: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -275,6 +360,24 @@ pub enum VaultCmd {
     /// Remove this machine's vault env values and its vault state. The daemon
     /// pulls again while the vault is shared with this machine.
     Forget,
+    /// Keep a key an agent made on this machine, with no sign-in or click: the
+    /// value comes piped on stdin (never argv) and goes to the Keychain or
+    /// Secret Service only. Agents started from then on get the placeholder
+    /// `cmux-secret://NAME`, which the egress proxy fills only in HTTPS
+    /// requests to the --host patterns. Example:
+    /// `mint-token | acpmux machine vault keep DEPLOY_TOKEN --host api.example.com`.
+    Keep {
+        /// The env name agents get, like DEPLOY_TOKEN.
+        name: String,
+        /// Where the key may be sent: a host or `*.domain` (repeatable).
+        #[arg(long = "host", value_name = "H")]
+        hosts: Vec<String>,
+        /// Give agents the value itself instead (weaker: agents can read it).
+        #[arg(long, conflicts_with = "hosts")]
+        env: bool,
+    },
+    /// Remove a kept key (`keep`) from this machine.
+    Drop { name: String },
 }
 
 #[derive(Subcommand)]
@@ -330,24 +433,51 @@ pub enum DepsCmd {
 }
 
 #[derive(Subcommand)]
+pub enum TunnelCmd {
+    /// Put this Mac in its team's WireGuard peer map.
+    Attach {
+        /// The team network id; it must be this Mac's own team.
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+    },
+    /// Take this Mac out of its team's peer map until the next attach.
+    Detach {
+        /// The team network id; it must be this Mac's own team.
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+    },
+    /// Give this Mac a new WireGuard key (in the process that holds the key).
+    Rekey,
+}
+
+#[derive(Subcommand)]
 pub enum ConsentCmd {
-    /// Ask the app to grant screen or control consent (exactly one of --screen, --control).
+    /// Grant screen, control or signed-in-machines consent (exactly one). Under sudo it is set
+    /// here as this Mac's admin; otherwise the daemon takes it only from the cmux app.
+    #[command(group(clap::ArgGroup::new("surface").required(true).args(["screen", "control", "signed_in_machines"])))]
     Grant {
         /// Screen recording.
-        #[arg(long, conflicts_with = "control", required_unless_present = "control")]
+        #[arg(long)]
         screen: bool,
         /// Keyboard and mouse control.
         #[arg(long)]
         control: bool,
+        /// Control from this person's other machines signed in to the same account.
+        #[arg(long)]
+        signed_in_machines: bool,
     },
-    /// Ask the app to revoke screen or control consent (exactly one of --screen, --control).
+    /// Revoke screen, control or signed-in-machines consent (exactly one), the same ways.
+    #[command(group(clap::ArgGroup::new("surface").required(true).args(["screen", "control", "signed_in_machines"])))]
     Revoke {
         /// Screen recording.
-        #[arg(long, conflicts_with = "control", required_unless_present = "control")]
+        #[arg(long)]
         screen: bool,
         /// Keyboard and mouse control.
         #[arg(long)]
         control: bool,
+        /// Control from this person's other machines signed in to the same account.
+        #[arg(long)]
+        signed_in_machines: bool,
     },
 }
 

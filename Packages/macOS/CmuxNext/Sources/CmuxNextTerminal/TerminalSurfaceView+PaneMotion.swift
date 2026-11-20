@@ -115,8 +115,8 @@ extension TerminalSurfaceView: PaneMotionTargeting {
 /// (Lawrence's P0): in every frame of the drag and of its release each terminal shows its text at that frame's pane size,
 /// never frozen or anchored. The surface takes its pane's size in every frame through the placement
 /// any resize uses (`TerminalHostView` `placeSurface`, the frame owner's ``place(_:anchor:)``), and the reflow preview
-/// re-wraps its text at that size. The program gets its size while it moves, coalesced as Ghostty.app does (cmux-ad m29:
-/// ``TerminalGridReporter``), and the newest at the release (a full-screen program froze with one grid). Before, the drag hold
+/// re-wraps its text at that size. The program gets its size while it moves, at most once per refresh (cmux-ad m29,
+/// RESIZE P0 6: ``TerminalGridReporter``), and the newest at the release (a full-screen program froze with one grid). Before, the drag hold
 /// (`terminalDrag.holdSurface`, RESIZE VIDEOS A3) kept the drag-start size and text through the drag, and the release's
 /// spring held its final size (pixel-perfect's trace, STATUS 13764: 157-159 held ticks in col-drag-2, the surface up to
 /// 150 pt off its pane).

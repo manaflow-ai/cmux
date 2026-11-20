@@ -9,7 +9,7 @@ use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -36,8 +36,12 @@ pub struct ClientConfig {
 /// Create parameters whose meaning is only safe when the selected backend
 /// advertises the corresponding capability. The legacy size object and name
 /// are supported by the compatibility path; named sizes are backend-specific.
-pub const ADVANCED_CREATE_FIELDS: &[&str] =
-    &["size_name", "idle_seconds", "bootstrap", "machine_config_base64"];
+pub const ADVANCED_CREATE_FIELDS: &[&str] = &[
+    "size_name",
+    "idle_seconds",
+    "bootstrap",
+    "machine_config_base64",
+];
 
 /// Fail closed before a machine-create request is sent when a parameter needs
 /// a backend capability that was not advertised by `/v1/client-config`.
@@ -74,6 +78,17 @@ pub fn check_create_capabilities(selection: &Selection, params: &Value) -> Resul
     Ok(())
 }
 
+/// Whether a create's parameters name a field whose meaning needs a backend capability
+/// (check_create_capabilities). `null` is an omitted field.
+pub(crate) fn create_needs_capabilities(params: &Value) -> Result<bool, String> {
+    let object = params
+        .as_object()
+        .ok_or_else(|| "machine create parameters must be a JSON object".to_owned())?;
+    Ok(ADVANCED_CREATE_FIELDS
+        .iter()
+        .any(|field| object.get(*field).is_some_and(|value| !value.is_null())))
+}
+
 pub(crate) fn cached(
     resolver: &Resolver,
     mut selection: Selection,
@@ -91,6 +106,24 @@ pub(crate) fn cached(
     validate(&config, &origin)?;
     apply(&mut selection, config, ConfigSource::Cache);
     Ok(Some(selection))
+}
+
+/// The launch answer that needs no fetch: a valid cache, else a known deployment's built-in
+/// configuration. None (fetch) for a custom origin with no cache or any unreadable cache.
+pub(crate) fn without_fetch(resolver: &Resolver, mut selection: Selection) -> Option<Selection> {
+    match cached(resolver, selection.clone()) {
+        Ok(Some(cached)) => Some(cached),
+        Ok(None)
+            if !matches!(
+                Environment::parse(&selection.api_origin),
+                Ok(Environment::LocalOrigin(_)) | Err(_)
+            ) =>
+        {
+            selection.config_source = ConfigSource::KnownOriginFallback;
+            Some(selection)
+        }
+        Ok(None) | Err(_) => None,
+    }
 }
 
 fn cache_path(resolver: &Resolver, origin: &str) -> Result<std::path::PathBuf, String> {
@@ -114,12 +147,18 @@ pub(crate) async fn resolve(
     // Short bounded fetches keep launch responsive; cache or the known-origin
     // fallback covers backend outages without mixing sign-in credentials.
     let client = reqwest::Client::builder()
+        .default_headers(cmux_build_space::headers().map_err(|error| error.to_string())?)
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(2))
         .timeout(Duration::from_secs(5))
         .build()
         .map_err(|error| format!("create client-config HTTP client: {error}"))?;
-    let response = client.get(format!("{origin}/v1/client-config")).send().await;
+    // The fence for this fetch's cache write: a fetch that started earlier never replaces it.
+    let started = fetch_stamp();
+    let response = client
+        .get(format!("{origin}/v1/client-config"))
+        .send()
+        .await;
     let path = cache_path(resolver, &origin)?;
     match response {
         Ok(response) if response.status() == reqwest::StatusCode::OK => {
@@ -132,7 +171,7 @@ pub(crate) async fn resolve(
             let config: ClientConfig = serde_json::from_slice(&body)
                 .map_err(|error| format!("invalid client-config from {origin}: {error}"))?;
             validate(&config, &origin)?;
-            atomic_cache(&path, &body)?;
+            fenced_cache(&path, &body, started)?;
             apply(&mut selection, config, ConfigSource::Backend);
             Ok(selection)
         }
@@ -143,7 +182,10 @@ pub(crate) async fn resolve(
             if response.status().is_client_error()
                 && response.status() != reqwest::StatusCode::NOT_FOUND =>
         {
-            Err(format!("client-config refused by {origin}: HTTP {}", response.status()))
+            Err(format!(
+                "client-config refused by {origin}: HTTP {}",
+                response.status()
+            ))
         }
         Ok(response) if response.status().is_success() => Err(format!(
             "unexpected client-config success status from {origin}: {}",
@@ -169,7 +211,9 @@ fn cached_or_fallback(
             // Temporary compatibility only for known deployments. A custom
             // local API must expose its actual configuration.
             if matches!(Environment::parse(origin)?, Environment::LocalOrigin(_)) {
-                return Err(format!("client-config unavailable and no cache for {origin}"));
+                return Err(format!(
+                    "client-config unavailable and no cache for {origin}"
+                ));
             }
             selection.config_source = ConfigSource::KnownOriginFallback;
         }
@@ -218,19 +262,58 @@ pub(crate) fn is_loopback_origin(value: &str) -> bool {
     })
 }
 
+/// A tailnet backend: `https://<host>.<tailnet>.ts.net[:port]`, the name Tailscale Serve gives a
+/// dev VM's per-tag stack. HTTPS only (Serve's certificate); a bare `ts.net` or an IP never matches.
+pub(crate) fn is_tailnet_origin(value: &str) -> bool {
+    url::Url::parse(value).is_ok_and(|url| {
+        url.scheme() == "https"
+            && matches!(url.host(), Some(url::Host::Domain(_)))
+            && url.host_str().is_some_and(|host| {
+                host.strip_suffix(".ts.net").is_some_and(|name| {
+                    name.split('.').count() >= 2
+                        && name.split('.').all(|label| {
+                            !label.is_empty()
+                                && label
+                                    .bytes()
+                                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+                        })
+                })
+            })
+    })
+}
+
+fn host(value: &str) -> Option<String> {
+    url::Url::parse(value).ok()?.host_str().map(str::to_owned)
+}
+
 fn allowed_origin(value: &str, selected: &str) -> Result<(), String> {
     let origin = bare_origin(value)?;
     if is_loopback_origin(&origin) {
         return if is_loopback_origin(selected) {
             Ok(())
         } else {
-            Err(format!("remote client-config cannot name a loopback origin: {value}"))
+            Err(format!(
+                "remote client-config cannot name a loopback origin: {value}"
+            ))
+        };
+    }
+    // A tailnet stack may name its own other services (same host, any port); no other backend
+    // may send credentials to a tailnet host.
+    if is_tailnet_origin(&origin) {
+        return if is_tailnet_origin(selected) && host(&origin) == host(selected) {
+            Ok(())
+        } else {
+            Err(format!(
+                "client-config cannot name another tailnet host: {value}"
+            ))
         };
     }
     if approved_remote_host(&origin) {
         Ok(())
     } else {
-        Err(format!("client-config service origin is outside the approved host policy: {value}"))
+        Err(format!(
+            "client-config service origin is outside the approved host policy: {value}"
+        ))
     }
 }
 
@@ -238,7 +321,9 @@ fn allowed_origin(value: &str, selected: &str) -> Result<(), String> {
 /// destinations. Keep that data constrained to domains operated by cmux (and
 /// Stack's documented API) so a compromised response cannot exfiltrate tokens.
 fn approved_remote_host(origin: &str) -> bool {
-    let Ok(url) = url::Url::parse(origin) else { return false };
+    let Ok(url) = url::Url::parse(origin) else {
+        return false;
+    };
     if url.scheme() != "https" || url.host_str().is_none() {
         return false;
     }
@@ -254,7 +339,10 @@ fn approved_remote_host(origin: &str) -> bool {
 
 fn validate(config: &ClientConfig, selected: &str) -> Result<(), String> {
     if config.version != 1 {
-        return Err(format!("unsupported client-config version: {}", config.version));
+        return Err(format!(
+            "unsupported client-config version: {}",
+            config.version
+        ));
     }
     if bare_origin(&config.configuration.api_origin)? != selected {
         return Err("client-config API origin differs from the selected backend".into());
@@ -281,6 +369,46 @@ fn validate(config: &ClientConfig, selected: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// When a fetch started, in ms since the epoch: what its cache write is fenced by.
+fn fetch_stamp() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since| since.as_millis())
+}
+
+/// Writes a fetched client-config unless a fetch that started later already wrote one, and answers
+/// whether it wrote. Two processes can fetch at once (a launch's refresh still running when the next
+/// launch's starts, a `cloud env get` beside them), and their answers land in any order: without
+/// this an older answer could replace a newer one. Each write keeps its fetch's start beside the
+/// cache (`.started`), checked and written under an exclusive lock on `.lock`.
+fn fenced_cache(path: &Path, body: &[u8], started: u128) -> Result<bool, String> {
+    let stamp = path.with_extension("json.started");
+    let lock_path = path.with_extension("json.lock");
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("create client-config cache: {error}"))?;
+    }
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let lock = options
+        .open(&lock_path)
+        .map_err(|error| format!("open client-config lock: {error}"))?;
+    lock.lock()
+        .map_err(|error| format!("lock client-config cache: {error}"))?;
+    let newer = fs::read_to_string(&stamp)
+        .ok()
+        .and_then(|text| text.trim().parse::<u128>().ok())
+        .is_some_and(|written| written > started);
+    if newer {
+        return Ok(false);
+    }
+    atomic_cache(path, body)?;
+    atomic_cache(&stamp, started.to_string().as_bytes())?;
+    Ok(true)
+}
+
 fn atomic_cache(path: &Path, body: &[u8]) -> Result<(), String> {
     let parent = path.parent().ok_or("client-config cache has no parent")?;
     fs::create_dir_all(parent).map_err(|error| format!("create client-config cache: {error}"))?;
@@ -289,11 +417,14 @@ fn atomic_cache(path: &Path, body: &[u8]) -> Result<(), String> {
     options.write(true).create_new(true);
     #[cfg(unix)]
     options.mode(0o600);
-    let mut file =
-        options.open(&temporary).map_err(|error| format!("create client-config cache: {error}"))?;
+    let mut file = options
+        .open(&temporary)
+        .map_err(|error| format!("create client-config cache: {error}"))?;
     let result = (|| {
-        file.write_all(body).map_err(|error| format!("write client-config cache: {error}"))?;
-        file.sync_all().map_err(|error| format!("sync client-config cache: {error}"))?;
+        file.write_all(body)
+            .map_err(|error| format!("write client-config cache: {error}"))?;
+        file.sync_all()
+            .map_err(|error| format!("sync client-config cache: {error}"))?;
         drop(file);
         fs::rename(&temporary, path)
             .map_err(|error| format!("replace client-config cache: {error}"))?;
@@ -370,6 +501,45 @@ mod tests {
         check_create_capabilities(&selection, &serde_json::json!({"size_name": "large"})).unwrap();
     }
 
+    #[tokio::test]
+    async fn check_create_reads_the_backend_only_for_a_field_that_needs_a_capability() {
+        // The app runs check-create before every Cloud create, on the create's path. A create that names no
+        // advanced field needs no capability: it must answer without a client-config round trip. Against a
+        // backend that takes the connection and never answers, any fetch waits out its 5 s timeout.
+        let silent = TcpListener::bind("127.0.0.1:0").unwrap();
+        silent.set_nonblocking(true).unwrap();
+        let origin = format!("http://{}", silent.local_addr().unwrap());
+        let home = Home::new();
+        let resolver = Resolver::new(crate::DEV_BUNDLE, &home.0).unwrap();
+        let selected = resolver.resolve(Some(&origin)).unwrap();
+        let plain = serde_json::json!({
+            "name": "chat",
+            "size": {"cpu": 2, "memory_mb": 4096, "disk_mb": 16384},
+            "size_name": null,
+        });
+        let started = std::time::Instant::now();
+        let checked = resolver.check_create(selected.clone(), &plain).await;
+        let elapsed = started.elapsed();
+        assert!(checked.is_ok(), "{checked:?}");
+        assert!(elapsed < Duration::from_secs(1), "{elapsed:?}");
+        assert!(
+            matches!(silent.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
+            "check-create of a plain create connected to the backend"
+        );
+        drop(silent);
+
+        // A field that needs a capability still reads the backend's advertised capabilities, and fails closed.
+        let (origin, server) =
+            serve(|origin| http_json(&serde_json::to_string(&config(origin)).unwrap()));
+        let selected = resolver.resolve(Some(&origin)).unwrap();
+        let refused = resolver
+            .check_create(selected, &serde_json::json!({"size_name": "large"}))
+            .await
+            .unwrap_err();
+        server.join().unwrap();
+        assert!(refused.contains("machine_create.size_name"), "{refused}");
+    }
+
     #[test]
     fn project_change_isolates_historical_credentials() {
         let home = Home::new();
@@ -400,7 +570,10 @@ mod tests {
         ] {
             let mut invalid = valid.clone();
             invalid.configuration.auth_web_origin = origin.into();
-            assert!(validate(&invalid, crate::DEVELOPMENT_API).is_err(), "{origin}");
+            assert!(
+                validate(&invalid, crate::DEVELOPMENT_API).is_err(),
+                "{origin}"
+            );
         }
         let mut dynamic = valid.clone();
         dynamic.configuration.share_room_origin = "https://links.cmux.dev".into();
@@ -434,7 +607,9 @@ mod tests {
         let server_origin = origin.clone();
         let server = std::thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
-            socket.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
             let mut reader = BufReader::new(socket.try_clone().unwrap());
             let mut request = String::new();
             reader.read_line(&mut request).unwrap();
@@ -446,7 +621,9 @@ mod tests {
                     break;
                 }
             }
-            socket.write_all(response(&server_origin).as_bytes()).unwrap();
+            socket
+                .write_all(response(&server_origin).as_bytes())
+                .unwrap();
         });
         (origin, server)
     }
@@ -477,13 +654,96 @@ mod tests {
         assert!(resolver.client_config(other).await.is_err());
     }
 
+    #[test]
+    fn a_tailnet_stack_may_name_its_own_host_only_and_no_one_else_may_name_a_tailnet_host() {
+        let stack = "https://cmux-dev-backend-1.tail137216.ts.net:3850";
+        let mut own = config(stack);
+        own.configuration.platform_origin =
+            "https://cmux-dev-backend-1.tail137216.ts.net:3851".into();
+        validate(&own, stack).unwrap();
+        let mut other = config(stack);
+        other.configuration.platform_origin = "https://other-host.tail137216.ts.net".into();
+        assert!(validate(&other, stack).is_err());
+        let mut from_dev = config(crate::DEVELOPMENT_API);
+        from_dev.configuration.platform_origin =
+            "https://cmux-dev-backend-1.tail137216.ts.net:3851".into();
+        assert!(validate(&from_dev, crate::DEVELOPMENT_API).is_err());
+    }
+
+    #[test]
+    fn a_tailnet_launch_reads_without_the_network_and_an_outage_falls_back_to_dev_services() {
+        let stack = "https://cmux-dev-backend-1.tail137216.ts.net:3850";
+        let home = Home::new();
+        let resolver = Resolver::new("com.cmuxterm.app.debug.cnx-tag", &home.0).unwrap();
+        let selected = resolver.resolve(Some(stack)).unwrap();
+        let launch = without_fetch(&resolver, selected.clone()).expect("no fetch at launch");
+        assert_eq!(launch.config_source, ConfigSource::KnownOriginFallback);
+        assert_eq!(launch.api_origin, stack);
+        let path = cache_path(&resolver, stack).unwrap();
+        let fallback = cached_or_fallback(selected, &path, stack).unwrap();
+        assert_eq!(fallback.platform_origin, crate::DEVELOPMENT_PLATFORM);
+    }
+
+    #[tokio::test]
+    async fn cache_first_reads_the_cache_or_a_known_deployment_without_the_network() {
+        // A backend that takes the connection and never answers: any fetch waits out its timeout.
+        let silent = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", silent.local_addr().unwrap());
+        let home = Home::new();
+        let resolver = Resolver::new(crate::DEV_BUNDLE, &home.0).unwrap();
+        let selected = resolver.resolve(Some(&origin)).unwrap();
+        let body = serde_json::to_vec(&config(&origin)).unwrap();
+        atomic_cache(&cache_path(&resolver, &origin).unwrap(), &body).unwrap();
+        let started = std::time::Instant::now();
+        let cached = resolver.client_config_cache_first(selected).await.unwrap();
+        assert_eq!(cached.config_source, ConfigSource::Cache);
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "{:?}",
+            started.elapsed()
+        );
+        drop(silent);
+
+        // A known deployment with no cache takes its built-in configuration, still without a fetch.
+        let known = resolver
+            .client_config_cache_first(resolver.resolve(Some("staging")).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(known.config_source, ConfigSource::KnownOriginFallback);
+
+        // A custom origin with no cache is fetched.
+        let (origin, server) =
+            serve(|origin| http_json(&serde_json::to_string(&config(origin)).unwrap()));
+        let fetched = resolver
+            .client_config_cache_first(resolver.resolve(Some(&origin)).unwrap())
+            .await
+            .unwrap();
+        server.join().unwrap();
+        assert_eq!(fetched.config_source, ConfigSource::Backend);
+    }
+
+    #[test]
+    fn an_older_fetch_never_replaces_a_newer_fetchs_cache() {
+        let home = Home::new();
+        let path = home.0.join("client-config").join("origin.json");
+        assert!(fenced_cache(&path, b"second", 20).unwrap());
+        // The first fetch's answer lands after the second's: it is not written.
+        assert!(!fenced_cache(&path, b"first", 10).unwrap());
+        assert_eq!(fs::read(&path).unwrap(), b"second");
+        // A fetch that started later still replaces it.
+        assert!(fenced_cache(&path, b"third", 30).unwrap());
+        assert_eq!(fs::read(&path).unwrap(), b"third");
+    }
+
     #[tokio::test]
     async fn malformed_success_never_becomes_fallback() {
         let (origin, server) = serve(|_| http_json("{bad"));
         let home = Home::new();
         let resolver = Resolver::new(crate::DEV_BUNDLE, &home.0).unwrap();
-        let error =
-            resolver.client_config(resolver.resolve(Some(&origin)).unwrap()).await.unwrap_err();
+        let error = resolver
+            .client_config(resolver.resolve(Some(&origin)).unwrap())
+            .await
+            .unwrap_err();
         server.join().unwrap();
         assert!(error.contains("invalid client-config"), "{error}");
     }
@@ -495,8 +755,10 @@ mod tests {
         });
         let home = Home::new();
         let resolver = Resolver::new(crate::DEV_BUNDLE, &home.0).unwrap();
-        let error =
-            resolver.client_config(resolver.resolve(Some(&origin)).unwrap()).await.unwrap_err();
+        let error = resolver
+            .client_config(resolver.resolve(Some(&origin)).unwrap())
+            .await
+            .unwrap_err();
         server.join().unwrap();
         assert!(error.contains("redirect refused"), "{error}");
     }

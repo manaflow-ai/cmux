@@ -248,7 +248,7 @@ struct CloudMachineChangeStateTests {
         // The provider's failed resume is now authoritative: the machine is paused with its
         // reason, and the same app link remains available for an explicit retry.
         session.applyRecord(CloudMachine(id: session.machineID, status: .paused,
-                                         lastChangeFailure: .init(code: "cloud.provider.unavailable", message: "provider refused")))
+                                         lastChangeFailure: .init(code: "cloud.provider.unavailable", message: "provider refused", text: "provider refused")))
         #expect(session.machine.status == .paused)
         #expect(session.machine.lastChangeFailure?.text == "provider refused")
         session.retryNow()
@@ -383,7 +383,7 @@ struct CloudMachineChangeStateTests {
         services.machines.add(session)
         defer { cloud.changes.stop(); session.disconnect() }
         let failed = CloudMachine(id: session.machineID, status: .running,
-            lastChangeFailure: .init(code: "pause_failed", message: "provider refused"))
+            lastChangeFailure: .init(code: "pause_failed", message: "provider refused", text: "provider refused"))
         session.connect()
         await resolver.waitForOpen()
         try await cloud.changes.run(.pausing, machineID: session.machineID, of: { session }) {
@@ -409,7 +409,7 @@ struct CloudMachineChangeStateTests {
         try await changes.run(.pausing, machineID: session.machineID, of: { session }) {}
         let mutationID = session.machine.pendingMutationID
         let failure = CloudMachine(id: session.machineID, status: .running,
-            lastChangeFailure: .init(code: "pause_failed", message: "provider refused"))
+            lastChangeFailure: .init(code: "pause_failed", message: "provider refused", text: "provider refused"))
         let stale = changes.applyingPending(to: failure, read: 1)
         #expect(stale.pendingMutationID == mutationID)
         #expect(stale.failedMutationID == nil)
@@ -426,7 +426,7 @@ struct CloudMachineChangeStateTests {
         let pauseID = session.machine.pendingMutationID
         try await changes.run(.deleting, machineID: session.machineID, of: { session }) {}
         let failure = CloudMachine(id: session.machineID, status: .running,
-            lastChangeFailure: .init(code: "delete_failed", message: "provider refused"))
+            lastChangeFailure: .init(code: "delete_failed", message: "provider refused", text: "provider refused"))
         let restored = changes.applyingPending(to: failure)
         #expect(restored.pendingMutationID == pauseID)
         #expect(restored.shownStatus == .pausing)
@@ -591,7 +591,7 @@ struct CloudMachineChangeStateTests {
         #expect(try Self.next(#"{"id":"vm_1","status":"running","error":"odd"}"#).lastChangeFailure == nil)
         #expect(try Self.next(#"{"id":"vm_1","status":"running","error":{"code":"x","message":""}}"#).lastChangeFailure?.text == "x")
         // The `/api/vm` record decodes the same fields.
-        let decoded = try JSONDecoder().decode(CloudMachine.self, from: Data(#"{"id":"vm-1","status":"pausing","error":{"code":"x","message":"y"}}"#.utf8))
+        let decoded = try CloudMachine.classic(Data(#"{"id":"vm-1","status":"pausing","error":{"code":"x","message":"y"}}"#.utf8))
         #expect(decoded.status == .pausing)
         #expect(decoded.lastChangeFailure?.text == "y")
     }
@@ -645,7 +645,7 @@ struct CloudMachineChangeStateTests {
 
     @Test func aFailedChangeShowsOnTheHeader() {
         let session = Self.session(status: .paused)
-        session.machine.lastChangeFailure = .init(code: "cloud.provider.unavailable", message: "no capacity")
+        session.machine.lastChangeFailure = .init(code: "cloud.provider.unavailable", message: "no capacity", text: "no capacity")
         let header = CloudCreationRows.machine(session, compatibility: nil, updates: DaemonUpdateBoard())
         #expect(header.status == .paused, "the machine went back to paused")
         #expect(header.detail?.contains(CloudStrings.changeFailed("no capacity")) == true)
@@ -730,7 +730,7 @@ struct CloudMachineChangeStateTests {
 
     @Test func aFailedMachineSaysTheRecordsErrorOnce() {
         let session = Self.session(status: .failed)
-        session.machine.lastChangeFailure = .init(code: "cloud.provider.unavailable", message: "no capacity")
+        session.machine.lastChangeFailure = .init(code: "cloud.provider.unavailable", message: "no capacity", text: "no capacity")
         let header = CloudCreationRows.machine(session, compatibility: nil, updates: DaemonUpdateBoard())
         #expect(header.detail?.components(separatedBy: "no capacity").count ?? 0 <= 2, "the reason is not repeated")
         session.disconnect()

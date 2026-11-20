@@ -22,5 +22,11 @@ Sizes follow Chrome's layout constants: toolbar icons 20 pt (`kToolbarButtonIcon
 icon left of the URL 16 pt (`kLocationBarLeadingIconSize`), the star 20 pt
 (`kLocationBarTrailingIconSize`). Toolbar buttons highlight in a circle, as Chrome's ink drop does.
 
+Chrome's own glyphs do not share one ink box: its arrows and reload fill 12 dp of the 20 dp canvas,
+its puzzle, star and downloads 16 dp, and the puzzle sits 1 dp off center. A manifest row's `fit`
+(14.4 on the 24 grid, the back arrow's) scales the glyph about its ink and centers it, so every
+toolbar glyph has one ink box at the shared side `DensityTokens.toolbarGlyphSize` (Leo
+2026-11-07). The puzzle uses its 16 dp drawing, whose stroke is closest to the arrows' once fit.
+
 To add an icon: fetch the file at the pinned revision into `src/`, add a manifest row, run
 `python3 scripts/icons/chromium_icons.py && python3 scripts/icons/build_pack.py`.

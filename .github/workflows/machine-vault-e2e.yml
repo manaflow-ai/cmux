@@ -52,7 +52,9 @@ jobs:
     if: github.ref == 'refs/heads/feat-cmux-next'
     # The same environment as machine-join-e2e.yml: limited to feat-cmux-next by GitHub's branch
     # policy (tests/test_machine_vault_e2e_workflow.py pins the job's three secret references).
-    environment: cmux-next-vm-image-dev
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
     # An ephemeral Blacksmith macOS VM, made for this one job and destroyed after it: the job adds an
     # OS user, opens ssh to it and holds the stack secrets, so never a persistent owned Mac (the minis'
     # pools) and never a runner variable that could name one. The AWS Macs have no GitHub runners

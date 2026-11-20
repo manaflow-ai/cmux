@@ -5,7 +5,10 @@
 #
 #   no-app      nothing in the app changes: says so and stops
 #   web-live    patches the PR's web UI in: web-overlay.sh follow PR, no build
-#   daemon, swift-live, rebuild
+#   daemon      swaps the PR's daemon into the app, terminals kept (hot-apply.py apply --branch):
+#               the cmux binary CI published for the PR head's cmux-tui tree, else the one in the
+#               PR's fleet dev build; its web UI, if any, is patched in as for web-live
+#   swift-live, rebuild
 #               says why it needs a new binary, requests the fleet dev build (cmux-ci build cmux,
 #               the same build the HQ request gives, tagged pr-N), waits for it and opens it
 #   ios-only    the Mac app does not change
@@ -35,6 +38,13 @@
 # live-code/ folder, which the running copy loads (with --here, your app's live folder, Labs > Live
 # Code). Anything else takes the dev build, saying why. The verdict is a hint (live_apply.py), so
 # the copy's live-code.log says what it applied or refused.
+#
+# A daemon PR swaps only the daemon: the copy (or, with --here, APP) keeps its own Swift and web, and
+# its daemon hands off to the PR's build the way `cmux live start --rust` does, with every terminal
+# kept. It is refused for the dev build when APP has Rust the PR's branch lacks (APP was built after
+# the PR branched and cmux-tui changed since), when the PR changes Rust the app links (FFI), or when
+# CMUXCommit does not resolve. `scripts/cmux-next/hot-apply.py rollback` (state in the copy's
+# hot-apply/ folder, with --here the default one) puts APP's own daemon back.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -63,6 +73,8 @@ side="$ROOT/scripts/cmux-next/side-instance.sh"
 # SIDE_INSTANCE_PLISTBUDDY: a stand-in for tests, as in side-instance.sh.
 buddy="${SIDE_INSTANCE_PLISTBUDDY:-/usr/libexec/PlistBuddy}"
 name="pr-$pr"
+# What the PR goes into, as messages name it.
+target_name="cmux PR #$pr"; [[ -z "$here" ]] || target_name="your app"
 # Runs a command, or prints it under --dry-run.
 run() {
   if [[ -n "$dry" ]]; then printf 'would run:'; printf ' %q' "$@"; echo; else "$@"; fi
@@ -151,8 +163,8 @@ for kind, paths in sorted(json.load(sys.stdin)["files"].items()):
 fi
 
 # Makes the side instance from APP (again when it was made from another app, APP updated since, or
-# it was made with another --live-code), then opens it.
-open_side() {
+# it was made with another --live-code).
+make_side() {
   local app="$1" live="${2:-}" marker="$side_root/$name/.side-instance" made="" version="" was=""
   if [[ -f "$marker" ]]; then
     made="$(sed -n 's/^from=//p' "$marker")"
@@ -163,6 +175,10 @@ open_side() {
     if [[ -n "$made" ]]; then run "$side" stop "$name"; fi
     run "$side" make "$name" --from "$app" --label "cmux PR #$pr" ${live:+--live-code}
   fi
+}
+# Makes it as make_side does, then opens it.
+open_side() {
+  make_side "$@"
   run "$side" launch "$name" ${front:+--front}
 }
 
@@ -193,7 +209,7 @@ live_swift() {
   commit="$(git -C "$ROOT" rev-parse --verify -q "${recorded:-none}^{commit}" 2>/dev/null || true)"
   [[ -n "$commit" ]] || { echo "live code: $from's commit '${recorded}' is not in this checkout (a dirty build, or git fetch first)"; return 1; }
   if [[ -n "$dry" ]]; then
-    echo "would apply #$pr's diff onto $commit, compile its Swift with scripts/live-code/patch.py --log $live_log and load it in ${here:+your app}${here:-cmux PR #$pr}"
+    echo "would apply #$pr's diff onto $commit, compile its Swift with scripts/live-code/patch.py --log $live_log and load it in $target_name"
     return 0
   fi
   made="$(mktemp -d "${TMPDIR:-/tmp}/try-pr-live.XXXXXX")"; src="$made/src"
@@ -252,7 +268,106 @@ live_swift() {
   else
     # Gone before the dev build is taken, so a watcher that starts late never loads it after all.
     rm -f "$live_dir/$patch"
-    echo "live code: no word from the app on $patch in $wait s, so it was removed (${here:+is Labs > Live Code on in your live code build?}${here:-$log})"; return 1
+    echo "live code: no word from the app on $patch in $wait s, so it was removed ($([[ -n "$here" ]] && echo "is Labs > Live Code on in your live code build?" || echo "$log"))"; return 1
+  fi
+}
+
+# The PR's web UI served to the side instance (or, with --here, your app) from a dev server that
+# follows the PR, so later pushes hot-reload.
+web_live() {
+  if [[ -z "$here" ]]; then
+    [[ -n "$dry" || -d "$from" ]] || { echo "no app at $from to copy (--from APP names another)" >&2; exit 1; }
+    # A DEV copy has its own bundle id, and the app reads web-dev.json only under DEV's own.
+    if [[ "$("$buddy" -c 'Print :CFBundleIdentifier' "$from/Contents/Info.plist" 2>/dev/null || true)" == com.cmuxterm.app.debug.next ]]; then
+      echo "a copy of cmux NEXT DEV cannot load the PR's web UI (it reads web-dev.json only under DEV's own bundle id): --from a nightly, or --here to patch your DEV" >&2; exit 1
+    fi
+    open_side "$from"
+    side_env
+    # The side instance keeps the port it was given; a new one takes the first free port from
+    # 20000 + N % 10000, so two PRs never share a dev server.
+    saved="$side_root/$name/port"
+    if [[ -z "$port" && -f "$saved" ]]; then port="$(cat "$saved")"; fi
+    if [[ -z "$port" ]]; then
+      port=$((20000 + pr % 10000))
+      # A port is this PR's once it holds the port's reservation (an atomic mkdir under the side
+      # root, naming the PR), so two tries started together never pick the same free port.
+      while :; do
+        held="$side_root/ports/$port"
+        if ! nc -z 127.0.0.1 "$port" 2>/dev/null; then
+          if [[ -n "$dry" ]]; then break; fi
+          mkdir -p "$side_root/ports"
+          if mkdir "$held" 2>/dev/null; then echo "$pr" >"$held/pr"; break; fi
+          if [[ "$(cat "$held/pr" 2>/dev/null)" == "$pr" ]]; then break; fi
+        fi
+        port=$((port + 1))
+      done
+    fi
+    if [[ -z "$dry" ]]; then echo "$port" >"$saved"; fi
+  fi
+  run "$ROOT/scripts/cmux-next/web-overlay.sh" follow "$pr" ${port:+--port "$port"} ${follow[@]+"${follow[@]}"}
+}
+
+# The PR's daemon swapped into the side instance's copy of APP (with --here, into APP), terminals
+# kept: hot-apply.py apply --branch, with BINARY when given, else the binary CI published for the
+# PR head's cmux-tui tree. Returns 1, saying why, when it cannot (a web part that fails puts the
+# daemon back first); 2 when the tree is not published and no BINARY was given (the caller builds it
+# on the fleet); 3 when the daemon went in but the side instance did not open.
+live_rust() {
+  local binary="${1:-}" hot="${CMUX_TRY_PR_HOT_APPLY:-$ROOT/scripts/cmux-next/hot-apply.py}" planned code=0 target
+  planned="$(python3 "$hot" plan "$head" --branch --app "$from" --repo "$ROOT")" || code=$?
+  if [[ $code -ne 0 && $code -ne 3 ]] || [[ -z "$planned" ]]; then echo "daemon swap: no plan for $from (hot-apply exit $code)"; return 1; fi
+  # Refused unless the Rust part applies and nothing else the PR needs is missing from APP. Its own
+  # web is served from the branch below; bundled helpers keep APP's build, as with a merged commit.
+  local why
+  why="$(python3 -c '
+import json, sys
+plan = json.load(sys.stdin)
+ok = ("web (not published for a branch)", "bundled helpers (cmux-mobile-host, ...)")
+left = {k: v for k, v in plan["left"].items() if k not in ok}
+if "rust" not in plan["parts"]:
+    left.setdefault("no daemon change from the app", [plan["base"]])
+for kind, paths in sorted(left.items()):
+    print(kind + ": " + ", ".join(paths[:5]) + (" …" if len(paths) > 5 else ""))
+' <<<"$planned")"
+  if [[ -n "$why" ]]; then echo "daemon swap refused for $from:"; sed 's/^/  /' <<<"$why"; return 1; fi
+  if [[ -z "$binary" && "$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("published", False))' <<<"$planned")" != True ]]; then
+    echo "the PR head's daemon is not published yet (CI publishes a same-repo PR's cmux-tui tree after its push)"
+    return 2
+  fi
+  local web=""
+  if [[ -n "$(python3 -c 'import json,sys; print("y" if json.load(sys.stdin)["left"].get("web (not published for a branch)") else "")' <<<"$planned")" ]]; then
+    web=1
+  fi
+  # A copy of a DEV build cannot load a web overlay (see web_live): refused before anything changes.
+  if [[ -n "$web" && -z "$here" && "$("$buddy" -c 'Print :CFBundleIdentifier' "$from/Contents/Info.plist" 2>/dev/null || true)" == com.cmuxterm.app.debug.next ]]; then
+    echo "daemon swap: the PR changes web UI too, and a copy of cmux NEXT DEV cannot load it (--from a nightly, or --here)"; return 1
+  fi
+  if [[ -n "$here" ]]; then
+    target="$from"
+  else
+    make_side "$from"
+    target="$([[ -n "$dry" ]] && echo "<cmux PR #$pr>" || "$side" path "$name")"
+    # The copy's own receipts, so `hot-apply.py rollback` of your app is not this copy's.
+    export CMUX_HOT_APPLY_STATE_DIR="$side_root/$name/hot-apply"
+  fi
+  run python3 "$hot" apply "$head" --branch --parts rust --app "$target" --repo "$ROOT" ${binary:+--binary "$binary"} || {
+    echo "daemon swap: hot-apply did not apply or check it (its receipt above says why; nothing was left changed)"; return 1
+  }
+  echo "daemon swapped: $target_name runs #$pr's daemon, terminals kept${here:+ (scripts/cmux-next/hot-apply.py rollback puts yours back)}"
+  # live_rust runs as a condition, so set -e is off in it: each step's failure is checked.
+  if [[ -z "$here" ]] && ! run "$side" launch "$name" ${front:+--front}; then
+    echo "daemon swap: cmux PR #$pr did not open (side-instance.sh launch failed; try-pr.sh $pr --stop removes it)"; return 3
+  fi
+  # A daemon PR that also changes web UI: that part is patched in too, or the daemon goes back, so
+  # the app never runs the PR's daemon under its own older web.
+  if [[ -n "$web" ]]; then
+    echo "its web UI is patched in too, and hot-reloads"
+    if ! web_live; then
+      echo "daemon swap: the PR's web UI did not go in, so the daemon goes back"
+      run python3 "$hot" rollback --app "$target" ||
+        echo "daemon swap: the rollback did not finish; scripts/cmux-next/hot-apply.py rollback --app \"$target\" tries again"
+      return 1
+    fi
   fi
 }
 
@@ -265,43 +380,21 @@ case "$verdict" in
     ;;
   web-live)
     echo "web only: no build, the PR's web UI is patched in and hot-reloads"
-    if [[ -z "$here" ]]; then
-      [[ -n "$dry" || -d "$from" ]] || { echo "no app at $from to copy (--from APP names another)" >&2; exit 1; }
-      # A DEV copy has its own bundle id, and the app reads web-dev.json only under DEV's own.
-      if [[ "$("$buddy" -c 'Print :CFBundleIdentifier' "$from/Contents/Info.plist" 2>/dev/null || true)" == com.cmuxterm.app.debug.next ]]; then
-        echo "a copy of cmux NEXT DEV cannot load the PR's web UI (it reads web-dev.json only under DEV's own bundle id): --from a nightly, or --here to patch your DEV" >&2; exit 1
-      fi
-      open_side "$from"
-      side_env
-      # The side instance keeps the port it was given; a new one takes the first free port from
-      # 20000 + N % 10000, so two PRs never share a dev server.
-      saved="$side_root/$name/port"
-      if [[ -z "$port" && -f "$saved" ]]; then port="$(cat "$saved")"; fi
-      if [[ -z "$port" ]]; then
-        port=$((20000 + pr % 10000))
-        # A port is this PR's once it holds the port's reservation (an atomic mkdir under the side
-        # root, naming the PR), so two tries started together never pick the same free port.
-        while :; do
-          held="$side_root/ports/$port"
-          if ! nc -z 127.0.0.1 "$port" 2>/dev/null; then
-            if [[ -n "$dry" ]]; then break; fi
-            mkdir -p "$side_root/ports"
-            if mkdir "$held" 2>/dev/null; then echo "$pr" >"$held/pr"; break; fi
-            if [[ "$(cat "$held/pr" 2>/dev/null)" == "$pr" ]]; then break; fi
-          fi
-          port=$((port + 1))
-        done
-      fi
-      if [[ -z "$dry" ]]; then echo "$port" >"$saved"; fi
-    fi
-    run "$ROOT/scripts/cmux-next/web-overlay.sh" follow "$pr" ${port:+--port "$port"} ${follow[@]+"${follow[@]}"}
+    web_live
     ;;
   daemon|swift-live|rebuild)
     case "$verdict" in
-      daemon) echo "the daemon or CLI changes: it needs the PR's binary, so a dev build" ;;
+      daemon) echo "the daemon or CLI changes: the PR's daemon is swapped in, no app build" ;;
       swift-live) echo "Swift changes only inside function bodies, or new Swift files: live code in a live code build (--live-code LOG), else a dev build" ;;
       rebuild) echo "the app needs a new binary: a dev build" ;;
     esac
+    rust_code=""
+    if [[ "$verdict" == daemon ]]; then
+      rust_code=0; live_rust || rust_code=$?
+      if [[ $rust_code -eq 0 ]]; then exit 0; fi
+      if [[ $rust_code -eq 3 ]]; then exit 1; fi
+      if [[ $rust_code -eq 2 ]]; then echo "so the fleet dev build, whose daemon is swapped in"; else echo "so a dev build"; fi
+    fi
     if [[ "$verdict" == swift-live && -n "$live_log" ]]; then
       if live_swift; then exit 0; fi
       echo "so a dev build"
@@ -319,7 +412,7 @@ case "$verdict" in
     # whatever .app the job holds. An older client without --any-tag still matches tag pr-N.
     build_help="$([[ -n "$dry" ]] || "$ci" build --help 2>/dev/null || true)"
     if [[ -n "$dry" || "$build_help" == *--any-tag* ]]; then build+=(--any-tag); fi
-    if [[ -n "$dry" ]]; then run "$ci" "${build[@]}"; if [[ -n "$here" ]]; then echo "would wait for it and print where it is"; else echo "would wait for it and open it as cmux PR #$pr"; fi; exit 0; fi
+    if [[ -n "$dry" ]]; then run "$ci" "${build[@]}"; if [[ "$rust_code" == 2 ]]; then echo "would wait for it and swap its bin/cmux into $target_name"; elif [[ -n "$here" ]]; then echo "would wait for it and print where it is"; else echo "would wait for it and open it as cmux PR #$pr"; fi; exit 0; fi
     job="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$("$ci" "${build[@]}")")"
     echo "fleet job $job"
     # Done already means a build of this tree was ready: no build waited on.
@@ -343,6 +436,13 @@ case "$verdict" in
     fi
     app="$(find "$out/bundle" -maxdepth 2 -name '*.app' -type d | head -1)"
     [[ -n "$app" ]] || { echo "job $job returned no app bundle" >&2; exit 1; }
+    # The tree was not published: the dev build's daemon is the PR's, swapped into your app's copy.
+    if [[ "$rust_code" == 2 && -x "$app/Contents/Resources/bin/cmux" ]]; then
+      code=0; live_rust "$app/Contents/Resources/bin/cmux" || code=$?
+      if [[ $code -eq 0 ]]; then exit 0; fi
+      if [[ $code -eq 3 ]]; then exit 1; fi
+      echo "so the dev build itself"
+    fi
     if [[ -z "$here" ]] && "$side" path "$name" >/dev/null 2>&1; then
       # A web-live try of an earlier head left a dev server and web-dev.json pointing at it, which
       # would serve that head's web code over the build's own: both go before the build opens.

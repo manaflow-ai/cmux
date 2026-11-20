@@ -4,7 +4,7 @@ import CmuxNextCompat
 /// Frames only for what the person can see (Chrome's rule for a hidden tab: no animation frames, and
 /// the page shows its final state when it is shown again). A window out of sight gets no animation
 /// frames: an animation client that starts in it, or is running when it goes out of sight, ends at
-/// once at its final state (its completions run), and the window's display link goes with the last
+/// once at its final state (its completions run), and the window's display link pauses with the last
 /// client. Clients that are not animations (the daemon mirror, batch drains) keep ticking, on the
 /// link or on the stall deadline, as before.
 ///
@@ -97,7 +97,7 @@ extension FrameScheduler {
         objc_getAssociatedObject(window, &associationKey) as? FrameScheduler
     }
 
-    /// Ends every running animation client now (the window went out of sight), and drops the link
+    /// Ends every running animation client now (the window went out of sight), and pauses the link
     /// when no client is left.
     func endAnimations() {
         for client in clients.values where client.isActive && client.isAnimation { end(client) }

@@ -8,7 +8,7 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { Play } from "../../../gallery/play";
-import { BUNDLED_FAMILY, CHAT_UI_FONT_KEY, CHAT_UI_FONTS, type ChatUiFont } from "../chatUiFont";
+import { BUNDLED_FAMILY, CHAT_UI_FONT_KEY, CHAT_UI_FONTS, type ChatUiFont, DEFAULT_CHAT_UI_FONT } from "../chatUiFont";
 
 const snapshot = chat([
   user("Why does the retry test fail on CI but pass locally?", 3),
@@ -35,8 +35,8 @@ const snapshot = chat([
 ]);
 
 const NOTES: Record<ChatUiFont, string> = {
-  "inter-tuned": "Today's default: Inter with its calculated tracking, the face the Linux captures share with the app.",
-  inter: "Stock Inter at its designed spacing.",
+  "inter-tuned": "cmux Inter: Inter with the calculated tracking the app used until 2026-11-07, bundled (Latin).",
+  inter: "Stock Inter at its designed spacing, bundled (Latin).",
   verdana: "Verdana, Hacker News's and old Reddit's face (macOS has it). Linux draws DejaVu Sans in its place.",
   roboto: "Roboto, bundled (Latin).",
   plex: "IBM Plex Sans, bundled (Latin).",
@@ -45,7 +45,7 @@ const NOTES: Record<ChatUiFont, string> = {
   "cmux-sans": "cmux Sans, ours: Source Sans 3 with an 8 % taller lowercase, bundled (Latin).",
   hanken: "Hanken Grotesk, a warm grotesque, bundled (Latin).",
   atkinson: "Atkinson Hyperlegible Next, built for legibility, bundled (Latin).",
-  "system-ui": "The system font (SF Pro on macOS) at its own spacing.",
+  "system-ui": "The default: the system font (SF Pro on macOS) at its own spacing. Linux draws its own sans.",
   "system-ui-tight": "The system font a step tighter, more at the larger sizes.",
 };
 
@@ -71,7 +71,7 @@ export default agentPaneEntry({
       {
         note: NOTES[font],
         snapshot,
-        display: font === "inter-tuned" ? {} : { [CHAT_UI_FONT_KEY]: font },
+        display: font === DEFAULT_CHAT_UI_FONT ? {} : { [CHAT_UI_FONT_KEY]: font },
         ...(font in BUNDLED_FAMILY && { play: faceLoaded(BUNDLED_FAMILY[font as keyof typeof BUNDLED_FAMILY]) }),
       },
     ]),

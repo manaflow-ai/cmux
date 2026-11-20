@@ -1,6 +1,7 @@
 import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
 import Foundation
 

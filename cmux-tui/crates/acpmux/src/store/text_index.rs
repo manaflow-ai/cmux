@@ -13,8 +13,10 @@
 //! inode reused), of another schema, longer than its segment, or damaged is read past and made
 //! again; it is written whole under a temporary name and renamed into place; it is written only
 //! when there was none or a search read at least [`super::kind_index::COPY_AFTER`] bytes past it,
-//! never on the append path; a chat's folder is deleted with it. Messages do not run across
-//! segments: a reply cut by a segment's start is two messages.
+//! never on the append path; a chat's folder is deleted with it. The unfinished reply carries into
+//! the next segment and is visited only once. Each copy also seals the incoming reply: replacing
+//! or removing a predecessor invalidates copies that depended on its text. Only that one capped
+//! reply crosses a segment boundary; completed messages can be visited immediately.
 
 use super::kind_index::{COPY_AFTER, Stamp, fnv};
 use super::*;
@@ -22,7 +24,7 @@ use crate::session_search::{Entry, KINDS, Projector};
 
 /// The folder of a chat's text copies, beside its `events`.
 pub const DIR: &str = "search-index";
-const SCHEMA: &str = "acpmux.search-index.v1";
+const SCHEMA: &str = "acpmux.search-index.v2";
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -35,13 +37,22 @@ struct Header {
     len: u64,
     /// The last entry's `messageId` while it still takes chunks ([`Projector::open`]).
     open: Option<String>,
+    /// Fingerprint of the incoming reply's id, original position, role and capped text.
+    incoming_hash: u64,
     lines_len: u64,
     /// FNV-1a of the other fields and the lines: a damaged or cut copy is read past.
     lines_hash: u64,
 }
 
-fn seal(id: (u64, u64, u64), len: u64, open: Option<&str>, lines: &[u8]) -> u64 {
-    let fields = [id.0, id.1, id.2, len, u64::try_from(lines.len()).unwrap_or(u64::MAX)];
+fn seal(
+    id: (u64, u64, u64),
+    len: u64,
+    open: Option<&str>,
+    incoming_hash: u64,
+    lines: &[u8],
+) -> u64 {
+    let fields =
+        [id.0, id.1, id.2, len, incoming_hash, u64::try_from(lines.len()).unwrap_or(u64::MAX)];
     let open = open.map_or(&[0xff_u8][..], str::as_bytes);
     fnv(fields
         .iter()
@@ -62,20 +73,41 @@ impl LocalStore {
 
     /// [`Store::text_entries`]: each segment's copy, then the segment past it.
     pub(super) fn text_entries_in(&self, id: &str, visit: &mut dyn FnMut(Entry)) -> Result<()> {
+        let mut incoming = None;
         for (index, path) in self.segments(id)? {
-            self.text_segment(id, index, &path)?.into_iter().for_each(&mut *visit);
+            let mut projector = self.text_segment(id, index, &path, incoming)?;
+            incoming =
+                projector.open.take().and_then(|open| projector.entries.pop().map(|e| (open, e)));
+            projector.entries.into_iter().for_each(&mut *visit);
+        }
+        if let Some((_, entry)) = incoming {
+            visit(entry);
         }
         Ok(())
     }
 
     /// One segment's messages, its copy saved again when the read went far past it.
-    fn text_segment(&self, id: &str, index: u32, path: &Path) -> Result<Vec<Entry>> {
+    fn text_segment(
+        &self,
+        id: &str,
+        index: u32,
+        path: &Path,
+        incoming: Option<(String, Entry)>,
+    ) -> Result<Projector> {
         let mut file = crate::config::private_state_file(path)?;
         let stamp = Stamp::of(&file)?;
-        let (mut projector, from, had_copy) = match self.read_text_index(id, index, &stamp) {
-            Some((entries, len, open)) => (Projector { entries, open }, len, true),
-            None => (Projector::default(), 0, false),
-        };
+        let incoming_hash = fnv(serde_json::to_vec(&incoming)?.into_iter());
+        let (mut projector, from, had_copy) =
+            match self.read_text_index(id, index, &stamp, incoming_hash) {
+                Some((entries, len, open)) => (Projector { entries, open }, len, true),
+                None => {
+                    let projector = match incoming {
+                        Some((open, entry)) => Projector { entries: vec![entry], open: Some(open) },
+                        None => Projector::default(),
+                    };
+                    (projector, 0, false)
+                }
+            };
         if from > 0 {
             std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(from))?;
         }
@@ -99,12 +131,18 @@ impl LocalStore {
             }
         }
         if (!had_copy || covered >= COPY_AFTER)
-            && let Err(e) =
-                self.write_text_index(id, index, &stamp, from.saturating_add(covered), &projector)
+            && let Err(e) = self.write_text_index(
+                id,
+                index,
+                &stamp,
+                from.saturating_add(covered),
+                &projector,
+                incoming_hash,
+            )
         {
             tracing::warn!(session = %id, segment = index, "saving the log's text index failed: {e}");
         }
-        Ok(projector.entries)
+        Ok(projector)
     }
 
     /// Segment `index`'s copied entries, the bytes of it they cover, and the open reply, when
@@ -115,6 +153,7 @@ impl LocalStore {
         id: &str,
         index: u32,
         segment: &Stamp,
+        incoming_hash: u64,
     ) -> Option<(Vec<Entry>, u64, Option<String>)> {
         let mut bytes = Vec::new();
         crate::config::private_state_file(&self.text_index_path(id, index))
@@ -126,8 +165,12 @@ impl LocalStore {
         let lines = bytes.get(end.saturating_add(1)..)?;
         let file = (header.dev, header.ino, header.born_ns);
         let whole = u64::try_from(lines.len()).unwrap_or(u64::MAX) == header.lines_len
-            && seal(file, header.len, header.open.as_deref(), lines) == header.lines_hash;
-        let same = header.schema == SCHEMA && segment.id.2 != 0 && file == segment.id;
+            && seal(file, header.len, header.open.as_deref(), header.incoming_hash, lines)
+                == header.lines_hash;
+        let same = header.schema == SCHEMA
+            && segment.id.2 != 0
+            && file == segment.id
+            && header.incoming_hash == incoming_hash;
         if !(same && whole && segment.len >= header.len) {
             return None;
         }
@@ -145,6 +188,7 @@ impl LocalStore {
         segment: &Stamp,
         len: u64,
         projector: &Projector,
+        incoming_hash: u64,
     ) -> Result<()> {
         let (dev, ino, born_ns) = segment.id;
         if born_ns == 0 {
@@ -152,10 +196,7 @@ impl LocalStore {
         }
         // Never makes the chat's folder: a search that outlived a delete leaves none behind.
         let dir = self.dir(id).join(DIR);
-        let mut made = std::fs::DirBuilder::new();
-        #[cfg(unix)]
-        std::os::unix::fs::DirBuilderExt::mode(&mut made, 0o700);
-        if let Err(e) = made.create(&dir)
+        if let Err(e) = crate::home_fs::create_dir(&dir, 0o700)
             && e.kind() != std::io::ErrorKind::AlreadyExists
         {
             return Err(e.into());
@@ -174,8 +215,9 @@ impl LocalStore {
             born_ns,
             len,
             lines_len: u64::try_from(lines.len()).unwrap_or(u64::MAX),
-            lines_hash: seal(segment.id, len, open.as_deref(), &lines),
+            lines_hash: seal(segment.id, len, open.as_deref(), incoming_hash, &lines),
             open,
+            incoming_hash,
         };
         let mut out = serde_json::to_vec(&header)?;
         out.push(b'\n');

@@ -2,9 +2,34 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-// Reorder motion: what a tab shows while another tab passes over it (cx-f6i7).
-// A tab close has none: the tab goes in the frame it closes (msg 2833).
+// Closing and reorder motion: what a tab shows while it leaves or while
+// another tab passes over it (cx-f6i7).
 extension TabCell {
+    /// The model dropped this tab: it shrinks out from here. Its selection
+    /// and hover go at once (the selection moved to another tab in the same
+    /// sync), then its content freezes (`closingChanged`).
+    func beginClosing() {
+        isHovered = false
+        isSelected = false
+        showsZoom = false // the zoomed state goes to the new selection
+        isMultiSelected = false
+        showsSeparator = false
+        isClosing = true
+    }
+
+    /// A closing tab keeps the content it showed when the close began while
+    /// its width springs to 0: it never switches to the narrow icon-and-x
+    /// layout on the way out, and the cell clips what no longer fits.
+    func closingChanged() {
+        closingVisibility = nil
+        if isClosing {
+            layoutLayers()
+            closingVisibility = visibility
+        }
+        layer.masksToBounds = isClosing
+        layoutLayers()
+    }
+
     /// The lifted tab rides above everything; the selected tab above its
     /// neighbors, so a reorder passes it over them (`occlude(visible:)`).
     func updateStacking() {

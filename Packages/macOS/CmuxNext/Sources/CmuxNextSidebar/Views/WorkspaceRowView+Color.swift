@@ -9,6 +9,9 @@ extension WorkspaceRowView {
     /// The fill's opacity of the color swatch at rest, hovered, softly selected and selected.
     static let colorFillAlpha: (rest: CGFloat, hover: CGFloat, soft: CGFloat, selected: CGFloat) = (0.26, 0.34, 0.40, 0.52)
     static let colorRailWidth: CGFloat = 3
+    /// The bar's inset from the row fill's leading edge: it hugs the fill's edge, inside the rounded corner, so the
+    /// row's leading inset keeps the most room between the bar and the title.
+    static let colorRailLead: CGFloat = 1.5
 
     func configureColor(_ content: WorkspaceRowContent) {
         let next = content.rowColor.map { (color: $0, style: content.colorStyle) }
@@ -39,8 +42,11 @@ extension WorkspaceRowView {
 
     func layoutColorRail(in bounds: NSRect) {
         guard !colorRail.isHidden else { return }
-        // A started workspace's rail moves in with its content (`treeDepth`), clear of its parent's.
+        // A started workspace's rail moves in with its content (`treeDepth`), clear of its parent's. The bar sits in the
+        // row's leading inset, left of the one title edge, so a colored title starts where every other does (Lawrence
+        // 2026-11-09, "red dot on left feels weird").
         let inset = Metrics.space1, indent = CGFloat(treeDepth) * SidebarStyle.treeIndent
-        colorRail.frame = NSRect(x: bounds.minX + indent + inset, y: bounds.minY + inset, width: Self.colorRailWidth, height: max(0, bounds.height - 2 * inset))
+        colorRail.frame = NSRect(x: bounds.minX + indent + Self.colorRailLead, y: bounds.minY + inset, width: Self.colorRailWidth,
+                                 height: max(0, bounds.height - 2 * inset))
     }
 }

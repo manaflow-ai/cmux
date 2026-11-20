@@ -7,9 +7,11 @@ import type { AcpmuxActivity } from "../model";
 import { translatorFor } from "../i18n";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 import { staysInSight, toolGroups } from "./toolGroups";
-import { resetTranscriptDisclosure } from "./transcriptDisclosure";
-import { WhoElseCard, whatText } from "./WhoElseCard";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
+import { WhoElseCard } from "./WhoElseCard";
+import { whatText } from "./whoElseCardModel";
 import { whoElseCall, WHO_ELSE_SCHEMA } from "./whoElseCalls";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -141,6 +143,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   resetTranscriptDisclosure();
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

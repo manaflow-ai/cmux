@@ -10,7 +10,19 @@ import Testing
 /// CDP command and driver call of an agent waited for a frame tick (up to the frame scheduler's 100 ms
 /// stall timeout while the display sleeps); the review-1 fix handles each frame as it is read. The
 /// provider dials a stand-in host here: a call's reply leaves with no display frame.
+///
+/// `FrameScheduler.app` is the one frame scheduler of the test process, and the suites of a run share that process:
+/// a window of a suite that runs beside this one ticks it too. The first form of this test compared its count over
+/// one call and failed whenever a window suite ran beside it (2026-11-10, aws-m4pro-9: green alone, red beside
+/// CmdTTabListReadersTests, `frames` 1 against 0); CI runs this target in one process with CmuxNextAppTests suites.
+/// So the proof is over a run of calls: ONE call that is answered while the scheduler delivered no frame shows
+/// that a reply needs none. A provider that handles host frames on this scheduler's frames again gets at least one
+/// frame before each reply, so no call of the run is free of one, however many suites run beside it. As before,
+/// the test does not see a queue on another scheduler (5474e1c445e's was on the app's main-work scheduler).
 @MainActor @Suite(.timeLimit(.minutes(1))) struct BrowserHostProviderFrameTests {
+    /// The most calls one run asks: it ends at the first reply with no frame between the call and the reply.
+    private static let calls: UInt64 = 40
+
     @Test func aCallIsAnsweredWithoutADisplayFrame() async throws {
         let path = "/tmp/cmux-bh-test-\(getpid())-\(UInt32.random(in: 0...UInt32.max)).sock"
         let host = try StandInHost(listeningAt: path)
@@ -19,19 +31,26 @@ import Testing
         let provider = BrowserHostProvider(identity: ProviderIdentity(providerID: "test", installID: "test-install"),
                                            credentials: sources, tabs: sources, access: sources, driver: nil,
                                            relay: sources, marking: sources)
-        let framesBefore = FrameScheduler.app.frames
         provider.start()
         try await host.accept()
         let hello = try await host.next { if case .hello = $0 { true } else { false } }
         #expect(hello.tag == "hello")
         await host.send(.helloAck(agentBundle: "", agentBundleSHA: "sha"))
-        // A call that names no tab is refused by the app itself, at once (no driver, no page).
-        await host.send(.call(id: 7, method: "cookies.get", params: .object([:])))
-        let reply = try await host.next { if case .result(7, _, _) = $0 { true } else { false } }
-        guard case .result(_, let result, let error) = reply else { return }
-        #expect(result == nil)
-        #expect(error != nil)
-        #expect(FrameScheduler.app.frames == framesBefore, "the reply waited for a display frame")
+        var asked: UInt64 = 0
+        var answeredWithoutFrame = false
+        for id in 7..<(7 + Self.calls) where !answeredWithoutFrame {
+            let framesBefore = FrameScheduler.app.frames
+            // A call that names no tab is refused by the app itself, at once (no driver, no page).
+            await host.send(.call(id: id, method: "cookies.get", params: .object([:])))
+            let reply = try await host.next { if case .result(let answered, _, _) = $0 { answered == id } else { false } }
+            asked += 1
+            guard case .result(_, let result, let error) = reply else { break }
+            #expect(result == nil)
+            #expect(error != nil)
+            answeredWithoutFrame = FrameScheduler.app.frames == framesBefore
+        }
+        print("browser host frame test: a reply with no display frame after \(asked) call(s): \(answeredWithoutFrame)")
+        #expect(answeredWithoutFrame, "each of \(asked) replies came with a display frame between its call and the reply: a reply waits for a frame")
         provider.stop()
         withExtendedLifetime(sources) {}
         await host.close()

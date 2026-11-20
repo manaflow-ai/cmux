@@ -53,7 +53,7 @@ import WebKit
         window.titleVisibility = .hidden
         window.title = "\(Int(size.width))×\(Int(size.height))"
         window.isReleasedWhenClosed = false
-        let glass = NSVisualEffectView(frame: CGRect(origin: .zero, size: size))
+        let glass = NSVisualEffectView(frame: CGRect(origin: .zero, size: size)) // glass-level-allow: the window's own sidebar material behind a page window, the system chrome glass (no cmux tint)
         glass.material = .sidebar
         glass.blendingMode = .behindWindow
         glass.state = .followsWindowActiveState

@@ -1,0 +1,11 @@
+{
+  "caption": "Open the App Store from the sidebar or the palette with no Labs setting, and browse extensions to install.",
+  "frameInterval": 0.25,
+  "steps": [
+    {"title": "Launch", "wait": 3},
+    {"title": "Open the App Store", "cmux": ["action", "run", "appStore.show"], "wait": 2.5, "clip": true},
+    {"title": "Show what is installed", "cmux": ["action", "run", "appStore.showInstalled"], "wait": 2.5, "clip": true},
+    {"title": "End", "wait": 0.3}
+  ],
+  "crop": [0, 0, 0.7, 0.7]
+}

@@ -114,7 +114,7 @@ await requireBrowserLane("thread-minimap-tick-states.test.ts", async () => {
       };
     }, index);
 
-  test("the doubled rail keeps equal resting ticks and lights only the on-screen band", async () => {
+  test("the rail keeps equal resting ticks and lights only the on-screen band", async () => {
     const page = await open({ reduce: true });
     try {
       const geometry = await page.evaluate(() => {
@@ -135,8 +135,9 @@ await requireBrowserLane("thread-minimap-tick-states.test.ts", async () => {
           bars,
         };
       });
-      expect(geometry.height).toBe(480);
-      expect(geometry.pitch).toBe(20);
+      // Eighteen prompts: a rail as tall as their ticks at the 10 px pitch.
+      expect(geometry.height).toBe(180);
+      expect(geometry.pitch).toBe(10);
       expect(new Set(geometry.bars.map((bar) => bar.width)).size).toBe(1);
       const current = geometry.bars.filter((bar) => bar.current);
       const rest = geometry.bars.filter((bar) => !bar.current && !bar.marked);

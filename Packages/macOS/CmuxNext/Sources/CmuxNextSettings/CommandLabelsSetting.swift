@@ -15,7 +15,7 @@
 /// skips one that does not compile, and skips a preset name it does not know.
 public nonisolated struct CommandLabelsSetting: Sendable {
     /// The key's path.
-    public let configPath = AgentPaneDisplaySettingsSchema.section + ["commandLabels"]
+    public let configPath = AgentPaneDisplaySettingsSchema.commandLabelsPath
 
     public init() {}
 
@@ -43,23 +43,4 @@ public nonisolated struct CommandLabelsSetting: Sendable {
         }
         return members["program"] != nil || members["match"] != nil
     }
-
-    /// Values the schema export lists as accepted and refused (SettingsSchemaSamples).
-    static let acceptedSamples: [JSONValue] = [
-        .array([]),
-        .array([.string("cmux-fleet")]),
-        .array([.object(["program": .string("deploy"), "label": .string("Deploying")]),
-                .object(["match": .string("^make (\\w+)"), "label": .string("Making {1}"), "icon": .string("mode.build"),
-                         "link": .string("https://example.com/{1}")]),
-                .object(["program": .array([.string("a"), .string("b")]), "label": .string("A or B")])]),
-    ]
-    static let refusedSamples: [JSONValue] = [
-        .string("cmux-fleet"),
-        .array([.string(" ")]),
-        .array([.object(["label": .string("No program or pattern")])]),
-        .array([.object(["program": .string("x")])]),
-        .array([.object(["program": .array([]), "label": .string("x")])]),
-        .array([.object(["program": .string("x"), "label": .string("x"), "icon": .number(1)])]),
-        .array([.number(1)]),
-    ]
 }

@@ -259,18 +259,18 @@ import Testing
 
 /// The critical banner itself, driven through its toast (Codex on #24518: no test drove it). Debug
 /// `hostPressure.enabled` and `hostPressure.banner` on, the level forced to critical (the sample
-/// numbers, no timer read), windows that count as seen, and a toast center whose host records the
-/// toast views so the test presses their close and Show Details buttons as a click does.
+/// numbers, no timer read), windows that count as seen, and a toast center whose host records what
+/// each window shows so the test presses its close and Show Details buttons as the web host reports
+/// a click (`personClosed(serial:)`, `personRanAction(serial:)`).
 @MainActor @Suite(.serialized, .closesItsWindows) struct HostPressureBannerToastTests {
-    /// Records each window's toast views (the center's overlay host, without an overlay).
+    /// Records each window's shown toasts (the center's host, drawing nothing).
     @MainActor private final class RecordingHost: CmuxToastHosting {
-        private(set) var shown: [(view: CmuxToastView, window: NSWindow)] = []
-        func show(_ toast: CmuxToastView, in window: NSWindow, slot: Int, appearing: Bool, windowGone: @escaping () -> Void) {
-            shown.append((toast, window))
+        private var shown: [ObjectIdentifier: [CmuxToastShown]] = [:]
+        func show(_ toasts: [CmuxToastShown], in window: NSWindow, center: CmuxToastCenter) {
+            shown[ObjectIdentifier(window)] = toasts
         }
-        func move(_ toast: CmuxToastView, to slot: Int) {}
-        func hide(_ toast: CmuxToastView, animated: Bool) { shown.removeAll { $0.view === toast } }
-        func view(in window: NSWindow) -> CmuxToastView? { shown.last { $0.window === window }?.view }
+        /// The newest toast `window` shows.
+        func newest(in window: NSWindow) -> CmuxToastShown? { shown[ObjectIdentifier(window)]?.last }
     }
 
     /// The app's one service shared by every window's indicator, as `HostPressureService.shared` is.
@@ -353,7 +353,7 @@ import Testing
         defer { fixture.tearDown() }
         let (window, indicator) = fixture.window()
         await fixture.settle { indicator.isBannerShown }
-        try #require(fixture.host.view(in: window)).closeButton.performClick(nil)
+        try fixture.toasts.personClosed(serial: #require(fixture.host.newest(in: window)).serial)
         #expect(!indicator.isBannerShown)
         #expect(fixture.banner(in: window) == nil)
 
@@ -408,13 +408,14 @@ import Testing
         #expect(fixture.service.subscriberCount == 2)
         #expect(fixture.banner(in: first) != nil && fixture.banner(in: second) != nil)
 
-        try #require(fixture.host.view(in: first)).closeButton.performClick(nil)
+        try fixture.toasts.personClosed(serial: #require(fixture.host.newest(in: first)).serial)
         #expect(!firstIndicator.isBannerShown && fixture.banner(in: first) == nil)
         #expect(secondIndicator.isBannerShown && fixture.banner(in: second) != nil)
 
         // Show Details in the second window ends its banner too, and keeps it closed for the spell.
-        let details = try #require(fixture.host.view(in: second)?.actionButton)
-        details.performClick(nil)
+        let details = try #require(fixture.host.newest(in: second))
+        #expect(details.toast.action?.title == HostPressureStrings.showDetails)
+        fixture.toasts.personRanAction(serial: details.serial)
         #expect(!secondIndicator.isBannerShown && fixture.banner(in: second) == nil)
         fixture.set(HostPressureTunables.style, .load)
         await fixture.settle { !firstIndicator.loadLabel.isHidden && !secondIndicator.loadLabel.isHidden }
@@ -439,7 +440,7 @@ import Testing
         try #require(window.screen != nil)
         await fixture.settle { indicator.isBannerShown }
         #expect(!indicator.isPopoverShown)
-        try #require(fixture.host.view(in: window)?.actionButton).performClick(nil)
+        try fixture.toasts.personRanAction(serial: #require(fixture.host.newest(in: window)).serial)
         #expect(indicator.isPopoverShown)
         #expect(!indicator.isBannerShown && fixture.banner(in: window) == nil)
         indicator.closePopover()

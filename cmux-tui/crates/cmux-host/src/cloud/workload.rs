@@ -177,20 +177,23 @@ pub fn parse_stat(pid: u32, text: &str) -> Option<ProcStat> {
     Some(ProcStat { pid, comm, start: field(22)?, ticks, kthread: flags & PF_KTHREAD != 0 })
 }
 
-/// The LISTEN sockets of one `/proc/net/tcp` or `/proc/net/tcp6`: (port, inode).
-pub fn parse_listeners(text: &str) -> Vec<(u16, u64)> {
-    text.lines()
-        .skip(1)
-        .filter_map(|line| {
-            let f: Vec<&str> = line.split_whitespace().collect();
-            if f.get(3) != Some(&"0A") {
-                return None;
-            }
-            let port = u16::from_str_radix(f.get(1)?.rsplit(':').next()?, 16).ok()?;
-            let inode = f.get(9)?.parse::<u64>().ok()?;
-            (inode > 0).then_some((port, inode))
-        })
-        .collect()
+/// The LISTEN sockets of one `/proc/net/tcp` or `/proc/net/tcp6`: (port, inode), or None when a
+/// row does not read: a garbled row could hide a listener.
+pub fn parse_listeners(text: &str) -> Option<Vec<(u16, u64)>> {
+    let mut listeners = Vec::new();
+    for line in text.lines().skip(1) {
+        let f: Vec<&str> = line.split_whitespace().collect();
+        if f.is_empty() {
+            continue;
+        }
+        let port = u16::from_str_radix(f.get(1)?.rsplit_once(':')?.1, 16).ok()?;
+        let state = u8::from_str_radix(f.get(3)?, 16).ok()?;
+        let inode = f.get(9)?.parse::<u64>().ok()?;
+        if state == 0x0A && inode > 0 {
+            listeners.push((port, inode));
+        }
+    }
+    Some(listeners)
 }
 
 /// Whether a crontab holds a job: a line that is not blank, a comment or an assignment.
@@ -353,7 +356,7 @@ mod reader {
         let mut sockets: Vec<(u16, u64)> = Vec::new();
         for table in ["net/tcp", "net/tcp6"] {
             match fs::read_to_string(proc_dir.join(table)) {
-                Ok(text) => sockets.extend(parse_listeners(&text)),
+                Ok(text) => sockets.extend(parse_listeners(&text)?),
                 // No IPv6 table (a kernel without IPv6): nothing listens there. IPv4's is required.
                 Err(e) if table == "net/tcp6" && e.kind() == std::io::ErrorKind::NotFound => {}
                 // A table that exists but does not read could hide a listener: unknown.

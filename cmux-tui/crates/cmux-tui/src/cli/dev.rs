@@ -54,8 +54,8 @@ fn requested_rest<'a>(args: &'a [String], launcher: &Launcher) -> Option<&'a [St
     head.iter().map(String::as_str).eq(launcher.words).then_some(rest)
 }
 
-#[cfg(test)]
-fn is_requested(args: &[String]) -> bool {
+/// Whether `args` start a launcher (it runs a checkout's script before reading `--help`).
+pub(super) fn is_requested(args: &[String]) -> bool {
     LAUNCHERS.iter().any(|launcher| requested_rest(args, launcher).is_some())
 }
 

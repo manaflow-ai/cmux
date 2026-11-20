@@ -12,6 +12,7 @@ on:
     paths:
       - web/**
       - .github/workflows/web-complexity.yml
+      - scripts/ci/bun-install.sh
 
 permissions:
   contents: read
@@ -30,7 +31,9 @@ jobs:
     # Pull requests execute contributor-controlled package install scripts. Keep
     # those runs on an ephemeral Blacksmith runner, never a runner variable.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'pull_request' && vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) || github.event_name == 'pull_request' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) || vars.LINUX_RUNNER || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4)) }}
-    timeout-minutes: 10
+    # An install that stalls fails inside scripts/ci/bun-install.sh with its reason; this limit only has to fit a slow
+    # registry's two bounded attempts (2 x 300 s) plus the check, so slowness never cancels the job.
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -54,9 +57,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$EVENT_NAME" = "pull_request" ]; then
-            changed_files="$(git diff --name-only --diff-filter=ACDMRT "$BASE_SHA" "$CURRENT_SHA" -- web .github/workflows/web-complexity.yml)"
+            changed_files="$(git diff --name-only --diff-filter=ACDMRT "$BASE_SHA" "$CURRENT_SHA" -- web .github/workflows/web-complexity.yml scripts/ci/bun-install.sh)"
           elif [ -n "${BEFORE_SHA:-}" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
-            changed_files="$(git diff --name-only --diff-filter=ACDMRT "$BEFORE_SHA" "$CURRENT_SHA" -- web .github/workflows/web-complexity.yml)"
+            changed_files="$(git diff --name-only --diff-filter=ACDMRT "$BEFORE_SHA" "$CURRENT_SHA" -- web .github/workflows/web-complexity.yml scripts/ci/bun-install.sh)"
           else
             changed_files="web/"
           fi
@@ -75,10 +78,22 @@ jobs:
         with:
           bun-version: "1.4.4"
 
+      # The same key as ci-web.yml's web jobs, so a pull request restores the package cache its base branch saved and
+      # downloads only what changed. A pull request's save is scoped to its own ref: no other branch's run restores it,
+      # so a contributor's install scripts cannot seed a cache that a trusted run reads.
+      - name: Cache Bun package cache
+        if: steps.scope.outputs.run == 'true'
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Install web dependencies
         if: steps.scope.outputs.run == 'true'
         working-directory: web
-        run: bun install --frozen-lockfile
+        run: bash ../scripts/ci/bun-install.sh --frozen-lockfile
 
       - name: Validate Oxlint configuration
         if: steps.scope.outputs.run == 'true'

@@ -9,7 +9,6 @@ nonisolated enum BrowserImportOfferStrings {
         String(format: String(localized: "browserImportOffer.cookies.title", defaultValue: "Import cookies from %@",
                               table: "BrowserImportOffer", bundle: .module), browser)
     }
-    static var detail: String { String(localized: "browserImportOffer.cookies.detail", defaultValue: "Stay signed in to your sites. Nothing leaves this Mac.", table: "BrowserImportOffer", bundle: .module) }
     static var importData: String {
         String(localized: "browserImportOffer.import", defaultValue: "Import…", table: "BrowserImportOffer", bundle: .module)
     }
@@ -19,6 +18,8 @@ nonisolated enum BrowserImportOfferStrings {
                table: "BrowserImportOffer", bundle: .module)
     }
     static var dontShowAgain: String { String(localized: "browserImportOffer.dontShowAgain", defaultValue: "Don't Show Again", table: "BrowserImportOffer", bundle: .module) }
+    /// `browser`: the name of the browser whose cookies could no longer be read.
+    static func syncStopped(_ browser: String) -> String { String(format: String(localized: "browserImportOffer.syncStopped", defaultValue: "Stopped keeping cookies in sync with %@: cmux could not read them. Import again to turn it back on.", table: "BrowserImportOffer", bundle: .module), browser) }
     static var notNow: String {
         String(localized: "browserImportOffer.notNow", defaultValue: "Not Now", table: "BrowserImportOffer", bundle: .module)
     }

@@ -149,14 +149,17 @@ describe("agent avatars", () => {
     stop();
   });
 
-  test("the menu offers Set Avatar…, Remove Avatar only with one, and nothing without a session", () => {
+  test("the menu offers Set Chat Avatar… drawing the picture, Remove Chat Avatar only with one, and nothing without a session", () => {
     const t = (key: string) => key;
     const actions = { set: () => undefined, remove: () => undefined };
-    expect(avatarRows({ sessionId: undefined, hasAvatar: false }, actions, t)).toEqual([]);
-    expect(avatarRows({ sessionId: "s", hasAvatar: false }, actions, t).map((row) => row.key)).toEqual(["setAvatar"]);
-    expect(avatarRows({ sessionId: "s", hasAvatar: true }, actions, t).map((row) => row.key)).toEqual([
-      "setAvatar",
-      "removeAvatar",
-    ]);
+    expect(avatarRows({ sessionId: undefined, avatar: PNG }, actions, t)).toEqual([]);
+    const none = avatarRows({ sessionId: "s", avatar: undefined }, actions, t);
+    expect(none.map((row) => row.key)).toEqual(["setAvatar"]);
+    expect(none[0]).toMatchObject({ label: "chatMenu.setAvatar", icon: "account" });
+    expect(none[0]?.image).toBeUndefined();
+    const some = avatarRows({ sessionId: "s", avatar: PNG }, actions, t);
+    expect(some.map((row) => row.key)).toEqual(["setAvatar", "removeAvatar"]);
+    expect(some[0]).toMatchObject({ icon: "account", image: PNG });
+    expect(some[1]?.image).toBeUndefined();
   });
 });

@@ -10,8 +10,9 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
-import { useSessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
 import {
+  bindSessionInfoPane,
   resetSessionInfoState,
   setSessionInfoOpen,
   setSessionInfoSection,
@@ -20,6 +21,7 @@ import type { BackgroundCommand, SessionInfoProcess } from "../src/agent-session
 import { TasksSection } from "../src/agent-session/acpmux/session-info/TasksSection";
 import { SummaryTasks } from "../src/agent-session/acpmux/summary/SummaryTasks";
 import { assistant, chat, user } from "../src/gallery/fixtures/acpmux";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -58,6 +60,7 @@ afterEach(async () => {
   root = undefined;
   resetSessionInfoState();
   setHeaderState({ inspector: false });
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -137,8 +140,8 @@ test("an entering row inside an entering card keeps its own edge and distance", 
   expect(rule(":where([data-enter] [data-enter])")).toContain("--ui-enter-distance: 8px");
 });
 
-// Session Info stays drawn while the pane switches chats: the next chat's tasks are the ones its
-// list is drawn with, so none of them drops in.
+// Session Info stays drawn while the pane switches to a chat that left it open: the next chat's tasks
+// are the ones its list is drawn with, so none of them drops in. (A chat new to the pane starts closed.)
 test("switching chats with Session Info open replays none of the next chat's tasks", async () => {
   const container = installDom();
   setHeaderState({ inspector: true });
@@ -152,6 +155,11 @@ test("switching chats with Session Info open replays none of the next chat's tas
   });
   const first: AcpmuxSnapshot = chat([user("Build it", 4), assistant("Done.", 3)]);
   const second: AcpmuxSnapshot = { ...first, sessionId: "other-session" };
+  // The next chat was left with Session Info open in this pane.
+  bindSessionInfoPane("other-session");
+  setSessionInfoSection("tasks", true);
+  setSessionInfoOpen(true);
+  bindSessionInfoPane(undefined);
   let show: (chat: AcpmuxSnapshot, processes: SessionInfoProcess[]) => void = () => {};
   function Pane() {
     const [state, setState] = useState({

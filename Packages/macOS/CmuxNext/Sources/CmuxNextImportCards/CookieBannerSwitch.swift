@@ -23,13 +23,17 @@ public struct CookieBannerSwitch {
 
     /// Writes `shown` unless the file already holds it. A run of an action writes as its caller
     /// (`SettingWriter.currentRun`); a click on the banner writes as the person.
-    public func set(_ shown: Bool) {
-        guard isOn != shown else { return }
+    /// - Parameter shown: Whether the banner may show.
+    /// - Returns: The write's task (its end is the write's end, failed or not), or nil when the file
+    ///   already holds `shown` and nothing is written.
+    @discardableResult
+    public func set(_ shown: Bool) -> Task<Void, Never>? {
+        guard isOn != shown else { return nil }
         let writer = SettingWriter.currentRun()
         let settings = settings
         // task-owner: one cmux.json write the person or caller asked for; `follow` applies it
-        Task {
-            do { try await settings.setSetting(at: BrowserCookieBannerSetting().configPath, to: .bool(shown), by: writer) } catch {
+        return Task {
+            do { try await settings.setSetting(at: BrowserCookieBannerSetting.configPath, to: .bool(shown), by: writer) } catch {
                 Logger(subsystem: "com.cmuxterm.app.next", category: "browser-import")
                     .error("browser.import.cookieBanner write failed: \(String(describing: error), privacy: .public)")
             }

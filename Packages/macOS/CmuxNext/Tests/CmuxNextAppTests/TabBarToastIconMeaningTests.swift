@@ -6,10 +6,8 @@ import Testing
 
 /// The tab bar's + and a toast's buttons say what they do (affordance audit 2026-10-21): the +
 /// names New Tab, its shortcut and that holding it opens more; an Undo toast's button shows the
-/// Cmd-Z that also runs it; every toast button has a stable identifier for agents and UI tests.
+/// Cmd-Z that also runs it (the web toast stack draws the buttons and their identifiers).
 @MainActor @Suite(.serialized, .closesItsWindows) struct TabBarToastIconMeaningTests {
-    private let audit = AccessibilityAudit()
-
     @Test func theNewTabPlusSaysHoldForMoreAndShowsItsShortcut() {
         let strip = TabStripView(model: TabStripModel(tabs: [TabItem(id: TabID("t0"), title: "zsh")], selectedID: TabID("t0")))
         #expect(strip.newTabButton.themedToolTip == Strings.newTabHoldHint)
@@ -37,32 +35,31 @@ import Testing
         #expect(strip.newTabButton.themedToolTipShortcut == nil)
     }
 
-    @Test func anUndoToastShowsCmdZAndEveryButtonIsIdentified() throws {
-        let view = CmuxToastView(toast: CmuxToast(id: "tab-closed", message: "Closed “zsh”", action: .undo()))
-        let undo = try #require(view.actionButton)
-        #expect(undo.themedToolTip == CmuxToastStrings.undo)
-        #expect(undo.themedToolTipShortcut == "⌘Z")
-        // VoiceOver reads the title once; the help adds only the key, not "Undo" again.
-        #expect(undo.accessibilityHelp() == "⌘Z")
-        #expect(undo.accessibilityIdentifier() == "cmux.toast.tab-closed.action")
-        #expect(view.closeButton.accessibilityIdentifier() == "cmux.toast.tab-closed.close")
-
+    /// An Undo toast is shown with its key (the host draws ⌘Z on its button); a Reopen (not an
+    /// Undo) has no key.
+    @Test func anUndoToastShowsCmdZAndAReopenNone() throws {
+        let host = ShownToastHost()
+        let center = CmuxToastCenter(host: host)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 120), styleMask: [.borderless],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
+                              backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
-        window.contentView?.addSubview(view)
-        view.layoutSubtreeIfNeeded()
-        let violations = audit.violations(under: view)
-        #expect(violations.isEmpty, "toast: \(violations.joined(separator: "\n"))")
-    }
+        let undo = center.show(CmuxToast(id: "tab-closed", message: "Closed “zsh”", action: .undo()), in: window)
+        let shownUndo = try #require(host.shown.last)
+        #expect(shownUndo.toast.action?.title == CmuxToastStrings.undo)
+        #expect(shownUndo.showsUndoKey)
+        undo.dismiss()
 
-    /// A Reopen (not an Undo) has no key: no shortcut, and no tooltip repeating its title.
-    @Test func aReopenToastShowsNoShortcut() throws {
-        let view = CmuxToastView(toast: CmuxToast(id: "window-closed", message: "Closed a window", action: .reopen()))
-        let reopen = try #require(view.actionButton)
-        #expect(reopen.themedToolTipShortcut == nil)
-        #expect(reopen.themedToolTip == nil)
-        #expect(reopen.accessibilityIdentifier() == "cmux.toast.window-closed.action")
+        let reopen = center.show(CmuxToast(id: "window-closed", message: "Closed a window", action: .reopen()), in: window)
+        let shownReopen = try #require(host.shown.last)
+        #expect(shownReopen.toast.action?.title == CmuxToastStrings.reopen)
+        #expect(!shownReopen.showsUndoKey)
+        reopen.dismiss()
     }
+}
+
+/// Keeps the window's toasts as the center last showed them.
+@MainActor
+private final class ShownToastHost: CmuxToastHosting {
+    private(set) var shown: [CmuxToastShown] = []
+    func show(_ toasts: [CmuxToastShown], in window: NSWindow, center: CmuxToastCenter) { shown = toasts }
 }

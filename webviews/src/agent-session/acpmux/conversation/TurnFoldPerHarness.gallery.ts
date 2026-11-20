@@ -90,7 +90,7 @@ export default agentPaneEntry({
     codex: variant(
       "codex",
       "codex",
-      "Codex and ChatGPT: the same closed fold; with messages between the work, Codex's header counts them.",
+      "Codex and ChatGPT: the same closed fold; the reply between the runs stays in sight, never counted as a folded message.",
     ),
     gemini: variant(
       "gemini",

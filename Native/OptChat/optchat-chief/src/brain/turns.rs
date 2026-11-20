@@ -400,7 +400,7 @@ impl Brain {
         let family = self.family_of(&engine.harness);
         // The cached layout on a Claude harness whose acpmux takes a preset
         // system prompt; else the view and the messages as blocks.
-        let (cached, plain_preset) = self.session_presets(family);
+        let (cached, plain_preset) = self.harness_presets(&engine.harness, family);
         let marker = self.marker_refused.take();
         let ttl = self.turn_cache_ttl();
         // Our marks (spec 5a.2): the `<chat>` header, the frozen view's end and
@@ -422,6 +422,11 @@ impl Brain {
             .filter(|_| self.prewarm_ours != Some(false));
         let mut answers = self.state.carry_answers.clone();
         add_answers(&mut answers, self.answers_of(&items));
+        // A new turn: what it saw and posted starts empty (landed_told.rs),
+        // before its items are logged.
+        self.turn_landed.clear();
+        self.turn_posts.clear();
+        self.landed_refused = false;
         let done = self.log_items(&items, move |next, done| {
             next.carry_answers.clear();
             let first = done.ids.first().copied().unwrap_or(first_id);
@@ -514,7 +519,15 @@ impl Brain {
         self.turn_denied.clear();
         self.repeat_denials = 0;
         self.interrupt.set_gate(self.turn_ask);
-        let policy = if self.turn_ask {
+        // The Chief's permission mode for an owner turn (cmux#37392). A
+        // Claude turn in Manual (Claude Code's `default`) asks before each
+        // change, and under approve-all acpmux would answer every ask with
+        // allow: it runs under `ask`, so each ask comes to `turn_permission`
+        // and is refused (nobody answers a turn session's request).
+        let permission_mode =
+            (!self.turn_ask).then(|| self.chief_permission_mode(&self.next_engine().2).0);
+        let manual = permission_mode == Some("default") && family == crate::acpmux::Family::Claude;
+        let policy = if self.turn_ask || manual {
             crate::approval::ASK.to_owned()
         } else {
             self.settings.policy.clone()
@@ -557,9 +570,21 @@ impl Brain {
         // never before a cache mark: the subagents at work now (the reference
         // client's line). Never logged.
         let at_work = self.at_work_line();
+        let open_items = self.open_items_block();
+        // The person's clock (weekday, time, zone): day words and sleep
+        // seconds count from it. After the delta, so it never breaks a cache
+        // mark.
+        let now = Some(crate::prompt::now_line_here());
+        // The memory files' index and standing rules (memory_files.rs): read
+        // every turn, so a file saved in the last turn holds in this one.
+        // In another person's turn, only the open loops.
+        let (memory, memory_seen) = self.turn_memory_block();
         // The person's Home workspace as it is now: after the view, never logged.
-        let tail: Vec<String> = at_work
+        let tail: Vec<String> = now
             .iter()
+            .chain(memory.iter())
+            .chain(at_work.iter())
+            .chain(open_items.iter())
             .chain(home.iter())
             .chain(resumes.iter())
             .cloned()
@@ -633,7 +658,9 @@ impl Brain {
         // The kept session, when this turn has the same session shape and
         // keeps the frozen view: only what it has not read goes to it. The
         // policy is part of the shape: an approve-all session never serves a
-        // turn another person started, and an `ask` one never an owner turn.
+        // turn another person started. An `ask` one serves only `ask` turns:
+        // one that carries another person's text, or a Manual owner turn,
+        // which sets `default` on it again before its prompt (turn.rs).
         let sig = keep.then(|| {
             keep_sig(
                 &engine,
@@ -660,7 +687,14 @@ impl Brain {
                 crate::prompt::delta_from(&input.delta, k.seen_end).map(|text| {
                     let mut blocks = vec![serde_json::json!({"type": "text", "text": text})];
                     blocks.extend(image_blocks.iter().cloned());
-                    let tail = tail.join("\n\n");
+                    // The kept session read this memory block last turn:
+                    // only a changed block goes again.
+                    let tail = tail
+                        .iter()
+                        .filter(|t| !(memory_seen && Some(*t) == memory.as_ref()))
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join("\n\n");
                     if !tail.is_empty() {
                         blocks.push(serde_json::json!({"type": "text", "text": tail}));
                     }
@@ -716,6 +750,12 @@ impl Brain {
             layout["resumes"] = serde_json::json!(resumes);
         }
         layout["images"] = serde_json::json!(image_count);
+        if let Some(line) = &now {
+            layout["now"] = serde_json::json!(line);
+        }
+        if let Some(block) = &memory {
+            layout["memory_block"] = serde_json::json!(block);
+        }
         if let Some(line) = &at_work {
             layout["at_work"] = serde_json::json!(line);
         }
@@ -777,6 +817,7 @@ impl Brain {
                 .into(),
                 fast: self.turn_fast(&engine, family),
                 peer: None,
+                stop_condition: None,
             },
             blocks,
             system_prompt,
@@ -786,6 +827,7 @@ impl Brain {
             reuse,
             keep,
             retire,
+            permission_mode: permission_mode.map(str::to_owned),
         })
     }
 
@@ -868,6 +910,9 @@ impl Brain {
                 for item in items {
                     if let Source::Spawn(r) = &item.source {
                         self.trace_report_logged(r, &item.text);
+                        if !r.quiet {
+                            self.saw_report(r, &item.text);
+                        }
                     }
                 }
                 Some(done)
@@ -1152,6 +1197,24 @@ impl Brain {
                 "engine.json names harness {named}, which acpmux does not have; this turn runs on {}",
                 engine.harness
             ));
+            // A brain the person picked that is not installed: say so in the chat too.
+            if let Some(reason) = self
+                .settings
+                .brains
+                .refusal(&named, std::time::Instant::now())
+            {
+                self.brain_fell_back(&named, &reason);
+            }
+        }
+        // An open-source brain that cannot run a turn now (not installed, or it failed one in
+        // the last RETRY_AFTER): another harness answers, and the person sees one note.
+        if let Some((from, reason)) = self.brain_stand_in(&mut engine) {
+            self.brain_fell_back(&from, &reason);
+        } else if self.settings.brains.get(&engine.harness).is_some() {
+            // A brain runs the model its home names (the gateway's) unless engine.json names one:
+            // the host's default model and effort are the default harness's (a Claude model).
+            engine.model = choice.model.clone();
+            engine.effort = choice.effort.clone();
         }
         self.turn_spawn_engine = Some(engine.clone());
         // Native turns historically ignore engine.json's model/effort. Keep
@@ -1175,6 +1238,11 @@ impl Brain {
     /// with its family when that is not the default harness's.
     pub(super) fn spawn_engine(&self) -> Option<crate::subagents::SpawnEngine> {
         let engine = self.turn_spawn_engine.as_ref()?;
+        // A turn on an open-source brain spawns its subagents on the default subagent harness:
+        // a brain has no subagent preset of its own.
+        if self.settings.brains.get(&engine.harness).is_some() {
+            return None;
+        }
         let family = self.family_of(&engine.harness);
         Some(crate::subagents::SpawnEngine {
             harness: engine.harness.clone(),
@@ -1296,14 +1364,99 @@ impl Brain {
         );
     }
 
+    /// The engine a turn (or the prewarm of the next one) takes when `engine` names an
+    /// open-source brain that cannot run now: the stand-in harness (never a brain) with its own
+    /// model and effort. Answers the brain and why, or None when `engine` stays.
+    pub(super) fn brain_stand_in(
+        &mut self,
+        engine: &mut crate::engine::TurnEngine,
+    ) -> Option<(String, String)> {
+        let reason = self
+            .settings
+            .brains
+            .refusal(&engine.harness, std::time::Instant::now())?;
+        let to = self.brain_fallback_harness();
+        let from = std::mem::replace(&mut engine.harness, to);
+        engine.model = self.settings.model.clone();
+        engine.effort = self.settings.effort.clone();
+        Some((from, reason))
+    }
+
+    /// The harness that answers for a brain that cannot (brain_home::BrainTurns::fallback_harness).
+    fn brain_fallback_harness(&self) -> String {
+        self.settings
+            .brains
+            .fallback_harness(&self.settings.harness, &self.settings.families)
+    }
+
+    /// A turn on brain harness `from` runs on another harness: one note per brain while the host
+    /// runs (a new note once the brain ran a turn again), and the fallback in
+    /// `brains/state.json` (`chief brains`).
+    fn brain_fell_back(&mut self, from: &str, reason: &str) {
+        let Some(brain) = self.settings.brains.get(from).map(|b| b.brain) else {
+            return;
+        };
+        let to = self.brain_fallback_harness();
+        (self.log)(&format!(
+            "turn on brain {from} falls back to {to}: {reason}"
+        ));
+        if let Some(root) = &self.settings.brains.root {
+            crate::brain_home::record_fallback(root, brain.family, &to, reason, super::now_ms());
+        }
+        let epoch = self.settings.brains.ran_ok(from);
+        self.notice(
+            format!("brain-fallback:{from}:{epoch}"),
+            crate::brain_home::fallback_note(brain, &to, reason),
+        );
+    }
+
+    /// Whether `outcome`, a turn on an open-source brain, failed with nothing to show for a
+    /// reason of the brain's own: the brain is marked failed (brain_home::RETRY_AFTER), so the
+    /// turn runs again on the stand-in harness. Not for a stop, a superseded or stale turn, an
+    /// orphan, or a lost link or network (those are cut and run again on the brain).
+    fn brain_turn_failed(&mut self, key: &str, outcome: &TurnOutcome, cut: Option<Cut>) -> bool {
+        let Some(harness) = self.turn_engine.as_ref().map(|e| e.harness.clone()) else {
+            return false;
+        };
+        if self.settings.brains.get(&harness).is_none() {
+            return false;
+        }
+        if outcome.reply.is_some() && outcome.error.is_none() {
+            self.settings.brains.mark_ran(&harness);
+        }
+        if outcome.cancelled
+            || outcome.reply.is_some()
+            || outcome.orphan.is_some()
+            || matches!(cut, Some(Cut::Link | Cut::Network))
+            || !self.may_cut(key)
+        {
+            return false;
+        }
+        let Some(error) = outcome.error.as_deref() else {
+            return false;
+        };
+        let reason = crate::turn::error_head(error).to_owned();
+        self.settings
+            .brains
+            .fail(&harness, &reason, std::time::Instant::now());
+        true
+    }
+
     pub(super) fn turn_ended(&mut self, key: &str, mut outcome: TurnOutcome) {
-        if let Some(cut) = self.is_cut(key, &outcome) {
+        // A failed turn on an open-source brain is cut and runs again on the default harness
+        // (turn_engine_choice), so the person's message still gets its answer.
+        // A lost acpmux link is no fault of the brain: that cut runs again on the brain.
+        let cut = self.is_cut(key, &outcome);
+        let brain_failed = self.brain_turn_failed(key, &outcome, cut);
+        let cut = cut.or_else(|| brain_failed.then_some(Cut::Upstream));
+        if let Some(cut) = cut {
             self.cut_ran |= !outcome.unstarted;
             self.turn_cut(key, outcome, cut);
             return;
         }
         self.cuts = 0;
-        if std::mem::take(&mut self.cut_ran) {
+        let ran_before = std::mem::take(&mut self.cut_ran);
+        if ran_before {
             outcome.unstarted = false;
         }
         self.steer_due.take_if(|(_, turn)| turn == key);
@@ -1372,6 +1525,16 @@ impl Brain {
             .is_some_and(|t| t.answers.iter().all(awaited))
             && !self.unanswered_in_turn().is_empty();
         let unstarted = stalled && held;
+        // A cut try of this turn reached a harness and its resume's start
+        // hung (`turn::is_hung_start`, never cut): it may have done work, so
+        // it is no unstarted rerun, but the person hears plain words, never
+        // the start's diagnostics, and no failure note closes its messages.
+        let hung_after_run = ran_before
+            && outcome.reply.is_none()
+            && outcome
+                .error
+                .as_deref()
+                .is_some_and(crate::turn::is_hung_start);
         if stalled
             && !quiet
             && let Some(error) = &outcome.error
@@ -1398,6 +1561,7 @@ impl Brain {
             Some(error)
                 if !(quiet
                     || stalled
+                    || hung_after_run
                     || tool_stopped
                     || outcome.orphan.is_some()
                     || steered_waits) =>
@@ -1414,7 +1578,7 @@ impl Brain {
                 "turn {key} ended by the Chief's stop: nothing more posted"
             ));
         }
-        let text = if stalled && !held && !(quiet || tool_stopped) {
+        let text = if ((stalled && !held) || hung_after_run) && !(quiet || tool_stopped) {
             UNSTARTED_TEXT.to_owned()
         } else {
             ended_turn_text(
@@ -1684,9 +1848,10 @@ const UPSTREAM_TRANSIENT: [&str; 8] = [
 /// its messages: never the start's diagnostics.
 const UNSTARTED_TEXT: &str = "I could not start an agent just now; the machine may be busy. I will pick this up with the next message.";
 
-/// A turn whose prompt never reached a harness because its start stalled or
-/// broke off: rerun, and past its cuts never posted (its message waits in the
-/// reply ledger). A usage limit is not cured by a retry and stays a failure.
+/// A turn whose prompt never reached a harness because its start stalled, broke
+/// off or hung (acpmux ended a harness that did no work): rerun, and past its
+/// cuts never posted (its message waits in the reply ledger). A usage limit is
+/// not cured by a retry and stays a failure.
 fn unstarted_stall(outcome: &TurnOutcome) -> bool {
     let Some(error) = outcome.error.as_deref().map(crate::turn::error_head) else {
         return false;
@@ -1694,7 +1859,7 @@ fn unstarted_stall(outcome: &TurnOutcome) -> bool {
     outcome.unstarted
         && !outcome.refused
         && outcome.reply.is_none()
-        && crate::turn::is_start_stall(error)
+        && (crate::turn::is_start_stall(error) || crate::turn::is_hung_start(error))
         && !matches!(
             crate::auto_resume::classify_error(error),
             crate::auto_resume::StopKind::UsageLimit(_)
@@ -1719,8 +1884,10 @@ pub(super) fn cut_kind(outcome: &TurnOutcome) -> Option<Cut> {
     // posted as the Chief's reply three times, because only Chief's own "no
     // answer within" wording was matched here. A start refused for a reason
     // (a setup error) still fails at once and shows.
+    // A hung start (`turn::is_hung_start`) is no cut: its harness took minutes
+    // to be called hung, so only the reply ledger's few tries run it again.
     if unstarted_stall(outcome) {
-        return Some(Cut::Upstream);
+        return (!crate::turn::is_hung_start(error)).then_some(Cut::Upstream);
     }
     if outcome.reply.is_none()
         && [
@@ -1760,16 +1927,20 @@ impl Brain {
     /// never one the owner or a newer message stopped, at most `MAX_CUTS` in
     /// a row.
     fn is_cut(&self, key: &str, outcome: &TurnOutcome) -> Option<Cut> {
-        if self.stop_wanted
+        if !self.may_cut(key) {
+            return None;
+        }
+        cut_kind(outcome)
+    }
+
+    /// Whether turn `key` may be cut and run again: no stop asked for it, cuts left.
+    fn may_cut(&self, key: &str) -> bool {
+        !(self.stop_wanted
             || self.owner_stopped
             || self.tool_stopped
             || self.denial_stopped.is_some()
             || self.cuts >= MAX_CUTS
-            || self.state.turn.as_ref().is_none_or(|t| t.key != key)
-        {
-            return None;
-        }
-        cut_kind(outcome)
+            || self.state.turn.as_ref().is_none_or(|t| t.key != key))
     }
 
     /// Sets the waits before a turn an upstream error cut runs again (tests

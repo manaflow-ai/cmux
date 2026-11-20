@@ -6,7 +6,7 @@ import Testing
 /// Its nonisolated deinit used to return early off the main thread (`guard Thread.isMainThread else
 /// { return }`), so a watch released off main left its `ObservationStream` loop waiting for the app's
 /// life. The watch stands for the owners fixed with it (ComputerUseSetup, DaemonPaletteUsageStore,
-/// PaneToolbar, ProjectsImport, the dock and machine section hosts, TopHomePageView and
+/// PaneToolbar, the dock and machine section hosts, TopHomePageView and
 /// TitlebarToolbarBand): each cancels its Sendable task handles in a nonisolated deinit of the same
 /// shape. The on-main case is the control; only the off-main case is red before the fix.
 @MainActor @Suite(.serialized)

@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto"
 import { canonicalJson, type Principal } from "@cmux/ownership"
 import type { Connection } from "@cmux/protocol"
-import { githubRepoAllowed, mayUse, policyOf, providerAllowed, type ConnectionsState } from "../domains/connections.ts"
+import { githubCovers, githubInstallationOf, githubRepoAllowed, mayUse, policyOf, providerAllowed, type ConnectionsState } from "../domains/connections.ts"
 import type { Env } from "../env.ts"
 import { open, seal, type SealedSecret } from "./crypto.ts"
+import { installationConfigureUrl } from "./github-connect.ts"
 import { forgetInstallationToken, github, installationToken, InstallationTokenRefused, mintedToken, requestInstallationToken, revokeInstallationToken, type Http } from "./providers.ts"
 
 /**
@@ -22,12 +23,22 @@ import { forgetInstallationToken, github, installationToken, InstallationTokenRe
 const [REUSE_MARGIN_MS, MINT_RATE, REVOKE_RETRY_MAX_MS] = [15 * 60_000, { burst: 60, per_second: 1 }, 10 * 60_000]
 
 /** `machine`: a vm install's own machine (the route checked it through vmGate). */
-export type TokenAsk = { readonly repo: string; readonly permissions: Readonly<Record<string, "read" | "write">>; readonly label?: string; readonly machine?: string; readonly ttlSec?: number }
-export type TokenFail = { readonly ok: false; readonly status: number; readonly code: string; readonly message: string; readonly retry_after?: number }
-export type TokenReply = { readonly ok: true; readonly value: { token: string; expires_at: string; repo: string; permissions: Record<string, string>; token_id: string } } | TokenFail
+export type TokenAsk = { readonly repo: string; readonly permissions: Readonly<Record<string, "read" | "write">>; readonly connection?: string; readonly label?: string; readonly machine?: string; readonly ttlSec?: number }
+/**
+ * Why a policy.denied refused a repository, so the machine's git and gh can name the one fix (cmux-host
+ * github_cli.rs `Refused::explain`): `owner_not_connected`, no connection of this team is on the repository's
+ * owner (another account's repository: its owner installs the App); `connection_other_owner`, the selected connection
+ * is on another account than the repository's owner; `repo_not_granted`, the owner's installation
+ * (or the linking person's recorded access) leaves it out; `repo_not_allowed`, the team's allowlist; `permissions_not_granted`,
+ * the installation does not grant the asked access; `workflows_not_allowed`, the team policy's workflows switch.
+ */
+export type DenyReason = "owner_not_connected" | "connection_other_owner" | "repo_not_granted" | "repo_not_allowed" | "permissions_not_granted" | "workflows_not_allowed"
+/** `configure_url`: on a policy.denied for a repository the owner's installation lacks, the installation's page where it is added. */
+export type TokenFail = { readonly ok: false; readonly status: number; readonly code: string; readonly message: string; readonly retry_after?: number; readonly configure_url?: string; readonly reason?: DenyReason }
+export type TokenReply = { readonly ok: true; readonly value: { token: string; expires_at: string; repo: string; connection_id: string; permissions: Record<string, string>; token_id: string } } | TokenFail
 
 export type RepoListReply =
-  | { readonly ok: true; readonly value: { readonly repos: ReadonlyArray<{ readonly full_name: string; readonly private: boolean }>; readonly cursor: string | null } }
+  | { readonly ok: true; readonly value: { readonly repos: ReadonlyArray<{ readonly full_name: string; readonly private: boolean; readonly default_branch?: string }>; readonly cursor: string | null } }
   | TokenFail
 
 /** What the ledger needs from its ConnectionDO. */
@@ -48,6 +59,7 @@ export interface LedgerHost {
 }
 
 const fail = (status: number, code: string, message: string, retry_after?: number): TokenFail => ({ ok: false, status, code, message, ...(retry_after === undefined ? {} : { retry_after }) })
+const deny = (reason: DenyReason, message: string): TokenFail => ({ ...fail(403, "policy.denied", message), reason })
 const sha256hex = (s: string) => createHash("sha256").update(s).digest("hex")
 const enc = new TextEncoder()
 
@@ -57,6 +69,7 @@ export const principalKey = (p: Principal) => (p.kind === "install" && p.install
 export const createGithubTokenTable = (sql: SqlStorage) => {
   sql.exec(`CREATE TABLE IF NOT EXISTS github_tokens (
     token_id TEXT PRIMARY KEY, cache_key TEXT NOT NULL, principal TEXT NOT NULL, install TEXT, team TEXT NOT NULL, repo TEXT NOT NULL,
+    connection_id TEXT,
     permissions TEXT NOT NULL, expires_at INTEGER NOT NULL, provider_expires_at INTEGER NOT NULL DEFAULT 0, sealed TEXT NOT NULL,
     revoking INTEGER NOT NULL DEFAULT 0, retry_at INTEGER NOT NULL DEFAULT 0, attempts INTEGER NOT NULL DEFAULT 0)`)
   try {
@@ -64,12 +77,18 @@ export const createGithubTokenTable = (sql: SqlStorage) => {
   } catch {
     // The column already exists on current deployments.
   }
+  try {
+    sql.exec(`ALTER TABLE github_tokens ADD COLUMN connection_id TEXT`)
+  } catch {
+    // Existing tables that already have the column need no migration.
+  }
   sql.exec(`UPDATE github_tokens SET provider_expires_at = expires_at WHERE provider_expires_at = 0`)
+  sql.exec(`CREATE INDEX IF NOT EXISTS github_tokens_connection ON github_tokens (connection_id)`)
   sql.exec(`CREATE INDEX IF NOT EXISTS github_tokens_cache ON github_tokens (cache_key)`)
   sql.exec(`CREATE INDEX IF NOT EXISTS github_tokens_principal ON github_tokens (principal)`)
 }
 
-type Row = { token_id: string; principal: string; install: string | null; team: string; repo: string; permissions: string; expires_at: number; provider_expires_at: number; sealed: string }
+type Row = { token_id: string; principal: string; install: string | null; team: string; repo: string; connection_id: string | null; permissions: string; expires_at: number; provider_expires_at: number; sealed: string }
 const aad = (r: Omit<Row, "sealed">) => enc.encode(`cmux-ghtok-v1|${canonicalJson([r.team, r.principal, r.install, r.repo, r.permissions, r.token_id, Number(r.expires_at)])}`)
 const openRow = (env: Env, r: Row) => open(env.INTEGRATIONS_KEK!, JSON.parse(r.sealed) as SealedSecret, aad(r))
 
@@ -114,26 +133,82 @@ const authorize = (state: ConnectionsState, p: Principal, ask: TokenAsk): { c: C
   if (all.length === 0) return fail(404, "integration.not_found", "this team has no GitHub connection")
   const policy = policyOf(state)
   if (!providerAllowed(policy, "github")) return fail(403, "policy.denied", "the team policy does not allow GitHub")
+  // When the user selected a connection, it is the only possible authority. Never fall
+  // back to another installation for the same repo after revoke, expiry or relink.
+  const selected = ask.connection === undefined ? undefined : all.find((c) => c.id === ask.connection)
+  if (ask.connection !== undefined && selected === undefined)
+    return fail(404, "integration.not_found", "the selected GitHub connection is not available")
+  if (selected && selected.status !== "active")
+    return fail(409, "needs_reauth", "the selected GitHub connection needs to be linked again")
   const active = all.filter((c) => c.status === "active")
   if (active.length === 0) return fail(409, "needs_reauth", "the team's GitHub connection needs to be linked again")
-  const owner = repo.split("/")[0]!.toLowerCase()
-  // `repositories` names repositories inside the installation's own account: the owner must be that account.
-  const c = active.find((x) => x.account?.name.toLowerCase() === owner && githubRepoAllowed(x, policy, repo))
-  const installation = Number(/^github:installation:(\d+)$/.exec(c?.account?.key ?? "")?.[1])
-  if (!c || !Number.isSafeInteger(installation)) return fail(403, "policy.denied", `the team's GitHub connection may not act on ${repo} (team policy or the linking user's access)`)
-  if (ask.permissions.workflows === "write" && policy.github.allow_workflows !== true) return fail(403, "policy.denied", "workflows: write needs the team policy github.allowWorkflows")
+  // `repositories` names repositories inside the installation's own account: the owner must be that account (githubCovers, shared with Connect's reuse).
+  const owned = ownerConnections(active, ask)
+  if (selected && owned.length === 0 && selected.account?.name.toLowerCase() !== repo.split("/")[0]!.toLowerCase()) return otherOwner(selected, active, repo)
+  const c = owned.find((x) => githubCovers(x, policy, repo))
+  const installation = c ? githubInstallationOf(c) : undefined
+  if (!c || installation === undefined) return notCovered(owned, policy, repo)
+  if (ask.permissions.workflows === "write" && policy.github.allow_workflows !== true) return deny("workflows_not_allowed", "workflows: write needs the team policy github.allowWorkflows")
   return { c, installation }
+}
+
+/** The active connections (of `ask.connection` when it names one) on the repository's owner account, with an installation. */
+const ownerConnections = (active: ReadonlyArray<Connection>, ask: TokenAsk): ReadonlyArray<Connection> => {
+  const owner = ask.repo.split("/")[0]!.toLowerCase()
+  return active.filter((x) => (ask.connection === undefined || x.id === ask.connection) && x.account?.name.toLowerCase() === owner && githubInstallationOf(x) !== undefined)
+}
+
+/**
+ * The selected connection is on another account than `repo`'s owner. It stays the only authority (no fallback), so the
+ * reply names it and whether the team has a connection on the owner this principal may use (`active` is mayUse's).
+ */
+const otherOwner = (selected: Connection, active: ReadonlyArray<Connection>, repo: string): TokenFail => {
+  const owner = repo.split("/")[0]!
+  const on = selected.account?.name ? `is for ${selected.account.name}, not ${owner}` : `is for another account, not ${owner}`
+  const another = active.some((x) => x.id !== selected.id && x.account?.name.toLowerCase() === owner.toLowerCase() && githubInstallationOf(x) !== undefined)
+  return deny(
+    "connection_other_owner",
+    another
+      ? `the selected GitHub connection ${on}: select the team's GitHub connection on ${owner} instead`
+      : `the selected GitHub connection ${on}, and this team has no other cmux GitHub App connection on ${owner}: the App must be installed on ${owner} and connected to the team`,
+  )
+}
+
+/**
+ * Why no connection covers `repo`: none is on its owner (a repository of an account this team has not connected, such
+ * as one the person only collaborates on), the team's allowlist leaves it out, or the owner's connection does not
+ * include it (not selected on the installation, or added after the person linked it: the recorded list is the link's).
+ */
+const notCovered = (owned: ReadonlyArray<Connection>, policy: ReturnType<typeof policyOf>, repo: string): TokenFail => {
+  const owner = repo.split("/")[0]!
+  if (owned.length === 0) return deny("owner_not_connected", `this team has no cmux GitHub App connection on ${owner}: the App must be installed on ${owner} and connected to the team`)
+  // The allowlist alone, whatever the scope.
+  const anyScope = { ...policy, github: { ...policy.github, scope: "installation" as const } }
+  if (!owned.some((x) => githubRepoAllowed(x, anyScope, repo))) return deny("repo_not_allowed", `the team's GitHub repository allowlist does not include ${repo}`)
+  // Only the default scope gets here (the installation scope checks the allowlist alone): the recorded list is what the
+  // person who connected GitHub could see in the installation, so either the installation or that person's access lacks it.
+  return deny("repo_not_granted", `the team's GitHub connection on ${owner} does not include ${repo}: it lists the repositories the person who connected GitHub could see. If the installation on GitHub leaves ${repo} out, add it there; then connect GitHub again as someone who can see ${repo}`)
+}
+
+/** A `repo_not_granted` refusal with the owner's installation page, where the repository is added, when GitHub names one. */
+const withConfigurePage = async (h: LedgerHost, p: Principal, ask: TokenAsk, refusal: TokenFail): Promise<TokenFail> => {
+  const active = Object.values(h.state().connections).filter((c) => c.provider === "github" && c.status === "active" && mayUse(c, p))
+  const c = ownerConnections(active, ask)[0]
+  const installation = c ? githubInstallationOf(c) : undefined
+  if (!c?.account || installation === undefined) return refusal
+  const page = await installationConfigureUrl(h.sql, h.env, h.http, installation, c.account.name, Date.now()).catch(() => null)
+  return page ? { ...refusal, configure_url: page } : refusal
 }
 
 /** POST /v1/integrations/github/token for an authenticated, team-checked principal. */
 export const githubToken = (h: LedgerHost, p: Principal, ask: TokenAsk, now: number): Promise<TokenReply> => {
   if (!github.configured(h.env) || !h.env.INTEGRATIONS_KEK) return Promise.resolve(fail(503, "integration.unavailable", "the cmux GitHub App is not configured on this deployment"))
   const picked = authorize(h.state(), p, ask)
-  if ("ok" in picked) return Promise.resolve(picked)
+  if ("ok" in picked) return picked.reason === "repo_not_granted" ? withConfigurePage(h, p, ask, picked) : Promise.resolve(picked)
   const pk = principalKey(p)
   const permissions = Object.fromEntries(Object.entries(ask.permissions).sort(([a], [b]) => a.localeCompare(b)))
   // TTL is part of the cache identity: a short machine request must never reuse a longer-lived token.
-  const cacheKey = sha256hex(canonicalJson([pk, picked.installation, ask.repo.toLowerCase(), permissions, ask.ttlSec ?? null]))
+  const cacheKey = sha256hex(canonicalJson([pk, picked.c.id, picked.installation, ask.repo.toLowerCase(), permissions, ask.ttlSec ?? null]))
   // One mint at a time per cache key: concurrent asks share it (and the token).
   const running = h.inflight.get(cacheKey)
   if (running) return running
@@ -234,10 +309,10 @@ export const githubRepos = async (
     if (!body || !Array.isArray(body.repositories)) return fail(503, "integration.unavailable", "GitHub returned an invalid repository list")
     const repos = body.repositories.flatMap((entry) => {
       if (!entry || typeof entry !== "object") return []
-      const repo = entry as { full_name?: unknown; private?: unknown }
+      const repo = entry as { full_name?: unknown; private?: unknown; default_branch?: unknown }
       const fullName = typeof repo.full_name === "string" ? repo.full_name : ""
       return fullName && githubRepoAllowed(connection, policyOf(state), fullName) && (!cursor.query || fullName.toLowerCase().includes(cursor.query))
-        ? [{ full_name: fullName, private: repo.private === true }]
+        ? [{ full_name: fullName, private: repo.private === true, ...(typeof repo.default_branch === "string" && repo.default_branch ? { default_branch: repo.default_branch } : {}) }]
         : []
     })
     const hasNext = body.repositories.length >= 100 && (typeof body.total_count !== "number" || cursor.page * 100 < body.total_count)
@@ -270,6 +345,13 @@ export const githubRepos = async (
 /** A row is served only while it is live and nobody revoked it (checked after each await, with no await before the answer). */
 const stillLive = (sql: SqlStorage, tokenId: string) => sql.exec(`SELECT 1 FROM github_tokens WHERE token_id = ? AND revoking = 0`, tokenId).toArray().length > 0
 
+/** GitHub includes metadata:read implicitly; every other grant must equal the requested permission. */
+const exactGithubGrant = (granted: Readonly<Record<string, string>>, requested: Readonly<Record<string, "read" | "write">>): boolean =>
+  Object.entries(requested).every(([name, access]) => granted[name] === access) &&
+  Object.entries(granted).every(([name, access]) =>
+    (name === "metadata" && access === "read" && requested.metadata === undefined) || requested[name] === access
+  )
+
 const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation: number }, p: Principal, pk: string, cacheKey: string, ask: TokenAsk, now: number): Promise<TokenReply> => {
   const generation = h.revokes.get(pk) ?? 0
   expireRows(h.sql, now)
@@ -278,10 +360,22 @@ const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation:
   const margin = ask.ttlSec === undefined ? REUSE_MARGIN_MS : Math.min(REUSE_MARGIN_MS, ask.ttlSec * 500)
   const live = h.sql.exec<Row>(`SELECT * FROM github_tokens WHERE cache_key = ? AND principal = ? AND revoking = 0 AND expires_at > ? ORDER BY expires_at DESC LIMIT 1`, cacheKey, pk, now + margin).toArray()[0]
   if (live) {
+    // Existing sealed rows may predate the stricter permission check. Never replay an
+    // over-scoped token: retire it through the existing revocation ledger first.
+    let saved: Record<string, string> | null = null
+    try {
+      const parsed: unknown = JSON.parse(live.permissions)
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) saved = parsed as Record<string, string>
+    } catch { /* corrupt ledger grants are unusable */ }
+    if (!saved || !exactGithubGrant(saved, ask.permissions)) {
+      h.sql.exec(`UPDATE github_tokens SET revoking = 1, retry_at = ? WHERE token_id = ?`, Date.now(), live.token_id)
+      await drainTokenRevocations(h, Date.now())
+      return fail(403, "policy.denied", "the cached GitHub token permissions no longer match the requested grant")
+    }
     const token = await openRow(h.env, live).catch(() => null)
     const again = authorize(h.state(), p, ask)
     if (token && Number(live.expires_at) > Date.now() + margin && stillLive(h.sql, live.token_id) && (h.revokes.get(pk) ?? 0) === generation && !("ok" in again) && again.c.id === picked.c.id) {
-      return { ok: true, value: { token, expires_at: new Date(Number(live.expires_at)).toISOString(), repo: ask.repo, permissions: JSON.parse(live.permissions) as Record<string, string>, token_id: live.token_id } }
+      return { ok: true, value: { token, expires_at: new Date(Number(live.expires_at)).toISOString(), repo: ask.repo, connection_id: picked.c.id, permissions: saved, token_id: live.token_id } }
     }
     if ("ok" in again) return again
   }
@@ -300,12 +394,27 @@ const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation:
       return fail(409, "needs_reauth", "the GitHub App installation is gone or suspended; link GitHub again")
     }
     if (r.kind === "rate") return fail(429, "rate_limited", "GitHub is rate limiting this installation", r.retry)
-    if (r.kind === "denied") return fail(403, "policy.denied", `GitHub refused: the installation does not include ${ask.repo} or does not grant these permissions`)
+    if (r.kind === "denied") {
+      // Adding the repository on the installation's page is the fix the machine's git and gh name (github_cli.rs).
+      // GitHub's 422 says which: "The permissions requested are not granted to this installation." or a repository
+      // that "does not exist or is not accessible to the parent installation".
+      const said = String(((await res.clone().json().catch(() => ({}))) as { message?: unknown }).message ?? "")
+      const permissions = /permissions?\b.*\bnot granted/i.test(said)
+      const page = picked.c.account ? await installationConfigureUrl(h.sql, h.env, h.http, picked.installation, picked.c.account.name, Date.now()) : null
+      const refusal = permissions
+        ? deny("permissions_not_granted", `GitHub refused: the installation does not grant ${Object.entries(ask.permissions).map(([k, v]) => `${k}: ${v}`).join(", ")} on ${ask.repo}`)
+        : deny("repo_not_granted", `GitHub refused: the installation does not include ${ask.repo} or does not grant these permissions`)
+      return { ...refusal, ...(page ? { configure_url: page } : {}) }
+    }
     return fail(503, "integration.unavailable", `GitHub token mint failed: HTTP ${res.status}`)
   }
   const minted = await mintedToken(res)
   if (!minted.token) return fail(503, "integration.unavailable", "GitHub returned no token")
-  if (!Number.isFinite(minted.expires_at) || minted.expires_at <= now) return fail(503, "integration.unavailable", "GitHub returned an expired token")
+  if (!Number.isFinite(minted.expires_at) || minted.expires_at <= now) {
+    // A provider response without a trustworthy expiry must never be handed out or cached.
+    await revokeInstallationToken(h.http, minted.token)
+    return fail(503, "integration.unavailable", "GitHub returned a token without a valid future expiry")
+  }
   const tokenId = sha256hex(minted.token).slice(0, 16)
   const requestedExpiry = ask.ttlSec === undefined ? minted.expires_at : Math.min(minted.expires_at, now + ask.ttlSec * 1000)
   const row = {
@@ -314,6 +423,7 @@ const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation:
     install: p.kind === "install" ? (p.install ?? null) : null,
     team: h.team,
     repo: ask.repo,
+    connection_id: picked.c.id,
     permissions: JSON.stringify(minted.permissions),
     expires_at: requestedExpiry,
     provider_expires_at: minted.expires_at,
@@ -326,12 +436,12 @@ const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation:
     return f
   }
   h.sql.exec(
-    `INSERT OR REPLACE INTO github_tokens (token_id, cache_key, principal, install, team, repo, permissions, expires_at, provider_expires_at, sealed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    row.token_id, cacheKey, row.principal, row.install, row.team, row.repo, row.permissions, row.expires_at, row.provider_expires_at, sealed
+    `INSERT OR REPLACE INTO github_tokens (token_id, cache_key, principal, install, team, repo, connection_id, permissions, expires_at, provider_expires_at, sealed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    row.token_id, cacheKey, row.principal, row.install, row.team, row.repo, row.connection_id, row.permissions, row.expires_at, row.provider_expires_at, sealed
   )
   // Refuse rather than hand out less than was asked (GitHub never widens; it must not narrow either), or what the state no longer allows.
-  const short = Object.entries(ask.permissions).find(([k, v]) => !(minted.permissions[k] === "write" || minted.permissions[k] === v))
-  if (short) return refuse(fail(403, "policy.denied", `GitHub granted less than ${short[0]}: ${short[1]}`))
+  if (!exactGithubGrant(minted.permissions, ask.permissions))
+    return refuse(fail(403, "policy.denied", "GitHub returned permissions different from the requested repository grant"))
   const changed = () => ((a) => ("ok" in a ? a : a.c.id !== picked.c.id ? fail(403, "policy.denied", "the team's GitHub connection changed; retry") : null))(authorize(h.state(), p, ask))
   const before = changed()
   if (before) return refuse(before)
@@ -354,7 +464,7 @@ const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation:
     repo: ask.repo, permissions: minted.permissions, token_id: tokenId, expires_at: row.expires_at
   })
   console.log(JSON.stringify({ msg: "github.token.minted", team: h.team, principal_kind: kind, install: row.install, repo: ask.repo, token_id: tokenId, label: ask.label ?? null }))
-  return { ok: true, value: { token: minted.token, expires_at: new Date(row.expires_at).toISOString(), repo: ask.repo, permissions: { ...minted.permissions }, token_id: tokenId } }
+  return { ok: true, value: { token: minted.token, expires_at: new Date(row.expires_at).toISOString(), repo: ask.repo, connection_id: picked.c.id, permissions: { ...minted.permissions }, token_id: tokenId } }
 }
 
 const expireRows = (sql: SqlStorage, now: number) =>
@@ -372,6 +482,29 @@ export const revokeTokens = async (h: Pick<LedgerHost, "sql" | "env" | "http" | 
   const n = h.sql.exec(`UPDATE github_tokens SET revoking = 1, retry_at = ? WHERE ${col} = ? AND revoking = 0`, now, val).rowsWritten
   await drainTokenRevocations(h, now)
   return n
+}
+
+/**
+ * After an integration disconnect, fence affected tokens synchronously before the
+ * connection revoke returns. This DO owns one team; unlabelled pre-migration rows
+ * are retired conservatively because their originating connection is unknowable.
+ * The existing alarm then retries the provider DELETE until expiry.
+ */
+export const markConnectionTokensRevoked = (
+  h: Pick<LedgerHost, "sql" | "revokes">,
+  connectionId: string,
+  now: number,
+): number => {
+  const affected = h.sql.exec<{ principal: string }>(
+    `SELECT DISTINCT principal FROM github_tokens WHERE revoking = 0 AND (connection_id = ? OR connection_id IS NULL)`,
+    connectionId,
+  ).toArray()
+  for (const row of affected) h.revokes.set(row.principal, (h.revokes.get(row.principal) ?? 0) + 1)
+  return h.sql.exec(
+    `UPDATE github_tokens SET revoking = 1, retry_at = ? WHERE revoking = 0 AND (connection_id = ? OR connection_id IS NULL)`,
+    now,
+    connectionId,
+  ).rowsWritten
 }
 
 /** The alarm's pass: revokes expired rows and retries provider DELETEs (backoff up to 10 minutes). */
@@ -406,16 +539,25 @@ export const nextLedgerAt = (sql: SqlStorage): number | null => {
   return r?.at === null || r?.at === undefined ? null : Number(r.at)
 }
 
-/** GET /v1/integrations/github/status: whether the App is configured, and the connection this principal would use. */
-export const githubStatus = (env: Env, state: ConnectionsState, p: Principal) => {
+/** The GitHub connection GET /status describes to this principal: an active one first, else the latest visible one. */
+export const githubStatusConnection = (state: ConnectionsState, p: Principal): Connection | undefined => {
   // `expired` is a pending link that timed out (no account, and activate refuses it): hidden, as on /repos.
   const usable = Object.values(state.connections).filter((c) => c.provider === "github" && mayUse(c, p) && c.status !== "revoked" && c.status !== "expired" && c.status !== "pending")
-  const c = usable.find((x) => x.status === "active") ?? usable.sort((a, b) => b.updated_at - a.updated_at)[0]
+  return usable.find((x) => x.status === "active") ?? usable.sort((a, b) => b.updated_at - a.updated_at)[0]
+}
+
+/**
+ * GET /v1/integrations/github/status: whether the App is configured, and the connection this principal would use.
+ * `configure_url` is that connection's installation page on GitHub, where repositories are added ("Add more
+ * repositories"), or null when it is not known (github-connect.ts installationConfigureUrl).
+ */
+export const githubStatus = (env: Env, state: ConnectionsState, p: Principal, configureUrl: string | null = null) => {
+  const c = githubStatusConnection(state, p)
   return {
     configured: Boolean(env.INTEGRATIONS_KEK) && github.configured(env),
     app_slug: env.GITHUB_APP_SLUG ?? null,
     // The token route's own policy check: a connection the team policy disallows mints nothing.
     allowed: providerAllowed(policyOf(state), "github"),
-    connection: c ? { id: c.id, account: c.account?.name ?? null, status: c.status, repos: c.resources?.repos ?? null, allow_workflows: policyOf(state).github.allow_workflows === true } : null
+    connection: c ? { id: c.id, account: c.account?.name ?? null, status: c.status, repos: c.resources?.repos ?? null, allow_workflows: policyOf(state).github.allow_workflows === true, configure_url: configureUrl } : null
   }
 }

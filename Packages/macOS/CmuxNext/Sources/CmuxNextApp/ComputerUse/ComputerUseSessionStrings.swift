@@ -17,7 +17,7 @@ enum ComputerUseSessionStrings {
                table: "MiscHandlers", bundle: .module)
     }
     static var off: String {
-        String(localized: "handlers.computerUse.off", defaultValue: "Computer Use is off. Turn it on in Settings > Computer Use.",
+        String(localized: "handlers.computerUse.off", defaultValue: "Computer Use is off. Turn it on in Settings > Agents > Computer Use.",
                table: "MiscHandlers", bundle: .module)
     }
     static var disabledByPolicy: String {
@@ -42,6 +42,14 @@ enum ComputerUseSessionStrings {
     static func hostRefused(_ message: String) -> String {
         String(format: String(localized: "handlers.computerUse.hostRefused", defaultValue: "The Computer Use helper refused: %@",
                               table: "MiscHandlers", bundle: .module), message)
+    }
+
+    static var noApp: String {
+        String(localized: "handlers.computerUse.noApp", defaultValue: "Name the app (app_id).", table: "MiscHandlers", bundle: .module)
+    }
+    static var noDecision: String {
+        String(localized: "handlers.computerUse.noDecision", defaultValue: "The decision must be always or never.",
+               table: "MiscHandlers", bundle: .module)
     }
 
     /// Why no helper answers, from the phase `computer_use.status` reports.

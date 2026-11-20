@@ -14,9 +14,13 @@ public nonisolated struct IconCatalogEntry: Hashable, Sendable, Decodable {
     /// `sf` is only the fallback (Chromium icons), so asking for that symbol elsewhere in the app
     /// keeps drawing cmux's icon for it.
     public var aliasesSymbol: Bool
+    /// SF Symbols the app draws as this icon even where it otherwise draws system symbols (toolbars,
+    /// the palette, menus, the pages' symbol images): `globe` is the pack's outlined ball everywhere
+    /// (Leo, 2026-11-09).
+    public var overrides: [String]
 
     public init(name: IconName, meaning: String, sf: String, family: String, denseStyle: IconStyle? = nil,
-                source: String? = nil, aliasesSymbol: Bool = true) {
+                source: String? = nil, aliasesSymbol: Bool = true, overrides: [String] = []) {
         self.name = name
         self.meaning = meaning
         self.sf = sf
@@ -24,13 +28,14 @@ public nonisolated struct IconCatalogEntry: Hashable, Sendable, Decodable {
         self.denseStyle = denseStyle
         self.source = source
         self.aliasesSymbol = aliasesSymbol
+        self.overrides = overrides
     }
 
     /// Whether the drawing is Chrome's, from Chromium's vector icons.
     public var isChromium: Bool { source == "chromium" }
 
     private enum CodingKeys: String, CodingKey {
-        case name, meaning, sf, family, denseStyle, source
+        case name, meaning, sf, family, denseStyle, source, overrides
         case aliasesSymbol = "alias"
     }
 
@@ -43,7 +48,8 @@ public nonisolated struct IconCatalogEntry: Hashable, Sendable, Decodable {
             family: try container.decode(String.self, forKey: .family),
             denseStyle: try container.decodeIfPresent(IconStyle.self, forKey: .denseStyle),
             source: try container.decodeIfPresent(String.self, forKey: .source),
-            aliasesSymbol: try container.decodeIfPresent(Bool.self, forKey: .aliasesSymbol) ?? true
+            aliasesSymbol: try container.decodeIfPresent(Bool.self, forKey: .aliasesSymbol) ?? true,
+            overrides: try container.decodeIfPresent([String].self, forKey: .overrides) ?? []
         )
     }
 }

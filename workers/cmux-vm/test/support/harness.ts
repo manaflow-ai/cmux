@@ -506,7 +506,13 @@ export async function makeHarness(options: HarnessOptions = {}) {
     async addKey(
       tenant: string,
       scopes: ReadonlyArray<Scope>,
-      options: { readonly revoked?: boolean; readonly expiresAt?: Date; readonly allowlist?: ReadonlyArray<string> } = {},
+      options: {
+        readonly revoked?: boolean;
+        readonly expiresAt?: Date;
+        readonly allowlist?: ReadonlyArray<string>;
+        /** Store the key as an agent key confined to these labels (its principal's requiredLabels), whatever its scopes. */
+        readonly agentLabels?: Readonly<Record<string, string>>;
+      } = {},
     ): Promise<string> {
       const secret = generateApiKey();
       keys.push({
@@ -517,7 +523,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
         hash: await Effect.runPromise(hashApiKey(secret)),
         revoked: options.revoked ?? false,
         expiresAt: options.expiresAt ?? null,
-        agent: null,
+        agent: options.agentLabels === undefined ? null : { labels: options.agentLabels, maxVms: 1, maxUsdPerHour: 1 },
       });
       return secret;
     },

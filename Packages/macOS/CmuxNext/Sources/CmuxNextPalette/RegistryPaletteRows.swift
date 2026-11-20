@@ -17,6 +17,8 @@ final class RegistryPaletteRows {
         var symbol: String?
         /// Whether an on/off command is on now (`ActionTargetTitles.setPaletteState`); nil for any other row.
         var isOn: Bool?
+        /// Whether Return flips the row's setting with the palette open (`RegistryPaletteProvider.flipsInPlace`).
+        var flipsInPlace: Bool
         var keycaps: [String]?
         var keywords: [String]
         var isEnabled: Bool

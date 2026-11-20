@@ -5,7 +5,7 @@
 import type { PaneLanguage, Translate } from "../../i18n";
 import type { Subagent } from "../../subagents/subagentFold";
 import { subagentProgress } from "../../subagents/subagentProgress";
-import { contextBreakdown, contextParts } from "../ContextSection";
+import { contextBreakdown, contextParts } from "../contextSectionModel";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
 
 export const CONTEXT_SYMBOL = "gauge.with.dots.needle.33percent";
@@ -31,6 +31,8 @@ export type ContextInput = {
   /// Opens or closes one of the breakdown's folds; without it the folds show their counts only.
   onToggleList?: (id: "mcpTools" | "memoryFiles" | "skills") => void;
   onCompact?: () => void;
+  /// Opens the Context screen (ContextSection's View Prompt).
+  onViewPrompt?: () => void;
 };
 
 export function contextSection(
@@ -72,13 +74,25 @@ export function contextSection(
       id: "total",
       title: t("context.percent", { percent }),
       trailing: `${tokens.format(usage.used)} / ${tokens.format(usage.size)}`,
-      ...(input.onCompact
+      ...(input.onCompact || input.onViewPrompt
         ? {
             buttons: [
-              {
-                label: t("sessionInfo.context.compactSession"),
-                action: actions.add("context.compact", input.onCompact),
-              },
+              ...(input.onViewPrompt
+                ? [
+                    {
+                      label: t("contextScreen.viewPrompt"),
+                      action: actions.add("context.viewPrompt", input.onViewPrompt),
+                    },
+                  ]
+                : []),
+              ...(input.onCompact
+                ? [
+                    {
+                      label: t("sessionInfo.context.compactSession"),
+                      action: actions.add("context.compact", input.onCompact),
+                    },
+                  ]
+                : []),
             ],
           }
         : {}),

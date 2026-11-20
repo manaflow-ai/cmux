@@ -37,8 +37,8 @@ final class ExtensionActionButton: ClickableButton, PointerHoverReporting {
         setAccessibilityIdentifier(ExtensionActionToolbar.Identifier.action(actionID))
         // The toolbar's button size (BrowserToolbarLayout counts on it).
         NSLayoutConstraint.activate([
-            density.bind(widthAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.buttonSize },
-            density.bind(heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.buttonSize },
+            density.bind(widthAnchor.constraint(equalToConstant: 0)) { [weak self] in OmnibarStyle.buttonSize(scale: OmnibarStyle.scale(of: self)) },
+            density.bind(heightAnchor.constraint(equalToConstant: 0)) { [weak self] in OmnibarStyle.buttonSize(scale: OmnibarStyle.scale(of: self)) },
         ])
         density.update { [weak self] in
             guard let self else { return }
@@ -72,11 +72,14 @@ final class ExtensionActionButton: ClickableButton, PointerHoverReporting {
         let size = OmnibarStyle.buttonSize
         if let data = action.iconPNG, let icon = NSImage(data: data) {
             icon.size = NSSize(width: size, height: size)
+            imageScaling = .scaleProportionallyUpOrDown
             image = icon
         } else {
-            // The button's side: the glyph is a bitmap, so a smaller one would be stretched up (REOPEN-F7).
-            let icon = NSImage.icon(.browserToolbarExtensions, size: size)
+            // The toolbar glyph side, as the Extensions button draws it (one ink box with the arrows);
+            // the button centers it, and it is drawn at this side, so nothing stretches it (REOPEN-F7).
+            let icon = NSImage.icon(.browserToolbarExtensions, size: OmnibarStyle.toolbarIconSize)
             icon.accessibilityDescription = action.name
+            imageScaling = .scaleNone
             image = icon
         }
     }

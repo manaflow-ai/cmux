@@ -31,10 +31,12 @@ export type HomeIconName =
   | "edit"
   | "compose"
   | "chiefAdd"
+  | "cloud"
   | "pin"
   | "attach"
   | "download"
   | "video"
+  | "expand"
   | "chevronLeft";
 
 const PATHS: Record<HomeIconName, ReactNode> = {
@@ -105,6 +107,7 @@ const PATHS: Record<HomeIconName, ReactNode> = {
   close: <path d="M5 5l10 10M15 5 5 15" />,
   chevronRight: <path d="m8 5 5 5-5 5" />,
   chevronLeft: <path d="m12 5-5 5 5 5" />,
+  expand: <path d="M11.5 4.5h4v4M15.5 4.5 11 9M8.5 15.5h-4v-4M4.5 15.5 9 11" />,
   attach: (
     <path d="m15.5 9.5-5.8 5.8a3.6 3.6 0 0 1-5.1-5.1l6.2-6.2a2.4 2.4 0 0 1 3.4 3.4l-6.1 6.1a1.2 1.2 0 0 1-1.7-1.7l5.5-5.5" />
   ),
@@ -134,6 +137,8 @@ const PATHS: Record<HomeIconName, ReactNode> = {
   chiefAdd: (
     <path d="M8 3.5c.4 2.4 1.6 3.6 4 4-2.4.4-3.6 1.6-4 4-.4-2.4-1.6-3.6-4-4 2.4-.4 3.6-1.6 4-4zM15 11.5v5M12.5 14h5" />
   ),
+  // A cloud: a new cmux Cloud machine (a remote computer to run terminals and agents on).
+  cloud: <path d="M6.5 15.5h7.25a3.25 3.25 0 0 0 .2-6.5 4.5 4.5 0 0 0-8.6 1.25A2.75 2.75 0 0 0 6.5 15.5z" />,
   compose: <path d="M9.5 4.5H5.5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-4M13.5 3.5l3 3-6 6h-3v-3z" />,
   threads: <path d="M4 5h12M4 10h12M4 15h7" />,
   hash: <path d="M8 3.5 6.5 16.5M13.5 3.5 12 16.5M4 7.5h12.5M3.5 12.5H16" />,

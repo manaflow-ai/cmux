@@ -30,15 +30,10 @@
 .bg-command-inline[data-look="edge-spinner"] .cv-command__bg-state[data-state="running"]::before {
   border: 1.5px solid var(--cv-text-dim);
   border-top-color: transparent;
-  animation: bg-command-inline-turn var(--cmux-motion-large) linear infinite;
+  animation: cmux-spin var(--cmux-spinner-period) linear infinite;
 }
 .bg-command-inline[data-look="edge-dot"] .cv-command__bg-state[data-state="running"]::before {
   background: radial-gradient(circle, var(--cv-text-dim) 3px, transparent 3.5px);
-}
-@keyframes bg-command-inline-turn {
-  to {
-    transform: rotate(1turn);
-  }
 }
 /* The removed count line, as conversation.css drew it (.cv-bgstatus). */
 .bg-command-inline__before {

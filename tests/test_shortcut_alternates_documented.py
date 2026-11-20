@@ -53,9 +53,9 @@ BINDING_DEFS = (
     "bareFirstStrokeShortcutBinding",
     "numberedFamilyShortcutBinding",
 )
-# The catalogs that declare `shortcutFamily`, i.e. the source of truth for which
-# actions take one key only.
-ACTION_CATALOGS = ROOT / "Packages" / "macOS" / "CmuxNext" / "Sources" / "CmuxNextActions" / "Catalog"
+# The catalog groups that declare `shortcut_family`, i.e. the source of truth for which
+# actions take one key only (the app reads them from cmux-action-catalog).
+ACTION_CATALOGS = ROOT / "cmux-tui" / "crates" / "cmux-action-catalog" / "src" / "catalog"
 
 
 def any_branch(document: dict, name: str = "shortcutBinding") -> dict | None:
@@ -70,15 +70,15 @@ def numbered_family_actions() -> set[str]:
     """Action ids whose descriptor declares a `shortcutFamily`.
 
     `SettingsApplier` keeps only the first key for any action with a family, so
-    these are the ids whose `any` list may hold at most one. Read from the Swift
-    catalogs, so adding a family action cannot silently escape the rule.
+    these are the ids whose `any` list may hold at most one. Read from the Rust
+    catalog groups, so adding a family action cannot silently escape the rule.
     """
     found: set[str] = set()
-    for path in sorted(ACTION_CATALOGS.glob("*.swift")):
+    for path in sorted(ACTION_CATALOGS.glob("*.rs")):
         text = path.read_text()
-        for match in re.finditer(r"shortcutFamily:\s*\.(\w+)", text):
+        for match in re.finditer(r"shortcut_family:\s*Some\(", text):
             # The id of the descriptor this belongs to: the nearest one above it.
-            ids = re.findall(r'id:\s*"([^"]+)"', text[: match.start()])
+            ids = re.findall(r'\bid:\s*"([^"]+)"', text[: match.start()])
             if ids:
                 found.add(ids[-1])
     return found
@@ -318,7 +318,7 @@ class AlternatesValidateTests(unittest.TestCase):
         families = numbered_family_actions()
         self.assertIn(
             "selectSurfaceByNumber", families,
-            "the catalog scan found no numbered families; the `shortcutFamily:` spelling or the "
+            "the catalog scan found no numbered families; the `shortcut_family:` spelling or the "
             f"catalog path ({ACTION_CATALOGS.relative_to(ROOT)}) changed, so update this test",
         )
         bindable = families & set(bindings["propertyNames"]["enum"])

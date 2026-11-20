@@ -126,13 +126,7 @@ export function SourceMenu({
   const [open, setOpen] = useState(false);
   const [committedOpen, setCommittedOpen] = useState(false);
   const submenuEdges = useScrollEdges();
-  const submenuRef = useCallback(
-    (node: HTMLElement | null) => {
-      submenuEdges(node);
-      focusFirstMenuItem(node);
-    },
-    [submenuEdges],
-  );
+  const submenuRef = useCallback((node: HTMLElement | null) => focusFirstMenuItem(node), []);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const menuId = useId();
@@ -233,7 +227,8 @@ export function SourceMenu({
                         {committedOpen ? (
                           <div
                             ref={submenuRef}
-                            className="toolbar-menu ui-popup ui-glass toolbar-submenu ui-scroll-edge-fade"
+                            // The rows fade inside; the glass, rim and shadow stay whole (popupSurface.css).
+                            className="toolbar-menu ui-popup ui-glass toolbar-submenu ui-popup-scroll-shell"
                             role="menu"
                             tabIndex={-1}
                             aria-label={entryText(entry)}
@@ -249,26 +244,28 @@ export function SourceMenu({
                               event.stopPropagation();
                             }}
                           >
-                            {entry.children.length === 0 ? (
-                              <div
-                                className="menu-item toolbar-menu-item"
-                                role="menuitem"
-                                aria-disabled="true"
-                                tabIndex={-1}
-                              >
-                                <span className="menu-label">{label("sourceNoCommits")}</span>
-                              </div>
-                            ) : (
-                              entry.children.map((child) => (
-                                <SourceMenuRow
-                                  key={child.id}
-                                  entry={child}
-                                  label={label}
-                                  text={entryText(child)}
-                                  onChoose={() => choose(child)}
-                                />
-                              ))
-                            )}
+                            <div ref={submenuEdges} className="ui-popup-scroll ui-scroll-edge-fade">
+                              {entry.children.length === 0 ? (
+                                <div
+                                  className="menu-item toolbar-menu-item"
+                                  role="menuitem"
+                                  aria-disabled="true"
+                                  tabIndex={-1}
+                                >
+                                  <span className="menu-label">{label("sourceNoCommits")}</span>
+                                </div>
+                              ) : (
+                                entry.children.map((child) => (
+                                  <SourceMenuRow
+                                    key={child.id}
+                                    entry={child}
+                                    label={label}
+                                    text={entryText(child)}
+                                    onChoose={() => choose(child)}
+                                  />
+                                ))
+                              )}
+                            </div>
                           </div>
                         ) : null}
                       </div>

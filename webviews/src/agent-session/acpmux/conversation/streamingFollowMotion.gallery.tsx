@@ -31,13 +31,14 @@ function StreamingFollowMotionGallery({ variant }: { variant: MotionVariant }) {
       { id: `history-answer-${index}`, kind: "assistant", version: 1, at: index + 1, text: paragraph(index) },
     ]).flat();
     const text = Array.from({ length: count }, (_, index) => paragraph(index + 12)).join("\n\n");
-    // With the running turn's line under the reply, as the app draws it (Debug `liveLineBelow`).
+    // With the running turn's line under the reply, as the app draws it.
     return turnView(
       [...history, { id: "streaming-answer", kind: "assistant", version: count + 1, at: 99, text, streaming }],
       new Set(),
-      { working: streaming, lineBelow: true, liveRuns: true },
+      { working: streaming },
     );
   }, [count, streaming]);
+  // gallery-capture: runs only from the start button, which each arm's play clicks and then waits for the stream to finish.
   const start = () => {
     if (timer.current !== undefined) window.clearInterval(timer.current);
     setDone(false);

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextWindowRules
 import Foundation
 
 /// Explicit clipboard exports for the focused agent chat. The session id and pane key are captured
@@ -14,13 +15,11 @@ enum AgentChatCopyHandlers {
     private static let cwdAction: ActionID = "agentChat.copyWorkingDirectory"
     private static let hostAction: ActionID = "agentChat.copyHost"
     private static let filePathsAction: ActionID = "agentChat.copySessionFilePaths"
-    /// Each file-contents action and the `_acpmux/session_files` kinds it copies, first match wins.
-    private static let fileActions: [(ActionID, [String])] = [
-        ("agentChat.copyTranscriptFile", ["transcript"]),
-        ("agentChat.copyHarnessConfigFile", ["claude_config", "codex_config"]),
-        ("agentChat.copyHarnessSettingsFile", ["claude_settings"]),
-        ("agentChat.copyAcpmuxSessionFile", ["acpmux_session"]),
-    ]
+    /// Each file-contents action and the `_acpmux/session_files` kinds it copies, first match wins
+    /// (cmux-window-rules `chat::agent::tables`).
+    private static var fileActions: [(ActionID, [String])] {
+        (WindowRules.chatAgentTables?.copyFiles ?? []).map { (ActionID(rawValue: $0.action), $0.kinds) }
+    }
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind(nameAction, invoke: { invocation in
@@ -154,7 +153,6 @@ enum AgentChatCopyHandlers {
     @MainActor private static func copy(_ text: String, context: AppActionContext) { context.copy(text) }
     private static func refusal(_ message: String) -> ActionWorkFailure { ActionWorkFailure(refusal: .unavailable, reason: message) }
 }
-
 
 private enum AgentChatCopyStrings {
     static var notAChat: String { String(localized: "agentChat.copy.notAChat", defaultValue: "Focus a started agent chat first.", table: "Handlers", bundle: .module) }

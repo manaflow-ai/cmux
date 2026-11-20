@@ -12,7 +12,13 @@ extension MotionPolicy {
 
 extension MotionGate {
     /// See ``MotionPolicy/windowOpenBehavior(restoring:)``, with this gate's live policy.
+    ///
+    /// The app asks this once for each main window it makes, before the window is ordered in
+    /// (`WindowManager`). It is also the explicit start of the live-resize tracker
+    /// (``Motion/startLiveResizeTracking()``): the tracker observes before the first window can
+    /// enter full screen, and does not wait for the first per-window motion read.
     @MainActor public func windowOpenBehavior(restoring: Bool) -> NSWindow.AnimationBehavior {
-        policy.windowOpenBehavior(restoring: restoring)
+        Motion.startLiveResizeTracking()
+        return policy.windowOpenBehavior(restoring: restoring)
     }
 }

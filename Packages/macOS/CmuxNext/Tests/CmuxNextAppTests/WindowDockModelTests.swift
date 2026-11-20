@@ -71,9 +71,9 @@ struct WindowDockModelTests {
         #expect(!older.hidesTabBar)
     }
 
-    /// Cmd-I opens the Chief dock (user 2026-11-05: "make cmd + i open the chief dock from now on"); New Agent Chat
-    /// keeps its leader chord and the palette, so no two actions share Cmd-I.
-    @Test func cmdIOpensTheChiefDock() throws {
+    /// Cmd-I is Show/Hide Chief (user 2026-11-06: "Cmd+I must also hide the docked Chief"); New Agent Chat keeps its
+    /// leader chord and the palette, so no two actions share Cmd-I.
+    @Test func cmdIShowsAndHidesTheChief() throws {
         let registry = ActionRegistry.standard()
         let cmdI = Shortcut("i", modifiers: [.command])
         let open = try #require(registry.descriptors.first { $0.id == "home.openChiefDock" })

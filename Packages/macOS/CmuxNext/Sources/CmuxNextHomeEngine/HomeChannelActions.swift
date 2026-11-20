@@ -1,7 +1,7 @@
 public import CmuxHomeCore
 public import CmuxNextActions
 import CmuxNextCloud
-public import CmuxNextHome
+public import CmuxNextHomeModel
 
 /// New Channel (plans/cmux-next/chief-channels-DESIGN.md): `home.createChannel`, one path for the palette,
 /// `cmux chat channel create` and MCP. `members` is a To: list ("Leo, ana@example.com"): a name resolves to a

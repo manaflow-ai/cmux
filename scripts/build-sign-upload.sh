@@ -38,7 +38,7 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
-set -- "${POSITIONAL[@]}"
+set -- ${POSITIONAL[@]+"${POSITIONAL[@]}"}
 
 if [[ $# -ne 1 ]]; then
   usage >&2

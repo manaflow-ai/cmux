@@ -27,11 +27,19 @@ final class WorkspaceRowView: SidebarRowView {
     var activityState = StatusIndicatorState.idle
     let badge = UnreadBadgeView(), rowBadge = RowBadgeView() // the count, and its replacement (WorkspaceRowView+Badges)
     var rowBadgeStyle = SidebarRowBadgeStyle.corner
+    /// The badge states this row last showed, and for which workspace: a done glyph settles in only
+    /// when the same workspace's work finishes (`configureBadges`), never on a first configure or a
+    /// row the pool hands to another workspace (cleared in `prepareForReuse`).
+    var shownBadges: (workspace: WorkspaceID, states: [StatusIndicatorState])?
     /// The agents acting in the workspace (`sidebar.presenceDots`, cx-gg84).
     let presenceDots = PresenceDotsView()
+    /// An agent driving the screen or a browser in the workspace (`sidebar.driveIndicator`), shown with the dots off.
+    let driveIndicator = AgentDriveIndicatorView()
     /// A muted workspace (`notifications.mutedWorkspaces`): a quiet bell-slash
     /// in the trailing cluster, in the tertiary text color; hidden otherwise.
     let mutedMark = DecorativeImageView()
+    /// A workspace on a Cloud machine (``WorkspaceRowContent/runsInCloud``): a small cloud right after its name.
+    let cloudMark = DecorativeImageView()
     /// A runaway agent chat in the workspace (`SidebarWorkspace.usageWarnings`: no autocompact
     /// cap, a huge context, a storm of subagents): a small warning triangle in the trailing
     /// cluster, apart from the working spinner; its tooltip says each rule and the number.
@@ -78,8 +86,6 @@ final class WorkspaceRowView: SidebarRowView {
     /// The workspace's name, while the row draws another (`sidebar.rowTitle` focused tab, an inherited chat): calm
     /// mode's tooltip says it, since no hover card opens there.
     var hiddenWorkspaceName: String?
-    /// An idle workspace nobody named: its name reads in the secondary ink (Leo 2026-10-20: such rows clutter the sidebar).
-    var isQuiet = false
     /// Archived in the sidebar document: the row draws dimmed (`SidebarStyle.archivedAlpha`).
     var isArchived = false
     var iconKind: WorkspaceIcon?
@@ -155,10 +161,13 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.imageScaling = .scaleProportionallyDown
         mutedMark.isHidden = true
         mutedMark.setAccessibilityElement(false)
+        cloudMark.imageScaling = .scaleProportionallyDown
+        cloudMark.isHidden = true
+        cloudMark.setAccessibilityElement(false) // the row's label says Cloud
         usageWarningMark.imageScaling = .scaleProportionallyDown
         usageWarningMark.isHidden = true
         usageWarningMark.setAccessibilityElement(false)
-        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, usageWarningMark, badge, rowBadge, presenceDots, tabCount, prBadge, placeholderBar, statusBlock,
+        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, cloudMark, usageWarningMark, badge, rowBadge, presenceDots, driveIndicator, tabCount, prBadge, placeholderBar, statusBlock,
          treeLine, pullRequests, keycap, rollUp].forEach(addSubview)
         setUpSessionTree()
         tabCount.isHidden = true
@@ -176,7 +185,7 @@ final class WorkspaceRowView: SidebarRowView {
     }
 
     override var interactiveSubviews: [NSView] {
-        ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made, audioSlot.made] as [NSView?]).compactMap(\.self)
+        ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made, audioSlot.made, driveIndicator] as [NSView?]).compactMap(\.self)
     }
     override var hoverPaintedControls: [NSView] {
         ([closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made] as [NSView?]).compactMap(\.self)
@@ -190,6 +199,7 @@ final class WorkspaceRowView: SidebarRowView {
         case .emoji?: "emoji"
         case .favicon?: "favicon"
         case .pagePlaceholder?: "pagePlaceholder"
+        case .page?: "page"
         }
     }
 
@@ -217,6 +227,7 @@ final class WorkspaceRowView: SidebarRowView {
         onToggleTree = nil
         onToggleAudio = nil
         title.stopMarquee()
+        title.cancelRoll()
         title.layer?.removeAnimation(forKey: "workspace-title-motion")
         lastTitle = nil
         titleArrivalGeneration &+= 1
@@ -226,6 +237,7 @@ final class WorkspaceRowView: SidebarRowView {
         title.alphaValue = 1
         placeholderBar.layer?.removeAllAnimations()
         placeholderBar.alphaValue = 1
+        shownBadges = nil
     }
 
     private struct Content: Hashable {
@@ -233,7 +245,8 @@ final class WorkspaceRowView: SidebarRowView {
         var group: GroupID?
         var fontSize: CGFloat
         var iconSize: CGFloat
-        var agentMark: SidebarAgentMarkVariant, presenceDots: Bool, rowBadge: SidebarRowBadgeStyle, stackLimit: Int
+        var agentMark: SidebarAgentMarkVariant, presenceDots: Bool, driveIndicator: SidebarDriveIndicatorVariant
+        var rowBadge: SidebarRowBadgeStyle, stackLimit: Int
         var rowTitle: SidebarRowTitleMode, rowTitleSingleChat: Bool
         var row: WorkspaceRowContent?
     }
@@ -244,7 +257,7 @@ final class WorkspaceRowView: SidebarRowView {
         let content = Content(
             ws: ws, group: row.group,
             fontSize: SidebarStyle.titleFont.pointSize, iconSize: SidebarStyle.leadingGlyphSide,
-            agentMark: tunables.agentMark, presenceDots: tunables.presenceDots, rowBadge: badgeStyle ?? tunables.rowBadge, stackLimit: tunables.stackCap.limit,
+            agentMark: tunables.agentMark, presenceDots: tunables.presenceDots, driveIndicator: tunables.driveIndicator, rowBadge: badgeStyle ?? tunables.rowBadge, stackLimit: tunables.stackCap.limit,
             rowTitle: tunables.rowTitle, rowTitleSingleChat: tunables.rowTitleSingleChat,
             row: row.content
         )
@@ -264,8 +277,12 @@ final class WorkspaceRowView: SidebarRowView {
         // agent brand with it: a row without the user's icon or a favicon stays text only, and
         // its corner badge sits in the trailing slot (`layoutColumnMark`).
         let badgesLead = content.rowBadge != .trailing && !isShowingPlaceholder
-        icon.configure(icon: shown.icon)
-        iconKind = shown.icon
+        // A Cloud row with no icon of its own leads with the cloud, in the icon column Home's glyph sits in
+        // (Austin, 2026-11-12); a row that has its own icon keeps it and shows the cloud after its name.
+        let leadsWithCloud = shown.icon == nil && shown.runsInCloud && !isShowingPlaceholder
+        let leadingIcon = leadsWithCloud ? WorkspaceIcon.symbol("cloud") : shown.icon
+        icon.configure(icon: leadingIcon)
+        iconKind = leadingIcon
         configureColor(shown)
         let priorTitle = lastTitle
         if titleArrivalPending || titleArrivalScheduled || titleArrivalActive {
@@ -283,11 +300,11 @@ final class WorkspaceRowView: SidebarRowView {
         title.stringValue = shownTitle
         lastTitle = shownTitle
         hiddenWorkspaceName = ws.namesWorkspace(shownTitle) ? nil : ws.title
-        isQuiet = ws.isUnnamed && !ws.unread.isUnread && ws.activity == .idle && !ws.agentWorking
         isArchived = ws.isArchived
-        icon.alphaValue = isArchived ? SidebarStyle.archivedAlpha : 1
+        icon.alphaValue = (isArchived ? SidebarStyle.archivedAlpha : 1) * SidebarStyle.glyphOpacity
+        // Roll is for renames: a first name over the loading bar arrives at once, as under instant.
         let arrival = priorTitle?.isEmpty == true && !shownTitle.isEmpty && !isPlaceholderRow
-            && tunables.workspaceTitleMotion != .instant && Motion.sidebar.animatesMovement
+            && ![.instant, .roll].contains(tunables.workspaceTitleMotion) && Motion.sidebar.animatesMovement(in: window)
         if arrival {
             titleArrivalPending = true
             titleArrivalVariant = tunables.workspaceTitleMotion
@@ -312,10 +329,14 @@ final class WorkspaceRowView: SidebarRowView {
         agentMark.image = markImage
         agentMark.isHidden = markImage == nil
         badge.configure(badgesLead ? .none : ws.unread)
-        presenceDots.configure(content.presenceDots && !isShowingPlaceholder ? ws.presence : [])
+        // An agent driving the screen or a browser has its own mark, dots or not; the dots show the rest.
+        presenceDots.configure(content.presenceDots && !isShowingPlaceholder ? ws.presence.filter { $0.drive == nil } : [])
+        driveIndicator.configure(isShowingPlaceholder ? [] : ws.presence, variant: content.driveIndicator)
         mutedMark.image = ws.muted && !isShowingPlaceholder
             ? NSImage.icon(symbol: "bell.slash", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)) : nil
         mutedMark.isHidden = mutedMark.image == nil
+        cloudMark.image = shown.runsInCloud && !leadsWithCloud && !isShowingPlaceholder ? NSImage.icon(.cloud, size: SidebarStyle.indicatorSize) : nil
+        cloudMark.isHidden = cloudMark.image == nil
         // The bell-slash alone does not say what is muted: notifications, not the tabs' sound
         // (the row's accessibility label says it too).
         mutedMark.themedToolTip = mutedMark.isHidden ? nil : Strings.notificationsMuted
@@ -358,12 +379,15 @@ final class WorkspaceRowView: SidebarRowView {
                                     variant: SidebarWorkspaceTitleMotionVariant,
                                     placeholder: Bool) {
         guard !placeholder, let old, !old.isEmpty, !new.isEmpty, old != new,
-              variant != .instant, Motion.sidebar.animatesMovement else { return }
+              variant != .instant, Motion.sidebar.animatesMovement(in: window) else { return }
         let transition: CATransition
         switch variant {
         case .instant: return
         case .crossfade: transition = Motion.crossfadeAction
         case .lift: transition = Motion.pushUpAction
+        case .roll:
+            title.rollText(from: old)
+            return
         }
         transition.duration = variant == .crossfade ? Motion.sidebar.duration(.crossfade) : Motion.sidebar.duration(.fadeIn)
         transition.timingFunction = Motion.fadeCurve
@@ -383,8 +407,7 @@ final class WorkspaceRowView: SidebarRowView {
         title.isHidden = false
         placeholderBar.isHidden = false
         let transition: CATransition = switch variant {
-        case .instant: Motion.crossfadeAction
-        case .crossfade: Motion.crossfadeAction
+        case .instant, .crossfade, .roll: Motion.crossfadeAction
         case .lift: Motion.pushUpAction
         }
         transition.duration = variant == .crossfade ? Motion.sidebar.duration(.crossfade) : Motion.sidebar.duration(.fadeIn)

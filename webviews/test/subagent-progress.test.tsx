@@ -5,6 +5,7 @@
 // (cmux-tui/crates/acpmux/src/claude_stdio/workflows.rs); the real fold and transcript draw them.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -58,16 +59,12 @@ const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { SubagentFold } = await import("../src/agent-session/acpmux/subagents/subagentFold");
 const { SubagentPaneContext, SubagentStopContext } =
-  await import("../src/agent-session/acpmux/subagents/SubagentGroup");
+  await import("../src/agent-session/acpmux/subagents/subagentGroupModel");
 const { withSubagentRows } = await import("../src/agent-session/acpmux/subagents/subagentRows");
 
-afterAll(() => {
+afterAll(async () => {
   setPaneLanguage("en");
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const START = Date.UTC(2026, 9, 14, 9, 0, 0);
@@ -141,7 +138,7 @@ test("a running workflow and a background agent show what they do and what they 
     // No kind subtitle beside the name (design/chat-transcript.md "Subagent row anatomy") and no tokens
     // or tool uses (Leo, 2026-10-31: "we can remove the symbols and the tokens").
     ["probe", "Count: n2 · 1/3 agents"],
-    ["Watch the build", "Bash"],
+    ["Watch the build", "Running a command"],
   ]);
 });
 

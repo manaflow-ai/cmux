@@ -2,6 +2,7 @@ import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
 import Foundation
 

@@ -102,7 +102,7 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
     /// no chevron, like a status note; nil when not installed (the row's text shows instead).
     static func part(feed row: HomeFeedRow) -> Part? {
         guard installed != nil else { return nil }
-        var payload = Payload(open: false, label: row.source.isEmpty ? row.title : "\(row.source) · \(row.title)", chips: [], chevron: false)
+        var payload = Payload(open: false, label: row.line, chips: [], chevron: false)
         payload.role = "feed"
         let key = "feed\u{0}\(payload.label)"
         guard let custom = try? CustomPart(kind: kind, version: HomeDiagramRowProvider.version(key), value: payload) else { return nil }
@@ -134,13 +134,18 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
     /// The agent whose pill of the shipped agents row `part` holds `point` (the row's body coordinates,
     /// a body `width` wide), or nil: not an agents row, or between pills. The host opens that agent's chat.
     static func peer(_ part: CustomPart, at point: CGPoint, width: CGFloat) -> String? {
+        pill(part, at: point, width: width)?.peer
+    }
+
+    /// The agent whose pill holds `point` with that pill's frame (the row's body coordinates), or nil.
+    static func pill(_ part: CustomPart, at point: CGPoint, width: CGFloat) -> (peer: String, rect: CGRect)? {
         guard part.kind == kind, let payload = payload(part), drawsPills(payload) else { return nil }
         #if DEBUG
         if let style = HomeAgentFoldStyle.drawing(payload) {
-            return style.pillShape.flatMap { HomeAgentPills(payload, shape: $0, width: width).peer(at: point) }
+            return style.pillShape.flatMap { HomeAgentPills(payload, shape: $0, width: width).pill(at: point) }.map { ($0.peer, $0.rect) }
         }
         #endif
-        return HomeAgentPills(payload, shape: .pill, width: width).peer(at: point)
+        return HomeAgentPills(payload, shape: .pill, width: width).pill(at: point).map { ($0.peer, $0.rect) }
     }
 
     /// True for an agents row: the shipped look draws it as one pill per agent.

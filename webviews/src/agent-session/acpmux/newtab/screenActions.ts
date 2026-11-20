@@ -1,7 +1,7 @@
 // The new tab screen's actions as host requests (plans/cmux-next/new-tab.md section 5). An agent
 // row starts the chat in this page; everything else asks the host to replace the tab.
-import type { AllChatsPage } from "./AllChatsList";
-import type { NewTabScreenActions } from "./NewTabScreen";
+import type { AllChatsPage } from "./allChatsListModel";
+import type { NewTabOpenHow, NewTabScreenActions } from "./NewTabScreen";
 import { savedEnvironmentHost } from "../environments";
 import { rememberStartedProject } from "./startedProject";
 import { rememberPick } from "../lastPick";
@@ -9,6 +9,11 @@ import { translate } from "../i18n";
 import { isStartCancelled, startCancelled } from "../transportErrors";
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+
+/// Where a pick opens: in this page's tab (`inPlace`: never the pane on the right or a new split,
+/// Lucas 2026-11-18), or where links go for a browser pick the person asked to open as a new tab
+/// (Option-Return, `beside`).
+const placeParam = (how?: NewTabOpenHow) => (how?.beside ? { beside: true } : { inPlace: true });
 
 export function newTabScreenActions(deps: {
   callNative: Native;
@@ -33,6 +38,8 @@ export function newTabScreenActions(deps: {
   startsHere?(): boolean;
   /// Captures the page/selection owning this attempt, before any asynchronous work.
   startScope?(allowReconnect: boolean): () => boolean;
+  clearError?(): void;
+  showError?(error: unknown): void;
 }): NewTabScreenActions {
   const { callNative, cwd } = deps;
   const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
@@ -123,28 +130,57 @@ export function newTabScreenActions(deps: {
         } else start(deps.chatCwd);
       });
     },
+    onFixFromLink: (url, selectedCwd, harness, model) => {
+      const current = deps.startScope?.(false) ?? (() => true);
+      deps.clearError?.();
+      return callNative("chat.fix_from_link", {
+        url,
+        ...(selectedCwd ? { cwd: selectedCwd } : {}),
+        ...(harness ? { harness } : {}),
+        ...(model ? { model } : {}),
+      })
+        .then((result) => {
+          if (!current()) throw startCancelled();
+          const sessionId =
+            result && typeof result === "object" && typeof (result as { sessionId?: unknown }).sessionId === "string"
+              ? (result as { sessionId: string }).sessionId
+              : undefined;
+          // l10n-allow: internal transport shape failure; the user sees the host error surface.
+          if (!sessionId) throw new Error("fix-from-link did not return a session");
+          deps.selectSession(sessionId);
+        })
+        .catch((error) => {
+          if (!isStartCancelled(error)) deps.showError?.(error);
+        });
+    },
     savedEnvironments: savedEnvironmentHost(callNative),
-    onOpen: (url) => {
+    onOpen: (url, how) => {
       if (url.startsWith("file://"))
         return ignore(callNative("file.open", { path: decodeURIComponent(new URL(url).pathname), where: "tab" }));
-      ignore(callNative("tab.open", { kind: "browser", text: url }));
+      // `inPlace`: the host navigates this page's tab (NewTabPage.replace); `beside` opens where links go.
+      ignore(callNative("tab.open", { kind: "browser", text: url, ...placeParam(how) }));
     },
     // Open in Profile… and Open in New Profile: the same browser open, in the profile the row names.
-    onOpenInProfile: (url, id) => ignore(callNative("tab.open", { kind: "browser", text: url, profile: id })),
+    onOpenInProfile: (url, id, how) =>
+      ignore(callNative("tab.open", { kind: "browser", text: url, profile: id, ...placeParam(how) })),
     onOpenInNewProfile: (url, name) =>
       ignore(
         callNative("tab.open", {
           kind: "browser",
           text: url,
           newProfile: true,
+          inPlace: true,
           ...(name ? { profileName: name } : {}),
         }),
       ),
-    onSearch: (text) => ignore(callNative("tab.open", { kind: "browser", text, search: true })),
-    // `!cmd`: the page becomes a chat in its folder, its first block the command; no terminal tab.
+    onSearch: (text, how) =>
+      ignore(callNative("tab.open", { kind: "browser", text, search: true, ...placeParam(how) })),
+    // A typed command (the Run row): a terminal in the tab's folder runs it, in this page's tab. The
+    // page stays until the host closes it under the terminal, so a refused open keeps the typed text.
     onShell(command) {
-      deps.leave();
-      ignore(callNative("tab.open", { kind: "terminal", text: command, run: true, ...(cwd ? { cwd } : {}) }));
+      ignore(
+        callNative("tab.open", { kind: "terminal", text: command, run: true, inPlace: true, ...(cwd ? { cwd } : {}) }),
+      );
     },
     onJump: (target, id) => ignore(callNative("tab.jump", { target, id })),
     onAction: (id) => ignore(callNative("app.action", { id })),
@@ -157,15 +193,24 @@ export function newTabScreenActions(deps: {
     onOpenChatInTerminal: (key) => ignore(callNative("chats.openInTerminal", { key })),
     onViewChat: (key) => ignore(callNative("chats.watch", { key })),
     loadChatsPage: (params) => callNative("chats.page", params) as Promise<AllChatsPage | undefined>,
+    // A typed path's subfolders (launchRows.ts): names only; the host refuses protected folders.
+    completeFolder: (path) =>
+      callNative("folder.complete", { path }).then((reply) => {
+        const folders = (reply as { folders?: unknown } | undefined)?.folders;
+        return Array.isArray(folders) ? folders.filter((name): name is string => typeof name === "string") : undefined;
+      }),
     onShowAll: deps.showAllChats,
     onTouched: () => ignore(callNative("newTab.touched")),
     onNowPlaying: (command) => ignore(callNative("nowPlaying.command", { command })),
     // A blank terminal in the tab's folder (nothing typed), or a browser tab on the new tab page.
+    // `inPlace`: it takes this page's tab, never a split, as every pick does.
     onCreate: (kind) =>
       ignore(
         callNative(
           "tab.open",
-          kind === "terminal" ? { kind, text: "", run: false, ...(cwd ? { cwd } : {}) } : { kind, text: "" },
+          kind === "terminal"
+            ? { kind, text: "", run: false, inPlace: true, ...(cwd ? { cwd } : {}) }
+            : { kind, text: "", inPlace: true },
         ),
       ),
     onInputReady: (token) => ignore(callNative("newTab.inputReady", { token })),

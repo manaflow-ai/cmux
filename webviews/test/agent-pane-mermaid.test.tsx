@@ -8,6 +8,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import { join } from "node:path";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -44,14 +45,11 @@ Object.assign(scope, replacements);
 const host = dom.window.document.getElementById("root")!;
 let root: Root | undefined;
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
   delete scope.ondine;
   delete scope.mermaid;
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 // The pane's scheme handler serves this as `__lib/ondine.js`; loaded here it sets `globalThis.ondine`.
@@ -67,11 +65,11 @@ scope.mermaid = {
 
 const { createRoot } = await import("react-dom/client");
 const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
-const { isChart } = await import("../src/agent-session/acpmux/conversation/DiagramBlock");
+const { isChart } = await import("../src/agent-session/acpmux/conversation/diagramBlockModel");
 // The page loads the highlighted code card once it has painted (App.tsx); so does this file. Left to
 // load when the first card asks for it, the card was its plain fallback on a fast runner and the
 // highlighted card on a loaded one (react-apps-check, run 39553495850).
-const { loadHighlightedCode } = await import("../src/agent-session/acpmux/conversation/CodeBlock");
+const { loadHighlightedCode } = await import("../src/agent-session/acpmux/conversation/codeBlockModel");
 await loadHighlightedCode();
 
 /// Yields to React and the renderers until `ready` holds: a loaded runner gets more yields, not a

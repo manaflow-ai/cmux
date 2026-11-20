@@ -24,6 +24,18 @@ started in the whole home folder.
    that value as the chat's start folder; the chip shows it, and every start of the new chat (the
    New Tab agent row, a harness pick, the first Send, New Tab variant A) sends it. A page's
    inherited folder is a terminal's folder only.
+   One rule decides it, for every agent and every caller of `chat.new` (the chips' agent and model
+   picks, the slash command list, Enter, a page script): `newChatFolder` in
+   `webviews/src/agent-session/acpmux/startFolderModel.ts`. The folder a caller names counts unless
+   it is only the tab's inherited folder and no project (`~` or above, agent-home); otherwise the
+   start folder is used; with neither, the new
+   chat has no folder (`null`) and the host fills it. The harness switch never gives such a chat an
+   earlier start's folder, so one refused folder cannot become the next start's folder for any
+   agent (cmux#40938: a fresh workspace's `~` did, and every agent failed with "This folder is
+   outside the folders this pane may use"). A folder the pane refused
+   (`transport.path_outside_roots`) is never started again by the switch: Retry, a send after the failure
+   and a later pick that names no folder start in the pane's start folder as it is now, or with no
+   folder. Only a folder the person names again (through decision 2's grant) starts there.
 2. A folder the user picks goes through the host first (`workspace.useFolder {cwd, confirm}`):
    `ok` (used at once; a folder outside every root still passes on the user's click, as #18347
    decided), `confirm` with reason `home` for the home folder, `refused` with reason `root` for `/`

@@ -8,8 +8,8 @@ import { describe, expect, test } from "bun:test";
 import { agentCall } from "../src/agent-session/acpmux/conversation/agentCalls";
 import { toolGroupKind, toolGroups } from "../src/agent-session/acpmux/conversation/toolGroups";
 import { toolRunSummary } from "../src/agent-session/acpmux/conversation/toolRunSummary";
-import { writeCall } from "../src/agent-session/acpmux/conversation/WriteLabel";
-import { turnView, WORKING } from "../src/agent-session/acpmux/conversation/turns";
+import { writeCall } from "../src/agent-session/acpmux/conversation/writeLabelModel";
+import { THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import {
@@ -93,10 +93,16 @@ for (const [harness, calls] of Object.entries(HARNESS_CALLS)) {
 }
 
 test("a shell's command line never reads as the tool its first word names", () => {
-  for (const command of ["grep -rn foo src", "ls src", "find . -name '*.ts'", "read -r line"]) {
+  // It stays a shell call; its row says what the command did (commandActions.ts), or Ran <line>.
+  for (const [command, said] of [
+    ["grep -rn foo src", "Searched for “foo”"],
+    ["ls src", "Listed src"],
+    ["find . -name '*.ts'", "Listed files"],
+    ["read -r line", "Ran read -r line"],
+  ] as const) {
     const shell = call(command, "execute", { command });
     expect(canonicalCall(shell)?.tool).toBe("shell");
-    expect(label(shell)).toBe(`Ran ${command}`);
+    expect(label(shell)).toBe(said);
   }
 });
 
@@ -191,7 +197,7 @@ test("the live line names a running search by its pattern, not the folder it sea
         { kind: "tool", text: search.title, tool: search },
       ],
     };
-    const live = turnView([user, activity], new Set(), { working: true }).find((row) => row.kind === WORKING);
+    const live = turnView([user, activity], new Set(), { working: true }).find((row) => row.kind === THINKING);
     expect(live?.doing, harness).toMatch(/ useTool$/);
   }
 });

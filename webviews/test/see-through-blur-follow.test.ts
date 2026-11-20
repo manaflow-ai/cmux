@@ -11,7 +11,12 @@
 // test says.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { attachSeeThroughBlur, OVER_ATTRIBUTE, UNDER_ATTRIBUTE } from "../src/ui/glass/seeThroughBlur";
+import {
+  attachSeeThroughBlur,
+  KEEPS_UNDERLAY_ATTRIBUTE,
+  OVER_ATTRIBUTE,
+  UNDER_ATTRIBUTE,
+} from "../src/ui/glass/seeThroughBlur";
 
 const dom = new JSDOM(
   "<!doctype html><div id=layer><div id=rows></div><div id=card></div><div id=positioner><div id=popup></div></div></div>",
@@ -133,4 +138,30 @@ test("a surface with nothing it can blur keeps its underlay", async () => {
   } finally {
     detach();
   }
+});
+
+// A short pane's Session Info reaches down over the composer, which no filter may blur: the card keeps
+// its underlay there, and says so, so the App's glass drawn under the page does not clear it (glass.css).
+test("a surface over an element it may not blur says it keeps its underlay, until it moves off", async () => {
+  const dock = document.createElement("div");
+  document.getElementById("layer")!.append(dock);
+  dock.getBoundingClientRect = () => rect(0, 500, 800, 100);
+  card.style.transform = "translate3d(40px, 420px, 0)";
+  const detach = attachSeeThroughBlur(card, () => [rows], { keepUnderlayOver: () => [dock] });
+  try {
+    await frames();
+    expect(card.hasAttribute(KEEPS_UNDERLAY_ATTRIBUTE)).toBe(true);
+    expect(card.hasAttribute(OVER_ATTRIBUTE)).toBe(false);
+    card.style.transform = "translate3d(40px, 100px, 0)";
+    await frames();
+    expect(card.hasAttribute(KEEPS_UNDERLAY_ATTRIBUTE)).toBe(false);
+    expect(card.hasAttribute(OVER_ATTRIBUTE)).toBe(true);
+    card.style.transform = "translate3d(40px, 420px, 0)";
+    await frames();
+  } finally {
+    detach();
+    dock.remove();
+    card.style.transform = "translate3d(40px, 0px, 0)";
+  }
+  expect(card.hasAttribute(KEEPS_UNDERLAY_ATTRIBUTE)).toBe(false);
 });

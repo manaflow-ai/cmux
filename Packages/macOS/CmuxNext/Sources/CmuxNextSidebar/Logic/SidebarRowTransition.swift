@@ -70,14 +70,20 @@ nonisolated enum SidebarRowTransition {
 
     /// The nearest header that shows `row` in `open` and hides it in
     /// `closed`, as it sits in `placedIn`: its group, then its section.
+    /// A group's one row (`standsForGroup`) has no header in `open`: it is
+    /// the open header (`standingHeader`), so collapsing its group folds it
+    /// under the header that takes its place (F1 of #36457), and opening the
+    /// group unfolds it where that header was.
     private static func foldingHeader(of row: SidebarRow, open: SidebarLayout, closed: SidebarLayout,
                                       placedIn layout: SidebarLayout) -> SidebarRow? {
         var headers: [SidebarRowKey] = []
         if let group = row.group, row.key != .group(group) { headers.append(.group(group)) }
         if row.key != .section(row.section) { headers.append(.section(row.section)) }
+        let standing = row.standingHeader
         for key in headers {
-            guard let shown = open.row(for: key), let hidden = closed.row(for: key) else { continue }
-            if isFolded(hidden) && !isFolded(shown) { return layout.row(for: key) }
+            let own = standing?.key == key ? standing : nil
+            guard let shown = open.row(for: key) ?? own, let hidden = closed.row(for: key) else { continue }
+            if isFolded(hidden) && !isFolded(shown) { return layout.row(for: key) ?? own }
         }
         return nil
     }

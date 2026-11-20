@@ -3,37 +3,60 @@
 // (NewTabSparePool) and dispatches the real one at the key (AgentPaneView.adoptNewTab). WebKit runs
 // that script before any key the user types after Cmd-T, so the screen (kept, or remounted for
 // another context) gets every key.
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { newTabHost, type NewTabHost } from "../newTabModel";
 import { EMPTY_OMNIBAR, omnibarActions, omnibarContext } from "../omnibar";
+import { lacksSharedPart, wholeNewTab } from "./sharedPart";
 import { revealedSubagent } from "../subagents/subagentPanes";
 import { keepHandedTail } from "../tailCache";
-import { parseWeather } from "./ambient";
 
 export const NEW_TAB_ADOPT_EVENT = "acpmux-newtab-adopt";
 /// The host's open tabs and workspaces changed while the page shows (AgentPaneView.refreshNewTabPlaces).
 export const NEW_TAB_PLACES_EVENT = "acpmux-newtab-places";
-/// The weather widget's reading arrived or changed while the page shows (AgentPaneView.refreshNewTabWeather).
-export const NEW_TAB_WEATHER_EVENT = "acpmux-newtab-weather";
 
 /// A tab opening an existing chat adopted this prewarmed page (AgentPaneView.adoptSession): the
 /// page leaves its New Tab screen and switches to that chat in place.
 export const SESSION_ADOPT_EVENT = "acpmux-session-adopt";
 
-/// The chat a session adopt event names, the turn its open asks to show (a subagent's pane), and the
-/// chat's tail the app host kept, when it holds one (read as `chat.tail.get`'s answer is, tailCache.ts).
-export type SessionAdoption = { sessionId: string; revealTurn?: string; tail?: unknown };
+/// The chat a session adopt event names, the turn its open asks to show (a subagent's pane), the
+/// chat's tail the app host kept, when it holds one (read as `chat.tail.get`'s answer is, tailCache.ts),
+/// and where the reader left the chat in this tab (`chat.scrollAnchor.get`'s answer): a place, or null
+/// for none kept (the chat opens at its latest message). Absent: the host did not say, so the page
+/// asks (an older host, one with no place store).
+export type SessionAdoption = {
+  sessionId: string;
+  revealTurn?: string;
+  tail?: unknown;
+  scrollAnchor?: { rowId: string; offset: number } | null;
+};
+
+/// The place an adopt event carries: a place, null for none kept, undefined when it says nothing usable.
+function adoptedPlace(value: unknown): { rowId: string; offset: number } | null | undefined {
+  if (value === null) return null;
+  if (typeof value !== "object" || value === undefined) return undefined;
+  const { rowId, offset } = value as { rowId?: unknown; offset?: unknown };
+  return typeof rowId === "string" && rowId && typeof offset === "number" && Number.isFinite(offset)
+    ? { rowId, offset }
+    : undefined;
+}
 
 /// The adoption an event's detail names; undefined when it names no session.
 export function sessionAdoption(detail: unknown): SessionAdoption | undefined {
   if (typeof detail !== "object" || detail === null) return undefined;
-  const { sessionId, revealTurn, tail } = detail as { sessionId?: unknown; revealTurn?: unknown; tail?: unknown };
+  const { sessionId, revealTurn, tail, scrollAnchor } = detail as {
+    sessionId?: unknown;
+    revealTurn?: unknown;
+    tail?: unknown;
+    scrollAnchor?: unknown;
+  };
   if (typeof sessionId !== "string" || !sessionId) return undefined;
+  const place = adoptedPlace(scrollAnchor);
   return {
     sessionId,
     ...(typeof revealTurn === "string" && revealTurn ? { revealTurn } : {}),
     ...(typeof tail === "object" && tail !== null && !Array.isArray(tail) ? { tail } : {}),
+    ...(place !== undefined ? { scrollAnchor: place } : {}),
   };
 }
 
@@ -49,10 +72,20 @@ export function keepAdoptedTail(adoption: SessionAdoption): boolean {
 /// frame (`revealsFirst`: the reveal runs before the switch, not after acpmux's attach, so the page
 /// never draws the chat's rows first) and reads no reading place of the chat, which it does not show
 /// (`readsAnchor`: `chat.scrollAnchor.get` is a host round trip the switch would wait on). Any other
-/// adoption reads where the reader left the chat, then shows its turn once the chat opened.
+/// adoption reads where the reader left the chat, then shows its turn once the chat opened; an adopt
+/// event that carries the place (`scrollAnchor`, the host's AgentPaneView.adoptSession) asks nothing,
+/// so the switch runs in the event's own turn, as the tail it carries lets it draw there.
 export function adoptionPlan(adoption: SessionAdoption): { readsAnchor: boolean; revealsFirst: boolean } {
   const subagent = adoption.revealTurn !== undefined && revealedSubagent(adoption.revealTurn) !== undefined;
-  return { readsAnchor: !subagent, revealsFirst: subagent };
+  return { readsAnchor: !subagent && adoption.scrollAnchor === undefined, revealsFirst: subagent };
+}
+
+/// The place an adoption opens its chat at without asking the host: the one its event carried (none
+/// kept: undefined, the latest message). Only when `adoptionPlan` reads no anchor.
+export function carriedAnchor(
+  adoption: SessionAdoption,
+): ({ rowId: string; offset: number } & { sessionId: string }) | undefined {
+  return adoption.scrollAnchor ? { sessionId: adoption.sessionId, ...adoption.scrollAnchor } : undefined;
 }
 
 /// Calls `onAdopt` with each session adopt event, rendered inside the event: the page's next
@@ -124,7 +157,8 @@ export function withHandshakeNewTab(
 ): NewTabHost | undefined {
   if (!current) return current;
   const cwd = !current.cwd && typeof handshake.cwd === "string" && handshake.cwd ? handshake.cwd : undefined;
-  const newTab = handshake.newTab;
+  // The handshake's own part joined with the shared part: the actions are in the shared part (sharedPart.ts).
+  const newTab = wholeNewTab(handshake.newTab);
   const omnibar = typeof newTab === "object" && newTab !== null ? (newTab as { omnibar?: unknown }).omnibar : undefined;
   const actions =
     !current.omnibar?.actions?.length && typeof omnibar === "object" && omnibar !== null
@@ -136,6 +170,51 @@ export function withHandshakeNewTab(
     ...(cwd ? { cwd } : {}),
     ...(actions?.length ? { omnibar: { ...(current.omnibar ?? EMPTY_OMNIBAR), actions } } : {}),
   };
+}
+
+/// `current` with the shared part of `whole` (the kinds' chords, the project folders, the design and the
+/// bar's lists but its open tabs): what a context that came as the page's own part alone lacked. The page's
+/// own part stays as it is.
+export function withSharedPart(current: NewTabHost | undefined, whole: NewTabHost): NewTabHost | undefined {
+  if (!current) return current;
+  const { projects, omnibar } = whole;
+  return {
+    ...current,
+    hotkeys: whole.hotkeys,
+    layout: whole.layout,
+    ...(projects ? { projects } : {}),
+    ...(omnibar ? { omnibar: { ...omnibar, tabs: current.omnibar?.tabs ?? omnibar.tabs } } : {}),
+  };
+}
+
+/// A context that came as the page's own part, while the document has no shared part for it (`lacksSharedPart`:
+/// the host's mark and the document differ, a lost state): the page asks for its context again, and
+/// `newTab.context`'s answer always carries the shared part. `update` takes it into the shown page in place
+/// (`withSharedPart`). Each adopt event is checked here; the returned check is for a context that a reply
+/// carried (the handshake).
+export function useLostSharedPart(
+  callNative: (method: string) => Promise<unknown>,
+  update: (apply: (host: NewTabHost | undefined) => NewTabHost | undefined) => void,
+): (newTab: unknown) => void {
+  const check = useCallback(
+    (newTab: unknown) => {
+      if (!lacksSharedPart(newTab)) return;
+      void callNative("newTab.context").then(
+        (reply) => {
+          const whole = newTabHost({ newTab: (reply as { newTab?: unknown } | null)?.newTab });
+          if (whole) update((host) => withSharedPart(host, whole));
+        },
+        () => {},
+      );
+    },
+    [callNative, update],
+  );
+  useEffect(() => {
+    const handle = (event: Event) => check((event as CustomEvent).detail);
+    window.addEventListener(NEW_TAB_ADOPT_EVENT, handle);
+    return () => window.removeEventListener(NEW_TAB_ADOPT_EVENT, handle);
+  }, [check]);
+  return check;
 }
 
 /// The screen two contexts draw is the same: they differ at most in the input token (each Cmd-T has
@@ -211,25 +290,5 @@ export function useNewTabPlaces(
     };
     window.addEventListener(NEW_TAB_PLACES_EVENT, handle);
     return () => window.removeEventListener(NEW_TAB_PLACES_EVENT, handle);
-  }, [update]);
-}
-
-/// Takes each weather event's reading into the shown page, in place (no remount): a page opened
-/// before the first reading, or with an old one, shows the refreshed reading when it arrives. A
-/// detail that is not a reading (null: the widget turned off) takes the reading away.
-export function useNewTabWeather(
-  update: (apply: (host: NewTabHost | undefined) => NewTabHost | undefined) => void,
-): void {
-  useEffect(() => {
-    const handle = (event: Event) => {
-      const weather = parseWeather((event as CustomEvent).detail);
-      update((host) => {
-        if (!host) return host;
-        const { weather: _old, ...rest } = host;
-        return weather ? { ...rest, weather } : rest;
-      });
-    };
-    window.addEventListener(NEW_TAB_WEATHER_EVENT, handle);
-    return () => window.removeEventListener(NEW_TAB_WEATHER_EVENT, handle);
   }, [update]);
 }

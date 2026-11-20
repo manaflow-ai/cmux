@@ -81,7 +81,7 @@ public struct MacPresenceDots: View {
                 Circle()
                     .fill(online ? theme.colors.success : theme.colors.offline)
                     .frame(width: theme.metrics.macDot, height: theme.metrics.macDot)
-                    .animation(theme.motion.snap.animation, value: online)
+                    .animation(theme.motion.snap.animation.unlessReduceMotion, value: online)
             }
             if overflow > 0 {
                 Text(verbatim: "+\(overflow)")

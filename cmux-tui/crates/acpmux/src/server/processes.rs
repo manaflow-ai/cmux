@@ -1,5 +1,6 @@
 //! The background-process methods (`hub/processes.rs`,
-//! docs/background-processes.md): `_acpmux/process/list {sessionId?, limit?, cursor?}`,
+//! docs/background-processes.md): `_acpmux/process/list {sessionId?, limit?, cursor?}` (without
+//! `limit`, the newest processes that fit one reply, and `omitted`: `Hub::list_processes_reply`),
 //! `_acpmux/process/tail {processId, fromByte?, maxBytes?}` and
 //! `_acpmux/process/kill {processId, sessionId?, signal?}` (a named chat must
 //! be the process's),
@@ -52,7 +53,7 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
             None if paging.is_some() => {
                 Err(RpcError::invalid_params("paged process lists require a sessionId"))
             }
-            None => Ok(hub.list_processes(None)),
+            None => Ok(hub.list_processes_reply(None)),
             Some(key) => {
                 let key = key
                     .as_str()
@@ -60,7 +61,7 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
                 let session = hub.resolve(key)?;
                 match paging {
                     Some((limit, cursor)) => hub.list_processes_page(&session, limit, cursor),
-                    None => Ok(hub.list_processes(Some(&session))),
+                    None => Ok(hub.list_processes_reply(Some(&session))),
                 }
             }
         };
