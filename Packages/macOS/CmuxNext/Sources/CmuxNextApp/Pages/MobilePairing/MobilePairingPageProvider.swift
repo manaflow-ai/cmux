@@ -44,7 +44,7 @@ final class MobilePairingPageProvider: PageProvider {
         var macName: @Sendable () async -> String
         /// Writes one setting as the person's own change.
         var write: @MainActor @Sendable (_ path: [String], _ value: JSONValue) async throws -> Void
-        /// Whether Settings > Advanced > Labs exposes local revocation.
+        /// Whether Settings > Experimental > Labs exposes local revocation.
         var revocationEnabled: @MainActor @Sendable () -> Bool = { false }
         /// This Mac's pairing link (``IPhoneHostService/pairInvite(macName:now:)``), nil until the
         /// host is online for the account with iPhone connections on.
