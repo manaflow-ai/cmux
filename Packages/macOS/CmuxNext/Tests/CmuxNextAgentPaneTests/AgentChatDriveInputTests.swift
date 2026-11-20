@@ -164,6 +164,30 @@ struct AgentChatDriveInputTests {
         #expect(waits == [AgentChatDriveInput.wheelWait, AgentChatDriveInput.wheelWait])
     }
 
+    /// The settle after the last tick can't outlast the run either: its two 1 s waits ran whole after the
+    /// ticks had reached `seconds`, so an occluded run ended about 2 s late. Each is cut to the time left,
+    /// and with none left the run reads the page without waiting.
+    @Test func theSettleAfterTheTicksIsBoundedByTheRunsTimeLeft() async throws {
+        let page = try await Page()
+        defer { page.window.closeAfterTest() }
+        var input = AgentChatDriveInput(webView: page.webView)
+        var waits: [Duration] = []
+        input.presentationUpdate = { _, bound in waits.append(bound) }
+        input.pendingMouseEvents = { _, bound in
+            waits.append(bound)
+            return true
+        }
+
+        await input.settle(before: ContinuousClock.now + .milliseconds(100))
+        #expect(waits.count == 2 && waits.allSatisfy { $0 > .zero && $0 <= .milliseconds(100) }, "\(waits)")
+        waits = []
+        await input.settle(before: ContinuousClock.now - .milliseconds(1))
+        #expect(waits.isEmpty, "a settle with no time left waited \(waits)")
+        waits = []
+        await input.settle()
+        #expect(waits == [.seconds(1), .seconds(1)])
+    }
+
     /// A wheel tick under the held point is one trusted `wheel` with the tick's sign, and the box
     /// under it scrolls. WebKit holds a native wheel for a window that cannot present, so the window
     /// is on a screen: ordered in behind every other window (never front, never key).
