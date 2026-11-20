@@ -1805,7 +1805,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [cloudCredentialRecoveryAvailable, setCloudCredentialRecoveryAvailable] = useState(false);
   // Back to before this turn (TurnActions `rewind`): per chat, the checkpoint marks of its turns
   // (`user-<n>`), first as the handshake's `cloudTurnRewind` names them for its chat. Undefined where
-  // the host serves no rewind (every host today), so no prompt draws the button. Kept per chat:
+  // the host serves no rewind, so no prompt draws the button. Kept per chat:
   // `chat.select` switches chats with no new handshake (cloudTurnCheckpoints.ts `ChatMarks`).
   const [cloudTurnRewind, publishCloudTurnRewind] = useState<ChatMarks>();
   const cloudTurnRewindRef = useRef<ChatMarks>();

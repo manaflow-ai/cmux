@@ -8157,22 +8157,18 @@ export class AcpmuxDirectClient {
     this.lastSeq = event.seq;
     this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
     this.streamGrew = false;
-    const wasWorking = this.hiddenTurnListener && !pageShown() ? this.workingNow() : undefined;
     this.reduce(event);
     // A record that opened the turn arms the watch; one that ended it stops it (`followQuietWatch`).
     this.followQuietWatch();
     this.noticeRefusal(event);
     this.emitInFrame(event.kind, this.streamGrew);
-    if (wasWorking !== undefined) {
-      const working = this.workingNow();
-      if (working !== wasWorking || event.kind === "turn_result")
-        this.hiddenTurnListener?.({
-          sessionId: this.selectedSessionId,
-          isWorking: working,
-          turnsEnded: this.turnsEnded,
-          ...(event.kind === "turn_result" ? { completedSeq: event.seq } : {}),
-        });
-    }
+    if (!pageShown() && event.kind === "turn_result")
+      this.hiddenTurnListener?.({
+        sessionId: this.selectedSessionId,
+        isWorking: this.workingNow(),
+        turnsEnded: this.turnsEnded,
+        completedSeq: event.seq,
+      });
     if (event.dir === "mux" && event.kind === "turn_result" && event.sessionId) {
       this.checkFinishedTurn(event.sessionId, event.seq);
       this.shedOlderHeld();
@@ -11222,9 +11218,12 @@ export class AcpmuxDirectClient {
 
   /// Count turn boundaries without constructing a snapshot, including cycles entirely hidden.
   private observeWorking(working = this.workingNow()): void {
+    const changed = this.drawnWorking !== working || this.drawnWorkingSession !== this.selectedSessionId;
     if (this.drawnWorking && !working && this.drawnWorkingSession === this.selectedSessionId) this.turnsEnded += 1;
     this.drawnWorking = working;
     this.drawnWorkingSession = this.selectedSessionId;
+    if (changed && !pageShown())
+      this.hiddenTurnListener?.({ sessionId: this.selectedSessionId, isWorking: working, turnsEnded: this.turnsEnded });
   }
 
   /// The session list as the snapshot's entries, the same array while `this.sessions` is.
