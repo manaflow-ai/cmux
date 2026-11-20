@@ -91,9 +91,11 @@ fn human_result(answer: &Value) -> String {
 }
 
 fn partial_failure(answer: &Value) -> bool {
-    answer.pointer("/data/machines").and_then(Value::as_array).is_some_and(|rows| {
-        rows.iter()
-            .any(|row| row["status"] == "failed" || row.get("error").is_some_and(|e| !e.is_null()))
+    answer.pointer("/data/machines").and_then(Value::as_array).is_none_or(|rows| {
+        rows.iter().any(|row| {
+            !matches!(row["status"].as_str(), Some("paused" | "pausing" | "skipped"))
+                || row.get("error").is_some_and(|e| !e.is_null())
+        })
     })
 }
 
@@ -103,6 +105,8 @@ mod tests {
 
     #[test]
     fn pause_all_reports_partial_failure_without_losing_successes() {
+        assert!(partial_failure(&json!({"ok":true,"data":{}})));
+        assert!(partial_failure(&json!({"ok":true,"data":{"machines":[{"status":"running"}]}})));
         assert!(partial_failure(&json!({"ok": true, "data": {"machines": [
             {"machine": "vm-a", "status": "paused"},
             {"machine": "vm-b", "status": "failed", "error": {"code": "cloud.machine.busy"}}

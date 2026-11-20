@@ -201,6 +201,9 @@ pub(crate) fn admit(request: &Request) -> Result<Admitted, CloudError> {
         CloudError::new(codes::UNKNOWN_OP, format!("{} is not a Cloud op", request.op))
     })?;
     let kind = kind_of(name);
+    if name == "cloud.machine.pause_all" && request.origin == Origin::Agent {
+        return Err(CloudError::new(codes::ORIGIN_REFUSED, "pausing machines needs a person"));
+    }
     let args = relay_args(&request.op, name, &request.args);
     let key = request.idempotency_key.as_deref().map(str::trim).filter(|k| !k.is_empty());
     if kind == Kind::UserOnly && request.origin != Origin::User {
