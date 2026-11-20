@@ -8,8 +8,8 @@ cancel was meant to make room for then waits `pending` with no jobs at all.
 
 That is what held cmux#46109 for 7 hours on 2026-11-19: `rust workspaces`
 (per-ref group, cancel-in-progress on pull requests) cancelled the run at the
-old head, its `summary` job (`if: ${{ always() }}`) queued on
-blacksmith-8vcpu-ubuntu-2404, and the new head's run never got a job
+old head, its `summary` job (`if: ${{ always() }}`) queued on a saturated
+runner label, and the new head's run never got a job
 (cmuxterm-hq#14963). 1,373 runs of that workflow were queued at the time.
 
 `!cancelled()` keeps what such a summary job is for: it still runs when a job
