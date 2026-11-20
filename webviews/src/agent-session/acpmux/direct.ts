@@ -1,3 +1,4 @@
+import { markMessageSources } from "./messageSources";
 import { pageAttention } from "./attention";
 import { sentFrom, type SentFrom } from "./conversation/sentFromHarness";
 import { stuckAttention } from "./loopEpisode";
@@ -9763,6 +9764,9 @@ export class AcpmuxDirectClient {
       if (left && this.subagents.stopRunning(left, event.at)) this.takeSubagentRows();
       if (event.kind === "race" && msg.parent === this.selectedSessionId && typeof msg.id === "string") {
         for (const listener of this.raceListeners) listener(msg as RaceRecord);
+      } else if (event.kind === "turn_sources") {
+        const row = markMessageSources(this.rows.get(`assistant-${msg.replyId}`), msg);
+        if (row) this.rows.set(row.id, row);
       } else if (event.kind === "claim_checks") {
         this.markClaims(msg);
       } else if (event.kind === BOOKMARKS_KIND) {

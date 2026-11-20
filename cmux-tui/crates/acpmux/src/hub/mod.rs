@@ -7,6 +7,7 @@
 // A reply's checkable claims against the turn's runs (`claim_checks`).
 mod claim_check;
 mod control_asks;
+mod turn_sources;
 
 mod activity;
 // A foreground shell still running after a minute goes to the background (Claude Code).
@@ -2076,6 +2077,7 @@ impl Hub {
             stops: AtomicU64::new(0),
             cancels: AtomicU64::new(0),
             claim_runs: StdMutex::new(Default::default()),
+            turn_sources: StdMutex::new(Default::default()),
             start_retry_wake: Notify::new(),
             start_retry_waits: AtomicBool::new(false),
             start_retry_cancels: AtomicU64::new(start_retry::NO_RETRY),

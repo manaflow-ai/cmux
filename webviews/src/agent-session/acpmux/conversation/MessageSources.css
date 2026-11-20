@@ -1,0 +1,14 @@
+.cv-message-sources {
+  margin: 0;
+}
+.cv-message-sources__caption {
+  margin: 4px 8px;
+  color: var(--cv-text-muted);
+}
+.cv-message-sources button.cv-web-sources__page {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: start;
+}

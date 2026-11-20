@@ -367,6 +367,9 @@ impl Hub {
                 drop(tree);
                 // The chat's own words in a turn the person did not start (`background_turn.rs`).
                 if subagent.is_none() && !muted && !kind.ends_with(".replay") {
+                    // Source provenance belongs to this agent's turn. The earlier tool
+                    // liveness hook also sees child calls, before the tree annotates them.
+                    tap_hub.note_turn_source(&tap_session, &params["update"]);
                     tap_hub.background_turn_update(&tap_session, &params["update"]);
                 }
                 // A wrap-up's first answer is the turn's suggestion where the harness makes none

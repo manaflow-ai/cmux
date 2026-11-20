@@ -64,6 +64,7 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "loop_cleared",
     // A turn's last reply's claims and the runs that back them or not (`claim_check.rs`).
     "claim_checks",
+    "turn_sources",
     // The harness retries the turn's failed model request (`turn_retry.rs`).
     "turn_retrying",
     "turn_result",
