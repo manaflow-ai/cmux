@@ -746,7 +746,7 @@ impl Hub {
                 host_seq: None,
             }),
             remote: Some(RemoteRef { peer: peer.to_owned(), summary }),
-            update_line: Default::default(),
+            lines: Default::default(),
             row: Default::default(),
             list_seq: 0,
         });
@@ -1060,7 +1060,7 @@ impl Hub {
                                 peer: peer.clone(),
                                 summary: removed.unwrap_or_else(|| json!({"sessionId": mux_id})),
                             }),
-                            update_line: Default::default(),
+                            lines: Default::default(),
                             row: Default::default(),
                             list_seq: 0,
                         });
@@ -1124,7 +1124,7 @@ impl Hub {
                             host_seq: None,
                         }),
                         remote: Some(RemoteRef { peer: peer.clone(), summary: summary.clone() }),
-                        update_line: Default::default(),
+                        lines: Default::default(),
                         row: Default::default(),
                         list_seq: 0,
                     });
@@ -1157,7 +1157,7 @@ impl Hub {
                             host_seq: None,
                         }),
                         remote: Some(RemoteRef { peer: peer.clone(), summary: Value::Null }),
-                        update_line: Default::default(),
+                        lines: Default::default(),
                         row: Default::default(),
                         list_seq: 0,
                     });
@@ -1184,7 +1184,7 @@ impl Hub {
                                 host_seq: None,
                             }),
                             remote: Some(RemoteRef { peer: peer.clone(), summary: Value::Null }),
-                            update_line: Default::default(),
+                            lines: Default::default(),
                             row: Default::default(),
                             list_seq: 0,
                         });
@@ -1341,7 +1341,7 @@ impl Hub {
                         session_id: id,
                         record: Arc::new(record),
                         remote: Some(RemoteRef { peer: peer.clone(), summary }),
-                        update_line: Default::default(),
+                        lines: Default::default(),
                         row: Default::default(),
                         list_seq: 0,
                     });

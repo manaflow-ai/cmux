@@ -260,7 +260,7 @@ async fn v1_session_lifecycle_roundtrips_through_the_v2_list_tee() {
             host_seq: None,
         }),
         remote: Some(RemoteRef { peer: "other-daemon".into(), summary: peer_row }),
-        update_line: Default::default(),
+        lines: Default::default(),
         row: Default::default(),
         list_seq: 0,
     });

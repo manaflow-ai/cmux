@@ -154,7 +154,7 @@ pub(super) fn row_event(session: &str) -> HubEvent {
             host_seq: None,
         }),
         remote: None,
-        update_line: Default::default(),
+        lines: Default::default(),
         row: Default::default(),
         list_seq: 0,
     }
@@ -355,7 +355,7 @@ impl Hub {
                 host_seq: None,
             }),
             remote: None,
-            update_line: Default::default(),
+            lines: Default::default(),
             row: Default::default(),
             list_seq: 0,
         }
