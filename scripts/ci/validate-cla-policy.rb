@@ -239,6 +239,14 @@ CLA_RUNNER_GUARD_STEPS = [
 ].freeze
 # A later privileged step must carry one of these as a top-level AND term.
 CLA_RUNNER_STEP_IFS = [CLA_HOSTED_RUNNER_STEP_IF, CLA_EPHEMERAL_RUNNER_STEP_IF, CLA_FLEET_RUNNER_STEP_IF].freeze
+# The fleet guard and step term pair exactly with the fleet selector: a job on
+# CLA_FLEET_TRUSTED_RUNNER_EXPRESSION must lead with the fleet guard and gate
+# its steps on the fleet term (the hosted or Blacksmith-only forms would fail
+# or skip on a fleet VM), and no other runs-on value accepts either, since it
+# cannot place a job on a fleet VM. Every other runs-on value keeps the
+# hosted and ephemeral forms it accepted before the fleet selector existed.
+CLA_FLEET_RUNNER_GUARD_STEPS = [CLA_RUNNER_GUARD_STEPS.fetch(2)].freeze
+CLA_NON_FLEET_RUNNER_GUARD_STEPS = CLA_RUNNER_GUARD_STEPS.first(2).freeze
 # The step terms that carry their own || inside one parenthesized group.
 CLA_GROUPED_RUNNER_STEP_IFS = [CLA_EPHEMERAL_RUNNER_STEP_IF, CLA_FLEET_RUNNER_STEP_IF].freeze
 CLA_DOCUMENT_PATH = "CLA.md".freeze
@@ -260,7 +268,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "0aeffcf9241fbc59bd9aa744a882ddbd8c7555ca879855
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "84a4001242e4d025717999d87bf19ef087a4ca97d572deeee23ad9059f07d4da"
+EXPECTED_GUARD_SCRIPT_DIGEST = "96b0148a349b2dba7b07d1e1b0b0fbd73ee30bc06eda96cc1ff32115041512da"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -1577,6 +1585,73 @@ def run_action_transition_regression_matrix!
   fixture_refs = fixtures.map { |raw| cla_action_reference(raw, "CLA action fixture") }
   fail!("CLA action reference fixture regression failed") unless fixture_refs == [fc608, b4d3, current, final]
   puts "PASS: CLA action transition regression matrix (#{cases.length} cases, #{fixtures.length} fixtures)"
+  run_fleet_successor_bytes_regression!
+end
+
+# The fleet-runner successor pin checked against the real cla.yml bytes it
+# names, not its own digest: CLA_FLEET_SUCCESSOR_FIXTURES holds main's cla.yml
+# as of the successor's review and the reviewed successor, copied byte for
+# byte. The guard workflow checks out only this script, so there the fixtures
+# are absent and the case reports SKIP; a full checkout (tests/
+# test_cla_guard_metadata_routing.py) requires it to PASS.
+CLA_FLEET_SUCCESSOR_FIXTURES = %w[
+  tests/fixtures/cla-fleet-step2-base.yml
+  tests/fixtures/cla-fleet-step2.yml
+].freeze
+
+def run_fleet_successor_bytes_regression!(root = File.expand_path("../..", __dir__))
+  paths = CLA_FLEET_SUCCESSOR_FIXTURES.map { |path| File.join(root, path) }
+  unless paths.all? { |path| File.file?(path) }
+    puts "SKIP: CLA fleet-runner successor bytes regression (fixtures not checked out)"
+    return false
+  end
+  base, candidate = paths.map { |path| File.binread(path) }
+  from_ref, from_digest, to_ref, to_digest = CLA_ACTION_PINNED_SUCCESSORS.fetch(1)
+  base_ref = cla_action_reference(base, "fleet successor base fixture")
+  candidate_ref = cla_action_reference(candidate, "fleet successor fixture")
+  base_digest = workflow_digest(base)
+  candidate_digest = workflow_digest(candidate)
+  fail!("fleet successor base fixture is not the pinned base bytes") unless
+    base_ref == from_ref && base_digest == from_digest
+  fail!("fleet successor fixture is not the pinned successor bytes") unless
+    candidate_ref == to_ref && candidate_digest == to_digest
+  fail!("fleet successor fixture does not run CLAAssistant on the fleet selector") unless
+    parse_workflow(candidate).dig("jobs", "CLAAssistant", "runs-on") == CLA_FLEET_TRUSTED_RUNNER_EXPRESSION
+  transition = lambda do |from_raw, to_raw|
+    assert_cla_action_transition!(
+      base_ref: cla_action_reference(from_raw, "fleet successor fixture"),
+      candidate_ref: cla_action_reference(to_raw, "fleet successor fixture"),
+      base_workflow_digest: workflow_digest(from_raw),
+      base_script_digest: nil,
+      base_script_path: nil,
+      policy_changed: from_raw != to_raw,
+      candidate_workflow_digest: workflow_digest(to_raw)
+    )
+  end
+  transition.call(base, candidate)
+  fail!("fleet successor fixture is not the pinned runner successor of its base") unless cla_runner_successor?(
+    base_ref: base_ref,
+    candidate_ref: candidate_ref,
+    base_workflow_digest: base_digest,
+    candidate_workflow_digest: candidate_digest,
+    base_script_digest: nil,
+    base_script_path: nil
+  )
+  [
+    ["fleet successor reverted", candidate, base],
+    ["fleet successor with one byte changed", base, candidate.sub("cmux-gcp-trusted-x64", "cmux-gcp-trusted-x65")],
+    ["fleet successor with a trailing newline", base, "#{candidate}\n"]
+  ].each do |name, from_raw, to_raw|
+    accepted = begin
+      transition.call(from_raw, to_raw)
+      true
+    rescue PolicyError
+      false
+    end
+    fail!("CLA fleet successor bytes regression failed: #{name} was accepted") if accepted
+  end
+  puts "PASS: CLA fleet-runner successor bytes regression (#{CLA_FLEET_SUCCESSOR_FIXTURES.length} fixtures)"
+  true
 end
 
 def guard_script_digest(raw)
@@ -1771,11 +1846,28 @@ def assert_cla_runner(value, name)
     value.is_a?(String) && CLA_RUNNERS.include?(value)
 end
 
-def assert_hosted_runner_guard_step(step, name)
+def cla_runner_guard_steps_for(runs_on)
+  runs_on == CLA_FLEET_TRUSTED_RUNNER_EXPRESSION ? CLA_FLEET_RUNNER_GUARD_STEPS : CLA_NON_FLEET_RUNNER_GUARD_STEPS
+end
+
+def cla_runner_step_ifs_for(runs_on)
+  if runs_on == CLA_RUNNER
+    [CLA_HOSTED_RUNNER_STEP_IF, CLA_EPHEMERAL_RUNNER_STEP_IF]
+  elsif runs_on == CLA_FLEET_TRUSTED_RUNNER_EXPRESSION
+    [CLA_FLEET_RUNNER_STEP_IF]
+  else
+    [CLA_EPHEMERAL_RUNNER_STEP_IF]
+  end
+end
+
+def assert_hosted_runner_guard_step(step, name, runs_on: CLA_RUNNER)
   assert_step_keys(step, "#{name} runner guard", %w[name if run])
-  # Name, condition, and shell must all come from the same reviewed guard.
+  # Name, condition, and shell must all come from the same reviewed guard,
+  # and that guard must be one the job's runs-on value pairs with.
   guard = CLA_RUNNER_GUARD_STEPS.find { |guard_name, _if, _run| step["name"] == guard_name }
   fail!("#{name} runner guard has an unexpected name") unless guard
+  fail!("#{name} runner guard does not match its runs-on value") unless
+    cla_runner_guard_steps_for(runs_on).include?(guard)
   fail!("#{name} runner guard has an unsafe condition") unless step["if"] == guard[1]
   fail!("#{name} runner guard has an unsafe shell") unless
     normalize_run_text(step["run"]) == normalize_run_text(guard[2])
@@ -1833,25 +1925,25 @@ def assert_hosted_runner_step(step, name, runs_on: CLA_RUNNER)
   # term: the hosted-only term would silently skip them there and let the
   # check go green without doing its work.
   # A job the fleet selector can place on a fleet VM must gate its steps on
-  # the fleet term for the same reason.
-  accepted = if runs_on == CLA_RUNNER
-    CLA_RUNNER_STEP_IFS
-  elsif runs_on == CLA_FLEET_TRUSTED_RUNNER_EXPRESSION
-    [CLA_FLEET_RUNNER_STEP_IF]
-  else
-    CLA_GROUPED_RUNNER_STEP_IFS
-  end
+  # the fleet term for the same reason, and only that job may use it.
+  # Exactly one runner identity term is allowed, and no other term may read
+  # the runner context: `fleet term && ephemeral term`, or the fleet term
+  # narrowed by its own startsWith(runner.name, ...), is not a reviewed form.
+  accepted = cla_runner_step_ifs_for(runs_on)
   terms = top_level_and_terms(condition)
+  identity_terms = terms ? terms.select { |term| CLA_RUNNER_STEP_IFS.include?(term) } : []
   fail!("#{name} is not restricted to a GitHub-hosted, Blacksmith or fleet runner") unless
     terms &&
-    terms.any? { |term| accepted.include?(term) } &&
+    identity_terms.length == 1 &&
+    accepted.include?(identity_terms.first) &&
+    terms.none? { |term| !CLA_RUNNER_STEP_IFS.include?(term) && term.match?(/\brunner\./) } &&
     terms.none? { |term| !CLA_GROUPED_RUNNER_STEP_IFS.include?(term) && term.include?("||") }
 end
 
 def assert_hosted_runner_job_steps(job_value, name)
   job_steps = steps(job_value, name)
   fail!("#{name} must have a runner identity guard") if job_steps.empty?
-  assert_hosted_runner_guard_step(job_steps.first, name)
+  assert_hosted_runner_guard_step(job_steps.first, name, runs_on: job_value["runs-on"])
   job_steps.drop(1).each_with_index do |step, index|
     assert_hosted_runner_step(step, "#{name} step #{index + 2}", runs_on: job_value["runs-on"])
   end
@@ -2223,9 +2315,23 @@ end
   fleet_identity = {
     "name" => CLA_FLEET_RUNNER_GUARD_NAME, "if" => CLA_FLEET_RUNNER_GUARD_IF, "run" => "#{CLA_FLEET_RUNNER_GUARD_RUN}\n"
   }
-  CLA_RUNNERS.product([hosted_identity, ephemeral_identity, fleet_identity]).each do |runner, identity|
+  # The fleet selector pairs with the fleet guard only, and the fleet guard
+  # with the fleet selector only; every other runner keeps both older guards.
+  (CLA_RUNNERS - [CLA_FLEET_TRUSTED_RUNNER_EXPRESSION]).product([hosted_identity, ephemeral_identity]).each do |runner, identity|
     validate_guard_workflow(hosted_guard_document.call(runner, identity), authorize: false)
     checks += 1
+  end
+  validate_guard_workflow(hosted_guard_document.call(CLA_FLEET_TRUSTED_RUNNER_EXPRESSION, fleet_identity), authorize: false)
+  checks += 1
+  [hosted_identity, ephemeral_identity].each do |identity|
+    expect_failure.call("fleet selector with #{identity['name'].inspect}") do
+      validate_guard_workflow(hosted_guard_document.call(CLA_FLEET_TRUSTED_RUNNER_EXPRESSION, identity), authorize: false)
+    end
+  end
+  (CLA_RUNNERS - [CLA_FLEET_TRUSTED_RUNNER_EXPRESSION]).each do |runner|
+    expect_failure.call("fleet guard on #{runner.inspect}") do
+      validate_guard_workflow(hosted_guard_document.call(runner, fleet_identity), authorize: false)
+    end
   end
   [
     "${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
@@ -2259,7 +2365,8 @@ end
 # would widen the token, swap the action, move the key or drop the fallback
 # is rejected.
 app_guard_document = lambda do |mint = GUARD_APP_TOKEN_STEP, validate_env = GUARD_APP_VALIDATE_ENV, runner = CLA_TRUSTED_RUNNER_EXPRESSION|
-  document = YAML.safe_load(hosted_guard_document.call(runner, ephemeral_identity))
+  identity = runner == CLA_FLEET_TRUSTED_RUNNER_EXPRESSION ? fleet_identity : ephemeral_identity
+  document = YAML.safe_load(hosted_guard_document.call(runner, identity))
   document["jobs"]["validate"]["steps"].insert(3, Marshal.load(Marshal.dump(mint)))
   document["jobs"]["validate"]["steps"][4]["env"] = Marshal.load(Marshal.dump(validate_env))
   YAML.dump(document)
@@ -2746,7 +2853,20 @@ def run_runner_regression_matrix!
     normalize_run_text(fleet_guard["run"]) == CLA_FLEET_RUNNER_GUARD_RUN
   assert_hosted_runner_guard_step(hosted_guard, "regression CLA job")
   assert_hosted_runner_guard_step(ephemeral_guard, "regression CLA job")
-  assert_hosted_runner_guard_step(fleet_guard, "regression CLA job")
+  assert_hosted_runner_guard_step(fleet_guard, "regression CLA job", runs_on: CLA_FLEET_TRUSTED_RUNNER_EXPRESSION)
+  (CLA_RUNNERS - [CLA_FLEET_TRUSTED_RUNNER_EXPRESSION]).each do |runner|
+    [hosted_guard, ephemeral_guard].each do |guard|
+      assert_hosted_runner_guard_step(guard, "regression CLA job", runs_on: runner)
+    end
+    expect_policy_error("fleet guard on #{runner}") do
+      assert_hosted_runner_guard_step(fleet_guard, "regression CLA job", runs_on: runner)
+    end
+  end
+  [hosted_guard, ephemeral_guard].each do |guard|
+    expect_policy_error("#{guard['name']} on the fleet selector") do
+      assert_hosted_runner_guard_step(guard, "regression CLA job", runs_on: CLA_FLEET_TRUSTED_RUNNER_EXPRESSION)
+    end
+  end
   checks += 5
   # The names the guard condition admits on a self-hosted runner: current
   # and pre-October 2026 Blacksmith VMs, never an owned glaeda host.
@@ -2831,9 +2951,15 @@ def run_runner_regression_matrix!
     ),
     "fleet guard extra key" => fleet_guard.merge("continue-on-error" => true)
   }
+  # Each malformed guard is refused on every runner, the fleet selector
+  # included, so no case passes only because of the runs-on pairing.
   rejected_guards.each do |name, step|
-    expect_policy_error(name) { assert_hosted_runner_guard_step(step, "regression CLA job") }
-    checks += 1
+    CLA_RUNNERS.each do |runner|
+      expect_policy_error("#{name} on #{runner}") do
+        assert_hosted_runner_guard_step(step, "regression CLA job", runs_on: runner)
+      end
+      checks += 1
+    end
   end
 
   ephemeral_term = "((runner.environment == 'github-hosted' || startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') || startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-')) && !contains(runner.name, 'glaeda'))"
@@ -2844,8 +2970,6 @@ def run_runner_regression_matrix!
     CLA_HOSTED_RUNNER_STEP_IF,
     "github.event_name == 'issue_comment' && runner.environment == 'github-hosted'",
     ephemeral_term,
-    fleet_term,
-    "github.event_name == 'issue_comment' && #{fleet_term}",
     "#{ephemeral_term} && github.event_name == 'issue_comment'",
     "github.event_name == 'issue_comment' &&\n  #{ephemeral_term}",
     "steps.cla.outputs.result == ')' && #{ephemeral_term}"
@@ -2853,13 +2977,20 @@ def run_runner_regression_matrix!
     assert_hosted_runner_step({ "if" => condition }, "regression CLA action")
     checks += 1
   end
+  [
+    fleet_term,
+    "github.event_name == 'issue_comment' && #{fleet_term}",
+    "#{fleet_term} && steps.cla.outputs.result == ')'"
+  ].each do |condition|
+    assert_hosted_runner_step({ "if" => condition }, "regression CLA action", runs_on: CLA_FLEET_TRUSTED_RUNNER_EXPRESSION)
+    checks += 1
+  end
   # Off ubuntu-24.04 only the ephemeral term counts, so a Blacksmith job
-  # cannot skip its privileged steps and still report success.
-  # The fleet term admits a superset of the ephemeral one, so it is accepted
-  # there too. Off the fleet selector the fleet term is the only one, so a job
-  # placed on a fleet VM cannot skip its privileged steps either.
+  # cannot skip its privileged steps and still report success. On the fleet
+  # selector the fleet term is the only one, so a job placed on a fleet VM
+  # cannot skip its privileged steps either, and no other runner takes it.
   (CLA_RUNNERS - [CLA_RUNNER]).each do |runner|
-    terms = runner == CLA_FLEET_TRUSTED_RUNNER_EXPRESSION ? [fleet_term] : [ephemeral_term, fleet_term]
+    terms = runner == CLA_FLEET_TRUSTED_RUNNER_EXPRESSION ? [fleet_term] : [ephemeral_term]
     terms.each do |term|
       assert_hosted_runner_step(
         { "if" => "github.event_name == 'issue_comment' && #{term}" }, "regression CLA action", runs_on: runner
@@ -2867,8 +2998,11 @@ def run_runner_regression_matrix!
       checks += 1
     end
     refused = [CLA_HOSTED_RUNNER_STEP_IF, "github.event_name == 'issue_comment' && #{CLA_HOSTED_RUNNER_STEP_IF}"]
-    refused += [ephemeral_term, "github.event_name == 'issue_comment' && #{ephemeral_term}"] if
-      runner == CLA_FLEET_TRUSTED_RUNNER_EXPRESSION
+    refused += if runner == CLA_FLEET_TRUSTED_RUNNER_EXPRESSION
+      [ephemeral_term, "github.event_name == 'issue_comment' && #{ephemeral_term}"]
+    else
+      [fleet_term, "github.event_name == 'issue_comment' && #{fleet_term}"]
+    end
     refused.each do |condition|
       expect_policy_error("hosted-only step on #{runner}") do
         assert_hosted_runner_step({ "if" => condition }, "regression CLA action", runs_on: runner)
@@ -2905,7 +3039,44 @@ def run_runner_regression_matrix!
   expect_policy_error("fleet selector job with a Blacksmith-only step") do
     assert_hosted_runner_job_steps(fleet_skip_job, "regression CLA job")
   end
-  checks += 5
+  [
+    [CLA_EPHEMERAL_RUNNER_GUARD_NAME, CLA_EPHEMERAL_RUNNER_GUARD_IF, CLA_EPHEMERAL_RUNNER_GUARD_RUN],
+    [CLA_HOSTED_RUNNER_GUARD_NAME, CLA_HOSTED_RUNNER_GUARD_IF, CLA_HOSTED_RUNNER_GUARD_RUN]
+  ].each do |guard_name, guard_if, guard_run|
+    old_guard_job = Marshal.load(Marshal.dump(fleet_job))
+    old_guard_job["steps"][0] = { "name" => guard_name, "if" => guard_if, "run" => guard_run }
+    expect_policy_error("fleet selector job with #{guard_name.inspect}") do
+      assert_hosted_runner_job_steps(old_guard_job, "regression CLA job")
+    end
+  end
+  fleet_guard_elsewhere = Marshal.load(Marshal.dump(fleet_job))
+  fleet_guard_elsewhere["runs-on"] = CLA_TRUSTED_RUNNER_EXPRESSION
+  fleet_guard_elsewhere["steps"][1]["if"] = ephemeral_term
+  expect_policy_error("Blacksmith selector job with the fleet guard") do
+    assert_hosted_runner_job_steps(fleet_guard_elsewhere, "regression CLA job")
+  end
+  checks += 8
+  # Exactly one identity term: a narrower AND of two reviewed terms, or a
+  # reviewed term narrowed by another runner read, is not a reviewed form.
+  CLA_RUNNERS.each do |runner|
+    [
+      "#{fleet_term} && #{ephemeral_term}",
+      "#{ephemeral_term} && #{fleet_term}",
+      "#{ephemeral_term} && #{ephemeral_term}",
+      "#{fleet_term} && #{fleet_term}",
+      "#{CLA_HOSTED_RUNNER_STEP_IF} && #{ephemeral_term}",
+      "#{fleet_term} && #{CLA_HOSTED_RUNNER_STEP_IF}",
+      "#{fleet_term} && startsWith(runner.name, 'cmux-gha-runner-')",
+      "#{ephemeral_term} && startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-')",
+      "#{fleet_term} && !contains(runner.name, 'tr-')",
+      "#{CLA_HOSTED_RUNNER_STEP_IF} && runner.os == 'Linux'"
+    ].each do |condition|
+      expect_policy_error("narrower condition on #{runner}: #{condition}") do
+        assert_hosted_runner_step({ "if" => condition }, "regression CLA action", runs_on: runner)
+      end
+      checks += 1
+    end
+  end
   rejected_conditions = {
     "hosted term inside an index" => "always() && fromJSON('[true]')[false && runner.environment == 'github-hosted' && true]",
     "ephemeral term inside an index" => "always() && fromJSON('[true]')[false && #{ephemeral_term} && true]",
@@ -3357,7 +3528,7 @@ def validate_workflow(raw)
   fail!("CLALedgerWriter must contain a runner guard and one action step") unless writer_steps.length == 2
   writer_step = writer_steps[1]
   assert_step_keys(writer_step, "CLALedgerWriter step", %w[name id if uses env with])
-  assert_hosted_runner_step(writer_step, "CLALedgerWriter action")
+  assert_hosted_runner_step(writer_step, "CLALedgerWriter action", runs_on: writer["runs-on"])
   fail!("CLALedgerWriter step must have id cla_action") unless writer_step["id"] == "cla_action"
   assert_action_reference(writer_step["uses"], "CLALedgerWriter step uses")
   fail!("CLALedgerWriter must invoke only the maintained CLA action") unless writer_step["uses"] == CLA_ACTION
@@ -3371,14 +3542,14 @@ def validate_workflow(raw)
   fail!("CLACommentGate must contain a runner guard, admission, and preflight") unless gate_steps.length == 3
   admission_step_shape = gate_steps[1]
   assert_step_keys(admission_step_shape, "CLACommentGate admission step", %w[name id if env run])
-  assert_hosted_runner_step(admission_step_shape, "CLACommentGate admission")
+  assert_hosted_runner_step(admission_step_shape, "CLACommentGate admission", runs_on: gate["runs-on"])
   fail!("CLACommentGate admission step must have id admission") unless admission_step_shape["id"] == "admission"
   assert_exact_environment(admission_step_shape, ADMISSION_ENV, "CLACommentGate admission step")
   fail!("CLACommentGate admission step must not access a token or network") if
     admission_step_shape["run"].to_s.match?(/\b(gh|curl|wget|git|ssh|sudo|eval|source)\b|\bsecrets\b|\bgithub\.token\b|GITHUB_TOKEN/i)
   preflight_step_shape = gate_steps[2]
   assert_step_keys(preflight_step_shape, "CLACommentGate preflight step", %w[name id if uses env with])
-  assert_hosted_runner_step(preflight_step_shape, "CLACommentGate preflight")
+  assert_hosted_runner_step(preflight_step_shape, "CLACommentGate preflight", runs_on: gate["runs-on"])
   assert_action_reference(preflight_step_shape["uses"], "CLACommentGate preflight uses")
   fail!("CLACommentGate preflight must invoke only the maintained CLA action") unless preflight_step_shape["uses"] == CLA_ACTION
   fail!("CLACommentGate preflight step must have id signer_preflight") unless preflight_step_shape["id"] == "signer_preflight"
@@ -3391,20 +3562,20 @@ def validate_workflow(raw)
   result_steps = steps(assistant, "CLAAssistant")
   fail!("CLAAssistant must contain a runner guard and one result step") unless result_steps.length == 2
   assert_step_keys(result_steps[1], "CLAAssistant result step", %w[name if env run])
-  assert_hosted_runner_step(result_steps[1], "CLAAssistant result")
+  assert_hosted_runner_step(result_steps[1], "CLAAssistant result", runs_on: assistant["runs-on"])
   assert_exact_environment(result_steps[1], RESULT_ENV, "CLAAssistant result step")
   compatibility_steps = steps(compatibility, "CLACompatibility")
   fail!("CLACompatibility must contain a runner guard and one result step") unless compatibility_steps.length == 2
   assert_step_keys(compatibility_steps[1], "CLACompatibility result step", %w[name if env run])
-  assert_hosted_runner_step(compatibility_steps[1], "CLACompatibility result")
+  assert_hosted_runner_step(compatibility_steps[1], "CLACompatibility result", runs_on: compatibility["runs-on"])
   assert_exact_environment(compatibility_steps[1], COMPATIBILITY_ENV, "CLACompatibility result step")
 
   rerun_steps = steps(rerun, "RerunFailedCLA")
   fail!("RerunFailedCLA must contain a runner guard, checkout, and guard step") unless rerun_steps.length == 3
   assert_step_keys(rerun_steps[1], "RerunFailedCLA checkout step", %w[name if uses with])
-  assert_hosted_runner_step(rerun_steps[1], "RerunFailedCLA checkout")
+  assert_hosted_runner_step(rerun_steps[1], "RerunFailedCLA checkout", runs_on: rerun["runs-on"])
   assert_step_keys(rerun_steps[2], "RerunFailedCLA guard step", %w[name if env run])
-  assert_hosted_runner_step(rerun_steps[2], "RerunFailedCLA helper")
+  assert_hosted_runner_step(rerun_steps[2], "RerunFailedCLA helper", runs_on: rerun["runs-on"])
   assert_action_reference(rerun_steps[1]["uses"], "RerunFailedCLA checkout uses")
   fail!("RerunFailedCLA may not invoke the CLA action") if rerun_steps.any? { |step| step["uses"] == CLA_ACTION }
   fail!("RerunFailedCLA guard step must invoke the immutable helper exactly") unless
@@ -3414,7 +3585,7 @@ def validate_workflow(raw)
   lock_steps = steps(lock, "LockMergedPullRequest")
   fail!("LockMergedPullRequest must contain a runner guard and one action step") unless lock_steps.length == 2
   assert_step_keys(lock_steps[1], "LockMergedPullRequest step", %w[name if uses env with])
-  assert_hosted_runner_step(lock_steps[1], "LockMergedPullRequest action")
+  assert_hosted_runner_step(lock_steps[1], "LockMergedPullRequest action", runs_on: lock["runs-on"])
   assert_action_reference(lock_steps[1]["uses"], "LockMergedPullRequest uses")
   fail!("LockMergedPullRequest must invoke only the maintained CLA action") unless lock_steps[1]["uses"] == CLA_ACTION
   assert_exact_environment(
@@ -3608,7 +3779,7 @@ def validate_guard_workflow(raw, authorize: true, pr_author_id: nil)
   fail!("guard workflow steps are malformed") unless guard_steps.is_a?(Array)
   layout = guard_step_layout(target, guard_steps.length)
   assert_step_keys(guard_steps[0], "guard checkout step", %w[name uses with])
-  assert_hosted_runner_guard_step(guard_steps[1], "guard workflow") if layout[:hosted]
+  assert_hosted_runner_guard_step(guard_steps[1], "guard workflow", runs_on: guard_job["runs-on"]) if layout[:hosted]
   assert_guard_app_token_step(guard_steps.fetch(layout[:app_token_index])) if layout.key?(:app_token_index)
   verification_step = guard_steps.fetch(layout[:verification_index])
   validation_step = guard_steps.fetch(layout[:validation_index])

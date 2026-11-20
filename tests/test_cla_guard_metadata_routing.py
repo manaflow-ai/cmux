@@ -238,5 +238,51 @@ class CLAGuardAppTokenTests(unittest.TestCase):
                 self.assertNotEqual(result, "ok")
 
 
+# Runs the validator's real-bytes check of the fleet-runner successor pin from
+# this full checkout, where its fixtures exist.
+FLEET_SUCCESSOR_DRIVER = r"""
+path = ARGV.shift
+src = File.read(path)
+cut = src.rindex("\nbegin\n  run_yaml_regression_matrix!")
+abort "validator main block not found" unless cut
+eval(src[0...cut], TOPLEVEL_BINDING, path)
+abort "fleet successor bytes regression skipped" unless run_fleet_successor_bytes_regression!(ARGV.shift)
+"""
+
+
+@unittest.skipUnless(shutil.which("ruby"), "ruby is required for the guard validator")
+class CLAFleetSuccessorBytesTests(unittest.TestCase):
+    """The fleet-runner successor pin names the real reviewed cla.yml bytes, not its own digest."""
+
+    STEP2 = ROOT / "tests/fixtures/cla-fleet-step2.yml"
+    BASE = ROOT / "tests/fixtures/cla-fleet-step2-base.yml"
+
+    def run_driver(self, root: Path) -> subprocess.CompletedProcess:
+        return subprocess.run(["ruby", "-e", FLEET_SUCCESSOR_DRIVER, str(VALIDATOR), str(root)],
+                              capture_output=True, text=True, check=False)
+
+    def test_the_fixtures_are_the_pinned_bytes(self):
+        validator = VALIDATOR.read_text()
+        self.assertIn(hashlib.sha256(self.BASE.read_bytes()).hexdigest(), validator)
+        self.assertIn(hashlib.sha256(self.STEP2.read_bytes()).hexdigest(), validator)
+        self.assertEqual(hashlib.sha256(self.STEP2.read_bytes()).hexdigest(),
+                         "005d87afe7ec3a54b47cde829b037e8a95a3bb1bc6003789c90911629305037c")
+
+    def test_the_validator_accepts_the_real_successor_bytes(self):
+        result = self.run_driver(ROOT)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASS: CLA fleet-runner successor bytes regression", result.stdout)
+
+    def test_changed_successor_bytes_are_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixtures = Path(directory) / "tests/fixtures"
+            fixtures.mkdir(parents=True)
+            shutil.copyfile(self.BASE, fixtures / self.BASE.name)
+            (fixtures / self.STEP2.name).write_bytes(self.STEP2.read_bytes() + b"# edited\n")
+            result = self.run_driver(Path(directory))
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+            self.assertIn("not the pinned successor bytes", result.stdout + result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
