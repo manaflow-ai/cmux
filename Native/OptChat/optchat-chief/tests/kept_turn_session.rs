@@ -369,6 +369,10 @@ fn a_turn_the_owner_stops_does_not_keep_its_session() {
     h.agents.inner.lock().unwrap().system_prompts = true;
     fill(&h.chat, 120);
     h.agents.hold(true);
+    // The turn worker sends the stop's cancel on its own thread: a loaded
+    // machine can let the held turn go before it does, so it ends clean
+    // (CI: "left 1 right 2"). The first cancel is lost here, every time.
+    h.agents.inner.lock().unwrap().ignore_cancels = 1;
     h.connect();
     h.say("user_local", "one");
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
