@@ -98,7 +98,8 @@ export class FeedDO extends OwnerDO<FeedState> {
    */
   protected override systemPrincipal(entity: string, source: string): Principal {
     const base = super.systemPrincipal(entity, source)
-    return source === `user:${entity}` ? { ...base, user: entity } : base
+    // A team's SchedulerDO (stream scheduler:<team>) posts failed-run notices to this feed (schedulerPoster).
+    return source === `user:${entity}` || /^scheduler:[^:]+$/.test(source) ? { ...base, user: entity } : base
   }
 
   /**
