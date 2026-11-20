@@ -942,7 +942,7 @@ class Wiring(unittest.TestCase):
 
     def test_new_light_workflows_place_status_jobs_before_hosted_overflow(self):
         expected = {
-            "cmux-next-fast-gates.yml": {"jobs": ("resolve", "post"), "fallback": "fromJSON(vars.RUNNER_POOLS).linux"},
+            "cmux-next-fast-gates.yml": {"jobs": ("resolve", "receipt", "post"), "fallback": "fromJSON(vars.RUNNER_POOLS).linux"},
         }
         for workflow, spec in expected.items():
             with self.subTest(workflow=workflow):
@@ -996,7 +996,7 @@ class Wiring(unittest.TestCase):
 
     def test_portable_bootstraps_are_bounded_and_kill_switch_skips_the_job(self):
         expected = {
-            "cmux-next-fast-gates.yml": ("resolve", "post"),
+            "cmux-next-fast-gates.yml": ("resolve", "receipt", "post"),
         }
         for workflow, consumers in expected.items():
             with self.subTest(workflow=workflow):
