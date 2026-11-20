@@ -271,7 +271,7 @@ export function SentMessageLine({
                 copies the words, as a received message's does. */}
             <CardCopy text={text} />
             <div className="cv-received__text selectable">
-              <AgentMessageBody text={text} commits="quiet" />
+              <AgentMessageBody text={text} commits="quiet" messageAt={tool.startedAt} />
             </div>
           </>
         ) : (

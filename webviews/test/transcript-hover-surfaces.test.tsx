@@ -6,6 +6,7 @@ import { MessageRow } from "../src/pages/home-channels/MessageRow";
 import { RunSteps } from "../src/pages/home-channels/RunSteps";
 import { TranscriptRowView } from "../src/pages/home-messages/transcript/TranscriptRows";
 import { SubagentTranscript } from "../src/agent-session/acpmux/backgroundTasks/SubagentTranscript";
+import { UserBubble } from "../src/agent-session/acpmux/conversation/UserBubble";
 import type { HomeMessage, HomeRun, HomeRunStep } from "../src/pages/home-channels/types";
 import type { Strings } from "../src/pages/shared/i18n";
 
@@ -107,3 +108,30 @@ test("nested agent transcript timestamps retain their row date", () => {
   expect(html).toContain('class="cv-time-hover"');
   expect(html).toContain('dateTime="2026-11-19T10:20:00.000Z"');
 });
+
+for (const inline of [false, true])
+  test(`sent Markdown prompt retains its date (${inline ? "inline" : "legacy"})`, () => {
+    const text = "**Finished** at 10:20 UTC.";
+    const html = renderToStaticMarkup(
+      <UserBubble
+        row={{
+          id: "hover-prompt",
+          kind: "user",
+          version: 1,
+          at,
+          text,
+          ...(inline
+            ? {
+                inlineParts: [
+                  { kind: "file" as const, name: "reference.txt", placed: true as const },
+                  { kind: "text" as const, text },
+                ],
+              }
+            : {}),
+        }}
+        text={text}
+      />,
+    );
+    expect(html).toContain('class="cv-time-hover"');
+    expect(html).toContain('dateTime="2026-11-19T10:20:00.000Z"');
+  });

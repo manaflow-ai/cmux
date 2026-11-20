@@ -112,6 +112,19 @@ const expanded = (row: HTMLElement) => toggleOf(row).getAttribute("aria-expanded
 const rawButton = (container: ParentNode) =>
   container.querySelector<HTMLButtonElement>(".cv-sent__raw > .cv-received__more");
 
+test("a sent message uses its call date for inline timestamp hover", async () => {
+  const container = await line(
+    bash("acpmux send --no-wait coord-deputy 'Finished at 10:20 UTC.'", {
+      startedAt: Date.UTC(2026, 10, 19, 10, 30),
+      output: "queued",
+    }),
+  );
+  await act(async () => toggleOf(rowOf(container)).click());
+  expect(container.querySelector(".cv-received__text time.cv-time-hover")?.getAttribute("datetime")).toBe(
+    "2026-11-19T10:20:00.000Z",
+  );
+});
+
 test("a sent message reads its target, how it was taken and its first line, and opens to all of it", async () => {
   const container = await line(
     bash("acpmux send --no-wait coord-deputy - <<'EOF'\n## Merged #4182\n\nThe review passed.\nEOF", {
