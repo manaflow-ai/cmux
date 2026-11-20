@@ -71,6 +71,22 @@ CHECK_CLASSES = {
     "check:popup-hover-reveals": LINT,
 }
 ADVISORY_EXCERPT = 40  # findings per check in the advisory report; the run log holds them all
+# A typecheck red only in files the app never ships (benches, tests, galleries, the dev server, scripts) says
+# nothing about whether the app works, so on the nightly it is fixed forward like a lint. Leo, 2026-11-20, after
+# a TS2367 in bench/composer-typing.bench.ts held the NEXT nightly (run 44661110467): "failed on a webview check i
+# thought we didnt panic for these types of things? ... where's our fixit type things". A red in app source blocks.
+NOT_SHIPPED = re.compile(r"^(?:<root>/)?(?:webviews/)?(?:bench|test|tests|e2e|dev-server|scripts)/"
+                         r"|\.(?:test|spec|gallery|bench)\.[cm]?[jt]sx?:")
+
+
+def outside_the_app(lines: list[str]) -> bool:
+    """Whether every finding names a file the app never ships (NOT_SHIPPED); a finding with no path counts as app."""
+    return bool(lines) and all(NOT_SHIPPED.search(line.split(" ", 1)[0]) for line in lines)
+
+
+def advisory_class(check: str, lines: list[str]) -> bool:
+    """Whether a failed CHECK is reported and fixed forward on the nightly instead of failing it."""
+    return CHECK_CLASSES[check][0] == "lint" or (check == "typecheck" and outside_the_app(lines))
 LINE_REF = re.compile(r"(\S):\d+(?::\d+)?\b")
 TIMING = re.compile(r"\b\d+(?:\.\d+)?\s?(?:ms|s)\b")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -287,7 +303,7 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             failed.append(check)
             shown[check] = new
-            advisory = args.advisory_out is not None and CHECK_CLASSES[check][0] == "lint"
+            advisory = args.advisory_out is not None and advisory_class(check, new)
             print(f"webviews checks: {check} adds, over the base {args.base[:12]}:", flush=True)
             for line in new:
                 print(f"  {line}", flush=True)
@@ -296,10 +312,11 @@ def main(argv: list[str] | None = None) -> int:
         if base:
             base.close()
     where = "the pull request merged with its base" if args.base else "this commit"
-    advisory = [c for c in failed if CHECK_CLASSES[c][0] == "lint"] if args.advisory_out is not None else []
+    advisory = ([c for c in failed if advisory_class(c, shown.get(c, []))] if args.advisory_out is not None else [])
     for check in failed:
         if check in advisory:
-            print(f"::warning title=webviews {check} (fix forward)::{check} fails on {where}; lint-class, so it is "
+            kind = "lint-class" if CHECK_CLASSES[check][0] == "lint" else "only in files the app never ships"
+            print(f"::warning title=webviews {check} (fix forward)::{check} fails on {where}; {kind}, so it is "
                   "reported and never fails the nightly")
         else:
             print(f"::error title=webviews {check}::{check} fails on {where}")

@@ -92,6 +92,48 @@ class AdvisoryOutTests(unittest.TestCase):
             self.assertEqual(self.run_main({}, ADVISORY, str(report)), 0)
             self.assertEqual(json.loads(report.read_text()), {"failed": []})
 
+    # run 44661110467's own red (job 136040412192), the ANSI colours dropped
+    BENCH_TS2367 = ("  × typescript(TS2367): This comparison appears to be unintentional because the types "
+                    "'\"chromium\"' and '\"webkit\"' have no overlap.\n"
+                    "     ╭─[bench/composer-typing.bench.ts:234:17]\n"
+                    " 234 │     const cdp = engine === \"webkit\" ? undefined : await x;\n"
+                    "     ╰────\n")
+
+    def test_a_typecheck_red_only_in_a_bench_file_is_fixed_forward(self):
+        with tempfile.TemporaryDirectory() as temp:
+            report = Path(temp) / "lint.json"
+            code = self.run_main({"typecheck": self.BENCH_TS2367}, ADVISORY, str(report))
+            self.assertEqual(code, 0, self.out)
+            data = json.loads(report.read_text())
+            self.assertEqual([f["check"] for f in data["failed"]], ["typecheck"])
+            self.assertIn("bench/composer-typing.bench.ts", data["failed"][0]["findings"][0])
+            self.assertIn("only in files the app never ships", self.out)
+            self.assertNotIn("::error", self.out)
+
+    def test_a_typecheck_red_in_app_source_still_blocks(self):
+        app = self.BENCH_TS2367.replace("bench/composer-typing.bench.ts", "src/agent-session/AgentPane.tsx")
+        with tempfile.TemporaryDirectory() as temp:
+            report = Path(temp) / "lint.json"
+            code = self.run_main({"typecheck": app}, ADVISORY, str(report))
+            self.assertEqual(code, 1, self.out)
+            self.assertEqual(json.loads(report.read_text()), {"failed": []})
+            self.assertIn("::error title=webviews typecheck", self.out)
+
+    def test_one_app_file_among_test_files_blocks(self):
+        both = self.BENCH_TS2367 + "\n" + self.BENCH_TS2367.replace(
+            "bench/composer-typing.bench.ts", "src/ui/Button.tsx")
+        with tempfile.TemporaryDirectory() as temp:
+            self.assertEqual(self.run_main({"typecheck": both}, ADVISORY, str(Path(temp) / "lint.json")), 1)
+
+    def test_not_shipped_paths(self):
+        for path in ("bench/a.bench.ts:", "test/a.test.ts:", "src/x/a.test.tsx:", "src/x/a.gallery.ts:",
+                     "dev-server/x.ts:", "scripts/check.ts:", "<root>/webviews/test/a.ts:"):
+            self.assertTrue(checks.outside_the_app([f"{path} typescript(TS1): m"]), path)
+        for path in ("src/agent-session/AgentPane.tsx:", "src/bench.ts:", "src/testing/a.ts:"):
+            self.assertFalse(checks.outside_the_app([f"{path} typescript(TS1): m"]), path)
+        self.assertFalse(checks.outside_the_app([]))
+        self.assertFalse(checks.outside_the_app(["typescript(TS1): no path"]))
+
     def test_without_the_flag_every_red_counts(self):
         self.assertEqual(self.run_main({"check:design-tokens": "src/a.tsx: raw color #fff"}), 1)
         self.assertIn("::error title=webviews check:design-tokens", self.out)
