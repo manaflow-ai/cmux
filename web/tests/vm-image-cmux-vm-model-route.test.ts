@@ -155,7 +155,7 @@ describe("cmux VM image model route", () => {
   // "refuse", which must win.
   test("every machine's Claude Code accepts messages from the person's other sessions unless they refuse", () => {
     for (const file of bake.agentModelRouteFiles()) expect(file.text).not.toContain("crossSessionInbound");
-    const source = readFileSync(path.join(import.meta.dir, "../scripts/cmux-vm-image/bake.ts"), "utf8");
+    const source = readFileSync(new URL("../scripts/cmux-vm-image/bake.ts", import.meta.url), "utf8");
     expect(source).not.toContain("managed-settings.d");
     // After the sign-in files (claude-onboarding.py) are on the machine.
     const signIn = source.indexOf('L.step(vm, "agent-sign-in"');
