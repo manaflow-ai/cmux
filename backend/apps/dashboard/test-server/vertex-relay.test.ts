@@ -59,3 +59,16 @@ test("a failed token exchange is a 502 the Worker may retry elsewhere", async ()
   const fake = (async () => new Response("no", { status: 403 })) as unknown as typeof fetch
   expect((await relayVertexChat(req("relay-k", body("google/gemini-4-neon")), { relayKey: "relay-k", oidcToken: "oidc-t", fetch: fake })).status).toBe(502)
 })
+
+test("Google holding the request past the header deadline is a clean 504, not a proxy timeout", async () => {
+  const hang = (async (url: string, init: RequestInit) => {
+    if (url.startsWith("https://sts.googleapis.com/")) return Response.json({ access_token: "federated-t" })
+    if (url.startsWith("https://iamcredentials.googleapis.com/")) return Response.json({ accessToken: "sa-t", expireTime: new Date(Date.now() + 3_600_000).toISOString() })
+    return new Promise<Response>((_, reject) => init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))))
+  }) as unknown as typeof fetch
+  const started = Date.now()
+  const res = await relayVertexChat(req("relay-k", body("google/gemini-4-neon")), { relayKey: "relay-k", oidcToken: "oidc-t", fetch: hang, headerTimeoutMs: 50 })
+  expect(res.status).toBe(504)
+  expect(((await res.json()) as { error: { code: string } }).error.code).toBe("upstream.timeout")
+  expect(Date.now() - started).toBeLessThan(2_000)
+})
