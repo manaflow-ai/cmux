@@ -16,7 +16,7 @@ extension UpdaterService {
             // Serialize rapid clicks so the two preferences finish in click order.
             let previous = self?.settingsWriteTask
             // task-owner: finite settings writes, retained until the next write.
-            self?.settingsWriteTask = Task { @MainActor in
+            self?.settingsWriteTask = Task {
                 await previous?.value
                 do {
                     for path in paths {

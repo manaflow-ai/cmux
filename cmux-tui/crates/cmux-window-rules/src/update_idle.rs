@@ -1,4 +1,4 @@
-//! Update when idle (`updates.installWhenIdle`, off by default): whether a
+//! Update when idle (`updates.installWhenIdle`): whether a
 //! downloaded app update may install and relaunch the app now (Leo,
 //! 2026-11-19: "when it's idle, it's able to ... update automatically ...
 //! maybe even having it as an opt-in option would be pretty interesting.

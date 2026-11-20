@@ -312,7 +312,7 @@
         },
         {
           "key": "updates.installWhenIdle",
-          "note": "Automatic installation while idle (Leo 2026-11-19: \"maybe even having it as an opt-in option would be pretty interesting. Yeah, like update when idle\"): when on, a downloaded update waits for updates.installWhenIdleMinutes, never while an agent works or a draft is unsent; the relaunch keeps every terminal and agent.",
+          "note": "Automatic installation while idle (Leo: \"auto update for ppl\", ask-3683c5e238): on by default; a downloaded update waits for updates.installWhenIdleMinutes, never while an agent works or a draft is unsent; the relaunch keeps every terminal and agent.",
           "title": {
             "key": "settings.updates.installWhenIdle",
             "text": "Update When Idle"

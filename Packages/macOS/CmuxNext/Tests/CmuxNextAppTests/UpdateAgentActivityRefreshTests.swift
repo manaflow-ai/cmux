@@ -6,7 +6,7 @@ import Testing
 
 @MainActor struct UpdateAgentActivityRefreshTests {
     private final class Reader {
-        var time = Date(timeIntervalSince1970: 100)
+        var time = ContinuousClock.now
         var reads = 0
         var pending: CheckedContinuation<AcpmuxSessionCensus?, Never>?
         func read() async -> AcpmuxSessionCensus? {
@@ -27,12 +27,12 @@ import Testing
         reader.answer(empty)
         for _ in 0..<1_000 where activity.census == nil { await Task.yield() }
         try #require(activity.census != nil)
-        reader.time += 1.1
+        reader.time = reader.time.advanced(by: .seconds(1.1))
         #expect(!activity.applying(to: clear).daemonStateUnavailable)
         for _ in 0..<1_000 where reader.pending == nil { await Task.yield() }
         try #require(reader.pending != nil)
         #expect(reader.reads == 2)
-        reader.time += 1.0
+        reader.time = reader.time.advanced(by: .seconds(1))
         #expect(activity.applying(to: clear).daemonStateUnavailable)
         #expect(activity.census == nil)
         reader.answer(nil)
@@ -51,12 +51,12 @@ import Testing
         for _ in 0..<1_000 where activity.census == nil { await Task.yield() }
         try #require(activity.census?.inTurn == 1)
         for _ in 0..<4 {
-            reader.time += 1
+            reader.time = reader.time.advanced(by: .seconds(1))
             _ = activity.applying(to: clear)
             await Task.yield()
         }
         #expect(reader.reads == 1)
-        reader.time += 1
+        reader.time = reader.time.advanced(by: .seconds(1))
         _ = activity.applying(to: clear)
         for _ in 0..<1_000 where reader.pending == nil { await Task.yield() }
         try #require(reader.pending != nil)
