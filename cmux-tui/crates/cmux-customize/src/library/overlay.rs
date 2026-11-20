@@ -114,7 +114,7 @@ impl Overlay {
 }
 
 /// `3 days`, `5 hours`, `under an hour`.
-fn age(ms: u64) -> String {
+pub(super) fn age(ms: u64) -> String {
     let hours = ms / 3_600_000;
     match hours {
         0 => "under an hour".to_owned(),

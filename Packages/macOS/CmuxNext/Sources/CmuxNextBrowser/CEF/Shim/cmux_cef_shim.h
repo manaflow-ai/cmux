@@ -775,6 +775,12 @@ CMUX_SHIM_EXPORT int cmux_shim_replace_passwords(const char* profile_cache_path,
 // after an automated click (plans/cmux-next/browser.md, "Secure sign-in").
 // Returns 0 when the fork lacks cmux_tab_set_password_fill (API 15).
 CMUX_SHIM_EXPORT int cmux_shim_set_password_fill(int browser_id, int enabled);
+// Refuses (refuse 1) or allows (0) every WebAuthn create and get of one tab
+// (fork API 23, cmux_tab_set_webauthn_mode): an agent-driven tab never shows
+// a Touch ID sheet, an account chooser or a phone QR code; the page gets
+// NotAllowedError. Its popups start in its mode. Returns 0 when the fork
+// lacks the call or the tab is gone.
+CMUX_SHIM_EXPORT int cmux_shim_tab_set_webauthn_mode(int browser_id, int refuse);
 // Profile (Touch ID) passkeys of profile_cache_path (fork API 18,
 // cmux_profile_passkeys_list / cmux_profile_passkey_delete; the Passwords
 // page, plans/cmux-next/passwords.md 1.4). Metadata only, never key

@@ -360,4 +360,44 @@ async function githubChanges(params: Record<string, any>, call: Caller): Promise
   return rows.filter((r) => r.state === "open" || (merged && r.state === "merged")).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 }
 
-export const READERS: Record<string, Reader> = { "github.pulls": githubPulls, "github.changes": githubChanges }
+/**
+ * `http.json`: one GET of `params.url` through the daemon's shared cache (`net.fetch` with
+ * `cache: "shared"`, apps/http_cache.rs), parsed as JSON. The daemon fetches each URL once for every
+ * app and mount that reads it, keeps it fresh for max(60 s, the response's max-age) and serves the kept
+ * body while it revalidates; the egress gate checks this app's net:<host> grant on every read.
+ */
+async function httpJson(params: Record<string, any>, call: Caller): Promise<unknown> {
+  const url = String(params.url ?? "")
+  const r = await call<{ status: number; body?: string; cache?: { failed?: { status?: number; code?: string; message?: string } } }>("net.fetch", {
+    url,
+    method: "GET",
+    headers: {},
+    body: null,
+    cache: "shared"
+  })
+  const host = () => {
+    try {
+      return new URL(url).host
+    } catch {
+      return url
+    }
+  }
+  const retryable = (status: number) => status === 408 || status === 429 || status >= 500
+  // The daemon served its kept body because the last fetch failed: the watch keeps the value it has
+  // (status stale) and shows this error, as for any failed re-read.
+  const failed = r.cache?.failed
+  if (failed) {
+    const message = failed.status !== undefined ? `${host()} answered ${failed.status}` : `${host()}: ${failed.message ?? failed.code ?? "the fetch failed"}`
+    throw new CmuxError("upstream.failed", message, { signal: "http.json", ...failed }, failed.status === undefined || retryable(failed.status))
+  }
+  if (r.status < 200 || r.status >= 300) {
+    throw new CmuxError("upstream.failed", `${host()} answered ${r.status}`, { signal: "http.json", status: r.status }, retryable(r.status))
+  }
+  try {
+    return JSON.parse(r.body ?? "")
+  } catch {
+    throw new CmuxError("upstream.failed", "the response is not JSON", { signal: "http.json", status: r.status }, true)
+  }
+}
+
+export const READERS: Record<string, Reader> = { "github.pulls": githubPulls, "github.changes": githubChanges, "http.json": httpJson }

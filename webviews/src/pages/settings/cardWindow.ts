@@ -22,6 +22,7 @@ import {
   type FocusEvent,
   type ReactNode,
   type RefObject,
+  useInsertionEffect,
 } from "react";
 
 const NO_KEYS: ReadonlySet<string> = new Set();
@@ -111,12 +112,15 @@ export function useCardWindow(
   for (const key of keep) kept.push(place.get(key) ?? -1);
   const getItemKey = useCallback((index: number) => keys[index]!, [keys]);
   const learned = useRef(new Map<string, number>());
+  // `measure` (each row's ref, one function for the list's life) reads the kinds of the last commit,
+  // written before React attaches the rows' refs; the measurements read this render's (TanStack reads
+  // `estimateSize` only when the keys or the margin change, so a new function each render costs no pass).
   const kinds = useRef(kindOf);
-  kinds.current = kindOf;
-  const estimateSize = useCallback(
-    (index: number) => learned.current.get(kinds.current(index)) ?? estimate,
-    [estimate],
-  );
+  useInsertionEffect(() => {
+    kinds.current = kindOf;
+  });
+  const estimateSize = (index: number) => learned.current.get(kindOf(index)) ?? estimate;
+  // react-doctor-disable-next-line react-hooks-js/incompatible-library -- TanStack Virtual returns functions the React Compiler cannot memoize safely, so useCardWindow stays uncompiled on purpose; a card's rows stay the `.rows` element's own children in the page's shared scroller (placed by scrollMargin, with spacers, per-kind learned estimates and the focused and confirming rows kept), so ui/VirtualList does not fit.
   const virtualizer = useVirtualizer({
     count: keys.length,
     // Off until the list's scroller is known: TanStack reads its offset once and, when it takes the
@@ -210,11 +214,17 @@ export function cardBusy(busy: boolean, rows: ReactNode) {
 }
 
 function CardBusy({ busy, children }: { busy: boolean; children?: ReactNode }) {
-  const fieldset = useRef<HTMLFieldSetElement>(null);
+  // The fieldset as state, not a ref object: the compiler reads a ref object handed in createElement's
+  // props as a ref read during render. Its first commit draws CardBusy once more, with the same rows.
+  const [fieldset, setFieldset] = useState<HTMLFieldSetElement | null>(null);
   // The rows are new elements on every render of the list (a scroll step mounts rows), so a row that
   // mounts while the change waits is marked too.
   useWaitingControls(fieldset, "button", busy, children);
-  return createElement("fieldset", { className: "card-busy", role: "none", disabled: busy, ref: fieldset }, children);
+  return createElement(
+    "fieldset",
+    { className: "card-busy", role: "none", disabled: busy, ref: setFieldset },
+    children,
+  );
 }
 
 /** While `busy`, marks every control under `root` matching `selector` (the ones a disabled fieldset
@@ -227,7 +237,8 @@ function CardBusy({ busy, children }: { busy: boolean; children?: ReactNode }) {
  * A control a row mounts on its own while busy (an account's Rename back from a cancelled rename,
  * with no new list) is marked as it lands in `root`, watched only while busy, so still no row renders. */
 export function useWaitingControls(
-  root: RefObject<HTMLElement | null>,
+  /** The element, or a ref to it. */
+  root: RefObject<HTMLElement | null> | HTMLElement | null,
   selector: string,
   busy: boolean,
   mounted: unknown,
@@ -244,7 +255,7 @@ export function useWaitingControls(
       control.setAttribute("aria-disabled", "true");
       marked.current.push(control);
     };
-    const node = root.current;
+    const node = root !== null && "current" in root ? root.current : root;
     if (!node) return;
     for (const control of node.querySelectorAll<HTMLElement>(selector)) mark(control);
     if (typeof MutationObserver === "undefined") return;

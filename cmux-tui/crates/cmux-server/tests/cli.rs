@@ -45,6 +45,7 @@ impl Env {
             reexec_guard: self.guard.clone(),
             env: env_for(self.tmp.path()),
             now_ms: NOW_MS,
+            self_exe: None,
         }
     }
 
