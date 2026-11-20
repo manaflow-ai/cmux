@@ -298,12 +298,15 @@ struct WelcomeHeroBanner: View {
                 let stroke = StrokeStyle(lineWidth: max(1, w * 0.13), lineCap: .square)
                 let fill = context.resolve(GraphicsContext.Shading.color(theme.colors.label.color))
                 let shadow = context.resolve(GraphicsContext.Shading.color(theme.colors.label3.color))
+                // The shadow colour is translucent, so separate strokes would
+                // darken wherever their caps overlap at a cell edge: rows that
+                // have fully appeared share one stroke and one fill, and only
+                // rows still fading in are drawn on their own.
+                var settledBlocks = Path()
+                var settledShade = Path()
                 for (r, row) in rows.enumerated() {
                     let shown = IntroEase.out(IntroEase.seg(t, 0.1 + Double(r) * 0.06, 0.2 + Double(r) * 0.06))
                     guard shown > 0 else { continue }
-                    // One fill and one stroke per row: the shadow colour is
-                    // translucent, so strokes drawn one by one would darken
-                    // wherever their caps overlap at a cell edge.
                     var blocks = Path()
                     var shade = Path()
                     func line(_ a: CGPoint, _ b: CGPoint) { shade.move(to: a); shade.addLine(to: b) }
@@ -336,10 +339,18 @@ struct WelcomeHeroBanner: View {
                             break
                         }
                     }
-                    context.opacity = shown
-                    context.stroke(shade, with: shadow, style: stroke)
-                    context.fill(blocks, with: fill)
+                    if shown >= 1 {
+                        settledShade.addPath(shade)
+                        settledBlocks.addPath(blocks)
+                    } else {
+                        context.opacity = shown
+                        context.stroke(shade, with: shadow, style: stroke)
+                        context.fill(blocks, with: fill)
+                    }
                 }
+                context.opacity = 1
+                context.stroke(settledShade, with: shadow, style: stroke)
+                context.fill(settledBlocks, with: fill)
             }
             // Terminal cells are twice as tall as wide.
             .aspectRatio(CGFloat(columns) / (CGFloat(rows.count) * 2), contentMode: .fit)
