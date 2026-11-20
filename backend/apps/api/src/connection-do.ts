@@ -1,10 +1,23 @@
+import { envForObject } from "./build-space.ts"
 import { createHash } from "node:crypto"
 import { canonicalJson, LEDGER_RETENTION_MS, type OwnerFrame, type Principal, type RejectFrame } from "@cmux/ownership"
 import { cloudOpByName, PENDING_CONNECTION_TTL_MS, type Connection, type IntegrationProvider } from "@cmux/protocol"
 import { chiefJobsEvent } from "./chief-brain-cc/jobs-upstash.ts"
-import { connectionsDomain, expiredForgets, githubInstallationOf, githubRepoAllowed, lockNoticePending, lockOf, mayUse, pendingExpiries, policyOf, providerAllowed, type ConnectionsState } from "./domains/connections.ts"
+import {
+  connectionsDomain,
+  expiredForgets,
+  githubRepoAllowed,
+  lockNoticePending,
+  lockOf,
+  mayUse,
+  pendingExpiries,
+  policyOf,
+  providerAllowed,
+  type ConnectionsState,
+  githubInstallationOf,
+} from "./domains/connections.ts";
 import { decodeParams } from "./domains/common.ts"
-import type { Env } from "./env.ts"
+import type { Env, RawEnv } from "./env.ts"
 import { createFallbackTable, loadCredential, nextResealAt, resealFallbacks, storeCredential } from "./integrations/credentials.ts"
 import type { ExternalReply, ProviderEvent } from "./integrations/external.ts"
 import { runLedgered } from "./integrations/external-ledger.ts"
@@ -15,9 +28,22 @@ import { createWatchTable, nextWatchAt, recordStopFailure, watchOf } from "./int
 import { onDisconnect, onGmailPush, runWatchWork, startWatchSafely, stopWatchWith, watchSoon, type GooglePush, type WatchHost } from "./integrations/google-watches.ts"
 import { createRevocationTable, drainRevocations, nextRevocationAt, takeCredentialForRevocation } from "./integrations/revocations.ts"
 import * as ghTokens from "./integrations/github-tokens.ts"
-import { createConfigurePageTable, githubConnectTarget, installationConfigureUrl, type GithubConnectTarget } from "./integrations/github-connect.ts"
+import {
+  githubConnectTarget,
+  type GithubConnectTarget,
+  createConfigurePageTable,
+  installationConfigureUrl,
+} from "./integrations/github-connect.ts";
 import { addListener, createListenerTable, githubChangeOf, GithubPushCoalescer, listeners, removeListener, type IntegrationChangedFrame } from "./integrations/github-push.ts"
-import { github, ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
+import {
+  ProviderError,
+  providerForOp,
+  providers,
+  scopesToRequest,
+  type Credential,
+  type Http,
+  github,
+} from "./integrations/providers.ts";
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 import { isAgentGatewayPrincipal, resolveConnectionPrincipal } from "./agent-gateway-principal.ts"
@@ -45,7 +71,8 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
   /** One token refresh at a time per connection (rotating refresh tokens are single use). */
   private readonly refreshing = new Map<string, Promise<Credential>>()
 
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    const env = envForObject(ctx, raw)
     super(ctx, env, connectionsDomain, "connections", (p) => ({
       identity: p.kind === "system" ? p.identity : (p.install ?? `user:${p.user}`),
       ...(p.kind ? { kind: p.kind } : {}),
