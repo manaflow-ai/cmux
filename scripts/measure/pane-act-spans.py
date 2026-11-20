@@ -6,6 +6,8 @@ The app writes 5 spans for an act when the trace is on: `layout.act.arm`, `layou
 records ONE act in ONE record and keeps, for each round, the record's `spans_full`, the raw list of the `layout.act.`
 spans and the count of the frames in which panes moved. This reader gives a number only when the round can carry it:
 
+- a pane moved in the record: 1 or more `layout.commit` samples above 0. A record with each span and no pane that
+  moved is not the act that the numbers are for (the key did nothing, or the panes' move is off).
 - `spans_full` must be there and false: a full list dropped the spans that ended later.
 - each of the 4 one-time spans is there exactly one time. None: a begin with no end, or no act in the record. Two or
   more: 2 acts in one record, or a second change before the pass.
@@ -13,6 +15,9 @@ spans and the count of the frames in which panes moved. This reader gives a numb
   an older begin starts before its act's arm and fails here.
 - a report span is the act's own only when it starts in the act's window (from the arm's start to the place's end).
   Each other report span is printed with its time and is in no number of the act.
+
+Each number of `layout.act.report` is a LOWER bound, and the table says `at least`: a report that starts in a report
+gives ONE span, from the outer begin to the inner end, and nothing in the answer tells it from a short report.
 
 A group (a layout and an act) with fewer than 3 valid rounds is NOT MEASURED and has no median.
 
@@ -39,7 +44,7 @@ TOLERANCE_MS = 0.25
 MIN_VALID = 3
 MARK = "ACT-ROW "
 KEPT = ("layout", "direction", "round", "spans_full", "act_spans", "travel_frames", "commit_frames")
-HEAD = "layout | act | round | arm ms | sizes ms | pass ms | place ms | report in the act's window ms"
+HEAD = "layout | act | round | arm ms | sizes ms | pass ms | place ms | report in the act's window ms (at least)"
 
 
 def number(value):
@@ -125,6 +130,11 @@ def read_row(row):
         return invalid(["the row is no object"])
     if row.get("log_fault"):
         return invalid([str(row["log_fault"])])
+    moved = row.get("commit_frames")
+    if not isinstance(moved, int) or isinstance(moved, bool):
+        return invalid(["the row has no count `commit_frames`: it does not say if a pane moved, NOT MEASURED"])
+    if moved < 1:
+        return invalid([f"no pane moved: 0 `{COMMIT}` samples above 0 in the record"])
     if not isinstance(row.get("act_spans"), list):
         return invalid(["the row has no list `act_spans`: a tool or an app without the spans, NOT MEASURED"])
     return read_act({"spans": row["act_spans"], "spans_full": row.get("spans_full")})
@@ -157,8 +167,8 @@ def median(values):
 
 
 def report_cell(value):
-    """The words for a number of `layout.act.report`."""
-    return "none" if value is None else f"{value}"
+    """The words for a number of `layout.act.report`: a lower bound, never a plain number."""
+    return "none" if value is None else f"at least {value}"
 
 
 def table(rows, wanted=None):

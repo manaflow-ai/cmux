@@ -2,8 +2,6 @@
 """scripts/measure/pane-act-spans.py and what scripts/cmux-next/pane-zoom-terminal.py keeps for it. No app runs:
 each test gives the reader, or the tool's own round against a stand-in for the app's debug socket, the smallest
 fault that it must see. Run: python3 scripts/measure/tests/pane-act-spans.test.py
-PANE_ACT_SPANS_READER=PATH runs the tests against another file (a copy of the reader with one fault, to check that
-a test sees it).
 """
 import contextlib
 import importlib.util
@@ -17,7 +15,7 @@ import unittest
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-READER = os.environ.get("PANE_ACT_SPANS_READER") or os.path.normpath(os.path.join(HERE, "..", "pane-act-spans.py"))
+READER = os.path.normpath(os.path.join(HERE, "..", "pane-act-spans.py"))
 TOOL = os.path.normpath(os.path.join(HERE, "..", "..", "cmux-next", "pane-zoom-terminal.py"))
 SCRATCH = tempfile.mkdtemp(prefix="pane-act-spans-test-")
 
@@ -35,16 +33,14 @@ def load(name, path):
 
 def load_tool():
     """The tool as a module. It reads its arguments and makes its scratch folder when it loads: both go to this
-    test's folder. The tool then uses the reader under test (`spans`: the reader that the tool loaded)."""
+    test's folder."""
     argv, folder = sys.argv, tempfile.tempdir
     sys.argv = [TOOL, "--tag", "test", "--app", os.path.join(SCRATCH, "No.app"), "--out", SCRATCH]
     tempfile.tempdir = SCRATCH
     try:
-        module = load("pane_zoom_terminal_under_test", TOOL)
+        return load("pane_zoom_terminal_under_test", TOOL)
     finally:
         sys.argv, tempfile.tempdir = argv, folder
-    module.spans = reader
-    return module
 
 
 reader = load("pane_act_spans_under_test", READER)
