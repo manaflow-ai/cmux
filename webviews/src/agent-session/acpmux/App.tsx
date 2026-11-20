@@ -830,7 +830,7 @@ import { NO_MENTIONS, StartedMentionsContext, type StartedMentions } from "./sta
 import { type SessionHover, SessionHoverContext } from "./started/sessionHoverCardModel";
 import { SessionHoverStore, withSessionIds } from "./started/sessionHover";
 import { pageChatStore, setPageChats } from "./chips/cmuxLinkResolve";
-import { setLinkPlaces } from "./chips/cmuxLinkPlaces";
+import { setLinkPlaces, updateLinkPlaces } from "./chips/cmuxLinkPlaces";
 import { SubsessionStore, type Subsessions, subsessionRows } from "./subagents/subsessions";
 import {
   type StartedCache,
@@ -967,6 +967,7 @@ declare global {
       applyAttentionTabs?(tabs: unknown): void;
       /// The workspaces, panes and tabs a pasted cmux link names (chips/cmuxLinkPlaces.ts).
       applyLinkPlaces?(places: unknown): void;
+      applyLinkPlacesChanged?(places: unknown): void;
       /// Scrolls to a turn a `cmux://session/<id>#turn-<turnId>` link names (links.ts), once its row
       /// renders; gives up quietly after a few seconds.
       revealTurn?(turnId: string): void;
@@ -8289,6 +8290,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       },
       applyLinkPlaces(places) {
         setLinkPlaces(places);
+      },
+      applyLinkPlacesChanged(places) {
+        updateLinkPlaces(places);
       },
       revealTurn(turnId) {
         revealRef.current(turnId);
