@@ -77,6 +77,7 @@
     "levels": [
       { "name": "card", "fill": 4, "line": 10, "for": "a container of content in the page: the transcript's tool, edit, error and permission cards, plans, code blocks, tool output, the subagent card" },
       { "name": "inset", "fill": 8, "for": "a piece inside a card or inline in text: an icon tile, inline code, a chip, a key cap, a filled secondary control" },
+      { "name": "hover", "fill": 6, "for": "a control in the page under the pointer: half way from clear to pressed, so it shows over glass and a picture as over an opaque page (the host's chrome hover, ink 4% in light, read ΔL* 2 over a wallpaper)" },
       { "name": "control", "line": 16, "for": "the outline of a secondary button at rest; its hover and press take the hover and pressed roles" }
     ]
   },
