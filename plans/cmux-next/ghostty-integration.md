@@ -388,8 +388,9 @@ move (step 4).
 
 Each step is one PR (a pin PR where the fork changes). Each step has, in its PR body: the parity table of sec. 1.2
 for the rows it touches, before (the feat tip) and after (the PR head), both against the same upstream Ghostty.app
-arm; and a red-first regression test, committed failing before the fix, red and green results named. No step adds a
-CI gate, job, step or perf-gate row. A step that makes any row worse than before beyond the spread does not land.
+arm; and a red-first regression test, committed failing before the fix, red and green results named. The plan
+was written under the 2026-10-23 no-new-CI rule, since lifted: a step may add a CI gate, job, step or perf-gate row,
+in addition to its own fleet runs. A step that makes any row worse than before beyond the spread does not land.
 
 | step | change | rows that must not get worse / must pass | red-first test |
 |---|---|---|---|

@@ -78,9 +78,8 @@ UNWIRED: set[str] = {
     # on a cmux-next lane takes the picker's Blacksmith route); run it by hand when that route changes. Exit: as below.
     "tests/test_ci_ios_bot_rerun_route.py",
     # Both are lane = "manual" in tests/test-execution.toml, kept manual under the 2026-10-23 no-new-CI rule
-    # (lifted 2026-11-18). Each reads a workflow
-    # only as data (a fixture nightly.yml; cmux-next.yml for stamp readers). Exit: wire it here when its toml
-    # entry moves to a CI lane.
+    # (lifted 2026-11-18). Each reads a workflow only as data (a fixture nightly.yml; cmux-next.yml for stamp
+    # readers). Exit: wire it here when its toml entry moves to a CI lane.
     "tests/test_cmux_next_guardrails.py",
     "tests/test_settings_stamp_not_committed.py",
     # lane = "manual" for the same rule. It runs tree-preflight's inspect step with fakes and asserts

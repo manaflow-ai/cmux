@@ -31,7 +31,8 @@
 //!
 //! These are measurements a fuzz owner runs on the fleet, not CI tests (kept out of CI under the
 //! 2026-10-23 no-new-CI rule, since lifted): each test runs only in a fleet step whose key names
-//! it (`CMUX_CI_STEP_KEY` contains `fuzz-g`), or when `ACPMUX_FUZZ_SEED` is set; elsewhere it prints `FUZZ-G SKIP` and passes.
+//! it (`CMUX_CI_STEP_KEY` contains `fuzz-g`), or when `ACPMUX_FUZZ_SEED` is set; elsewhere it
+//! prints `FUZZ-G SKIP` and passes.
 //! `ACPMUX_FUZZ_SEED` (a u64) and `ACPMUX_FUZZ_ROUNDS` (kills per seed) choose the run; without
 //! them each test runs its three seeds, 12 kills each, at most 70 s a seed.
 //!
