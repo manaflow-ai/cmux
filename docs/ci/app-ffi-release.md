@@ -32,7 +32,8 @@ For an opt-in check against a downloaded release (on a macOS verification host),
 run the real loader experiment from the app FFI crate:
 
 ```sh
-cargo run --locked --manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml \
+cd cmux-tui
+cargo run --locked --manifest-path crates/cmux-app-ffi/Cargo.toml \
   --example ffi_warm_swap -- /path/to/libcmux_app_ffi.dylib --expect-abi 1
 ```
 
