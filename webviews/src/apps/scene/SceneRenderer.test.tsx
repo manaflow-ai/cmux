@@ -811,9 +811,13 @@ test("formatSceneDate formats each date style as SwiftUI's Text(date, style:)", 
 });
 
 test("a date Text ticks itself on the shared clock with no scene batch, and stops when hidden or unmounted", async () => {
+  // The shared clock ticks on wall-clock seconds, so the countdown ends on one too: then its first
+  // tick turns the shown second over. An end at an arbitrary millisecond can need a second tick,
+  // after the 1.1 s below (it failed whenever another test file ran first and shifted the phase).
+  const end = Math.floor(Date.now() / 1_000) * 1_000 + 65_000;
   const { container, store, calls } = render([
     { op: "create", id: "root", type: "VStack" },
-    { op: "create", id: "timer", type: "Text", props: { text: "", date: Date.now() + 65_000, dateStyle: "timer" } },
+    { op: "create", id: "timer", type: "Text", props: { text: "", date: end, dateStyle: "timer" } },
     { op: "create", id: "time", type: "Text", props: { text: "", date: Date.now(), dateStyle: "time" } },
     { op: "children", id: "root", children: ["timer", "time"] },
     { op: "root", id: "root" },
