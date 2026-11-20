@@ -289,7 +289,7 @@ impl Hub {
             &run.generation.to_string(),
         ]);
         command.env_clear();
-        for key in ["PATH", "HOME", "USER", "TMPDIR", "XDG_RUNTIME_DIR", "ACPMUX_HOME"] {
+        for key in RUNNER_ENV {
             if let Some(value) = std::env::var_os(key) {
                 command.env(key, value);
             }
@@ -381,6 +381,11 @@ fn workflow_subagent_mark(run: &RunRecord) -> Option<String> {
     };
     Some(format!("{}:{}", word("type")?, word("id")?))
 }
+
+/// What a workflow runner keeps of the daemon's environment; `CMUX_BUILD_SPACE` keeps its
+/// Cloud calls in the daemon's build space.
+const RUNNER_ENV: [&str; 7] =
+    ["PATH", "HOME", "USER", "TMPDIR", "XDG_RUNTIME_DIR", "ACPMUX_HOME", "CMUX_BUILD_SPACE"];
 
 fn workflow_runner_command() -> Result<tokio::process::Command> {
     let own = crate::self_command::SelfCommand::current()?;
@@ -613,5 +618,15 @@ mod tests {
         hub.cancel_prompt(&session, "already-ended-workflow-prompt").await.unwrap();
         assert_eq!(session.cancels.load(Ordering::SeqCst), before);
         assert_eq!(session.turn().unwrap().prompt_id, "person-prompt");
+    }
+}
+
+#[cfg(test)]
+mod build_space_tests {
+    /// A workflow runner (`acpmux workflow __run`) calls the daemon's Cloud in the daemon's
+    /// build space.
+    #[test]
+    fn a_workflow_runner_keeps_the_build_space() {
+        assert!(super::RUNNER_ENV.contains(&"CMUX_BUILD_SPACE"));
     }
 }
