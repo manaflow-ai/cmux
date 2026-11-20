@@ -967,7 +967,7 @@ jobs:
       !cancelled() && github.ref == 'refs/heads/feat-cmux-next' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       needs.deploy-staging.outputs.verdict != ''
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-pr-control-jit-x64' }}
     timeout-minutes: 5
     permissions:
       contents: write
@@ -990,7 +990,7 @@ jobs:
       !cancelled() && github.ref == 'refs/heads/feat-cmux-next' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       needs.journey-production.outputs.verdict != ''
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-pr-control-jit-x64' }}
     timeout-minutes: 5
     permissions:
       contents: write
@@ -1585,7 +1585,7 @@ jobs:
     # the Worker's own parser refuses is never written, so a run either sets a fault that ends at its `until` or `off`.
     name: staging database fault switch
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'db-fault-staging'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-pr-control-jit-x64' }}
     timeout-minutes: 10
     environment: cmux-vm-staging
     concurrency:

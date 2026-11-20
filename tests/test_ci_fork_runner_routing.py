@@ -190,14 +190,10 @@ LEGACY_TRUSTED_RUNNER_LINE = re.compile(
 JIT_SELECTOR = TRUSTED_RUNNER_EXPRESSION.replace(
     '"blacksmith-4vcpu-ubuntu-2404"]', '"blacksmith-4vcpu-ubuntu-2404","cmux-gcp-pr-control-jit-x64"]')
 JIT_RUNNER_LINE = re.compile(r"^\s*runs-on:\s*" + re.escape(JIT_SELECTOR) + r"\s*(?:#.*)?$")
-HOSTED_JIT_RUNNER_LINE = re.compile(r"^\s*runs-on:\s*" + re.escape(
-    JIT_SELECTOR.replace("('[", "('[\"ubuntu-24.04\",", 1)) + r"\s*(?:#.*)?$")
 
 
 def trusted_runner_line(workflow: str, line: str) -> bool:
     if workflow not in {"cla.yml", "cla-policy-guard.yml", "language-boundaries.yml"} and JIT_RUNNER_LINE.match(line):
-        return True
-    if workflow == "ci-pr-closed-cancel.yml" and HOSTED_JIT_RUNNER_LINE.match(line):
         return True
     return bool(TRUSTED_RUNNER_LINE.match(line) or (
         workflow in LEGACY_TRUSTED_RUNNER_WORKFLOWS and LEGACY_TRUSTED_RUNNER_LINE.match(line)))

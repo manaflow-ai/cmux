@@ -1613,12 +1613,12 @@ PYTHON
       content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
     fi
     content="$(strip_nightly_only_tail "${line%%:*}" "$content")"
+    # Remove only the exact repository comparison; a bare cmux runner still fails.
+    content="${content/"$next_repository_guard"/}"
     if [[ "${line%%:*}" == "$ROOT_DIR/.github/workflows/nightly.yml" ]]; then
       content="${content/"$nightly_only_selector"/}"
       content="${content/"$nightly_only_bootstrap"/}"
       content="${content/"$next_trusted_selector"/}"
-      # Repository identity is a trust predicate, never a runner label.
-      content="${content/"$next_repository_guard"/}"
       content="${content/"$nightly_main_trusted_selector"/}"
       content="${content/"$nightly_next_side_selector"/}"
     fi
