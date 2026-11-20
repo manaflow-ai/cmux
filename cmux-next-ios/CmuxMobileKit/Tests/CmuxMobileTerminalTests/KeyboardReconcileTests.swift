@@ -34,11 +34,10 @@ import UIKit
             view.layoutIfNeeded()
         }
 
-        /// What UIKit reports as the app comes back. The tracker owns this
-        /// lifecycle hook so every surface's tracker reconciles, including a
-        /// compose sheet that is not under RootView's environment.
+        /// What the tracker's owner does as the app comes back (RootView's
+        /// scene phase, the terminal page's `appActiveChanged`).
         func becomeActive() {
-            center.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+            tracker.reconcileWithFocus()
             view.layoutIfNeeded()
         }
     }

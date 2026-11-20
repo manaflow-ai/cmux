@@ -182,7 +182,10 @@ public struct RootView: View {
         // takes keys went away unannounced; every composer docked to it rests
         // at the bottom again (MobileKeyboardFrameTracker.reconcileWithFocus).
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { keyboard.reconcileWithFocus() }
+            if phase == .active {
+                keyboard.reconcileWithFocus()
+                HomeNewMessage.appActiveChanged()
+            }
         }
         // A fold or unfold resizes the window with no rotation: the app's orientations follow it.
         .onGeometryChange(for: Bool.self) { proxy in
