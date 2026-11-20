@@ -124,6 +124,16 @@ public struct ListStressSettings: Equatable, Sendable {
         floodBurst = environment["CMUX_MOBILE_LIST_FLOOD_BURST"].flatMap(Int.init) ?? 0
     }
 
+    /// The id prefix of the workspaces the rig seeds (`ws-s0`, `ws-s1`, ...).
+    public static let seededWorkspacePrefix = "ws-s"
+
+    /// Whether row `id` may take the launch marks' `workspaces_list_frame`: with the workspaces
+    /// rig, only a row it seeded, not a mock row shown before the seeding replaced them.
+    public func countsListFrame(rowID id: String) -> Bool {
+        guard screen == "workspaces", count > 0 else { return true }
+        return id.hasPrefix(Self.seededWorkspacePrefix) && id.dropFirst(Self.seededWorkspacePrefix.count).first?.isNumber == true
+    }
+
     /// Whether a working row logs each redraw of its elapsed time (the rig's running chat).
     public var logsLabelTicks: Bool { screen != nil && holdsTurn }
 
