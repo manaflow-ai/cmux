@@ -851,7 +851,7 @@ class WorkflowShapeTests(unittest.TestCase):
         # It mints GLAEDA_ROUTE_APP_KEY and CMUX_BOT_APP_KEY: RUNNER_POOLS and LINUX_RUNNER move it only
         # among the Blacksmith Linux sizes the expression names (tests/test_ci_fork_runner_routing.py).
         # It leads with the fleet's one-job label, so it never queues on the hosted pools it sheds (2026-11-19).
-        self.assertIn("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-fleet-linux-x64' || contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-8vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\",\"blacksmith-32vcpu-ubuntu-2404\"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux) && fromJSON(vars.RUNNER_POOLS || '{}').linux || contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-8vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\",\"blacksmith-32vcpu-ubuntu-2404\"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}", text)
+        self.assertIn("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-8vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\",\"blacksmith-32vcpu-ubuntu-2404\"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux) && fromJSON(vars.RUNNER_POOLS || '{}').linux || contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-8vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\",\"blacksmith-32vcpu-ubuntu-2404\"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}", text)
         self.assertIn("concurrency:\n  group: ${{ (github.event_name == 'workflow_run'", text)
         self.assertIn("vars.CI_JANITOR_QUEUE_THRESHOLD", text)
         self.assertIn("ORPHAN_MINUTES: ${{ vars.CI_JANITOR_ORPHAN_MINUTES }}", text)
@@ -949,11 +949,13 @@ class SweepRunnerTests(unittest.TestCase):
 
         return str(value(tree))
 
-    def test_the_sweep_leads_with_the_fleet_label_off_the_pool_it_sheds(self):
+    def test_the_sweep_leads_with_the_reserved_repair_label_off_the_pool_it_sheds(self):
         # 2026-11-19: about 28,700 queued jobs, and the janitor's own sweep queued among them on Blacksmith.
-        self.assertEqual(self.runner({}), "cmux-fleet-linux-x64")
-        self.assertEqual(self.runner({"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"}), "cmux-fleet-linux-x64")
-        self.assertEqual(self.runner({"CI_REPAIR_SKIP_FLEET": "0"}), "cmux-fleet-linux-x64")
+        # 2026-11-20: the same on cmux-fleet-linux-x64 (about 1,856 queued), so the sweep takes a label only
+        # repair workflows ask for (tests/test_ci_repair_label.py).
+        self.assertEqual(self.runner({}), "cmux-gcp-repair-jit-x64")
+        self.assertEqual(self.runner({"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"}), "cmux-gcp-repair-jit-x64")
+        self.assertEqual(self.runner({"CI_REPAIR_SKIP_FLEET": "0"}), "cmux-gcp-repair-jit-x64")
         self.assertEqual(self.runner({"CI_REPAIR_SKIP_FLEET": "1"}), "blacksmith-4vcpu-ubuntu-2404")
 
     def test_a_stalled_linux_runner_size_does_not_hold_the_sweep(self):

@@ -17,7 +17,7 @@ Each alert then says why from the fleet gates' own reading (carriers()): full
 (every carrier runs a job or is held for units or load: capacity) or offline
 (carriers down with no hold: an outage), since GitHub shows both as offline.
 
-Every glaeda-* label is in scope, and the owned Linux label (FLEET_LINUX).
+Every glaeda-* label is in scope, and the owned Linux labels (FLEET_LINUX_LABELS).
 Nothing in the tree says which runner label
 a merge-blocking job asks for (cmux-next's build-fleet compile takes
 vars.CI_COMPILE_CHECK_GATEWAY), so the alert covers the whole fleet.
@@ -70,6 +70,9 @@ FLEET_PREFIX = "glaeda-"
 # The owned Linux label: ephemeral runners a reconciler boots per queued job. When that reconciler cannot
 # boot one, a job waits here as silently as on a held glaeda label (run 43807536777: 13 h, 2026-11-16).
 FLEET_LINUX = "cmux-fleet-linux-x64"
+# The repair workflows' reserved label (tests/test_ci_repair_label.py), served by the same reconciler.
+FLEET_REPAIR = "cmux-gcp-repair-jit-x64"
+FLEET_LINUX_LABELS = frozenset({FLEET_LINUX, FLEET_REPAIR})
 ISSUE_PREFIX = "Runner label starved: "
 ISSUE_LABEL = "ci-runner-starved"
 # A run stuck this long on a starved label gets its rescue started (rescue_plan()).
@@ -104,7 +107,7 @@ def parse_time(value: str | None) -> dt.datetime | None:
 def fleet_key(job: Mapping[str, Any]) -> str:
     """The fleet labels a job asked for, joined; "" when it asked for none."""
     return "+".join(sorted({str(label) for label in job.get("labels") or ()
-                            if str(label).startswith(FLEET_PREFIX) or str(label) == FLEET_LINUX}))
+                            if str(label).startswith(FLEET_PREFIX) or str(label) in FLEET_LINUX_LABELS}))
 
 
 def _served(job: Mapping[str, Any], now: dt.datetime, after: dt.timedelta) -> bool:
