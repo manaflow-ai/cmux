@@ -14,6 +14,8 @@ final class PageChromiumSession {
     var hangWatch: Task<Void, Never>?
     /// Restarts this page's renderer when it stays hung (agent chats only; ``AgentRendererHangRestart``).
     var hangRestart: AgentRendererHangRestart?
+    /// The visibility the page was last told (``PageWebView/setChromiumVisibility(_:)``); nil before the first.
+    var reportedVisible: Bool?
 
     init(page: any PageChromiumPage, bridge: ChromiumPageHostBridge, clock: any Clock<Duration>) {
         self.page = page
