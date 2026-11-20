@@ -252,6 +252,10 @@ jobs:
       # which with the switch's probe and health waits keeps the job under its 25 minutes.
       # Only after the pools step succeeded: it writes RUNNER_POOLS before LINUX_RUNNER, and a
       # half-done pass could leave a variable the re-run reads on the dead label.
+      # A label a move left with no dead mark (linux_pool_spill.py's spill and return, or a hand
+      # edit of RUNNER_POOLS) strands its queued jobs the same way (2026-11-19: cmux#45502 run
+      # 44476854382 queued on 16 vCPU from 07:04Z), so any label no pool and no raw runner variable
+      # names counts too, after MOVED_MINUTES (cloud_overflow_switch.stranded_labels).
       - name: Re-run runs stranded on a dead label
         if: always() && steps.switch.outcome != 'skipped' && steps.pools.outcome == 'success'
         continue-on-error: true
@@ -264,6 +268,19 @@ jobs:
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.probe_label != '') && 'true' || 'false' }}
           PROBE_MINUTES: ${{ vars.CI_CLOUD_PROBE_MINUTES }}
           RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
+          # runner_pools.RAW_LABEL_VARS: a label one of these names is routed, so it is never rescued.
+          RAW_RUNNER_VARIABLES: |
+            CI_CLASSIC_NIGHTLY_MINI=${{ vars.CI_CLASSIC_NIGHTLY_MINI }}
+            CI_COMPILE_CHECK_GATEWAY=${{ vars.CI_COMPILE_CHECK_GATEWAY }}
+            CI_CONTROL_RUNNER=${{ vars.CI_CONTROL_RUNNER }}
+            CI_LINUX_GATE_OWNED_RUNNER=${{ vars.CI_LINUX_GATE_OWNED_RUNNER }}
+            CI_NIGHTLY_NEXT_BUILD_RUNNER=${{ vars.CI_NIGHTLY_NEXT_BUILD_RUNNER }}
+            CI_TEST_COMPILE_GATEWAY=${{ vars.CI_TEST_COMPILE_GATEWAY }}
+            CI_TRUSTED_RUNNER=${{ vars.CI_TRUSTED_RUNNER }}
+            LINUX_ARM64_RUNNER=${{ vars.LINUX_ARM64_RUNNER }}
+            LINUX_BUILD_RUNNER=${{ vars.LINUX_BUILD_RUNNER }}
+            LINUX_RUNNER=${{ vars.LINUX_RUNNER }}
+            LINUX_RUNNER_DARWIN_CROSS=${{ vars.LINUX_RUNNER_DARWIN_CROSS }}
         run: bash scripts/ci/python-with-yaml.sh scripts/ci/cloud_overflow_switch.py --rescue-dead
 
       # Last, in its own step so the summary above is already saved. If the

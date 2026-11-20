@@ -110,8 +110,12 @@ env:
 # no sweep (a CI run of a pull request into feat-cmux-next) gets a group of its
 # own: in the shared group those runs cancelled the waiting sweep, often within
 # seconds, and on 2026-10-30 left the pool snapshot 50 minutes old.
+# The shared group is `-v2`: about 14 runs from 2026-11-11 (43096179539 to
+# 43098697917) sit in the old group's queue, and GitHub refuses to cancel or
+# force-cancel them (HTTP 409 "not been queued yet"), so every sweep since was
+# cancelled with no job.
 concurrency:
-  group: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next') && format('ci-queue-janitor-noop-{0}', github.run_id) || 'ci-queue-janitor' }}
+  group: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next') && format('ci-queue-janitor-noop-{0}', github.run_id) || 'ci-queue-janitor-v2' }}
   cancel-in-progress: false
 
 jobs:
@@ -126,7 +130,7 @@ jobs:
     # over a stale LINUX_RUNNER value, and keep both sources within the Blacksmith sizes below. On
     # 2026-11-01 LINUX_RUNNER stayed on blacksmith-32vcpu-ubuntu-2404 while that size stalled, so
     # no sweep ran from 05:43Z to past 06:30Z and a lost job (124762739841) waited 50 minutes.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux) && fromJSON(vars.RUNNER_POOLS || '{}').linux || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-fleet-linux-x64' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux) && fromJSON(vars.RUNNER_POOLS || '{}').linux || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # A sweep that lists the whole queue took up to 13 minutes on 2026-10-30; a timed-out
     # job skips the upload below, so this leaves room for the longest one seen.
     timeout-minutes: 15
