@@ -107,25 +107,30 @@ pub(super) fn try_handle(
     message: &str,
     writer: &MessageWriter,
 ) -> Option<bool> {
+    // One read of the file owner, before the connection check, answers this frame: a service
+    // installed after the check is not used under the policy read before it.
+    let served = crate::fs_ops::installed().is_some();
     if message.contains("\"git.seed.") && crate::git_seed::frame_command(message).is_some() {
         // The same transports and principal as the fs ops: the seed reads
         // and writes under the same roots.
         let allowed = transport_allows_fs(mux, client) && mux.frame_principal(client).is_some();
-        let reply = crate::git_seed::answer_line(crate::git_seed::installed(), allowed, message);
+        let seed = crate::git_seed::installed().filter(|_| served);
+        let reply = crate::git_seed::answer_line(seed, allowed, message);
         return Some(writer.send_control(&reply).is_ok());
     }
     if message.contains("\"blob.fetch.") && crate::blob_fetch::frame_command(message).is_some() {
         // The same transports and principal as the fs ops: the fetch writes
         // under the same roots.
         let allowed = transport_allows_fs(mux, client) && mux.frame_principal(client).is_some();
-        let reply =
-            crate::blob_fetch::answer_line(crate::blob_fetch::installed(), allowed, message);
+        let fetch = crate::blob_fetch::installed().filter(|_| served);
+        let reply = crate::blob_fetch::answer_line(fetch, allowed, message);
         return Some(writer.send_control(&reply).is_ok());
     }
     if !message.contains("\"fs.") {
         return None;
     }
     frame_command(message)?;
+    let service = crate::fs_ops::installed();
     // The transport first, then the principal of this frame: a remote client
     // needs a bound peer whose install may keep its streams (a revoke or the
     // 72 h limit refuses it before its stream closes). Either one missing:
@@ -135,7 +140,7 @@ pub(super) fn try_handle(
         .flatten()
         .map(super::remote_relay::Principal::participant);
     let reply = answer_line(
-        crate::fs_ops::installed(),
+        service,
         owner.is_some(),
         owner.as_deref().unwrap_or(super::remote_relay::NO_PRINCIPAL),
         message,
@@ -146,12 +151,10 @@ pub(super) fn try_handle(
 /// True for a trusted local or a remote-entry connection. A poisoned
 /// registry lock refuses (fail closed).
 pub(super) fn transport_allows_fs(mux: &Mux, client: u64) -> bool {
-    // No scope yet: no file owner is serving, so nothing may use one (fail closed). The scope is
-    // published before the service and never changes, so this check and the dispatch agree.
-    let Some(scope) = crate::fs_ops::scope() else {
-        return false;
-    };
-    if scope == crate::fs_ops::Scope::Cloud {
+    // Callers read the service before this check and answer from that read: with the service
+    // visible, the scope (published first) is final, so this check and the dispatch agree.
+    let owner_only = crate::fs_ops::owner_only();
+    if !owner_only {
         // A Cloud host: the transport alone, from the published facts.
         return mux
             .control_clients
@@ -459,9 +462,11 @@ pub(super) fn serve_local_projection(
             mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state.clients.get(&client).map(|record| record.native_vm_kind)
     };
+    // The service once, before the check (see `try_handle`).
+    let service = crate::fs_ops::installed();
     let allowed = transport_allows_fs(mux, client)
         && kind.is_some_and(|kind| native_dial_admits(kind, first));
-    let roots: Vec<std::path::PathBuf> = crate::fs_ops::installed()
+    let roots: Vec<std::path::PathBuf> = service
         .map(|service| {
             service.roots().canonical_paths().map(std::path::Path::to_path_buf).collect()
         })
