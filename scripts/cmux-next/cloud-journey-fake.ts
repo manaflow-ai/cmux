@@ -117,6 +117,7 @@ globalThis.fetch = (async (input: string, init: RequestInit = {}) => {
   if (op === "cloud.machine.list") return json({ ok: true, value: { machines: createdAt && !deleted ? [{ id: MACHINE, name: "fixture", status: "running" }] : [] } });
   if (op === "cloud.machine.create") {
     log("create");
+    log("create size " + JSON.stringify(body.params.size));
     createdAt = Date.now();
     const report = fixture.spare === "report" ? { spare_fallback: "all_skipped", spare_skips: { restarting: 1, image: 1 } } : {};
     return json({ ok: true, value: { machine: { id: MACHINE, status: "creating" }, ...report } });

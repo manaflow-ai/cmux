@@ -12,6 +12,7 @@ red there unseen).
 """
 
 import json
+import sys
 from pathlib import Path
 import unittest
 
@@ -90,9 +91,16 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         triggers = workflow.get(True) or workflow.get("on") or {}
         pull = triggers.get("pull_request") or {}
         self.assertIn("feat-cmux-next", pull.get("branches") or [])
-        # No workflow path filter: the CI guard group (a required check) runs on every pull request and routes
-        # release-notary inside it, so a change that skips the group still reports a pass.
-        self.assertFalse(pull.get("paths"), "a path filter would leave the CI guard group pending")
+        # No workflow path filter but the docs-only block (scripts/ci/docs_only_paths.py): the CI guard group runs on
+        # every pull request that changes more than prose and routes release-notary inside it, so a change that
+        # skips the group still reports a pass. The group is not a required check, so a docs-only pull request
+        # that starts no run leaves nothing pending (tests/test_ci_docs_only_prs.py).
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import docs_only_paths  # noqa: PLC0415
+
+        self.assertEqual([str(p) for p in pull.get("paths") or []], list(docs_only_paths.DOCS_ONLY_PATHS),
+                         "the guards' only path filter is the docs-only block")
+        self.assertNotIn("paths-ignore", pull)
         jobs = workflow["jobs"]
         # nightly-guards runs on every event (the submodule forward-only guard, Guard status), never with the
         # release-notary matrix leg: a push runs the group in parallel in the release-notary job.

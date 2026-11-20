@@ -101,6 +101,11 @@ pub const AGENT_SESSION_CONTEXT_CAPABILITY: &str = "agent-session-context-v1";
 /// asks one: never a teammate or link guest, the Cloud mobile carrier (its prompts keep the Web's
 /// asking policy, which this would widen) or a read-only attachment.
 pub const AGENT_SESSION_BTW_CAPABILITY: &str = "agent-session-btw-v1";
+/// `max_bytes` on `agent-session-attach` and `agent-session-events`: the page's byte budget,
+/// passed to acpmux as `maxBytes` (at most [`MAX_PAGE_BYTES`]). The agent pane asks 128 KiB for a
+/// chat's open page and read-ahead; without it acpmux answers its 1 MiB default, so a Cloud
+/// chat's open, read-ahead and reconnect each read up to 8x what a local chat's do (hq#14027).
+pub const AGENT_SESSION_PAGE_BYTES_CAPABILITY: &str = "agent-session-page-bytes-v1";
 /// How long a side question may wait for its answer: acpmux gives an inline one 110 seconds.
 const BTW_TIMEOUT: Duration = Duration::from_secs(120);
 /// The longest side question, in bytes (a question about the chat, not a prompt).
@@ -479,6 +484,8 @@ struct PageParams {
     limit: Option<u64>,
     #[serde(default)]
     kinds: Option<Vec<String>>,
+    #[serde(default)]
+    max_bytes: Option<u64>,
 }
 
 enum AgentSessionCommand {
@@ -1378,6 +1385,12 @@ fn page_params(session: &str, params: &PageParams, attach: bool) -> Result<Value
             return Err(Refusal::BadRequest);
         }
         out.insert("kinds", json!(kinds));
+    }
+    if let Some(bytes) = params.max_bytes {
+        if bytes == 0 {
+            return Err(Refusal::BadRequest);
+        }
+        out.insert("maxBytes", json!(bytes.min(MAX_PAGE_BYTES as u64)));
     }
     if attach {
         out.insert("eventStream", json!(true));
