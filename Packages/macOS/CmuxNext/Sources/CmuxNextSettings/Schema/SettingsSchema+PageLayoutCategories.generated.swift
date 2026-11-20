@@ -6,7 +6,7 @@ extension SettingsPageLayout {
     public static let sidebarSections: [SidebarSection] = [
         SidebarSection(id: "app", title: nil, categories: [generalCategory, updatesCategory]),
         SidebarSection(id: "look", title: SettingsText.keyed("settings.sidebarSection.lookAndFeel", "Look and Feel"), categories: [personalizationCategory, appearanceCategory, sidebarCategory, tabsCategory, newTabCategory]),
-        SidebarSection(id: "tools", title: SettingsText.keyed("settings.sidebarSection.tools", "Tools"), categories: [terminalCategory, editorCategory, browserCategory]),
+        SidebarSection(id: "tools", title: SettingsText.keyed("settings.sidebarSection.tools", "Tools"), categories: [browserCategory, terminalCategory, editorCategory]),
         SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [chatCategory, agentsCategory, computerUseCategory, mcpServersCategory, modelsCategory, cloudCategory, chiefCategory]),
         SidebarSection(id: "interaction", title: SettingsText.keyed("settings.sidebarSection.interaction", "Interaction"), categories: [notificationsCategory, keyboardCategory, menusCategory]),
         SidebarSection(id: "devices", title: SettingsText.keyed("settings.sidebarSection.devices", "Accounts and Devices"), categories: [accountsCategory, keysCategory, mobileCategory, devicesCategory]),
@@ -43,18 +43,18 @@ extension SettingsPageLayout {
         lead: [.appUpdate], trail: [.webUpdates, .channels]
     )
 
-    /// Leo 2026-11-07: the profile menu's Personalization is a fast jump into the look of the app. Its one card draws rows whose homes stay in Theme, Appearance, Chief and Notifications, so it holds no group and claims no key. The one home of the theme (the Theme page's card moved here; old theme links open this page), the wallpaper, density, the Chief's look, chat text and sounds: no other page draws them.
+    /// Appearance shows the theme (including old Theme links), wallpaper, density, the Chief's look, chat text and sounds.
     private static let personalizationCategory = CategorySpec(
-        id: "personalization", title: SettingsText.keyed("settings.category.personalization", "Personalization"), symbol: "wand.and.stars",
+        id: "personalization", title: SettingsText.keyed("settings.category.personalization", "Appearance"), symbol: "circle.lefthalf.filled",
         groups: [
             GroupSpec(group: "settings.group.appTheme"),
         ],
         lead: [.personalization], trail: [.customizeLibrary], legacyIDs: ["theme"]
     )
 
-    /// Change Background… lands here: the art picker draws appearance.background and appearance.backgroundOpacity (search still shows them as rows). The density card draws appearance.density, .customDensity and .customDensities.
+    /// Interface holds window sizing, motion, status indicators and surface controls.
     private static let appearanceCategory = CategorySpec(
-        id: "appearance", title: section(.appearance), symbol: "paintbrush",
+        id: "appearance", title: SettingsText.keyed("settings.category.interface", "Interface"), symbol: "macwindow",
         groups: [
             GroupSpec(group: "settings.group.densityMotion"),
             // Text Size (appearance.metrics.chromeFontSize) is in the Density card.
@@ -108,6 +108,26 @@ extension SettingsPageLayout {
         ]
     )
 
+    private static let browserCategory = CategorySpec(
+        id: "browser", title: section(.browser), symbol: "globe",
+        groups: [
+            GroupSpec(group: "settings.group.engine"),
+            GroupSpec(group: "settings.group.addressBar"),
+            GroupSpec(group: "settings.group.toolbar"),
+            GroupSpec(group: "settings.group.media"),
+            GroupSpec(group: "settings.group.bookmarks"),
+            GroupSpec(group: "settings.group.agentInput"),
+            GroupSpec(group: "settings.group.extensions"),
+            GroupSpec(group: "settings.group.links"),
+            GroupSpec(group: "settings.group.openingLinks"),
+            GroupSpec(group: "settings.group.passwords"),
+            GroupSpec(group: "settings.group.import"),
+            GroupSpec(group: "settings.group.memory"),
+            GroupSpec(group: "settings.group.remote"),
+        ],
+        trail: [.browserProfiles], actions: [.browser], aliases: [.browser]
+    )
+
     private static let terminalCategory = CategorySpec(
         id: "terminal", title: section(.terminal), symbol: "terminal",
         groups: [
@@ -138,26 +158,6 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.screenshots"),
         ],
         actions: [.editor], aliases: [.editor]
-    )
-
-    private static let browserCategory = CategorySpec(
-        id: "browser", title: section(.browser), symbol: "globe",
-        groups: [
-            GroupSpec(group: "settings.group.engine"),
-            GroupSpec(group: "settings.group.addressBar"),
-            GroupSpec(group: "settings.group.toolbar"),
-            GroupSpec(group: "settings.group.media"),
-            GroupSpec(group: "settings.group.bookmarks"),
-            GroupSpec(group: "settings.group.agentInput"),
-            GroupSpec(group: "settings.group.extensions"),
-            GroupSpec(group: "settings.group.links"),
-            GroupSpec(group: "settings.group.openingLinks"),
-            GroupSpec(group: "settings.group.passwords"),
-            GroupSpec(group: "settings.group.import"),
-            GroupSpec(group: "settings.group.memory"),
-            GroupSpec(group: "settings.group.remote"),
-        ],
-        trail: [.browserProfiles], actions: [.browser], aliases: [.browser]
     )
 
     /// How the agent chat looks and reads. Agents keeps what the agents may do.

@@ -46,7 +46,7 @@ export const PERSONALIZATION_PARTS: readonly Part[] = [
   },
   {
     id: "chief",
-    symbol: "pawprint",
+    symbol: "crown",
     homes: ["chief"],
     cardKeys: ["home.chiefPetEnabled", "home.chiefPetMascot"],
     rows: [],
