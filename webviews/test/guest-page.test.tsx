@@ -536,3 +536,51 @@ test("a joined page with no role watches: no composer", async () => {
   expect(page.host.textContent).toContain(translate("guest.live.viewOnly"));
   await page.unmount();
 });
+
+// Leo, 2026-11-03, on a teammate in a chat shared from a personal subscription: they press "continue in my own
+// session", which copies the context into a session on their own login ("i think that's entirely fair").
+test("Continue in my own chat copies what the guest sees, the owner's turns under the owner's name", async () => {
+  const copied: string[] = [];
+  const page = await mount({
+    guestId: "g1",
+    openSocket: fakeRoom(joinFrames(askingRecords())),
+    clipboard: { writeText: async (value) => void copied.push(value) },
+  });
+  await roomFrames();
+  const button = page.host.querySelector("[data-testid=guest-continue-own]") as HTMLButtonElement;
+  expect(button.textContent).toBe(translate("guest.continue.action"));
+  expect(button.disabled).toBe(false);
+  await act(async () => {
+    button.click();
+    for (let tick = 0; tick < 4; tick += 1) await Promise.resolve();
+  });
+  expect(copied).toHaveLength(1);
+  const text = copied[0]!;
+  expect(text.startsWith(translate("guest.continue.intro", { owner: "Sam Rivera", page: "http://localhost/" }))).toBe(
+    true,
+  );
+  expect(text).toContain("**Sam Rivera:**");
+  expect(text).toContain("Fix the flaky upload retry test");
+  expect(page.host.querySelector("[data-testid=guest-continue-own-done]")?.textContent).toContain(
+    translate("guest.continue.copied", { owner: "Sam Rivera" }),
+  );
+  // Nothing went to the room: the page sent no frame for it (the fake room records none from a click).
+  await page.unmount();
+});
+
+test("Continue in my own chat with the clipboard refused shows the text selected, to copy by hand", async () => {
+  const page = await mount({
+    guestId: "g1",
+    openSocket: fakeRoom(joinFrames(askingRecords())),
+    clipboard: { writeText: () => Promise.reject(new Error("denied")) },
+  });
+  await roomFrames();
+  await act(async () => {
+    (page.host.querySelector("[data-testid=guest-continue-own]") as HTMLButtonElement).click();
+    for (let tick = 0; tick < 4; tick += 1) await Promise.resolve();
+  });
+  const done = page.host.querySelector("[data-testid=guest-continue-own-done]")!;
+  expect(done.textContent).toContain(translate("guest.continue.manual"));
+  expect((done.querySelector("textarea") as HTMLTextAreaElement).value).toContain("Fix the flaky upload retry test");
+  await page.unmount();
+});

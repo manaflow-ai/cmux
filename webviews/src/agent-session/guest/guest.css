@@ -33,9 +33,17 @@
 .guest-app__browser{flex:none;height:28px;padding:0 var(--ds-space-2, 8px);border:1px solid var(--agent-border);border-radius:6px;background:transparent;color:var(--agent-text);font:inherit}
 /* The transcript's column: 760px wide, 16px from the edges on a phone. */
 .guest-live{--guest-inset:max(16px, calc((100% - 760px) / 2));height:100%;display:flex;flex-direction:column}
-.guest-live__header{flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--guest-inset);border-bottom:1px solid var(--agent-border)}
+.guest-live__header{position:relative;flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--guest-inset);border-bottom:1px solid var(--agent-border)}
 [data-borders="none"] .guest-live__header{border-bottom:0}
 .guest-live__titles{flex:1;min-width:0}
+/* Continue in my own chat (continueOwn.ts): a quiet button in the header; what it did floats under the header,
+   over the transcript, so no row moves when it comes or goes. */
+.guest-live__continue{flex:none;height:28px;padding:0 var(--ds-space-2, 8px);border:1px solid var(--agent-border);border-radius:6px;background:transparent;color:var(--agent-text);font:inherit;font-size:var(--text-detail);white-space:nowrap}
+.guest-live__continue:disabled{color:var(--agent-muted)}
+.guest-live__continue:focus-visible,.guest-live__continued-close:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
+.guest-live__continued{position:absolute;top:calc(100% + 4px);right:var(--guest-inset);z-index:2;display:flex;flex-direction:column;gap:6px;width:min(360px,calc(100% - 2 * var(--guest-inset)));padding:8px 10px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-page-bg);color:var(--agent-text);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
+.guest-live__continued-text{height:120px;resize:vertical;border:1px solid var(--agent-border);border-radius:6px;background:transparent;color:inherit;font-family:var(--font-mono);font-size:var(--text-detail)}
+.guest-live__continued-close{align-self:flex-end;padding:0;border:0;background:none;color:var(--agent-muted);font:inherit;text-decoration:underline}
 .guest-live__title{height:var(--text-body--line-height);margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-body);line-height:var(--text-body--line-height);font-weight:600}
 .guest-live__owner{height:var(--text-detail--line-height);margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 /* Connecting floats at the top of the transcript's area: it comes and goes without moving a row. */

@@ -35,6 +35,7 @@ import {
   type WhoAmIFetch,
 } from "./redeem";
 import { TypingSignal } from "./typingSignal";
+import { continueBlocks, continueCapsule, copyContinue } from "./continueOwn";
 import {
   type GuestChat,
   type GuestConnection,
@@ -330,6 +331,77 @@ export function JoinAsPage({
   );
 }
 
+/** This page's address with no query or fragment: the secret left the address bar at load (redeem.ts). */
+const sharePage = () => (typeof window === "undefined" ? "" : `${window.location.origin}${window.location.pathname}`);
+
+/**
+ * Continue in my own chat (continueOwn.ts): copies what this guest can see of the chat, each turn under its
+ * author's name, for a new chat on their own sign-in, and says where to paste it. When the clipboard refuses,
+ * the text shows selected, to copy by hand.
+ */
+function ContinueOwn({
+  rows,
+  title,
+  owner,
+  page,
+  clipboard,
+}: {
+  rows: AcpmuxSnapshot["rows"];
+  title?: string;
+  owner: string;
+  page: string;
+  clipboard?: Pick<Clipboard, "writeText">;
+}) {
+  const t = useT();
+  const [state, setState] = useState<{ done: "copied" } | { done: "manual"; text: string }>();
+  const capsule = () =>
+    continueCapsule(rows, {
+      title,
+      owner,
+      page,
+      agent: t("guest.continue.agent"),
+      intro: t("guest.continue.intro", { owner, page }),
+      cut: t("guest.continue.cut"),
+    });
+  const run = () => {
+    const text = capsule();
+    if (!text) return;
+    void copyContinue(text, clipboard ?? globalThis.navigator?.clipboard).then((copied) =>
+      setState(copied ? { done: "copied" } : { done: "manual", text }),
+    );
+  };
+  return (
+    <>
+      <button
+        className="guest-live__continue"
+        type="button"
+        data-testid="guest-continue-own"
+        disabled={!continueBlocks(rows, owner, "").length}
+        onClick={run}
+      >
+        {t("guest.continue.action")}
+      </button>
+      {state && (
+        <output className="guest-live__continued" data-testid="guest-continue-own-done">
+          {state.done === "copied" ? t("guest.continue.copied", { owner }) : t("guest.continue.manual")}
+          {state.done === "manual" && (
+            <textarea
+              className="guest-live__continued-text"
+              readOnly
+              value={state.text}
+              ref={(field) => field?.select()}
+              aria-label={t("guest.continue.action")}
+            />
+          )}
+          <button className="guest-live__continued-close" type="button" onClick={() => setState(undefined)}>
+            {t("guest.continue.close")}
+          </button>
+        </output>
+      )}
+    </>
+  );
+}
+
 /** Whether a participant is this guest: its own id, or the author id the daemon stamps (`guest:<share>.<guest>`). */
 const isMe = (id: string, guestId: string) => id === guestId || id.endsWith(`.${guestId}`);
 
@@ -349,8 +421,14 @@ export function LiveChat({
   openSocket,
   loadTranscript = loadGuestTranscript,
   reloadPage = reloadWindow,
+  page = sharePage(),
+  clipboard,
   onEnded,
 }: {
+  /** The share page without its secret (Continue in my own chat names it); the page's own address by default. */
+  page?: string;
+  /** Where Continue in my own chat copies to (tests hand in a fake); the browser's by default. */
+  clipboard?: Pick<Clipboard, "writeText">;
   /** This guest: never in its own face stack, as the pane leaves the reader out. */
   guestId: string;
   /** The name this guest joined with, for its chip until presence names it. */
@@ -533,6 +611,15 @@ export function LiveChat({
             <p className="guest-live__owner">{owner ? t("guest.live.sharedBy", { owner: owner.name }) : ""}</p>
           </div>
           <PresenceStack viewing={viewing} />
+          {snapshot && (
+            <ContinueOwn
+              rows={snapshot.rows}
+              title={chat.title ? displayName(chat.title) : undefined}
+              owner={ownerName}
+              page={page}
+              clipboard={clipboard}
+            />
+          )}
         </header>
         {/* The transcript's area fills the page from the first frame, so the composer sits at the
             bottom before the room's snapshot; the notice floats in it and moves nothing. */}
@@ -622,6 +709,8 @@ export type GuestPageProps = {
   whoami?: WhoAmIFetch;
   /** Starts the signed-in join with the name field open (the gallery's edit state). */
   editName?: boolean;
+  /** Where Continue in my own chat copies to (tests hand in a fake); the browser's by default. */
+  clipboard?: Pick<Clipboard, "writeText">;
 };
 
 /** How long a link's join waits for `whoami` before it shows the name prompt. */
@@ -647,6 +736,7 @@ export function GuestPage({
   ended: endedAtStart,
   whoami,
   editName = false,
+  clipboard,
 }: GuestPageProps) {
   const [guestId, setGuestId] = useState(joinedAs);
   // Asked only on a link's join (a secret, no invite, not joined yet); anything else is anonymous.
@@ -722,6 +812,7 @@ export function GuestPage({
       openSocket={openSocket}
       loadTranscript={loadTranscript}
       reloadPage={reloadPage}
+      clipboard={clipboard}
       onEnded={setEnded}
     />
   );
