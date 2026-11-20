@@ -915,8 +915,10 @@ export function minimapTurns(
     for (let at = agrees; at < keep; at += 1) list[at] = old[at]!;
     list.length = keep;
     // Written in place: the fold made from it holds the turns it had (foldIncoming's cache is keyed
-    // by the list and the ticks' runs, which a streamed token leaves the same).
+    // by the list and the ticks' runs, which a streamed token leaves the same), and a page it was made
+    // as would fold its kept part from the turns before that page.
     foldedLists.delete(list);
+    pages.delete(list);
   }
   for (const turn of tail) list.push(turn);
   agreed.set(list, { list: old, same: keep });

@@ -212,4 +212,41 @@ describe("the rail's model over pages of older history", () => {
       expect(drawn(read)).toEqual(drawn(minimapTurns(rows, "s")));
     }
   });
+
+  test("a reply that streams on after an older page lands: the folded turns follow every token", () => {
+    // The page's list comes back as a spare two tokens later and is written in place; the page it was
+    // made as must not fold its kept part from the turns before the page.
+    const note = (id: string, name: string): AcpmuxRow =>
+      ({
+        id,
+        kind: "user",
+        text: `note ${id}`,
+        version: 1,
+        at: 0,
+        incoming: { kind: "message", message: { name, sessionId: name, text: `note ${id}`, raw: `note ${id}` } },
+      }) as AcpmuxRow;
+    const head: AcpmuxRow[] = [
+      note("a", "peer/a"),
+      note("b", "peer/b"),
+      { id: "u", kind: "user", text: "ask", version: 1, at: 0 },
+    ];
+    const reply = (text: string, version: number): AcpmuxRow => ({ id: "r", kind: "assistant", text, version, at: 0 });
+    let rows = [...head, reply("Hi", 1)];
+    let read = minimapTurns(rows, "s");
+    foldIncoming(read.turns, read.ticks, read.loadedStart ?? 0);
+    const said = (turn: MinimapTurn) => turn.reply.flatMap((block) => block.spans.map((span) => span.text)).join("");
+    const before = rows;
+    rows = [{ id: "u0", kind: "user", text: "older ask", version: 1, at: 0 }, ...before];
+    noteKeptSuffix(rows, before, before.length);
+    read = minimapTurns(rows, "s", read, { base: before, rows, from: 0 });
+    foldIncoming(read.turns, read.ticks, read.loadedStart ?? 0);
+    for (const [step, text] of ["Hi a", "Hi ab", "Hi abc", "Hi abcd", "Hi abcde"].entries()) {
+      const last = rows;
+      rows = [...rows.slice(0, -1), reply(text, step + 2)];
+      read = minimapTurns(rows, "s", read, { base: last, rows, from: rows.length - 1 });
+      const folded = foldIncoming(read.turns, read.ticks, read.loadedStart ?? 0);
+      expect(said(folded.turns.at(-1)!)).toBe(text);
+      expect(drawn(read)).toEqual(drawn(minimapTurns(rows, "s")));
+    }
+  });
 });
