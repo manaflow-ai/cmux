@@ -34,6 +34,7 @@ pub(crate) struct Sign<'a> {
 impl Transport {
     pub(super) fn new(allow_http: bool, epoch: u64) -> Result<Self, String> {
         let client = reqwest::Client::builder()
+            .default_headers(cmux_build_space::headers().map_err(|error| error.to_string())?)
             .https_only(!allow_http)
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(CONNECT_TIMEOUT)

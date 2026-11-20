@@ -867,7 +867,7 @@ test("a retried attachment keeps its id and its place in the text, wherever the 
   await act(async () => {
     field().dispatchEvent(event);
   });
-  const retry = () => field().querySelector<HTMLElement>('[data-state="failed"] .acpmux-md-inline-retry');
+  const retry = () => field().querySelector<HTMLElement>(".acpmux-attachment-failed .acpmux-attachment-retry");
   await until(() => Boolean(retry()), "the failed tile");
   const original = field().querySelector("[data-inline-attachment]")!.getAttribute("data-inline-attachment")!;
   const placedAt = markdownField().value();
@@ -987,14 +987,14 @@ test("a send with a failed attachment waits until its x takes it away", async ()
   await act(async () => {
     field().dispatchEvent(event);
   });
-  const failed = () => field().querySelector('[data-state="failed"]');
+  const failed = () => field().querySelector(".acpmux-attachment-failed");
   await until(() => Boolean(failed()), "the failed tile in the text");
   await act(async () => composer.current!.send());
   await settleTurns();
   expect(sent).toHaveLength(0);
   // Still reachable: its Retry and its ×.
-  expect(failed()!.querySelector(".acpmux-md-inline-retry")).not.toBeNull();
-  const remove = field().querySelector<HTMLElement>("[data-inline-attachment] .acpmux-md-inline-remove");
+  expect(failed()!.querySelector(".acpmux-attachment-retry")).not.toBeNull();
+  const remove = failed()!.querySelector<HTMLElement>(".acpmux-attachment-remove");
   expect(remove).not.toBeNull();
   await act(async () => {
     remove!.click();
