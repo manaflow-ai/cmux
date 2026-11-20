@@ -51,6 +51,10 @@ const ANSWER_WAIT: Duration = Duration::from_secs(30 * 60);
 /// still finds its answer while it is kept.
 const KEPT: usize = 256;
 
+/// Legacy row tag cleared when a registered chat is registered again. The current bridge no
+/// longer writes unreachable diagnostics, but old rows can still carry this tag.
+pub(crate) const UNREACHABLE_TAG: &str = "bridge.unreachable";
+
 /// How a delivery ended: the turn the watch showed it as, or why the app's inbox did not take it.
 type Outcome = Option<Result<String, String>>;
 
