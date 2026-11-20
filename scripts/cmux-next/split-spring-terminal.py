@@ -321,6 +321,28 @@ if "--suite=gui-tests" in sys.argv:
 if "--suite=every-action" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "every-action-sweep.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=every-action"])
+# `--suite=activation`: Cmd-Tab back in a heavy session (scripts/cmux-next/activation-perf.py: become notices'
+# main-thread time, the drain after them, indicator resyncs, hangs; perf-lead row 8). Its activation-perf.json is
+# also --json (the step's report.json); the rest of the arguments after the suite's own go to activation-perf.py.
+if "--suite=activation" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "activation-perf.py")
+    wrapper = argparse.ArgumentParser(add_help=False)
+    wrapper.add_argument("--json")
+    wrapper.add_argument("--out")
+    # activation-perf.py's own options; the measure step's others (--tag, --suite, --vdisplay ...) are not its.
+    for flag in ("--app", "--hang-ms", "--workspaces", "--browser", "--hibernate", "--chats", "--cycles", "--max-resyncs"):
+        wrapper.add_argument(flag)
+    wrapper.add_argument("--sample", action="store_true")
+    wrapper.add_argument("--gate", action="store_true")
+    known, _ = wrapper.parse_known_args()
+    passed = [part for key, value in vars(known).items() if key != "json" and value not in (None, False)
+              for part in (["--" + key.replace("_", "-")] + ([] if value is True else [str(value)]))]
+    status = subprocess.run([sys.executable, suite] + passed).returncode
+    produced = os.path.join(known.out, "activation-perf.json") if known.out else None
+    if known.json and produced and os.path.exists(produced):
+        with open(produced) as source, open(known.json, "w") as target:
+            target.write(source.read())
+    sys.exit(status)
 # `--suite=typing-frame`: key to frame in a terminal, the Home composer and the omnibar, idle and under load
 # (optionally in the STRESS session), scripts/cmux-next/typing-frame-bench.py.
 if "--suite=typing-frame" in sys.argv:
