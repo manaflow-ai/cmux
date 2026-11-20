@@ -37,7 +37,7 @@
 use super::{Hub, PromptOptions, Session};
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
@@ -75,6 +75,15 @@ struct Deliveries {
 }
 
 static PENDING: LazyLock<Mutex<Deliveries>> = LazyLock::new(Default::default);
+
+/// Prompt ids recorded in each session's journal as delivered (`bridge_delivered`). The
+/// in-memory registry above handles live resends; this set closes the restart/eviction gap.
+static DELIVERED: LazyLock<Mutex<HashMap<String, HashSet<String>>>> =
+    LazyLock::new(Default::default);
+
+fn delivered_ids() -> std::sync::MutexGuard<'static, HashMap<String, HashSet<String>>> {
+    DELIVERED.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 fn deliveries() -> std::sync::MutexGuard<'static, Deliveries> {
     PENDING.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -407,6 +416,20 @@ impl Hub {
             if let Some(rx) = kept {
                 return Some(resent(session, &id, rx, opts).await);
             }
+            // The live registry is bounded and is lost on restart. The journal is durable, so a
+            // prompt id recorded there is still a duplicate and must never reach the harness.
+            if self.delivered_before(session, &id).await {
+                if let Some(f) = opts.on_accepted.take() {
+                    f(json!({"sessionId": session.id, "promptId": id, "duplicate": true}));
+                }
+                let mut reply = reply(&id, None, None);
+                if let Some(meta) =
+                    reply.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut)
+                {
+                    meta.insert("duplicate".to_owned(), json!(true));
+                }
+                return Some(Ok(reply));
+            }
         }
         let target = match terminal {
             Some(driver) => match terminal_target(&family, &agent_session_id, driver.clone()).await
@@ -444,8 +467,14 @@ impl Hub {
         let unverified =
             opts.provenance.as_ref().and_then(|p| p.get("kind")).and_then(Value::as_str)
                 == Some("unverified");
-        let wire =
-            with_reply_hint(&text, reply_name(opts).as_deref(), harness.as_deref(), unverified);
+        let claude = matches!(target, Target::Claude { .. });
+        let wire = with_reply_hint(
+            &text,
+            reply_name(opts).as_deref(),
+            harness.as_deref(),
+            unverified,
+            claude,
+        );
         // The gate every prompt passes again at dispatch (`web_control.rs` `check_dispatch`): the
         // chat's mode, policy, device authorization or folder trust may have changed since the
         // request's own check, and a refused prompt never reaches the app.
@@ -485,12 +514,46 @@ impl Hub {
             record.extend(more.clone());
         }
         self.append(session, "mux", "bridge_delivered", record);
+        delivered_ids().entry(session.id.clone()).or_default().insert(prompt_id.clone());
         if let Some(f) = opts.on_accepted.take() {
             f(
                 json!({"sessionId": session.id, "promptId": prompt_id, "queued": false, "state": "delivered", "bridged": true}),
             );
         }
         Some(answer(&prompt_id, turn_of(rx).await, Some(&details)))
+    }
+
+    /// Whether `session`'s journal records `prompt_id` as delivered. The first lookup scans only
+    /// record headers; later lookups use the process-local set. A failed scan is inconclusive and
+    /// deliberately does not turn into a duplicate, so the next request retries the read.
+    async fn delivered_before(self: &Arc<Self>, session: &Session, prompt_id: &str) -> bool {
+        if let Some(ids) = delivered_ids().get(&session.id) {
+            return ids.contains(prompt_id);
+        }
+        let hub = Arc::clone(self);
+        let id = session.id.clone();
+        let read = tokio::task::spawn_blocking(move || {
+            let mut ids = HashSet::new();
+            let scanned = hub.store.scan_heads(&id, &mut |head| {
+                if head.dir == "mux" && head.kind == "bridge_delivered" {
+                    let rec = head.record();
+                    let prompt = rec.as_ref().and_then(|r| r.msg.get("promptId")?.as_str());
+                    if let Some(prompt) = prompt {
+                        ids.insert(prompt.to_owned());
+                    }
+                }
+                true
+            });
+            scanned.ok().map(|()| ids)
+        })
+        .await
+        .ok()
+        .flatten();
+        let Some(ids) = read else { return false };
+        let mut all = delivered_ids();
+        let known = all.entry(session.id.clone()).or_default();
+        known.extend(ids);
+        known.contains(prompt_id)
     }
 }
 
@@ -507,23 +570,28 @@ fn with_reply_hint(
     agent: Option<&str>,
     harness: Option<&str>,
     unverified: bool,
+    claude: bool,
 ) -> String {
-    match agent.map(str::trim).filter(|a| !a.is_empty()) {
-        Some(agent) => {
-            let quoted = agent.replace('\'', "'\\''");
-            let provenance = harness.map(|h| json!({crate::prompt_provenance::FROM_HARNESS: h}));
-            let who = super::prompt_attribution::with_harness(agent, provenance.as_ref());
-            let line = if unverified {
-                super::prompt_attribution::unverified_line(Some(&who))
-            } else {
-                super::prompt_attribution::agent_line(&who)
-            };
-            format!(
-                "{line}\n{text}\n\n[Answer {agent} with `acpmux send '{quoted}' '<your reply>'` in your shell; your own messaging tools cannot reach it.]"
-            )
-        }
-        None => text.to_owned(),
+    let Some(agent) = agent.map(str::trim).filter(|a| !a.is_empty()) else {
+        return text.to_owned();
+    };
+    let quoted = agent.replace('\'', "'\\''");
+    let provenance = harness.map(|h| json!({crate::prompt_provenance::FROM_HARNESS: h}));
+    let who = super::prompt_attribution::with_harness(agent, provenance.as_ref());
+    let line = if unverified {
+        super::prompt_attribution::unverified_line(Some(&who))
+    } else {
+        super::prompt_attribution::agent_line(&who)
+    };
+    if claude {
+        let line = line.trim_end_matches(':');
+        return format!(
+            "{line}. Answer with `acpmux send '{quoted}' '<your reply>'`, not SendMessage:\n{text}"
+        );
     }
+    format!(
+        "{line}\n{text}\n\n[Answer {agent} with `acpmux send '{quoted}' '<your reply>'` in your shell; your own messaging tools cannot reach it.]"
+    )
 }
 
 /// The sender's harness the daemon bound on the prompt's provenance (`fromHarness`).
@@ -712,6 +780,11 @@ fn reply(prompt_id: &str, turn_id: Option<&str>, app: Option<&Value>) -> Value {
             "bridged": bridged.unwrap_or(json!(true)),
         }},
     })
+}
+
+#[cfg(test)]
+fn forget_delivered_ids(session_id: &str) {
+    delivered_ids().remove(session_id);
 }
 
 #[cfg(test)]

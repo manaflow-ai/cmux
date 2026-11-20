@@ -465,13 +465,10 @@ impl Hub {
         let agent_sid = session.meta().agent_session_id.unwrap_or_default();
         // What this batch takes from the delivery registry: given back if the journal refuses it.
         let mut claims = Vec::new();
-        // The terminal's queue is read only with Write to a Chat a Terminal Runs on: off, the
-        // watch is base's View Only one, and what it held from when it was on can hold nothing.
+        // The terminal's queue is read only with Write to a Chat a Terminal Runs on: off, but
+        // preserve queue/unshown state already captured while writable. Clearing it here would
+        // make a prompt shown at enqueue appear a second time when its later user line arrives.
         let queue_read = self.terminal_chat_writable();
-        if !queue_read {
-            watching.queued.clear();
-            watching.unshown.clear();
-        }
         for line in lines {
             let Ok(record) = serde_json::from_str::<Value>(line) else { continue };
             let at = record_time(&record);
