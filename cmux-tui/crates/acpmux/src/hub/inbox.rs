@@ -2247,7 +2247,8 @@ impl Hub {
         };
         let why = json!({"promptId": prompt_id, "threadId": removed.thread, "reason": "withdrawn"});
         let event = self.append(session, "mux", "inbox_removed", why);
-        let mut counts = session.inbox().surge_counts.lock().unwrap_or_else(|e| e.into_inner());
+        let surge_counts = session.inbox().surge_counts.clone();
+        let mut counts = surge_counts.lock().unwrap_or_else(|e| e.into_inner());
         counts.apply(&event);
         if let Some(answer) = removed.answer {
             answer.send_replace(Some(Ok(super::queue::withdrawn_reply(prompt_id, ""))));
@@ -2449,7 +2450,8 @@ impl Hub {
         if !marked.is_empty() {
             let msg = json!({"threadId": thread, "promptIds": marked});
             let event = self.append(session, "mux", "inbox_read", msg);
-            let mut counts = session.inbox().surge_counts.lock().unwrap_or_else(|e| e.into_inner());
+            let surge_counts = session.inbox().surge_counts.clone();
+            let mut counts = surge_counts.lock().unwrap_or_else(|e| e.into_inner());
             counts.apply(&event);
         }
         json!({"sessionId": session.id, "threadId": thread, "label": label(&label_key), "messages": messages})

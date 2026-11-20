@@ -12,6 +12,7 @@ pub(super) struct Counts {
     /// bounded delta without rescanning the inbox. The thread map is the distinct-topic view.
     actionable_by_prompt: std::collections::HashMap<String, String>,
     actionable_by_thread: std::collections::HashMap<String, u64>,
+    read_prompts: std::collections::HashSet<String>,
 }
 
 impl Counts {
@@ -41,28 +42,49 @@ impl Counts {
         self.need_you = self.actionable_by_thread.len() as u64;
     }
 
+    fn triage_additions(&self, msg: &Value) -> (Vec<(String, String)>, u64) {
+        let mut additions = Vec::new();
+        let mut new_threads = std::collections::HashSet::new();
+        if let Some(items) = msg.get("items").and_then(Value::as_array) {
+            for item in items {
+                if item.get("category").and_then(Value::as_str) != Some("needs_this_session")
+                    || item.get("repeatOf").and_then(Value::as_str).is_some()
+                {
+                    continue;
+                }
+                let prompt = item.get("promptId").and_then(Value::as_str).unwrap_or_default();
+                let thread = item.get("threadId").and_then(Value::as_str).unwrap_or_default();
+                if prompt.is_empty()
+                    || thread.is_empty()
+                    || self.read_prompts.contains(prompt)
+                    || self.actionable_by_prompt.contains_key(prompt)
+                    || additions.iter().any(|(id, _)| id == prompt)
+                {
+                    continue;
+                }
+                if !self.actionable_by_thread.contains_key(thread) {
+                    new_threads.insert(thread.to_owned());
+                }
+                additions.push((prompt.to_owned(), thread.to_owned()));
+            }
+        }
+        (additions, self.actionable_by_thread.len() as u64 + new_threads.len() as u64)
+    }
+
     fn apply_event(&mut self, event: &EventRecord) {
         match event.kind.as_str() {
             "inbox_triaged" => {
-                let mut had_items = false;
-                if let Some(items) = event.msg.get("items").and_then(Value::as_array) {
-                    for item in items {
-                        if item.get("category").and_then(Value::as_str)
-                            == Some("needs_this_session")
-                            && item.get("repeatOf").is_none()
-                        {
-                            had_items = true;
-                            let prompt =
-                                item.get("promptId").and_then(Value::as_str).unwrap_or_default();
-                            let thread =
-                                item.get("threadId").and_then(Value::as_str).unwrap_or_default();
-                            self.add_actionable(prompt, thread);
-                        }
-                    }
+                let (additions, _) = self.triage_additions(&event.msg);
+                for (prompt, thread) in additions {
+                    self.add_actionable(&prompt, &thread);
                 }
                 // Older callers wrote an empty record with a scalar actionable count. Keep that
                 // compatibility value until a prompt-keyed delta supplies the authoritative map.
-                if !had_items
+                if event
+                    .msg
+                    .get("items")
+                    .and_then(Value::as_array)
+                    .map_or(true, |items| items.is_empty())
                     && let Some(n) = event.msg.pointer("/surge/needYou").and_then(Value::as_u64)
                 {
                     self.need_you = n;
@@ -71,6 +93,7 @@ impl Counts {
             "inbox_read" => {
                 if let Some(ids) = event.msg.get("promptIds").and_then(Value::as_array) {
                     for id in ids.iter().filter_map(Value::as_str) {
+                        self.read_prompts.insert(id.to_owned());
                         self.remove_actionable(id);
                     }
                 }
@@ -187,33 +210,22 @@ impl Hub {
     ) -> Result<(), RpcError> {
         let state = session.inbox().surge_counts.clone();
         let mut counts = state.lock().unwrap_or_else(|e| e.into_inner());
-        let mut next = counts.clone();
-        match actionable_topics {
-            Some(n) => {
-                next.apply_event(&EventRecord {
-                    seq: next.seq,
-                    at: 0,
-                    kind: kind.to_owned(),
-                    dir: "mux".to_owned(),
-                    msg: msg.clone(),
-                    host_seq: None,
-                });
-                if kind != "inbox_triaged"
-                    || msg
-                        .get("items")
-                        .and_then(Value::as_array)
-                        .map_or(true, |items| items.is_empty())
-                {
-                    next.need_you = if next.actionable_by_thread.is_empty() {
-                        n
-                    } else {
-                        next.actionable_by_thread.len() as u64
-                    };
-                }
+        let (additions, mut next_need) = if kind == "inbox_triaged" {
+            counts.triage_additions(&msg)
+        } else {
+            (Vec::new(), counts.need_you)
+        };
+        if let Some(n) = actionable_topics {
+            if additions.is_empty() {
+                next_need = if counts.actionable_by_thread.is_empty() {
+                    n
+                } else {
+                    counts.actionable_by_thread.len() as u64
+                };
             }
-            None => next.held = next.held.saturating_add(1),
         }
-        msg["surge"] = next.json();
+        let next_held = counts.held.saturating_add(u64::from(actionable_topics.is_none()));
+        msg["surge"] = json!({"held": next_held, "needYou": next_need});
         // The caller retries a failed append. A parked copy must not be replayed behind it.
         let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
         self.catch_up_locked(session);
@@ -222,8 +234,12 @@ impl Hub {
         if !stored {
             return Err(RpcError::internal("could not persist the surge inbox event"));
         }
-        next.seq = event.seq;
-        *counts = next;
+        counts.held = next_held;
+        for (prompt, thread) in additions {
+            counts.add_actionable(&prompt, &thread);
+        }
+        counts.need_you = next_need;
+        counts.seq = event.seq;
         Ok(())
     }
 
