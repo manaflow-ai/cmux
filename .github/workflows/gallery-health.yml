@@ -27,7 +27,7 @@ name: gallery health
 on:
   pull_request:
     branches: [feat-cmux-next]
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       # What a gallery render reads, and nothing else (2026-11-05 CI audit, cmuxterm-hq
       # plans/ci/baggage-2026-11-05.md): the webviews UI sources and the gallery's own build, the
@@ -259,7 +259,9 @@ jobs:
   # ref). Pull requests only: a push's base is the tip it replaced, which its shards resolve themselves.
   base-gallery:
     name: base gallery
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+    # A draft renders nothing until it is marked ready (ready_for_review starts this run then), as cmux-next's
+    # Mac tier: about six runs started per merged pull request, most of them work-in-progress pushes (ask-f0b851df7a).
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (!github.event.pull_request.draft || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 15
     steps:
@@ -332,7 +334,7 @@ jobs:
           overwrite: true
 
   health:
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && (!github.event.pull_request.draft || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     # The 16 vCPU pool (its next member is 32 vCPU when 16 starts nothing): a shard's render is CPU-bound, about
     # three quarters of each case is the stage's page loading and mounting in a fresh renderer, and on 4 vCPU the
     # four workers held the CPU at 91% (#41952's shards: per-case p50 1.0-1.6 s against 583 ms alone, render 4-6

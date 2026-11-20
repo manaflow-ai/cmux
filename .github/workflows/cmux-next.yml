@@ -38,6 +38,9 @@ name: cmux-next
 on:
   pull_request:
     branches: [feat-cmux-next]
+    # The default three, and ready_for_review: a draft runs the Linux checks only (path_route), so marking it
+    # ready starts the Mac tier.
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - App/**
       - cmux.xcodeproj/**
@@ -916,6 +919,9 @@ jobs:
           DEV_LANDING_COMPILE: ${{ format('{0}', vars.CMUX_NEXT_DEV_LANDING_COMPILE) }}
           SAME_TREE_SHA: ${{ inputs.same_tree_sha }}
           FULL_DISPATCH: ${{ inputs.full || false }}
+          # A draft pull request runs the Linux checks only; marking it ready (ready_for_review) runs the rest.
+          PR_DRAFT: ${{ github.event.pull_request.draft || false }}
+          DRAFT_FULL: ${{ format('{0}', vars.CMUX_NEXT_DRAFT_FULL) == '1' }}
           GH_TOKEN: ${{ github.token }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-97
           EVENT_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
@@ -1106,6 +1112,17 @@ jobs:
               && "$GITHUB_REF" != refs/heads/feat-cmux-next && "$GITHUB_REF" != refs/heads/next-batch/* ]]; then
               printf 'scheme=false\nnative=false\n' >> "$GITHUB_OUTPUT"
               echo '- working-branch dispatch: the scheme and Release compiles are skipped (dispatch with full=true to run them).' >> "$GITHUB_STEP_SUMMARY"
+            fi
+            # A draft is a work in progress that cannot merge: agents push one every 15 to 30 minutes as a
+            # checkpoint, and about six cmux-next runs started per merged pull request (2026-11-19). Its Mac
+            # tier (compiles, fast tier, Swift and daemon tests, generated files) waits for ready_for_review,
+            # which starts a full run of the same head. The Linux checks still run. full-ci, or
+            # vars.CMUX_NEXT_DRAFT_FULL=1 for every draft, keeps the whole run (ask-f0b851df7a).
+            if [[ "$EVENT_NAME" == pull_request && "$PR_DRAFT" == true && "$DRAFT_FULL" != true \
+              && ",$EVENT_LABELS," != *",full-ci,"* ]]; then
+              printf '%s=false\n' macos fast_tier native scheme generated swift daemon mac_release swift_canary \
+                cmuxnext_swift ffi_repin >> "$GITHUB_OUTPUT"
+              echo '- draft: the Mac tier waits until the pull request is marked ready (it then runs in full); add full-ci to run it now.' >> "$GITHUB_STEP_SUMMARY"
             fi
             # Why: docs/ci/cmux-next-workflow-notes.md#note-388
             if [[ "$EVENT_NAME" == pull_request && "$SAME_REPO_PR" == true && "$BASE_MERGE_CARRY" == true ]]; then
