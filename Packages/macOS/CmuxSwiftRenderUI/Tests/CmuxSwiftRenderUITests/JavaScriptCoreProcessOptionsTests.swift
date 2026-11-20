@@ -9,12 +9,12 @@ struct JavaScriptCoreProcessOptionsTests {
     @Test("Turns concurrent JIT off before JavaScriptCore reads its options, then clears the variable")
     func disablesConcurrentJITBeforeInitializing() {
         var calls: [String] = []
-        let applied = JavaScriptCoreProcessOptions.disableConcurrentJIT(
+        let applied = JavaScriptCoreProcessOptions(
             environment: [:],
             setVariable: { calls.append("set \($0)=\($1)") },
             unsetVariable: { calls.append("unset \($0)") },
             initializeJavaScriptCore: { calls.append("initialize") }
-        )
+        ).disableConcurrentJIT()
 
         #expect(applied)
         #expect(calls == [
@@ -27,12 +27,12 @@ struct JavaScriptCoreProcessOptionsTests {
     @Test("Leaves a value the user set in the environment alone")
     func keepsExplicitSetting() {
         var calls: [String] = []
-        let applied = JavaScriptCoreProcessOptions.disableConcurrentJIT(
+        let applied = JavaScriptCoreProcessOptions(
             environment: ["JSC_useConcurrentJIT": "1"],
             setVariable: { calls.append("set \($0)=\($1)") },
             unsetVariable: { calls.append("unset \($0)") },
             initializeJavaScriptCore: { calls.append("initialize") }
-        )
+        ).disableConcurrentJIT()
 
         #expect(!applied)
         #expect(calls.isEmpty)

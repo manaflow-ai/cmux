@@ -39,7 +39,7 @@ enum CmuxMain {
             CmuxWorkerEntrypoint(arguments: CommandLine.arguments).runIfRequested()
         },
         configureJavaScriptCore: () -> Void = {
-            JavaScriptCoreProcessOptions.disableConcurrentJIT()
+            JavaScriptCoreProcessOptions().disableConcurrentJIT()
         },
         preloadSigningSecret: () -> Void = {
             SurfaceResumeApprovalStore.preloadSigningSecret()

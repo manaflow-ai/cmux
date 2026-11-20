@@ -31,7 +31,7 @@ struct CmuxWorkerEntrypoint {
         if arguments.contains(RenderWorkerClient.workerModeArgument) {
             // The render worker runs JS sidebars too when
             // `customSidebars.renderer` is `remote`.
-            JavaScriptCoreProcessOptions.disableConcurrentJIT()
+            JavaScriptCoreProcessOptions().disableConcurrentJIT()
             runSidebarRenderWorker()
         }
         if arguments.contains(InterpreterClient.workerModeArgument) {
