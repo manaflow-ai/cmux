@@ -144,11 +144,14 @@ export function SubagentComposer({
       dictation.finish(() => {
         // The session is over even if this render has not heard so yet.
         dictationEnded.current = true;
+        // A catch, not a finally: React Compiler cannot lower a try with no catch clause.
         try {
           submit();
-        } finally {
+        } catch (error) {
           dictationEnded.current = false;
+          throw error;
         }
+        dictationEnded.current = false;
       });
       return;
     }
