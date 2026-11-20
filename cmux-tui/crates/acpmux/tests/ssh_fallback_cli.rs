@@ -249,7 +249,16 @@ impl Pair {
             false,
             Some(&dir),
         );
-        Self { a, b, dir }
+        let pair = Self { a, b, dir };
+        // The peer is added and dialed after the daemon is ready: wait until its first connect
+        // attempt failed, so the link is known down before the test sends or lists.
+        within(60, "peer box listed and its first dial refused", || {
+            let peer = unix(&pair.a.home, "_acpmux/peers", json!({}))["result"]["peers"][0].clone();
+            (peer["name"] == "box"
+                && !matches!(peer["state"].as_str(), Some("connected" | "connecting") | None))
+            .then_some(())
+        });
+        pair
     }
 
     fn calls(&self, kind: &str) -> usize {
