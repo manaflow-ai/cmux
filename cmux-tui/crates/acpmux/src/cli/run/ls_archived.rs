@@ -108,7 +108,7 @@ pub(super) fn render(rows: &[Value], now: u64) -> String {
         for (c, w) in line.iter().zip(widths) {
             out.push_str(&format!("{c:<w$}  "));
         }
-        out.push_str(&line[4]);
+        out.push_str(line.last().map_or("", String::as_str));
         out.push('\n');
     }
     out
