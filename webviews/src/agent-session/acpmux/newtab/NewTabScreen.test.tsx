@@ -2188,3 +2188,104 @@ test("a Minimal page reads only the changed chat when another chat changes", asy
   // A pass over the list reads thousands; the page's own lists read the one changed chat.
   expect(reads).toBeLessThan(400);
 });
+
+// Leo, 2026-11-18: "Why should non visible thing even affect the renderer thread anyways?" A New Tab
+// page nobody sees (a tab's behind another, the prewarmed spare: the document reads hidden, as
+// shared/pageSeen.ts makes it) does no work over the chats when any chat changes: not the chat
+// cards (`recentSessions`, `indexChildren`), the leaders row (`leaders`), the needs-you cards or the
+// folder lists. Shown, it draws the newest list once. Counted field reads, not time.
+test.each(["default", "cards", "stage"] as const)(
+  "a hidden %s page reads no chat when chats change; shown, it draws the newest",
+  async (template) => {
+    let reads = 0;
+    const counted = (fields: Parameters<typeof session>[0]) =>
+      new Proxy(session(fields), {
+        get(target, key, receiver) {
+          if (key !== "sessionId") {
+            reads++;
+            if (TRACE.on)
+              TRACE.lines.push(
+                `${String(key)} <- ${(new Error().stack ?? "")
+                  .split("\n")
+                  .slice(2, 6)
+                  .map((l) =>
+                    l
+                      .trim()
+                      .replace(/^at /, "")
+                      .replace(/\(.*\/(src|node_modules)\//, "("),
+                  )
+                  .join(" | ")}`,
+              );
+          }
+          return Reflect.get(target, key, receiver);
+        },
+      });
+    const sessions = Array.from({ length: 2_000 }, (_, index) =>
+      counted({
+        sessionId: `s${index}`,
+        title: `Chat ${index}`,
+        cwd: `/Users/me/code/p${index % 40}`,
+        updatedAt: 1_000 + index,
+        ...(index % 4 === 1 ? { spawnedBy: `s${index - 1}` } : {}),
+        ...(index % 9 === 2 ? { status: "running" as const } : {}),
+      }),
+    );
+    const page = (list: typeof sessions) => (
+      <NewTabScreen
+        {...firstRunProps}
+        template={template}
+        snapshot={noChat(list)}
+        allChats
+        loadChatsPage={async () => ({ rows: [], done: true })}
+        onOpenChat={() => {}}
+      />
+    );
+    await act(async () => root!.render(page(sessions)));
+    await promptField();
+
+    let visibility: DocumentVisibilityState = "visible";
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => visibility });
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => visibility === "hidden" });
+    visibility = "hidden";
+    await act(async () => document.dispatchEvent(new dom!.window.Event("visibilitychange")));
+
+    // The newest chat changes: it would lead every list, so a page that ran its passes would read it.
+    let next = sessions;
+    reads = 0;
+    TRACE.on = true;
+    for (let change = 0; change < 5; change++) {
+      const at = next.length - 1;
+      const moved = next.slice();
+      moved[at] = counted({
+        sessionId: `s${at}`,
+        title: `Renamed ${change}`,
+        cwd: "/Users/me/code/p0",
+        updatedAt: 10_000 + change,
+        status: "running",
+      });
+      noteReplaced(next, moved, [at]);
+      next = moved;
+      await act(async () => root!.render(page(next)));
+    }
+    TRACE.on = false;
+    const by = new Map<string, number>();
+    for (const line of TRACE.lines) by.set(line, (by.get(line) ?? 0) + 1);
+    console.log(
+      [...by]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 12)
+        .map(([l, n]) => `${n} ${l}`)
+        .join("\n"),
+    );
+    TRACE.lines = [];
+    expect(reads).toBe(0);
+    expect(container.textContent).not.toContain("Renamed");
+
+    visibility = "visible";
+    await act(async () => document.dispatchEvent(new dom!.window.Event("visibilitychange")));
+    await nextTurns();
+    expect(reads).toBeGreaterThan(0);
+  },
+);
+
+const TRACE: { on: boolean; lines: string[] } = { on: false, lines: [] };
