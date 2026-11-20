@@ -734,8 +734,10 @@ fn the_verbs_cost_no_more_than_the_files_they_read() {
     );
 }
 
-const CU_ON: &str = "{\n  \"appearance\": { \"density\": \"cozy\" },\n  \"computerUse\": { \"enabled\": true }\n}\n";
-const CU_OFF: &str = "{\n  \"appearance\": { \"density\": \"compact\" },\n  \"computerUse\": { \"enabled\": false }\n}\n";
+// Exercise the current protected key; the retired `enabled` spelling is
+// unknown to the schema and cannot test the restore permission boundary.
+const CU_ON: &str = "{\n  \"appearance\": { \"density\": \"cozy\" },\n  \"computerUse\": { \"mode\": \"fullAccess\" }\n}\n";
+const CU_OFF: &str = "{\n  \"appearance\": { \"density\": \"compact\" },\n  \"computerUse\": { \"mode\": \"off\" }\n}\n";
 
 /// An agent's rollback or discard never turns back on what the person
 /// turned off: it is held to the settings an agent may set, like
@@ -752,13 +754,13 @@ fn an_agent_cannot_restore_a_setting_only_the_person_can_change() {
     customize.apply(None, "cli", 2).unwrap();
 
     match customize.rollback(Some(1), "mcp", 3) {
-        Err(Error::Protected(keys)) => assert_eq!(keys, ["computerUse.enabled"]),
+        Err(Error::Protected(keys)) => assert_eq!(keys, ["computerUse.mode"]),
         other => panic!("the agent turned Computer Use back on: {other:?}"),
     }
     assert_eq!(home.read("cmux-next.json").unwrap(), CU_OFF);
     assert_eq!(customize.generations().unwrap().current, Some(2));
-    let said = Error::Protected(vec!["computerUse.enabled".to_owned()]).to_string();
-    assert!(said.contains("computerUse.enabled") && !said.contains("true"), "{said}");
+    let said = Error::Protected(vec!["computerUse.mode".to_owned()]).to_string();
+    assert!(said.contains("computerUse.mode") && !said.contains("fullAccess"), "{said}");
 
     // The same through a draft: the person turns it on again without
     // applying, then off is what a discard would restore. Going the other
