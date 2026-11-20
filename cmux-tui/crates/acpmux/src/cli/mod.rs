@@ -77,6 +77,7 @@ pub(crate) mod session_move_carry;
 pub(crate) mod session_move_plan;
 pub mod session_queue;
 pub mod session_search;
+pub(crate) mod session_tail;
 pub mod session_turn_cap;
 pub mod shutdown;
 pub(crate) use crate::slow_notice;
