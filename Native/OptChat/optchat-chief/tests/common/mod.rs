@@ -768,8 +768,13 @@ impl FakeAgents {
         })
     }
 
+    /// Holds turns before they answer (`on`), or lets every held turn go:
+    /// a held turn waits on `changed`, so letting go wakes it (with no
+    /// wake it waited for some other call's, and a test that made none
+    /// timed out).
     pub fn hold(&self, on: bool) {
         self.inner.lock().unwrap().hold = on;
+        self.changed.notify_all();
     }
 
     /// Lets one held turn run.
