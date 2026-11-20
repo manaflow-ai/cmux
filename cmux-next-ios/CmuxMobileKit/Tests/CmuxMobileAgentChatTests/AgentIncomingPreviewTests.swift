@@ -77,6 +77,17 @@ import Testing
         #expect(AgentIncomingCard.firstLine("It costs $5 and $6") == "It costs $5 and $6")
     }
 
+    @Test func aListItemIsReadAsTheMarkdownInsideIt() {
+        #expect(AgentIncomingCard.firstLine("- ## Heading in a list") == "Heading in a list")
+        #expect(AgentIncomingCard.firstLine("- ```swift\n  let x = 1\n  ```") == "let x = 1")
+        #expect(AgentIncomingCard.firstLine("1. Install:\n   ```bash\n   brew install xcodegen\n   ```") == "Install:")
+    }
+
+    @Test func aHeadingsClosingMarksAndALoneHashGo() {
+        #expect(AgentIncomingCard.firstLine("## Status ##") == "Status")
+        #expect(AgentIncomingCard.firstLine("#\nText") == "Text")
+    }
+
     @Test func plainTextIsUnchanged() {
         #expect(AgentIncomingCard.firstLine("Reviewed #45282, two nits\nmore") == "Reviewed #45282, two nits")
     }
