@@ -542,3 +542,52 @@
   --surface-sheet-rim-bottom: light-dark(color-mix(in srgb, var(--ds-material-rim-shade) 10%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 5%, transparent));
 }
 /* surface-roles:end */
+
+/* PREVIOUS GLASS (appearance.previousGlass; WebTheme sends glassLevels "previous", which sets
+   data-glass-levels="previous" on <html>): the glass numbers from before the one glass system
+   (design/glass-system.md, cmux#48174), for people who want the old look back. One tint for light
+   and dark (chrome 60%, popover 70%, menu 78%), the old saturations (chrome 1.4, popover 1.25, the
+   composer material 1.8, the selection reply 1.4), no lit top edge, the 70% see-through underlay,
+   content cards as chrome glass, and the private tints the system folded into its levels (Jump to
+   latest and the since pill 72%, the Chief dock 64%, the onboarding import cards 62% with the old
+   popover blur). The same numbers as the `now` arm of scripts/gallery/glass-system.capture.json;
+   test/previous-glass.test.ts checks the two agree. Reduce Transparency still draws every glass
+   solid: its rules above hold the surface with !important, and the per-surface tints below stand
+   down under it. Every value here is a token or a tint, never an opaque fill. */
+:root[data-glass-levels="previous"][data-glass-levels] {
+  --ds-glass-chrome-tint: 60%;
+  /* glass-raw-blur-allow: the chrome level's own blur before the one glass system (appearance.previousGlass) */
+  --ds-glass-chrome-blur: blur(20px) saturate(1.4);
+  --ds-glass-popover-tint: 70%;
+  /* glass-raw-blur-allow: the popover level's own blur before the one glass system (appearance.previousGlass) */
+  --ds-glass-popover-blur: blur(24px) saturate(1.25);
+  --ds-glass-menu-tint: 78%;
+  --ds-transient-web-tint: 78%;
+  --ds-transient-web-tint-dark: 78%;
+  --ds-glass-underlay: 70%;
+  --ds-glass-saturation: 1.4;
+  --ds-glass-edge-top: 0%;
+  --glass-material-saturate: 1.8;
+}
+:root[data-glass-levels="previous"] .ui-glass.ui-glass-content {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-chrome-tint), transparent);
+  --glass-backdrop: var(--ds-glass-chrome-blur);
+}
+@media not (prefers-reduced-transparency: reduce) {
+  :root[data-glass-levels="previous"]:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency])
+    :is(.acpmux-jump-latest, .acpmux-since-jump) {
+    --glass-tint: color-mix(in srgb, var(--agent-page-bg) 72%, transparent);
+  }
+  :root[data-glass-levels="previous"]:not([data-reduce-transparency]) .acpmux-chief-dock {
+    --chief-glass-fill: color-mix(in srgb, var(--acpmux-base, var(--agent-page-bg)) 64%, transparent);
+  }
+  :root[data-glass-levels="previous"]:not([data-reduce-transparency]) .onb-import {
+    --onb-card-glass: color-mix(in srgb, var(--ds-color-surface) 62%, transparent);
+  }
+  :root[data-glass-levels="previous"]:not([data-reduce-transparency])
+    .onb-import
+    :is(.onb-import-list, .onb-import-options, .onb-express-ask) {
+    -webkit-backdrop-filter: var(--ds-glass-popover-blur);
+    backdrop-filter: var(--ds-glass-popover-blur);
+  }
+}

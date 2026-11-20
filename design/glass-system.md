@@ -16,10 +16,14 @@ Related pages: [surface-materials.md](surface-materials.md) decides which kind a
 host glass, page glass); [transient-material.md](transient-material.md) owns the shared native
 material. This page owns the levels and their numbers.
 
-Liquid Glass is off by default (Settings > Appearance > Liquid Glass, cmux#46104): every web glass
-then draws its opaque surface and a hairline, as Reduce Transparency does. Everything below is
-what the web draws with Liquid Glass on. Native glass (the window, sidebar, native menus, the native
-tooltip) is not changed by this page.
+These rules are the default look. Settings > Appearance > Previous Glass Look
+(`appearance.previousGlass`, off by default) folds them away: the App sends `glassLevels: "previous"`
+with the web theme, every page sets `data-glass-levels="previous"` on `<html>`, and glass.css
+(PREVIOUS GLASS) draws the numbers from before this page (the Before column below, one tint for light
+and dark, no lit top edge, content cards as chrome glass, the page's own secondary ink).
+`webviews/test/previous-glass.test.ts` checks them against the gallery's `now` arm. When cmux#46104
+lands, its Liquid Glass off (`data-glass="off"`) turns every web glass solid, as Reduce Transparency
+does. Native glass (the window, sidebar, native menus, the native tooltip) is not changed by this page.
 
 ## The rules
 
@@ -40,6 +44,12 @@ tooltip) is not changed by this page.
 5. **Legibility floor.** Primary text keeps 4.5:1 and secondary 3:1 against the glass laid over
    pure black and pure white. If a level fails at its tint, the tint goes up for that level; the
    text never gets thinner. The tooltip already works this way (`TooltipSurface.tintAlpha`).
+   Secondary text on glass is one ink: the theme's text at `--ds-glass-ink-secondary` (64% light,
+   68% dark, `glassInk` in the design scale) over the glass, which every glass surface's secondary
+   tokens (`--cmux-text-secondary`, `--cmux-text-tertiary`, `--agent-muted`, `--page-text-2/3`,
+   the composer placeholder and dim words, and a field's own placeholder) read inside `.ui-glass`.
+   The page's secondary ink is fitted to an opaque page, so under dark glass on a white page it fell
+   to 1.6-2.8:1 (the audit, cmux#48174); an alpha of the text moves with what the glass lets through.
 6. **See-through pages.** Where the page can blur itself under a surface (`seeThroughBlur.ts`,
    `data-glass-over`), it does, and the surface lays no underlay. Where it cannot, the underlay is
    40%, so a menu (80% over 40%) covers 88% of the text under it, not 93%.
@@ -59,7 +69,7 @@ PR (cmux#46104's head); after is what ships with it.
 
 | Level | Used by | Before | After (light / dark) | Backdrop before | Backdrop after |
 | --- | --- | --- | --- | --- | --- |
-| chrome | bars and panes docked on the page where no native glass is under it | 60% | 62% / 55% | `blur(20px) saturate(1.4)` | `blur(20px) saturate(1.6)` |
+| chrome | bars and panes docked on the page where no native glass is under it | 60% | 62% / 62% | `blur(20px) saturate(1.4)` | `blur(20px) saturate(1.6)` |
 | popover | glass in the page that floats but is not a popup: composer, Session Info, running tray, side tabs, viewers | 70% (50% over art) | 72% / 70% (50% over art) | `blur(24px) saturate(1.25)` | `blur(24px) saturate(1.6)` |
 | menu | every popup and hover card (`--ds-glass-menu-*`, `--ds-transient-web-*`) | 78% | 80% / 72% | `blur(32px) saturate(1.6)` | unchanged |
 | chip | tooltips, the find pill, chips | host contrast-fitted, floor 60% | unchanged | `blur(24px) saturate(1.6)` | unchanged |
@@ -68,7 +78,9 @@ PR (cmux#46104's head); after is what ships with it.
 | see-through underlay | floating glass in a see-through page that cannot blur itself | 70% (93% cover under a menu) | 40% (88%) | | |
 | edge | every plain glass | hairline ring | hairline ring plus lit top hairline (60% / 24%) | | |
 
-The popover's dark tint is 70%, not the research note's 64%: at 64% the composer's prompt fell under
+The chrome's dark tint is 62%, not 55%: at 55% the chrome bar's title fell to 3.8:1 over a white page
+in dark (and the onboarding import cards, on the chrome level, to 3.5:1), so by rule 5 the tint went
+up to the light side's. The popover's dark tint is 70%, not the research note's 64%: at 64% the composer's prompt fell under
 4.5:1 over a white page in the dark theme (`webviews/test/composer-glass.test.ts`), so by rule 5 the
 tint went up and the text stayed.
 
@@ -139,15 +151,15 @@ surface takes after this change.
 | Find pill (`findPill.css`) | tooltip tint, material backdrop 24 px, 1.8 | chip, 3 | saturation now 1.6 |
 | Dialogs: share, delete chat, add account, connect Claude, add project, machines, cloud sheets, models sheet, form dialog, activity viewer (`.ui-dialog.ui-glass`) | transient veil 55% / 42%, 32 px, 1.6 | sheet role | none here (native-shared role, follow-up) |
 | Notice, transient error card, cookie import toast | toast veil 55% / 42%, chrome blur | toast role | chrome blur now 1.6 |
-| History cookie backups sheet; icon picker pills | bare `.ui-glass` chrome | chrome | 62% / 55%, 1.6 |
+| History cookie backups sheet; icon picker pills | bare `.ui-glass` chrome | chrome | 62% / 62%, 1.6 |
 | Agent composer card (`composerStates.css`) | popover tint 70% / 50%, 24 px 1.25 (1.8 over art), specular rim, docked: no underlay | popover, hero | 72% / 70%, one saturation |
 | Composer strip, queued prompts band, goal strip, pending asks, hat questions, running tray, tray tuck | the composer's stack tint | popover | follow the composer |
 | New Tab composer box; legacy new-tab box | popover 70%, 24 px | popover | 72% / 70%, 1.6 |
 | Session Info (`sessionInfo.css`) | popover 70% / 50%, host glass, page blurs in place | popover | 72% / 70%, 1.6 |
 | Session Info outputs edges | surface at 58/82/90% with 5/8/12 px | 8 | none (a fade) |
-| Summary popover | chrome via `.ui-glass-floats`, page blurs in place | popover | chrome numbers now 62% / 55%, 1.6; level name is a follow-up |
+| Summary popover | chrome via `.ui-glass-floats`, page blurs in place | popover | chrome numbers now 62% / 62%, 1.6; level name is a follow-up |
 | Workflow side tab; thread minimap card; image viewer; chat gallery | popover 70%, 24 px | popover | 72% / 70%, 1.6 |
-| PDF viewer, paste view, tool visual card | chrome plus 70% underlay | popover | 62% / 55% over 40% underlay |
+| PDF viewer, paste view, tool visual card | chrome plus 70% underlay | popover | 62% / 62% over 40% underlay |
 | Jump to latest, jump up, since-divider pill, needs-you pill | page background at a private 72% (clear over art), fisheye lens | popover | the popover level (72% / 70%); the fisheye stays its own mode |
 | Selection reply pill | surface at 90%, `blur(6px) saturate(1.4)` | chip, 5 | saturation now the one 1.6; 90% kept (its contrast test) |
 | Chief dock rail and cards | text 7-8% over surface at a private 64%, chrome blur | popover | the popover level (72% / 70%); chrome blur now 1.6 |
@@ -185,7 +197,7 @@ look people see daily:
   `ChiefPetCard.tsx`), changelog media figures (`ReleaseParts.tsx`), cloud progress card
   (`CloudProgressPage.tsx`).
 - Onboarding import list and options: the surface at a private 62% with the popover blur, now the
-  chrome level (62% / 55%, its 20 px blur). It sits over the wallpaper, not over text, so it stays
+  chrome level (62% / 62%, its 20 px blur). It sits over the wallpaper, not over text, so it stays
   glass; off and Reduce Transparency still turn it solid.
 - Left as they are: paste-loading tile, saved environment panel, cloud start sheet arm and the New
   Tab stage hover card (they float or their placement varies), the compare switch and clips (controls

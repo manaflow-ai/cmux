@@ -286,6 +286,16 @@ extension AppearanceSettingsSchema {
                 keywords: ["agent", "agents", "glow", "react", "reactive", "background", "attention", "needs you", "idle", "calm", "machine color"]
             ),
             SettingDescriptor(
+                PreviousGlassSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.previousGlass", "Previous Glass Look"),
+                help: SettingsText.keyed("settings.appearance.previousGlass.help", "Draws menus, popovers, the composer and cards with the glass from before November 2026."),
+                kind: .toggle,
+                default: .bool(PreviousGlassSetting.fallback),
+                keywords: ["glass", "liquid glass", "previous", "old", "classic look", "blur", "frost", "translucent", "transparency", "menu", "popover"]
+            ),
+            SettingDescriptor(
                 ExperimentalAppearanceSetting.configPath,
                 section: .appearance,
                 group: group,
@@ -343,44 +353,6 @@ extension AppearanceSettingsSchema {
                 kind: .toggle,
                 default: .bool(WallpaperTintSetting.fallback),
                 keywords: ["wallpaper", "desktop", "tint", "tinting", "glass", "color", "colour", "space", "background"]
-            ),
-        ]
-    }
-}
-
-extension AppearanceSettingsSchema {
-    static var tuning: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.appearanceTuning", "Appearance Tuning")
-        return [
-            SettingDescriptor(
-                AppearanceTuningSetting.glassTransparencyPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.glassTransparency", "Glass Transparency"),
-                help: SettingsText.keyed("settings.appearance.glassTransparency.help", "How much of the desktop or wallpaper shows through the glass."),
-                kind: .number(SettingNumber(AppearanceTuningSetting.glassTransparencyRange, step: 0.05, unit: .fraction)),
-                default: .number(AppearanceTuningSetting.glassTransparencyDefault),
-                keywords: ["glass", "transparency", "alpha", "clear"]
-            ).hiddenFromSettingsPage("duplicates appearance.backgroundOpacity; the key still loads"),
-            SettingDescriptor(
-                AppearanceTuningSetting.huePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.hue", "Hue"),
-                help: SettingsText.keyed("settings.appearance.hue.help", "Shift the tint color around the hue wheel."),
-                kind: .number(SettingNumber(AppearanceTuningSetting.hueRange, step: 0.05, unit: .fraction, placeholder: AppearanceTuningSetting.huePlaceholder)),
-                default: .number(AppearanceTuningSetting.hueDefault),
-                keywords: ["tint", "color", "colour"]
-            ),
-            SettingDescriptor(
-                AppearanceTuningSetting.saturationPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.saturation", "Saturation"),
-                help: SettingsText.keyed("settings.appearance.saturation.help", "Increase or reduce the tint color intensity."),
-                kind: .number(SettingNumber(AppearanceTuningSetting.saturationRange, step: 0.05, unit: .fraction, placeholder: AppearanceTuningSetting.saturationPlaceholder)),
-                default: .number(AppearanceTuningSetting.saturationDefault),
-                keywords: ["tint", "color", "colour", "intensity"]
             ),
         ]
     }
