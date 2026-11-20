@@ -172,8 +172,17 @@ async fn a_page_with_fields_sends_only_those_members() {
     let mut params = filter.clone();
     params["limit"] = json!(1_000);
     let (rows, _) = hub.session_page_rows(&params, false).unwrap();
-    let allowed =
-        ["sessionId", "qualifiedSessionId", "peer", "updatedAt", "status", "name", "lane"];
+    let allowed = [
+        "sessionId",
+        "qualifiedSessionId",
+        "peer",
+        "updatedAt",
+        "status",
+        "harness",
+        "lastSeq",
+        "name",
+        "lane",
+    ];
     let mut peers = 0;
     for row in &rows {
         let BuiltRow::Tree(row) = row else { panic!("a row with fields is built as a tree") };
@@ -185,6 +194,29 @@ async fn a_page_with_fields_sends_only_those_members() {
     assert!(peers > 0, "the peers' rows are cut too");
     let bad = json!({"limit": 5, "fields": "name"});
     assert!(hub.session_page_rows(&bad, false).is_err());
+}
+
+/// A page cut by `fields` still reaches a peer masked: each own row keeps the keys the peer
+/// masking pass knows a summary by, so a secret in a field named (`lastPrompt`) is masked.
+#[tokio::test]
+async fn a_page_with_fields_is_still_masked_for_a_peer() {
+    let hub = mixed_hub();
+    let token = format!("gh{}_{}", "p", "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234");
+    let params = json!({"limit": 1_000, "localOnly": true, "fields": ["lastPrompt"]});
+    let (rows, _) = hub.session_page_rows(&params, false).unwrap();
+    assert!(!rows.is_empty());
+    for row in rows {
+        let BuiltRow::Tree(mut row) = row else { panic!("a row with fields is built as a tree") };
+        row["lastPrompt"] = json!(format!("push with {token}"));
+        let reply = crate::rpc::Message::ok(json!(1), json!({"sessions": [row]}));
+        let Some(crate::rpc::Message::Response { result: Some(result), .. }) =
+            crate::server::peer_text::masked(&reply)
+        else {
+            panic!("a cut row was not masked for a peer: {row}")
+        };
+        let text = result.to_string();
+        assert!(!text.contains("ghp_"), "a raw token reached a peer: {text}");
+    }
 }
 
 /// Every byte page of a whole read with no `limit`, following each `nextCursor`, as the reply
