@@ -27,10 +27,18 @@
 // trees in one run, interleaved A B B A for `--rounds` rounds (default 6) with a base-against-base noise floor, and
 // prints each arm's median and spread (composer-arms.ts).
 //   bun bench/composer-typing.bench.ts [--lengths 60,1500,6000] [--keys 60] [--gap 80] [--modes idle,stream] [--dev] [--profile]
-//     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor]
+//     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor] [--queue 10] [--engine webkit] [--cold]
+// With --queue N the chat has N prompts waiting in its queue above the composer (ComposerQueue), which a key
+// should neither render nor lay out.
+// `--engine webkit` types the same keys in Playwright's WebKit, the engine the Mac app ships: the page's own typing
+// rows (to_listener, to_work, to_frame) and the render counts only, since the layout, style, script and task columns,
+// --profile and --trace read Chromium's DevTools protocol.
 /// <reference types="bun" />
 import path from "node:path";
-import { chromium } from "./browsers";
+import { chromium, webkit } from "./browsers";
+import { runComposerLoad } from "./composer-load";
+import { composerTypingRows } from "./composerTypingRows";
+import { perfRow } from "./perfRow";
 import { requireProductionReact, installReactWatch } from "./support/benchPage";
 import type { Page } from "playwright";
 import { parseArms, runArms, servePane } from "./composer-arms";
@@ -46,9 +54,28 @@ const flag = (name: string) => {
 const LENGTHS = (flag("--lengths") ?? "60,1500,6000").split(",").map(Number);
 const KEYS = Number(flag("--keys") ?? 60);
 const GAP_MS = Number(flag("--gap") ?? 80);
-const MODES = (flag("--modes") ?? "idle").split(",") as ("idle" | "stream")[];
+const MODES = (flag("--mode") ?? flag("--modes") ?? "idle").split(",");
+const ENGINES = (flag("--engines") ?? "chromium").split(",");
+const STREAM = Number(flag("--stream") ?? 60);
+const TOOL_LINES = Number(flag("--tool-lines") ?? 2000);
+if (
+  MODES.some((mode) => !["idle", "stream", "L0", "L1", "L2", "L3"].includes(mode)) ||
+  ENGINES.some((engine) => !["chromium", "webkit"].includes(engine)) ||
+  !Number.isInteger(KEYS) ||
+  KEYS < 1 ||
+  KEYS > 4096 ||
+  !Number.isFinite(GAP_MS) ||
+  GAP_MS < 1 ||
+  KEYS * GAP_MS > 90000 ||
+  LENGTHS.some((length) => !Number.isInteger(length) || length < 1)
+)
+  throw new Error("Invalid benchmark modes, engines, keys, gap or lengths (typing window must be <=90s)");
 /// With --profile: a CPU profile over the typed keys, and the functions with the most time per key (inclusive and self).
 const PROFILE = argv.includes("--profile");
+if (PROFILE && (ENGINES.includes("webkit") || MODES.some((mode) => mode.startsWith("L"))))
+  throw new Error(
+    "--profile currently supports legacy Chromium idle/stream only; L modes report observer capability explicitly",
+  );
 const DEV = argv.includes("--dev");
 /// With --trace: a Chromium trace with style invalidation tracking over the typed keys and, in stream mode, over a 2 s
 /// stream with no typing; it prints elements restyled per key and per token and what restyled them
@@ -58,6 +85,13 @@ const webviews = path.resolve(import.meta.dir, "..");
 const ARMS = parseArms(flag("--arms"), webviews);
 const ROUNDS = Number(flag("--rounds") ?? 6);
 const FLOOR = !argv.includes("--no-floor");
+const COLD = argv.includes("--cold");
+const ENGINE = flag("--engine") ?? "chromium";
+if (ENGINE !== "chromium" && ENGINE !== "webkit") throw new Error(`--engine must be chromium or webkit, not ${ENGINE}`);
+if (ENGINE === "webkit" && (PROFILE || TRACE))
+  throw new Error("--profile and --trace read Chromium's DevTools protocol");
+/// Prompts waiting in the chat's queue while the keys are typed (0: none).
+const QUEUED = Number(flag("--queue") ?? 0);
 /// What an A/B of arms summarizes: key to frame, key to listener and the long tasks.
 const ARM_METRICS = [
   "to_frame_p50",
@@ -88,11 +122,12 @@ async function openChat(page: Page, port: number, turns: number) {
   // right after `goto` read as "no react-dom on this page" (bench/support/benchPage.ts).
   await requireProductionReact(page, { dev: DEV });
   const seeded = (await page.evaluate(
-    (count) => (window as any).cmuxAcpmuxDebug.loadSeed(count, { light: true }),
-    turns,
+    ([count, queued]) => (window as any).cmuxAcpmuxDebug.loadSeed(count, { light: true, queued }),
+    [turns, QUEUED] as const,
   )) as Record<string, any>;
   if (seeded.error) throw new Error(`loadSeed: ${seeded.error}`);
   await page.locator(PROMPT).first().waitFor({ timeout: 20_000 });
+  if (QUEUED > 0) await page.locator(".acpmux-composer-queue .acpmux-queued").first().waitFor({ timeout: 20_000 });
   return seeded.rows as number;
 }
 
@@ -166,15 +201,40 @@ const serveOptions = {
 };
 
 /// One length in one mode on the pane served at `port`: a fresh browser process and page, the keys typed, its row.
-async function measure(port: number, length: number, mode: "idle" | "stream"): Promise<Record<string, unknown>> {
-  const browser = await chromium.launch({ headless: true });
+async function measure(
+  port: number,
+  length: number,
+  mode: string,
+  engine: "chromium" | "webkit" = ENGINE as "chromium" | "webkit",
+): Promise<Record<string, unknown>> {
+  const browser = await (engine === "webkit" ? webkit : chromium).launch({ headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
+    if (mode.startsWith("L") || engine === "webkit") {
+      const canonical = mode === "idle" ? "L0" : mode === "stream" ? "L1" : mode;
+      try {
+        return {
+          engine,
+          ...(await runComposerLoad(page, {
+            port,
+            mode: canonical,
+            length,
+            keys: KEYS,
+            gap: GAP_MS,
+            stream: STREAM,
+            toolLines: TOOL_LINES,
+          })),
+        };
+      } finally {
+        await page.close();
+      }
+    }
     await page.addInitScript(longTaskProbe);
     const rows = await openChat(page, port, Math.max(1, Math.round(length / 3)));
+    // WebKit returned above (runComposerLoad): this run is Chromium's, with its DevTools session.
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Performance.enable");
-    const metrics = async () => {
+    const metrics = async (): Promise<Record<string, number>> => {
       const { metrics: list } = (await cdp.send("Performance.getMetrics")) as {
         metrics: { name: string; value: number }[];
       };
@@ -183,10 +243,13 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
       );
     };
     await page.locator(PROMPT).first().click();
-    // Warm-up: the first keys load the composer's lazy parts (emoji data, the mention index).
-    for (const key of "warm") await page.keyboard.press(key);
-    await page.waitForTimeout(500);
-    for (let i = 0; i < 4; i += 1) await page.keyboard.press("Backspace");
+    // Warm-up: the first keys load the composer's lazy parts (emoji data, the mention index). With --cold the
+    // measured keys are the chat's first, as the perf cron's chat-anim part types them (agent-engine-bench.py).
+    if (!COLD) {
+      for (const key of "warm") await page.keyboard.press(key);
+      await page.waitForTimeout(500);
+      for (let i = 0; i < 4; i += 1) await page.keyboard.press("Backspace");
+    }
     await page.waitForTimeout(500);
     await page.evaluate(() => {
       const debug = (window as any).cmuxAcpmuxDebug;
@@ -202,7 +265,7 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
     const streaming =
       mode === "stream"
         ? page.evaluate(
-            (seconds) =>
+            (seconds: number) =>
               (window as any).cmuxAcpmuxDebug.loadRun({ seconds, chunk_ms: 16, tool_every: 30, scroll_speed: 0 }),
             (KEYS * (GAP_MS + 20)) / 1000 + 1,
           )
@@ -309,12 +372,15 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
         .reduce((total, [, value]) => total + value, 0);
     const delta = (name: string) => (after[name] ?? 0) - (before[name] ?? 0);
     return {
+      engine,
       mode,
       rows,
       keys: typing.keys,
       pane: per(renders.pane ?? 0),
       transcript: per(renders.transcript ?? 0),
       composer: per(renders.composer ?? 0),
+      queue: per(renders["composer:queue"] ?? 0),
+      queued: QUEUED,
       rowRenders: per(sum("row:") + sum("content:")),
       rowFrames: per(sum("frame:")),
       layouts: per(delta("LayoutCount")),
@@ -348,6 +414,8 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
 
 try {
   const cases = LENGTHS.flatMap((length) => MODES.map((mode) => ({ length, mode })));
+  if (ARMS && ENGINES.some((engine) => engine === "webkit"))
+    throw new Error("--engines webkit cannot be combined with --arms; run WebKit as a single source tree");
   if (ARMS) {
     // Two source trees in one run: each built and served once, then every case interleaved (composer-arms.ts).
     const ports = new Map<string, number>();
@@ -369,13 +437,17 @@ try {
   } else {
     const port = await servePane(webviews, serveOptions, releases);
     const table: Record<string, unknown>[] = [];
-    for (const { length, mode } of cases) table.push(await measure(port, length, mode));
+    for (const engine of ENGINES)
+      for (const { length, mode } of cases)
+        table.push(await measure(port, length, mode, engine as "chromium" | "webkit"));
     console.table(table.map(({ busiest: _, nativePosts: __, ...row }) => row));
     for (const row of table)
       console.log(
         `${String(row.mode)} ${String(row.rows)} rows: ${String(row.busiest)}; native posts ${String(row.nativePosts)}`,
       );
     console.log(`COMPOSER-TYPING ${JSON.stringify(table)}`);
+    // Load modes only: the rows web-ui-suite.ts collects for perf-cron.py (web-ui-typing) and `cmux-bench typing`.
+    for (const row of composerTypingRows(table)) perfRow(row);
   }
 } finally {
   for (const release of releases.reverse()) await release();

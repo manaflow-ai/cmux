@@ -91,6 +91,8 @@ const COMMANDS: &[&str] = &[
     "set-split-ratio",
     "set-divider-visible",
     "set-viewport-pane-width",
+    // The values of `set-split-ratio` and `set-viewport-pane-width` as one change.
+    "set-layout-sizes",
     "set-row-heights",
     "undo-layout",
     "zoom-pane",
@@ -130,6 +132,9 @@ const CAPABILITIES: &[&str] = &[
     VIEWPORT_COLUMN_RESIZE_CAPABILITY,
     LAYOUT_UNDO_CAPABILITY,
     LAYOUT_DELTA_CAPABILITY,
+    // `set-layout-sizes` is in COMMANDS. The app sends it only where identify lists this name;
+    // without it here a resize gesture's values go as single commands, each its own commit.
+    LAYOUT_SIZES_BATCH_CAPABILITY,
     // Both ride commands this carrier already admits (`set-divider-visible`, `split`).
     crate::mux::SPLIT_DIVIDER_VISIBILITY_CAPABILITY,
     split_kind::SPLIT_AROUND_CAPABILITY,
@@ -157,6 +162,7 @@ const CAPABILITIES: &[&str] = &[
     agent_session_attach::AGENT_SESSION_ATTENTION_CAPABILITY,
     agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY,
     agent_session_attach::AGENT_SESSION_BTW_CAPABILITY,
+    agent_session_attach::AGENT_SESSION_PAGE_BYTES_CAPABILITY,
     agent_session_attach::agent_session_children::AGENT_SESSION_CHILDREN_CAPABILITY,
     agent_session_attach::member::AGENT_SESSION_MEMBER_CAPABILITY,
     agent_session_attach::member::AGENT_SESSION_STEER_CAPABILITY,
@@ -335,6 +341,7 @@ pub(super) fn raw_command(mux: &Mux, client: u64, command: &Command) -> bool {
         | Command::SetSplitRatio { .. }
         | Command::SetDividerVisible { .. }
         | Command::SetViewportPaneWidth { .. }
+        | Command::SetLayoutSizes { .. }
         | Command::SetRowHeights { .. }
         | Command::UndoLayout { .. }
         | Command::ZoomPane { .. }

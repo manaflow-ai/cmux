@@ -67,5 +67,17 @@
       "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
       "about": "The prompt bubble's corner radius. Unset: 12 px at the chat's text scale. A corner never changes the bubble's box."
     }
+  ],
+  "pending": [
+    {
+      "name": "--menu-*",
+      "pr": "https://github.com/manaflow-ai/cmux/pull/46846",
+      "about": "Menus and pickers (radius, fill, edge, row height, hover, separators, labels). A look may set them ahead; nothing reads them until that PR lands, so they are inert. A token moves to `tokens` (and its checks) when it does."
+    },
+    {
+      "name": "--cv-user-bubble-text",
+      "pr": "https://github.com/manaflow-ai/cmux/pull/46490",
+      "about": "The prompt bubble's text color. Inert until that PR lands; it moves to `tokens` there."
+    }
   ]
 }

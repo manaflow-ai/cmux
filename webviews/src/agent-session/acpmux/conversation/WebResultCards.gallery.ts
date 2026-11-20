@@ -107,7 +107,7 @@ export default agentPaneEntry({
       snapshot: turn(),
       chipHost,
       play: restyled(
-        ".cv-web-sources__host { display: none; } .cv-web-sources__hosts { gap: 0; } .cv-web-sources__named + .cv-web-sources__named { margin-left: -4px; } .cv-web-sources__named .cv-web-sources__icon { border-radius: 4px; background: var(--cv-card-fill, var(--cv-card-fill-base)); }",
+        ".cv-web-sources__host { display: none; } .cv-web-sources__hosts { gap: 0; } .cv-web-sources__named + .cv-web-sources__named { margin-left: -4px; } .cv-web-sources__named .cv-web-sources__icon { border-radius: 4px; background: var(--cv-card-fill, var(--ds-surface-card)); }",
         false,
       ),
     },

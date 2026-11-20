@@ -68,6 +68,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(agent_session_attach::member::AGENT_SESSION_QUEUE_DECISION_CAPABILITY);
         capabilities.push(agent_session_attach::member::AGENT_SESSION_MEMBER_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_BTW_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_PAGE_BYTES_CAPABILITY);
         capabilities.push(agent_inventory::CAPABILITY);
         capabilities.push(agent_inventory::OWNER_CAPABILITY);
         capabilities.push(agent_inventory::REFRESH_CAPABILITY);
@@ -104,6 +105,10 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY);
         // The owner's model credential with the start and its refresh (agent_session_start.rs).
         capabilities.push(AGENT_SESSION_START_CREDENTIALS_CAPABILITY);
+        // A Codex credential's provider reaches app-server (acpmux agent_credentials.rs, cmux#45774).
+        capabilities.push(AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY);
+        // The owner's coming start warmed ahead (agent_session_prewarm.rs, cmux#45953).
+        capabilities.push(AGENT_SESSION_PREWARM_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_update() {
@@ -233,6 +238,7 @@ pub fn build_capabilities() -> Vec<&'static str> {
             && *capability != crate::git_seed::GIT_SEED_EXPORT_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_HOLD_CAPABILITY
             && *capability != crate::blob_fetch::BLOB_FETCH_CAPABILITY
+            && *capability != crate::projection::PROJECTION_CAPABILITY
             && *capability != BROWSER_RUNTIME_CAPABILITY
     });
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
@@ -279,6 +285,7 @@ pub(super) fn advertised_capabilities(
         ROWS_CAPABILITY,
         rows::ROW_CLIENT_KEYS_CAPABILITY,
         floating_panes::FLOATING_PANES_CAPABILITY,
+        floating_panes::QUICK_TERMINAL_CAPABILITY,
         COLUMN_MOVE_CAPABILITY,
         split_kind::COLUMN_LEFT_CAPABILITY,
         PANE_BROWSER_KIND_CAPABILITY,
@@ -492,6 +499,7 @@ pub(super) fn advertised_capabilities(
         crate::request_origin::page_router_table::PAGE_EVENTS_CAPABILITY,
         crate::browser_host::BROWSER_HOST_PROVIDER_CAPABILITY,
         crate::remote_host::REMOTE_HOST_CAPABILITY,
+        crate::computer_use_host::COMPUTER_USE_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_ACTIVATE_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,
         crate::mux::tab_strip::tab_place::CAPABILITY,
@@ -511,6 +519,8 @@ pub(super) fn advertised_capabilities(
     capabilities.extend(crate::git_seed::advertised());
     #[cfg(unix)]
     capabilities.extend(crate::blob_fetch::advertised());
+    #[cfg(unix)]
+    capabilities.extend(crate::projection::advertised());
     #[cfg(unix)]
     capabilities.push(BROWSER_RUNTIME_CAPABILITY);
     #[cfg(unix)]

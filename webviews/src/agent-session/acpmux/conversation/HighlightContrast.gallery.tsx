@@ -155,7 +155,7 @@ function Board({ strategy }: { strategy: Strategy }) {
           style={{
             padding: "var(--ds-space-2) var(--ds-space-3)",
             borderRadius: "var(--ds-radius-xl)",
-            background: "var(--cv-card-fill, var(--cv-card-fill-base))",
+            background: "var(--cv-card-fill, var(--ds-surface-card))",
             color: "var(--cv-text-muted)",
           }}
         >

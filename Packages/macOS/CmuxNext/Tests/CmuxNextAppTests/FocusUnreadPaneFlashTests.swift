@@ -14,10 +14,16 @@ import Testing
 @Suite(.serialized)
 struct FocusUnreadPaneFlashTests {
     /// One workspace, two panes side by side; only `unreadPane`'s tab holds an unread notification.
-    private static func tree(unreadKind: TabKind) -> DaemonTree {
-        let marker = TabNotification(notification: NotificationID(rawValue: 9), unread: true, level: .info, source: "terminal")
+    /// `agentChat`: the unread tab is an agent chat (a conversation tab on an acpmux session), whose
+    /// page never loads in a test: the chat is still loading for as long as the test runs.
+    private static func tree(unreadKind: TabKind, agentChat: Bool = false) -> DaemonTree {
+        let marker = TabNotification(notification: NotificationID(rawValue: 9), unread: true, level: .info, source: agentChat ? "agent" : "terminal")
         let first = PaneSnapshot(id: PaneID(rawValue: 1), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 1), title: "~")])
-        let second = PaneSnapshot(id: PaneID(rawValue: 2), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 2), kind: unreadKind, title: "~", notification: marker)])
+        var unreadTab = TabSnapshot(surface: SurfaceID(rawValue: 2), kind: agentChat ? .conversation : unreadKind, title: "~", notification: marker)
+        if agentChat {
+            unreadTab.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "install:focus-flash", session: "loading-chat", harness: "claude"))
+        }
+        let second = PaneSnapshot(id: PaneID(rawValue: 2), tabs: [unreadTab])
         let layout: LayoutNode = .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(first.id), b: .leaf(second.id))
         let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: layout, panes: [first, second])
         var tree = DaemonTree(registryID: "s-local", workspaces: [
@@ -36,7 +42,7 @@ struct FocusUnreadPaneFlashTests {
         let unread: PaneModel
     }
 
-    static func open(unreadKind: TabKind = .pty) async throws -> Fixture {
+    static func open(unreadKind: TabKind = .pty, agentChat: Bool = false) async throws -> Fixture {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]), keyWindowSource: { nil }, appActiveSource: { true },
                                    heldKeyReplay: { event, _, _ in NSApp?.sendEvent(event) })
@@ -46,7 +52,7 @@ struct FocusUnreadPaneFlashTests {
         let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(#"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1"}"#.utf8))
         store.noteHandshake(identity)
         store.connectionState = .connected(identity)
-        store.apply(snapshot: Self.tree(unreadKind: unreadKind))
+        store.apply(snapshot: Self.tree(unreadKind: unreadKind, agentChat: agentChat))
         let controller = try #require(services.windows.openWindow(workspaces: ["focus-flash-ws"], frame: CGRect(x: 200, y: 200, width: 1200, height: 760)))
         let window = try #require(controller.window)
         try await PinnedPageTests.until({ controller.workspaceContent?.panes.count == 2 && controller.focus.state.pane != nil })
@@ -100,7 +106,8 @@ struct FocusUnreadPaneFlashTests {
     /// one looked at, so focusing it reads its notification and its ring goes.
     @Test func aPageWindowHoldingTheKeyStillReadsTheFocusedPane() async throws {
         let fixture = try await Self.open()
-        let page = NSWindow(contentRect: CGRect(x: 300, y: 300, width: 200, height: 200), styleMask: [.borderless], backing: .buffered, defer: true)
+        // A Chromium page window by class (`CefNSWindow`): only one holds its cmux window's keyboard (5a229741).
+        let page = try WindowHoldsKeyboardTests.pageWindowClass().init(contentRect: CGRect(x: 300, y: 300, width: 200, height: 200), styleMask: [.borderless], backing: .buffered, defer: true)
         page.isReleasedWhenClosed = false
         defer {
             fixture.services.keyWindowSource = { nil }
