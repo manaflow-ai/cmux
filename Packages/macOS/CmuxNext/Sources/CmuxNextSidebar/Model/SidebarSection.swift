@@ -1,7 +1,7 @@
 public import Foundation
 
 /// A top-level sidebar section: the pinned area or one machine.
-public nonisolated enum SectionID: Hashable, Sendable {
+public nonisolated enum SectionID: Hashable, Sendable, Codable {
     case pinned
     case machine(MachineID)
     /// A sidebar document section that is not a machine's (Pinned, a

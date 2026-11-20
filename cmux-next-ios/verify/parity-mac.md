@@ -855,3 +855,10 @@ or the relay. States here are from the live run in this batch's proof report. Ri
 | Phone tab: rotate, appearance, software keyboard, volume, app switcher | — | blocked (#13742) | The simulator stream takes `button` home and lock only (`cmux-mobile-host/src/surface.rs` `BUTTONS`; the Mac's `SimulatorSurfaceServer` maps only those). Each needs a new stream input in the mobile host and the Mac's surface server. The phone's own keyboard toggle (typing into the simulator) is already in the accessory bar. |
 
 | Pre-claim spare login receipt from the Mac Keychain (`CloudSpareWarm`, Rust `spare_warm`) | — | — | not from a phone | Reuses the Mac-owned credential transfer; the phone cannot read the Mac Keychain or initiate local credential-copy commands (SECURITY.md, Remote CLI relay). No new phone operation. |
+
+
+### Native Mac archive placement (2026-11-19)
+
+| Mac surface | iPhone surface | Scope | Notes |
+| --- | --- | --- | --- |
+| `sidebar.archivedPlacement`: per-group Archived disclosures or one Archive section | No native Mac sidebar on iPhone | not from a phone — Mac-only chrome | This setting chooses the Mac sidebar's presentation and remembers disclosures per Mac window. It changes no archive commands, workspace membership, or phone navigation. The phone's existing workspace and chat lists are unchanged. |

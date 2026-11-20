@@ -131,6 +131,7 @@ nonisolated struct SidebarItemOrderInputs: Equatable, Sendable {
     var transientTopItems: [SidebarTransientItem]
     var grouping: SidebarGrouping
     var collapsedLayoutSections: Set<LayoutSectionID>
+    var archivedPlacement: SidebarArchivedPlacement
     var rowLimit: Int
     var openDoneFolds: Set<SidebarDoneFoldID>
     var openShowMore: Set<SidebarDoneFoldID>
@@ -146,6 +147,7 @@ nonisolated struct SidebarItemOrderInputs: Equatable, Sendable {
         transientTopItems = model.transientTopItems
         grouping = model.grouping
         collapsedLayoutSections = model.collapsedLayoutSections
+        archivedPlacement = DesignSettings.shared.sidebarSections.archivedPlacement
         rowLimit = SidebarTunables.rowLimit
         (openDoneFolds, openShowMore) = (model.openDoneFolds, model.openShowMore)
         treeShape = SidebarSessionTree.shared.drawn?.shape

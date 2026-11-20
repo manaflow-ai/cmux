@@ -1,0 +1,50 @@
+{
+  "caption": "Keep archived workspaces folded beneath their original groups.",
+  "settings": {
+    "sidebar.archivedPlacement": "withinGroups"
+  },
+  "frameInterval": 0.25,
+  "crop": [
+    0,
+    0,
+    0.32,
+    0.85
+  ],
+  "steps": [
+    {
+      "title": "Within groups: mixed, all archived, nested and empty groups; folds closed",
+      "rpc": {
+        "method": "debug.sidebar_nested_fixture",
+        "params": {
+          "scenario": "archived",
+          "openArchived": false
+        }
+      },
+      "wait": 1.5
+    },
+    {
+      "title": "Expanded archives stay under their groups; ungrouped archive remains global",
+      "rpc": {
+        "method": "debug.sidebar_nested_fixture",
+        "params": {
+          "scenario": "archived",
+          "openArchived": true
+        }
+      },
+      "clip": true,
+      "wait": 1.5
+    },
+    {
+      "title": "Collapse archives again",
+      "rpc": {
+        "method": "debug.sidebar_nested_fixture",
+        "params": {
+          "scenario": "archived",
+          "openArchived": false
+        }
+      },
+      "clip": true,
+      "wait": 1.5
+    }
+  ]
+}

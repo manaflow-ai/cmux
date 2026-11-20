@@ -36,6 +36,7 @@ struct DebugSidebarNestedFixture {
         let fixture = SidebarNestedFixture(scenario: scenario)
         sidebar.restore(width: fixture.width, hidden: false)
         sidebar.model.filterText = ""
+        fixture.applyArchivedFolds(params["openArchived"]?.boolValue, to: sidebar.model)
         sidebar.rows.fixture = fixture.sections
         // The needs-you scenario's who-started-whom, while the session tree is on (the feed's next pass replaces it).
         if !fixture.parents.isEmpty, var tree = SidebarSessionTree.shared.state {

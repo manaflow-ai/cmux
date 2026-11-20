@@ -2,9 +2,9 @@ import CmuxNextDesign
 import CoreGraphics
 
 /// A list's fold: a group's members, or a section's loose rows, that fold behind one row at the list's end.
-public nonisolated struct SidebarDoneFoldID: Hashable, Sendable {
+public nonisolated struct SidebarDoneFoldID: Hashable, Sendable, Codable {
     /// What a fold holds.
-    public enum Kind: Hashable, Sendable {
+    public enum Kind: Hashable, Sendable, Codable {
         /// Workspaces marked Done: the "Done (N)" row.
         case done
         /// Archived workspaces: the "Archived (N)" row, after the Done row (Lawrence 18470, gallery pick V2).

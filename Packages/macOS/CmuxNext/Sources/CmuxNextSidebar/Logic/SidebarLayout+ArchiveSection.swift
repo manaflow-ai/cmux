@@ -25,7 +25,7 @@ nonisolated extension SidebarLayout {
     }
 
     /// Splits `sections` for the Archive section; `active` keeps its place in its list.
-    static func splittingArchive(_ sections: [SidebarSection], keeping active: WorkspaceID?) -> ArchiveSplit {
+    static func splittingArchive(_ sections: [SidebarSection], keeping active: WorkspaceID?, withinGroups: Bool = false) -> ArchiveSplit {
         var split = ArchiveSplit(live: [], archived: [], count: 0)
         for section in sections {
             // Pinned holds no groups and its rows are the person's picks: it keeps them.
@@ -49,6 +49,12 @@ nonisolated extension SidebarLayout {
                 case let .item(item):
                     if item.isArchived { held.nodes.append(node) } else { live.nodes.append(node) }
                 case var .group(group):
+                    // Presentation only: retain the complete group, its order and its parent chain.
+                    // The existing per-group Archived fold owns its members, even when all are archived.
+                    if withinGroups {
+                        live.nodes.append(.group(group))
+                        continue
+                    }
                     let holdsActive = active.map { id in group.workspaces.contains { $0.id == id } } ?? false
                     let parentMoved = group.parent.flatMap { movedDepth[$0] }
                     let allArchived = !group.workspaces.isEmpty && group.workspaces.allSatisfy(\.isArchived)

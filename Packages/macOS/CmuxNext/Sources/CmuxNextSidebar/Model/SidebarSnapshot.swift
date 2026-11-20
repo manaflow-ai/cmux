@@ -9,6 +9,8 @@ package nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
     package var sections: [Section]
     package var profiles: [Profile]
     package var activeProfileID: String?
+    /// Optional so snapshots from before per-list disclosure persistence still decode.
+    package var openDoneFolds: Set<SidebarDoneFoldID>?
 
     package struct Section: Codable, Hashable, Sendable {
         /// Nil for the pinned section.

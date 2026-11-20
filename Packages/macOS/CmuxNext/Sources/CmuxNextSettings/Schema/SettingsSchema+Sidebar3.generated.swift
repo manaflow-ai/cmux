@@ -173,6 +173,19 @@ extension SidebarSettingsSchema {
                 default: .bool(SidebarNavigationSetting.steppingWrapsDefault),
                 keywords: ["sidebar", "next", "previous", "wrap"]
             ),
+            SettingDescriptor(
+                SidebarSectionsSetting.archivedPlacementPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.archivedPlacement", "Show archived workspaces"),
+                help: SettingsText.keyed("settings.sidebar.archivedPlacement.help", "Keep archived workspaces folded within their groups, or collect them in Archive. Ungrouped workspaces always use Archive."),
+                kind: .choice([
+                    SettingChoice(SidebarArchivedPlacement.withinGroups.rawValue, SettingsText.keyed("settings.choice.archivedPlacement.withinGroups", "Within their groups")),
+                    SettingChoice(SidebarArchivedPlacement.archiveSection.rawValue, SettingsText.keyed("settings.choice.archivedPlacement.archiveSection", "In the Archive section")),
+                ]),
+                default: .string(SidebarSectionsSetting.archivedPlacementDefault.rawValue),
+                keywords: ["archive", "archived", "workspace", "group", "fold"]
+            ),
         ]
     }
 }

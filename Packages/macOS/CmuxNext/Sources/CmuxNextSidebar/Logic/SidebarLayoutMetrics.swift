@@ -179,6 +179,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// Archived workspaces and wholly archived groups leave their lists for one closed "Archive (N)" row at the bottom
     /// of the sidebar (`SidebarLayout+ArchiveSection`, Lawrence 19197); on by default. Off, ``foldsArchived`` applies.
     public var archiveSection = true
+    /// Keep groups and their archived members in place; only loose archives move to Archive.
+    public var archivesWithinGroups = false
     /// The "Done (N)" and "Archived (N)" rows the person opened (by ``SidebarDoneFoldID/kind``): their workspaces list
     /// below them.
     public var openDoneFolds: Set<SidebarDoneFoldID> = []

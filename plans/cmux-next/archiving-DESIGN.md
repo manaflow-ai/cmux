@@ -66,3 +66,16 @@ The document keeps rule 1 (an archived item keeps its section and group) and rul
 list draws them apart: archived workspaces and wholly archived groups (archived, or every workspace archived) sit
 under one "Archive (N)" row at the bottom of the sidebar, closed by default (`SidebarLayout+ArchiveSection`). The
 active workspace, a filter, the session tree and Group by Status draw them in place.
+
+
+## Optional within-group folds
+
+`sidebar.archivedPlacement` chooses `withinGroups` or `archiveSection` (the existing default).
+Within groups, each group retains all of its members and draws its existing Archived fold after
+its live and Done members. Each disclosure retains its own window-model state across refreshes, placement switches and
+relaunches through the existing per-window sidebar snapshot. Empty groups have no Archived row; fully archived groups and nested
+parent links remain in place. Ungrouped archives still use the global Archive. Pins, filters,
+status grouping, the session tree and the active workspace keep their existing behavior.
+The setting changes native sidebar presentation only; archive state, undo and membership remain
+owned by the document. The native fold layout stays in Swift because it produces native row
+geometry and shares the existing disclosure, accessibility and navigation paths.

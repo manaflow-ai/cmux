@@ -2062,6 +2062,17 @@
       "title" : "Theme File",
       "type" : "string"
     },
+    "appearance.themeFileExceptions" : {
+      "default" : [
+
+      ],
+      "description" : "Settings you changed while a theme file sets them. Your value applies over the file's; resetting the row returns to the file's. Choosing another theme file clears the list.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Changed Over Theme File",
+      "type" : "array"
+    },
     "appearance.titleAreaContrast" : {
       "default" : 1,
       "description" : "How much darker the title bar, tab bar and sidebar are. 1 is the default.",
@@ -4686,6 +4697,16 @@
       "description" : "Hold Command or Control for 0.30 seconds to show shortcut hints.",
       "title" : "Show Shortcuts When Holding a Modifier",
       "type" : "boolean"
+    },
+    "sidebar.archivedPlacement" : {
+      "default" : "archiveSection",
+      "description" : "Keep archived workspaces folded within their groups, or collect them in Archive. Ungrouped workspaces always use Archive.",
+      "enum" : [
+        "withinGroups",
+        "archiveSection"
+      ],
+      "title" : "Show archived workspaces",
+      "type" : "string"
     },
     "sidebar.border" : {
       "default" : false,
