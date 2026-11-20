@@ -126,6 +126,7 @@ pub(super) fn release_interval(rate: std::num::NonZeroU16) -> Duration {
 pub(super) struct Gates {
     by_url: Mutex<HashMap<reqwest::Url, Arc<Gate>>>,
     path: Option<PathBuf>,
+    pub(super) changed: Notify,
 }
 
 impl Gates {
@@ -142,7 +143,7 @@ impl Gates {
                 Some((reqwest::Url::parse(&url).ok()?, Arc::new(Gate::new(at))))
             })
             .collect();
-        Self { path, by_url: Mutex::new(by_url) }
+        Self { path, by_url: Mutex::new(by_url), changed: Notify::new() }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<reqwest::Url, Arc<Gate>>> {
@@ -163,7 +164,10 @@ impl Gates {
                 Some((url.as_str(), at))
             })
             .collect();
-        if let Err(error) = super::atomic_json::write_json_atomic(path, &json!(deadlines)) {
+        let result = serde_json::to_vec(&deadlines)
+            .map_err(anyhow::Error::from)
+            .and_then(|bytes| crate::config::write_atomic(path, &bytes));
+        if let Err(error) = result {
             tracing::warn!(%error, "could not save Claude capacity gate deadlines");
         }
     }
@@ -185,6 +189,7 @@ struct State {
     next_id: u64,
     generation: u64,
     worker_started: bool,
+    backlog: usize,
     waiters: BTreeMap<(bool, u64), Arc<Notify>>,
 }
 
@@ -202,6 +207,7 @@ impl Gate {
                 next_id: 0,
                 generation: 0,
                 worker_started: false,
+                backlog: 0,
                 waiters: BTreeMap::new(),
             }),
             changed: Notify::new(),
@@ -216,6 +222,15 @@ impl Gate {
         !matches!(self.state().phase, Phase::Open)
     }
 
+    pub(super) fn watch_backlog(self: &Arc<Self>) -> Option<Backlog> {
+        let mut state = self.state();
+        if matches!(state.phase, Phase::Open) {
+            return None;
+        }
+        state.backlog += 1;
+        Some(Backlog(self.clone()))
+    }
+
     pub(super) fn join(self: &Arc<Self>, priority: bool) -> Ticket {
         let mut state = self.state();
         let key = (!priority, state.next_id);
@@ -224,6 +239,18 @@ impl Gate {
         state.waiters.insert(key, ready.clone());
         self.changed.notify_one();
         Ticket { gate: self.clone(), key, ready }
+    }
+}
+
+pub(super) struct Backlog(Arc<Gate>);
+
+impl Drop for Backlog {
+    fn drop(&mut self) {
+        let mut state = self.0.state();
+        state.backlog -= 1;
+        if state.backlog == 0 {
+            self.0.changed.notify_one();
+        }
     }
 }
 
@@ -347,21 +374,38 @@ impl Hub {
     pub(super) fn capacity_close(self: &Arc<Self>, route: Route, retry_at: Option<u64>) {
         let deadline = retry_at.unwrap_or_else(|| now_ms().saturating_add(DEFAULT_RETRY_MS));
         let mut gates = self.capacity.lock();
+        let new = !gates.contains_key(&route.url);
         let gate =
             gates.entry(route.url.clone()).or_insert_with(|| Arc::new(Gate::new(deadline))).clone();
-        {
+        let (closing, changed) = {
             let mut state = gate.state();
             match &mut state.phase {
-                Phase::Closed(until) => *until = (*until).max(deadline),
+                Phase::Closed(until) if deadline > *until => {
+                    *until = deadline;
+                    (false, true)
+                }
+                Phase::Closed(_) => (new, new),
                 _ => {
                     state.generation += 1;
                     state.phase = Phase::Closed(deadline);
+                    (true, true)
                 }
             }
+        };
+        if changed {
+            self.capacity.save(&gates);
         }
-        self.capacity.save(&gates);
         drop(gates);
-        gate.changed.notify_one();
+        if closing {
+            tracing::info!(
+                retry_at_ms = deadline,
+                "Claude gateway capacity exhausted; holding turns"
+            );
+            self.capacity.changed.notify_waiters();
+        }
+        if changed {
+            gate.changed.notify_one();
+        }
         self.capacity_worker(route, gate);
     }
 
@@ -435,7 +479,8 @@ impl Hub {
                                 ready.notify_one();
                                 Action::Wait(None)
                             }
-                            None => Action::Finish,
+                            None if state.backlog == 0 => Action::Finish,
+                            None => Action::Wait(None),
                         },
                         Phase::Open => return,
                     }
@@ -476,7 +521,10 @@ impl Hub {
                         let Some(hub) = hub.upgrade() else { return };
                         let mut gates = hub.capacity.lock();
                         let mut state = gate.state();
-                        if matches!(state.phase, Phase::Releasing(_)) && state.waiters.is_empty() {
+                        if matches!(state.phase, Phase::Releasing(_))
+                            && state.waiters.is_empty()
+                            && state.backlog == 0
+                        {
                             state.phase = Phase::Open;
                             state.worker_started = false;
                             drop(state);
@@ -491,7 +539,7 @@ impl Hub {
 }
 
 pub(super) fn priority(session: &Session, prompt: Option<&str>) -> bool {
-    let meta = session.meta();
+    let meta = session.meta.lock().unwrap_or_else(|err| err.into_inner());
     let name = meta.name.rsplit('/').next().unwrap_or_default().to_ascii_lowercase();
     let tag = |key: &str| {
         meta.tags
@@ -537,6 +585,10 @@ mod capacity_gate_tests {
         assert!(ordinary.take(interval).is_none());
         gate.state().phase = Phase::Releasing(Instant::now());
         assert!(ordinary.take(interval).is_some());
+        let backlog = gate.watch_backlog().unwrap();
+        assert_eq!(gate.state().backlog, 1);
+        drop(backlog);
+        assert_eq!(gate.state().backlog, 0);
     }
 
     #[test]
@@ -546,5 +598,32 @@ mod capacity_gate_tests {
         assert_eq!(retry_at(error, 1000), Some(2_401_000));
         assert!(!exhausted("API Error: 503 service unavailable"));
         assert!(!exhausted("API Error: 400 no non-exhausted claude accounts"));
+    }
+
+    #[test]
+    fn capacity_gate_restores_the_same_gateway_and_deadline() {
+        let home = tempfile::tempdir().unwrap();
+        let route = Route {
+            url: reqwest::Url::parse("http://127.0.0.1:4016/v1/messages").unwrap(),
+            bearer: Some("synthetic-probe-credential".to_owned()),
+            api_key: None,
+        };
+        let other = Route {
+            url: reqwest::Url::parse("http://127.0.0.2:4016/v1/messages").unwrap(),
+            ..route.clone()
+        };
+        let gates = Gates::open(Some(home.path()));
+        let at = now_ms() + 2_400_000;
+        {
+            let mut map = gates.lock();
+            map.insert(route.url.clone(), Arc::new(Gate::new(at)));
+            gates.save(&map);
+        }
+        let restored = Gates::open(Some(home.path()));
+        let gate = restored.get(Some(&route)).unwrap();
+        assert!(matches!(gate.state().phase, Phase::Closed(deadline) if deadline == at));
+        assert!(restored.get(Some(&other)).is_none());
+        let file = std::fs::read_to_string(restored.path.as_ref().unwrap()).unwrap();
+        assert!(!file.contains("synthetic-probe-credential"));
     }
 }

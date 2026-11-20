@@ -946,7 +946,14 @@ impl Hub {
         // Set while it waits for a run slot of its parent (`subsession_runs.rs`).
         let mut slot_wait: Option<WaitMark<'_>> = None;
         let mut capacity_ticket: Option<super::capacity::Ticket> = None;
+        let mut backlog = None;
         loop {
+            let gateway_changed = self.capacity.changed.notified();
+            tokio::pin!(gateway_changed);
+            gateway_changed.as_mut().enable();
+            if backlog.is_none() {
+                backlog = self.capacity.get(route).and_then(|gate| gate.watch_backlog());
+            }
             let moved = session.queue_moved.notified();
             tokio::pin!(moved);
             moved.as_mut().enable();
@@ -987,6 +994,7 @@ impl Hub {
                 guard = session.turn_lock.lock() => guard,
                 () = withdraw.notified() => return Wait::Withdrawn,
                 () = moved.as_mut() => continue,
+                () = gateway_changed.as_mut() => continue,
             };
             // A journal restore holds the chat for its whole try and the hold between tries
             // (`journal_restore.rs`, review of #37284 at 91b1343d, F2): a prompt that waited
@@ -995,6 +1003,7 @@ impl Hub {
                 drop(guard);
                 tokio::select! {
                     () = done.as_mut() => continue,
+                    () = gateway_changed.as_mut() => continue,
                     () = withdraw.notified() => return Wait::Withdrawn,
                 }
             }
@@ -1009,6 +1018,9 @@ impl Hub {
                 let head = queue.iter().find(|q| !q.aside()).is_none_or(|q| q.turn_id == turn_id);
                 (head, held, provenance, mine.map(|q| q.run.clone()))
             };
+            if held {
+                backlog.take();
+            }
             let moving = session.moving().is_some();
             if head && !held && !moving && session.turn().is_none() {
                 if !self.shutting_down() {
@@ -1035,6 +1047,7 @@ impl Hub {
                                     tokio::select! {
                                         () = ticket.ready.notified() => {}
                                         () = moved => {}
+                                        () = gateway_changed.as_mut() => {}
                                         () = withdraw.notified() => return Wait::Withdrawn,
                                     }
                                     continue;
@@ -1056,6 +1069,7 @@ impl Hub {
                             tokio::select! {
                                 () = moved => {}
                                 () = freed => {}
+                                () = gateway_changed.as_mut() => {}
                                 () = withdraw.notified() => return Wait::Withdrawn,
                             }
                             continue;
@@ -1072,6 +1086,7 @@ impl Hub {
             drop(guard);
             tokio::select! {
                 () = moved => {}
+                () = gateway_changed.as_mut() => {}
                 () = withdraw.notified() => return Wait::Withdrawn,
             }
         }
