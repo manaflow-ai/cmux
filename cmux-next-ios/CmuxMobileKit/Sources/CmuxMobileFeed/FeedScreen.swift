@@ -358,16 +358,34 @@ private struct FeedMarkAllReadButton: View {
         Button {
             confirming = true
         } label: {
-            Label("Mark All as Read", systemImage: "checkmark.circle")
+            Label("Mark All as Read", systemImage: UserDefaults.standard.string(forKey: "cmux-mobile-feed-mark-all-symbol") ?? "checkmark.circle") // PROTOTYPE ONLY
         }
         .disabled(store.items.allSatisfy(\.isRead) && FeedRouting.shared.markAllNotificationsRead == nil)
         .accessibilityIdentifier("feed.markAllRead")
         .alert("Mark All as Read?", isPresented: $confirming) {
             // The Mac's Mark All Notifications as Read (NotificationActionCatalog): every Feed
             // event here, and every tab each linked Mac shows unread (`ack-tab-notifications`).
-            Button("Mark All as Read") { markAllRead() }
-                .keyboardShortcut(.defaultAction)
-                .accessibilityIdentifier("feed.markAllRead.confirm")
+            // PROTOTYPE ONLY: three ways to get white text on the blue button.
+            switch UserDefaults.standard.string(forKey: "cmux-mobile-feed-alert-style") ?? "default" {
+            case "darktint":
+                Button("Mark All as Read") { markAllRead() }
+                    .keyboardShortcut(.defaultAction)
+                    .tint(Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? .systemBlue : UIColor(red: 0, green: 0.38, blue: 0.86, alpha: 1) }))
+                    .accessibilityIdentifier("feed.markAllRead.confirm")
+            case "whitelabel":
+                Button { markAllRead() } label: { Text("Mark All as Read").foregroundStyle(.white) }
+                    .keyboardShortcut(.defaultAction)
+                    .accessibilityIdentifier("feed.markAllRead.confirm")
+            case "prominent":
+                Button("Mark All as Read") { markAllRead() }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("feed.markAllRead.confirm")
+            default:
+                Button("Mark All as Read") { markAllRead() }
+                    .keyboardShortcut(.defaultAction)
+                    .accessibilityIdentifier("feed.markAllRead.confirm")
+            }
             if let clear = FeedRouting.shared.clearAllNotifications {
                 // The Mac's Clear All Notifications: its notification ledger, as its panel's Clear All.
                 Button("Clear All Notifications", role: .destructive) {

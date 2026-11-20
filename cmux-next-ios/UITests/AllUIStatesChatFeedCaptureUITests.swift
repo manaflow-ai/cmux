@@ -162,6 +162,35 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
         ])
     }
 
+    /// PROTOTYPE: the Mark All as Read symbol, three candidates (and today's) in every toolbar state.
+    @MainActor
+    func testMarkAllSymbols() {
+        let g = "12 Feed"
+        let symbols = ["checkmark.circle", "envelope.open", "checkmark.message", "checklist.checked"]
+        func args(_ symbol: String) -> [String] { Self.feed + ["-cmux-mobile-feed-mark-all-symbol", symbol] }
+        var scenes: [Scene] = []
+        for (i, symbol) in symbols.enumerated() {
+            scenes.append(Scene(group: g, id: "sym\(i)-rest", args: args(symbol)) { app in
+                C.wait(app.buttons["feed.markAllRead"].firstMatch, "Mark All as Read", timeout: 30)
+            })
+            scenes.append(Scene(group: g, id: "sym\(i)-filtered", args: args(symbol)) { app in Self.hideFirstWorkspace(app) })
+            scenes.append(Scene(group: g, id: "sym\(i)-pressed-alert", args: args(symbol)) { app in Self.markAllAlert(app) })
+        }
+        for style in ["default", "darktint", "whitelabel", "prominent"] {
+            scenes.append(Scene(group: g, id: "alert-\(style)", args: Self.feed + ["-cmux-mobile-feed-alert-style", style]) { app in Self.markAllAlert(app) })
+        }
+        // Last: once everything is read (read marks persist), the button is disabled.
+        for (i, symbol) in symbols.enumerated() {
+            scenes.append(Scene(group: g, id: "sym\(i)-disabled", args: args(symbol)) { app in
+                let button = app.buttons["feed.markAllRead"].firstMatch
+                if let miss = C.wait(button, "Mark All as Read", timeout: 30) { return miss }
+                guard button.isEnabled else { return nil }
+                return C.steps([{ Self.markAllAlert(app) }, { C.tap(app.alerts.buttons["feed.markAllRead.confirm"].firstMatch, "confirm") }])
+            })
+        }
+        capture(scenes)
+    }
+
     @MainActor
     func testFeed() {
         let g = "12 Feed"
