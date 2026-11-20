@@ -356,9 +356,13 @@ if [ -s "$s/paths" ]; then
   # An intent flag can change without either patch changing. Never overwrite an
   # edit saved only in the target index, even when no patch would detect it.
   # Include rename sources: Git can otherwise move their newer staged content.
-  if ! xargs -0 git -c core.fsmonitor=false diff --cached --quiet --no-ext-diff --no-textconv --ignore-submodules=none --ita-visible-in-index "$base" -- <"$s/paths"; then
-    echo "the target index changed at a carried path: preserve its staging before moving again" >&2; exit 5
-  fi
+  # A committed empty file replaced by intent matches the visible blob but
+  # differs in the invisible view. Either difference protects target staging.
+  for view in --ita-visible-in-index --ita-invisible-in-index; do
+    if ! xargs -0 git -c core.fsmonitor=false diff --cached --quiet --no-ext-diff --no-textconv --ignore-submodules=none "$view" "$base" -- <"$s/paths"; then
+      echo "the target index changed at a carried path: preserve its staging before moving again" >&2; exit 5
+    fi
+  done
 fi
 if [ -s "$s/patch" ]; then
   git -c core.fsmonitor=false -c core.symlinks=true -C "$top" apply --binary --whitespace=nowarn --check "$s/patch" || exit 5
@@ -432,7 +436,8 @@ if [ -s "$s/patch" ]; then
     elif [ -d "$p" ]; then printf "%s\000" "$p" >>"$s/directories"
     else exit 1; fi
   done' sh "$s" <"$s/recovery-paths" || exit 5
-  tar -cpf "$s/worktree-before.tar" --null -T "$s/present" || exit 5
+  # Directory headers preserve permissions without traversing their contents.
+  tar -cpf "$s/worktree-before.tar" --no-recursion --null -T "$s/present" -T "$s/directories" || exit 5
   if ! git -c core.fsmonitor=false -c core.symlinks=true -C "$top" apply --binary --whitespace=nowarn "$s/patch"; then
     restore_worktree || exit 6
     exit 5

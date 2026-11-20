@@ -90,3 +90,11 @@ recreates original directories and their parents. Combining these passes would
 try to recreate descendants beneath a parent still replaced by a file. The
 publication and real partial-write tests cover nested directory-to-file as well
 as nested file-to-directory transitions.
+
+The target conflict guard checks both visible and invisible intent-to-add index
+views, including an intent replacement of a committed empty blob. The intent
+conflict matrix compares target index bytes before and after that refusal.
+Recovery archives non-recursive directory headers as well as file contents, so
+restoring a directory cannot widen its permissions under the destination umask.
+Both real-write and publication-failure regressions restore nested directory
+modes 0700, 0710 and 0750 while the apply runs under umask 002.

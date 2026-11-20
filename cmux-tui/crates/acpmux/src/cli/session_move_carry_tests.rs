@@ -1,5 +1,6 @@
 use super::*;
 use std::io::Write as _;
+use std::os::unix::fs::PermissionsExt as _;
 use std::process::{Command, Stdio};
 
 /// Runs a fixed script on this machine, as `run/session_move.rs`'s `run_here` does.
@@ -444,13 +445,28 @@ fn failed_index_publication_restores_the_worktree() {
     );
     let carry = snapshot(&here, src.path(), true).unwrap();
     sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
+    let directory_modes =
+        [("directory", 0o700), ("directory/deep", 0o710), ("directory/deep/nested", 0o750)];
+    for (path, mode) in directory_modes {
+        std::fs::set_permissions(dst.path().join(path), std::fs::Permissions::from_mode(mode))
+            .unwrap();
+    }
     let index = std::fs::read(dst.path().join(".git/index")).unwrap();
     let failing =
         APPLY_SCRIPT.replace("if ! mv -- \"$real.lock\" \"$real\"; then", "if ! false; then");
     assert_ne!(failing, APPLY_SCRIPT);
+    let failing = format!("umask 002\n{failing}");
     let out = here(&failing, &apply_input(&dst.path().to_string_lossy(), &carry).unwrap()).unwrap();
     assert!(!out.ok);
     assert_eq!(std::fs::read(dst.path().join(".git/index")).unwrap(), index);
+    for (path, mode) in directory_modes {
+        assert_eq!(
+            std::fs::metadata(dst.path().join(path)).unwrap().permissions().mode() & 0o777,
+            mode,
+            "{path}"
+        );
+    }
+
     assert_eq!(std::fs::read(dst.path().join("kept.txt")).unwrap(), b"one\n");
     assert!(!dst.path().join(".git/index.lock").exists());
     assert_eq!(sh(dst.path(), "git --no-optional-locks status --porcelain"), "");
@@ -498,6 +514,10 @@ fn an_existing_target_index_lock_is_preserved() {
 #[test]
 fn intent_only_changes_never_overwrite_target_staging() {
     for (source, target) in [
+        (
+            "printf staged > empty.txt && git add empty.txt",
+            "git rm -q --cached empty.txt && git add -N empty.txt",
+        ),
         (
             "git rm -q --cached empty.txt && git add -N empty.txt",
             "printf 'target-only-edit' > empty.txt && git add empty.txt && : > empty.txt",
@@ -572,6 +592,12 @@ fn a_real_partial_write_restores_the_worktree_and_allows_retry() {
     );
     let carry = snapshot(&here, src.path(), true).unwrap();
     sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
+    let directory_modes =
+        [("b-directory", 0o700), ("b-directory/deep", 0o710), ("b-directory/deep/nested", 0o750)];
+    for (path, mode) in directory_modes {
+        std::fs::set_permissions(dst.path().join(path), std::fs::Permissions::from_mode(mode))
+            .unwrap();
+    }
     let index = std::fs::read(dst.path().join(".git/index")).unwrap();
     // A real file-size write limit applies only to the final Git child. Its first
     // write succeeds; the second hits SIGXFSZ after preflight and snapshotting.
@@ -581,6 +607,7 @@ fn a_real_partial_write_restores_the_worktree_and_allows_retry() {
         &format!("if ! (ulimit -f 2; {write}); then\n    printf 'PARTIAL_WRITE:'; cat a-first.txt/deep/nested/child"),
     );
     assert_ne!(failing, APPLY_SCRIPT);
+    let failing = format!("umask 002\n{failing}");
     let out = here(&failing, &apply_input(&dst.path().to_string_lossy(), &carry).unwrap()).unwrap();
     assert!(!out.ok);
     assert!(out.stdout.contains("PARTIAL_WRITE:changed first"), "{} / {}", out.stdout, out.stderr);
@@ -591,6 +618,14 @@ fn a_real_partial_write_restores_the_worktree_and_allows_retry() {
     );
     assert_eq!(std::fs::read(dst.path().join("z-last.txt")).unwrap(), b"base last\n");
     assert_eq!(std::fs::read(dst.path().join(".git/index")).unwrap(), index);
+    for (path, mode) in directory_modes {
+        assert_eq!(
+            std::fs::metadata(dst.path().join(path)).unwrap().permissions().mode() & 0o777,
+            mode,
+            "{path}"
+        );
+    }
+
     assert!(!dst.path().join(".git/index.lock").exists());
     assert!(apply(dst.path(), &carry).ok, "retry after actual partial writes");
     assert_eq!(std::fs::read(dst.path().join("z-last.txt")).unwrap(), vec![b'x'; 128 * 1024]);
