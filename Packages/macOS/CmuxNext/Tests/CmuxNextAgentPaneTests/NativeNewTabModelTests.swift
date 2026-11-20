@@ -34,7 +34,7 @@ struct NativeNewTabModelTests {
         var empty = Self.page()
         empty.omnibar.actions = []
         var asks: [@MainActor ([AgentPaneOmnibar.Action]) -> Void] = []
-        let model = NativeNewTabModel(page: empty, actions: NativeNewTabActions(submit: { _, _, _ in }, jump: { _, _ in }, action: { _ in }),
+        let model = NativeNewTabModel(page: empty, actions: NativeNewTabActions(submit: { _, _, _ in }, jump: { _, _ in }, action: { _, _ in }),
                                       paletteActions: { _, deliver in asks.append(deliver) })
         #expect(asks.isEmpty, "the page shows before the palette's actions are listed")
         model.text = "toggle side"
@@ -52,7 +52,7 @@ struct NativeNewTabModelTests {
         var empty = Self.page()
         empty.omnibar.actions = []
         var asks: [@MainActor ([AgentPaneOmnibar.Action]) -> Void] = []
-        let actions = NativeNewTabActions(submit: { _, _, _ in }, jump: { _, _ in }, action: { _ in })
+        let actions = NativeNewTabActions(submit: { _, _, _ in }, jump: { _, _ in }, action: { _, _ in })
         let model = NativeNewTabModel(page: empty, actions: actions, paletteActions: { _, deliver in asks.append(deliver) })
         model.loadPaletteActions()
         model.adopt(page: empty, actions: actions, paletteActions: { _, deliver in asks.append(deliver) })
@@ -68,7 +68,7 @@ struct NativeNewTabModelTests {
     @Test func aListReadAgainKeepsTheHighlightedRowByItsID() throws {
         var asks: [@MainActor ([AgentPaneOmnibar.Action]) -> Void] = []
         let listed = Self.page(actions: 3).omnibar.actions
-        let model = NativeNewTabModel(page: Self.page(actions: 3), actions: NativeNewTabActions(submit: { _, _, _ in }, jump: { _, _ in }, action: { _ in }),
+        let model = NativeNewTabModel(page: Self.page(actions: 3), actions: NativeNewTabActions(submit: { _, _, _ in }, jump: { _, _ in }, action: { _, _ in }),
                                       paletteRefresh: { _, deliver in asks.append(deliver) })
         model.text = "action number"
         model.text = "action number "
@@ -125,7 +125,7 @@ struct NativeNewTabModelTests {
         let actions = NativeNewTabActions(
             submit: { text, kind, search in log.append("submit \(kind.rawValue) \(text) \(search)") },
             jump: { target, id in log.append("jump \(target.rawValue) \(id)") },
-            action: { id in log.append("action \(id)") }
+            action: { id, shown in log.append("action \(id) shown as \(shown)") }
         )
         let model = NativeNewTabModel(page: Self.page(), actions: actions)
         model.commit()
@@ -139,7 +139,7 @@ struct NativeNewTabModelTests {
         #expect(log == [
             "submit agent  false",
             "submit agent toggle side false",
-            "action toggleSidebar",
+            "action toggleSidebar shown as Toggle Sidebar",
             "jump tab t1",
         ])
     }

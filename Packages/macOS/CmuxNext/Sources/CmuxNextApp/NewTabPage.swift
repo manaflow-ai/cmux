@@ -32,8 +32,8 @@ struct NewTabPageHandler {
     var browseProject: () async -> String? = { nil }
     /// Returns recent projects, optionally filtered by the picker's query.
     var listProjects: (String?) async -> [String] = { _ in [] }
-    /// Runs a host-owned action advertised by the omnibar.
-    var action: (String) -> Void = { _ in }
+    /// `(id, shown title)`: runs a host-owned action advertised by the omnibar, when the palette still lists it under the title the page's list has.
+    var action: (String, String) -> Void = { _, _ in }
     /// `(page tab)`: asked at the make of the page's view, after its tab's key: it asks for the palette's actions (a page with no view takes no kept list) and gives the bar's lists of now; nil keeps the page's own.
     var listsAtViewMake: (String) -> NewTabPlaces.Lists? = { _ in nil }
 }
@@ -174,11 +174,8 @@ enum NewTabPage {
                     RecentProjectScan.live().complete(query: query ?? "", hints: hints, limit: AgentPaneOmnibar.maximumEntries)
                 }.value
             },
-            action: { [weak services] id in
-                // As the palette runs its row: an action that needs arguments asks for them there. A row it refuses now leaves the bar's list: the actions are read again.
-                guard let services, !services.palette.runCommand(ActionID(rawValue: id), relativeTo: services.windows.active?.window) else { return }
-                fillPaletteActions(services, again: true)
-            },
+            // As the palette runs its row: an action that needs arguments asks for them there. A row it refuses now (it cannot run, or its title changed) leaves the bar's list or changes in it: the actions are read again.
+            action: { [weak services] id, shown in if let services, !services.palette.runCommand(ActionID(rawValue: id), shown: shown, relativeTo: services.windows.active?.window) { fillPaletteActions(services, again: true) } },
             listsAtViewMake: { [weak services] key in
                 guard let services else { return nil }
                 fillPaletteActions(services)

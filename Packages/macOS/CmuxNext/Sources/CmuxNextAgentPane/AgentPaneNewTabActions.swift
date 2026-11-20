@@ -49,8 +49,10 @@ public final class AgentPaneNewTabActions {
     /// The last list read. A read that lists the same rows gives this value again (its array's buffer too), so a page
     /// that shows it compares equal at once and sends nothing, and its JSON is not encoded again.
     public private(set) var last: Listed?
-    /// The key `last` holds for; nil when its listing saw two contexts or a change of the registry.
-    private var lastKey: Key?
+    /// The kept list with the key it holds for. Only a listing with a key replaces it: one that saw two contexts or
+    /// a change of the registry has none (a letter, then Return to a terminal while the letter's listing runs), and
+    /// the next New Tab page still takes the list kept for its own context.
+    private var held: (listed: Listed, key: Key)?
     /// The key of the listing being read; nil once it saw another context.
     private var readKey: Key?
     /// Changes of the registry's catalog, binds, keys and features since the lister was made, counted inside each
@@ -63,9 +65,12 @@ public final class AgentPaneNewTabActions {
     /// The queued first task reads the actions even while the kept list holds (``read(wanted:_:)``).
     private var fresh = false
 
-    /// Whether the list being handed over now is the kept one, read before these waiters asked: a page that takes
-    /// it reads the actions again at its person's first use.
-    public private(set) var handingKept = false
+    /// Whether a page that takes the list handed over now reads the actions again at its person's first use: the
+    /// list is the kept one, read before these waiters asked, or its listing had no key (it saw two contexts or a
+    /// change of the registry).
+    public private(set) var firstUseReads = false
+    /// One tracking of a web page's first input for each page model (``fill(again:_:)``), held while the model lives.
+    let firstInputs = NSMapTable<AgentPaneModel, SingleArmedTracking>.weakToStrongObjects()
 
     /// What the lister did since it was made, as counts: the tests and the benches hold a page's cost by them.
     /// Two integers, each added to once for a listing.
@@ -91,12 +96,12 @@ public final class AgentPaneNewTabActions {
         self.measure = measure
     }
 
-    /// The last list, while what it was read from holds: the focus's context is the one of its listing, and the
+    /// The kept list, while what it was read from holds: the focus's context is the one of its listing, and the
     /// registry's catalog, binds, keys and features did not change since that listing started. A page that shows
     /// takes it with no read.
     public var kept: Listed? {
-        guard let last, lastKey == Key(context: registry.context, changes: changed.load(ordering: .relaxed)) else { return nil }
-        return last
+        guard let held, held.key == Key(context: registry.context, changes: changed.load(ordering: .relaxed)) else { return nil }
+        return held.listed
     }
 
     /// Gives the actions to `deliver`, when `wanted` still holds at the first task: the key's turn only queues it.
@@ -126,11 +131,7 @@ public final class AgentPaneNewTabActions {
         fresh = false
         waiters.removeAll { !$0.wanted() }
         guard !waiters.isEmpty else { return }
-        if !read, let kept {
-            handingKept = true
-            defer { handingKept = false }
-            return hand(kept)
-        }
+        if !read, let kept { return hand(kept, firstUseReads: true) }
         watch()
         readKey = Key(context: registry.context, changes: changed.load(ordering: .relaxed))
         measure { running = listing() }
@@ -164,8 +165,8 @@ public final class AgentPaneNewTabActions {
         // A request from now to the hand-over joins this list (`list(wanted:_:)`): it is not read again.
         pending = true
         if let last, last.actions == actions {
-            lastKey = key
-            return queue.enqueue { [weak self] in self?.hand(last) }
+            if let key { held = (last, key) }
+            return queue.enqueue { [weak self] in self?.hand(last, firstUseReads: key == nil) }
         }
         // Best effort: only a person typing in the bar reads the list, and it takes the last one until this one comes.
         let json = Task.detached(priority: WorkPriority.bestEffort.taskPriority) { Self.encode(actions) }
@@ -174,14 +175,17 @@ public final class AgentPaneNewTabActions {
             let encoded = await json.value
             guard let self else { return }
             let listed = Listed(actions: actions, json: encoded)
-            (last, lastKey) = (listed, key)
+            last = listed
+            if let key { held = (listed, key) }
             // The pages take it as background work too (P5): each one's event is a JSON encode and a script call.
-            queue.enqueue { [weak self] in self?.hand(listed) }
+            queue.enqueue { [weak self] in self?.hand(listed, firstUseReads: key == nil) }
         }
     }
 
-    private func hand(_ listed: Listed) {
+    private func hand(_ listed: Listed, firstUseReads reads: Bool) {
         pending = false
+        firstUseReads = reads
+        defer { firstUseReads = false }
         let waiting = waiters
         waiters.removeAll()
         for waiter in waiting { waiter.deliver(listed) }

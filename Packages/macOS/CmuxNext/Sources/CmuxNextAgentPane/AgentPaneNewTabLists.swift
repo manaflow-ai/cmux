@@ -1,12 +1,14 @@
 import CmuxNextCompat
 import CmuxNextWakeups
+import Foundation
 
 /// A native New Tab page's asks for the Commands palette's actions (``AgentPaneNewTabActions``).
 ///
 /// A page that shows while the last list still holds takes it with no read, so a hold of the New Tab key starts
 /// no listing. Such a list was read before the page showed, and an action's own rule can read a state that is no
 /// part of what the list is kept by: the person's first use of the page (a typed letter, a run of a row) reads the
-/// actions again. A page whose own listing read its list reads nothing more.
+/// actions again. So does a page whose listing had no key (it saw two focus contexts or a change of the registry).
+/// A page whose own listing read its list under one key reads nothing more.
 ///
 /// ```swift
 /// let list = NativeNewTabList(lister)
@@ -16,7 +18,7 @@ import CmuxNextWakeups
 @MainActor
 public final class NativeNewTabList {
     private let lister: AgentPaneNewTabActions
-    /// A listing was read for this page: its first use asks for nothing.
+    /// A listing with a key was read for this page: its first use asks for nothing.
     private var own = false
     /// The page, for the rows of a list read after a run that the palette refused.
     public weak var model: NativeNewTabModel?
@@ -33,7 +35,7 @@ public final class NativeNewTabList {
         }
         return { [self] wanted, deliver in
             lister.list(wanted: wanted) { [self] listed in
-                if !lister.handingKept { own = true }
+                if !lister.firstUseReads { own = true }
                 deliver(listed.actions)
             }
         }
@@ -82,9 +84,10 @@ extension AgentPaneNewTabActions {
     /// (``AgentPaneView/refreshNewTabActions(_:)``); a page with no view yet takes them into its stored page, so the
     /// view made from it later lists them.
     ///
-    /// While the last list holds (``kept``) the pages take it and nothing is read. A page that took it reads the
-    /// actions again at its person's first input. A page with no view yet has no such signal, so it never takes the
-    /// kept list: the app asks again when its view is made, and it takes the list then.
+    /// While the last list holds (``kept``) the pages take it and nothing is read. A page that took it, or a list
+    /// whose listing had no key (``firstUseReads``), reads the actions again at its person's first input. A page with
+    /// no view yet has no such signal, so it takes neither: the app asks again when its view is made, and it takes
+    /// the list then.
     ///
     /// - Parameters:
     ///   - again: Reads the actions again and gives them to every page: after a page's first use, and after a run of
@@ -101,12 +104,12 @@ extension AgentPaneNewTabActions {
         // Checked at the listing's first task: Cmd-N's page joins the app's pages after this call.
         list(wanted: { pages().contains(where: \.lacks) }) { [weak self] listed in
             guard let self else { return }
-            let kept = handingKept
+            let again = firstUseReads
             for page in pages() where page.lacks {
                 if let view = page.view {
                     view.refreshNewTabActions(listed)
-                    if kept { readAtFirstUse(view.model, pages) }
-                } else if !kept {
+                    if again { readAtFirstUse(view.model, pages) }
+                } else if !again {
                     page.store(listed.actions)
                 }
             }
@@ -114,11 +117,15 @@ extension AgentPaneNewTabActions {
     }
 
     /// Reads the actions again when a person first uses `page` (the page reports its first input, `newTab.touched`;
-    /// its boot traffic does not count): one tracking of the page's own flag, no hook in the page. The write of the
-    /// flag only asks, in the main queue's next turn; the read's first slice runs in a later frame.
+    /// its boot traffic does not count): one tracking of the page's own flag for each page model, no hook in the
+    /// page. A page that no person used can take the kept list many times (it goes back to the prepared pages): the
+    /// tracking that is armed stays the only one, so its first input is one read. The write of the flag only asks,
+    /// in the main queue's next turn; the read's first slice runs in a later frame.
     private func readAtFirstUse(_ page: AgentPaneModel, _ pages: @escaping @MainActor @Sendable () -> [Page]) {
         let again: @MainActor @Sendable () -> Void = { [weak self] in self?.fill(again: true, pages) }
         if page.userTouched { return again() }
-        SingleArmedTracking().track(shape: []) { _ = page.userTouched } onChange: { MainDelivery().later(again) }
+        let tracking = firstInputs.object(forKey: page) ?? SingleArmedTracking()
+        firstInputs.setObject(tracking, forKey: page)
+        tracking.track(shape: []) { _ = page.userTouched } onChange: { MainDelivery().later(again) }
     }
 }

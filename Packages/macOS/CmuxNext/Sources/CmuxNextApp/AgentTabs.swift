@@ -707,9 +707,9 @@ final class AgentTabStore {
             if let self, let view = views[self.resolvedKey(scoped)], view.model.newTab != nil, let host = view.superview { AgentPaneNewTabFrame.shared.capture(view, in: host) }
             return answer
         }
-        model.onAppAction = { [weak self] id in
+        model.onAppAction = { [weak self] id, shown in
             guard let self else { return }
-            newTabPages[resolvedKey(scoped)]?.handler.action(id)
+            newTabPages[resolvedKey(scoped)]?.handler.action(id, shown)
         }
         model.onCheckpointAvailability = { [weak self] _ in self?.publishCheckpointAvailability() }
         model.onGit = { [weak self] request in

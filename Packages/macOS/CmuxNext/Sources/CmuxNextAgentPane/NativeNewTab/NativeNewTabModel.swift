@@ -148,9 +148,10 @@ public final class NativeNewTabModel {
         actions.submit("", kind, false)
     }
 
-    /// Runs `row`, as Return or a click on it does.
+    /// Runs `row`, as Return or a click on it does. Only a palette action's row is a first use that asks for the
+    /// actions again (a run of another row opens something else, and a listing would run in that open's frames);
+    /// the host runs an action only when the palette still lists it under the title the row shows.
     public func activate(_ row: NativeNewTabRow) {
-        used()
         switch row {
         case .ask(let text): actions.submit(text, .agent, false)
         case .run(let text): actions.submit(text, .terminal, false)
@@ -158,7 +159,9 @@ public final class NativeNewTabModel {
         case .tab(let tab): actions.jump(.tab, tab.id)
         case .workspace(let workspace): actions.jump(.workspace, workspace.id)
         case .page(let page): actions.submit(page.url, .browser, false)
-        case .action(let action): actions.action(action.id)
+        case .action(let action):
+            used()
+            actions.action(action.id, action.title)
         case .chat(let chat): actions.openChat(chat.key)
         case .start(let start): actions.start(start.harness, start.folder)
         }

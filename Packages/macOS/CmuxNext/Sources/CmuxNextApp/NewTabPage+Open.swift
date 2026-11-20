@@ -108,10 +108,10 @@ extension NewTabPage {
 
     /// Asks for the Commands palette's actions for the New Tab pages that show without them (``AgentPaneNewTabActions/fill(again:_:)``); `again` reads them again for every page.
     static func fillPaletteActions(_ services: AppServices, again: Bool = false) {
-        services.newTabActions.fill(again: again) { [tabs = services.agentTabs] in
-            tabs.newTabPages.entries.map { entry in
-                AgentPaneNewTabActions.Page(view: tabs.views[entry.key], stored: entry.value.page, store: { tabs.newTabPages[entry.key]?.page.omnibar.actions = $0 })
-            }
+        services.newTabActions.fill(again: again) { [weak tabs = services.agentTabs] in
+            tabs?.newTabPages.entries.map { entry in
+                AgentPaneNewTabActions.Page(view: tabs?.views[entry.key], stored: entry.value.page, store: { [weak tabs] in tabs?.newTabPages[entry.key]?.page.omnibar.actions = $0 })
+            } ?? []
         }
     }
 
@@ -329,8 +329,8 @@ extension NewTabPage {
                 if let pane, submitNative(text, kind: kind, search: search, cwd: cwd, in: pane, page: key) { closingPage(key, in: pane)() }
             },
             jump: { [weak pane] target, id in if let services = pane?.services { jump(target, id: id, services: services) } },
-            // A row the palette refuses now (it cannot run): the list is read again, and the row leaves it.
-            action: { [weak pane] id in if let pane, !pane.services.palette.runCommand(ActionID(rawValue: id), relativeTo: pane.view.window) { list.refused() } },
+            // A row the palette refuses now (it cannot run, or its title is not the shown one any more): the list is read again, and the row leaves it or changes.
+            action: { [weak pane] id, shown in if let pane, !pane.services.palette.runCommand(ActionID(rawValue: id), shown: shown, relativeTo: pane.view.window) { list.refused() } },
             openChat: { [weak pane] chat in pane?.services.agentTabs.pageChats.open?(chat) }, start: { [weak pane] harness, folder in
                 if let pane, pane.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: folder, harness: harness))) { closingPage(key, in: pane)() } })
     }
