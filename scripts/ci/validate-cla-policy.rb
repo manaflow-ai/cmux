@@ -96,10 +96,13 @@ CLA_ACTION_RUNNER_SUCCESSOR_PINS = [
   # same action and steps; CLAAssistant.runs-on becomes
   # CLA_GATE_RUNNER_EXPRESSION and its leading runner guard the
   # CLA_GATE_RUNNER_GUARD_* triple, plus the two comments that describe them.
+  # #47967 pinned 3adae25c4c5d596467f12ffa016a6c49359818aa765e20e262880d1ab1ed8ce6
+  # for this move, but its bytes were never pushed anywhere, so cmux#48035
+  # re-pins the bytes its policy pull request carries.
   %w[
     manaflow-ai/cla-github-action@0e326dccffce7a67ee8ed2bf6e78edea34167ab0
     a6bbe50d018907d223beef3ee830e9812cdbdff713bd2567c313eb3b1562e6c2
-    3adae25c4c5d596467f12ffa016a6c49359818aa765e20e262880d1ab1ed8ce6
+    15205defbfffe1d564802b2e253ce5182e4ed500607239098ad5931504ee407e
   ].freeze
 ].freeze
 # Reviewed successors that also move the action, as [from action reference,
@@ -264,7 +267,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "1089255a5c218932b10538a168d390125c1d923bf6f96c
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "ed14680008927ce326d41722de92070dd2e11c8d2410ff40819ac8aa64aae234"
+EXPECTED_GUARD_SCRIPT_DIGEST = "44e95f5ab8c169b5fe7f6d723bdb1c12497f7bcc7f63c5d6b94aed5486af2f0e"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.

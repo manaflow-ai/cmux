@@ -55,6 +55,26 @@ GATE_JOBS = {
 STAGED = {
     ("cla.yml", "CLAAssistant"): "a policy PR to the cla.yml bytes CLA_ACTION_RUNNER_SUCCESSOR_PINS pins",
 }
+# The persistent pool (runner group 31 cmux-fleet-linux, runners named cmux-runner-pool-*) reuses its VMs across
+# jobs. Since 2026-11-20 it also registers the overflow provider's Ubuntu size labels (Leo, 11:32Z: "4V CPU, 8, 16,
+# 32, who gives a s***? Just send it somewhere."), so GitHub may schedule a job asking for one of them on a pool VM.
+# On cmux#47869 the CLA policy guard asked for blacksmith-4vcpu-ubuntu-2404, ran on cmux-runner-pool-w4bb-0020 and
+# its runner guard failed the required check (job 136287113965, cmux#48035).
+POOL_LABEL = re.compile(r"\A(?:self-hosted|linux|x64|cmux-fleet-linux(?:-x64)?|blacksmith-\d+vcpu-ubuntu-2404)\Z")
+POOL_RUNNER_NAMES = ("cmux-runner-pool-w4bb-0020", "cmux-runner-pool-a1b2-0001")
+GATE_RUNNER_NAME = "cmux-gha-runner-gt-1763650000-0a1b2c"
+# Gate jobs whose selector after the gate operand (vars.CI_GATE_SKIP_FLEET=1) still names a label the pool carries.
+# The switch is an outage escape hatch; the default route above never reaches it. This list may only shrink.
+SKIP_FLEET_FALLBACK_SHARES_POOL = {
+    ("backend-migrations.yml", "gate"),
+    ("backend-migrations.yml", "plan"),
+    ("backend-migrations.yml", "apply-staging"),
+    ("backend-migrations.yml", "apply-production"),
+    ("merge-group-policy-checks.yml", "cla-assistant"),
+    ("merge-group-policy-checks.yml", "cla-policy-guard"),
+    ("cla-policy-guard.yml", "validate"),
+    ("cla.yml", "CLAAssistant"),
+}
 CLA_SELECTOR = (FORK_BRANCH + "contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\","
                 "\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || "
                 "'blacksmith-4vcpu-ubuntu-2404' }}")
@@ -67,6 +87,45 @@ def load(name: str) -> dict:
 def runs_on(job: dict) -> str:
     value = job.get("runs-on", "")
     return " ".join(value) if isinstance(value, list) else str(value)
+
+
+def operands(expression: str) -> list[str]:
+    """The top-level `||` operands of a `${{ a || b || c }}` runs-on, fork branch first."""
+    body = expression.strip()
+    if not (body.startswith("${{") and body.endswith("}}")):
+        return [f"'{body}'"]
+    return [part.strip() for part in body[3:-2].split(" || ")]
+
+
+def default_label(expression: str) -> str | None:
+    """The label manaflow-ai's runs-on resolves to with every repository variable unset."""
+    if not expression.strip().startswith("${{"):
+        return expression.strip()
+    for operand in operands(expression)[1:]:
+        if re.fullmatch(r"'[^']+'", operand):
+            return operand.strip("'")
+        switch = re.fullmatch(r"vars\.\w+ != '1' && '([^']+)'", operand)
+        if switch:
+            return switch.group(1)
+    return None
+
+
+def skip_fleet_labels(expression: str) -> set[str] | None:
+    """Every label the selector after the gate operand can reach; None when a variable can name any label."""
+    rest = " || ".join(operands(expression)[1:]).replace(GATE_OPERAND.removesuffix(" || "), "", 1)
+    if re.search(r"(?:^|\|\| )vars\.\w+(?: \|\||$)", rest.strip(" |")):
+        return None
+    return set(re.findall(r"[\"']([A-Za-z0-9][A-Za-z0-9.-]*)[\"']", rest)) - {"1"}
+
+
+def admitted_runner_prefixes(job: dict) -> list[list[str]]:
+    """The runner.name prefixes each runner identity step of the job admits."""
+    guards = []
+    for step in job.get("steps") or []:
+        condition = str(step.get("if", ""))
+        if "runner.name" in condition and "exit 1" in str(step.get("run", "")):
+            guards.append(re.findall(r"startsWith\(runner\.name, '([^']+)'\)", condition))
+    return guards
 
 
 def all_jobs():
@@ -123,6 +182,57 @@ class RequiredGateLabelTest(unittest.TestCase):
                 self.assertNotIn(GATE_LABEL, after)
                 self.assertTrue(after.startswith(FORK_BRANCH), after)
                 self.assertRegex(after, r"'blacksmith-\dvcpu-ubuntu-2404' }}$")
+
+    def test_the_gate_label_is_not_a_pool_label(self) -> None:
+        self.assertIsNone(POOL_LABEL.match(GATE_LABEL))
+        for label in ("blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404",
+                      "cmux-fleet-linux-x64"):
+            self.assertIsNotNone(POOL_LABEL.match(label), label)
+
+    def test_a_required_gate_never_defaults_to_a_pool_label(self) -> None:
+        # With no repository variable set, every required gate asks for a label only one-job VMs serve.
+        for (name, job_id), check in sorted(GATE_JOBS.items()):
+            if (name, job_id) in STAGED:
+                continue
+            with self.subTest(workflow=name, job=job_id, check=check):
+                label = default_label(runs_on(load(name)["jobs"][job_id]))
+                self.assertEqual(label, GATE_LABEL)
+                self.assertIsNone(POOL_LABEL.match(label or ""), label)
+
+    def test_a_required_gate_runner_guard_refuses_the_pool(self) -> None:
+        # A runner identity step admits by runner.name prefix: never one a pool runner's name starts with, and on
+        # the gate label it admits the gate JIT VMs, so the default route passes its own guard.
+        for (name, job_id), check in sorted(GATE_JOBS.items()):
+            job = load(name)["jobs"][job_id]
+            for prefixes in admitted_runner_prefixes(job):
+                with self.subTest(workflow=name, job=job_id, prefixes=prefixes):
+                    self.assertTrue(prefixes)
+                    for pool_name in POOL_RUNNER_NAMES:
+                        self.assertFalse(any(pool_name.startswith(p) for p in prefixes), pool_name)
+                    if (name, job_id) not in STAGED:
+                        self.assertTrue(any(GATE_RUNNER_NAME.startswith(p) for p in prefixes), prefixes)
+
+    def test_the_skip_fleet_fallbacks_that_share_the_pool_only_shrink(self) -> None:
+        shares = set()
+        for (name, job_id) in GATE_JOBS:
+            labels = skip_fleet_labels(runs_on(load(name)["jobs"][job_id]))
+            if labels is None or any(POOL_LABEL.match(label) for label in labels):
+                shares.add((name, job_id))
+        self.assertLessEqual(shares, SKIP_FLEET_FALLBACK_SHARES_POOL, "a new gate fallback shares the pool")
+        self.assertEqual(SKIP_FLEET_FALLBACK_SHARES_POOL - shares, set(), "fixed: drop it from the list")
+
+    def test_the_route_helpers(self) -> None:
+        gate = CLA_SELECTOR.replace(FORK_BRANCH, FORK_BRANCH + GATE_OPERAND, 1)
+        self.assertEqual(default_label(gate), GATE_LABEL)
+        self.assertEqual(default_label(CLA_SELECTOR), "blacksmith-4vcpu-ubuntu-2404")
+        self.assertEqual(default_label("ubuntu-24.04"), "ubuntu-24.04")
+        self.assertEqual(skip_fleet_labels(gate),
+                         {"ubuntu-24.04", "blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"})
+        self.assertIsNone(skip_fleet_labels(FORK_BRANCH + GATE_OPERAND + "vars.LINUX_RUNNER || 'x' }}"))
+        guard = {"if": "(runner.environment != 'github-hosted' && !startsWith(runner.name, 'cmux-runner-')) "
+                       "|| contains(runner.name, 'glaeda')", "run": "exit 1"}
+        self.assertEqual(admitted_runner_prefixes({"steps": [guard]}), [["cmux-runner-"]])
+        self.assertTrue(any(POOL_RUNNER_NAMES[0].startswith(p) for p in ["cmux-runner-"]))
 
     def test_the_operand_refuses_a_shared_or_variable_label(self) -> None:
         operand = re.compile(re.escape(GATE_OPERAND))
