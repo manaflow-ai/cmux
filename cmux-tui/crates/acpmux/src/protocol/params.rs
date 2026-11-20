@@ -217,6 +217,16 @@ keyed! {
     HarnessesParams: ["cwd"];
     /// `_acpmux/inbox_thread`.
     InboxThreadParams: ["sessionId", "threadId", "markRead"];
+    /// `_acpmux/inbox_subscription_set`.
+    InboxSubscriptionSetParams: ["sessionId", "threadId"];
+    /// `_acpmux/inbox_subscription_remove`.
+    InboxSubscriptionRemoveParams: ["sessionId", "threadId"];
+    /// `_acpmux/inbox_subscriptions`.
+    InboxSubscriptionsParams: ["sessionId"];
+    /// `_acpmux/inbox_subscription_grant`.
+    InboxSubscriptionGrantParams: ["sessionId", "threadId", "ownerSessionId"];
+    /// `_acpmux/inbox_subscription_revoke`.
+    InboxSubscriptionRevokeParams: ["sessionId", "threadId", "ownerSessionId"];
     /// `initialize`.
     InitializeParams: ["protocolVersion", "clientCapabilities", "clientInfo"];
     /// `_acpmux/kill`.

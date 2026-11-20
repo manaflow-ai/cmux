@@ -393,8 +393,8 @@ async fn queue_prompt_once(
 /// With `--supersede`, a second line says how many of the sender's queued prompts it replaced.
 pub(crate) fn sent_lines(accepted: &Value, supersede: bool) -> Vec<String> {
     let steered = accepted.get("steer") == Some(&json!(true));
-    let first = if accepted.get(HELD_IN_INBOX) == Some(&json!(true)) {
-        HELD_LINE
+    let first = if let Some(held) = held_line(accepted) {
+        held
     } else if steered {
         "steered"
     } else {
@@ -410,6 +410,14 @@ pub(crate) fn sent_lines(accepted: &Value, supersede: bool) -> Vec<String> {
         });
     }
     lines
+}
+
+pub(crate) fn held_line(accepted: &Value) -> Option<&'static str> {
+    if accepted.get("surgeHeld").and_then(Value::as_bool) == Some(true) {
+        Some("held in the receiver's surge inbox")
+    } else {
+        (accepted.get(HELD_IN_INBOX).and_then(Value::as_bool) == Some(true)).then_some(HELD_LINE)
+    }
 }
 
 /// On an acceptance: the receiver's inbox holds the message, and the idle receiver does not wake
