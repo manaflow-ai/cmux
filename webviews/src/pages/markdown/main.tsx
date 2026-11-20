@@ -345,7 +345,6 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
         else if (command === "open" && text) void router.open(text);
         else if (command === "link") editor?.openLinkPopover();
         else if (command === "goToTop") scroller()?.scrollTo({ top: 0 });
-        else if (command === "print") printDocument();
         else if (command === "resetTableWidths") editor?.resetTableWidths();
         else if (command === "resetContextTableWidths") editor?.resetTableWidthsAt(contextTarget);
         else if (command === "comments") editor?.setComments(parseComments(parseJSON(text)));
@@ -473,7 +472,7 @@ function bindMarkdownFind(store: MarkdownStore, scroller: () => HTMLElement | nu
 }
 
 /**
- * Print or Save as PDF (the toolbar's Print, the `print` page command): the system print panel
+ * Print or Save as PDF (the toolbar's Print): the system print panel
  * over the rendered document; `@media print` in styles.css leaves out the toolbar, the outline
  * rail and every overlay. The host answers a page's window.print() (PageOpenPanel's print hook).
  */

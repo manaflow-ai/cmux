@@ -20,7 +20,7 @@ In rich text, YAML front matter shows as a key and value table at the top (`fron
 
 A file with two headings or more has the **outline rail** at the left (`OutlineRail.tsx`, `outline.ts`): a dash per heading, shorter and further in a level down, the current section's dash darker as the page scrolls. Pointing at the rail opens the contents beside it (a click pins them open; Escape closes); a heading there scrolls to it through the `#heading` path, so Back returns.
 
-**Print** in the toolbar (rich text) calls `window.print()`, and so does the `print` page command: the system print panel, where Save as PDF is. `@media print` leaves out the toolbar, the rail, banners and overlays. On WebKit the page host's UI delegate (`PageOpenPanel`) answers the page's print; no app action sends `print` yet.
+**Print** in the toolbar (rich text) calls `window.print()`: the system print panel, where Save as PDF is. `@media print` leaves out the toolbar, the rail, banners and overlays. On WebKit the page host's UI delegate (`PageOpenPanel`) answers the page's print. No app action or page command (Cmd-P) prints this page yet.
 
 ## Text size
 
