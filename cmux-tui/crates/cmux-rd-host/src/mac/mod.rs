@@ -64,7 +64,8 @@ pub struct MacFrames {
 
 /// Starts the display's capture and opens both halves of the session's desktop.
 /// `cursor_metadata`: capture without the cursor and report it through `Desktop::cursor`.
-pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
+/// `ltr`: the viewer negotiated long-term references, so the encoder turns them on.
+pub fn open(cfg: &SessionCfg, cursor_metadata: bool, ltr: bool) -> Res<Halves> {
     if cfg.codec != "videotoolbox" {
         return Err(format!(
             "codec {} is not available on a macOS host (it encodes captured surfaces with videotoolbox)",
@@ -77,12 +78,13 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
         Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, !cursor_metadata)?;
     capture.wait_first_frame(FIRST_FRAME_TIMEOUT_NS)?;
     let (width, height) = capture.size();
-    let encoder = VideoToolbox::new(
+    let encoder = VideoToolbox::with_ltr(
         width,
         height,
         encoder_fps(width, height, cfg.max_fps),
         cfg.start_kbps,
         cfg.profile == "baseline",
+        ltr,
     )?;
     let name =
         format!("{} from screencapturekit iosurface", cmux_encode::H264Encoder::name(&encoder));

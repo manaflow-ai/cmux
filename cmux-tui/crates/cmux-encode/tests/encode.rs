@@ -354,7 +354,8 @@ fn videotoolbox_loss_recovery_bench_idr_vs_ltr() {
     use cmux_encode::{H264Encoder, VideoEncoder};
 
     fn run(use_ltr: bool) -> (usize, usize) {
-        let mut enc = VideoToolbox::new(256, 128, 30, 2_000, false).expect("hardware encoder");
+        let mut enc =
+            VideoToolbox::with_ltr(256, 128, 30, 2_000, false, use_ltr).expect("hardware encoder");
         let pic = I420::new(256, 128);
         let mut out = Vec::new();
         let mut token = None;

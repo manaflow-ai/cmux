@@ -238,7 +238,8 @@ impl MediaSession {
         sink: Box<dyn UpstreamSink>,
     ) -> Res<Self> {
         let open_us = now_us();
-        let (desktop, frames) = crate::desktop::open(cfg, wants_cursor(negotiated_caps))?;
+        let ltr = negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::LTR);
+        let (desktop, frames) = crate::desktop::open(cfg, wants_cursor(negotiated_caps), ltr)?;
         let ready_us = now_us();
         let mut session =
             Self::with_desktop(desktop, frames, cfg, max_datagram, negotiated_caps, sink)?;

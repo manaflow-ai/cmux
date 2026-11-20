@@ -191,6 +191,9 @@ pub struct VideoToolbox {
     height: usize,
     fps: u32,
     baseline: bool,
+    /// Long-term references on (`with_ltr`): the session enables LTR and each frame carries the
+    /// viewer's acknowledged tokens. Off, the session is a plain IDR-recovery encoder.
+    ltr: bool,
     kbps: u32,
     /// The color tag the session carries (surface path); `None` until set.
     color: Option<ColorTag>,
@@ -349,6 +352,7 @@ fn create_session(
     height: usize,
     fps: u32,
     baseline: bool,
+    ltr: bool,
     out: &Mutex<Output>,
 ) -> Res<VTCompressionSessionRef> {
     let mut session: VTCompressionSessionRef = null_mut();
@@ -382,7 +386,7 @@ fn create_session(
     // SAFETY: setting properties on our live session with CF values we release.
     unsafe {
         let set = |k: CFStringRef, v: CFTypeRef| VTSessionSetProperty(session, k, v);
-        if vt_ltr_sys::available().is_ok() {
+        if ltr && vt_ltr_sys::available().is_ok() {
             set(vt_ltr_sys::kVTCompressionPropertyKey_EnableLTR(), kCFBooleanTrue());
         }
         set(kVTCompressionPropertyKey_RealTime(), kCFBooleanTrue());
@@ -417,10 +421,24 @@ fn create_session(
 
 impl VideoToolbox {
     /// `baseline`: constrained baseline (for openh264-decoded checks); otherwise High.
+    /// Long-term references stay off; see [`VideoToolbox::with_ltr`].
     pub fn new(width: u32, height: u32, fps: u32, kbps: u32, baseline: bool) -> Res<Self> {
+        Self::with_ltr(width, height, fps, kbps, baseline, false)
+    }
+
+    /// [`VideoToolbox::new`] with long-term references on when `ltr` is true and this macOS has
+    /// them: only for a session whose viewer negotiated the `video.ltr` cap.
+    pub fn with_ltr(
+        width: u32,
+        height: u32,
+        fps: u32,
+        kbps: u32,
+        baseline: bool,
+        ltr: bool,
+    ) -> Res<Self> {
         frameworks()?;
         let out: Box<Mutex<Output>> = Box::default();
-        let session = create_session(width as usize, height as usize, fps, baseline, &out)?;
+        let session = create_session(width as usize, height as usize, fps, baseline, ltr, &out)?;
         let mut pixel_buffer: CVPixelBufferRef = null_mut();
         // SAFETY: creating an IOSurface-backed 420v buffer; attrs released after use.
         let pb_status = unsafe {
@@ -455,6 +473,7 @@ impl VideoToolbox {
             height: height as usize,
             fps,
             baseline,
+            ltr,
             kbps: kbps.max(100),
             color: None,
             name: format!(
@@ -475,7 +494,7 @@ impl VideoToolbox {
         if self.session_size == (width, height) {
             return Ok(false);
         }
-        let session = create_session(width, height, self.fps, self.baseline, &self.out)?;
+        let session = create_session(width, height, self.fps, self.baseline, self.ltr, &self.out)?;
         // SAFETY: invalidating and releasing our previous session once.
         unsafe {
             VTCompressionSessionInvalidate(self.session);
@@ -643,7 +662,7 @@ impl VideoToolbox {
             if force_idr {
                 pairs.push((kVTEncodeFrameOptionKey_ForceKeyFrame(), kCFBooleanTrue()));
             }
-            if vt_ltr_sys::available().is_ok() {
+            if self.ltr && vt_ltr_sys::available().is_ok() {
                 if !self.acknowledged_ltr_tokens.is_empty() {
                     let values: Vec<CFTypeRef> = self
                         .acknowledged_ltr_tokens

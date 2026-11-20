@@ -121,10 +121,11 @@ mod tests {
 }
 
 /// The desktop of this OS. `cursor_metadata`: the viewer draws the cursor (cap `cursor`), so
-/// a desktop that [`reports_cursor`] leaves it out of its pictures.
-pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
+/// a desktop that [`reports_cursor`] leaves it out of its pictures. `ltr`: the viewer negotiated
+/// long-term references (cap `video.ltr`), so a VideoToolbox encoder turns them on.
+pub fn open(cfg: &SessionCfg, cursor_metadata: bool, ltr: bool) -> Res<Halves> {
     #[cfg(not(target_os = "macos"))]
-    let _ = cursor_metadata;
+    let _ = (cursor_metadata, ltr);
     #[cfg(target_os = "linux")]
     return match cfg.capture {
         crate::capture_backend::CaptureBackend::X11 => crate::x11::open(cfg),
@@ -150,10 +151,10 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
     };
     #[cfg(all(target_os = "macos", feature = "bench"))]
     if let Some(source) = crate::synthetic::selected() {
-        return crate::mac::synthetic::open(cfg, source);
+        return crate::mac::synthetic::open(cfg, source, ltr);
     }
     #[cfg(target_os = "macos")]
-    return crate::mac::open(cfg, cursor_metadata);
+    return crate::mac::open(cfg, cursor_metadata, ltr);
 }
 
 /// The size of the generated picture `--source synthetic` picked instead of the display (macOS
