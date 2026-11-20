@@ -217,7 +217,14 @@ def rust_workspaces(root: Path, files: set[str]) -> tuple[list[str], list[str]]:
             if path in ("", ".") or not any(file == path or file.startswith(path + "/") for file in files):
                 continue
             globs.append(path if path in files else f"{path}/**")
-    return globs, []
+    # Markdown under a reached folder (a crate README) is prose no workspace builds from: excluded, as the docs-only
+    # block does (scripts/ci/docs_only_paths.py). Put back after it: each Markdown file a source reads by literal path,
+    # and each one under these globs the block itself puts back (an include_str! file, a fixture, a SKILL.md).
+    docs = _load(root / "scripts/ci/docs_only_paths.py", "pr_trigger_docs_only_paths")
+    reads = sorted(glob for glob in globs if glob.endswith(".md") and "*" not in glob)
+    block = sorted(path for path in files if path.endswith(".md") and not docs.is_docs(path)
+                   and docs.filters.admits("paths", globs, path))
+    return globs, ["!**/*.md", *dict.fromkeys(reads + block)]
 
 
 DECIDERS: dict[str, Callable[[Path, set[str]], tuple[list[str], list[str]]]] = {
@@ -270,7 +277,9 @@ def derive(root: Path, workflow: str, decider: str, files: set[str] | None = Non
     positives = [glob for glob in positives
                  if not any(glob != f"{folder}/**" and glob.startswith(folder + "/") for folder in folders)
                  and not (not glob.startswith("**/") and glob.rsplit("/", 1)[-1] in anywhere and "*" not in glob)]
-    return positives + list(dict.fromkeys(glob for glob in exclude if glob not in positives))
+    # The second list is kept whole and in order: excludes, then the files put back after them (GitHub lets the last
+    # matching pattern win), even when a put-back file is also one of the positives above.
+    return positives + list(dict.fromkeys(exclude))
 
 
 # --- the map, and the two checks ----------------------------------------------------------------------------------
