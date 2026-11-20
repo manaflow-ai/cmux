@@ -122,6 +122,8 @@ public final class AgentPaneView: NSView {
         self?.evaluateScript($0)
     }
     private var uiScaleObservation: Task<Void, Never>?
+    /// Hands the old host's document `app.language` on every change (``observeLanguage()``).
+    var languageObservation: Task<Void, Never>?
     /// The indicator while Computer use can act as me is on; it has no pill until the grant is on (``showActAsMe(_:)``).
     let actAsMePill = AgentPaneActAsMePill()
     public var zoom: Double = 1 {
@@ -376,6 +378,7 @@ public final class AgentPaneView: NSView {
         observeMotion()
         observeUIScale()
         observeIconFamily()
+        observeLanguage()
         sessionStatusObservation = AgentPaneSessionStatus.follow(self)
         model.onCloudTeamChange = { [weak self] in self?.evaluateScript(AgentPaneCloudMachines.teamChangeScript) }
         installSessionInfo()
@@ -452,6 +455,7 @@ public final class AgentPaneView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
+            languageObservation?.cancel()
             gitHubChangeObservation?.cancel()
             actAsMePill.stop()
             sessionStatusObservation?.cancel()
@@ -547,6 +551,8 @@ public final class AgentPaneView: NSView {
         motionObservation = nil
         iconFamilyObservation?.cancel()
         iconFamilyObservation = nil
+        languageObservation?.cancel()
+        languageObservation = nil
         sessionStatusObservation?.cancel()
         model.sessionInfo.hostObservation?.cancel()
         model.sessionInfo.hostObservation = nil
