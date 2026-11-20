@@ -122,7 +122,6 @@ jobs:
     if: ${{ contains(fromJSON(needs.gate.outputs.missing || '[]'), 'pr-checks.yml') }}
     uses: ./.github/workflows/pr-checks.yml
     permissions:
-      actions: read
       contents: read
       pull-requests: write
 
@@ -132,6 +131,7 @@ jobs:
     if: ${{ contains(fromJSON(needs.gate.outputs.missing || '[]'), 'rust-workspaces.yml') }}
     uses: ./.github/workflows/rust-workspaces.yml
     permissions:
+      actions: read
       contents: read
 
   web-validation:
@@ -140,5 +140,4 @@ jobs:
     if: ${{ contains(fromJSON(needs.gate.outputs.missing || '[]'), 'web-validation.yml') }}
     uses: ./.github/workflows/web-validation.yml
     permissions:
-      actions: read
       contents: read

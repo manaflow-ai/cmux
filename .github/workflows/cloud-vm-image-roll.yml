@@ -65,7 +65,7 @@ concurrency:
 jobs:
   platform-readiness:
     if: github.event_name == 'workflow_dispatch' && inputs.platform_readiness
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     environment: cmux-vm-production
     permissions:
@@ -82,7 +82,7 @@ jobs:
           permission-contents: write
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
-      # 44733869883, 2026-11-20); remove it so checkout clones fresh. tests/test_ci_reused_sparse_checkout.py.
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -120,7 +120,13 @@ jobs:
     # with LINUX_RUNNER on a 16-vCPU Blacksmith size, roll 44282278310 queued 41 min for plan and 20+ min for promote,
     # each a minute of work, while Blacksmith's vCPU cap had room for a small job. Only the bake needs the big runner.
     # Never on the roll's own commits (they change the lock), and only on feat-cmux-next.
-    # Attempt 1 takes the owned GCP build lane (cmux-gcp-lane-build-x64, the label the nightly tree's short jobs
+    # Every roll job (platform-readiness, plan, promote, report, and the bake it calls with roll: true) leads with
+    # cmux-gcp-deploy-jit-x64: production's deploy path, reserved for this workflow and served only by gha-runners'
+    # one-job JIT VMs (one VM per job, deleted after it, one kept warm; cmuxterm-hq gha-runners README "The deploy
+    # label"), so it never queues behind the build backlog. Roll 44506003283's plan waited 13 h for a runner on the
+    # shared labels (2026-11-19), and production's image lagged feat-cmux-next by 38 h. vars.CI_DEPLOY_SKIP_FLEET=1
+    # sends every job back to the labels below.
+    # Before it, attempt 1 took the owned GCP build lane (cmux-gcp-lane-build-x64, the label the nightly tree's short jobs
     # use): plan holds no secret, no environment and a read-only token, and Blacksmith's vCPU cap with saturated
     # hosted runners left roll 44351236121's plan queued 6 h 51 min. A re-run takes the pools. platform-readiness
     # and promote (the production App key), the bake (Freestyle key) and report (a contents: write token) stay
@@ -129,7 +135,7 @@ jobs:
       github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' &&
       !(github.event_name == 'push' && (startsWith(github.event.head_commit.message, 'cmux-vm: image roll ') ||
       startsWith(github.event.head_commit.message, 'cmux-vm: image rollback ')))
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-lane-build-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || github.run_attempt == 1 && 'cmux-gcp-lane-build-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -141,7 +147,7 @@ jobs:
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
-      # 44733869883, 2026-11-20); remove it so checkout clones fresh. tests/test_ci_reused_sparse_checkout.py.
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -242,7 +248,7 @@ jobs:
   promote:
     needs: [plan, bake]
     if: needs.plan.outputs.roll == 'true' && needs.bake.result == 'success' && needs.bake.outputs.candidate != ''
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     # A production change: the environment that deploys production (feat-cmux-next only) bounds the push App key.
     environment: cmux-vm-production
@@ -255,7 +261,7 @@ jobs:
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
-      # 44733869883, 2026-11-20); remove it so checkout clones fresh. tests/test_ci_reused_sparse_checkout.py.
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -380,7 +386,7 @@ jobs:
   report:
     needs: [plan, bake, promote]
     if: always() && needs.plan.outputs.roll == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     permissions:
       contents: write
@@ -388,7 +394,7 @@ jobs:
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
-      # 44733869883, 2026-11-20); remove it so checkout clones fresh. tests/test_ci_reused_sparse_checkout.py.
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
         if: runner.os == 'Linux'
         shell: bash
