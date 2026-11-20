@@ -66,6 +66,82 @@ async fn handle(
 ) -> Result<Value, RpcError> {
     let flag = |k: &str| params.get(k).and_then(Value::as_bool).unwrap_or(false);
     match m {
+        method::MUX_FORUM_THREADS | method::MUX_FORUM_POST | method::MUX_FORUM_CLAIM => {
+            // A person's app may select a chat; an agent reads and claims only its own.
+            let owner_read = m == method::MUX_FORUM_THREADS
+                && conn.origin == super::Origin::Local
+                && conn.caller().is_none()
+                && !conn.unproven_agent();
+            let recipient = if conn.is_person() || owner_read {
+                str_param(params, "sessionId")
+                    .ok_or_else(|| RpcError::invalid_params("sessionId is required for the app"))?
+            } else {
+                conn.caller().ok_or_else(author_required)?
+            };
+            let session = hub.resolve(recipient)?;
+            let recipient = session.id.clone();
+            if m == method::MUX_FORUM_THREADS {
+                let hub = hub.clone();
+                let params = params.clone();
+                return tokio::task::spawn_blocking(move || {
+                    hub.forum().work_threads_page(
+                        &recipient,
+                        str_param(&params, "channel"),
+                        str_param(&params, "thread"),
+                        str_param(&params, "cursor"),
+                    )
+                })
+                .await
+                .map_err(|e| RpcError::internal(format!("forum read worker: {e}")))?
+                .map_err(|e| RpcError::invalid_params(format!("{e:#}")));
+            }
+            let worker = hub.clone();
+            let params = params.clone();
+            let author = if conn.is_person() {
+                Author::Person { account: account(&params)? }
+            } else {
+                hub.forum_agent(&session)
+            };
+            let owner = match &author {
+                Author::Person { account } => format!("person:{account}"),
+                Author::Agent { session_id, .. } => session_id.clone(),
+            };
+            let posting = m == method::MUX_FORUM_POST;
+            let receipt = tokio::task::spawn_blocking(move || {
+                let hub = worker;
+                if posting {
+                    let mut input = params.clone();
+                    if let Some(o) = input.as_object_mut() {
+                        o.remove("sessionId");
+                    }
+                    let input = serde_json::from_value::<crate::forum::work::Input>(input)?;
+                    hub.forum().work_post(
+                        &recipient,
+                        input,
+                        json!({"author": author}),
+                        crate::store::now_ms(),
+                    )
+                } else {
+                    let lease = hub.forum().work_claim(
+                        &recipient,
+                        params["channel"].as_str().unwrap_or_default(),
+                        params["thread"].as_str().unwrap_or_default(),
+                        &owner,
+                        params["epoch"].as_u64(),
+                        params["leaseSeconds"].as_u64().unwrap_or(300),
+                        crate::store::now_ms(),
+                    )?;
+                    Ok(json!({"lease": lease}))
+                }
+            })
+            .await
+            .map_err(|e| RpcError::internal(format!("forum work: {e}")))?
+            .map_err(|e: anyhow::Error| RpcError::invalid_params(format!("{e:#}")))?;
+            if posting && receipt["duplicate"] != true {
+                hub.append(&session, "mux", "forum_work", receipt.clone());
+            }
+            Ok(receipt)
+        }
         method::MUX_FORUM_ANNOUNCE => {
             let author = if conn.is_person() {
                 Author::Person { account: account(params)? }
