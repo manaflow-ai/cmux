@@ -78,6 +78,9 @@ for tool in install mv; do
     # writer of ~/.local/bin, a disk that flipped a byte): it must not be moved into place.
     if [ "$tool" = install ]; then
       printf 'case "$*" in *.cmux-rd.new*) if [ -f "$HOME/rd-install-changes" ]; then "%s" "$@" || exit; eval "last=\\${$#}"; echo changed >>"$last"; exit 0; fi ;; esac\n' "$real"
+      # With ~/rd-dir-appears, a directory appears where cmux-rd goes after the script
+      # looked (another writer of ~/.local/bin): nothing may be moved inside it.
+      printf 'case "$*" in *.cmux-rd.new*) if [ -f "$HOME/rd-dir-appears" ]; then "%s" "$@" || exit; eval "last=\\${$#}"; mkdir -p "${last%%/*}/cmux-rd"; exit 0; fi ;; esac\n' "$real"
     fi
     printf 'exec "%s" "$@"\n' "$real"
   } >"$shims/$tool"
@@ -877,6 +880,19 @@ suite() {
   check "rd copy changed: says so" out_has "cmux-rd did not install (checksum verification failed for the copy in $d/home/.local/bin"
   check "rd copy changed: the old cmux-rd untouched" old_rd_kept
   check "rd copy changed: no temp file left in bin" test ! -e "$d/home/.local/bin/.cmux-rd.new"
+
+  # A directory that appears where cmux-rd goes after the script looked: nothing is moved
+  # inside it, the join says cmux-rd did not install, and never that the screen is shared.
+  new_case linux-cmux-rd-directory-appears
+  : >"$d/home/rd-dir-appears"
+  run_join env
+  check "rd dir appears: the join still exits 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "rd dir appears: one line" eval '[ "$(rd_lines)" = 1 ]'
+  check "rd dir appears: says so" out_has "cmux-rd did not install ($d/home/.local/bin/cmux-rd is not a file: remove it, then run the line again)"
+  check "rd dir appears: nothing moved inside it" eval '[ -d "$d/home/.local/bin/cmux-rd" ] && [ -z "$(ls -A "$d/home/.local/bin/cmux-rd")" ]'
+  check "rd dir appears: no temp file left in bin" test ! -e "$d/home/.local/bin/.cmux-rd.new"
+  check "rd dir appears: never says the screen is shared" eval '! grep -q "can view this machine" "$d/out"'
+  check "rd dir appears: says it is not shared" out_has "This machine's screen is not shared: cmux-rd is not installed at $d/home/.local/bin/cmux-rd"
 
   # A directory where cmux-rd goes: one clear line, left as it is, nothing fetched.
   new_case linux-cmux-rd-directory
