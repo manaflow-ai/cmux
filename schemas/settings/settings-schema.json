@@ -1265,7 +1265,10 @@
               "agentPane.display.font.preset",
               "agentPane.display.font.proseFamily",
               "agentPane.display.font.faces",
+              "agentPane.display.font.uiWeight",
+              "agentPane.display.font.proseWeight",
               "agentPane.display.font.size",
+              "agentPane.display.font.proseScale",
               "agentPane.display.font.lineHeight",
               "agentPane.display.code.family",
               "agentPane.display.code.scale"
@@ -1359,25 +1362,6 @@
             "title" : {
               "key" : "settings.pageGroup.agentDefaults",
               "text" : "Defaults"
-            }
-          },
-          {
-            "key" : "settings.group.computerUse",
-            "rows" : [
-              "computerUse.mode",
-              "computerUse.deniedApps",
-              "computerUse.allowOwnMachines",
-              "computerUse.pauseOnTakeover",
-              "computerUse.showCursor",
-              "computerUse.cursorTag",
-              "computerUse.settle",
-              "computerUse.livePreview",
-              "computerUse.menus",
-              "computerUse.allowForeground"
-            ],
-            "title" : {
-              "key" : "settings.group.computerUse",
-              "text" : "Computer Use"
             }
           },
           {
@@ -1477,6 +1461,16 @@
               "key" : "settings.group.folderTrust",
               "text" : "Folder Trust"
             }
+          },
+          {
+            "key" : "settings.group.agentTools",
+            "rows" : [
+              "agents.cmuxMcp"
+            ],
+            "title" : {
+              "key" : "settings.group.agentTools",
+              "text" : "cmux Tools"
+            }
           }
         ],
         "id" : "agents",
@@ -1489,11 +1483,84 @@
           "text" : "Agents"
         },
         "trail" : [
-          "computerUse",
+          "agentTools",
           "harnesses",
           "agentHarnesses",
           "agentIntegrations",
           "worktreeSetup"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.computerUse",
+            "rows" : [
+              "computerUse.mode",
+              "computerUse.deniedApps",
+              "computerUse.allowOwnMachines",
+              "computerUse.pauseOnTakeover",
+              "computerUse.showCursor",
+              "computerUse.cursorTag",
+              "computerUse.settle",
+              "computerUse.livePreview",
+              "computerUse.menus",
+              "computerUse.allowForeground"
+            ],
+            "title" : {
+              "key" : "settings.group.computerUse",
+              "text" : "Computer Use"
+            }
+          }
+        ],
+        "id" : "computerUse",
+        "lead" : [
+          "computerUse"
+        ],
+        "symbol" : "cursorarrow.click.2",
+        "title" : {
+          "key" : "settings.category.computerUse",
+          "text" : "Computer Use"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.mcpServers",
+            "rows" : [
+              "agents.mcpServers.enabled"
+            ],
+            "title" : {
+              "key" : "settings.group.mcpServers",
+              "text" : "Agent Chats"
+            }
+          }
+        ],
+        "id" : "mcpServers",
+        "lead" : [
+          "mcpServers"
+        ],
+        "symbol" : "server.rack",
+        "title" : {
+          "key" : "settings.category.mcpServers",
+          "text" : "MCP Servers"
+        },
+        "trail" : [
+
         ]
       },
       {
@@ -2277,6 +2344,8 @@
         "categories" : [
           "chat",
           "agents",
+          "computerUse",
+          "mcpServers",
           "models",
           "cloud",
           "chief"
@@ -12313,7 +12382,7 @@
         false
       ],
       "agent_refusal" : "userOnly",
-      "agent_settable" : true,
+      "agent_settable" : false,
       "consumers" : [
         "cmux-next"
       ],
@@ -12378,7 +12447,7 @@
         },
         "mcp" : {
           "aliases" : [
-            "settings.unset"
+
           ],
           "app_aliases" : [
 
@@ -12390,11 +12459,9 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
+            "settings.get"
           ],
-          "reason" : null,
+          "reason" : "agent_settable_false",
           "row" : null
         },
         "palette" : {
@@ -26834,7 +26901,7 @@
         ]
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -26902,7 +26969,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -26914,9 +26981,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -52793,6 +52862,461 @@
       "title" : {
         "key" : "settings.agentPane.display.fontFaces",
         "text" : "Chat Font Files"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        100,
+        900,
+        500
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.uiWeight.help",
+        "text" : "The weight of the chat's regular text, from 100 (thin) to 900 (black). Empty uses the font's normal weight."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.font.uiWeight",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "font",
+        "interface",
+        "ui",
+        "weight",
+        "thickness",
+        "bold",
+        "light",
+        "typeface",
+        "custom"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "font",
+        "uiWeight"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 900,
+        "min" : 100,
+        "placeholder" : 400,
+        "step" : 10,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -700,
+        1700,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.font.uiWeight"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.uiWeight",
+        "text" : "Chat Interface Font Weight"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        100,
+        900,
+        500
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.proseWeight.help",
+        "text" : "The weight of the agent's replies, from 100 (thin) to 900 (black). Empty uses the Chat Interface Font Weight."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.font.proseWeight",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "font",
+        "reply",
+        "prose",
+        "weight",
+        "thickness",
+        "bold",
+        "light",
+        "custom"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "font",
+        "proseWeight"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 900,
+        "min" : 100,
+        "placeholder" : 400,
+        "step" : 10,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -700,
+        1700,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.font.proseWeight"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.proseWeight",
+        "text" : "Chat Reply Font Weight"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0.8,
+        1.4,
+        1.1
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.proseScale.help",
+        "text" : "The size of the agent's replies as a share of the Chat Font Size. Code, tables and your own messages keep their size. Empty keeps replies at the Chat Font Size."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.font.proseScale",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "font",
+        "reply",
+        "prose",
+        "scale",
+        "size",
+        "x-height",
+        "custom"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "font",
+        "proseScale"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 1.4,
+        "min" : 0.8,
+        "placeholder" : 1,
+        "step" : 0.005,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -0.19999999999999996,
+        2.4,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.font.proseScale"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.proseScale",
+        "text" : "Chat Reply Text Scale"
       },
       "validation" : "portable"
     },
@@ -103251,7 +103775,7 @@
         false
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -103314,7 +103838,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -103326,9 +103850,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {

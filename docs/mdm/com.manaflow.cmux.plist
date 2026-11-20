@@ -5062,6 +5062,48 @@
 			<string>dictionary</string>
 		</dict>
 		<dict>
+			<key>pfm_description</key>
+			<string>The weight of the chat's regular text, from 100 (thin) to 900 (black). Empty uses the font's normal weight.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.font.uiWeight</string>
+			<key>pfm_range_max</key>
+			<real>900</real>
+			<key>pfm_range_min</key>
+			<real>100</real>
+			<key>pfm_title</key>
+			<string>Chat Interface Font Weight</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The weight of the agent's replies, from 100 (thin) to 900 (black). Empty uses the Chat Interface Font Weight.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.font.proseWeight</string>
+			<key>pfm_range_max</key>
+			<real>900</real>
+			<key>pfm_range_min</key>
+			<real>100</real>
+			<key>pfm_title</key>
+			<string>Chat Reply Font Weight</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The size of the agent's replies as a share of the Chat Font Size. Code, tables and your own messages keep their size. Empty keeps replies at the Chat Font Size.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.font.proseScale</string>
+			<key>pfm_range_max</key>
+			<real>1.3999999999999999</real>
+			<key>pfm_range_min</key>
+			<real>0.80000000000000004</real>
+			<key>pfm_title</key>
+			<string>Chat Reply Text Scale</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
 			<key>pfm_default</key>
 			<integer>14</integer>
 			<key>pfm_name</key>

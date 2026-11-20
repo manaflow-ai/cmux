@@ -113,6 +113,20 @@
       "title" : "Chat Reply Font Family",
       "type" : "string"
     },
+    "agentPane.display.font.proseScale" : {
+      "description" : "The size of the agent's replies as a share of the Chat Font Size. Code, tables and your own messages keep their size. Empty keeps replies at the Chat Font Size.",
+      "maximum" : 1.4,
+      "minimum" : 0.8,
+      "title" : "Chat Reply Text Scale",
+      "type" : "number"
+    },
+    "agentPane.display.font.proseWeight" : {
+      "description" : "The weight of the agent's replies, from 100 (thin) to 900 (black). Empty uses the Chat Interface Font Weight.",
+      "maximum" : 900,
+      "minimum" : 100,
+      "title" : "Chat Reply Font Weight",
+      "type" : "number"
+    },
     "agentPane.display.font.size" : {
       "default" : 14,
       "description" : "agentPane.display.font.size",
@@ -145,6 +159,13 @@
       "description" : "A font family or a comma list of them. When set, it replaces the Chat Interface Font.",
       "title" : "Chat Interface Font Family",
       "type" : "string"
+    },
+    "agentPane.display.font.uiWeight" : {
+      "description" : "The weight of the chat's regular text, from 100 (thin) to 900 (black). Empty uses the font's normal weight.",
+      "maximum" : 900,
+      "minimum" : 100,
+      "title" : "Chat Interface Font Weight",
+      "type" : "number"
     },
     "agentPane.display.fullWidth" : {
       "default" : false,

@@ -325,6 +325,9 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.font.uiFamily` | string |  |  | Chat Interface Font Family. A font family or a comma list of them. When set, it replaces the Chat Interface Font. |
 | `agentPane.display.font.proseFamily` | string |  |  | Chat Reply Font Family. The font of the agent's replies. When set, it replaces the Chat Font. |
 | `agentPane.display.font.faces` | dictionary |  |  | Chat Font Files. A font file for each family, such as "Lora:italic": "file:~/Fonts/Lora-Italic.woff2". |
+| `agentPane.display.font.uiWeight` | real |  | 100 to 900 | Chat Interface Font Weight. The weight of the chat's regular text, from 100 (thin) to 900 (black). Empty uses the font's normal weight. |
+| `agentPane.display.font.proseWeight` | real |  | 100 to 900 | Chat Reply Font Weight. The weight of the agent's replies, from 100 (thin) to 900 (black). Empty uses the Chat Interface Font Weight. |
+| `agentPane.display.font.proseScale` | real |  | 0.8 to 1.4 | Chat Reply Text Scale. The size of the agent's replies as a share of the Chat Font Size. Code, tables and your own messages keep their size. Empty keeps replies at the Chat Font Size. |
 | `agentPane.display.font.size` | real | `14` | 10 to 28 | Chat Font Size |
 | `agentPane.display.font.lineHeight` | real | `1.625` | 1.2 to 2.4 | Chat Line Height |
 | `agentPane.display.code.family` | string |  |  | Chat Code Font. Empty uses the Markdown viewer's code font. |

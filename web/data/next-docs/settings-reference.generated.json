@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 634,
+  "count": 637,
   "sections": [
     {
       "id": "general",
@@ -1982,6 +1982,32 @@
           "group": "Agent Chat"
         },
         {
+          "key": "agentPane.display.font.proseScale",
+          "title": "Chat Reply Text Scale",
+          "help": "The size of the agent's replies as a share of the Chat Font Size. Code, tables and your own messages keep their size. Empty keeps replies at the Chat Font Size.",
+          "kind": "number",
+          "default": null,
+          "group": "Agent Chat",
+          "range": {
+            "min": 0.8,
+            "max": 1.4,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "agentPane.display.font.proseWeight",
+          "title": "Chat Reply Font Weight",
+          "help": "The weight of the agent's replies, from 100 (thin) to 900 (black). Empty uses the Chat Interface Font Weight.",
+          "kind": "number",
+          "default": null,
+          "group": "Agent Chat",
+          "range": {
+            "min": 100,
+            "max": 900,
+            "unit": "count"
+          }
+        },
+        {
           "key": "agentPane.display.font.size",
           "title": "Chat Font Size",
           "help": "",
@@ -2023,6 +2049,19 @@
           "kind": "font_family",
           "default": null,
           "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.display.font.uiWeight",
+          "title": "Chat Interface Font Weight",
+          "help": "The weight of the chat's regular text, from 100 (thin) to 900 (black). Empty uses the font's normal weight.",
+          "kind": "number",
+          "default": null,
+          "group": "Agent Chat",
+          "range": {
+            "min": 100,
+            "max": 900,
+            "unit": "count"
+          }
         },
         {
           "key": "agentPane.display.fullWidth",
