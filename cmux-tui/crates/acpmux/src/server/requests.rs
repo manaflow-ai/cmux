@@ -10,6 +10,9 @@ mod composer;
 mod context;
 mod events;
 mod info;
+mod last;
+#[cfg(test)]
+pub(crate) use last::fit as last_fit_for_test;
 #[path = "requests/mailbox.rs"]
 mod mailbox;
 pub(super) mod person_stop;
@@ -3402,6 +3405,8 @@ async fn dispatch_request_with_identity(
             // A page reads the log from disk: off the runtime's workers (`qos::off_worker`).
             crate::qos::off_worker(|| events::handle(hub, m, &params, conn.caller()))
         }
+        // The pages `acpmux last` read, read here in one reply (`requests/last.rs`).
+        method::MUX_LAST => crate::qos::off_worker(|| last::last(hub, &params, conn.caller())),
         // A read, for whoever may read the log, as `_acpmux/events` (`hub/queue_text.rs`).
         method::MUX_QUEUE_TEXT => Box::pin(queue_text(hub, &params)).await,
         method::MUX_ROWS => Box::pin(rows(hub, conn, &params)).await,

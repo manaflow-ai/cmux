@@ -53,6 +53,8 @@ struct Loopback {
     user: &'static str,
     receipts: Mutex<std::collections::HashMap<String, Receipt>>,
     unknown: bool,
+    /// The reads sent: each is one round trip through the hub and the receiver's inbox.
+    asks: std::sync::atomic::AtomicUsize,
 }
 
 impl Loopback {
@@ -62,7 +64,14 @@ impl Loopback {
             Some(dir.join("mesh-controls.json")),
         )
         .with_own_user(Arc::new(|| Some("person-1".to_owned())));
-        Self { b: b.clone(), hook, user, receipts: Mutex::default(), unknown: false }
+        Self {
+            b: b.clone(),
+            hook,
+            user,
+            receipts: Mutex::default(),
+            unknown: false,
+            asks: Default::default(),
+        }
     }
 }
 
@@ -85,6 +94,7 @@ impl MeshHub for Loopback {
     fn send<'a>(&'a self, m: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
         Box::pin(async move {
             m.validate().map_err(HubError::refused)?;
+            self.asks.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if self.unknown {
                 let mut e = HubError::refused("no such recipient");
                 e.code = Some("mesh.unknown_recipient".into());
@@ -288,6 +298,73 @@ async fn a_chat_page_with_a_record_over_64_kib_opens_through_the_hub() {
     assert_eq!(replies, [format!("echo: {big}")]);
 }
 
+/// cmuxterm-hq#15806: claude-sr2-coord's 373 KB detail went through the hub in ten round trips,
+/// 52 to 106 s on a busy host, past the 50 s a read waits, and `acpmux last` reads it first.
+/// A detail of any size is one round trip now, its largest fields marked omitted.
+#[tokio::test]
+async fn a_chat_detail_of_any_size_reads_through_the_hub_in_one_round_trip() {
+    let b = machine_b();
+    let meta = json!({"acpmux": {"harness": "fake", "name": "big-detail"}});
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let session = made["sessionId"].as_str().unwrap().to_owned();
+    // About 400 KB of commands, as a coordinator's detail was 373 KB.
+    let commands: Vec<Value> = (0..3000)
+        .map(|i| json!({"name": format!("command-{i}"), "description": "d".repeat(110)}))
+        .collect();
+    b.resolve(&session).unwrap().set_available_commands_for_test(json!(commands));
+    let whole = call(&b, method::MUX_INFO, json!({"sessionId": session})).await;
+    assert!(
+        whole.to_string().len() > 350 * 1024,
+        "the detail is {} bytes",
+        whole.to_string().len()
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let hub = Loopback::new(&b, dir.path(), "person-1");
+
+    let info = read(&hub, "machine-b", "big-detail", method::MUX_INFO, &json!({})).await.unwrap();
+    let asks = hub.asks.load(std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(asks, 1, "info took {asks} round trips through the hub");
+    assert_eq!(info["sessionId"].as_str(), Some(session.as_str()));
+    assert_eq!((info["peer"].as_str(), info["via"].as_str()), (Some("machine-b"), Some("hub")));
+    let omitted: Vec<&str> =
+        info["omitted"]["fields"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+    assert!(omitted.contains(&"availableCommands"), "{omitted:?}");
+    // `acpmux last`'s id: what it reads from the detail is whole.
+    assert_eq!(crate::cli::resolve::routed_id(&info).unwrap(), format!("machine-b/{session}"));
+}
+
+/// The queue an `_acpmux/info` through the hub carries is its next [`HUB_QUEUE_KEEP`] prompts
+/// and their count, whatever its length: 368 queued prompts were 229 KB of one detail.
+#[test]
+fn a_detail_through_the_hub_carries_the_queue_head_and_its_count() {
+    let queued: Vec<Value> = (0..400)
+        .map(|i| json!({"promptId": format!("p-{i}"), "prompt": "q".repeat(600)}))
+        .collect();
+    let mut detail = json!({
+        "sessionId": "s", "status": "running", "queue": queued,
+        "timeBreakdown": {"rows": "t".repeat(80 * 1024)},
+    });
+    fit_info(&mut detail);
+    assert!(detail.to_string().len() <= HUB_INFO_BYTES, "{} bytes", detail.to_string().len());
+    let queue = detail["queue"].as_array().unwrap();
+    assert_eq!(queue.len(), HUB_QUEUE_KEEP);
+    assert_eq!(queue[0]["promptId"], "p-0");
+    assert_eq!(
+        (detail["queueCount"].as_u64(), detail["queueTruncated"].as_bool()),
+        (Some(400), Some(true))
+    );
+    assert_eq!(detail["sessionId"], "s");
+    // A short queue goes whole, with no count.
+    let mut short = json!({"sessionId": "s", "queue": [{"promptId": "p-0"}]});
+    fit_info(&mut short);
+    assert_eq!(short, json!({"sessionId": "s", "queue": [{"promptId": "p-0"}]}));
+}
+
 #[tokio::test]
 async fn a_read_runs_only_a_read_method() {
     let b = machine_b();
@@ -422,4 +499,72 @@ async fn call_error(hub: &Arc<Hub>, m: &str, params: Value) -> Value {
             return value.get("error").cloned().unwrap_or_else(|| panic!("no error: {value}"));
         }
     }
+}
+
+/// cmuxterm-hq#15806: `acpmux last HOST/NAME` read the turn back page by page, each page at most
+/// 40 KiB through the hub and its own round trip, so a coordinator's long turn ran past the 50 s
+/// a read waits. `_acpmux/last` builds the replies where the log is: one round trip, the same
+/// reply as the pages give.
+#[tokio::test]
+async fn last_reads_a_long_turns_reply_through_the_hub_in_one_round_trip() {
+    let b = machine_b();
+    let meta = json!({"acpmux": {"harness": "fake", "name": "long-turn"}});
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let session = made["sessionId"].as_str().unwrap().to_owned();
+    // One reply of 3000 chunks: the pages read back to its start to know it is whole.
+    call(
+        &b,
+        method::SESSION_PROMPT,
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": "chunks: 3000"}]}),
+    )
+    .await;
+    let dir = tempfile::tempdir().unwrap();
+    let a = machine_b();
+    let loopback = Arc::new(Loopback::new(&b, dir.path(), "person-1"));
+    let mesh: Arc<dyn MeshHub> = loopback.clone();
+    let _ = a.mesh.set(mesh);
+    let asks = || loopback.asks.load(std::sync::atomic::Ordering::SeqCst);
+    let key = format!("machine-b/{session}");
+
+    // Before: the pages `acpmux last` read from a daemon without `_acpmux/last`.
+    let mut pages = crate::cli::last_reply::Pages::new(1);
+    while let Some(query) = pages.next_query(&key) {
+        pages.take(&call(&a, method::MUX_EVENTS, query).await);
+    }
+    let paged = pages.replies();
+    let paged_asks = asks();
+    assert_eq!(paged.len(), 1);
+    assert!(paged[0].starts_with("w0 "), "{:?}", paged[0].get(..40));
+    assert!(paged[0].trim_end().ends_with("w2999"), "the paged reply is whole");
+
+    // After: one `_acpmux/last`.
+    let last = call(&a, method::MUX_LAST, json!({"sessionId": key, "count": 1})).await;
+    let last_asks = asks() - paged_asks;
+    eprintln!("hub round trips for last: paged {paged_asks}, _acpmux/last {last_asks}");
+    assert_eq!(last_asks, 1, "_acpmux/last took {last_asks} round trips");
+    assert!(paged_asks > 3, "the long turn paged in {paged_asks} round trips");
+    assert_eq!(last["replies"], json!(paged), "{last}");
+    assert_eq!(last["truncated"], json!(false));
+    assert_eq!((last["peer"].as_str(), last["via"].as_str()), (Some("machine-b"), Some("hub")));
+}
+
+/// An `_acpmux/last` answer fits one hub message whatever its replies hold: the newest reply
+/// keeps the most, each older one at least its start.
+#[test]
+fn last_replies_fit_one_hub_message() {
+    use crate::server::requests::last_fit_for_test as fit;
+    let replies = vec!["a".repeat(30_000), "b".repeat(30_000), "c".repeat(60_000)];
+    let (kept, truncated) = fit(replies, 48 * 1024);
+    assert!(truncated);
+    let total: usize = kept.iter().map(String::len).sum();
+    assert!(total <= 48 * 1024 + 2 * 3, "{total}");
+    assert!(kept[0].len() >= 1024 && kept[1].len() >= 1024, "older replies keep their start");
+    assert!(kept[2].starts_with("ccc") && kept[2].ends_with('…'));
+    let (whole, cut) = fit(vec!["short".into(), "reply".into()], 48 * 1024);
+    assert_eq!((whole, cut), (vec!["short".to_owned(), "reply".to_owned()], false));
 }
