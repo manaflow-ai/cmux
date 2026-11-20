@@ -469,7 +469,8 @@
     {
       "agent": "settable",
       "keys": [
-        "labs.previewFeatures"
+        "labs.previewFeatures",
+        "experiments.launch_shell_first"
       ]
     },
     {
