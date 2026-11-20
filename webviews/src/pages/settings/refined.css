@@ -386,7 +386,7 @@
   margin-top: calc((var(--range-track) - var(--range-thumb)) / 2);
   border: 0;
   border-radius: 50%;
-  background: white;
+  background: white; /* theme-fixed: the slider thumb is white in every theme, as the switch thumb (ui/controls.css) */
   box-shadow: var(--elevation-1); /* the switch thumb's shadow (ui/controls.css) */
 }
 

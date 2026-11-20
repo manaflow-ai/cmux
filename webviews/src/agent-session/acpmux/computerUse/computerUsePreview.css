@@ -31,7 +31,7 @@
   --cu-preview-ease-land: var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1));
   /* The close button: a small dark circle with a light X, readable over a light or a dark window. */
   --cu-preview-close-fill: color-mix(in srgb, black 52%, transparent);
-  --cu-preview-close-hover: color-mix(in srgb, color-mix(in srgb, black 76%, white) 66%, transparent);
+  --cu-preview-close-hover: color-mix(in srgb, color-mix(in srgb, black 76%, white) 66%, transparent); /* theme-fixed: the close circle is dark over a light or a dark screenshot */
   --cu-preview-close-press: color-mix(in srgb, black 64%, transparent);
   position: absolute;
   top: calc(var(--acpmux-header-height, 44px) + 8px);
@@ -130,7 +130,7 @@
   pointer-events: none;
 }
 .acpmux-cu-preview__arrow > path {
-  stroke: white;
+  stroke: white; /* theme-fixed: the cursor arrow's white edge over a screenshot (cursorArt.tsx) */
   stroke-width: 1.7px;
   stroke-linejoin: round;
   paint-order: stroke;
@@ -144,7 +144,7 @@
   margin: -7px 0 0 -7px;
   border-radius: 50%;
   /* The helper's cursor blue (cursorArt.tsx), as a light wash with a thin ring. */
-  --cu-ripple-blue: #2d8cff;
+  --cu-ripple-blue: #2d8cff; /* theme-fixed: the helper's cursor blue (cursorArt.tsx) */
   border: 1px solid color-mix(in srgb, var(--cu-ripple-blue) 55%, transparent);
   background: color-mix(in srgb, var(--cu-ripple-blue) 18%, transparent);
   opacity: 0;
@@ -251,7 +251,7 @@
   border: 0;
   border-radius: 50%;
   background: var(--cu-preview-close-fill);
-  color: white;
+  color: white; /* theme-fixed: the light X on the fixed dark close circle over a screenshot */
   cursor: default;
 }
 .acpmux-cu-preview__close:hover {
@@ -262,7 +262,7 @@
 }
 /* A light ring on a dark one: it shows over a light or a dark window. */
 .acpmux-cu-preview__close:focus-visible {
-  outline: 1.5px solid white;
+  outline: 1.5px solid white; /* theme-fixed: a light ring on the dark close circle over a screenshot */
   outline-offset: 0;
   box-shadow: 0 0 0 3px var(--cu-preview-close-press);
 }

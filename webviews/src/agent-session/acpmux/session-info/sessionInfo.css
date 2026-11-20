@@ -1744,7 +1744,7 @@ button.acpmux-session-info-scope__parent:focus-visible {
   font-size: var(--text-detail);
 }
 .acpmux-cloud-repository-error {
-  color: var(--agent-error, #d66);
+  color: var(--agent-danger, #d66);
 }
 .acpmux-cloud-repository-connect {
   display: block;

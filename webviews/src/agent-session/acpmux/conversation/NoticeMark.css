@@ -11,10 +11,10 @@
   color: var(--agent-status-warning);
 }
 .cv-notice-mark__ink {
-  stroke: white;
+  stroke: white; /* theme-fixed: the mark's white glyph on its status-colored fill */
 }
 .cv-notice-mark__dot {
-  fill: white;
+  fill: white; /* theme-fixed: the mark's white glyph on its status-colored fill */
 }
 
 /* The notice's line (IncomingMessageCard.tsx, `.cv-notice`): the title reads in the rows' tone, not

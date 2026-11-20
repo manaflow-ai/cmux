@@ -5,8 +5,8 @@
    colours over it (colors.ts sets --mt-sent, --mt-sent-text, --mt-received, --mt-received-text). */
 .mt-transcript {
   /* iMessage: MessagesLab's measured sent blue (catalyst Fixture.outgoing) and Messages' greys. */
-  --mt-imessage-blue: #0284fe;
-  --mt-imessage-grey: light-dark(#e9e9eb, #3b3b3d);
+  --mt-imessage-blue: #0284fe; /* theme-fixed: iMessage's sent blue in every theme (MessagesLab's measured value) */
+  --mt-imessage-grey: light-dark(#e9e9eb, #3b3b3d); /* theme-fixed: Messages' received grey in every theme */
   --mt-bubble-radius: 17px;
   --mt-bubble-pad-block: 6px;
   --mt-bubble-pad-inline: 12px;
@@ -20,7 +20,7 @@
   --mt-typing-dot: 8px;
   --mt-tapback-lift: -22px;
   --mt-hairline-gap: 2px;
-  --mt-on-danger: #ffffff;
+  --mt-on-danger: #ffffff; /* theme-fixed: white ink on the danger red, as Messages draws it */
   /* A loop, not a transition: the typing dots' cycle. */
   --mt-typing-period: 1200ms;
   --mt-side: 20px;
@@ -29,7 +29,7 @@
   --mt-caption: var(--page-text-2, color-mix(in srgb, var(--page-text) 55%, transparent));
   --mt-danger: var(--cmux-app-danger, light-dark(#d70015, #ff453a));
   --mt-look-sent: var(--mt-imessage-blue);
-  --mt-look-sent-text: #ffffff;
+  --mt-look-sent-text: #ffffff; /* theme-fixed: white ink on iMessage's sent blue, as Messages draws it */
   --mt-look-received: var(--mt-imessage-grey);
   --mt-look-received-text: var(--page-text);
   --mt-look-received-line: transparent;
@@ -189,7 +189,7 @@
   place-items: center;
   border: 1.5px solid var(--cmux-surface-solid, Canvas);
   border-radius: 999px;
-  background: hsl(var(--mt-face-hue) 55% 48%);
+  background: hsl(var(--mt-face-hue) 55% 48%); /* theme-fixed: a contact's face color, picked by its hue */
   color: var(--mt-look-sent-text);
   font: var(--text-caption);
   font-weight: 600;

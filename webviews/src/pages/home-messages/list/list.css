@@ -97,7 +97,7 @@
 }
 .hm-circle.on {
   background: var(--page-text);
-  color: var(--page-surface, Canvas);
+  color: var(--cmux-surface-solid, Canvas);
 }
 .hm-circle:focus-visible,
 .hm-chip:focus-visible,
@@ -396,7 +396,7 @@
   width: 28%;
   height: 28%;
   border-radius: 50%;
-  box-shadow: 0 0 0 2px var(--page-surface, Canvas);
+  box-shadow: 0 0 0 2px var(--cmux-surface-solid, Canvas);
   background: var(--page-text-2);
 }
 .hm-state-mark.waiting {

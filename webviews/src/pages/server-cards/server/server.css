@@ -435,14 +435,14 @@ button.sv-role:focus-visible {
   display: block;
   flex: none;
   border-radius: 4px;
-  background: white;
+  background: white; /* theme-fixed: a QR code is dark on white in every theme, so a camera reads it */
   image-rendering: pixelated;
 }
 
 .sv-qr-tile {
   padding: var(--ds-space-2);
   border-radius: 8px;
-  background: white;
+  background: white; /* theme-fixed: the QR code's white quiet zone, so a camera reads it */
 }
 
 .sv-code-field {

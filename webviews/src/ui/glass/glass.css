@@ -98,12 +98,12 @@
 :root[data-glass="spectrum"],
 :root[data-glass="spectrum"] .ui-glass {
   --glass-fringe-red: light-dark(
-    color-mix(in srgb, rgb(255 70 90) calc(30% * var(--glass-rim)), transparent),
-    color-mix(in srgb, rgb(255 90 110) calc(34% * var(--glass-rim)), transparent)
+    color-mix(in srgb, rgb(255 70 90) calc(30% * var(--glass-rim)), transparent), /* theme-fixed: the spectrum look's red fringe, a lens's color split in every theme */
+    color-mix(in srgb, rgb(255 90 110) calc(34% * var(--glass-rim)), transparent) /* theme-fixed: the spectrum look's red fringe, a lens's color split in every theme */
   ); /* theme-fixed: the split's warm side, not a theme color */
   --glass-fringe-cyan: light-dark(
-    color-mix(in srgb, rgb(0 220 255) calc(30% * var(--glass-rim)), transparent),
-    color-mix(in srgb, rgb(0 220 255) calc(34% * var(--glass-rim)), transparent)
+    color-mix(in srgb, rgb(0 220 255) calc(30% * var(--glass-rim)), transparent), /* theme-fixed: the spectrum look's cyan fringe, a lens's color split in every theme */
+    color-mix(in srgb, rgb(0 220 255) calc(34% * var(--glass-rim)), transparent) /* theme-fixed: the spectrum look's cyan fringe, a lens's color split in every theme */
   ); /* theme-fixed: red's complement, the other side of the split; never the accent */
 }
 

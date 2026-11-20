@@ -38,7 +38,7 @@
   border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 12%, transparent));
   border-radius: 6px;
   padding: 8px;
-  background: var(--cmux-field-background, var(--cmux-background, Canvas));
+  background: var(--cmux-field-background, var(--cmux-surface-solid, Canvas));
   color: var(--cmux-text, CanvasText);
   font: inherit;
   user-select: text;
@@ -53,7 +53,7 @@
 .env-icon { display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: transparent; color: inherit; min-width: 28px; min-height: 28px; font: inherit; }
 .env-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 24px; border-block-start: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 12%, transparent)); }
 .env-button { padding: 8px 12px; border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 12%, transparent)); border-radius: var(--ds-radius-control); background: var(--cmux-control-background, var(--cmux-elevated-background, Canvas)); color: inherit; font: inherit; }
-.env-primary { background: var(--cmux-text, CanvasText); color: var(--cmux-background, Canvas); }
+.env-primary { background: var(--cmux-text, CanvasText); color: var(--cmux-surface-solid, Canvas); }
 .env-primary:hover { background: color-mix(in srgb, var(--cmux-text, CanvasText) 90%, transparent); }
 .cloud-environment-sheet button:disabled { opacity: 0.5; }
 .env-error { color: var(--cmux-status-danger-text, var(--cmux-text, CanvasText)); }
