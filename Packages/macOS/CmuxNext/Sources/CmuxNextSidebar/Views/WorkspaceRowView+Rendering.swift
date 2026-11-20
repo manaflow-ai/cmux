@@ -104,6 +104,7 @@ extension WorkspaceRowView {
             layer?.borderColor = Palette.focusRing.cgColor
             layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
             (rowBadge.ringColor, rowBadge.chipColor) = (Self.badgeBackdrop(painted), Palette.sidebarStep.cgColor)
+            updateNeedsYouGlow()
             // The sidebar's own tonal step, once more: a bar a step apart.
             placeholderBar.layer?.backgroundColor = Palette.sidebarStep.cgColor
         }
@@ -114,6 +115,7 @@ extension WorkspaceRowView {
         activity.dotDiameter = SidebarStyle.statusDotSize // one diameter for every status dot (Lawrence msg 19696)
         let full = layoutBounds
         layoutColorRail(in: full)
+        layoutNeedsYouGlow()
         // The name lines and the trailing cluster center in the head; the
         // status block, when shown, fills the rest below it.
         let b = NSRect(x: full.minX, y: full.minY, width: full.width, height: full.height - statusHeight)

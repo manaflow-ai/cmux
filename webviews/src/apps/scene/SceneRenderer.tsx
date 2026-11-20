@@ -19,7 +19,15 @@ import { Switch } from "../../ui/Switch";
 import { offsetRange, sliceBand, type VisibleSlice } from "../../ui/visibleSlice";
 import { SceneContextMenu, SceneMenu } from "./sceneMenus";
 import { SceneSymbol } from "./SceneSymbol";
-import { sceneColor, sceneNumber, sceneStyle, sceneText, textStyle } from "./sceneStyle";
+import {
+  SceneAppeared,
+  SceneLeavingContext,
+  SceneTextContent,
+  useSceneChildren,
+  useSceneEntering,
+  type SceneChild,
+} from "./sceneMotion";
+import { sceneColor, sceneNumber, sceneStyle, sceneText, textStyle, sceneGradient } from "./sceneStyle";
 import type { SceneNode, SceneStore } from "./store";
 import "./scene.css";
 
@@ -294,7 +302,7 @@ function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch
     case "Text":
       return (
         <span className="cmux-app-scene-text" style={textStyle(props)}>
-          {sceneText(props.text)}
+          <SceneTextContent text={sceneText(props.text)} transition={props.contentTransition} />
         </span>
       );
     case "Icon":
@@ -303,6 +311,8 @@ function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch
           symbol={props.symbol}
           size={Math.max(6, sceneNumber(props.size) ?? 14)}
           color={sceneColor(props.color)}
+          rendering={props.symbolRendering}
+          palette={props.symbolColors}
         />
       );
     case "Row":
@@ -525,8 +535,21 @@ function LazySpacer({ height }: { height: number }) {
  * until the stack passes `LAZY_STACK_WHOLE_CAP` and the host's slice arrives, then only those near the
  * slice (`sliceBand`). Spacers keep each unmounted child's height and gap, so the scene's height (and the
  * panel's `layout`) does not change. A child's height is measured once mounted; one never mounted takes
- * the first measured height of its type. The focused child stays mounted. */
-function LazyStackChildren({ node, store, dispatch }: { node: SceneNode; store: SceneStore; dispatch: SceneDispatch }) {
+ * the first measured height of its type. The focused child stays mounted. Scene motion holds: a removed child
+ * with a `transition` keeps its place while it leaves, and a child enters only when a render added it, never
+ * when a scroll brings it into the window. */
+function LazyStackChildren({
+  node,
+  shown,
+  store,
+  dispatch,
+}: {
+  node: SceneNode;
+  /** The stack's own children with those leaving (`useSceneChildren`), drawn when the stack draws whole. */
+  shown: readonly SceneChild[];
+  store: SceneStore;
+  dispatch: SceneDispatch;
+}) {
   // The stack's own element, through a hidden probe in it (no flex item, so no gap): the probe's ref is set
   // before this component's layout effects run, the stack's own only after them.
   const probe = useRef<HTMLSpanElement | null>(null);
@@ -538,7 +561,10 @@ function LazyStackChildren({ node, store, dispatch }: { node: SceneNode; store: 
     }),
     [],
   );
-  const items = useStackItems(store, node.children);
+  const live = useStackItems(store, node.children);
+  // The windowed rows: the opened children, plus those leaving at their old places (one array per change).
+  const rows = useSceneChildren(store, live);
+  const items = useMemo(() => rows.map((row) => row.id), [rows]);
   const scroll = useContext(ScrollContext);
   const origin = useContext(OriginContext);
   const gap = Math.max(0, sceneNumber(node.props.spacing) ?? 0);
@@ -610,6 +636,21 @@ function LazyStackChildren({ node, store, dispatch }: { node: SceneNode; store: 
   const indexOf = useMemo(() => new Map(items.map((id, index) => [id, index])), [items]);
   // Tracked from mount, not from the first slice: a child focused while the stack draws whole must stay
   // mounted when the first slice windows it.
+  // A row a render just added enters (scene motion); one that only scrolled into the window does not. The rows
+  // drawn before: null until the stack first draws rows, which may enter only if the stack itself came after the
+  // scene's first frame (as a new stack's children do; a page scroller's stack draws its rows a pass late).
+  // Written only once a draw commits, so a row mounting in the render that added it is not known yet (it
+  // enters), and one mounting in any later render is (it only scrolled in).
+  const [cameLate] = useState(() => store.hasDrawn());
+  const known = useRef<ReadonlySet<string> | null>(null);
+  useEffect(() => {
+    if (mode === "pending") return;
+    known.current = new Set(items);
+  }, [items, mode]);
+  const scrolledIn = useCallback(
+    (id: string) => (known.current === null ? !cameLate : known.current.has(id)),
+    [cameLate],
+  );
   const focused = useRef<string | undefined>(undefined);
   useEffect(() => {
     const element = stack.current;
@@ -737,7 +778,10 @@ function LazyStackChildren({ node, store, dispatch }: { node: SceneNode; store: 
   if (mode === "pending") return drawn;
   if (!windowed) {
     // Drawn whole as a VStack draws, its Groups and ForEaches kept.
-    for (const id of node.children) drawn.push(<SceneNodeView key={id} id={id} store={store} dispatch={dispatch} />);
+    for (const child of shown)
+      drawn.push(
+        <SceneNodeView key={child.id} id={child.id} store={store} dispatch={dispatch} leaving={child.leaving} />,
+      );
     return drawn;
   }
   const virtual = virtualizer.getVirtualItems();
@@ -751,14 +795,17 @@ function LazyStackChildren({ node, store, dispatch }: { node: SceneNode; store: 
     if (!previous && item.index > 0) drawn.push(<LazySpacer key="lead" height={item.start - margin - gap} />);
     else if (previous && item.index > previous.index + 1)
       drawn.push(<LazySpacer key={`before:${item.key}`} height={item.start - previous.end - 2 * gap} />);
+    const row = rows[item.index]!;
     drawn.push(
       <SceneNodeView
         key={item.key}
-        id={items[item.index]!}
+        id={row.id}
         index={item.index}
         measure={measure}
         store={store}
         dispatch={dispatch}
+        leaving={row.leaving}
+        scrolledIn={scrolledIn}
       />,
     );
     previous = item;
@@ -768,18 +815,42 @@ function LazyStackChildren({ node, store, dispatch }: { node: SceneNode; store: 
   return drawn;
 }
 
-const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, index, measure }: NodeProps): ReactNode {
-  const node = useSceneNode(store, id);
+type NodeViewProps = NodeProps & {
+  leaving?: boolean;
+  /** A windowed LazyVStack's child: true when this mount only scrolled into the window (no enter motion). */
+  scrolledIn?: (id: string) => boolean;
+};
+const NO_CHILDREN: readonly string[] = [];
+
+const SceneNodeView = memo(function SceneNodeView({
+  id,
+  store,
+  dispatch,
+  index,
+  measure,
+  leaving: own,
+  scrolledIn,
+}: NodeViewProps): ReactNode {
+  const live = useSceneNode(store, id);
+  // A leaving node (and its subtree) draws from its last props, which the store keeps, until
+  // its transition ends.
+  const inLeaving = useContext(SceneLeavingContext);
+  const leaving = own === true || inLeaving;
+  const node = live ?? (leaving ? store.getDeparted(id) : undefined);
+  const entering = useSceneEntering(store, node, scrolledIn?.(id) !== true);
   const inheritedDisabled = useContext(DisabledContext);
   const ref = useCallback((element: HTMLElement | null) => measure?.(element), [measure]);
+  const shown = useSceneChildren(store, node?.children ?? NO_CHILDREN);
   if (!node) return null;
   const props = node.props;
-  const disabled = inheritedDisabled || props.disabled === true;
+  const disabled = inheritedDisabled || props.disabled === true || leaving;
   const children =
     node.type === "LazyVStack" ? (
-      <LazyStackChildren node={node} store={store} dispatch={dispatch} />
+      <LazyStackChildren node={node} shown={shown} store={store} dispatch={dispatch} />
     ) : (
-      node.children.map((child) => <SceneNodeView key={child} id={child} store={store} dispatch={dispatch} />)
+      shown.map((child) => (
+        <SceneNodeView key={child.id} id={child.id} store={store} dispatch={dispatch} leaving={child.leaving} />
+      ))
     );
   const content = contentOf(node, children, dispatch, disabled);
   if (content === undefined) return null;
@@ -790,10 +861,23 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, index, 
     style.alignItems =
       props.alignment === "center" ? "center" : props.alignment === "trailing" ? "flex-end" : "stretch";
   }
+  if (node.type === "HStack") {
+    // SwiftUI's vertical alignment: top, center (the default) or bottom.
+    style.alignItems = props.alignment === "top" ? "flex-start" : props.alignment === "bottom" ? "flex-end" : undefined;
+  }
   if (["Circle", "Capsule", "Rectangle", "RoundedRectangle"].includes(node.type)) {
-    style.width = style.height = Math.max(0, sceneNumber(props.size) ?? 16);
-    style.backgroundColor =
-      sceneColor(props.fill) ?? (sceneColor(props.stroke) ? "transparent" : sceneColor("secondary"));
+    // `size` sets both sides; a `frame` width or height wins on its own side (a bar, a capsule).
+    const frame = props.frame && typeof props.frame === "object" ? (props.frame as Record<string, unknown>) : {};
+    const side = Math.max(0, sceneNumber(props.size) ?? 16);
+    if (frame.width === undefined && frame.maxWidth === undefined && frame.minWidth === undefined) style.width = side;
+    if (frame.height === undefined && frame.maxHeight === undefined && frame.minHeight === undefined)
+      style.height = side;
+    if (frame.maxWidth === "infinity" && frame.width === undefined) style.width = "100%";
+    if (frame.maxHeight === "infinity" && frame.height === undefined) style.height = "100%";
+    style.backgroundImage = sceneGradient(props.fill);
+    style.backgroundColor = style.backgroundImage
+      ? undefined
+      : (sceneColor(props.fill) ?? (sceneColor(props.stroke) ? "transparent" : sceneColor("secondary")));
     if (sceneColor(props.stroke)) {
       style.borderColor = sceneColor(props.stroke);
       style.borderStyle = "solid";
@@ -813,6 +897,10 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, index, 
     "data-disabled": disabled ? "" : undefined,
     "data-hover": sceneColor(props.hoverBackground) ? "" : undefined,
     "data-style": node.type === "Panel" ? (props.style === "card" ? "card" : "glass") : undefined,
+    "data-transition": typeof props.transition === "string" ? props.transition : undefined,
+    "data-entering": entering && !leaving ? "" : undefined,
+    "data-leaving": own === true ? "" : undefined,
+    "data-animation": props.animation === "smooth" || props.animation === "snappy" ? props.animation : undefined,
     className: `cmux-app-scene-node cmux-app-scene-${node.type.toLowerCase()}`,
     style,
     title: sceneText(props.help) || undefined,
@@ -869,6 +957,7 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, index, 
       </SceneContextMenu>
     );
   }
+  if (own === true) rendered = <SceneLeavingContext.Provider value>{rendered}</SceneLeavingContext.Provider>;
   return <DisabledContext.Provider value={disabled}>{rendered}</DisabledContext.Provider>;
 });
 
@@ -893,13 +982,16 @@ export function SceneRenderer({
     () => (hostScrolled ? { host: true, slice: visibleSlice } : PAGE_SCROLL),
     [hostScrolled, visibleSlice],
   );
+  const generation = useSyncExternalStore(store.subscribeRoot, store.getGeneration, store.getGeneration);
   return (
     <AssetContext.Provider value={resolveAsset}>
       <ScrollContext.Provider value={scroll}>
         <OriginContext.Provider value={origin}>
           {root ? (
             <div ref={origin} className="cmux-app-scene-root">
-              <SceneNodeView id={root} store={store} dispatch={dispatch} />
+              <SceneAppeared key={generation} store={store} generation={generation}>
+                <SceneNodeView id={root} store={store} dispatch={dispatch} />
+              </SceneAppeared>
             </div>
           ) : null}
         </OriginContext.Provider>
