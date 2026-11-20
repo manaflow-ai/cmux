@@ -268,3 +268,64 @@ pub fn plan(answer: &Value, requested: &str) -> Plan {
         },
     }
 }
+
+#[cfg(test)]
+mod refusal_text_tests {
+    use super::refusal;
+
+    /// Words a person must never see in Chief's reply: the parts it is built from.
+    const INTERNAL: [&str; 9] = [
+        "acpmux",
+        "claude-stdio",
+        "CodeRouter",
+        "coderouter",
+        "`sr ",
+        "claude-sr",
+        "claude-cr",
+        "adapter",
+        "harness",
+    ];
+
+    fn plain(shown: &str) {
+        assert!(shown.starts_with("refused: "), "{shown}");
+        for word in INTERNAL {
+            assert!(!shown.contains(word), "{word:?} in {shown}");
+        }
+    }
+
+    /// A fresh Mac with no Claude Code (first-run findings row 1): Chief's first reply named
+    /// acpmux, claude-stdio, the CodeRouter CLI and `sr claude proxy`. It says what is missing
+    /// and where to fix it, in plain words.
+    #[test]
+    fn a_mac_without_claude_code_gets_a_plain_install_line() {
+        let shown = refusal(
+            "the Chief runs Claude only through acpmux's own Claude Code adapter (kind claude-stdio), and claude asks for one running `claude`; acpmux has none: acpmux has no harness named claude",
+        );
+        plain(&shown);
+        assert!(shown.contains("Claude Code"), "{shown}");
+        assert!(shown.contains("Install"), "{shown}");
+        assert!(shown.contains("Set Up"), "{shown}");
+    }
+
+    /// Every other refusal is plain too: an unavailable route, a Codex Chief with no Codex, a
+    /// permission mode that did not apply.
+    #[test]
+    fn every_other_refusal_names_no_internal_part() {
+        for (reason, agent) in [
+            (
+                "acpmux's claude-cr is unavailable: `cr team-route --version` failed: unknown command",
+                "Claude Code",
+            ),
+            ("acpmux has no harness named codex", "Codex"),
+            (
+                "the turn's permission mode default did not apply: no such mode",
+                "",
+            ),
+            ("acpmux did not say what its harnesses are (timed out)", ""),
+        ] {
+            let shown = refusal(reason);
+            plain(&shown);
+            assert!(shown.contains(agent), "{agent} in {shown}");
+        }
+    }
+}
