@@ -156,7 +156,9 @@ fn parse(words: &[String]) -> Result<Request, String> {
     match iter.next().map(String::as_str) {
         Some("settings") => {}
         Some(other) => {
-            return Err(format!("unknown agent-config part {other:?}; the parts are settings and hooks"));
+            return Err(format!(
+                "unknown agent-config part {other:?}; the parts are settings and hooks"
+            ));
         }
         None => return Err("agent-config needs a part (settings or hooks)".to_owned()),
     }

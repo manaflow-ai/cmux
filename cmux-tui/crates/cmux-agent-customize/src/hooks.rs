@@ -32,8 +32,8 @@ use indexmap::IndexMap;
 use serde::Serialize;
 use sha2::Digest as _;
 
-use crate::ojson::OJson;
 use crate::hooks_paths::{self as paths, AgentPaths};
+use crate::ojson::OJson;
 
 /// Which coding agent a hook belongs to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
