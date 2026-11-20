@@ -138,7 +138,12 @@ pub(crate) async fn run(client: Arc<Client>, plan: Plan, fix: bool, json_out: bo
         emit(&result);
         done.push(result);
     }
-    // Last: whether an agent is ready there, with the install and sign-in offers.
+    // Last: install missing agent CLIs during Add Machine (safe and
+    // non-secret), then report readiness and the person-owned sign-in offer.
+    // `host doctor` remains read-only and calls `step` directly.
+    if plan.lends_github && fix && gate(Step::Agents, &done).is_none() {
+        let _ = crate::cli::host_agents::install_missing(&remote, &plan.name, &mut emit);
+    }
     let agents = gate(Step::Agents, &done)
         .unwrap_or_else(|| crate::cli::host_agents::step(&remote, &plan.name));
     emit(&agents);
