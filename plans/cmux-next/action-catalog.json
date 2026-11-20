@@ -51020,6 +51020,231 @@
     },
     {
       "arguments" : [
+
+      ],
+      "category" : "browser",
+      "cliName" : "browser diff-zoom-in",
+      "computed" : {
+        "canonical_action_id" : "diffViewerZoomIn",
+        "cli" : false,
+        "default_aliases" : [
+          {
+            "keys" : [
+              {
+                "key" : "=",
+                "modifiers" : [
+                  "shift",
+                  "cmd"
+                ]
+              }
+            ],
+            "when" : "diffViewerFocused"
+          }
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "=",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "diffViewerZoomIn",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "diff",
+        "zoom"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "diffViewerFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "stepAdjust"
+        },
+        "contextMenuExemption" : "stepAdjust",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "plus.magnifyingglass",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Diff: Zoom In",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
+      "cliName" : "browser diff-zoom-out",
+      "computed" : {
+        "canonical_action_id" : "diffViewerZoomOut",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "-",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "diffViewerZoomOut",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "diff",
+        "zoom"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "diffViewerFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "stepAdjust"
+        },
+        "contextMenuExemption" : "stepAdjust",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "minus.magnifyingglass",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Diff: Zoom Out",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
+      "cliName" : "browser diff-actual-size",
+      "computed" : {
+        "canonical_action_id" : "diffViewerZoomReset",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "0",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "diffViewerZoomReset",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "diff",
+        "zoom",
+        "reset"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "diffViewerFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "stepAdjust"
+        },
+        "contextMenuExemption" : "stepAdjust",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "1.magnifyingglass",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Diff: Actual Size",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
         {
           "isAskedInPalette" : false,
           "isRequired" : false,
@@ -115429,11 +115654,11 @@
         "contextMenus" : [
           {
             "context" : "sidebarSection",
-            "folder" : null,
+            "folder" : "options",
             "group" : "view",
             "label" : null,
             "parent" : null,
-            "rank" : 100,
+            "rank" : 320,
             "style" : "item"
           }
         ],
@@ -115586,11 +115811,11 @@
         "contextMenus" : [
           {
             "context" : "sidebarBackground",
-            "folder" : null,
+            "folder" : "options",
             "group" : "view",
             "label" : null,
             "parent" : null,
-            "rank" : 110,
+            "rank" : 142,
             "style" : "item"
           }
         ],
@@ -126752,6 +126977,27 @@
         "source" : "default",
         "when" : null,
         "when_text" : null
+      },
+      {
+        "argument" : null,
+        "arguments" : {
+
+        },
+        "command" : "diffViewerZoomIn",
+        "keys" : [
+          {
+            "key" : "=",
+            "modifiers" : [
+              "shift",
+              "cmd"
+            ]
+          }
+        ],
+        "source" : "default",
+        "when" : {
+          "has" : "diffViewerFocused"
+        },
+        "when_text" : "diffViewerFocused"
       }
     ]
   },
