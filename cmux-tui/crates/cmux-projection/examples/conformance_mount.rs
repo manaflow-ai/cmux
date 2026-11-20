@@ -2,7 +2,7 @@
 //! would, through the real wire ([`cmux_projection::link`]) and mounts it the way the machine does,
 //! so file system suites (pjdfstest, fsx, xfstests) run against the same code the agent sees.
 //!
-//!     conformance_mount SOURCE MOUNT STATE [--lower] [--allow-other]
+//!     conformance_mount SOURCE MOUNT STATE [--lower] [--allow-other] [--fsname=NAME]
 //!
 //! SOURCE is the stand-in Mac folder (files, folders and links, every one shared). MOUNT is an
 //! empty folder. STATE holds the upper layer and the cache. `--lower` mounts the read-only lower
@@ -121,7 +121,9 @@ mod linux {
         let allow_other = args.iter().any(|arg| arg == "--allow-other");
         let places: Vec<&String> = args.iter().filter(|arg| !arg.starts_with("--")).collect();
         let [source, at, state] = places.as_slice() else {
-            anyhow::bail!("usage: conformance_mount SOURCE MOUNT STATE [--lower] [--allow-other]");
+            anyhow::bail!(
+                "usage: conformance_mount SOURCE MOUNT STATE [--lower] [--allow-other] [--fsname=NAME]"
+            );
         };
         let source = std::fs::canonicalize(source)?;
         let (mut items, mut paths) = (Vec::new(), Vec::new());
@@ -152,22 +154,13 @@ mod linux {
         });
         let owner = (unsafe_uid(), unsafe_gid());
         let overlay = Arc::new(Overlay::open(Arc::new(manifest), Path::new(state), link, owner)?);
-        let mounted = if lower_only {
-            cmux_projection::mount::mount_with(
-                overlay,
-                Path::new(at),
-                Options { read_only: true, allow_other },
-            )?
-        } else {
-            cmux_projection::mount::mount_with(
-                overlay,
-                Path::new(at),
-                Options { read_only: false, allow_other },
-            )?
-        };
-        std::fs::metadata(at)?;
+        let at = std::fs::canonicalize(at)?;
+        let fsname = args.iter().find_map(|arg| arg.strip_prefix("--fsname=")).map(str::to_owned);
+        let options = Options { read_only: lower_only, allow_other, fsname };
+        let mounted = cmux_projection::mount::mount_with(overlay, &at, options)?;
+        std::fs::metadata(&at)?;
         println!("mounted");
-        wait_for(&signals);
+        wait_for(&signals, &at);
         mounted.unmount();
         Ok(())
     }
@@ -194,11 +187,22 @@ mod linux {
         }
     }
 
-    fn wait_for(set: &libc::sigset_t) {
-        let mut signal = 0;
-        // SAFETY: `set` was filled by block_signals and is blocked on every thread.
-        unsafe {
-            libc::sigwait(set, &mut signal);
+    /// Waits for SIGINT/SIGTERM, or for the mount at `at` to go (an `umount` from outside, as
+    /// xfstests does between tests).
+    fn wait_for(set: &libc::sigset_t, at: &Path) {
+        let at = at.display().to_string();
+        let mounted = || {
+            std::fs::read_to_string("/proc/self/mountinfo").is_ok_and(|info| {
+                info.lines().any(|line| line.split(' ').nth(4) == Some(at.as_str()))
+            })
+        };
+        let second = libc::timespec { tv_sec: 1, tv_nsec: 0 };
+        loop {
+            // SAFETY: `set` was filled by block_signals and is blocked on every thread.
+            let got = unsafe { libc::sigtimedwait(set, std::ptr::null_mut(), &second) };
+            if got > 0 || !mounted() {
+                return;
+            }
         }
     }
 }

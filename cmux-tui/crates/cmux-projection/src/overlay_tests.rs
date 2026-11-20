@@ -234,3 +234,177 @@ fn a_file_made_read_only_is_still_written_through_its_create() {
     assert_eq!(overlay.read(made.ino, 0, 10).unwrap(), b"blob");
     assert_eq!(overlay.getattr(made.ino).unwrap().mode, 0o444);
 }
+
+// Conformance (RFD 0007, 2026-11-20): each test below failed on the base (pjdfstest or fsx found
+// the class) and passes with the fix.
+
+#[test]
+fn a_new_path_keeps_its_mode_bits_set_id_and_sticky_included() {
+    // pjdfstest chmod/00, chmod/11, chmod/12: chmod 04777/02777/01777 read back as 0777.
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let (made, _) = overlay.create(overlay.root(), "f", 0o644, me()).unwrap();
+    for mode in [0o4755, 0o2755, 0o1755, 0o0111, 0o7777] {
+        let set = Set { mode: Some(mode), ..Set::default() };
+        assert_eq!(overlay.setattr(made.ino, None, set).unwrap().mode, mode);
+    }
+    let dir = overlay.mkdir(overlay.root(), "d", 0o1777, me()).unwrap();
+    assert_eq!(dir.mode, 0o1777);
+}
+
+#[test]
+fn times_are_their_own_and_atime_is_kept() {
+    // pjdfstest utimensat/*: atime read back as mtime, ctime never moved.
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let (made, _) = overlay.create(overlay.root(), "f", 0o644, me()).unwrap();
+    let set = Set {
+        atime: Some(SetTime::At(1_000_000_123)),
+        mtime: Some(SetTime::At(2_000_000_456)),
+        ..Set::default()
+    };
+    let attr = overlay.setattr(made.ino, None, set).unwrap();
+    assert_eq!((attr.atime_ns, attr.mtime_ns), (1_000_000_123, 2_000_000_456));
+    assert!(attr.ctime_ns > 2_000_000_456);
+    // Before 1970 too.
+    let set = Set { mtime: Some(SetTime::At(-1_500_000_000)), ..Set::default() };
+    assert_eq!(overlay.setattr(made.ino, None, set).unwrap().mtime_ns, -1_500_000_000);
+}
+
+#[test]
+fn fifos_sockets_and_hard_links_are_made() {
+    // pjdfstest mkfifo/*, mknod/*, link/*: ENOSYS / EPERM on the base.
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let fifo = overlay.mknod(overlay.root(), "p", libc::S_IFIFO | 0o640, 0, me()).unwrap();
+    assert_eq!((fifo.kind, fifo.mode), (Type::Fifo, 0o640));
+    let sock = overlay.mknod(overlay.root(), "s", libc::S_IFSOCK | 0o600, 0, me()).unwrap();
+    assert_eq!(sock.kind, Type::Socket);
+    let plain = overlay.mknod(overlay.root(), "r", libc::S_IFREG | 0o600, 0, me()).unwrap();
+    assert_eq!(plain.kind, Type::File);
+    // A hard link of a lower file copies it up once; both names are one file, one number.
+    let readme = path_ino(&overlay, "README.md");
+    let linked = overlay.link(readme, overlay.root(), "again").unwrap();
+    assert_eq!(linked.nlink, 2);
+    assert_eq!(overlay.getattr(readme).unwrap().ino, linked.ino);
+    overlay.write(linked.ino, 0, b"R").unwrap();
+    assert_eq!(overlay.read(path_ino(&overlay, "README.md"), 0, 10).unwrap(), b"Readme");
+    overlay.unlink(overlay.root(), "README.md").unwrap();
+    let again = overlay.lookup(overlay.root(), "again").unwrap();
+    assert_eq!((again.ino, again.nlink), (linked.ino, 1));
+    assert_eq!(overlay.read(again.ino, 0, 10).unwrap(), b"Readme");
+}
+
+#[test]
+fn an_open_file_reads_and_writes_after_its_name_goes() {
+    // pjdfstest unlink/14, fsx: a file deleted (or renamed) while open kept no bytes.
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let (made, handle) = overlay.create(overlay.root(), "f", 0o644, me()).unwrap();
+    overlay.write_handle(handle, made.ino, 0, b"hello").unwrap();
+    overlay.unlink(overlay.root(), "f").unwrap();
+    assert_eq!(overlay.read_handle(handle, made.ino, 0, 10).unwrap(), b"hello");
+    overlay.write_handle(handle, made.ino, 5, b"!").unwrap();
+    assert_eq!(overlay.read_handle(handle, made.ino, 0, 10).unwrap(), b"hello!");
+    assert_eq!(overlay.getattr(made.ino).unwrap().nlink, 0);
+    let set = Set { size: Some(2), ..Set::default() };
+    assert_eq!(overlay.setattr(made.ino, Some(handle), set).unwrap().size, 2);
+    overlay.release(handle);
+    assert_eq!(overlay.getattr(made.ino), Err(ENOENT));
+    // A lower file opened read only keeps its bytes after its name goes.
+    let readme = path_ino(&overlay, "README.md");
+    let handle = overlay.open_handle(readme, libc::O_RDONLY).unwrap();
+    overlay.unlink(overlay.root(), "README.md").unwrap();
+    assert_eq!(overlay.read_handle(handle, readme, 0, 10).unwrap(), b"readme");
+    assert_eq!(overlay.getattr(readme).unwrap().nlink, 0);
+    // A new file under the old name never takes the old number.
+    let (again, _) = overlay.create(overlay.root(), "README.md", 0o644, me()).unwrap();
+    assert_ne!(again.ino, readme);
+}
+
+#[test]
+fn rename_flags_noreplace_and_exchange() {
+    // pjdfstest rename/*, xfstests generic/023-025: flags refused with EINVAL on the base.
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let src = path_ino(&overlay, "src");
+    let noreplace = libc::RENAME_NOREPLACE;
+    assert_eq!(overlay.rename(src, "a.rs", src, "b.rs", noreplace), Err(EEXIST));
+    overlay.rename(src, "a.rs", src, "n.rs", noreplace).unwrap();
+    let (a, b) = (path_ino(&overlay, "src/n.rs"), path_ino(&overlay, "src/b.rs"));
+    overlay.rename(src, "n.rs", src, "b.rs", libc::RENAME_EXCHANGE).unwrap();
+    assert_eq!(overlay.read(path_ino(&overlay, "src/b.rs"), 0, 100).unwrap(), b"fn a() {}");
+    assert_eq!(overlay.read(path_ino(&overlay, "src/n.rs"), 0, 100).unwrap(), b"fn b() {}");
+    assert_eq!((path_ino(&overlay, "src/b.rs"), path_ino(&overlay, "src/n.rs")), (a, b));
+    assert_eq!(overlay.rename(src, "c.rs", src, "none", libc::RENAME_EXCHANGE), Err(ENOENT));
+    // A folder never moves below itself.
+    let made = overlay.mkdir(overlay.root(), "x", 0o755, me()).unwrap();
+    overlay.mkdir(made.ino, "y", 0o755, me()).unwrap();
+    assert_eq!(overlay.rename(overlay.root(), "x", path_ino(&overlay, "x/y"), "z", 0), Err(EINVAL));
+}
+
+#[test]
+fn a_lower_folder_deleted_and_made_again_is_empty() {
+    // pjdfstest rmdir/mkdir: the Mac's files came back under a new folder of the same name.
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let src = path_ino(&overlay, "src");
+    let deep = path_ino(&overlay, "src/deep");
+    overlay.unlink(deep, "d.rs").unwrap();
+    overlay.rmdir(src, "deep").unwrap();
+    let made = overlay.mkdir(src, "deep", 0o755, me()).unwrap();
+    assert!(overlay.readdir(made.ino).unwrap().is_empty());
+    assert_eq!(overlay.lookup(made.ino, "d.rs"), Err(ENOENT));
+    drop(overlay);
+    let overlay = open(state.path(), &manifest, &fake);
+    let deep = path_ino(&overlay, "src/deep");
+    assert!(overlay.readdir(deep).unwrap().is_empty());
+}
+
+#[test]
+fn a_name_longer_than_255_bytes_is_enametoolong() {
+    // pjdfstest */02: ENOENT on the base.
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let long = "x".repeat(256);
+    assert_eq!(overlay.lookup(overlay.root(), &long), Err(errno::ENAMETOOLONG));
+    assert_eq!(overlay.create(overlay.root(), &long, 0o644, me()), Err(errno::ENAMETOOLONG));
+    let fits = "x".repeat(255);
+    overlay.create(overlay.root(), &fits, 0o644, me()).unwrap();
+}
+
+#[test]
+fn a_deep_path_longer_than_path_max_works() {
+    // pjdfstest open/02-style deep trees: the upper path with the state folder in front passed
+    // PATH_MAX and every call on it failed with ENAMETOOLONG on the base.
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let mut at = overlay.root();
+    let name = "d".repeat(200);
+    for _ in 0..30 {
+        at = overlay.mkdir(at, &name, 0o755, me()).unwrap().ino;
+    }
+    let (made, handle) = overlay.create(at, "f", 0o644, me()).unwrap();
+    overlay.write_handle(handle, made.ino, 0, b"deep").unwrap();
+    assert_eq!(overlay.read(made.ino, 0, 10).unwrap(), b"deep");
+}
+
+#[test]
+fn a_deleted_name_with_a_newline_stays_deleted_after_a_reopen() {
+    let items = vec![Item {
+        path: "a\nb".into(),
+        kind: Kind::File,
+        mode: 0o644,
+        size: 1,
+        mtime_ns: 1,
+        link: None,
+    }];
+    let manifest = Arc::new(Manifest::build(1, items).unwrap());
+    let fake = Arc::new(Fake::default());
+    let state = tempfile::tempdir().unwrap();
+    let overlay = open(state.path(), &manifest, &fake);
+    overlay.unlink(overlay.root(), "a\nb").unwrap();
+    drop(overlay);
+    let overlay = open(state.path(), &manifest, &fake);
+    assert_eq!(overlay.lookup(overlay.root(), "a\nb"), Err(ENOENT));
+}

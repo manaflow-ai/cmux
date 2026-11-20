@@ -12,7 +12,8 @@
 //!
 //! The state folder holds:
 //! - `upper/`: every file or folder the agent made or changed, at its relative path;
-//! - `whiteouts`: lower paths the agent deleted or renamed away, one per line;
+//! - `whiteouts`: lower paths the agent deleted or renamed away, each ended by a NUL (a name may
+//!   hold a newline; an older file of newline-ended lines still reads);
 //! - `cache/`: lower bytes fetched from the Mac, whole files as `cache/<entry>` and the chunks of a
 //!   big file as `cache/<entry>.<chunk>`, with `cache/manifest-id` naming the manifest they belong
 //!   to (a new manifest starts a fresh cache).
@@ -49,9 +50,14 @@ pub mod errno {
     pub const ENOTDIR: i32 = 20;
     pub const EISDIR: i32 = 21;
     pub const EINVAL: i32 = 22;
+    pub const ENAMETOOLONG: i32 = 36;
     pub const ENOTEMPTY: i32 = 39;
 }
-use errno::{EBADF, EEXIST, EINVAL, EIO, EISDIR, ENOENT, ENOTDIR, ENOTEMPTY, EPERM, EXDEV};
+use errno::{
+    EBADF, EEXIST, EINVAL, EIO, EISDIR, ENAMETOOLONG, ENOENT, ENOTDIR, ENOTEMPTY, EPERM, EXDEV,
+};
+/// The longest name a folder holds, in bytes (Linux's `NAME_MAX`).
+const NAME_MAX: usize = 255;
 
 /// Which file (entry) and which part of it: a chunk number, or [`WHOLE`] / [`COPY_UP`].
 type Key = (u32, u32);
@@ -184,6 +190,9 @@ struct Inner {
 struct Handle {
     ino: u64,
     file: Option<Arc<fs::File>>,
+    /// The manifest entry a read-only handle of a lower file was opened on: it keeps reading
+    /// those bytes after the path is deleted, as an open file on a disk does.
+    lower: Option<u32>,
 }
 
 /// A projected folder as the machine sees it.
@@ -313,7 +322,10 @@ impl Overlay {
         }
         fs::create_dir_all(&scratch)?;
         let whiteouts = fs::read_to_string(&whiteouts_file)
-            .map(|text| text.lines().filter(|line| !line.is_empty()).map(str::to_owned).collect())
+            .map(|text| {
+                let ends = if text.contains('\0') { '\0' } else { '\n' };
+                text.split(ends).filter(|path| !path.is_empty()).map(str::to_owned).collect()
+            })
             .unwrap_or_default();
         let next = manifest.len() as u64 + 2;
         Ok(Self {
@@ -527,7 +539,7 @@ impl Overlay {
             atime_ns: stat.atime_ns,
             mtime_ns: stat.mtime_ns,
             ctime_ns: stat.ctime_ns,
-            nlink: stat.nlink.max(1),
+            nlink: stat.nlink,
             uid: stat.uid,
             gid: stat.gid,
             rdev: stat.rdev,
@@ -552,6 +564,10 @@ impl Overlay {
         if name.is_empty() || name == "." || name == ".." || name.contains('/') {
             return Err(EINVAL);
         }
+        // The kernel passes a longer name through to a FUSE file system; a disk refuses it.
+        if name.len() > NAME_MAX {
+            return Err(ENAMETOOLONG);
+        }
         let parent = self.path_of(parent)?;
         let node = self.node(&parent).ok_or(ENOENT)?;
         if Self::kind(&node, &self.manifest) != Type::Dir {
@@ -565,7 +581,7 @@ impl Overlay {
         let mut text = String::new();
         for path in &inner.whiteouts {
             text.push_str(path);
-            text.push('\n');
+            text.push('\0');
         }
         let temp = self.scratch_path();
         fs::write(&temp, text).map_err(|error| io_errno(&error))?;
@@ -615,18 +631,34 @@ impl Overlay {
     fn open_file_of(&self, ino: u64) -> Option<Arc<fs::File>> {
         self.handles()
             .values()
-            .find(|handle| handle.ino == ino)
-            .and_then(|handle| handle.file.clone())
+            .filter(|handle| handle.ino == ino)
+            .find_map(|handle| handle.file.clone())
+    }
+
+    /// The lower entry an open read-only handle of `ino` reads (a path deleted while open).
+    fn open_lower_of(&self, ino: u64) -> Option<u32> {
+        self.handles().values().filter(|handle| handle.ino == ino).find_map(|handle| handle.lower)
+    }
+
+    /// `ino`'s path and where it lives, when it still has a name.
+    fn named(&self, ino: u64) -> Option<(String, Node)> {
+        let path = self.path_of(ino).ok()?;
+        let node = self.node(&path)?;
+        // A name the number no longer answers to (its path now holds another file).
+        (self.ino_of(&path, &node) == ino).then_some((path, node))
     }
 
     pub fn getattr(&self, ino: u64) -> Result<Attr, i32> {
-        let found =
-            self.path_of(ino).ok().and_then(|path| self.node(&path).map(|node| (path, node)));
-        if let Some((path, node)) = found {
+        if let Some((path, node)) = self.named(ino) {
             return Ok(self.attr(&path, &node));
         }
-        let file = self.open_file_of(ino).ok_or(ENOENT)?;
-        Ok(Self::upper_attr(ino, &Upper::fstat(&file)?))
+        if let Some(file) = self.open_file_of(ino) {
+            return Ok(Self::upper_attr(ino, &Upper::fstat(&file)?));
+        }
+        let index = self.open_lower_of(ino).ok_or(ENOENT)?;
+        let mut attr = self.attr_of(ino, &Node::Lower(index));
+        attr.nlink = 0;
+        Ok(attr)
     }
 
     /// The merged listing of folder `ino`: upper names, then lower names not hidden or shadowed.
@@ -972,23 +1004,24 @@ impl Overlay {
         if write {
             self.ensure_upper(&path)?;
         }
-        let file = match self.node(&path).ok_or(ENOENT)? {
+        let (file, lower) = match self.node(&path).ok_or(ENOENT)? {
             Node::Upper(stat) if stat.format() == libc::S_IFREG => {
                 let access = flags & libc::O_ACCMODE;
                 let file = self.upper.open_existing(&path, access)?;
                 if flags & libc::O_TRUNC != 0 {
                     file.set_len(0).map_err(|error| io_errno(&error))?;
                 }
-                Some(Arc::new(file))
+                (Some(Arc::new(file)), None)
             }
-            Node::Upper(_) | Node::Lower(_) => None,
+            Node::Upper(_) => (None, None),
+            Node::Lower(index) => (None, Some(index)),
         };
-        Ok(self.add_handle(ino, file))
+        Ok(self.add_handle(Handle { ino, file, lower }))
     }
 
-    fn add_handle(&self, ino: u64, file: Option<Arc<fs::File>>) -> u64 {
+    fn add_handle(&self, open: Handle) -> u64 {
         let handle = self.next_handle.fetch_add(1, Ordering::Relaxed);
-        self.handles().insert(handle, Handle { ino, file });
+        self.handles().insert(handle, open);
         handle
     }
 
@@ -1009,9 +1042,18 @@ impl Overlay {
         offset: u64,
         size: u32,
     ) -> Result<Vec<u8>, i32> {
-        match self.handle_file(handle) {
-            Some(file) => read_at(&file, offset, size),
-            None => self.read(ino, offset, size),
+        if let Some(file) = self.handle_file(handle) {
+            return read_at(&file, offset, size);
+        }
+        // A lower file read only: its current bytes (an upper copy once another open wrote it),
+        // else, its name gone, the bytes it was opened on.
+        if self.named(ino).is_some() {
+            return self.read(ino, offset, size);
+        }
+        let lower = self.handles().get(&handle).and_then(|open| open.lower);
+        match lower {
+            Some(index) => self.read_lower(index, offset, size),
+            None => Err(ENOENT),
         }
     }
 
@@ -1092,7 +1134,8 @@ impl Overlay {
         })?;
         self.adopt_new(&parent, &child, who, Some(mode & 0o7777))?;
         let attr = self.lookup_path(&child)?;
-        let handle = self.add_handle(attr.ino, Some(Arc::new(file)));
+        let handle =
+            self.add_handle(Handle { ino: attr.ino, file: Some(Arc::new(file)), lower: None });
         Ok((attr, handle))
     }
 

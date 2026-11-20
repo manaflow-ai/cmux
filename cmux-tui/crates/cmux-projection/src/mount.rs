@@ -51,7 +51,7 @@ impl Drop for Mounted {
 }
 
 /// How to mount.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Options {
     /// Only the read-only view: every write answers `EROFS` from the kernel. The lower a kernel
     /// overlay can stack an upper on, and what the conformance suites check alone.
@@ -60,6 +60,9 @@ pub struct Options {
     /// `/etc/fuse.conf`). The product never sets it; the conformance suites, which switch users,
     /// do.
     pub allow_other: bool,
+    /// The source the mount table shows (default `cmux-projection`): a suite that finds its mount
+    /// by its device name sets one.
+    pub fsname: Option<String>,
 }
 
 /// Mounts `overlay` at `at` (an existing, empty folder).
@@ -85,7 +88,7 @@ pub fn mount_with(overlay: Arc<Overlay>, at: &Path, options: Options) -> anyhow:
     }
     let fs = Fs { overlay, jobs: sender, listings: HashMap::new(), next_handle: AtomicU64::new(1) };
     let mut mount_options = vec![
-        MountOption::FSName("cmux-projection".into()),
+        MountOption::FSName(options.fsname.clone().unwrap_or_else(|| "cmux-projection".into())),
         MountOption::Subtype("cmux".into()),
         MountOption::DefaultPermissions,
         MountOption::NoAtime,
