@@ -815,6 +815,7 @@ export const SubagentTray = memo(function SubagentTray({
                   // The pointer twin of its line in the list: hovering names it, a click opens it. The
                   // header stays the keyboard's one control (a button holds no button); the list's
                   // lines are the keyboard's way to each item.
+                  // oxlint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events -- an aria-hidden pointer twin; the open list's lines are the keyboard's way to each item
                   <span
                     key={mark.key}
                     className="acpmux-running-tray__thumb"
