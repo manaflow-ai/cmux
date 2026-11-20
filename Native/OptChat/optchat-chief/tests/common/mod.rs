@@ -670,6 +670,19 @@ pub struct Agents {
     pub failed_steers: usize,
     /// Steers are answered only when the turn ends (codex-acp).
     pub steer_at_end: bool,
+    /// `withdraw_steer` drops an unread steer (Claude Code's
+    /// `cancel_async_message`); else it answers false, as an agent that
+    /// cannot take one back.
+    pub withdraws: bool,
+    /// Every `withdraw_steer`: (session, prompt id).
+    pub withdrawn: Vec<(String, String)>,
+    /// `background_work` moves the running call (Claude Code's Ctrl-B): the
+    /// steers waiting for the step are read at once.
+    pub backgrounds: bool,
+    /// Every `background_work` call's session.
+    pub backgrounded: Vec<String>,
+    /// The running call moved to the background: waiting steers are read.
+    pub moved: bool,
     /// Turns whose prompt was answered.
     pub answered_turns: usize,
     /// Each prompt's session id, in prompt order.
@@ -746,7 +759,7 @@ impl FakeAgents {
         Ok(Box::new(move || {
             // codex-acp answers a steer only when the turn ends.
             let mut inner = me.inner.lock().unwrap();
-            while at_end && inner.answered_turns == turn {
+            while at_end && inner.answered_turns == turn && !inner.moved {
                 inner = me.changed.wait(inner).unwrap();
             }
             Ok(())
@@ -762,8 +775,13 @@ impl FakeAgents {
         })
     }
 
+    /// Holds turns before they answer (`on`), or lets every held turn go:
+    /// a held turn waits on `changed`, so letting go wakes it (with no
+    /// wake it waited for some other call's, and a test that made none
+    /// timed out).
     pub fn hold(&self, on: bool) {
         self.inner.lock().unwrap().hold = on;
+        self.changed.notify_all();
     }
 
     /// Lets one held turn run.
@@ -1167,6 +1185,24 @@ impl AgentPort for FakeAgents {
         Ok(())
     }
 
+    fn background_work(&self, session: &str) -> Result<bool, String> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.backgrounded.push(session.to_owned());
+        let moved = inner.backgrounds;
+        inner.moved |= moved;
+        drop(inner);
+        self.changed.notify_all();
+        Ok(moved)
+    }
+
+    fn withdraw_steer(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
+        let mut inner = self.inner.lock().unwrap();
+        inner
+            .withdrawn
+            .push((session.to_owned(), prompt_id.to_owned()));
+        Ok(inner.withdraws)
+    }
+
     fn remove_queued(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
         let mut inner = self.inner.lock().unwrap();
         inner
@@ -1234,6 +1270,7 @@ pub fn settings(dir: &Path) -> Settings {
         engine_file: None,
         families: Default::default(),
         codex_preset: None,
+        brains: Default::default(),
         settings_file: dir.join("settings.json"),
         trace_dir: Some(dir.join("traces")),
         cache_ttl: None,
