@@ -80,8 +80,17 @@ every 6 h) had to run on this Mac's runner and stopped while the Mac slept. Now
   `cmux automation logs RUN --target cloud` reads the run's log from its machine; the page shows
   Cloud runs, reasons and logs the same way as runs on this Mac.
 
-Not yet on Cloud: per-automation secrets, a notification for a failed Cloud run, waking a paused
-machine (a stopped machine fails the run), editing the body (delete and make it again).
+- `cmux automation secret set AUTOMATION NAME --target cloud` keeps a value (from a hidden prompt,
+  stdin or `--secret-file`, never an argument) that each machine step of a `--command` run gets as
+  the environment variable NAME; `secret list` shows names and a 4-character hint, never a value.
+  The value is sealed by cmux Cloud and sent on the step's stdin, never on its command line.
+- A failed Cloud run (exit 3: a check failed; 1 or other: it crashed; or it timed out) posts one
+  notice to its creator's Feed, pushed to their devices; skipped runs post nothing.
+- Before a run's first step on a machine, a paused machine is started and waited for (up to 5
+  minutes). A machine that does not come up skips the run with reason `machine_not_running`: it is
+  not a failure, does not notify and does not count toward auto-pause.
+
+Not yet on Cloud: editing the body (delete and make it again).
 
 ## Proof
 
