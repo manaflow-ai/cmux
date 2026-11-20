@@ -4,32 +4,39 @@ import OSLog
 import QuartzCore
 
 /// Starts the terminal engine (`ghostty_init`, the app's config, `ghostty_app_new`) once, off the main
-/// thread, when the main thread first goes idle after the shell is on screen, instead of inside the
+/// thread, once the shell's first frame is on screen, instead of inside the
 /// first tap that opens a terminal. The first terminal's open then pays only for its own surface, and
 /// the main thread (chat's first frame, scrolling) pays nothing for the engine.
 ///
-/// Once per process: the first `schedule()` adds one run-loop observer that removes itself the first
-/// time it fires; every later call returns at once. A terminal opened while the build runs waits for
+/// Once per process: the first `schedule()` adds one display link that stops itself at its first
+/// frame; every later call returns at once. A terminal opened while the build runs waits for
 /// that build (`EngineBuild`); one opened before it starts builds the engine itself, as before.
 @MainActor
-public final class TerminalEngineWarmup {
+public final class TerminalEngineWarmup: NSObject {
     public static let shared = TerminalEngineWarmup()
 
     private static let log = Logger(subsystem: "dev.cmux.mobile", category: "timing")
     private var scheduled = false
 
-    private init() {}
+    override private init() {}
 
-    /// Starts the engine build the next time the main run loop is about to wait (nothing else queued).
+    private var link: CADisplayLink?
+
+    /// Starts the engine build at the next display frame, which comes after the frame that put the
+    /// shell on screen is committed. A run-loop `beforeWaiting` observer would run before Core
+    /// Animation's own commit observer, so the build would contend with the first frame.
     public func schedule() {
         guard !scheduled else { return }
         scheduled = true
-        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, false, 0) { observer, _ in
-            CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes)
-            // main-proof: the observer is on the main run loop.
-            MainActor.assumeIsolated { TerminalEngineWarmup.shared.warm() }
-        }
-        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        let link = CADisplayLink(target: self, selector: #selector(frameShown))
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
+
+    @objc private func frameShown() {
+        link?.invalidate()
+        link = nil
+        warm()
     }
 
     private func warm() {
