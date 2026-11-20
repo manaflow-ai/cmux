@@ -39,7 +39,10 @@ final class AppSceneIconNSView: AppSceneNodeNSView {
             image.contentTintColor = tint
             return
         }
-        let palette = node.props["symbolColors"]?.arrayValue?.prefix(3).compactMap(\.sceneColor) ?? []
+        // 1 to 3 colors, all valid, else none (the tint), as the web renderer and the builder refuse.
+        let given = node.props["symbolColors"]?.arrayValue ?? []
+        let parsed = given.compactMap(\.sceneColor)
+        let palette = (1...3).contains(given.count) && parsed.count == given.count ? parsed : []
         let colors = mode == "palette" && !palette.isEmpty ? palette : [tint]
         image.contentTintColor = nil
         if let drawn = drawnSymbol, drawn.name == name, drawn.mode == mode, drawn.side == side, drawn.colors == colors { return }

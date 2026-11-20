@@ -13,13 +13,14 @@ final class SidebarAppSections: SidebarAppSectionProvider {
     /// The widget area's section id (never in the layout document).
     static let widgetSectionID = LayoutSectionID("sec_widgets")
     private let provider: AppSectionProvider
+    var widgets: AppWidgetSection? { provider.widgets }
     /// The built-in Team section (``CloudTeamFeature/contribution``), drawn here, not by an app.
     private let team: (() -> CloudTeamHostingView?)?
     private var teamView: CloudTeamHostingView?
     var widgets: AppWidgetSection? { provider.widgets }
 
-    init(apps: AppsService, team: (() -> CloudTeamHostingView?)? = nil) {
-        provider = AppSectionProvider(client: apps.client) { [weak apps] in apps?.presence.isPresented($0) == true }
+    init(client: AppsClient, isPresented: @escaping (String) -> Bool, team: (() -> CloudTeamHostingView?)? = nil) {
+        provider = AppSectionProvider(client: client, isPresented: isPresented)
         self.team = team
         provider.showWidgets(place: "sidebar")
     }

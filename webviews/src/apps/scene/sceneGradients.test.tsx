@@ -204,4 +204,5 @@ test("a shape's gradient fill replaces its fill color", () => {
   ]);
   const dot = container.querySelector<HTMLElement>('[data-app-node="dot"]')!;
   expect(dot.style.backgroundColor).toBe("");
+  expect(dot.style.backgroundImage).toContain("radial-gradient(");
 });

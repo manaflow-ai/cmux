@@ -5,7 +5,7 @@
 // wiggle); a widget draws only what is inside. The helpers are plain views built on the scene
 // DSL: use them, mix them with VStack and Text, or ignore them.
 
-import { Circle, ForEach, HStack, Icon, ProgressView, Spacer, Text, VStack, type View, Line, ZStack } from "./index.ts";
+import { Circle, ForEach, HStack, Icon, ProgressView, Spacer, Text, VStack, type View, Line, ZStack } from "./index.ts"
 
 /** A widget's size, as Apple's widget families: small is a 1x1 tile, medium 2x1, large 2x2. */
 export type WidgetSize = "small" | "medium" | "large"

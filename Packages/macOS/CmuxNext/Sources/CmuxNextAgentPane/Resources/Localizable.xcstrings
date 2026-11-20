@@ -1,6 +1,270 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "agentPane.github.localCloneFailed": {
+      "comment": "A GitHub repository picked for a chat on this Mac could not be cloned. %@ is owner/name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't clone %@ on this Mac. Check that GitHub can reach it, then try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر استنساخ %@ على هذا الـ Mac. تحقق من إمكانية الوصول إليه عبر GitHub، ثم حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće klonirati %@ na ovom Macu. Provjerite može li GitHub pristupiti njemu, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke klone %@ på denne Mac. Tjek, at GitHub kan nå det, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ konnte auf diesem Mac nicht geklont werden. Prüfe, ob GitHub darauf zugreifen kann, und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo clonar %@ en este Mac. Comprueba que GitHub puede acceder a él e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de cloner %@ sur ce Mac. Vérifiez que GitHub y a accès, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile clonare %@ su questo Mac. Verifica che GitHub possa raggiungerlo, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacで %@ をクローンできませんでした。GitHub からアクセスできるか確認して、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចក្លូន %@ នៅលើ Mac នេះបានទេ។ សូមពិនិត្យថា GitHub អាចចូលដល់វាបាន រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 %@을(를) 복제할 수 없습니다. GitHub에서 접근할 수 있는지 확인한 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke klone %@ på denne Macen. Sjekk at GitHub når den, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można sklonować %@ na tym Macu. Sprawdź, czy GitHub ma do niego dostęp, i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível clonar %@ neste Mac. Verifique se o GitHub consegue acessá-lo e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось клонировать %@ на этом Mac. Убедитесь, что GitHub может получить к нему доступ, и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถโคลน %@ บน Mac เครื่องนี้ได้ ตรวจสอบว่า GitHub เข้าถึงได้ แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ bu Mac'te klonlanamadı. GitHub'ın ona erişebildiğini kontrol edip tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося клонувати %@ на цьому Mac. Переконайтеся, що GitHub має до нього доступ, і спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể sao chép %@ trên máy Mac này. Hãy kiểm tra GitHub có truy cập được không rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法在这台 Mac 上克隆 %@。请确认 GitHub 可以访问它，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法在這台 Mac 上複製 %@。請確認 GitHub 可以存取它，然後再試一次。"
+          }
+        }
+      }
+    },
+    "agentPane.github.localCloneNoFolder": {
+      "comment": "Every default clone folder for a picked GitHub repository is already taken. %@ is owner/name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't find a free folder for %@ in ~/cmux/repos."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر العثور على مجلد متاح لـ %@ في ~/cmux/repos."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije pronađena slobodna mapa za %@ u ~/cmux/repos."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke finde en ledig mappe til %@ i ~/cmux/repos."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein freier Ordner für %@ in ~/cmux/repos gefunden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontró una carpeta libre para %@ en ~/cmux/repos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun dossier libre trouvé pour %@ dans ~/cmux/repos."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna cartella libera trovata per %@ in ~/cmux/repos."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~/cmux/repos に %@ 用の空きフォルダが見つかりませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រកមិនឃើញថតទំនេរសម្រាប់ %@ ក្នុង ~/cmux/repos ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~/cmux/repos에서 %@용 빈 폴더를 찾을 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fant ingen ledig mappe for %@ i ~/cmux/repos."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie znaleziono wolnego folderu dla %@ w ~/cmux/repos."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi encontrada uma pasta livre para %@ em ~/cmux/repos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не найдена свободная папка для %@ в ~/cmux/repos."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พบโฟลเดอร์ว่างสำหรับ %@ ใน ~/cmux/repos"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~/cmux/repos içinde %@ için boş klasör bulunamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не знайдено вільної папки для %@ у ~/cmux/repos."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không tìm thấy thư mục trống cho %@ trong ~/cmux/repos."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 ~/cmux/repos 中找不到可用于 %@ 的空文件夹。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 ~/cmux/repos 中找不到可用於 %@ 的空資料夾。"
+          }
+        }
+      }
+    },
     "chiefScreenShare.indicator.title": {
       "extractionState": "manual",
       "localizations": {

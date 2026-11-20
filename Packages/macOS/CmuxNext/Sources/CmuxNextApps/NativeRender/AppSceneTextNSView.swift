@@ -27,7 +27,7 @@ final class AppSceneTextNSView: AppSceneNodeNSView {
         dateText = AppSceneDateText(node)
         updateTicking()
         let text = shownText
-        if text != before, window != nil, !before.isEmpty { transitionContent(from: before, to: text) }
+        if text != before, window != nil, !before.isEmpty, drawsInWidgetTile { transitionContent(from: before, to: text) }
         label.stringValue = text
         label.font = Self.font(node)
         let lines = node.number("lineLimit").map { max(1, Int($0)) } ?? 0
@@ -107,10 +107,13 @@ final class AppSceneTextNSView: AppSceneNodeNSView {
         )
     }
 
-    /// `contentTransition` on a text already on screen: `numericText` rolls the new value in (up when
+    /// `contentTransition` on a text already on screen in a widget tile: `numericText` rolls the new value in (up when
     /// it grew, down when it shrank), `opacity` crossfades it, behind the sidebar's motion gate (Reduce
     /// Motion crossfades; motion off draws the new value at once).
     private func transitionContent(from before: String, to after: String) {
+        guard node.string("contentTransition") != nil else { return }
+        // Its own layer, in a widget tile only: the transition rolls or crossfades the label alone.
+        label.wantsLayer = true
         switch node.string("contentTransition") {
         case "numericText": Motion.sidebar.rollInPlace(label.layer, upward: Self.grew(from: before, to: after))
         case "opacity": Motion.sidebar.crossfadeInPlace(label.layer)

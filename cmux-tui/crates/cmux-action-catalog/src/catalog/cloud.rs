@@ -7,6 +7,11 @@ use crate::text::t;
 
 const GROUP: &str = "CloudActionCatalog";
 
+/// A stored Cloud secret, by its Keychain account (`*/NAME`, or `owner/repo/NAME` for one repo);
+/// the App lists the accounts of `~/.config/cmux/cloud-secrets.json`, which holds no value.
+#[rustfmt::skip]
+const CLOUD_SECRET: Argument = Argument { name: "secret", title: t("CloudSessionActions", "argument.cloud.secret", "Secret"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "cloudSecrets", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+
 #[rustfmt::skip]
 pub static ACTIONS: &[Action] = &[
     Action {
@@ -868,6 +873,23 @@ pub static ACTIONS: &[Action] = &[
         palette_target_source: Some("cloud"),
         cli_name: "cloud deliver-secrets",
         waits_for_result: true,
+        ..Action::DEFAULT
+    },
+    // Remove Cloud Secret: deletes one stored value from this Mac's Keychain and its entry in
+    // ~/.config/cmux/cloud-secrets.json, as `cmux cloud secret rm` (the CLI's own verb). Picked
+    // from the index, which lists names and never values; no value is typed or shown.
+    Action {
+        id: "cloud.secret.remove",
+        group: GROUP,
+        title: t("CloudSessionActions", "action.cloud.secret.remove", "Remove Cloud Secret…"),
+        keywords: &["vm", "cloud", "secret", "secrets", "keychain", "env", "remove", "delete", "forget", "rm"],
+        category: "cloud",
+        symbol: "key.slash",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[CLOUD_SECRET, args::CONFIRM.optional()],
+        cli_name: "action cloud-secret-remove",
+        is_destructive: true,
+        is_person_only: true,
         ..Action::DEFAULT
     },
     Action {
