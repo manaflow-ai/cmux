@@ -13,7 +13,8 @@
 import { useSyncExternalStore } from "react";
 import { configureSenderIconLook } from "./subagents/senderIconLook";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, type HarnessPlacement } from "../../ui/harnessPlacement";
-import { isArm } from "../../experiments/experiment";
+import { experimentArm, isArm } from "../../experiments/experiment";
+import { readingLook, readingLookValues } from "./readingLook.experiment";
 import { threadMinimapLayout } from "./threadMinimap/layout.experiment";
 import {
   CHAT_UI_FONT_KEY,
@@ -420,7 +421,7 @@ export function setChatDisplay(value: unknown): void {
   configureStatusVerbs(raw);
   configureThinkingLook(raw);
   configureSenderIconLook(raw);
-  const next = resolveChatDisplay(raw);
+  const next = resolveChatDisplay(readingLookValues(raw, experimentArm(readingLook)));
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
   const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
   const trayTucked = raw[TRAY_TUCKED_KEY] === true;
