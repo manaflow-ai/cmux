@@ -220,7 +220,8 @@ public struct SSHTuiConnection: Sendable {
     public static func typedCommand(fromInitialInput input: String) -> String? {
         guard input.hasSuffix("\r") else { return nil }
         let command = String(input.dropLast())
-        guard !command.contains(where: { $0 == "\r" || $0 == "\n" }),
+        // By scalar: Swift folds CRLF into one Character that equals neither "\r" nor "\n".
+        guard !command.unicodeScalars.contains(where: { $0 == "\r" || $0 == "\n" }),
               !command.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
         return command
     }

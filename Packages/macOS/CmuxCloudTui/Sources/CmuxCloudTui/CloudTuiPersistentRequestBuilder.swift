@@ -59,7 +59,7 @@ public enum CloudTuiRequests {
     public static func runArguments(socketPath: String, workspaceID: String, command: [String], onExit: String? = nil, cwd: String? = nil, idempotencyKey: String? = nil, correlationKey: String? = nil) -> CloudTuiRequest {
         var fields: [String: Any] = ["workspace": workspaceID, "argv": command]
         if let onExit { fields["on_exit"] = onExit }
-        if let cwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines), !cwd.isEmpty { fields["cwd"] = cwd }
+        if let cwd, !cwd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { fields["cwd"] = cwd }
         if let correlationKey { fields["correlation_key"] = correlationKey }
         return CloudTuiRequest("workspace.run", fields, mutation: true, key: idempotencyKey)
     }
@@ -91,7 +91,7 @@ public enum CloudTuiRequests {
             fields["direction"] = direction
         } else {
             fields["argv"] = command
-            if let cwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines), !cwd.isEmpty { fields["cwd"] = cwd }
+            if let cwd, !cwd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { fields["cwd"] = cwd }
         }
         if let revision { fields["expected_revision"] = String(revision) }
         if let correlationKey { fields["correlation_key"] = correlationKey }
