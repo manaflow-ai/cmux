@@ -6,12 +6,19 @@
 // section's cards are in before the host shows the page: no card draws a frame late.
 import { Suspense, use, type ReactNode } from "react";
 import type { CategoryCard } from "../categories";
+import type { PartID } from "../personalizationParts";
 import { sections } from "../schema";
 import { text } from "../strings";
 
 /** How a card draws: `focus` is the route's focused key, `workspace` the workspace the page was
- * opened for, `reveal` whether the route opens the page on this card. */
-export type CardRender = (focus: string | null, workspace: string | null, reveal: boolean) => ReactNode;
+ * opened for, `reveal` whether the route opens the page on this card, `part` the Personalization part
+ * the route shows. */
+export type CardRender = (
+  focus: string | null,
+  workspace: string | null,
+  reveal: boolean,
+  part: PartID,
+) => ReactNode;
 
 const machinesTitle = () => text(sections.find((section) => section.id === "machines")?.title);
 
@@ -99,8 +106,8 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
   contextMenus: () =>
     import("./ContextMenusCard").then(({ ContextMenusCard }) => (focus) => <ContextMenusCard focus={focus} />),
   personalization: () =>
-    import("./PersonalizationCard").then(({ PersonalizationCard }) => (focus, workspace) => (
-      <PersonalizationCard focus={focus} workspace={workspace} />
+    import("./PersonalizationCard").then(({ PersonalizationCard }) => (focus, workspace, _reveal, part) => (
+      <PersonalizationCard key={part} part={part} focus={focus} workspace={workspace} />
     )),
 };
 
@@ -136,12 +143,18 @@ export async function loadCards(cards: Iterable<CategoryCard>): Promise<void> {
   await Promise.all([...cards].map(loadCard));
 }
 
-function LoadedCard({ card, focus, workspace, reveal }: CardProps) {
+function LoadedCard({ card, focus, workspace, reveal, part }: CardProps) {
   const load: Promise<CardRender> = loadCard(card);
-  return use(load)(focus, workspace, reveal);
+  return use(load)(focus, workspace, reveal, part);
 }
 
-type CardProps = { card: CategoryCard; focus: string | null; workspace: string | null; reveal: boolean };
+type CardProps = {
+  card: CategoryCard;
+  focus: string | null;
+  workspace: string | null;
+  reveal: boolean;
+  part: PartID;
+};
 
 /** Draws `card`. Its section's ensure loaded it, so it draws in the same frame as the section; a
  * card drawn without one (a search result) shows once its chunk arrives. */

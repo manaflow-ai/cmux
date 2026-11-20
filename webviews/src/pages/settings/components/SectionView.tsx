@@ -4,7 +4,7 @@ import { GroupList } from "./GroupList";
 import { APPEARANCE_CATEGORIES } from "../appearanceUndo";
 import { AppearanceBar } from "./AppearanceBar";
 import { DENSITY_CARD_ROWS } from "../density";
-import { PERSONALIZATION_KEYS } from "../personalizationParts";
+import { PERSONALIZATION_KEYS, personalizationPart, type PartID } from "../personalizationParts";
 import { SectionActions } from "./SectionActions";
 import {
   ACCENT_KEY,
@@ -34,11 +34,13 @@ export function SectionView({
   section,
   focus,
   workspace = null,
+  part = null,
   reveal = null,
 }: {
   section: string;
   focus: string | null;
   workspace?: string | null;
+  part?: PartID | null;
   /** The card the route opens the page on (`#/settings/machines`), else null. */
   reveal?: CategoryCard | null;
 }) {
@@ -49,6 +51,7 @@ export function SectionView({
   // Personalization is the one home of what it draws (the theme studio among it): no other page
   // draws those rows, and it does not draw them a second time as rows under its parts.
   const hub = category.lead.includes("personalization");
+  const currentPart = personalizationPart(focus, part);
   const studio = hub || category.lead.includes("themeStudio");
   const drawn = new Set(
     studio ? [THEME_KEY, APP_THEME_KEY, ACCENT_KEY, HIGHLIGHT_COLOR_KEY, ROTATE_FAVORITES_KEY, THEME_FILE_KEY] : [],
@@ -85,19 +88,34 @@ export function SectionView({
       ),
     }))
     .filter((group) => group.rows.length > 0);
-  // Each row's level and the merged cards (rowLevels.ts). Only Personalization has a jump bar (its own
-  // card); a category page is short enough without one (Lucas 2026-11-11).
+  // Each row's level and the merged cards (rowLevels.ts).
   const cards = arrangeGroups(category.id, groups, focus);
   return (
     <div className="section" data-section={category.id}>
-      <h1 className="section-title">{text(category.title)}</h1>
+      {!hub && <h1 className="section-title">{text(category.title)}</h1>}
       {category.lead.map((card) => (
-        <CardSlot key={card} card={card} focus={focus} workspace={workspace} reveal={reveal === card} />
+        <CardSlot
+          key={card}
+          card={card}
+          focus={focus}
+          workspace={workspace}
+          part={currentPart}
+          reveal={reveal === card}
+        />
       ))}
       {cards.length > 0 && <GroupList groups={cards} focus={focus} pageTitle={text(category.title)} />}
-      {category.trail.map((card) => (
-        <CardSlot key={card} card={card} focus={focus} workspace={workspace} reveal={reveal === card} />
-      ))}
+      {category.trail
+        .filter((card) => card !== "customizeLibrary" || !hub || currentPart === "theme")
+        .map((card) => (
+          <CardSlot
+            key={card}
+            card={card}
+            focus={focus}
+            workspace={workspace}
+            part={currentPart}
+            reveal={reveal === card}
+          />
+        ))}
       {category.actions.map((id) => (
         <SectionActions key={id} section={id} />
       ))}
@@ -107,6 +125,12 @@ export function SectionView({
 }
 
 /** One card, loaded with its section (cardModules.tsx). */
-function CardSlot(props: { card: CategoryCard; focus: string | null; workspace: string | null; reveal: boolean }) {
+function CardSlot(props: {
+  card: CategoryCard;
+  focus: string | null;
+  workspace: string | null;
+  part: PartID;
+  reveal: boolean;
+}) {
   return <Card {...props} />;
 }
