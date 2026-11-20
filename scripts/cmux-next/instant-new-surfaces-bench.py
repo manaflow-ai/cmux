@@ -393,7 +393,11 @@ def timed(command, phase, index, arm=None):
         params.update({"command": "newtab_url", "url": LINK_URL, "beside": command == "newtab_url_beside"})
     if command == "browser_workspace":  # New Browser Workspace: visible_ms is the window on the new workspace, chrome_ms its browser in the pane
         params.update({"command": "new_workspace", "run": "newBrowserWorkspace"})
+    rpc("debug.sidebar_perf", {"reset": True})
     result = rpc("debug.new_tab", params, timeout=20) or {}
+    # The sidebar's work for this one create (rows walked, section sets, list reloads): a count, so a create that walks
+    # every row shows at 2000 workspaces whatever the build's speed (ask-bdd706af47).
+    result["sidebar_counts"] = rpc("debug.sidebar_perf", {"reset": True}) or {}
     result.update({"phase": phase, "run": index, "command": command})
     if arm:
         result["arm"] = arm

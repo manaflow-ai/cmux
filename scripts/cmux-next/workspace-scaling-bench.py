@@ -230,7 +230,7 @@ def scaling_warnings(rows, limit=LIMIT):
 def instant_runs(reports):
     """Each count's warm new_workspace and split_right runs as the app timed them (key, confirmed and visible ms and
     the named spans), so a scaling warning says which part of the create grew, not only that it did."""
-    keep = ("command", "key_ms", "confirmed_ms", "visible_ms", "spans")
+    keep = ("command", "key_ms", "confirmed_ms", "visible_ms", "spans", "sidebar_counts")
     out = {}
     for count in COUNTS:
         runs = ((reports.get(count) or {}).get("instant") or {}).get("runs")
