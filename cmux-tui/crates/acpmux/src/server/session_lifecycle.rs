@@ -13,9 +13,18 @@ pub(super) async fn dispatch(
     Some(handle(hub, conn, params).await)
 }
 
+pub(super) fn fleet_peer(conn: &Conn, params: &Value) -> bool {
+    let control = super::remote_guard::control_of(conn.origin, conn.auth, params);
+    conn.origin == Origin::Peer
+        && conn.auth.peer_daemon()
+        && control == crate::hub::Control::Peer
+        && crate::hub::vm_boundary::owner(conn.auth, control, params)
+        && !super::remote_guard::cloud_mobile(params)
+}
+
 async fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     if str_param(params, "op").is_some_and(|op| op.starts_with("fleet_")) {
-        if conn.origin != Origin::Peer || !conn.auth.peer_daemon() {
+        if !fleet_peer(conn, params) {
             return Err(RpcError::invalid_params(
                 "fleet admission requires an authenticated peer daemon",
             ));
@@ -95,15 +104,25 @@ mod tests {
         op: &str,
         target: &str,
     ) -> Value {
-        let (input, incoming) = mpsc::channel(32);
-        let (output, mut outgoing) = mpsc::channel(32);
-        // The helper deliberately gives a Peer origin only a listener token. The real
-        // multi-daemon test separately proves the authenticated peer-token path.
         let auth = if origin == Origin::Peer {
             ConnAuth::ListenerToken
         } else {
             ConnAuth::proven_for(origin)
         };
+        request_authed(hub, origin, auth, caller, op, target, None).await
+    }
+
+    async fn request_authed(
+        hub: &Arc<Hub>,
+        origin: Origin,
+        auth: ConnAuth,
+        caller: Option<&str>,
+        op: &str,
+        target: &str,
+        via: Option<&str>,
+    ) -> Value {
+        let (input, incoming) = mpsc::channel(32);
+        let (output, mut outgoing) = mpsc::channel(32);
         tokio::spawn(serve_connection_authed(hub.clone(), incoming, output, origin, auth));
         let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}});
         if caller == Some("terminal") {
@@ -127,7 +146,7 @@ mod tests {
             .unwrap()
         };
         let _hello = next(1, &mut outgoing).await;
-        let (method, params) = if op == "send" {
+        let (method, mut params) = if op == "send" {
             (
                 method::MUX_SEND_QUEUE,
                 json!({"request": {"sessionId": target,
@@ -140,6 +159,9 @@ mod tests {
                 "handoff": "done", "reason": "explicit follow-up"}),
             )
         };
+        if let Some(via) = via {
+            params["_meta"] = json!({"acpmux": {"via": via}});
+        }
         input.send(Message::request(2, method, params).to_line()).await.unwrap();
         next(2, &mut outgoing).await
     }
@@ -175,6 +197,29 @@ mod tests {
                 assert!(reply.get("error").is_some(), "unauthenticated fleet RPC: {reply}");
             }
         }
+        for (auth, via) in [
+            (ConnAuth::Device, None),
+            (ConnAuth::PeerToken, Some("web")),
+            (ConnAuth::PeerToken, Some("device")),
+        ] {
+            let reply =
+                request_authed(&hub, Origin::Peer, auth, None, "fleet_status", "self", via).await;
+            assert!(
+                reply.get("error").is_some(),
+                "forwarded client reached fleet control: {reply}"
+            );
+        }
+        let reply = request_authed(
+            &hub,
+            Origin::Peer,
+            ConnAuth::PeerToken,
+            None,
+            "fleet_status",
+            "self",
+            None,
+        )
+        .await;
+        assert!(reply.get("error").is_none(), "authenticated daemon denied: {reply}");
         let reply = request(&hub, Origin::Local, Some("self"), "finish", "self").await;
         assert!(reply.get("error").is_none(), "{reply}");
         assert!(hub.resolve("self").unwrap().meta().finished.is_some());

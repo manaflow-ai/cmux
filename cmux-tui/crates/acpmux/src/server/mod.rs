@@ -1812,10 +1812,10 @@ async fn serve_connection_from(
                 // A trusted daemon's fleet wait is bounded by the authority's one-hour
                 // queue deadline. It must not consume finite-work slots: 64 queued retries
                 // on one link would otherwise prevent that link from sending pause/release.
-                let fleet_wait = conn.origin == Origin::Peer
-                    && conn.auth.peer_daemon()
-                    && m == crate::hub::finished::METHOD
-                    && params.as_ref().and_then(|p| p["op"].as_str()) == Some("fleet_acquire");
+                let fleet_wait = m == crate::hub::finished::METHOD
+                    && params.as_ref().is_some_and(|p| {
+                        p["op"] == "fleet_acquire" && session_lifecycle::fleet_peer(&conn, p)
+                    });
                 let admission =
                     if fleet_wait { Ok(None) } else { try_request_slot(&request_slots, &m) };
                 let slot = match admission {
