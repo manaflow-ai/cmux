@@ -174,6 +174,9 @@ struct HomeAgentMessagesTests {
         expectedFold.peerTitles = ["please check", "please build"]
         // a1's report is unread until the person opens a1 (the agent pane).
         expectedFold.peerUnread = [true, false]
+        // Each agent's task began at the Chief's message to it; a1's ended at its report, a2 works on.
+        expectedFold.peerStarted = [date, date]
+        expectedFold.peerEnded = [date, nil]
         #expect(rows[1].agentMessage == expectedFold)
         #expect(rows[2].agentMessage?.kind == .message(from: "agent_mux", to: "a1", outgoing: true, text: "please check"))
         #expect(rows[3].agentMessage?.kind == .message(from: "agent_mux", to: "a2", outgoing: true, text: "please build"))
