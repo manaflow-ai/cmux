@@ -210,7 +210,7 @@ def _cef_counters(reply) -> dict[str, float]:
 
 
 def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
-          gestures: tuple[str, ...] | list[str] = ("divider",), seed: int = 0, profile=None) -> None:
+          gestures: tuple[str, ...] | list[str] = ("divider",), seed: int = 0, profile=None, sight=None) -> None:
     """Splits right, opens the page (`pane`) in the right pane, then traces each of `gestures` four times.
 
     `strip`: then one more divider drag, held open while `debug.window_snapshot` takes the window every
@@ -218,7 +218,10 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
     Snapshots perturb timing, so that drag is not measured.
 
     `profile`: called just before the first divider drag; it returns a callable that ends the profile it
-    started (the bench's CPU sample of the app through that drag)."""
+    started (the bench's CPU sample of the app through that drag).
+
+    `sight`: called just before each gesture; what it returns (whether the window can get frames) goes in the
+    gesture's trace as `sight`."""
     if pane not in PANES:
         driver.save("split_resize", {"error": f"unknown pane {pane!r}"})
         return
@@ -511,6 +514,9 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
             if pane == "terminal":
                 # Each terminal's drawn and PTY grids through the gesture (data: the reflows it drew).
                 driver.call("debug.terminal_final_grid", {"action": "start"}, timeout=10)
+            # Whether the window can get frames now (`sight`: the app active, the window on screen and not covered): a
+            # window out of sight gets no frame ticks, and a drag's moves wait for one (DividerDrag.waitForFrame).
+            seen = sight() if sight is not None else None
             stop_profile = profile() if profile is not None and gesture == "divider" and not drags else None
             trace = driver.trace(targets, act, 0.8 if gesture != "sidebar" else 1.2)
             if stop_profile is not None:
@@ -522,7 +528,8 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
             cef_after = _cef_counters(driver.call("debug.cef", {}, timeout=10))
             # What the page windows did through this gesture: resize fences joined, presented, missed, expired.
             trace["cef"] = {key: round(cef_after[key] - cef_before.get(key, 0.0), 2) for key in cef_after}
-            trace.update({"gesture": gesture, "pane": pane, "chat_pane": chat_pane, "beside": beside, "clock": clock})
+            trace.update({"gesture": gesture, "pane": pane, "chat_pane": chat_pane, "beside": beside, "clock": clock,
+                          "sight": seen})
             drags.append(trace)
             time.sleep(0.6)
     shots = []

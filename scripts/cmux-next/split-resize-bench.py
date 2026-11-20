@@ -85,14 +85,51 @@ def drag_sample(path: Path) -> dict | None:
             "top_of_stack": lines[top + 1:top + 41] if top is not None else None}
 
 
+# The run's display-awake assertion (`caffeinate`), started at most once; it ends on its own timeout.
+AWAKE: list = []
+
+
+def sight(driver) -> dict:
+    """Whether the app's windows can get display frames now: the app active, and each main window shown, on screen and
+    not covered. A window out of sight (FrameScheduler.windowIsOutOfSight: the app inactive and the window covered,
+    minimized or ordered out) gets no frame ticks, and a divider drag's moves wait for one (DividerDrag.waitForFrame):
+    on 2026-11-20 (cmux20-bench, steps d315c76a and bee050aa) every drag's divider stood still until the release."""
+    focus = driver.call("debug.focus", {}, timeout=10)
+    windows = driver.call("debug.window_list", {}, timeout=10).get("windows") or []
+    return {"app_active": focus.get("app_active"),
+            "windows": [{key: w.get(key) for key in ("id", "visible", "key", "occluded", "miniaturized")}
+                        for w in windows if w.get("kind") == "main"]}
+
+
+def bring_into_sight(driver, app_path: str) -> dict:
+    """Wakes the display and brings the app to the front when its window is out of sight. A fleet bench Mac has no
+    person on it; the launch lets the app activate (no CMUX_NEXT_NO_ACTIVATE), so a drag beside the chat gets its frames
+    as on a person's Mac."""
+    before = sight(driver)
+    covered = before.get("app_active") is not True or any(w.get("occluded") or not w.get("visible")
+                                                         for w in before["windows"])
+    if not covered:
+        return {"before": before, "acted": False}
+    # A user-activity assertion wakes a sleeping display and holds it on for the run's length (one per run).
+    if not AWAKE:
+        AWAKE.append(subprocess.Popen(["/usr/bin/caffeinate", "-u", "-d", "-t", "900"], stdout=subprocess.DEVNULL,
+                                      stderr=subprocess.DEVNULL))
+    subprocess.run(["/usr/bin/open", "-a", app_path], capture_output=True, timeout=30)
+    time.sleep(2.0)  # test harness: activation and WindowServer's occlusion report arrive
+    return {"before": before, "acted": True, "after": sight(driver)}
+
+
 def measure(pane: str, folder: Path) -> dict:
     """One launch: the harness's gestures on `pane` and its recording drag, judged."""
     folder.mkdir(parents=True, exist_ok=True)
-    app = BenchApp(opts.app, out=str(folder), window=(80, 80, 1100, 720))
+    # The app may activate: its window is key and in front, as a person's is while they drag beside the chat. Only a
+    # fleet GUI host runs it (bench_launch refuses a person's Mac for a launch that activates).
+    app = BenchApp(opts.app, out=str(folder), window=(80, 80, 1100, 720), env={"CMUX_NEXT_NO_ACTIVATE": None})
     report: dict = {"pane": pane, "requested_gestures": gestures}
     try:
         app.launch()
         driver = golden.Driver(app.socket, folder)
+        report["sight"] = {"launched": bring_into_sight(driver, opts.app)}
         driver.call("debug.motion", {"action": "speed", "value": "fast"})
         driver.call("debug.motion", {"action": "reduce", "value": False})
         sample_path = folder / "drag-sample.txt"
@@ -105,7 +142,8 @@ def measure(pane: str, folder: Path) -> dict:
             return lambda: sampler.wait(timeout=30)
 
         split_resize.drive(driver, folder, strip=True, pane=pane, gestures=gestures,
-                           seed=opts.seed if pane in ("chat", "terminal") else 0, profile=profile)
+                           seed=opts.seed if pane in ("chat", "terminal") else 0, profile=profile,
+                           sight=lambda: bring_into_sight(driver, opts.app))
         report["drag_sample"] = drag_sample(sample_path)
         data = json.loads((folder / "split_resize.json").read_text())
         refresh = next((float(d.get("refresh_ms") or 0) for d in data.get("drags") or [] if float(d.get("refresh_ms") or 0) > 0),
@@ -131,7 +169,7 @@ def measure(pane: str, folder: Path) -> dict:
         report["harness"] = {
             "split": data.get("split"), "opened": data.get("opened"), "chat_pane": data.get("chat_pane"),
             "error": data.get("error"), "rest": data.get("rest"),
-            "drags": [{"gesture": d.get("gesture"), "acted": d.get("acted"),
+            "drags": [{"gesture": d.get("gesture"), "acted": d.get("acted"), "sight": d.get("sight"),
                        "first": (d.get("samples") or [None])[0], "last": (d.get("samples") or [None])[-1],
                        # Each frame's divider x positions: whether the divider followed the pointer through the drag,
                        # or only moved after the release (the 2026-11-19 runs: first and last the same, moved after).
