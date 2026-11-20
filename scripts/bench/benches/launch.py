@@ -18,6 +18,8 @@ arm=base for the other side of an A/B.
   --arg runs=N         measured relaunches per side (1 to 10, default 5); --arg profile=1 adds a Time Profiler pass
   --arg state=bare     every launch starts from an empty home (nothing to restore); --arg prerun=S a full run of S
                        seconds before each measured launch (60: "a launch after a 60 s full run"); both as the harness
+  --arg engines=chromium,webkit  one side per default engine (arm=chromium, arm=webkit), the same DMG, interleaved;
+                       Chromium's start from the app's log as cef_ready, cef_initialize_start, cef_initialize_dur, ... rows
   --arg labels=a,b     worker labels (default measure, on a display worker as the harness documents)
   --arg mode=premain   scripts/measure/launch-premain.sh instead (CMUX-629's pre-main study, NIGHTLY only, about 50
                        minutes): per arm (h, a, b, c, g, d, k, e, e2, x, f, t1, t3, t6; --arg arms=, --arg reps=N) the measured launch's
@@ -119,7 +121,7 @@ class Launch(Bench):
         timeout."""
         build = ctx.build
         args = [f"runs={ctx.arg('runs', '5')}"]
-        for key in ("profile", "state", "prerun"):
+        for key in ("profile", "state", "prerun", "engines"):
             value = extra.get(key, ctx.arg(key))
             if value:
                 args.append(f"{key}={value}")
@@ -138,6 +140,8 @@ class Launch(Bench):
             raise BenchError("launch: --build nightly, --build <sha>, or --arg dmg=https://... (a DMG)")
         # A prerun adds S seconds and a quit to each of the runs and the priming launch.
         prerun = int(extra.get("prerun", ctx.arg("prerun", "0")) or 0)
+        # engines=chromium,webkit: the second side's launches.
+        timeout += 900 * max(0, len((extra.get("engines", ctx.arg("engines")) or "").split(",")) - 1)
         return args, timeout + prerun * (int(ctx.arg("runs", "5")) + 1)
 
     def ingest(self, ctx: Context, path: Path) -> None:

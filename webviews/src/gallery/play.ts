@@ -22,6 +22,7 @@
 
 import type { MotionController, MotionEvidence } from "./motionEvidence";
 import type { BoxMove } from "./shift";
+import type { FollowJudgement } from "./followJudge";
 
 export type PlayTarget =
   | { role: string; name?: string | RegExp }
@@ -130,6 +131,9 @@ export type StepReport = {
   /** The box shift score (shift.ts) and the moves that made it; absent on a scroll step. */
   boxShift?: number;
   boxMoves?: BoxMove[];
+  /** The same frames judged for the follow (followJudge.ts): what moved other than the one
+   *  translation the transcript rows share. Reported, never judged here. */
+  boxFollow?: FollowJudgement;
   /** Durations in ms of the frames over 16.7 ms. */
   longFrames: number[];
   /** Where the first `LONG_FRAME_PARTS` long frames' time went (`longFramePart`), where the engine says; never judged. */
@@ -141,7 +145,13 @@ export type StepReport = {
   popupProblems?: string[];
 };
 /** The stage's mount, from navigation until the play starts (frame/main.ts): what opening it looks like. */
-export type LoadReport = { layoutShift: number; shifts: Shift[]; boxShift: number; boxMoves: BoxMove[] };
+export type LoadReport = {
+  layoutShift: number;
+  shifts: Shift[];
+  boxShift: number;
+  boxMoves: BoxMove[];
+  boxFollow?: FollowJudgement;
+};
 export type PlayReport = {
   status: "pass" | "warn" | "fail" | "none";
   steps: StepReport[];
