@@ -18,9 +18,11 @@ extension CmuxRemoteService {
         let previousLoad = registry.argumentSuggestionsLoad
         registry.argumentSuggestionsLoad = { [weak self, weak registry] source in
             guard source == Self.approvalSuggestionSource else { return previousLoad?(source) }
+            guard let self else { return nil }
+            let decisions = Self.decisionTitles(registry)
             return {
-                await self?.refreshComputerUseApprovals()
-                return Self.approvalChoices(self?.computerUse.approvals ?? [], decisions: Self.decisionTitles(registry))
+                await self.refreshComputerUseApprovals()
+                return Self.approvalChoices(self.computerUse.approvals, decisions: decisions)
             }
         }
     }
