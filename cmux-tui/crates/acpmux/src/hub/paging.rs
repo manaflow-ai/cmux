@@ -2,6 +2,7 @@
 //! session's event log, shared by `_acpmux/events` and `_acpmux/attach`.
 
 use super::*;
+use crate::store::BackItem;
 
 /// `session/update` kinds that carry no renderable transcript content.
 const NON_TRANSCRIPT_UPDATES: &[&str] = &[
@@ -383,7 +384,7 @@ fn is_wire(rec: &EventRecord) -> bool {
 /// of JSON: 14,000 such records counted by the kind's length passed as a 4 MiB page and were
 /// more than one message.
 pub(super) fn record_bytes(rec: &EventRecord) -> usize {
-    serde_json::to_string(rec).map_or(0, |json| json.len()) + 120
+    serde_json::to_string(rec).map_or(0, |json| json.len()) + RECORD_EXTRA
 }
 
 /// The most JSON one page holds when the caller names no `maxBytes`, and the most it may
@@ -753,17 +754,10 @@ impl Hub {
             })?;
             return Ok(page);
         }
-        // Newest first; a slot a later (older) record made moot is empty.
-        let mut found: Vec<Option<(EventRecord, usize)>> = Vec::new();
-        let mut held = 0usize;
         // A Codex command's updates each carry its whole output so far: without this, a few of
         // them fill the page (`store/superseded.rs`). Its prompts are read whatever the kinds: a
         // call id names a call within one prompt.
         let omit = filter.omit_superseded;
-        let skip = |dir: &[u8], kind: &[u8]| {
-            filter.surely_skips(dir, kind) && !(omit && crate::store::starts_prompt(dir, kind))
-        };
-        let mut superseded = omit.then(crate::store::Superseded::default);
         // A page of prompts, the queue or turn results reads the log's copies of those kinds
         // where they are good, segment by segment, newest first: read back from the end, a page
         // of a chat's last 16 prompts walked its whole log when it had fewer, and every open asks
@@ -776,21 +770,121 @@ impl Hub {
         let transcript = !indexed && filter.reads_transcript_index();
         #[cfg(test)]
         let transcript = transcript && !READ_THE_OLD_WAY.with(std::cell::Cell::get);
-        let back = |skip: &dyn Fn(&[u8], &[u8]) -> bool,
-                    visit: &mut dyn FnMut(EventRecord) -> bool| {
-            if indexed {
-                self.store.scan_back_indexed(id, after, before, skip, visit)
-            } else if transcript {
-                self.store.scan_back_transcript(id, after, before, skip, visit)
-            } else {
-                self.store.scan_back(id, after, before, skip, visit)
-            }
+        let how = if indexed {
+            Back::Kinds
+        } else if transcript && omit {
+            // Updates the fold leaves out whole are not read at all (`Back::Snapshots`).
+            Back::Snapshots
+        } else if transcript {
+            Back::Transcript
+        } else {
+            Back::Log
         };
-        back(&skip, &mut |rec| {
+        let args = NewestFirst { id, after, before, limit, max_bytes, over, filter, how };
+        if let Some(page) = self.newest_first(session.as_deref(), &args)? {
+            return Ok(page);
+        }
+        // An update read unread was not, when the page read it, the line its index said: the
+        // page is read again with every record read.
+        self.newest_first(session.as_deref(), &NewestFirst { how: Back::Transcript, ..args })
+            .map(Option::unwrap_or_default)
+    }
+
+    /// The newest-first page of [`Self::events_page`], read `how`. None when an update a
+    /// [`Back::Snapshots`] read passed unread is not, read at the end, the record its index named.
+    fn newest_first(
+        &self,
+        session: Option<&Session>,
+        args: &NewestFirst<'_>,
+    ) -> Result<Option<EventPage>> {
+        let NewestFirst { id, after, before, limit, max_bytes, over, filter, how } = *args;
+        let mut page = EventPage::default();
+        let mut bytes = 0usize;
+        // Newest first; a slot a later (older) record made moot is empty.
+        let mut found: Vec<Option<(Slot, usize)>> = Vec::new();
+        let mut held = 0usize;
+        let omit = filter.omit_superseded;
+        let skip = |dir: &[u8], kind: &[u8]| {
+            filter.surely_skips(dir, kind) && !(omit && crate::store::starts_prompt(dir, kind))
+        };
+        let mut superseded = omit.then(crate::store::Superseded::default);
+        // Whether the page takes a `tool_call_update` an agent sent: the same for every one.
+        let takes_updates = filter.matches(&EventRecord {
+            seq: 0,
+            at: 0,
+            dir: "in".into(),
+            kind: "tool_call_update".into(),
+            msg: json!({"method": method::SESSION_UPDATE}),
+            host_seq: None,
+        });
+        // Whether `shape` leaves a record of `bytes` as it is: no tool output to cut, no stub.
+        let unshaped = |bytes: usize| {
+            over.is_none_or(|max| bytes <= max)
+                && filter.tool_output_max.is_none_or(|max| bytes <= max)
+        };
+        // Makes room for a record of `rec_bytes` that makes slot `moot` moot, or says the page
+        // is full: false, and `has_more`.
+        let mut place = |slot: Slot,
+                         rec_bytes: usize,
+                         moot: Option<usize>,
+                         found: &mut Vec<Option<(Slot, usize)>>,
+                         has_more: &mut bool| {
+            let moot_bytes = moot.and_then(|slot| found.get(slot)?.as_ref()).map_or(0, |(_, b)| *b);
+            let kept = held + 1 - usize::from(moot.is_some());
+            let size = bytes + rec_bytes - moot_bytes;
+            // Full by count, or by size once it holds another record.
+            if kept > limit || (kept > 1 && max_bytes.is_some_and(|max| size > max)) {
+                *has_more = true;
+                return false;
+            }
+            if let Some(entry) = moot.and_then(|slot| found.get_mut(slot)) {
+                *entry = None;
+            }
+            (held, bytes) = (kept, size);
+            found.push(Some((slot, rec_bytes)));
+            true
+        };
+        let mut failed: Option<anyhow::Error> = None;
+        let mut visit = |item: BackItem| {
+            let rec = match item {
+                BackItem::Record(rec) => rec,
+                // Not a record of this page, and no prompt start: as a read of it would pass it.
+                BackItem::Unread(_) if !takes_updates => return true,
+                BackItem::Unread(snapshot) => {
+                    let Some(fold) = superseded.as_mut() else { return true };
+                    let cut = fold.replaces_content(snapshot.call);
+                    let rec_bytes = if cut { snapshot.cut } else { snapshot.whole } + RECORD_EXTRA;
+                    if unshaped(rec_bytes) {
+                        let moot = fold.read_unread(
+                            snapshot.call,
+                            snapshot.status,
+                            snapshot.content,
+                            found.len(),
+                        );
+                        return place(
+                            Slot::Unread(snapshot, cut),
+                            rec_bytes,
+                            moot,
+                            &mut found,
+                            &mut page.has_more,
+                        );
+                    }
+                    // `shape` would change it: read it now, as any record.
+                    match snapshot.read() {
+                        Ok(Some(rec)) => rec,
+                        // Not the line its entry names: a read of the line passes it too.
+                        Ok(None) => return true,
+                        Err(error) => {
+                            failed = Some(error);
+                            return false;
+                        }
+                    }
+                }
+            };
             let matches = filter.matches(&rec);
             let mut rec = rec;
             if matches {
-                self.display_logged(session.as_deref(), &mut rec);
+                self.display_logged(session, &mut rec);
             }
             // Its bytes, once its superseded content is out: whether it goes out whole.
             let mut sized = None;
@@ -811,24 +905,78 @@ impl Hub {
                 return true;
             }
             let (rec, rec_bytes) = filter.shape(rec, sized, over);
-            let moot_bytes = moot.and_then(|slot| found.get(slot)?.as_ref()).map_or(0, |(_, b)| *b);
-            let kept = held + 1 - usize::from(moot.is_some());
-            let size = bytes + rec_bytes - moot_bytes;
-            // Full by count, or by size once it holds another record.
-            if kept > limit || (kept > 1 && max_bytes.is_some_and(|max| size > max)) {
-                page.has_more = true;
-                return false;
+            place(Slot::Read(rec), rec_bytes, moot, &mut found, &mut page.has_more)
+        };
+        let store = &self.store;
+        match how {
+            Back::Kinds => store
+                .scan_back_indexed(id, after, before, &skip, &mut |r| visit(BackItem::Record(r))),
+            Back::Transcript => store.scan_back_transcript(id, after, before, &skip, &mut |r| {
+                visit(BackItem::Record(r))
+            }),
+            Back::Log => {
+                store.scan_back(id, after, before, &skip, &mut |r| visit(BackItem::Record(r)))
             }
-            if let Some(entry) = moot.and_then(|slot| found.get_mut(slot)) {
-                *entry = None;
-            }
-            (held, bytes) = (kept, size);
-            found.push(Some((rec, rec_bytes)));
-            true
-        })?;
-        page.events = found.into_iter().rev().flatten().map(|(rec, _)| rec).collect();
-        Ok(page)
+            Back::Snapshots => store.scan_back_snapshots(id, after, before, &skip, &mut visit),
+        }?;
+        if let Some(error) = failed {
+            return Err(error);
+        }
+        let mut events = Vec::with_capacity(found.len());
+        for (slot, rec_bytes) in found.into_iter().rev().flatten() {
+            events.push(match slot {
+                Slot::Read(rec) => rec,
+                Slot::Unread(snapshot, cut) => {
+                    // Without its content when the fold leaves it out: never read.
+                    let read = if cut { snapshot.read_cut()? } else { snapshot.read()? };
+                    let Some(mut rec) = read else { return Ok(None) };
+                    if rec.seq != snapshot.seq {
+                        return Ok(None);
+                    }
+                    self.display_logged(session, &mut rec);
+                    filter.shape(rec, Some(rec_bytes), over).0
+                }
+            });
+        }
+        page.events = events;
+        Ok(Some(page))
     }
+}
+
+/// What `record_bytes` adds to a record's JSON: the `sessionId` the page adds.
+const RECORD_EXTRA: usize = 120;
+
+/// Which backward read of the store a newest-first page takes.
+#[derive(Clone, Copy)]
+enum Back {
+    /// `Store::scan_back`.
+    Log,
+    /// `Store::scan_back_indexed`.
+    Kinds,
+    /// `Store::scan_back_transcript`.
+    Transcript,
+    /// `Store::scan_back_snapshots`: superseded updates left unread.
+    Snapshots,
+}
+
+/// A newest-first page's arguments (`Hub::newest_first`).
+#[derive(Clone, Copy)]
+struct NewestFirst<'a> {
+    id: &'a str,
+    after: u64,
+    before: u64,
+    limit: usize,
+    max_bytes: Option<usize>,
+    over: Option<usize>,
+    filter: &'a EventFilter,
+    how: Back,
+}
+
+/// A record a newest-first page holds: read, or an update read only once the page keeps it (with
+/// whether its content goes).
+enum Slot {
+    Read(EventRecord),
+    Unread(crate::store::Snapshot, bool),
 }
 
 /// How much of a prompt's text an entry of the prompt index keeps: the rail's hover card title

@@ -245,3 +245,72 @@ fn an_update_too_big_to_send_supersedes_nothing() {
     assert_eq!(superseded.read(&mut older, 1, |_| true), None);
     assert_eq!(older, log[0], "the older output is the one the reader gets");
 }
+
+/// [`Superseded::read_unread`] from an update's [`snapshot_facts`] folds it as
+/// [`Superseded::read`] folds the record: the same slots go, and the same contents.
+#[test]
+fn an_update_read_from_its_facts_folds_as_the_record() {
+    let mut log = codex_chat(4, 30, 40);
+    // Calls interleaved and a call id used again after a prompt, and a subagent's call.
+    let mut seq = log.len() as u64;
+    for n in 0..60u64 {
+        seq += 1;
+        let id = ["call_1", "call_2", "x"][(n % 3) as usize];
+        let mut rec = output(seq, id, &format!("out {n}"));
+        if n % 5 == 0 {
+            rec.msg["params"]["update"]["status"] = json!("in_progress");
+        }
+        if n % 7 == 0 {
+            rec.msg["params"]["_meta"] = json!({"acpmux": {"subagent": "s"}});
+        }
+        if n % 11 == 0 {
+            rec.msg["params"]["update"].as_object_mut().unwrap().remove("content");
+        }
+        log.push(rec);
+    }
+    let want = read_back(&log);
+    let mut superseded = Superseded::default();
+    let mut slots: Vec<Option<(EventRecord, bool)>> = Vec::new();
+    let mut unread = 0;
+    for rec in log.iter().rev() {
+        let line = serde_json::to_string(rec).unwrap();
+        let (rec, cut, moot) = match snapshot_facts(line.as_bytes()) {
+            Some(facts) => {
+                unread += 1;
+                let cut = superseded.replaces_content(facts.call);
+                let moot =
+                    superseded.read_unread(facts.call, facts.status, facts.content, slots.len());
+                (rec.clone(), cut, moot)
+            }
+            None => {
+                let mut rec = rec.clone();
+                let moot = superseded.read(&mut rec, slots.len(), |_| true);
+                (rec, false, moot)
+            }
+        };
+        if let Some(slot) = moot {
+            slots[slot] = None;
+        }
+        slots.push(Some((rec, cut)));
+    }
+    assert!(unread > 100, "{unread} updates read from their facts");
+    let got: Vec<EventRecord> = slots
+        .into_iter()
+        .rev()
+        .flatten()
+        .map(|(mut rec, cut)| {
+            if cut {
+                // As a page reads it: the line less its span, the content noted.
+                let line = serde_json::to_string(&rec).unwrap();
+                let facts = snapshot_facts(line.as_bytes()).unwrap();
+                let (at, len) = (facts.span_start as usize, facts.span_len as usize);
+                let rest = [&line.as_bytes()[..at], &line.as_bytes()[at + len..]].concat();
+                rec = serde_json::from_slice(&rest).unwrap();
+                note_superseded_content(&mut rec, span_content_bytes(facts.span_len));
+                assert_eq!(serde_json::to_string(&rec).unwrap().len(), facts.cut as usize);
+            }
+            rec
+        })
+        .collect();
+    assert_eq!(got, want);
+}
