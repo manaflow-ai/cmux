@@ -7,7 +7,7 @@ name: cmux-next React Doctor
 #
 # Every pull request (no paths): feat-cmux-next requires `React Doctor (changed
 # React projects)`, and a required check must report. The `changes` job picks
-# the projects the change touches on the owned control runner, which starts
+# the projects the change touches on the owned GCP lane runners, which start
 # within a minute; when the change touches none, the required job is skipped,
 # which GitHub counts as passing, so a docs-only or Swift-only pull request
 # never waits for a Linux build runner (2026-11-19: #47471 sat queued for hours
@@ -38,12 +38,12 @@ concurrency:
 
 jobs:
   # Which React projects the change touches. Python and git only, so it runs on the
-  # owned control runner (vars.CI_CONTROL_RUNNER), never on the build pools the scan
-  # needs. A fork's pull request never reaches a persistent host: it takes a fixed
-  # Blacksmith label.
+  # owned GCP lane runners (cmux-gcp-lane-x64: a dozen persistent runners over three
+  # VMs, whose job-started hook refuses outside fork heads), never on the build pools
+  # the scan needs. A fork's pull request takes a fixed Blacksmith label instead.
   changes:
     name: React Doctor scope
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || vars.CI_CONTROL_RUNNER || 'cmux-gcp-nightly-x64' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || 'cmux-gcp-lane-x64' }}
     timeout-minutes: 5
     outputs:
       projects: ${{ steps.scope.outputs.projects }}

@@ -119,12 +119,12 @@ env:
 jobs:
   # The router (cmux-tui-spec-changed.py): on a pull request, whether its change touches
   # one of this workflow's `push` paths. A push or a dispatch always runs every job.
-  # Python and git only, so it runs on the owned control runner (vars.CI_CONTROL_RUNNER), not
+  # Python and git only, so it runs on the owned GCP lane runners (cmux-gcp-lane-x64), not
   # the build pools: the required clippy check waits on this job, and on a change outside the
   # paths it is the only job that has to start (2026-11-19: run 44630751863 sat queued for hours
   # on a Linux build label with no runner free, holding the check on a pull request it skips).
   changes:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CONTROL_RUNNER || 'cmux-gcp-nightly-x64' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-gcp-lane-x64' }}
     timeout-minutes: 5
     outputs:
       run: ${{ steps.route.outputs.run }}
