@@ -591,10 +591,10 @@ const RowFrame = React.memo(function RowFrame({
   // (model.ts `rowFrameKey`), so the count is closed under the id it opened with.
   useLayoutEffect(() => countMount(), []);
   // Only the first mount fades.
-  const loadFadeOnMount = useEffectEvent(() => {
+  const fadeInOnMount = useEffectEvent(() => {
     if (loadFading) onLoadFaded(row.id);
   });
-  useLayoutEffect(() => loadFadeOnMount(), []);
+  useLayoutEffect(() => fadeInOnMount(), []);
   // Only the first mount enters.
   const enterOnMount = useEffectEvent(() => {
     if (entering) onEntered(rowFrameKey(row));
