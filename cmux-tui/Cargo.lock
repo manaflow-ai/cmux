@@ -23,6 +23,7 @@ dependencies = [
  "chrono-tz",
  "clap",
  "cmux-agent-pane-policy",
+ "cmux-build-space",
  "cmux-chat-index",
  "cmux-cloud-api",
  "cmux-cloud-client",
@@ -1320,6 +1321,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-auth-coordinator"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-automations"
 version = "0.1.0"
 dependencies = [
@@ -1385,6 +1390,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-build-space"
+version = "0.1.0"
+dependencies = [
+ "cmux-agent-pane-policy",
+ "cmux-scope",
+ "http",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-chat-index"
 version = "0.1.0"
 dependencies = [
@@ -1420,6 +1435,7 @@ version = "1.0.0"
 dependencies = [
  "base64",
  "bytes",
+ "cmux-build-space",
  "cmux-cloud-client",
  "cmux-cloud-machine",
  "cmux-json",
@@ -1444,6 +1460,7 @@ name = "cmux-cloud-client"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "cmux-build-space",
  "cmux-cloud-config",
  "cmux-cloud-environment",
  "cmux-cloud-machine",
@@ -1477,6 +1494,7 @@ dependencies = [
 name = "cmux-cloud-environment"
 version = "0.1.0"
 dependencies = [
+ "cmux-build-space",
  "reqwest",
  "rustls",
  "serde",
@@ -2273,6 +2291,7 @@ name = "cmux-server"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-build-space",
  "cmux-cloud-environment",
  "cmux-json",
  "cmux-link",
@@ -2485,6 +2504,7 @@ dependencies = [
  "cmux-automations",
  "cmux-browser-host",
  "cmux-build-identity",
+ "cmux-build-space",
  "cmux-chat-index",
  "cmux-cloud-api",
  "cmux-cloud-client",
@@ -2625,6 +2645,7 @@ dependencies = [
  "cmux-bookmarks-core",
  "cmux-bookmarks-ops",
  "cmux-browser-import",
+ "cmux-build-space",
  "cmux-classic-import",
  "cmux-cloud-api",
  "cmux-computer-use",

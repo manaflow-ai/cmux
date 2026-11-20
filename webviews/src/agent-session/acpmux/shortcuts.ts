@@ -14,6 +14,15 @@ export const SHORTCUT_ACTIONS = {
   permissionExpand: "agentPane.permission.expand",
   /// Copy Tab Link: on an agent tab it copies the chat's link, as the header's Copy chat link does.
   copyTabLink: "palette.copySurfaceLink",
+  /// The composer bar's controls (composerControls.ts): each chip's tooltip shows its key.
+  switchModel: "agentPane.switchModel",
+  composerAddMenu: "agentPane.composer.addMenu",
+  composerChooseFolder: "agentPane.composer.chooseFolder",
+  composerChooseComputer: "agentPane.composer.chooseComputer",
+  composerSwitchMode: "agentPane.composer.switchMode",
+  composerTogglePlan: "agentPane.composer.togglePlan",
+  composerAgentOptions: "agentPane.composer.agentOptions",
+  composerShowContextUsage: "agentPane.composer.showContextUsage",
 } as const;
 
 /// Keycaps by action id, such as `{"palette.newAgentChat": "⇧⌘I"}`. An action without a
