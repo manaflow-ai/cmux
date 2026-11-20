@@ -500,7 +500,13 @@ fn with_pointer(state: *mut CmuxWallpaperPointer, f: impl FnOnce(&mut PointerSta
 /// `state` is null or points to a writable `CmuxWallpaperPointer`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_wallpaper_pointer_reset(state: *mut CmuxWallpaperPointer) {
-    with_pointer(state, |p| *p = PointerState::default());
+    if state.is_null() {
+        return;
+    }
+    // A write, never a read: the storage may be uninitialized (this call stands in for zeroing
+    // the struct), and reading it first would read uninitialized `bool`s.
+    // SAFETY: `state` is non-null and points to writable `CmuxWallpaperPointer` storage (contract above).
+    unsafe { state.write(PointerState::default().into()) };
 }
 
 /// A pointer move to (`x`, `y`) rendered pixels (top left origin) at time `t`
@@ -1247,6 +1253,20 @@ mod tests {
         assert_eq!((d.run, d.hold_reason), (false, 11));
         // SAFETY: null is allowed.
         assert_eq!(unsafe { cmux_wallpaper_schedule(std::ptr::null()) }.hold_reason, 1);
+    }
+
+    #[test]
+    fn reset_initializes_uninitialized_storage() {
+        // The C contract: `CmuxWallpaperPointer p; cmux_wallpaper_pointer_reset(&p);` with no zeroing first.
+        let mut slot = std::mem::MaybeUninit::<CmuxWallpaperPointer>::uninit();
+        // SAFETY: `slot` is writable storage for one CmuxWallpaperPointer; reset only writes it.
+        let p = unsafe {
+            cmux_wallpaper_pointer_reset(slot.as_mut_ptr());
+            slot.assume_init()
+        };
+        assert_eq!(p, CmuxWallpaperPointer::from(PointerState::default()));
+        // SAFETY: null is allowed.
+        unsafe { cmux_wallpaper_pointer_reset(std::ptr::null_mut()) };
     }
 
     #[test]

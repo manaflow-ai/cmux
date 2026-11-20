@@ -1,3 +1,4 @@
+import { envForObject } from "../build-space.ts"
 import * as slack from "./brain-slack.ts"
 import { DurableObject } from "cloudflare:workers"
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context"
@@ -5,7 +6,7 @@ import type { AssistantMessage } from "@earendil-works/pi-ai"
 import { createRegistry, GenerationTask, Harness, hook, section, ToolTask } from "@earendil-works/pi-durable"
 import { PiHarness } from "agents/harness/pi"
 import { Lifecycle, type LifecycleJobContext, type LifecycleJobOutcome } from "agents/lifecycle"
-import type { Env } from "../env.ts"
+import type { Env, RawEnv } from "../env.ts"
 import { assertFaultHooks } from "../chief-fault.ts"
 import { ackWake, chiefPrincipal, chiefRecord, postReply, readConversation, runChanged, typing } from "./brain-io.ts"
 import { clip, clipInput, flushMarks, lastTalk, markPending, runError, readRun, readRuns, readSteps, type Run, type Step, type StepPatch, upsertStep } from "./brain-runs.ts"
@@ -222,7 +223,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
 
   readonly lifecycle = Lifecycle.install(this).use(this.harness)
 
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    const env = envForObject(ctx, raw)
     super(ctx, env)
     for (const q of [...SCHEMA, ...SPAWN_SCHEMA, IMPORT_SCHEMA]) this.sql.exec(q)
     const inboxColumns = new Set(this.sql.exec<{ name: string }>(`PRAGMA table_info(cb_inbox)`).toArray().map((c) => c.name))

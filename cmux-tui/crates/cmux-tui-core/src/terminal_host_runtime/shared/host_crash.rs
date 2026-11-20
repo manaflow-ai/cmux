@@ -39,7 +39,7 @@ pub(crate) fn install(path: PathBuf, terminal_id: &str, incarnation: &str) {
             .or_else(|| info.payload().downcast_ref::<String>().cloned())
             .unwrap_or_else(|| "non-text panic payload".to_string());
         let location = info.location().map(ToString::to_string).unwrap_or_default();
-        let mut backtrace = std::backtrace::Backtrace::force_capture().to_string();
+        let mut backtrace = cmux_panic_log::backtrace::force_capture();
         if backtrace.len() > MAX_BACKTRACE_BYTES {
             let mut end = MAX_BACKTRACE_BYTES;
             while !backtrace.is_char_boundary(end) {
