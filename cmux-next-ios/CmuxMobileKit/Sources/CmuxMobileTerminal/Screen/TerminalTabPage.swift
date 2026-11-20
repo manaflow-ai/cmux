@@ -63,6 +63,27 @@ public final class TerminalTabHost {
         // interactive update puts it back (V3-4, T-TABS-14).
         controller.viewIfLoaded.map { Self.expose($0, false) }
     }
+
+    /// The page that last appeared. A retained tab can show on a new page before SwiftUI
+    /// tears the old one down; only the current owner may change the size claim, so the
+    /// outgoing page's late disappearance cannot release it from under the visible one.
+    private var pageOwner: UUID?
+
+    func pageAppeared(_ page: UUID, interactive: Bool) {
+        pageOwner = page
+        model.setPageShown(interactive)
+    }
+
+    func pageSettled(_ page: UUID, interactive: Bool) {
+        guard pageOwner == page else { return }
+        model.setPageShown(interactive)
+    }
+
+    func pageDisappeared(_ page: UUID) {
+        guard pageOwner == page else { return }
+        pageOwner = nil
+        model.setPageShown(false)
+    }
 }
 
 /// The embedded terminal page (SPEC 10 inside a workspace). TabsKit owns the
@@ -77,6 +98,8 @@ public struct TerminalTabPage: View {
     let insets: EdgeInsets
     /// The page is settled full screen (no zoom, swipe or open menu).
     let isInteractive: Bool
+    /// This page's own identity for the host's size-claim ownership.
+    @State private var pageID = UUID()
 
     public init(host: TerminalTabHost, insets: EdgeInsets, isInteractive: Bool) {
         self.host = host
@@ -93,9 +116,9 @@ public struct TerminalTabPage: View {
             // Only a page on screen, settled and taking input sizes the Mac's
             // terminal; the grid, a swipe away, another tab or leaving the
             // workspace release it (PROTOCOL.md, "Terminal size claims").
-            .onAppear { host.model.setPageShown(isInteractive) }
-            .onChange(of: isInteractive) { _, interactive in host.model.setPageShown(interactive) }
-            .onDisappear { host.model.setPageShown(false) }
+            .onAppear { host.pageAppeared(pageID, interactive: isInteractive) }
+            .onChange(of: isInteractive) { _, interactive in host.pageSettled(pageID, interactive: interactive) }
+            .onDisappear { host.pageDisappeared(pageID) }
             .ignoresSafeArea()
             .background(Color.black)
             // Not attached: the page as last seen on this phone, as it was (a

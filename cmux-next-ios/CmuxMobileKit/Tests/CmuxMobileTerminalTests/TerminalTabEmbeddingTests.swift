@@ -12,8 +12,8 @@ import UIKit
     @Test func outgoingPageTeardownKeepsTheTerminalInItsIncomingPage() async throws {
         await TerminalScreenTestLock.acquire()
         defer { TerminalScreenTestLock.release() }
-        let model = TerminalModel(session: ComposerHeldSendTests.StubSession(),
-                                  artifactSource: MockArtifactSource(), title: "pending")
+        let session = ClaimRecordingSession()
+        let model = TerminalModel(session: session, artifactSource: MockArtifactSource(), title: "pending")
         model.ingest(.connection(.connecting(mac: "Demo Mac")))
         model.composerText = "keep this draft"
         let host = TerminalTabHost(model: model)
@@ -40,10 +40,13 @@ import UIKit
         // The incoming page is already mounted when the old representable
         // disappears. Keep its hosting controller alive through that update.
         outgoing.rootView = AnyView(EmptyView())
-        try await Task.sleep(for: .milliseconds(500)) // test: SwiftUI completes the outgoing teardown
+        // test: SwiftUI completes the outgoing teardown, then the size claim's release debounce
+        // (1 s) runs out: a stale outgoing page's `onDisappear` must not have started it.
+        try await Task.sleep(for: .milliseconds(1500))
         firstWindow.isHidden = true
         firstWindow.rootViewController = nil
         secondWindow.layoutIfNeeded()
+        #expect(!session.claims.contains(false), "the visible page keeps the terminal's size claim: \(session.claims)")
         #expect(terminal.view.window === secondWindow)
         #expect(terminal.view.isDescendant(of: secondWindow))
         #expect(terminal.view.bounds.height > 0)
@@ -53,6 +56,19 @@ import UIKit
         #expect(frame.height > 0)
         #expect(frame.minY > secondWindow.bounds.midY, "the pending composer rests above the bottom toolbar: \(frame)")
         #expect(frame.maxY <= secondWindow.bounds.maxY - insets.bottom + 8)
+    }
+
+    /// A session that keeps what the size claimer told it, in order.
+    @MainActor
+    final class ClaimRecordingSession: TerminalSession {
+        let programName = "zsh"
+        let isAlternateScreen = false
+        private(set) var claims: [Bool] = []
+        func start(_ handler: @escaping @MainActor (TerminalSessionEvent) -> Void) {}
+        func send(_ bytes: Data) {}
+        func resize(columns: Int, rows: Int) {}
+        func stop() {}
+        func setClaimsSize(_ claims: Bool) { self.claims.append(claims) }
     }
 
     private func findComposer(in view: UIView) -> UIView? {

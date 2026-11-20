@@ -125,18 +125,19 @@ import Testing
 }
 
 #if os(iOS)
-/// The chat a workspace tab opens names its agent by the harness, and keeps the tab's title as
-/// its own name: the error card's sentence takes the agent as its subject.
+/// The chat a workspace tab opens keeps the tab's title as its own name: the error card's
+/// sentence takes the agent, by its harness, as its subject, never that title.
 @MainActor @Suite struct AgentSubjectIsNotTheTabTitleTests {
     @Test func aTitledTabsChatSaysClaude() {
-        let tab = WorkspaceTab(id: "t", kind: .agent, title: "Reviving claude-sr2-coord after rate-limit loop", harness: "claude-sr")
+        let title = "Reviving claude-sr2-coord after rate-limit loop"
+        let tab = WorkspaceTab(id: "t", kind: .agent, title: title, harness: "claude-sr")
         let workspace = Workspace(id: "w", macID: "m", title: "cmux", directory: "~/cmux", tabs: [tab], lastActivityAt: Date())
         let store = AgentSessionDirectory().store(workspace: workspace, tab: tab, macName: "Mac")
-        #expect(store.summary.agentName == "Claude")
-        #expect(store.summary.name == "Reviving claude-sr2-coord after rate-limit loop", "the chat keeps its title")
-        let copy = TurnFailureCopy(message: "API Error: 429 rate_limit_error", harness: store.summary.harness,
-                                   harnessName: store.summary.agentName)
+        #expect(store.summary.name == title, "the chat keeps its title")
+        // The failure row (ChatRowView) gives the copy the harness only; the sentence names the agent from it.
+        let copy = TurnFailureCopy(message: "API Error: 429 rate_limit_error", harness: store.summary.harness)
         #expect(copy.sentence == "Claude is rate limited or out of capacity. Try again in a moment, or switch model.")
+        #expect(!copy.sentence.contains(title))
     }
 }
 #endif
