@@ -6235,11 +6235,17 @@ export class AcpmuxDirectClient {
   /// The page was hidden or shown (a tab in a background workspace, an occluded window): acpmux
   /// leaves a turn that ends while nobody shows the chat unread, and showing it is seeing it.
   private showChanged = (): void => {
+    if (!pageShown()) {
+      // A visibility switch can race the old hidden fallback timer. Cancel it so the page
+      // contributes no timeout callback while another page owns the renderer.
+      if (this.hiddenDraw !== undefined) {
+        clearTimeout(this.hiddenDraw);
+        this.hiddenDraw = undefined;
+      }
+    }
     if (this.listChangedWhileHidden && pageShown() && !this.closed) {
       this.listChangedWhileHidden = false;
-      // The list was deliberately not walked while hidden. Read it once on return so a page that
-      // sat behind a visible chat does not publish a stale picker.
-      void this.refreshSessions().catch(() => this.rereadSessionsLater());
+      this.emitInFrame("session changed");
     }
     if (this.closed) return;
     if (pageShown()) this.wake();
