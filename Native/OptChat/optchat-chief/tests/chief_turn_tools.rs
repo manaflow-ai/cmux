@@ -723,4 +723,12 @@ fn turn_tools_an_on_time_follow_up_closes_its_loop_when_its_run_posts() {
     );
     assert_eq!(runs.len(), 1, "{runs:?}");
     assert_eq!(runs[0].outcome, "send", "{runs:?}");
+    // The spec's fields: the wake's planned time, and what the send posted.
+    assert_eq!(
+        runs[0].scheduled_at,
+        Some(wakes[0].at_ms as i64),
+        "{runs:?}"
+    );
+    assert!(!runs[0].result.is_empty(), "{runs:?}");
+    assert!(runs[0].outcome_text.is_empty(), "{runs:?}");
 }

@@ -525,3 +525,45 @@ fn a_wake_run_budget_prices_tokens_at_the_measured_rate() {
     let unknown = budget.spent(&[req(None, 1_000, 0, 0)]);
     assert!((unknown - 0.02).abs() < 1e-9, "{unknown}");
 }
+
+#[test]
+fn wake_runs_of_the_first_layout_move_to_the_spec_names_when_the_store_opens() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(optchat_chief::memory_files::FILE);
+    {
+        // The landing-3 layout: `at` and one `text`.
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE wake_runs (id TEXT PRIMARY KEY, at INTEGER NOT NULL, reasons TEXT NOT NULL,
+               outcome TEXT NOT NULL, text TEXT NOT NULL, cost_usd REAL, limit_usd REAL, stopped TEXT NOT NULL DEFAULT '');
+             INSERT INTO wake_runs VALUES ('t1', 9000000000000, '[check-in]', 'nothing', 'nothing is due', 0.02, 0.5, '');
+             INSERT INTO wake_runs VALUES ('t2', 9000000000001, '[follow-up]', 'ask', 'Renew for 1 year?', NULL, NULL, '');
+             INSERT INTO wake_runs VALUES ('t3', 9000000000002, '[wake]', 'send', '', 0.04, NULL, '');
+             INSERT INTO wake_runs VALUES ('t4', 9000000000003, '[check-in]', 'none', '', 0.61, 0.5, 'cost limit');
+             INSERT INTO wake_runs VALUES ('t5', 9000000000004, '[follow-up]', 'cut', '', NULL, NULL, '');",
+        )
+        .unwrap();
+    }
+    let files = MemoryFiles::open(&path).unwrap();
+    let runs = files.wake_runs(10).unwrap();
+    let by = |id: &str| runs.iter().find(|r| r.id == id).cloned().unwrap();
+    assert_eq!(by("t1").outcome_text, "nothing is due");
+    assert_eq!(by("t1").started_at, 9_000_000_000_000);
+    assert_eq!(by("t1").cost_usd, Some(0.02));
+    assert_eq!(by("t1").limit_usd, Some(0.5));
+    assert_eq!(by("t2").outcome_text, "Renew for 1 year?");
+    assert!(by("t2").result.is_empty());
+    assert_eq!(by("t3").scheduled_at, None);
+    // `reasons` is `wake_reasons`; `stopped` is the spec's `state` and `reason`.
+    assert_eq!(by("t1").wake_reasons, "[check-in]");
+    assert_eq!(by("t1").state, "succeeded");
+    assert!(by("t1").reason.is_empty());
+    // A second open finds the new layout and changes nothing.
+    drop(files);
+    let again = MemoryFiles::open(&path).unwrap();
+    assert_eq!(by("t4").state, "cancelled");
+    assert_eq!(by("t4").reason, "cost_limit");
+    assert_eq!(by("t5").state, "cancelled");
+    assert_eq!(by("t5").reason, "superseded");
+    assert_eq!(again.wake_runs(10).unwrap().len(), 5);
+}

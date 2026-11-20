@@ -1633,11 +1633,84 @@ def emit(result: dict, phases, began: float, code: int) -> int:
     return code
 
 
+def can_build_swift_app(planned: dict) -> bool:
+    """Whether a complete fleet app can cover every build-required layer in the plan.
+
+    A fleet artifact is the exact head's complete app, so it also carries web or Rust layers
+    that are live-swappable when they accompany a Swift change. Other build reasons (FFI,
+    manifests, bundled helpers) remain an explicit build-required result.
+    """
+    build = planned.get("build")
+    return bool(planned.get("needs_build") and isinstance(build, dict) and build
+                and set(build) <= {"Swift", "Swift, resources or manifests"}
+                and all(paths and all(path.endswith(".swift") and not path.endswith("Package.swift")
+                                      for path in paths) for paths in build.values()))
+
+
+def _ci_client() -> str:
+    ci = os.environ.get("CMUX_CI") or str(Path.home() / ".local/bin/cmux-ci")
+    if not os.access(ci, os.X_OK):
+        raise LookError(f"no cmux-ci client at {ci} (CMUX_CI names another)")
+    return ci
+
+
+def _ci_run(argv: list[str], cwd: Path | None = None, timeout: int = APPLY_SECONDS) -> subprocess.CompletedProcess:
+    done = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, errors="replace", timeout=timeout)
+    if done.returncode != 0:
+        detail = why_failed(done.stderr or done.stdout, 500) or "no output"
+        raise LookError(f"{' '.join(argv[1:])}: {detail}")
+    return done
+
+
+def _artifact_app(bundle: Path) -> Path:
+    apps = sorted(p for pattern in ("*.app", "*/*.app") for p in bundle.glob(pattern)
+                  if p.is_dir() and (p / "Contents/Info.plist").is_file())
+    if len(apps) != 1:
+        raise LookError(f"fleet build returned {len(apps)} top-level app artifacts; expected one")
+    return apps[0]
+
+
+def build_swift_app(repo: Path, planned: dict, source: str, out: Path) -> Path:
+    """Build the exact source tree on the fleet and return its complete app artifact."""
+    ci = _ci_client()
+    kind = source.partition(":")[0]
+    tree = resolve_tree(planned, source) if kind == "dir" else repo
+    if tree is None:
+        raise LookError("working-tree source has no checkout")
+    tag = f"app-try-{planned['head'][:12]}"
+    build = [ci, "build", "cmux", "--builder", "linux", "--backend-mode", "local", "--tag", tag]
+    if kind == "dir":
+        build.append("--working-tree")
+    else:
+        build += ["--ref", planned["head"], "--workspace", f"app-try:{planned['head']}"]
+    submitted = _ci_run(build, cwd=tree)
+    try:
+        job = str(json.loads(submitted.stdout)["id"])
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
+        raise LookError(f"cmux-ci build returned no job id: {why_failed(submitted.stdout, 300) or 'no output'}") from error
+    log(f"fleet app build {job} for {planned['head'][:12]}")
+    _ci_run([ci, "wait", "--timeout", str(APPLY_SECONDS), job], cwd=tree, timeout=APPLY_SECONDS + 30)
+    bundle = out / "fleet-bundle"
+    bundle.mkdir(parents=True, exist_ok=True)
+    artifact = subprocess.run([ci, "artifact", job, str(bundle), "--bundle"], cwd=tree,
+                              capture_output=True, text=True, errors="replace", timeout=APPLY_SECONDS)
+    if artifact.returncode == 3:
+        archive = out / "fleet-app.zip"
+        _ci_run([ci, "artifact", job, str(archive)], cwd=tree)
+        shutil.rmtree(bundle, ignore_errors=True)
+        bundle.mkdir(parents=True, exist_ok=True)
+        # ditto preserves the executable modes and framework symlinks in macOS app archives.
+        _ci_run(["ditto", "-x", "-k", str(archive), str(bundle)], cwd=tree)
+    elif artifact.returncode != 0:
+        raise LookError(f"cmux-ci artifact {job}: {why_failed(artifact.stderr or artifact.stdout, 500) or 'no output'}")
+    return _artifact_app(bundle)
+
+
 def command_run(args) -> int:
     """`cmux app try .`: a fresh clone of APP (the golden copy; by default the installed NIGHTLY) beside everything
     else, the source's web and Rust swapped in, left running. No screenshots, video or steps: the copy and its dev
-    server keep running (saves under webviews/ show live) until `stop --side NAME`. A change that needs a build
-    exits 3 with its plan and makes no copy."""
+    server keep running (saves under webviews/ show live) until `stop --side NAME`. Swift-only app changes use
+    a complete per-commit fleet app before launch; other build-required changes exit 3 with their plan and make no copy."""
     began = time.monotonic()
     phases = hot().Phases()
     repo = Path(args.repo).resolve()
@@ -1647,11 +1720,13 @@ def command_run(args) -> int:
         raise Usage("run needs --app APP: the app the copy is cloned from")
     result = {"schema": 1, "side": side.name, "from": str(the_app), "app": app_info(the_app), "plan": None,
               "copy": None, "socket": None, "pid": None, "applied": {}, "errors": [], "edit_to_live_s": None}
+    scratch = None
     try:
         with phases("plan"):
             planned = plan(repo, args.source, str(the_app), None)
         result["plan"] = planned
-        if planned["needs_build"]:
+        built_app = None
+        if planned["needs_build"] and not can_build_swift_app(planned):
             return emit(result, phases, began, EXIT_NEEDS_BUILD)
         unsupported = [layer for layer in planned["layers"] if layer not in ("web", "rust")]
         if unsupported:
@@ -1660,12 +1735,26 @@ def command_run(args) -> int:
             raise LookError("a run launches the app: it needs macOS")
         rules = rules_for(repo)
         src_tree = resolve_tree(planned, args.source)
+        scratch = Path(tempfile.mkdtemp(prefix="hot-verify-run-"))
+        if can_build_swift_app(planned):
+            try:
+                with phases("app-build"):
+                    built_app = build_swift_app(repo, planned, args.source, scratch)
+                result["applied"]["app"] = {
+                    "how": "fleet app build (re-sealed side instance)",
+                    "commit": planned["head"],
+                }
+            except (LookError, OSError, ValueError, subprocess.SubprocessError):
+                shutil.rmtree(scratch, ignore_errors=True)
+                scratch = None
+                raise
         with phases("side"):
             # A fresh clone per try: the last one, its dev server too, goes first.
             if side.exists():
                 side.stop()
                 side.run("remove", timeout=300)
-            side.run("make", "--from", str(the_app), "--label", args.label or f"cmux {side.name}", timeout=600)
+            make = ["make", "--from", str(built_app or the_app), "--label", args.label or f"cmux {side.name}"]
+            side.run(*make, timeout=600)
             side.remember(try_source=args.source, try_repo=str(repo), try_head=planned["head"],
                           try_fork=planned["fork"], try_from=str(the_app))
             launched = side.run("launch", timeout=LAUNCH_SECONDS)
@@ -1676,13 +1765,12 @@ def command_run(args) -> int:
             named = side.socket()
             sock = until("the copy's control socket", LAUNCH_SECONDS, lambda: control_socket(pid, named))
         result.update(copy=str(side.app()), socket=sock, pid=pid)
-        scratch = Path(tempfile.mkdtemp(prefix="hot-verify-run-"))
         try:
             handed = time.monotonic()
             with phases("apply"):
-                if "rust" in planned["layers"]:
+                if built_app is None and "rust" in planned["layers"]:
                     result["applied"]["rust"] = apply_rust(rules, planned, src_tree, side, scratch)
-                if "web" in planned["layers"]:
+                if built_app is None and "web" in planned["layers"]:
                     result["applied"]["web"] = apply_web(rules, planned, src_tree, side, scratch)
             result["edit_to_live_s"] = round(time.monotonic() - handed, 3)
         finally:
@@ -1692,6 +1780,8 @@ def command_run(args) -> int:
         result["errors"].append(f"{type(error).__name__}: {str(error)[:500]}")
         with phases("stop"):
             result["errors"] += side.stop()
+        if scratch is not None:
+            shutil.rmtree(scratch, ignore_errors=True)
         return emit(result, phases, began, EXIT_FAILED)
 
 

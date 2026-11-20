@@ -112,11 +112,37 @@ class SwapBinaryTests(unittest.TestCase):
             self.skipTest("a sparse checkout without the project")
         r = self.run_tool("wrapper", ROOT, self.tmp / "wrapper")
         manifest = (self.tmp / "wrapper/Package.swift").read_text()
-        # -no_exported_symbols comes only from Release's LD_EXPORT_SYMBOLS = NO: the Release block, not Debug's.
-        for flag in ('"-objc_stubs_small"', '"@executable_path/../Frameworks"', '"-no_exported_symbols"', '"Carbon"'):
+        # Not "-no_exported_symbols": since #44204 the app's code is in CmuxNextApp.framework behind a stub, and the
+        # Release configuration no longer sets LD_EXPORT_SYMBOLS = NO (Packages/macOS/CmuxNext/Package.swift,
+        # appFrameworkLinkerSettings, says why). The row below covers that setting.
+        for flag in ('"-objc_stubs_small"', '"@executable_path/../Frameworks"', '"Carbon"'):
             self.assertIn(flag, manifest)
         self.assertIn('.macOS("14.0")', manifest)
         self.assertIn("link flags", r.stderr)
+
+    def test_wrapper_exports_no_symbols_only_when_the_release_configuration_says_so(self):
+        """-no_exported_symbols comes only from Release's LD_EXPORT_SYMBOLS = NO: the Release block, not Debug's."""
+        def project(debug: str, release: str) -> str:
+            block = ("\t\t{id} /* {name} */ = {{\n\t\t\tisa = XCBuildConfiguration;\n\t\t\tbuildSettings = {{\n{more}"
+                     "\t\t\t\tOTHER_LDFLAGS = (\n\t\t\t\t\t\"-lc++\",\n\t\t\t\t);\n\t\t\t\tPRODUCT_NAME = cmux;\n"
+                     "\t\t\t}};\n\t\t\tname = {name};\n\t\t}};\n")
+            return block.format(id="A1", name="Debug", more=debug) + block.format(id="A2", name="Release", more=release)
+
+        off = "\t\t\t\tLD_EXPORT_SYMBOLS = NO;\n"
+        for name, debug, release, wanted in (("release", "", off, True), ("neither", "", "", False),
+                                             ("debug-only", off, "", False)):
+            with self.subTest(name):
+                src = self.tmp / f"src-{name}"
+                (src / "App").mkdir(parents=True)
+                (src / "App/main.swift").write_text("// stub\n")
+                (src / "cmux.xcodeproj").mkdir()
+                (src / "cmux.xcodeproj/project.pbxproj").write_text(project(debug, release))
+                (src / "Packages/macOS/CmuxNext").mkdir(parents=True)
+                (src / "Packages/macOS/CmuxNext/Package.resolved").write_text('{"pins": [], "version": 3}\n')
+                self.run_tool("wrapper", src, self.tmp / f"wrapper-{name}")
+                manifest = (self.tmp / f"wrapper-{name}/Package.swift").read_text()
+                self.assertIn('"-lc++"', manifest)
+                self.assertEqual('"-no_exported_symbols"' in manifest, wanted, manifest)
 
     def test_check_refuses_a_diff_that_touches_the_project(self):
         repo = self.tmp / "repo"
