@@ -218,6 +218,8 @@ fn the_chat_shares_match_the_webviews_stylesheets() {
     let styles = std::fs::read_to_string(base.join("shared/styles.css")).expect("styles.css");
     let conversation = std::fs::read_to_string(base.join("acpmux/conversation/conversation.css"))
         .expect("conversation.css");
+    let desktop = std::fs::read_to_string(repo().join("webviews/src/pages/shared/desktop.css"))
+        .expect("desktop.css");
     let percent = |share: f64| format!("{}%", (share * 1000.0).round() / 10.0);
     for (sheet, needle) in [
         (
@@ -227,10 +229,14 @@ fn the_chat_shares_match_the_webviews_stylesheets() {
                 percent(chat::BUBBLE)
             ),
         ),
+        // Code cards and inline code are the content surface levels: the chat's ink over clear.
+        (&conversation, "--cv-fg: var(--agent-text)".to_string()),
+        (&styles, "--ds-surface-ink: var(--agent-text)".to_string()),
+        (&conversation, "--cv-codeblock-bg: var(--ds-surface-card)".to_string()),
         (
-            &conversation,
+            &desktop,
             format!(
-                "--cv-codeblock-bg: color-mix(in srgb, var(--cv-fg) {}, transparent)",
+                "--ds-surface-card: color-mix(in srgb, var(--ds-surface-ink) {}, transparent)",
                 percent(chat::CODE_CARD)
             ),
         ),
@@ -241,10 +247,11 @@ fn the_chat_shares_match_the_webviews_stylesheets() {
                 percent(chat::CODE_TEXT)
             ),
         ),
+        (&conversation, "--cv-code-bg: var(--ds-surface-inset)".to_string()),
         (
-            &conversation,
+            &desktop,
             format!(
-                "--cv-code-bg: color-mix(in srgb, var(--cv-fg) {}, transparent)",
+                "--ds-surface-inset: color-mix(in srgb, var(--ds-surface-ink) {}, transparent)",
                 percent(chat::INLINE_CODE)
             ),
         ),
