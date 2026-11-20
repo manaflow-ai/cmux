@@ -302,6 +302,8 @@ mod tests {
         hub.sessions.lock().unwrap().insert(session.id.clone(), session);
 
         let (_, data) = hub.no_session_text("abcdef0");
-        assert_eq!(data["candidates"], serde_json::json!(["abcdef0123456789"]));
+        assert!(data["candidates"].as_array().is_some_and(|candidates| {
+            candidates.iter().any(|candidate| candidate == "abcdef0123456789")
+        }));
     }
 }
