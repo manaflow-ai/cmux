@@ -408,6 +408,47 @@ test("a hidden pane draws its chat's turns and new replies, not its reply's text
   }
 });
 
+test("hidden checkpoints see a delayed idle summary and ignore a late result", async () => {
+  const states: { isWorking: boolean; completedSeq?: number }[] = [];
+  const { socket, client, snapshots } = await openPane((state) => states.push(state));
+  try {
+    setVisibility("hidden");
+    const before = snapshots();
+    socket.notify("_acpmux/session_changed", {
+      sessionId: SELECTED,
+      session: summary(1, "running"),
+      kind: "updated",
+      seq: 401,
+    });
+    record(socket, 402, "turn_result");
+    expect(states.at(-1)).toMatchObject({ isWorking: true, completedSeq: 402 });
+    socket.notify("_acpmux/session_changed", {
+      sessionId: SELECTED,
+      session: summary(1, "idle"),
+      kind: "updated",
+      seq: 403,
+    });
+    expect(states.at(-1)?.isWorking).toBe(false);
+    const event = (seq: number, kind: string, turnId: string) =>
+      socket.notify("_acpmux/event", {
+        sessionId: SELECTED,
+        seq,
+        at: seq,
+        dir: "mux",
+        kind,
+        msg: { turnId },
+      });
+    event(404, "turn_started", "new-turn");
+    const count = states.length;
+    event(405, "turn_result", "old-turn");
+    expect(states).toHaveLength(count);
+    expect(snapshots()).toBe(before);
+  } finally {
+    client.close();
+    setVisibility("visible");
+  }
+});
+
 test("an entirely hidden turn preserves completion when both visible snapshots are idle", async () => {
   const states: { isWorking: boolean; completedSeq?: number }[] = [];
   const { socket, client, snapshots, latest } = await openPane((state) => states.push(state));
