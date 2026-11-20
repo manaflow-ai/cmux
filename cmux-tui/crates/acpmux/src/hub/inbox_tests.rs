@@ -620,6 +620,94 @@ fn surge_actionable_thread_clears_through_team_ack_and_replay() {
 }
 
 #[test]
+fn surge_evicted_actionable_thread_opens_reads_and_replays_from_archive() {
+    let (hub, session) = hub_with_chat("archive-open");
+    for (seq, at, kind) in [(1, 10_000, "turn_started"), (2, 40_000, "turn_result")] {
+        session.time_breakdown.lock().unwrap().record(&EventRecord {
+            seq,
+            at,
+            kind: kind.into(),
+            dir: "mux".into(),
+            host_seq: None,
+            msg: json!({"turnSeq":1,"turnId":"finished","status":"completed"}),
+        });
+    }
+    let mut opts = PromptOptions {
+        agent: Some("watcher".into()),
+        class: Some(PromptClass::Fyi),
+        thread: Some("topic:early".into()),
+        ..Default::default()
+    };
+    let body = [json!({"type":"text","text":"Choose the release base from the original report"})];
+    assert!(
+        hub.hold_surge_message(&session, "warm", "cli", &body, &opts, 41_000).unwrap().is_none()
+    );
+    assert!(
+        hub.hold_surge_message(&session, "early", "cli", &body, &opts, 42_000).unwrap().is_some()
+    );
+    hub.persist_surge_triage(
+        &session,
+        json!({"items":[{
+            "promptId":"early", "threadId":"topic:early", "category":"needs_this_session"
+        }]}),
+        1,
+    )
+    .unwrap();
+    opts.thread = Some("topic:later".into());
+    for n in 0..KEEP + 20 {
+        assert!(
+            hub.hold_surge_message(
+                &session,
+                &format!("later-{n}"),
+                "cli",
+                &body,
+                &opts,
+                42_001 + n as u64
+            )
+            .unwrap()
+            .is_some()
+        );
+    }
+    hub.persist_surge_triage(
+        &session,
+        json!({"items":[{
+            "promptId":"later-519", "threadId":"topic:later", "category":"needs_this_session"
+        }]}),
+        2,
+    )
+    .unwrap();
+    assert_eq!(session.inbox().items.len(), KEEP);
+    assert!(!session.inbox().items.iter().any(|i| i.prompt_id == "early"));
+    let listing = hub.inbox_threads(&session);
+    let row = listing["threads"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["threadId"] == "topic:early")
+        .unwrap();
+    assert_eq!(row["needYou"], true);
+    assert_eq!(row["unread"], 1);
+    assert_eq!(listing["surge"]["needYou"], 2);
+    let opened = hub.inbox_thread(&session, "topic:early", false);
+    assert_eq!(opened["messages"].as_array().unwrap().len(), 1);
+    assert_eq!(opened["messages"][0]["promptId"], "early");
+    assert_eq!(opened["messages"][0]["text"], body[0]["text"]);
+    assert_eq!(opened["messages"][0]["read"], false);
+    hub.inbox_thread(&session, "topic:early", true);
+    assert_eq!(hub.inbox_threads(&session)["surge"]["needYou"], 1);
+    assert_eq!(hub.inbox_thread(&session, "topic:early", false)["messages"][0]["read"], true);
+    assert_eq!(session.inbox().items.len(), KEEP, "archive reads do not refill the live cache");
+    *session.inbox() = Default::default();
+    hub.restore_inbox(&session);
+    assert_eq!(hub.inbox_threads(&session)["surge"]["needYou"], 1);
+    assert_eq!(hub.inbox_thread(&session, "topic:early", false)["messages"][0]["read"], true);
+    hub.append(&session, "mux", "inbox_removed", json!({"promptId":"early"}));
+    assert!(
+        hub.inbox_thread(&session, "topic:early", false)["messages"].as_array().unwrap().is_empty()
+    );
+}
+
+#[test]
 fn surge_eviction_preserves_unanswered_questions_without_growing_the_removed_id_set() {
     let mut inbox = Inbox::default();
     inbox.items.push(item("question", "question", "owner", PromptClass::Question, 1, "Ready?"));

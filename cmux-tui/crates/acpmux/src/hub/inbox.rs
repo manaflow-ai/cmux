@@ -121,6 +121,8 @@
 //! the session weakly.
 
 use super::*;
+#[path = "inbox_archive.rs"]
+mod archive;
 #[path = "inbox_surge.rs"]
 mod surge;
 #[path = "inbox_topic.rs"]
@@ -2112,47 +2114,7 @@ impl Hub {
             };
             match e.kind.as_str() {
                 "inbox" => {
-                    let field = |k: &str| e.msg.get(k).and_then(Value::as_str).unwrap_or("");
-                    let class =
-                        crate::prompt_class::recorded(&e.msg).unwrap_or(PromptClass::Result);
-                    let provenance = crate::prompt_provenance::recorded(&e.msg);
-                    let from_session =
-                        e.msg.get("fromSession").and_then(Value::as_str).map(str::to_owned);
-                    let stored_sender = e.msg.get("sender");
-                    let sender = stored_sender.cloned().unwrap_or_else(|| {
-                        crate::prompt_provenance::sender_record(
-                            provenance.as_ref(),
-                            from_session.as_deref(),
-                            None,
-                        )
-                    });
-                    let thread = field("threadId").to_owned();
-                    let thread = if stored_sender.is_none() {
-                        legacy_thread_key(provenance.as_ref(), field("from"), thread)
-                    } else {
-                        thread
-                    };
-                    let item = Item {
-                        surge_held: e.msg.get("surgeHeld") == Some(&Value::Bool(true)),
-                        prompt_id: field("promptId").to_owned(),
-                        notice: None,
-                        answered: None,
-                        thread,
-                        from: field("from").to_owned(),
-                        from_session,
-                        asker: super::question_replies::asker_of(provenance.as_ref()),
-                        sender,
-                        class,
-                        report: e.msg.get("report") == Some(&Value::Bool(true)),
-                        at: e.at,
-                        text: field("text").to_owned(),
-                        details: provenance.as_ref().and_then(|p| p.get("details").cloned()),
-                        tool_notice: tool_notice_of(provenance.as_ref()),
-                        noticed: e.msg.get("deliveredRead") == Some(&Value::Bool(true)),
-                        read: e.msg.get("deliveredRead") == Some(&Value::Bool(true)),
-                        answer: None,
-                        reader: None,
-                    };
+                    let item = archive::recorded_item(&e);
                     if item.surge_held {
                         if recent_held.len() == KEEP {
                             recent_held.pop_front();
@@ -2365,9 +2327,14 @@ impl Hub {
 
     /// `_acpmux/inbox_threads`: the chat's threads, the one with the newest message first.
     pub fn inbox_threads(&self, session: &Session) -> Value {
+        let archived = self.archived_actionable_inbox(session);
+        let archive_error = archived.as_ref().err().map(ToString::to_string);
+        let archived = archived.unwrap_or_default();
         let inbox = session.inbox();
         let mut threads: Vec<(&str, Vec<&Item>)> = Vec::new();
-        for item in &inbox.items {
+        for item in inbox.items.iter().chain(
+            archived.iter().filter(|a| !inbox.items.iter().any(|i| i.prompt_id == a.prompt_id)),
+        ) {
             match threads.iter_mut().find(|(k, _)| *k == item.thread) {
                 Some((_, list)) => list.push(item),
                 None => threads.push((&item.thread, vec![item])),
@@ -2415,27 +2382,36 @@ impl Hub {
                 row
             })
             .collect();
-        json!({"sessionId": session.id, "threads": rows, "surge": surge, "seq": counts.seq})
+        json!({"sessionId": session.id, "threads": rows, "surge": surge, "seq": counts.seq,
+            "archiveError": archive_error})
     }
 
     /// `_acpmux/inbox_thread`: a thread's messages, newest first; `mark_read` marks them read.
     pub fn inbox_thread(&self, session: &Session, thread: &str, mark_read: bool) -> Value {
+        let archived = self.archived_inbox_items(session, None, Some(thread));
+        let archive_error = archived.as_ref().err().map(ToString::to_string);
+        // A partial read must not claim it cleared the thread's outstanding work.
+        let mark_read = mark_read && archive_error.is_none();
+        let mut archived = archived.unwrap_or_default();
         let (messages, marked, surge_marked, label_key) = {
             let mut inbox = session.inbox();
+            archived.retain(|a| !inbox.items.iter().any(|i| i.prompt_id == a.prompt_id));
             let mut marked = Vec::new();
             let mut surge_marked = Vec::new();
             let mut messages = Vec::new();
             let allow_declared_fallback = thread.starts_with("from:")
-                && !inbox.items.iter().any(|item| item.thread == thread);
+                && !inbox.items.iter().chain(&archived).any(|item| item.thread == thread);
             let label_key = inbox
                 .items
                 .iter()
+                .chain(&archived)
                 .find(|item| thread_matches(item, thread, allow_declared_fallback))
                 .map(|item| item.thread.clone())
                 .unwrap_or_else(|| thread.to_owned());
             for item in inbox
                 .items
                 .iter_mut()
+                .chain(archived.iter_mut())
                 .rev()
                 .filter(|i| thread_matches(i, thread, allow_declared_fallback))
             {
@@ -2469,7 +2445,10 @@ impl Hub {
             let event = self.append(session, "mux", "inbox_read", msg);
             counts.restore(&event);
         }
-        json!({"sessionId": session.id, "threadId": thread, "label": label(&label_key), "messages": messages})
+        let mut messages = messages;
+        messages.sort_by_key(|m| std::cmp::Reverse(m["at"].as_u64().unwrap_or_default()));
+        json!({"sessionId": session.id, "threadId": thread, "label": label(&label_key), "messages": messages,
+            "archiveError": archive_error})
     }
 
     /// `_acpmux/inbox_reply`: `text` from this chat's agent to the thread's newest sender here,

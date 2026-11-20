@@ -152,6 +152,10 @@ impl Counts {
         self.actionable_by_thread.contains_key(thread)
     }
 
+    pub(super) fn actionable_prompts(&self) -> impl Iterator<Item = &str> {
+        self.actionable_by_prompt.keys().map(String::as_str)
+    }
+
     pub(super) fn need_you_after_removing(&self, prompt_ids: &[String]) -> u64 {
         let mut removed = std::collections::HashMap::<&str, usize>::new();
         for prompt in prompt_ids {
