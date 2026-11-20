@@ -1279,14 +1279,15 @@ check_no_github_hosted_runners() {
   #   - the fork branch `github.repository_owner != 'manaflow-ai' && '<label>'`
   #     (and `&& matrix.hosted_runner`), which never evaluates in manaflow-ai;
   #   - the label list inside the exact CI_TRUSTED_RUNNER selector, where
-  #     GitHub-hosted is an operator choice and Blacksmith is the default;
+  #     GitHub-hosted is an operator choice and Blacksmith is the default
+  #     (CLA's selector may also list the two one-job fleet labels);
   #   - the exact lines in `exceptions` below, each with the reason it cannot move.
   # Runner-selection positions: runs-on, labels/group, matrix os/runner keys,
   # scalar list items, dispatch defaults, and every *RUNNER* key (env mirrors
   # and inputs feed runs-on too).
   local hosted='(^|[^A-Za-z0-9_-])(ubuntu-(latest|slim|[0-9]{2}[.][0-9]{2}(-arm)?)|macos-(latest|[0-9]+(-intel|-large|-xlarge|-arm64)?)|windows-(latest|[0-9]{4}(-arm)?|11-arm))([^A-Za-z0-9_.-]|$)'
   local fork_branch="github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)"
-  local trusted_list='fromJSON[(]'"'"'[[]"ubuntu-24[.]04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"(,"blacksmith-8vcpu-ubuntu-2404")?[]]'"'"'[)], vars[.]CI_TRUSTED_RUNNER'
+  local trusted_list='fromJSON[(]'"'"'[[]"ubuntu-24[.]04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"(,"blacksmith-8vcpu-ubuntu-2404"|,"cmux-fleet-linux-x64","cmux-gcp-trusted-x64")?[]]'"'"'[)], vars[.]CI_TRUSTED_RUNNER'
   # "<workflow>:<line content>" -> why it stays GitHub-hosted. Exact lines only.
   # This is the whole allowlist: every other Linux job takes a Blacksmith label
   # sized to the job (Leo, 2026-10-27: "just put it on blacksmith / 16vcpu

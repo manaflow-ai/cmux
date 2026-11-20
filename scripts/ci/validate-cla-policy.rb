@@ -101,12 +101,22 @@ CLA_ACTION_RUNNER_SUCCESSOR_PINS = [
 # pull-requests read, this repository, continue-on-error) and passes it to the
 # 0e326dc action as CLA_READ_TOKEN, which sends only a read that GITHUB_TOKEN's
 # spent budget refused once more on it. Writes stay on GITHUB_TOKEN.
+# The fleet-runner successor (2026-11-20) keeps the 0e326dc action and every
+# step, and changes only CLAAssistant.runs-on to
+# CLA_FLEET_TRUSTED_RUNNER_EXPRESSION, its leading guard to the
+# CLA_FLEET_RUNNER_GUARD_* step, and the comments beside them.
 CLA_ACTION_PINNED_SUCCESSORS = [
   %w[
     manaflow-ai/cla-github-action@3bdedfb05157fd9c1c879dfea58455e32a770f96
     6ef80bb2ccae3cc83aef8dc345ae7a5774ea2b81e4c941397ceaba244508e391
     manaflow-ai/cla-github-action@0e326dccffce7a67ee8ed2bf6e78edea34167ab0
     a6bbe50d018907d223beef3ee830e9812cdbdff713bd2567c313eb3b1562e6c2
+  ].freeze,
+  %w[
+    manaflow-ai/cla-github-action@0e326dccffce7a67ee8ed2bf6e78edea34167ab0
+    a6bbe50d018907d223beef3ee830e9812cdbdff713bd2567c313eb3b1562e6c2
+    manaflow-ai/cla-github-action@0e326dccffce7a67ee8ed2bf6e78edea34167ab0
+    005d87afe7ec3a54b47cde829b037e8a95a3bb1bc6003789c90911629305037c
   ].freeze
 ].freeze
 CLA_ACTION_CURRENT_BASE_REF = CLA_ACTION_REVIEWED_MAIN_PINS.last.fetch(0)
@@ -129,7 +139,18 @@ CLA_ACTION = CLA_ACTION_FINAL
 CLA_RUNNER = "ubuntu-24.04".freeze
 CLA_BLACKSMITH_RUNNERS = %w[blacksmith-2vcpu-ubuntu-2404 blacksmith-4vcpu-ubuntu-2404].freeze
 CLA_TRUSTED_RUNNER_EXPRESSION = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}".freeze
-CLA_RUNNERS = ([CLA_RUNNER] + CLA_BLACKSMITH_RUNNERS + [CLA_TRUSTED_RUNNER_EXPRESSION]).freeze
+# Our own one-job Linux labels. The fleet reconciler serves them only with
+# just-in-time runners on cloud VMs that run one job and are then deleted (no
+# service account, no ingress), so a write token held there leaves with the VM
+# as on a Blacksmith one. CLA_FLEET_TRUSTED_RUNNER_EXPRESSION is
+# CLA_TRUSTED_RUNNER_EXPRESSION with these two labels appended to its list:
+# CI_TRUSTED_RUNNER may then also pick them, any other value still falls back
+# to Blacksmith, and a fork still gets GitHub-hosted. CLA_TRUSTED_RUNNER_EXPRESSION
+# stays accepted, so either selector is valid.
+CLA_FLEET_RUNNERS = %w[cmux-fleet-linux-x64 cmux-gcp-trusted-x64].freeze
+CLA_FLEET_TRUSTED_RUNNER_EXPRESSION = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\",\"cmux-fleet-linux-x64\",\"cmux-gcp-trusted-x64\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}".freeze
+CLA_RUNNER_EXPRESSIONS = [CLA_TRUSTED_RUNNER_EXPRESSION, CLA_FLEET_TRUSTED_RUNNER_EXPRESSION].freeze
+CLA_RUNNERS = ([CLA_RUNNER] + CLA_BLACKSMITH_RUNNERS + CLA_RUNNER_EXPRESSIONS).freeze
 # The original runner identity guard admits only GitHub-hosted runners. It
 # stays valid so workflows main carries keep passing until they move to the
 # ephemeral guard below.
@@ -184,13 +205,42 @@ CLA_EPHEMERAL_RUNNER_GUARD_RUN = <<~'SH'.strip.freeze
   echo "::error::CLA policy requires a GitHub-hosted or Blacksmith runner"
   exit 1
 SH
+# The fleet guard admits everything the ephemeral guard does plus the fleet's
+# one-job VMs. Each is named after its VM, and every fleet VM name starts with
+# 'cmux-gha-runner-' (the trusted pool's with 'cmux-gha-runner-tr-'); owned
+# glaeda hosts never do, and a name containing 'glaeda' is still refused. As
+# with Blacksmith, runner.name only catches a misrouted job: the exact runs-on
+# allowlist is the control.
+CLA_FLEET_RUNNER_NAME_PREFIX = "cmux-gha-runner-".freeze
+CLA_FLEET_RUNNER_PREFIXES = (CLA_EPHEMERAL_RUNNER_PREFIXES + [CLA_FLEET_RUNNER_NAME_PREFIX]).freeze
+CLA_FLEET_RUNNER_GUARD_NAME = "Require GitHub-hosted, Blacksmith or one-job fleet runner".freeze
+CLA_FLEET_RUNNER_GUARD_IF = (
+  "(#{(
+    ["runner.environment != 'github-hosted'"] +
+    CLA_FLEET_RUNNER_PREFIXES.map { |prefix| "!startsWith(runner.name, '#{prefix}')" }
+  ).join(' && ')}) || contains(runner.name, '#{CLA_OWNED_RUNNER_NAME_MARKER}')"
+).freeze
+CLA_FLEET_RUNNER_STEP_IF = (
+  "((#{(
+    ["runner.environment == 'github-hosted'"] +
+    CLA_FLEET_RUNNER_PREFIXES.map { |prefix| "startsWith(runner.name, '#{prefix}')" }
+  ).join(' || ')}) && !contains(runner.name, '#{CLA_OWNED_RUNNER_NAME_MARKER}'))"
+).freeze
+CLA_FLEET_RUNNER_GUARD_RUN = <<~'SH'.strip.freeze
+  set -euo pipefail
+  echo "::error::CLA policy requires a GitHub-hosted, Blacksmith or one-job fleet runner"
+  exit 1
+SH
 # Each accepted runner identity guard is one exact [name, if, run] triple.
 CLA_RUNNER_GUARD_STEPS = [
   [CLA_HOSTED_RUNNER_GUARD_NAME, CLA_HOSTED_RUNNER_GUARD_IF, CLA_HOSTED_RUNNER_GUARD_RUN].freeze,
-  [CLA_EPHEMERAL_RUNNER_GUARD_NAME, CLA_EPHEMERAL_RUNNER_GUARD_IF, CLA_EPHEMERAL_RUNNER_GUARD_RUN].freeze
+  [CLA_EPHEMERAL_RUNNER_GUARD_NAME, CLA_EPHEMERAL_RUNNER_GUARD_IF, CLA_EPHEMERAL_RUNNER_GUARD_RUN].freeze,
+  [CLA_FLEET_RUNNER_GUARD_NAME, CLA_FLEET_RUNNER_GUARD_IF, CLA_FLEET_RUNNER_GUARD_RUN].freeze
 ].freeze
 # A later privileged step must carry one of these as a top-level AND term.
-CLA_RUNNER_STEP_IFS = [CLA_HOSTED_RUNNER_STEP_IF, CLA_EPHEMERAL_RUNNER_STEP_IF].freeze
+CLA_RUNNER_STEP_IFS = [CLA_HOSTED_RUNNER_STEP_IF, CLA_EPHEMERAL_RUNNER_STEP_IF, CLA_FLEET_RUNNER_STEP_IF].freeze
+# The step terms that carry their own || inside one parenthesized group.
+CLA_GROUPED_RUNNER_STEP_IFS = [CLA_EPHEMERAL_RUNNER_STEP_IF, CLA_FLEET_RUNNER_STEP_IF].freeze
 CLA_DOCUMENT_PATH = "CLA.md".freeze
 CLA_DOCUMENT_VERSION = "v2.2".freeze
 CLA_SIGNATURES_PATH = "signatures/version2/cla.json".freeze
@@ -210,7 +260,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "0aeffcf9241fbc59bd9aa744a882ddbd8c7555ca879855
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "93d510c001b7e2b67e6a17db736f3f1eccd757bf71a78c148d7919fc7ff03e6e"
+EXPECTED_GUARD_SCRIPT_DIGEST = "84a4001242e4d025717999d87bf19ef087a4ca97d572deeee23ad9059f07d4da"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -1440,6 +1490,7 @@ def run_action_transition_regression_matrix!
   previous, previous_digest = CLA_ACTION_REVIEWED_MAIN_PINS.fetch(-2)
   successor_ref, successor_from, successor_to = CLA_ACTION_RUNNER_SUCCESSOR_PINS.fetch(0)
   read_from_ref, read_from, read_to_ref, read_to = CLA_ACTION_PINNED_SUCCESSORS.fetch(0)
+  fleet_from_ref, fleet_from, fleet_to_ref, fleet_to = CLA_ACTION_PINNED_SUCCESSORS.fetch(1)
   final = CLA_ACTION_FINAL
   cases = [
     ["fc608 no-op", fc608, fc608, false, LEGACY_CLA_WORKFLOW_DIGEST, LEGACY_CLA_RERUN_DIGEST, LEGACY_CLA_HELPER_PATH, true],
@@ -1480,7 +1531,16 @@ def run_action_transition_regression_matrix!
     ["read-token action with unpinned bytes", read_from_ref, read_to_ref, true, read_from, nil, nil, false, "0" * 64],
     ["read-token bytes from unreviewed base", read_from_ref, read_to_ref, true, "0" * 64, nil, nil, false, read_to],
     ["read-token bytes under the old action", read_from_ref, read_from_ref, true, read_from, nil, nil, false, read_to],
-    ["read-token successor with helper", read_from_ref, read_to_ref, true, read_from, "1" * 64, LEGACY_CLA_HELPER_PATH, false, read_to]
+    ["read-token successor with helper", read_from_ref, read_to_ref, true, read_from, "1" * 64, LEGACY_CLA_HELPER_PATH, false, read_to],
+    ["read-token successor to fleet-runner successor", fleet_from_ref, fleet_to_ref, true, fleet_from, nil, nil, true, fleet_to],
+    ["fleet-runner successor no-op", fleet_to_ref, fleet_to_ref, false, fleet_to, nil, nil, true],
+    ["fleet-runner successor to final", fleet_to_ref, final, true, fleet_to, nil, nil, true],
+    ["fleet-runner successor reverted", fleet_to_ref, fleet_from_ref, true, fleet_to, nil, nil, false, fleet_from],
+    ["fleet-runner action with unpinned bytes", fleet_from_ref, fleet_to_ref, true, fleet_from, nil, nil, false, "0" * 64],
+    ["fleet-runner bytes from unreviewed base", fleet_from_ref, fleet_to_ref, true, "0" * 64, nil, nil, false, fleet_to],
+    ["fleet-runner bytes skipping the read-token step", read_from_ref, read_to_ref, true, read_from, nil, nil, false, fleet_to],
+    ["fleet-runner bytes under the old action", read_from_ref, read_from_ref, true, read_from, nil, nil, false, fleet_to],
+    ["fleet-runner successor with helper", fleet_from_ref, fleet_to_ref, true, fleet_from, "1" * 64, LEGACY_CLA_HELPER_PATH, false, fleet_to]
   ]
 
   failures = cases.each_with_object([]) do |(name, base_ref, candidate_ref, policy_changed, workflow_digest, script_digest, helper_path, expected, candidate_digest), errors|
@@ -1772,12 +1832,20 @@ def assert_hosted_runner_step(step, name, runs_on: CLA_RUNNER)
   # A job that can land on Blacksmith must gate its steps on the ephemeral
   # term: the hosted-only term would silently skip them there and let the
   # check go green without doing its work.
-  accepted = runs_on == CLA_RUNNER ? CLA_RUNNER_STEP_IFS : [CLA_EPHEMERAL_RUNNER_STEP_IF]
+  # A job the fleet selector can place on a fleet VM must gate its steps on
+  # the fleet term for the same reason.
+  accepted = if runs_on == CLA_RUNNER
+    CLA_RUNNER_STEP_IFS
+  elsif runs_on == CLA_FLEET_TRUSTED_RUNNER_EXPRESSION
+    [CLA_FLEET_RUNNER_STEP_IF]
+  else
+    CLA_GROUPED_RUNNER_STEP_IFS
+  end
   terms = top_level_and_terms(condition)
-  fail!("#{name} is not restricted to a GitHub-hosted or Blacksmith runner") unless
+  fail!("#{name} is not restricted to a GitHub-hosted, Blacksmith or fleet runner") unless
     terms &&
     terms.any? { |term| accepted.include?(term) } &&
-    terms.none? { |term| term != CLA_EPHEMERAL_RUNNER_STEP_IF && term.include?("||") }
+    terms.none? { |term| !CLA_GROUPED_RUNNER_STEP_IFS.include?(term) && term.include?("||") }
 end
 
 def assert_hosted_runner_job_steps(job_value, name)
@@ -1916,7 +1984,7 @@ def assert_safe_expression_fields(document, name, allowed_secret_paths: ALLOWED_
     fail!("#{name} has an expression in an unreviewed field") unless
       ALLOWED_EXPRESSION_PATHS.any? { |pattern| joined_path.match?(pattern) } ||
       (reviewed_guard_name && joined_path == "jobs.validate.name" && value == GUARD_VALIDATE_NAME) ||
-      (path.length == 3 && path[0] == "jobs" && path[2] == "runs-on" && value == CLA_TRUSTED_RUNNER_EXPRESSION)
+      (path.length == 3 && path[0] == "jobs" && path[2] == "runs-on" && CLA_RUNNER_EXPRESSIONS.include?(value))
     if value.match?(GITHUB_CONTEXT_EXPRESSION) && value.match?(GITHUB_TOKEN_EXPRESSION_PATTERN)
       fail!("#{name} may not reference the GitHub token or serialized context")
     end
@@ -2152,7 +2220,10 @@ end
   ephemeral_identity = {
     "name" => CLA_EPHEMERAL_RUNNER_GUARD_NAME, "if" => CLA_EPHEMERAL_RUNNER_GUARD_IF, "run" => "#{CLA_EPHEMERAL_RUNNER_GUARD_RUN}\n"
   }
-  CLA_RUNNERS.product([hosted_identity, ephemeral_identity]).each do |runner, identity|
+  fleet_identity = {
+    "name" => CLA_FLEET_RUNNER_GUARD_NAME, "if" => CLA_FLEET_RUNNER_GUARD_IF, "run" => "#{CLA_FLEET_RUNNER_GUARD_RUN}\n"
+  }
+  CLA_RUNNERS.product([hosted_identity, ephemeral_identity, fleet_identity]).each do |runner, identity|
     validate_guard_workflow(hosted_guard_document.call(runner, identity), authorize: false)
     checks += 1
   end
@@ -2160,6 +2231,9 @@ end
     "${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
     CLA_TRUSTED_RUNNER_EXPRESSION.gsub("vars.CI_TRUSTED_RUNNER", "vars.LINUX_RUNNER"),
     CLA_TRUSTED_RUNNER_EXPRESSION.sub('"ubuntu-24.04",', '"ubuntu-24.04","self-hosted",'),
+    CLA_FLEET_TRUSTED_RUNNER_EXPRESSION.gsub("vars.CI_TRUSTED_RUNNER", "vars.LINUX_RUNNER"),
+    CLA_FLEET_TRUSTED_RUNNER_EXPRESSION.sub('"cmux-gcp-trusted-x64"', '"cmux-gcp-trusted-x64","cmux-gcp-lane-x64"'),
+    "cmux-fleet-linux-x64",
     "${{ github.event.pull_request.head.ref }}",
     "self-hosted",
     "ubuntu-latest",
@@ -2175,6 +2249,10 @@ end
       "if" => "runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-')"
     )
     validate_guard_workflow(hosted_guard_document.call(CLA_TRUSTED_RUNNER_EXPRESSION, weakened), authorize: false)
+  end
+  expect_failure.call("guard identity with weakened fleet prefix") do
+    weakened = fleet_identity.merge("if" => CLA_FLEET_RUNNER_GUARD_IF.sub("'cmux-gha-runner-'", "'cmux-'"))
+    validate_guard_workflow(hosted_guard_document.call(CLA_FLEET_TRUSTED_RUNNER_EXPRESSION, weakened), authorize: false)
   end
 # The App-token layout: the reviewed mint step at index 3 and the validation
 # step reading its token with the GITHUB_TOKEN fallback. Anything else that
@@ -2263,9 +2341,13 @@ expect_failure.call("App-token layout with write job permissions") do
   document["jobs"]["validate"]["permissions"]["pull-requests"] = "write"
   validate_guard_workflow(YAML.dump(document), authorize: false)
 end
-  # The selector is admitted as an expression only as a job runs-on value.
+  # The selectors are admitted as expressions only as a job runs-on value.
   assert_safe_expression_fields({ "jobs" => { "a" => { "runs-on" => CLA_TRUSTED_RUNNER_EXPRESSION } } }, "regression")
-  checks += 1
+  assert_safe_expression_fields({ "jobs" => { "a" => { "runs-on" => CLA_FLEET_TRUSTED_RUNNER_EXPRESSION } } }, "regression")
+  checks += 2
+  expect_failure.call("fleet selector outside runs-on") do
+    assert_safe_expression_fields({ "jobs" => { "a" => { "name" => CLA_FLEET_TRUSTED_RUNNER_EXPRESSION } } }, "regression")
+  end
   expect_failure.call("selector outside runs-on") do
     assert_safe_expression_fields({ "jobs" => { "a" => { "name" => CLA_TRUSTED_RUNNER_EXPRESSION } } }, "regression")
   end
@@ -2579,9 +2661,16 @@ def run_runner_regression_matrix!
     "ubuntu-24.04",
     "blacksmith-2vcpu-ubuntu-2404",
     "blacksmith-4vcpu-ubuntu-2404",
-    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
+    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
+    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\",\"cmux-fleet-linux-x64\",\"cmux-gcp-trusted-x64\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
   ]
   fail!("CLA runner allowlist regression failed") unless accepted_runners == CLA_RUNNERS
+  # The fleet selector is the trusted selector with exactly the two fleet
+  # labels appended to its list, and nothing else changed.
+  fail!("CLA fleet selector regression failed") unless CLA_FLEET_TRUSTED_RUNNER_EXPRESSION ==
+    CLA_TRUSTED_RUNNER_EXPRESSION.sub(
+      '"blacksmith-4vcpu-ubuntu-2404"]', '"blacksmith-4vcpu-ubuntu-2404","cmux-fleet-linux-x64","cmux-gcp-trusted-x64"]'
+    )
   cla_jobs.product(accepted_runners).each do |job_name, runner|
     assert_cla_runner(runner, "#{job_name}.runs-on")
     checks += 1
@@ -2604,6 +2693,16 @@ def run_runner_regression_matrix!
     "selector with trailing comment" => "#{selector} # ephemeral-required",
     "selector with trailing space" => "#{selector} ",
     "selector with changed spacing" => selector.sub("${{ ", "${{  "),
+    "fleet selector renamed to LINUX_RUNNER" => CLA_FLEET_TRUSTED_RUNNER_EXPRESSION.gsub("vars.CI_TRUSTED_RUNNER", "vars.LINUX_RUNNER"),
+    "fleet selector widened to the lane label" => CLA_FLEET_TRUSTED_RUNNER_EXPRESSION.sub('"cmux-gcp-trusted-x64"', '"cmux-gcp-trusted-x64","cmux-gcp-lane-x64"'),
+    "fleet selector widened to an owned label" => CLA_FLEET_TRUSTED_RUNNER_EXPRESSION.sub('"cmux-gcp-trusted-x64"', '"cmux-gcp-trusted-x64","glaeda-std-xcode-26.6"'),
+    "fleet label renamed" => CLA_FLEET_TRUSTED_RUNNER_EXPRESSION.sub('"cmux-gcp-trusted-x64"', '"cmux-gcp-lane-x64"'),
+    "fleet selector without fork branch" => CLA_FLEET_TRUSTED_RUNNER_EXPRESSION.sub("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ", ""),
+    "fleet selector falling back to a fleet label" => CLA_FLEET_TRUSTED_RUNNER_EXPRESSION.sub("|| 'blacksmith-4vcpu-ubuntu-2404' }}", "|| 'cmux-fleet-linux-x64' }}"),
+    "fleet selector with trailing comment" => "#{CLA_FLEET_TRUSTED_RUNNER_EXPRESSION} # ephemeral-required",
+    "bare fleet label" => "cmux-fleet-linux-x64",
+    "bare trusted fleet label" => "cmux-gcp-trusted-x64",
+    "lane fleet label" => "cmux-gcp-lane-x64",
     "self-hosted runner" => "self-hosted",
     "floating GitHub runner" => "ubuntu-latest",
     "other GitHub runner" => "ubuntu-22.04",
@@ -2636,9 +2735,19 @@ def run_runner_regression_matrix!
   fail!("ephemeral runner guard regression failed") unless
     ephemeral_guard["if"] == CLA_EPHEMERAL_RUNNER_GUARD_IF &&
     normalize_run_text(ephemeral_guard["run"]) == CLA_EPHEMERAL_RUNNER_GUARD_RUN
+  fleet_guard = {
+    "name" => "Require GitHub-hosted, Blacksmith or one-job fleet runner",
+    "if" => "(runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-') && !startsWith(runner.name, 'cmux-gha-runner-')) || contains(runner.name, 'glaeda')",
+    "run" => "set -euo pipefail\necho \"::error::CLA policy requires a GitHub-hosted, Blacksmith or one-job fleet runner\"\nexit 1\n"
+  }
+  fail!("fleet runner guard regression failed") unless
+    fleet_guard["name"] == CLA_FLEET_RUNNER_GUARD_NAME &&
+    fleet_guard["if"] == CLA_FLEET_RUNNER_GUARD_IF &&
+    normalize_run_text(fleet_guard["run"]) == CLA_FLEET_RUNNER_GUARD_RUN
   assert_hosted_runner_guard_step(hosted_guard, "regression CLA job")
   assert_hosted_runner_guard_step(ephemeral_guard, "regression CLA job")
-  checks += 3
+  assert_hosted_runner_guard_step(fleet_guard, "regression CLA job")
+  checks += 5
   # The names the guard condition admits on a self-hosted runner: current
   # and pre-October 2026 Blacksmith VMs, never an owned glaeda host.
   {
@@ -2654,6 +2763,27 @@ def run_runner_regression_matrix!
     admitted = CLA_EPHEMERAL_RUNNER_PREFIXES.any? { |prefix| runner_name.start_with?(prefix) } &&
       !runner_name.include?(CLA_OWNED_RUNNER_NAME_MARKER)
     fail!("ephemeral runner name regression failed for #{runner_name}") unless admitted == expected
+    checks += 1
+  end
+  # The fleet guard admits the same names plus the fleet's one-job VMs, and
+  # still refuses an owned glaeda host under any name.
+  {
+    "blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc" => true,
+    "blacksmith-2vcpu-ubuntu-2404-56ere4cqq7ryjqvc" => true,
+    "cmux-gha-runner-tr-3f9a1c2b7d" => true,
+    "cmux-gha-runner-3f9a1c2b7d" => true,
+    "cmux-gha-runner-glaeda-1" => false,
+    "cmux-gha-runner-tr-glaeda" => false,
+    "cmuxs-mac-mini-5-glaeda-1" => false,
+    "cmux-gha-runner" => false,
+    "cmux-gha-runnerx-1" => false,
+    "cmux-gcp-lane-x64-1" => false,
+    "x-cmux-gha-runner-1" => false,
+    "blacksmith-8vcpu-ubuntu-2404-56ere4cqq7ryjqvc" => false
+  }.each do |runner_name, expected|
+    admitted = CLA_FLEET_RUNNER_PREFIXES.any? { |prefix| runner_name.start_with?(prefix) } &&
+      !runner_name.include?(CLA_OWNED_RUNNER_NAME_MARKER)
+    fail!("fleet runner name regression failed for #{runner_name}") unless admitted == expected
     checks += 1
   end
   rejected_guards = {
@@ -2679,7 +2809,27 @@ def run_runner_regression_matrix!
       "if" => CLA_EPHEMERAL_RUNNER_GUARD_IF.sub(" || contains(runner.name, 'glaeda')", "")
     ),
     "self-hosted always admitted" => ephemeral_guard.merge("if" => "false"),
-    "extra guard key" => ephemeral_guard.merge("continue-on-error" => true)
+    "extra guard key" => ephemeral_guard.merge("continue-on-error" => true),
+    "fleet guard shell" => fleet_guard.merge("run" => "exit 0"),
+    "fleet name with ephemeral condition" => fleet_guard.merge("if" => CLA_EPHEMERAL_RUNNER_GUARD_IF),
+    "ephemeral name with fleet condition" => ephemeral_guard.merge("if" => CLA_FLEET_RUNNER_GUARD_IF),
+    "fleet name with ephemeral shell" => fleet_guard.merge("run" => CLA_EPHEMERAL_RUNNER_GUARD_RUN),
+    "any cmux-prefixed name" => fleet_guard.merge(
+      "if" => CLA_FLEET_RUNNER_GUARD_IF.sub("'cmux-gha-runner-'", "'cmux-'")
+    ),
+    "fleet prefix without separator" => fleet_guard.merge(
+      "if" => CLA_FLEET_RUNNER_GUARD_IF.sub("'cmux-gha-runner-'", "'cmux-gha-runner'")
+    ),
+    "fleet name substring" => fleet_guard.merge(
+      "if" => CLA_FLEET_RUNNER_GUARD_IF.sub("!startsWith(runner.name, 'cmux-gha-runner-')", "!contains(runner.name, 'cmux-gha-runner-')")
+    ),
+    "fleet guard owned-name refusal dropped" => fleet_guard.merge(
+      "if" => CLA_FLEET_RUNNER_GUARD_IF.sub(" || contains(runner.name, 'glaeda')", "")
+    ),
+    "fleet guard larger Blacksmith scale set" => fleet_guard.merge(
+      "if" => CLA_FLEET_RUNNER_GUARD_IF.sub("blacksmith-2vcpu", "blacksmith-8vcpu")
+    ),
+    "fleet guard extra key" => fleet_guard.merge("continue-on-error" => true)
   }
   rejected_guards.each do |name, step|
     expect_policy_error(name) { assert_hosted_runner_guard_step(step, "regression CLA job") }
@@ -2688,10 +2838,14 @@ def run_runner_regression_matrix!
 
   ephemeral_term = "((runner.environment == 'github-hosted' || startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') || startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-')) && !contains(runner.name, 'glaeda'))"
   fail!("ephemeral runner step condition regression failed") unless ephemeral_term == CLA_EPHEMERAL_RUNNER_STEP_IF
+  fleet_term = "((runner.environment == 'github-hosted' || startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') || startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-') || startsWith(runner.name, 'cmux-gha-runner-')) && !contains(runner.name, 'glaeda'))"
+  fail!("fleet runner step condition regression failed") unless fleet_term == CLA_FLEET_RUNNER_STEP_IF
   [
     CLA_HOSTED_RUNNER_STEP_IF,
     "github.event_name == 'issue_comment' && runner.environment == 'github-hosted'",
     ephemeral_term,
+    fleet_term,
+    "github.event_name == 'issue_comment' && #{fleet_term}",
     "#{ephemeral_term} && github.event_name == 'issue_comment'",
     "github.event_name == 'issue_comment' &&\n  #{ephemeral_term}",
     "steps.cla.outputs.result == ')' && #{ephemeral_term}"
@@ -2701,12 +2855,21 @@ def run_runner_regression_matrix!
   end
   # Off ubuntu-24.04 only the ephemeral term counts, so a Blacksmith job
   # cannot skip its privileged steps and still report success.
+  # The fleet term admits a superset of the ephemeral one, so it is accepted
+  # there too. Off the fleet selector the fleet term is the only one, so a job
+  # placed on a fleet VM cannot skip its privileged steps either.
   (CLA_RUNNERS - [CLA_RUNNER]).each do |runner|
-    assert_hosted_runner_step(
-      { "if" => "github.event_name == 'issue_comment' && #{ephemeral_term}" }, "regression CLA action", runs_on: runner
-    )
-    checks += 1
-    [CLA_HOSTED_RUNNER_STEP_IF, "github.event_name == 'issue_comment' && #{CLA_HOSTED_RUNNER_STEP_IF}"].each do |condition|
+    terms = runner == CLA_FLEET_TRUSTED_RUNNER_EXPRESSION ? [fleet_term] : [ephemeral_term, fleet_term]
+    terms.each do |term|
+      assert_hosted_runner_step(
+        { "if" => "github.event_name == 'issue_comment' && #{term}" }, "regression CLA action", runs_on: runner
+      )
+      checks += 1
+    end
+    refused = [CLA_HOSTED_RUNNER_STEP_IF, "github.event_name == 'issue_comment' && #{CLA_HOSTED_RUNNER_STEP_IF}"]
+    refused += [ephemeral_term, "github.event_name == 'issue_comment' && #{ephemeral_term}"] if
+      runner == CLA_FLEET_TRUSTED_RUNNER_EXPRESSION
+    refused.each do |condition|
       expect_policy_error("hosted-only step on #{runner}") do
         assert_hosted_runner_step({ "if" => condition }, "regression CLA action", runs_on: runner)
       end
@@ -2729,7 +2892,20 @@ def run_runner_regression_matrix!
   hosted_job = Marshal.load(Marshal.dump(silent_skip_job))
   hosted_job["runs-on"] = CLA_RUNNER
   assert_hosted_runner_job_steps(hosted_job, "regression CLA job")
-  checks += 3
+  fleet_job = {
+    "runs-on" => CLA_FLEET_TRUSTED_RUNNER_EXPRESSION,
+    "steps" => [
+      { "name" => CLA_FLEET_RUNNER_GUARD_NAME, "if" => CLA_FLEET_RUNNER_GUARD_IF, "run" => CLA_FLEET_RUNNER_GUARD_RUN },
+      { "if" => fleet_term, "run" => "echo privileged" }
+    ]
+  }
+  assert_hosted_runner_job_steps(fleet_job, "regression CLA job")
+  fleet_skip_job = Marshal.load(Marshal.dump(fleet_job))
+  fleet_skip_job["steps"][1]["if"] = ephemeral_term
+  expect_policy_error("fleet selector job with a Blacksmith-only step") do
+    assert_hosted_runner_job_steps(fleet_skip_job, "regression CLA job")
+  end
+  checks += 5
   rejected_conditions = {
     "hosted term inside an index" => "always() && fromJSON('[true]')[false && runner.environment == 'github-hosted' && true]",
     "ephemeral term inside an index" => "always() && fromJSON('[true]')[false && #{ephemeral_term} && true]",
@@ -2746,7 +2922,13 @@ def run_runner_regression_matrix!
     "quoted parenthesis hides an or" => "x == '(' && #{ephemeral_term} || true",
     "bare Blacksmith prefix" => "(runner.environment == 'github-hosted' || startsWith(runner.name, 'blacksmith-'))",
     "Blacksmith term without hosted" => "(startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') || startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-'))",
-    "ephemeral term without owned-name refusal" => "(runner.environment == 'github-hosted' || startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') || startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-'))"
+    "ephemeral term without owned-name refusal" => "(runner.environment == 'github-hosted' || startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') || startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-'))",
+    "fleet condition bypass" => "#{fleet_term} || always()",
+    "negated fleet term" => "!#{fleet_term}",
+    "fleet term inside or group" => "(#{fleet_term} || true) && true",
+    "fleet term without owned-name refusal" => fleet_term.sub(" && !contains(runner.name, 'glaeda')", ""),
+    "fleet term with any cmux-prefixed name" => fleet_term.sub("'cmux-gha-runner-'", "'cmux-'"),
+    "fleet term with a fleet name substring" => fleet_term.sub("startsWith(runner.name, 'cmux-gha-runner-')", "contains(runner.name, 'cmux-gha-runner-')")
   }
   rejected_conditions.each do |name, condition|
     step = condition.nil? ? { "run" => "echo ok" } : { "if" => condition }

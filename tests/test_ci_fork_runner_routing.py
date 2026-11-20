@@ -59,6 +59,13 @@ CLA_EPHEMERAL_RUNNER_GUARD_IF = (
     " && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-'))"
     " || contains(runner.name, 'glaeda')"
 )
+# The fleet guard (validate-cla-policy.rb CLA_FLEET_RUNNER_GUARD_IF): the same,
+# plus the fleet's one-job VMs, which are all named cmux-gha-runner-*.
+CLA_FLEET_RUNNER_GUARD_IF = CLA_EPHEMERAL_RUNNER_GUARD_IF.replace(
+    " && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-'))",
+    " && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-')"
+    " && !startsWith(runner.name, 'cmux-gha-runner-'))",
+)
 FORK_BRANCHES = (
     FORK_LINUX_BRANCH,
     FORK_MACOS_BRANCH,
@@ -120,7 +127,15 @@ TRUSTED_RUNNER_EXPRESSION = (
 # CLA's trusted base validator pins its older selector and runner-name guard.
 # Keep that policy valid while other trusted jobs adopt the measured BS8 size.
 CLA_TRUSTED_RUNNER_EXPRESSION = TRUSTED_RUNNER_EXPRESSION.replace(',"blacksmith-8vcpu-ubuntu-2404"', '')
-TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, CLA_TRUSTED_RUNNER_EXPRESSION)
+# The validator also accepts CLA's selector with our two one-job fleet labels appended (JIT runners on cloud
+# VMs deleted after one job; the 4 vCPU Blacksmith pool it falls back to backs up for hours). Only this exact
+# expression may let CI_TRUSTED_RUNNER name a fleet label.
+CLA_FLEET_RUNNER_LABELS = ("cmux-fleet-linux-x64", "cmux-gcp-trusted-x64")
+CLA_FLEET_TRUSTED_RUNNER_EXPRESSION = CLA_TRUSTED_RUNNER_EXPRESSION.replace(
+    '"blacksmith-4vcpu-ubuntu-2404"]', '"blacksmith-4vcpu-ubuntu-2404",' + ",".join(map(json.dumps, CLA_FLEET_RUNNER_LABELS)) + "]"
+)
+CLA_RUNNER_EXPRESSIONS = (CLA_TRUSTED_RUNNER_EXPRESSION, CLA_FLEET_TRUSTED_RUNNER_EXPRESSION)
+TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, *CLA_RUNNER_EXPRESSIONS)
 # Fast checks admission accepts only the smallest measured Blacksmith size (a
 # picker's one re-run route, never 16 or 32 vCPU), with the same hosted
 # default. No input can select a persistent runner.
@@ -1367,7 +1382,7 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 self.assertEqual(len(runs_on), 1, runs_on)
                 self.assertRegex(runs_on[0], TRUSTED_RUNNER_LINE)
                 if workflow in {"cla.yml", "cla-policy-guard.yml"}:
-                    self.assertEqual(runs_on[0].strip(), "runs-on: " + CLA_TRUSTED_RUNNER_EXPRESSION)
+                    self.assertIn(runs_on[0].strip(), ["runs-on: " + expression for expression in CLA_RUNNER_EXPRESSIONS])
 
     def test_a_job_with_an_app_key_runs_where_no_variable_can_move_it(self) -> None:
         jobs = app_key_jobs()
@@ -1579,6 +1594,46 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                         "&& vars.X || 'blacksmith-4vcpu-ubuntu-2404' }}"):
             with self.subTest(runs_on=refused):
                 self.assertNotEqual(runner_label_errors(refused), [])
+
+    def test_cla_fleet_selector_is_exact(self) -> None:
+        # The CLA fleet selector passes as itself; widening its list, renaming its variable or dropping the fork
+        # branch fails, as does any other selector that lets a variable name a fleet label.
+        self.assertIn('"cmux-gcp-trusted-x64"]', CLA_FLEET_TRUSTED_RUNNER_EXPRESSION)
+        self.assertEqual(runner_label_errors(CLA_FLEET_TRUSTED_RUNNER_EXPRESSION), [])
+        self.assertEqual(outsider_runner_errors(
+            "x.yml", f"jobs:\n  a:\n    runs-on: {CLA_FLEET_TRUSTED_RUNNER_EXPRESSION}\n"), [])
+        fork = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+        for variant in (
+            CLA_FLEET_TRUSTED_RUNNER_EXPRESSION.replace('"cmux-gcp-trusted-x64"', '"cmux-gcp-trusted-x64","cmux-gcp-lane-x64"'),
+            CLA_FLEET_TRUSTED_RUNNER_EXPRESSION.replace('"cmux-gcp-trusted-x64"', '"cmux-gcp-lane-x64"'),
+            CLA_FLEET_TRUSTED_RUNNER_EXPRESSION.replace("vars.CI_TRUSTED_RUNNER", "vars.LINUX_RUNNER"),
+            CLA_FLEET_TRUSTED_RUNNER_EXPRESSION.replace(fork, ""),
+            TRUSTED_RUNNER_EXPRESSION.replace('"blacksmith-8vcpu-ubuntu-2404"]', '"blacksmith-8vcpu-ubuntu-2404","cmux-fleet-linux-x64"]'),
+        ):
+            with self.subTest(variant=variant):
+                self.assertNotEqual(runner_label_errors(variant), [])
+                self.assertNotEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {variant}\n"), [])
+
+    def test_cla_fleet_runner_guard_admits_fleet_vm_names(self) -> None:
+        guard = parse_expression(CLA_FLEET_RUNNER_GUARD_IF)
+        # (runner.environment, runner.name) -> whether the guard step fails the job.
+        cases = {
+            ("self-hosted", "cmux-gha-runner-tr-3f9a1c2b7d"): False,
+            ("self-hosted", "cmux-gha-runner-3f9a1c2b7d"): False,
+            ("self-hosted", "blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc"): False,
+            ("self-hosted", "blacksmith-2vcpu-ubuntu-2404-56ere4cqq7ryjqvc"): False,
+            ("github-hosted", "GitHub Actions 12"): False,
+            ("self-hosted", "cmux-gha-runner-glaeda-1"): True,
+            ("self-hosted", "cmuxs-mac-mini-5-glaeda-1"): True,
+            ("self-hosted", "cmux-gha-runner"): True,
+            ("self-hosted", "cmux-gcp-lane-x64-1"): True,
+            ("self-hosted", "x-cmux-gha-runner-1"): True,
+            ("self-hosted", "blacksmith-8vcpu-ubuntu-2404-56ere4cqq7ryjqvc"): True,
+        }
+        for (environment, name), fails in cases.items():
+            with self.subTest(name=name, environment=environment):
+                context = {"runner.environment": environment, "runner.name": name}
+                self.assertIs(evaluate_runner_condition(guard, context), fails)
 
     def test_trusted_runner_selector_admits_only_ephemeral_labels(self) -> None:
         self.assertEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {TRUSTED_RUNNER_EXPRESSION}\n"), [])
