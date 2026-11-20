@@ -16,9 +16,9 @@
 # a placeholder key.
 # Everything is installed under the step only (.build/chief-brain-proof, a fresh HOME): Claude
 # Code at the pinned version (checked against its release manifest), uv at a pinned version
-# (checked against a sha256 written here), and Hermes Agent from its official GitHub release
-# commit (NousResearch/hermes-agent v0.23.2), never PyPI (the PyPI name is behind and
-# unpinned). OpenClaw needs Docker or Podman for its sandbox mode "all"; without one the Chief
+# (checked against a sha256 written here), and Hermes Agent as a checkout of its official
+# GitHub release commit (NousResearch/hermes-agent v0.23.2) synced from its own uv.lock; never
+# PyPI (behind and unpinned) and never a wheel (Hermes refuses to build one). OpenClaw needs Docker or Podman for its sandbox mode "all"; without one the Chief
 # marks it unavailable and the proof checks the fallback instead (brain=openclaw).
 set -euo pipefail
 brain=""
@@ -91,19 +91,32 @@ if [[ "$brain" == hermes ]]; then
   curl -fsSL --proto '=https' -m 120 "https://github.com/astral-sh/uv/releases/download/$uv_version/uv-aarch64-apple-darwin.tar.gz" -o "$work/uv.tar.gz"
   [[ "$(shasum -a 256 "$work/uv.tar.gz" | awk '{print $1}')" == "$uv_sha256" ]] || { echo "BRAIN uv $uv_version sha256 mismatch" >&2; exit 1; }
   tar -xzf "$work/uv.tar.gz" -C "$work"
-  export UV_TOOL_DIR="$work/uv-tools" UV_TOOL_BIN_DIR="$work/home/.local/bin" UV_PYTHON_INSTALL_DIR="$work/uv-python" UV_CACHE_DIR="$work/uv-cache"
-  "$work/uv-aarch64-apple-darwin/uv" tool install --python 3.12 "hermes-agent[acp] @ git+https://github.com/NousResearch/hermes-agent@$hermes_commit"
+  export UV_PYTHON_INSTALL_DIR="$work/uv-python" UV_CACHE_DIR="$work/uv-cache"
+  # Hermes refuses wheel builds ("distributed via the shell installer, Docker image, or Nix"):
+  # a checkout at the release commit, synced from its own uv.lock (every dependency pinned),
+  # the way its developer setup runs it. Its lock supports only Python 3.14 (uv installs it here).
+  git clone -q --filter=blob:none https://github.com/NousResearch/hermes-agent "$work/hermes-src"
+  git -C "$work/hermes-src" checkout -q "$hermes_commit"
+  (cd "$work/hermes-src" && "$work/uv-aarch64-apple-darwin/uv" sync -q --frozen --python 3.14 --extra acp)
+  ln -s "$work/hermes-src/.venv/bin/hermes" "$work/home/.local/bin/hermes"
   echo "BRAIN-BIN hermes $("$work/home/.local/bin/hermes" --version 2>&1 | head -1)"
   "$work/home/.local/bin/hermes" acp --check || { echo "BRAIN hermes acp --check failed" >&2; exit 1; }
   # Beside acpmux, so its discovery finds it whatever login PATH it reads.
   ln -s "$work/home/.local/bin/hermes" "$work/bin/hermes"
 elif [[ "$brain" == openclaw ]]; then
-  command -v npm >/dev/null || { echo "BRAIN npm is not on this worker" >&2; exit 1; }
-  npm install --silent --prefix "$work/openclaw" "openclaw@$openclaw_version"
-  ln -s "$work/openclaw/node_modules/.bin/openclaw" "$work/home/.local/bin/openclaw"
-  echo "BRAIN-BIN openclaw $("$work/home/.local/bin/openclaw" --version 2>&1 | head -1)"
-  ln -s "$work/openclaw/node_modules/.bin/openclaw" "$work/bin/openclaw"
-  if command -v docker >/dev/null || command -v podman >/dev/null; then
+  # The fleet Macs have neither npm nor a container engine: OpenClaw then cannot run here at
+  # all, and the proof checks the Chief's fallback (state, note, every turn on the stand-in).
+  if command -v npm >/dev/null; then
+    npm install --silent --prefix "$work/openclaw" "openclaw@$openclaw_version"
+    ln -s "$work/openclaw/node_modules/.bin/openclaw" "$work/home/.local/bin/openclaw"
+    echo "BRAIN-BIN openclaw $("$work/home/.local/bin/openclaw" --version 2>&1 | head -1)"
+    ln -s "$work/openclaw/node_modules/.bin/openclaw" "$work/bin/openclaw"
+  else
+    echo "BRAIN-BIN openclaw not installed: no npm on this worker"
+  fi
+  if ! command -v npm >/dev/null; then
+    expect_fallback=1
+  elif command -v docker >/dev/null || command -v podman >/dev/null; then
     echo "BRAIN-SANDBOX engine present"
   else
     echo "BRAIN-SANDBOX no Docker or Podman: OpenClaw must fall back"
