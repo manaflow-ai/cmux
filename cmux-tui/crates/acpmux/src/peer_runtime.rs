@@ -781,6 +781,11 @@ impl Peer {
         new
     }
 
+    /// Whether local clients want this session's stream ([`Self::mark_attached`]).
+    pub fn is_marked(&self, session_id: &str) -> bool {
+        self.attached.lock_or_recover().contains_key(session_id)
+    }
+
     /// Forget the replay baseline of an attachment whose first baseline request failed. The
     /// mark stays (`attach_hidden`): the next link attaches it without history, which sets a
     /// fresh baseline.

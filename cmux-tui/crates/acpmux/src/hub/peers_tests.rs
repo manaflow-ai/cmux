@@ -166,9 +166,12 @@ fn compact_remote_change_keeps_the_cached_tool_inventory() {
         "toolsMutable": true,
     });
     let compact = json!({"sessionId": "mux-1", "status": "running"});
-    let retained = Hub::retain_summary_tools(compact, Some(&PeerRow::new(&previous)));
+    let retained = Hub::retain_summary_tools(compact.clone(), Some(&PeerRow::new(&previous)), true);
     assert_eq!(retained["tools"], previous["tools"]);
     assert_eq!(retained["toolsMutable"], true);
+    // A chat this link does not stream keeps none: its tools leave at its next change.
+    let dropped = Hub::retain_summary_tools(compact.clone(), Some(&PeerRow::new(&previous)), false);
+    assert_eq!(dropped, compact);
 }
 
 /// hq#2509: a peer from before the lane's step and title sends a lane without them;
