@@ -66,6 +66,7 @@ type ModelChoice = {
   name: string;
   family?: string;
   unavailable?: string;
+  codexUpdateVersion?: string;
   efforts?: string[];
   effortsDeclared?: boolean;
   /** The level the catalog recommends (a pick with no effort of its own lands it). */
@@ -142,7 +143,7 @@ function sectionsFor(
         name: defaultChoice ? translate("picker.default", {}, lang) : model.shortName || model.name || model.id,
         ...(defaultChoice ? { defaultChoice: true } : {}),
         ...(model.family ? { family: model.family } : {}),
-        ...(model.unavailable ? { unavailable: model.unavailable } : {}),
+        ...(model.unavailable ? { unavailable: model.unavailable, codexUpdateVersion: model.codexUpdateVersion } : {}),
         // Catalog normalization materializes omitted capabilities as [] and marks them false;
         // direct catalog entries without provenance retain their explicit empty declaration.
         ...((model.efforts?.length ?? 0) > 0 || (model.effortsDeclared !== false && model.efforts !== undefined)
@@ -1400,9 +1401,12 @@ export function ModelPicker(props: ModelPickerProps) {
                 // This harness's top models, the running one among them; a signed-out harness lists none.
                 models:
                   modelsNeeded && current && !needsSetup(current)
-                    ? quickSections(current, props.model, (model) => !model.unavailable, lang).shown.map((model) =>
-                        quickRow("", model),
-                      )
+                    ? quickSections(
+                        current,
+                        props.model,
+                        (model) => !model.unavailable || !!model.codexUpdateVersion,
+                        lang,
+                      ).shown.map((model) => quickRow("", model))
                     : [],
                 // The running model's row: an alias row ("opus") whose release the session reports
                 // ("claude-opus-5-5") is the running one. Matched on the raw id alone, no row ran:
@@ -1804,6 +1808,14 @@ export function ModelPicker(props: ModelPickerProps) {
                   </div>
                 ) : (
                   visible.map((model, index) => {
+                    const owner = owners.get(model);
+                    const releaseUpdate =
+                      model.codexUpdateVersion &&
+                      updates?.rows.find(
+                        (row) =>
+                          row.harness === (owner?.acpmuxHarness ?? owner?.id) &&
+                          row.latest === model.codexUpdateVersion,
+                      );
                     const ran = model.id === props.model && !!owners.get(model)?.ids.includes(harness ?? "");
                     // The checked row is what the next message runs: a held pick, else the chat's model.
                     const checked = held
@@ -1819,6 +1831,7 @@ export function ModelPicker(props: ModelPickerProps) {
                           aria-checked={checked}
                           className={`acpmux-mp-row ${modelRow} ${rowFill(index === active)} ${checked ? "pr-14" : "pr-8"}${index === active ? " acpmux-mp-active" : ""}`}
                           onPointerEnter={() => setActive(index)}
+                          title={model.unavailable}
                           disabled={Boolean(model.unavailable || model.defaultChoice)}
                           onClick={() => selectModel(model)}
                           active={index === active}
@@ -1836,10 +1849,24 @@ export function ModelPicker(props: ModelPickerProps) {
                                 .join(" · ")}
                             </span>
                           )}
-                          {model.unavailable && (
+                          {model.unavailable && !releaseUpdate && (
                             <span className="flex-none text-detail text-dim">{unavailableText}</span>
                           )}
                         </PickerOption>
+                        {releaseUpdate && (
+                          <button
+                            type="button"
+                            className="acpmux-harness-update-run mr-8 flex-none"
+                            disabled={releaseUpdate.phase === "updating"}
+                            title={model.unavailable}
+                            onClick={() => {
+                              releaseUpdate.update();
+                              if (releaseUpdate.skip) close();
+                            }}
+                          >
+                            {t("harness.update")} {releaseUpdate.agent}
+                          </button>
+                        )}
                         <span className="pointer-events-none absolute right-1.5 flex items-center">
                           <button
                             type="button"

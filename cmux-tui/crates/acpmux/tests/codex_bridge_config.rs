@@ -153,7 +153,34 @@ async fn cli_changes_codex_speed_without_switching_model() {
     }));
     let mut client = Client::local(&hub);
     let (session, _) = harness_of_new(&mut client, &d, "codex").await;
+    let (other, _) = harness_of_new(&mut client, &d, "codex").await;
+    let mut agent = Client::local(&hub);
+    let proof = acpmux::hub::person::caller_token(&session);
+    let init = agent
+        .call(
+            "initialize",
+            json!({"protocolVersion": 1, "_meta": {"acpmux": {
+                "callerSession": {"sessionId": session, "token": proof}
+            }}}),
+        )
+        .await;
+    assert!(init.get("error").is_none(), "{init}");
+    let denied = agent
+        .call(
+            "session/set_config_option",
+            json!({
+                "sessionId": other, "configId": "fast-mode", "value": "priority"
+            }),
+        )
+        .await;
+    assert!(
+        denied["error"]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("approve this on the Mac app")),
+        "{denied}"
+    );
     for tier in ["priority", "default"].into_iter().cycle().take(10) {
+        let client = if tier == "priority" { &mut agent } else { &mut client };
         let reply = client
             .call(
                 "session/set_config_option",

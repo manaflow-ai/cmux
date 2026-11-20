@@ -7,6 +7,17 @@ use crate::harness_health::{REFRESH_EVERY, Subject};
 use cmux_json::JsonSet as _;
 
 impl Hub {
+    pub(super) async fn harness_turn(
+        &self,
+        session: &Session,
+    ) -> crate::harness_health::turns::Turn {
+        let gate = session.read_meta(|m| {
+            let argv = m.spawn_argv.as_ref().unwrap_or(&m.harness_argv);
+            self.health.turns.program(argv.first().unwrap_or(&m.harness))
+        });
+        gate.turn().await
+    }
+
     /// Every configured harness as the health check sees it.
     pub async fn health_subjects(&self) -> Vec<Subject> {
         let cfg = self.config.read().await;
@@ -64,6 +75,7 @@ impl Hub {
             rows = self.health.first_check(self.health_subjects().await).await;
         }
         if update {
+            self.announce_harnesses().await;
             let hub = self.clone();
             tokio::spawn(async move { hub.auto_update_harnesses().await });
         }
@@ -79,7 +91,7 @@ impl Hub {
     /// caller names only harness ids, never a command. Sessions keep their
     /// process (`restart_harnesses` moves them); pooled ones end, so new
     /// chats start the new version.
-    pub async fn update_harnesses(&self, params: &Value) -> Result<Value, RpcError> {
+    pub async fn update_harnesses(self: &Arc<Self>, params: &Value) -> Result<Value, RpcError> {
         let ids = match params.get("ids") {
             None | Some(Value::Null) => None,
             Some(Value::Array(list)) => Some(
@@ -95,8 +107,14 @@ impl Hub {
         use crate::harness_health::auto::Requested;
         let any_ran = ran.iter().any(|(_, r)| matches!(r, Requested::Ran { .. }));
         let rows = if any_ran {
-            if ran.iter().any(|(_, r)| matches!(r, Requested::Ran { ok: true, .. })) {
+            let updated: std::collections::BTreeSet<_> = ran
+                .iter()
+                .filter(|(_, r)| matches!(r, Requested::Ran { ok: true, .. }))
+                .map(|(id, _)| id.clone())
+                .collect();
+            if !updated.is_empty() {
                 self.drain_pool();
+                self.probe_live_models(false, Some(updated)).await;
             }
             self.health.check(self.health_subjects().await, false).await
         } else {
@@ -228,6 +246,7 @@ impl Hub {
         loop {
             every.tick().await;
             self.health.check(self.health_subjects().await, false).await;
+            self.announce_harnesses().await;
             self.auto_update_harnesses().await;
         }
     }
