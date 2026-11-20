@@ -261,7 +261,8 @@ final class AppHealthPageFeed: PageHealthFeed {
 
     /// Ends a renderer the model proved hung: one log line first (which pages, how long, the
     /// renderer's memory and CPU, the page's last message), then every page in it is marked to
-    /// reload as a repair with its one-line notice, then the renderer ends.
+    /// reload as a repair with its one-line notice (the part's pages and any page that has not
+    /// beat yet, ``PageWebView/endHungRenderer(of:notice:)``), then the renderer ends.
     private func endRenderer(_ action: AppHealth.Action, pages members: [PageWebView]) -> Bool {
         guard let target = members.first(where: { timedVisible($0) }) ?? members.first else { return false }
         let pid = target.rendererProcessID

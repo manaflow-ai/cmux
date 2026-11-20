@@ -1,3 +1,4 @@
+public import CmuxNextDesign
 public import Foundation
 
 /// The page's half of the agent-chat liveness watchdog (App Health's `liveness` parts, whose rule
@@ -52,18 +53,36 @@ extension PageWebView {
         pendingRestartNotice = nil
     }
 
+    /// The one-line notice `line` as this page's own toast: its id names the page, so the pages of
+    /// one ended renderer that share a window's toasts each show theirs at once instead of
+    /// replacing each other; its kind is one for all, so Don't Show Again hides every copy.
+    public func rendererRestartedToast(_ line: String) -> CmuxToast {
+        CmuxToast(id: "page.rendererRestarted.\(PageRegistry.instance(of: self))", kind: "page.rendererRestarted", message: line)
+    }
+
     /// Ends the one renderer `pages` share, by force (``PageRendererProcess/endRenderer()``):
-    /// every page is marked first to reload as a repair and to show `notice` once it loads again,
-    /// then the first open page's renderer ends (and every page in it with it); when nothing
+    /// every page in that renderer is marked first to reload as a repair and to show `notice` once
+    /// it loads again, `pages` and every other open page the renderer hosts (a chat still booting
+    /// that no watchdog part has timed yet ends with it too), then the renderer ends; when nothing
     /// ended, the marks are taken back. Returns the pid ended (0: ended, pid unknown), or nil.
     public static func endHungRenderer(of pages: [PageWebView], notice: String) -> Int32? {
-        for page in pages { page.prepareForRendererEnd(notice: notice) }
-        let renderer = pages.lazy.filter { !$0.isClosed }.compactMap { $0.chromiumPage?.rendererProcess }.first
-        guard let ended = renderer?.endRenderer() else {
-            for page in pages { page.cancelRendererEnd() }
+        guard let renderer = pages.lazy.filter({ !$0.isClosed }).compactMap({ $0.chromiumPage?.rendererProcess }).first else { return nil }
+        let marked = pages + pagesHosted(by: renderer).filter { page in !pages.contains { $0 === page } }
+        for page in marked { page.prepareForRendererEnd(notice: notice) }
+        guard let ended = renderer.endRenderer() else {
+            for page in marked { page.cancelRendererEnd() }
             return nil
         }
         return ended
+    }
+
+    /// The open pages `renderer` hosts: the same process object, or the same Chromium renderer client id.
+    static func pagesHosted(by renderer: any PageRendererProcess) -> [PageWebView] {
+        let client = renderer.rendererClientID
+        return PageRegistry.pages().filter { page in
+            guard !page.isClosed, let process = page.chromiumPage?.rendererProcess else { return false }
+            return process === renderer || (client != nil && process.rendererClientID == client)
+        }
     }
 
     /// This page in the watchdog's log line: who it is (``logIdentity``, else its page id), its
