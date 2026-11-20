@@ -3,11 +3,15 @@
 use super::*;
 
 /// The last journaled snapshot powers the single chat row even when older posts leave memory.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 pub(super) struct Counts {
     pub(super) seq: u64,
     held: u64,
     need_you: u64,
+    /// Actionable triage decisions, keyed by prompt so reads and withdrawals can apply a
+    /// bounded delta without rescanning the inbox. The thread map is the distinct-topic view.
+    actionable_by_prompt: std::collections::HashMap<String, String>,
+    actionable_by_thread: std::collections::HashMap<String, u64>,
 }
 
 impl Counts {
@@ -15,19 +19,102 @@ impl Counts {
         json!({"held": self.held, "needYou": self.need_you})
     }
 
+    fn add_actionable(&mut self, prompt_id: &str, thread_id: &str) {
+        if prompt_id.is_empty()
+            || thread_id.is_empty()
+            || self.actionable_by_prompt.contains_key(prompt_id)
+        {
+            return;
+        }
+        self.actionable_by_prompt.insert(prompt_id.to_owned(), thread_id.to_owned());
+        *self.actionable_by_thread.entry(thread_id.to_owned()).or_default() += 1;
+        self.need_you = self.actionable_by_thread.len() as u64;
+    }
+
+    fn remove_actionable(&mut self, prompt_id: &str) {
+        let Some(thread_id) = self.actionable_by_prompt.remove(prompt_id) else { return };
+        let Some(count) = self.actionable_by_thread.get_mut(&thread_id) else { return };
+        *count = count.saturating_sub(1);
+        if *count == 0 {
+            self.actionable_by_thread.remove(&thread_id);
+        }
+        self.need_you = self.actionable_by_thread.len() as u64;
+    }
+
+    fn apply_event(&mut self, event: &EventRecord) {
+        match event.kind.as_str() {
+            "inbox_triaged" => {
+                let mut had_items = false;
+                if let Some(items) = event.msg.get("items").and_then(Value::as_array) {
+                    for item in items {
+                        if item.get("category").and_then(Value::as_str)
+                            == Some("needs_this_session")
+                            && item.get("repeatOf").is_none()
+                        {
+                            had_items = true;
+                            let prompt =
+                                item.get("promptId").and_then(Value::as_str).unwrap_or_default();
+                            let thread =
+                                item.get("threadId").and_then(Value::as_str).unwrap_or_default();
+                            self.add_actionable(prompt, thread);
+                        }
+                    }
+                }
+                // Older callers wrote an empty record with a scalar actionable count. Keep that
+                // compatibility value until a prompt-keyed delta supplies the authoritative map.
+                if !had_items
+                    && let Some(n) = event.msg.pointer("/surge/needYou").and_then(Value::as_u64)
+                {
+                    self.need_you = n;
+                }
+            }
+            "inbox_read" => {
+                if let Some(ids) = event.msg.get("promptIds").and_then(Value::as_array) {
+                    for id in ids.iter().filter_map(Value::as_str) {
+                        self.remove_actionable(id);
+                    }
+                }
+            }
+            "inbox_removed" => {
+                if let Some(id) = event.msg.get("promptId").and_then(Value::as_str) {
+                    self.remove_actionable(id);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub(super) fn apply(&mut self, event: &EventRecord) {
+        self.apply_event(event);
+        self.seq = self.seq.max(event.seq);
+    }
+
     pub(super) fn restore(&mut self, event: &EventRecord) {
         if event.seq <= self.seq {
             return;
         }
+        self.apply_event(event);
         if let (Some(held), Some(need_you)) = (
             event.msg.pointer("/surge/held").and_then(Value::as_u64),
             event.msg.pointer("/surge/needYou").and_then(Value::as_u64),
         ) {
-            *self = Self { seq: event.seq, held, need_you };
+            self.held = held;
+            if self.actionable_by_thread.is_empty() {
+                self.need_you = need_you;
+            } else {
+                self.need_you = self.actionable_by_thread.len() as u64;
+            }
+            self.seq = event.seq;
         } else if event.kind == "inbox" && event.msg["surgeHeld"] == true {
             self.held = self.held.saturating_add(1);
             self.seq = event.seq;
+        } else {
+            self.seq = event.seq;
         }
+    }
+
+    pub(super) fn need_you_for(&self, thread: &str) -> bool {
+        self.actionable_by_thread.contains_key(thread)
     }
 }
 
@@ -104,9 +191,30 @@ impl Hub {
     ) -> Result<(), RpcError> {
         let state = session.inbox().surge_counts.clone();
         let mut counts = state.lock().unwrap_or_else(|e| e.into_inner());
-        let mut next = *counts;
+        let mut next = counts.clone();
         match actionable_topics {
-            Some(n) => next.need_you = n,
+            Some(n) => {
+                next.apply_event(&EventRecord {
+                    seq: next.seq,
+                    at: 0,
+                    kind: kind.to_owned(),
+                    dir: "mux".to_owned(),
+                    msg: msg.clone(),
+                    host_seq: None,
+                });
+                if kind != "inbox_triaged"
+                    || msg
+                        .get("items")
+                        .and_then(Value::as_array)
+                        .map_or(true, |items| items.is_empty())
+                {
+                    next.need_you = if next.actionable_by_thread.is_empty() {
+                        n
+                    } else {
+                        next.actionable_by_thread.len() as u64
+                    };
+                }
+            }
             None => next.held = next.held.saturating_add(1),
         }
         msg["surge"] = next.json();
