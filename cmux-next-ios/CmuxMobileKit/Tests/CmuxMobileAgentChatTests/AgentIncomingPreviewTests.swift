@@ -1,0 +1,45 @@
+#if os(iOS)
+import Testing
+@testable import CmuxMobileAgentChat
+
+/// A closed incoming message previews as its first line of text, never as Markdown syntax: the
+/// collapsed line is all the reader sees until they open it (Leo, 2026-11-17: "collapse the agent
+/// messages that come in by default").
+@MainActor
+@Suite struct AgentIncomingPreviewTests {
+    @Test func aCodeFenceIsSkippedForTheFirstLineInsideIt() {
+        #expect(AgentIncomingCard.firstLine("```swift\nlet x = 1\n```") == "let x = 1")
+        #expect(AgentIncomingCard.firstLine("~~~\nmake test\n~~~") == "make test")
+    }
+
+    @Test func textAfterAFenceIsShownWhenTheFenceComesFirst() {
+        #expect(AgentIncomingCard.firstLine("```\n```\nDone, see above") == "Done, see above")
+    }
+
+    @Test func headingsQuotesBulletsAndNumbersLoseTheirMarks() {
+        #expect(AgentIncomingCard.firstLine("## Status") == "Status")
+        #expect(AgentIncomingCard.firstLine("> quoted reply") == "quoted reply")
+        #expect(AgentIncomingCard.firstLine("- first item\n- second") == "first item")
+        #expect(AgentIncomingCard.firstLine("1. step one") == "step one")
+    }
+
+    @Test func aLinkShowsItsText() {
+        #expect(AgentIncomingCard.firstLine("See [the PR](https://example.com/pr/1) now") == "See the PR now")
+    }
+
+    @Test func emphasisAndCodeMarksGo() {
+        #expect(AgentIncomingCard.firstLine("**Fixed** the `build`") == "Fixed the build")
+    }
+
+    @Test func blankAndMarkOnlyLinesAreSkipped() {
+        #expect(AgentIncomingCard.firstLine("\n   \n---\n**\nReal text") == "Real text")
+        #expect(AgentIncomingCard.firstLine("***\nAfter a rule") == "After a rule")
+        #expect(AgentIncomingCard.firstLine("   \n**\nReal text") == "Real text")
+        #expect(AgentIncomingCard.firstLine("") == "")
+    }
+
+    @Test func plainTextIsUnchanged() {
+        #expect(AgentIncomingCard.firstLine("Reviewed #45282, two nits\nmore") == "Reviewed #45282, two nits")
+    }
+}
+#endif
