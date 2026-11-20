@@ -60,8 +60,8 @@ pub(crate) async fn resolve_info(client: &Client, key: &str) -> Result<Value> {
             e
         }
     });
-    let v = match v {
-        Ok(v) => v,
+    match v {
+        Ok(v) => Ok(v),
         // A row `ls` lists from the send relay (`send_relay.rs`) is no session here: the refusal
         // says what reaches it and carries its row.
         Err(e) if crate::cli::send_relay::no_such_session(&e) => {
@@ -70,9 +70,8 @@ pub(crate) async fn resolve_info(client: &Client, key: &str) -> Result<Value> {
                 None => e,
             });
         }
-        Err(e) => return Err(e),
-    };
-    crate::cli::resolve::routed_id(&v)
+        Err(e) => Err(e),
+    }
 }
 
 #[cfg(all(test, unix))]
