@@ -406,8 +406,17 @@ impl Customize {
             .collect();
         // What the person's own files already hold that the schema refuses
         // (a value an older build wrote) is theirs and stays as written; only
-        // what this profile brings stops it.
-        let problems = validate::introduced(problems, &self.live_problems(files.keys())?);
+        // what this profile brings stops it. "Already" is what the apply
+        // after this will judge by, so a preview never writes what its apply
+        // then refuses: with no preview open, the live files (the begin below
+        // records them as a generation); with one open, the applied
+        // generation (the open preview's edits are not the person's yet).
+        let before = if self.store().draft()?.is_some() {
+            self.settings_problems_in(&self.current_tree(&self.store().index()?)?)?
+        } else {
+            self.live_problems(files.keys())?
+        };
+        let problems = validate::introduced(problems, &before);
         if !problems.is_empty() {
             return Err(Error::Invalid(problems));
         }

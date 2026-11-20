@@ -338,7 +338,7 @@ impl Customize {
     /// stored (the bytes the person had when it was recorded).
     /// An object it cannot read counts as holding nothing, so its problems
     /// stop the apply as before.
-    fn settings_problems_in(&self, tree: &Tree) -> io::Result<Vec<validate::Problem>> {
+    pub(crate) fn settings_problems_in(&self, tree: &Tree) -> io::Result<Vec<validate::Problem>> {
         let mut files = BTreeMap::new();
         for (path, entry) in tree.iter().filter(|(path, _)| Part::of(path) == Part::Settings) {
             if let Ok(bytes) = self.store.object(&entry.sha) {

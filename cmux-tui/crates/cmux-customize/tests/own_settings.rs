@@ -154,3 +154,21 @@ fn a_stale_value_in_the_persons_settings_never_blocks_a_save_and_stays_out_of_th
     let profile = theirs_customize.load_profile(saved.path.to_str().unwrap()).unwrap();
     theirs_customize.preview_profile(&profile, "cli", 2).expect("the saved profile was refused");
 }
+
+#[test]
+fn a_refused_value_written_during_an_open_preview_stops_a_try_on_before_it_writes() {
+    // With a preview open its edits are not the person's yet: the apply
+    // would refuse that value, so the preview refuses first and writes
+    // nothing, never a preview its own apply then refuses.
+    let home = Home::new("{}\n");
+    let customize = home.customize();
+    customize.begin("tweak", "cli", 1).unwrap();
+    home.write("cmux-next.json", STALE);
+    let profile = profile("night.profile.json");
+    let Err(Error::Invalid(problems)) = customize.try_on(Some(&profile), 60_000, "cli", 2) else {
+        panic!("tried on")
+    };
+    assert!(problems[0].line().contains("workspaceColors.indicatorStyle"), "{problems:?}");
+    assert!(!home.config("themes/night.json").exists());
+    assert!(!home.settings().contains("\"compact\""));
+}
