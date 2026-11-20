@@ -1120,3 +1120,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-peer-copy[data-arm=button] .acpmux-peer-copy-title{align-items:center;justify-content:space-between}
 .acpmux-peer-copy-resume{flex:none;border:0;border-radius:6px;padding:4px 12px;background:var(--agent-accent);color:var(--agent-accent-text,#fff);font:inherit;cursor:default}
 .acpmux-peer-copy-resume:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:2px}
+.acpmux-outcome-ask{display:flex;align-items:baseline;gap:8px;padding:0 8px 6px;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
+.acpmux-outcome-ask label{flex:none}
+.acpmux-outcome-ask textarea{field-sizing:content;min-height:18px;max-height:72px;flex:1;resize:none;border:0;border-bottom:1px solid var(--acpmux-composer-edge);background:transparent;color:var(--agent-text);font:inherit;outline:none;padding:0 0 2px}
+.acpmux-outcome-ask textarea::placeholder{color:var(--acpmux-composer-placeholder);opacity:1}
