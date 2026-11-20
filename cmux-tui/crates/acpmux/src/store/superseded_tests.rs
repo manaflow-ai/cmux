@@ -314,3 +314,20 @@ fn an_update_read_from_its_facts_folds_as_the_record() {
         .collect();
     assert_eq!(got, want);
 }
+
+/// The index's facts name a call by the hash the fold keys it by: [`call_hash`] of
+/// [`call_of_msg`]'s key, owner and all, so an update read from its facts and one read from its
+/// line fold into the same call.
+#[test]
+fn an_updates_facts_name_its_call_as_the_fold_does() {
+    let mut owned = output(2, "c", "a subagent's");
+    owned.msg["params"]["_meta"] = json!({"acpmux": {"subagent": "s"}});
+    for rec in [output(1, "c", "the chat's"), owned] {
+        let line = serde_json::to_string(&rec).unwrap();
+        let facts = snapshot_facts(line.as_bytes()).unwrap();
+        let (key, plain) = call_of_msg(&rec.msg).unwrap();
+        assert!(plain);
+        assert_eq!(facts.call, call_hash(&key), "{line}");
+    }
+    assert_ne!(call_hash("\u{0}c"), call_hash("\"s\"\u{0}c"), "a subagent's call is its own");
+}

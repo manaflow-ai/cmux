@@ -51,7 +51,14 @@ pub fn starts_prompt(dir: &[u8], kind: &[u8]) -> bool {
 }
 
 /// A call's key as the fold and the transcript index keep it: the first 8 bytes of the SHA-256 of
-/// [`call_of_msg`]'s key, so an index entry of fixed width names it.
+/// [`call_of_msg`]'s key, so an index entry of fixed width names it. Both [`Superseded::read`] and
+/// the index's facts ([`snapshot_facts`]) key calls by this one function, so a page read through
+/// the index folds as a page read from the log.
+///
+/// Two calls whose keys share a hash fold as one call: an update of one may then be left out for
+/// an update of the other. Accepted: at 64 bits that needs about 4 billion calls in one read, and
+/// the line it would leave out cannot be checked against its key without reading it, which is
+/// the read this saves.
 pub(super) fn call_hash(key: &str) -> u64 {
     use sha2::{Digest, Sha256};
     let digest = Sha256::digest(key.as_bytes());
