@@ -416,13 +416,13 @@ export class MockSettingsProvider {
       ...(this.durableHistory
         ? {
             "cmux.settings.history": () => this.historyRead(),
-            "cmux.settings.undo": (params: Params) => this.keyed(params, () => this.durableUndo()),
+            "cmux.settings.undo": (params: Params) => this.keyed(params, () => recorded(this.durableUndo())),
             "cmux.settings.restore": (params: Params) =>
-              this.keyed(params, () => this.durableRestore(Number(params.revision))),
+              this.keyed(params, () => recorded(this.durableRestore(Number(params.revision)))),
             "cmux.settings.reset_group": (params: Params) =>
-              this.keyed(params, () => this.resetGroup(params.group as string)),
+              this.keyed(params, () => recorded(this.resetGroup(params.group as string))),
             "cmux.settings.reset_keys": (params: Params) =>
-              this.keyed(params, () => this.resetKeys(params.keys as string[])),
+              this.keyed(params, () => recorded(this.resetKeys(params.keys as string[]))),
           }
         : {}),
       "cmux.settings.preview": () => ({}),
@@ -2936,7 +2936,7 @@ export class MockSettingsProvider {
     return this.commit(reset, "app");
   }
 
-  private commit(keys: string[], origin: string): HistoryMutationResult {
+  private commit(keys: string[], origin: string): MutationResult {
     this.revision += 1;
     const revision = this.revision;
     const before = this.pendingBefore;
@@ -2948,7 +2948,7 @@ export class MockSettingsProvider {
     queueMicrotask(() => {
       for (const ctx of this.changed) ctx.emit({ revision, keys, origin });
     });
-    return { value: { keys }, revision: String(revision), history_revision: String(revision), replayed: false };
+    return { value: { keys }, revision: String(revision), replayed: false };
   }
 }
 
@@ -3329,4 +3329,10 @@ export function mockArchived(): ArchivedState {
       { kind: "item", id: "itm-archived-link", title: "Design review", group: null, machine: null },
     ],
   };
+}
+
+/** A history write's reply (the host's `SettingsHistoryPage`): the mutation result and the revision
+ * of the change it recorded, which `cmux.settings.restore` takes. Plain writes carry none. */
+function recorded(result: MutationResult): HistoryMutationResult {
+  return { ...result, history_revision: result.revision };
 }
