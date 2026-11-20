@@ -157,6 +157,23 @@ def measure(label):
     return result
 
 
+def round_of(name, direction, index):
+    """One zoom or unzoom of the layout `name`: measured, with its rows."""
+    run = measure(f"{name} {direction} #{index}")
+    run.update(layout=name, direction=direction)
+    if index == 0 and direction == "zoom":
+        rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}-zoomed.png")})
+    row(f"{name} {direction} #{index}: the zoom animated (layout springs moved)", "> 0 frames",
+        str(run["moving_frames"]), run["moving_frames"] > 0)
+    sent = run["resizes_sent"]
+    row(f"{name} {direction} #{index}: grids sent to the PTY owner" + ("" if opts.gate else " (info)"),
+        "<= 1", str(sent), sent is not None and sent <= 1 or not opts.gate)
+    missed = run["missed"]
+    row(f"{name} {direction} #{index}: missed frames" + ("" if opts.gate else " (info)"),
+        f"<= {opts.missed_budget}", str(missed), missed is not None and missed <= opts.missed_budget or not opts.gate)
+    return run
+
+
 def cleanup():
     if os.environ.get("PANE_ZOOM_KEEP") or not LAUNCHED:
         return
@@ -199,19 +216,7 @@ def main():
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}-before.png")})
         for index in range(opts.rounds):
             for direction in ("zoom", "unzoom"):
-                run = measure(f"{name} {direction} #{index}")
-                run.update(layout=name, direction=direction)
-                report["runs"].append(run)
-                if index == 0 and direction == "zoom":
-                    rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}-zoomed.png")})
-                row(f"{name} {direction} #{index}: the zoom animated (layout springs moved)", "> 0 frames",
-                    str(run["moving_frames"]), run["moving_frames"] > 0)
-                sent = run["resizes_sent"]
-                row(f"{name} {direction} #{index}: grids sent to the PTY owner" + ("" if opts.gate else " (info)"),
-                    "<= 1", str(sent), sent is not None and sent <= 1 or not opts.gate)
-                missed = run["missed"]
-                row(f"{name} {direction} #{index}: missed frames" + ("" if opts.gate else " (info)"),
-                    f"<= {opts.missed_budget}", str(missed), missed is not None and missed <= opts.missed_budget or not opts.gate)
+                report["runs"].append(round_of(name, direction, index))
                 time.sleep(0.5)  # test harness: idle between runs
         if opts.json:
             json.dump(report, open(opts.json, "w"), indent=1)
@@ -232,12 +237,13 @@ def main():
         json.dump(report, open(opts.json, "w"), indent=1)
 
 
-try:
-    main()
-except Exception:  # the step log is stdout only
-    import traceback
-    traceback.print_exc(file=sys.stdout)
-finally:
-    cleanup()
-    print("\nRESULT", "PASS" if ROWS and all(r[3] for r in ROWS) else "FAIL", f"({sum(r[3] for r in ROWS)}/{len(ROWS)})")
-    sys.exit(0 if ROWS and all(r[3] for r in ROWS) else 1)
+if __name__ == "__main__":  # a test loads this file as a module and calls its parts
+    try:
+        main()
+    except Exception:  # the step log is stdout only
+        import traceback
+        traceback.print_exc(file=sys.stdout)
+    finally:
+        cleanup()
+        print("\nRESULT", "PASS" if ROWS and all(r[3] for r in ROWS) else "FAIL", f"({sum(r[3] for r in ROWS)}/{len(ROWS)})")
+        sys.exit(0 if ROWS and all(r[3] for r in ROWS) else 1)
