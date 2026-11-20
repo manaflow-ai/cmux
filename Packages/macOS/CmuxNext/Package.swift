@@ -29,7 +29,7 @@ import PackageDescription
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
 //   CmuxNextChiefMemory -> Design (the built-in Memory Inspector: model and view; the App supplies its daemon-backed source)
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
-//   CmuxNextSettingsWindow -> Settings, Design, Icons, Actions, Wakeups (Debug Settings, SwiftUI; Settings deep links and the string catalog the React Settings page reads)
+//   CmuxNextSettingsWindow -> Settings, Design, Icons, Actions, Wakeups, Compat (Debug Settings, SwiftUI; Settings deep links and the string catalog the React Settings page reads)
 //   CmuxNextControl -> Actions, Settings, Daemon, CCmuxAppFFI (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui;
 //     Diagnostics/AppHealth asks the Rust health model, cmux-health-core)
 //   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime, CCmuxAppFFI (Stack auth, /api/vm REST, the Cloud start's Rust decisions,
@@ -303,6 +303,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextWakeups",
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
             ],
             swiftSettings: daemonSwiftSettings
         ),
@@ -1842,6 +1843,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextRemote",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
             ],
             resources: [
                 .process("Resources"),
@@ -1979,6 +1981,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemon",
                 "CmuxNextWakeups",
                 "CmuxNextWakeupsTestSupport",
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
             ],
             swiftSettings: daemonSwiftSettings
         ),
@@ -2572,6 +2575,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextSettingsTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextActions",
+                "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextSettings",
                 "CmuxNextTestSupport",
@@ -2582,6 +2586,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextSettingsWindow",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextActions",
+                "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextIcons",
                 "CmuxNextSettings",
@@ -2603,6 +2608,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextProcessEnvironment",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
             ],
             resources: [
                 .process("Localizable.xcstrings"),
@@ -2748,6 +2754,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWindowRules",
                 "CmuxNextWorkspaceNaming",
                 "CmuxNextWorkspaceRepair",
+                // BuildSpaceFailClosedTests builds the misconfigured build space a dev build refuses with.
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 // GhosttyGlassMinimumContrastTests builds a Ghostty config.
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
@@ -2775,6 +2783,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextWakeups",
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
             ],
             swiftSettings: daemonSwiftSettings
         ),
@@ -2797,6 +2806,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextRemoteBrowser",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
             ],
             resources: [
                 .process("Resources"),
@@ -2825,6 +2835,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemon",
                 "CmuxNextMobile",
                 "CmuxNextTestSupport",
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
                 .product(name: "CmuxMobileRPC", package: "CmuxMobileRPC"),
                 .product(name: "CmuxMobileSSH", package: "CmuxMobileSSH"),
