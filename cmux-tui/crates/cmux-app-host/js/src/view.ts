@@ -95,6 +95,11 @@ export class ViewNode {
     this.handlers.tap = fn
     return this
   }
+  /** A tap the host runs itself, as the person's click, with no app scope: on a New Tab page,
+   * `{chat}` opens that chat (its chat.list key) and `{closed}` reopens that Recently Closed item,
+   * in the New Tab's own tab, as cmux's own page does. Where the host has no such path, the
+   * node's `onTap` runs instead. */
+  opens(target: { chat: string } | { closed: string }) { return this.set("opens", target) }
   contextMenu(items: ViewNode[] | (() => ViewNode[])) {
     this.menu = items
     return this
@@ -226,6 +231,22 @@ export function TextField(
   if (options.onSubmit) node.handlers.submit = options.onSubmit
   if (options.onEdit) node.handlers.edit = options.onEdit
   if (options.onCancel) node.handlers.cancel = options.onCancel
+  return node
+}
+
+/**
+ * cmux's own New Tab composer (the field with its project and agent chips, attachments, slash
+ * commands and start flow) at this place in a New Tab page app's scene (cmux.newtab/1). `prompt`
+ * puts the Console's `>` before a monospace field; `cwd` moves the folder the next chat starts in
+ * (an environment row); `placeholder` replaces the hint. Anywhere else it draws nothing.
+ */
+export function Composer(
+  options: { prompt?: Bindable<boolean>; placeholder?: Bindable<string>; cwd?: Bindable<string | null> } = {}
+): ViewNode {
+  const node = new ViewNode("Composer")
+  if (options.prompt !== undefined) node.props.prompt = options.prompt
+  if (options.placeholder !== undefined) node.props.placeholder = options.placeholder
+  if (options.cwd !== undefined) node.props.cwd = options.cwd
   return node
 }
 

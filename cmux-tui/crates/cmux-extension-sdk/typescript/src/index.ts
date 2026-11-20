@@ -48,6 +48,11 @@ export const {
   Toggle, Slider, TextField, ProgressView, Circle, Capsule, Rectangle, RoundedRectangle
 } = g
 
+/** cmux's own New Tab composer at this place in a New Tab page (`newTab(...)`), with its project and
+ * agent chips; `prompt` for the Console's `>`, `cwd` to move the next chat's folder. Draws nothing
+ * elsewhere, and on a cmux older than the node. */
+export const Composer: Globals["Composer"] = g.Composer ?? (() => g.Group([]))
+
 /** Gradient fills for `.background(...)` and a shape's `.fill(...)`: 2 to 8 stops (tones or
  * `#RRGGBB[AA]`); the runtime's builders refuse a bad stop or angle. On a cmux older than them the
  * value is built here and an older renderer draws no fill. */

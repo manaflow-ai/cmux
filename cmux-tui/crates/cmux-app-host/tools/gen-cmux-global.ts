@@ -512,7 +512,7 @@ interface CmuxView {
   borderColor(v: Bindable<string | null>): this; borderWidth(v: Bindable<number>): this; opacity(v: Bindable<number>): this
   fill(v: Bindable<CmuxFill | null>): this; stroke(v: Bindable<string | null>): this; strokeWidth(v: Bindable<number>): this; size(v: Bindable<number>): this
   rotation(degrees: Bindable<number>): this; cursor(v: "pointer" | "default"): this; help(v: Bindable<string>): this
-  fixed(): this; destructive(): this; disabled(v?: Bindable<boolean>): this; onTap(fn: () => unknown): this; contextMenu(items: CmuxView[] | (() => CmuxView[])): this
+  fixed(): this; destructive(): this; disabled(v?: Bindable<boolean>): this; onTap(fn: () => unknown): this; opens(target: { chat: string } | { closed: string }): this; contextMenu(items: CmuxView[] | (() => CmuxView[])): this
   /** How an Icon's layers take color, as SF Symbols draw them: monochrome (the default), hierarchical, palette (1 to 3 colors, in layer order) or multicolor (the symbol's own colors, the tint where it has none). */
   symbolRendering(mode: "monochrome" | "hierarchical" | "palette" | "multicolor", colors?: readonly string[]): this
 }
@@ -536,6 +536,8 @@ declare function Rectangle(props?: Record<string, unknown>): CmuxView
 declare function RoundedRectangle(props?: Record<string, unknown>): CmuxView
 declare function ProgressView(value?: Bindable<number | null>): CmuxView
 declare function TextField(value: Bindable<string>, options?: { placeholder?: string; autofocus?: boolean; onSubmit?: (t: string) => unknown; onEdit?: (t: string) => unknown; onCancel?: () => unknown }): CmuxView
+/** cmux's own New Tab composer (project and agent chips, attachments, slash commands, its start flow) at this place in a cmux.newtab/1 page: \`prompt\` puts the Console's \`>\` before a monospace field, \`cwd\` moves the folder the next chat starts in, \`placeholder\` replaces the hint. Anywhere else it draws nothing. */
+declare function Composer(options?: { prompt?: Bindable<boolean>; placeholder?: Bindable<string>; cwd?: Bindable<string | null> }): CmuxView
 declare function Row(props: { title: Bindable<string>; subtitle?: Bindable<string | null>; symbol?: Bindable<string | null>; badge?: Bindable<string | number | null>; unread?: Bindable<boolean>; selected?: Bindable<boolean>; tint?: Bindable<string | null>; accessory?: Bindable<string | null> }): CmuxView
 /** A native switch, two-way bound: \`value\` is the state, \`onChange\` gets the new one. With a \`label\`, a settings row (label leading, switch trailing). */
 declare function Toggle(value: Bindable<boolean>, options?: { label?: Bindable<string>; disabled?: Bindable<boolean>; onChange?: (on: boolean) => unknown }): CmuxView
