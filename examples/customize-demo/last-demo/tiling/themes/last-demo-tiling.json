@@ -41,10 +41,5 @@
   "appearance.statusIndicator.style": "arc",
   "appearance.statusIndicator.color": "#5ce1e6",
 
-  "density": {
-    "basedOn": "compact",
-    "tokens": { "tabCornerRadius": 5, "verticalTabCornerRadius": 5, "sidebarCornerRadius": 6, "itemCornerRadius": 5, "tabGap": 3, "sidebarRowGap": 2 }
-  },
-  "layout.paneCornerRadius": 8,
-  "focus.inactiveTabStyle": "tonal"
+  "appearance.density": "compact"
 }

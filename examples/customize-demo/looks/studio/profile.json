@@ -5,7 +5,10 @@
     "appearance.themeFile": "studio",
     "tabs.newTabApp": "local/customize",
     "tabs.hideLoneChatTab": true,
-    "tabs.toolbarButtons": ["openDiffViewer", "agentPane.searchChats"],
+    "tabs.toolbarButtons": [
+      "openDiffViewer",
+      "agentPane.searchChats"
+    ],
     "sidebar.groupBy": "folder",
     "sidebar.showSpaces": false,
     "sidebar.cards.tips": false,
@@ -28,6 +31,10 @@
     "agentPane.display.sessionInfo.placement": "push",
     "agentPane.editedFiles.show": "collapsed",
     "agentPane.showContextUsage": true,
-    "diff.layout": "split"
+    "diff.layout": "split",
+    "focus.inactiveTabStyle": "tonal",
+    "layout.paneCornerRadius": 6,
+    "sidebar.controlsOnHover": true,
+    "tabs.plusButton": "always"
   }
 }

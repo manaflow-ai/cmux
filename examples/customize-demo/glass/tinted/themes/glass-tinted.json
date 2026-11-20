@@ -36,14 +36,10 @@
   "browser.omnibar.glassTint": "accent",
   "browser.omnibar.glassTintStrength": 0.45,
 
-  // Workspace groups in aurora gradients on glass headers.
+  // Cards for the sidebar sections, panes floating on the glass.
   "sidebar.sectionLook": "card",
-  "sidebar.groupHeader.background": "glass",
-  "sidebar.groupPalette": "gradient",
-  "sidebar.groupGradient": "aurora",
   "appearance.chromeStyle": "floating",
   "appearance.titleAreaTone": "subtleTone",
-  "layout.paneCornerRadius": 12,
   "appearance.statusIndicator.style": "arc",
   "appearance.statusIndicator.color": "#67e8f9"
 }

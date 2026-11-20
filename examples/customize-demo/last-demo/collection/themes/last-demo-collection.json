@@ -34,8 +34,6 @@
   "appearance.surfaces.sidebar.color": "#0f0a1b",
   "appearance.surfaces.sidebar.opacity": 0.72,
   "sidebar.sectionLook": "card",
-  "sidebar.groupHeader.background": "glass",
-  "sidebar.controlsOnHover": true,
 
   "appearance.surfaces.terminal.color": "#150f24",
   "appearance.surfaces.terminal.opacity": 0.86,
@@ -48,16 +46,7 @@
   "appearance.statusIndicator.color": "#ff5fd2",
 
   // Arcade blocks, softened: small radii everywhere, a tight strip, a narrower sidebar.
-  "density": {
-    "basedOn": "compact",
-    "tokens": {
-      "tabCornerRadius": 6, "tabCloseCornerRadius": 4, "verticalTabCornerRadius": 6, "sidebarCornerRadius": 6,
-      "itemCornerRadius": 5, "tabGap": 4, "sidebarRowGap": 3, "sidebarWidth": 272
-    }
-  },
-  "layout.paneCornerRadius": 8,
-  "focus.inactiveTabStyle": "tonal",
-  "tabs.plusButton": "always",
+  "appearance.density": "compact",
 
   "ui.animationSpeed": "fast"
 }

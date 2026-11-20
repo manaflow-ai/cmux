@@ -29,8 +29,6 @@
   "sidebar.border": true,
   "sidebar.borderWidth": 0.5,
   "sidebar.sectionLook": "card",
-  "sidebar.groupHeader.background": "glass",
-  "sidebar.groupPalette": "glass",
   "browser.omnibar.glass": "regular",
   "browser.omnibar.glassTint": "accent",
   "browser.omnibar.glassTintStrength": 0.25,
@@ -46,9 +44,5 @@
   "appearance.surfaces.markdown.opacity": 1,
 
   // Panes as cards floating on the glass, rounded like the glass around them.
-  "appearance.chromeStyle": "card",
-  "layout.paneCornerRadius": 12,
-  "density": {
-    "tokens": { "tabCornerRadius": 10, "verticalTabCornerRadius": 10, "sidebarCornerRadius": 10, "sidebarRowGap": 3 }
-  }
+  "appearance.chromeStyle": "card"
 }

@@ -5,7 +5,10 @@
     "appearance.themeFile": "codex-app",
     "tabs.newTabApp": "local/customize",
     "tabs.hideLoneChatTab": true,
-    "tabs.toolbarButtons": ["openDiffViewer", "agentPane.searchChats"],
+    "tabs.toolbarButtons": [
+      "openDiffViewer",
+      "agentPane.searchChats"
+    ],
     "sidebar.groupBy": "folder",
     "sidebar.showTimestamps": true,
     "sidebar.density": "comfortable",
@@ -24,6 +27,10 @@
     "agentPane.editedFiles.show": "collapsed",
     "agentPane.attachmentView": "strip",
     "diff.layout": "unified",
-    "notifications.attention.agentChats": "ring"
+    "notifications.attention.agentChats": "ring",
+    "focus.inactiveTabStyle": "quiet",
+    "layout.paneCornerRadius": 16,
+    "sidebar.controlsOnHover": true,
+    "sidebar.groupHeader.background": "sections"
   }
 }

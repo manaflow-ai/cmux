@@ -15,6 +15,9 @@
     "layout.rows": false,
     "layout.paneSeparation": "none",
     "appearance.focusIndicator": "none",
-    "ui.calm": "still"
+    "ui.calm": "still",
+    "agentPane.display.font.lineHeight": 1.6,
+    "agentPane.display.font.size": 15,
+    "layout.paneCornerRadius": 10
   }
 }

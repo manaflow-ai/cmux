@@ -9,6 +9,9 @@
     "home.chiefDock.edge": "right",
     "agentPane.display.sessionInfo.placement": "push",
     "layout.mainPane": "agent-chats",
-    "layout.paneSeparation": "cards"
+    "layout.paneSeparation": "cards",
+    "layout.paneCornerRadius": 12,
+    "sidebar.density": "expanded",
+    "sidebar.groupHeader.background": "glass"
   }
 }

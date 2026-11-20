@@ -16,6 +16,8 @@
     "layout.paneSeparation": "cards",
     "appearance.focusIndicator": "border",
     "sidebar.style": "rail",
-    "sidebar.controlsOnHover": true
+    "sidebar.controlsOnHover": true,
+    "focus.inactiveTabStyle": "tonal",
+    "layout.paneCornerRadius": 8
   }
 }

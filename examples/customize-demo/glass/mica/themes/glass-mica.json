@@ -43,8 +43,5 @@
   "appearance.chromeStyle": "card-outlined",
   "sidebar.border": true,
   "sidebar.borderWidth": 0.5,
-  "sidebar.sectionLook": "tray",
-  "sidebar.groupHeader.background": "glass",
-  "sidebar.groupPalette": "wallpaper",
-  "layout.paneCornerRadius": 8
+  "sidebar.sectionLook": "tray"
 }

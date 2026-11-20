@@ -45,9 +45,6 @@
   "appearance.chromeStyle": "floating",
   "appearance.borders": "none",
   "sidebar.sectionLook": "card",
-  "sidebar.groupHeader.background": "glass",
-  "sidebar.groupPalette": "glass",
-  "layout.paneCornerRadius": 14,
   "appearance.statusIndicator.style": "arc",
   "appearance.statusIndicator.color": "#7cc4ff"
 }

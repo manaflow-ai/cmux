@@ -40,12 +40,5 @@
   "appearance.surfaces.newTabPage.opacity": 0.6,
 
   "appearance.statusIndicator.style": "arc",
-  "appearance.statusIndicator.color": "#a8c6a0",
-
-  "density": { "tokens": { "tabCornerRadius": 8, "verticalTabCornerRadius": 8, "sidebarCornerRadius": 8 } },
-  "layout.paneCornerRadius": 10,
-
-  // A calm chat: a size up, airy lines.
-  "agentPane.display.font.size": 15,
-  "agentPane.display.font.lineHeight": 1.6
+  "appearance.statusIndicator.color": "#a8c6a0"
 }

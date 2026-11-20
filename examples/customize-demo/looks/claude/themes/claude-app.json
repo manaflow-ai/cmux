@@ -21,20 +21,8 @@
   "appearance.surfaces.agentPane.color": "#1f1e1c",
   "appearance.surfaces.agentPane.opacity": 1,
   "sidebar.sectionLook": "quiet",
-  "sidebar.groupHeader.background": "sections",
-  "sidebar.controlsOnHover": true,
   "appearance.statusIndicator.style": "dot",
 
-  // Claude's soft shapes: round tabs, rows, buttons and panes, a roomy row gap.
-  "density": {
-    "basedOn": "comfortable",
-    "tokens": {
-      "tabCornerRadius": 10, "tabCloseCornerRadius": 8, "verticalTabCornerRadius": 10, "sidebarCornerRadius": 10,
-      "itemCornerRadius": 8, "panelCornerRadius": 14, "tabGap": 4, "sidebarRowGap": 3
-    }
-  },
-  "layout.paneCornerRadius": 12,
-  "focus.inactiveTabStyle": "quiet",
 
   "appearance.density": "comfortable"
 }

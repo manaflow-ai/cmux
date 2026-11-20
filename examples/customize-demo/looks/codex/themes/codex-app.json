@@ -21,20 +21,8 @@
   "appearance.surfaces.agentPane.color": "#ffffff",
   "appearance.surfaces.agentPane.opacity": 1,
   "sidebar.sectionLook": "quiet",
-  "sidebar.groupHeader.background": "sections",
-  "sidebar.controlsOnHover": true,
   "appearance.statusIndicator.style": "native",
 
-  // Codex's pill shapes: round tabs and rows, rounder panels and panes.
-  "density": {
-    "basedOn": "comfortable",
-    "tokens": {
-      "tabCornerRadius": 12, "tabCloseCornerRadius": 10, "verticalTabCornerRadius": 12, "sidebarCornerRadius": 12,
-      "itemCornerRadius": 10, "panelCornerRadius": 18, "tabGap": 4
-    }
-  },
-  "layout.paneCornerRadius": 16,
-  "focus.inactiveTabStyle": "quiet",
 
   "appearance.density": "comfortable"
 }

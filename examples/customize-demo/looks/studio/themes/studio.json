@@ -20,20 +20,8 @@
   "appearance.surfaces.agentPane.color": "#111113",
   "appearance.surfaces.agentPane.opacity": 1,
   "sidebar.sectionLook": "quiet",
-  "sidebar.controlsOnHover": true,
   "appearance.statusIndicator.style": "arc",
 
-  // A studio's tight shapes: small radii everywhere, a narrow tab gap and a slimmer sidebar.
-  "density": {
-    "basedOn": "compact",
-    "tokens": {
-      "tabCornerRadius": 5, "tabCloseCornerRadius": 4, "verticalTabCornerRadius": 5, "sidebarCornerRadius": 5,
-      "itemCornerRadius": 5, "panelCornerRadius": 6, "tabGap": 2, "sidebarRowGap": 1, "sidebarWidth": 280
-    }
-  },
-  "layout.paneCornerRadius": 6,
-  "focus.inactiveTabStyle": "tonal",
-  "tabs.plusButton": "always",
 
   "appearance.density": "compact",
   "ui.animationSpeed": "fast"

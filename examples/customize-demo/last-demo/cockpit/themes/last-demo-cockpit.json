@@ -35,8 +35,6 @@
   "appearance.surfaces.sidebar.color": "#0a0f1a",
   "appearance.surfaces.sidebar.opacity": 0.7,
   "sidebar.sectionLook": "card",
-  "sidebar.groupHeader.background": "glass",
-  "sidebar.density": "expanded",
 
   "appearance.surfaces.terminal.color": "#0d1320",
   "appearance.surfaces.terminal.opacity": 0.86,
@@ -46,10 +44,6 @@
   "appearance.surfaces.newTabPage.opacity": 0.5,
 
   "appearance.statusIndicator.style": "arc",
-  "appearance.statusIndicator.color": "#7cc7ff",
+  "appearance.statusIndicator.color": "#7cc7ff"
 
-  "density": {
-    "tokens": { "tabCornerRadius": 9, "verticalTabCornerRadius": 9, "sidebarCornerRadius": 10, "sidebarRowGap": 3, "sidebarWidth": 296 }
-  },
-  "layout.paneCornerRadius": 12
 }
