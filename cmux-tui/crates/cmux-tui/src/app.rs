@@ -485,6 +485,9 @@ pub struct App {
     pub(crate) tabs_footer_scroll: usize,
     projection_rails: HashMap<String, ProjectionRailState>,
     projection_order_cache: AgentOrderCache,
+    /// The rails' row models between frames (projection rows, the roster
+    /// of the last layout frame); see `SidebarFrameCache`.
+    pub(crate) sidebar_frame_cache: crate::sidebar_projection::SidebarFrameCache,
     /// Agent status for the default sidebar and tab chips, rebuilt with
     /// the tree on each layout frame (`sync_layout`), read on every frame.
     pub(crate) sidebar_status: crate::sidebar_status::SidebarStatus,

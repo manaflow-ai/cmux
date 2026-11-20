@@ -23,6 +23,9 @@ pub(crate) struct SidebarStatus {
     tabs: HashMap<SurfaceId, AgentStatus>,
     workspaces: Vec<WorkspaceStatus>,
     agents: Vec<AgentRow>,
+    /// Each agent's row in `agents`, so a draw finds the selected one
+    /// without walking them all.
+    agent_rows: HashMap<SurfaceId, usize>,
 }
 
 /// One workspace row's agent rollup and second line.
@@ -116,8 +119,10 @@ impl SidebarStatus {
         ranked.sort_by(|left, right| {
             right.0.cmp(&left.0).then(right.1.cmp(&left.1)).then(left.2.cmp(&right.2))
         });
-        let agents = ranked.into_iter().map(|(_, _, _, row)| row).collect();
-        Self { tabs, workspaces, agents }
+        let agents: Vec<AgentRow> = ranked.into_iter().map(|(_, _, _, row)| row).collect();
+        let agent_rows =
+            agents.iter().enumerate().map(|(index, row)| (row.surface, index)).collect();
+        Self { tabs, workspaces, agents, agent_rows }
     }
 
     /// The status of the agent in tab `surface`, if one runs there.
@@ -128,6 +133,11 @@ impl SidebarStatus {
     /// The workspace at tree index `index`.
     pub(crate) fn workspace(&self, index: usize) -> Option<&WorkspaceStatus> {
         self.workspaces.get(index)
+    }
+
+    /// The row in `agents()` of the agent in tab `surface`.
+    pub(crate) fn agent_row(&self, surface: SurfaceId) -> Option<usize> {
+        self.agent_rows.get(&surface).copied()
     }
 
     /// Every agent, most urgent first.

@@ -620,7 +620,12 @@ pub struct MachineUiState {
     workspace_creation: HashMap<MachineKey, WorkspaceCreationPolicy>,
     client_renamable_machines: HashSet<MachineKey>,
     managed_machines: Vec<ManagedMachineDescriptor>,
+    /// Each managed machine's index in `managed_machines`.
+    managed_machine_index: HashMap<MachineKey, usize>,
     managed_workspaces: HashMap<MachineKey, Vec<ManagedWorkspaceDescriptor>>,
+    /// Per machine, the indexes in `managed_workspaces` of the recoverable
+    /// ones, kept with them so a rail draw reaches row `n` directly.
+    recoverable_workspaces: HashMap<MachineKey, Vec<usize>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -732,7 +737,9 @@ impl MachineUiState {
             workspace_creation: HashMap::new(),
             client_renamable_machines: HashSet::new(),
             managed_machines: Vec::new(),
+            managed_machine_index: HashMap::new(),
             managed_workspaces: HashMap::new(),
+            recoverable_workspaces: HashMap::new(),
         };
         state.ensure_rail_selection();
         state
@@ -843,6 +850,11 @@ impl MachineUiState {
     }
 
     pub fn set_managed_machines(&mut self, machines: Vec<ManagedMachineDescriptor>) {
+        // The first entry for a key wins, as the `find` this replaced did.
+        self.managed_machine_index.clear();
+        for (index, machine) in machines.iter().enumerate() {
+            self.managed_machine_index.entry(machine.key).or_insert(index);
+        }
         self.managed_machines = machines;
     }
 
@@ -851,7 +863,7 @@ impl MachineUiState {
     }
 
     pub fn managed_machine(&self, key: MachineKey) -> Option<&ManagedMachineDescriptor> {
-        self.managed_machines.iter().find(|machine| machine.key == key)
+        self.managed_machine_index.get(&key).and_then(|index| self.managed_machines.get(*index))
     }
 
     pub fn set_managed_workspaces(
@@ -859,6 +871,13 @@ impl MachineUiState {
         machine: MachineKey,
         workspaces: Vec<ManagedWorkspaceDescriptor>,
     ) {
+        let recoverable = workspaces
+            .iter()
+            .enumerate()
+            .filter(|(_, workspace)| workspace.status == ManagedWorkspaceStatus::Recoverable)
+            .map(|(index, _)| index)
+            .collect();
+        self.recoverable_workspaces.insert(machine, recoverable);
         self.managed_workspaces.insert(machine, workspaces);
     }
 
@@ -875,10 +894,28 @@ impl MachineUiState {
     }
 
     pub fn recoverable_workspaces(&self) -> Vec<&ManagedWorkspaceDescriptor> {
-        self.managed_workspaces()
-            .iter()
-            .filter(|workspace| workspace.status == ManagedWorkspaceStatus::Recoverable)
+        (0..self.recoverable_workspace_count())
+            .filter_map(|index| self.recoverable_workspace(index))
             .collect()
+    }
+
+    fn active_recoverable_indexes(&self) -> &[usize] {
+        self.snapshot
+            .active
+            .and_then(|machine| self.recoverable_workspaces.get(&machine))
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+    }
+
+    /// How many of the active machine's workspaces are recoverable.
+    pub fn recoverable_workspace_count(&self) -> usize {
+        self.active_recoverable_indexes().len()
+    }
+
+    /// The active machine's `index`-th recoverable workspace, in O(1).
+    pub fn recoverable_workspace(&self, index: usize) -> Option<&ManagedWorkspaceDescriptor> {
+        let position = *self.active_recoverable_indexes().get(index)?;
+        self.managed_workspaces().get(position)
     }
 
     pub fn rail_targets(&self) -> Vec<MachineRailTarget> {

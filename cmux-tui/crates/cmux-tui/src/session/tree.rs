@@ -20,15 +20,39 @@ pub(crate) use tab_view::parse_program_status;
 pub use tab_view::{TabAttentionView, TabNotificationView, TabView};
 use tab_view::{parse_attention, parse_notification};
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct TreeView {
     workspaces: Vec<WorkspaceView>,
+    /// Changes whenever the tree's content can have changed: a new tree
+    /// takes a fresh number and every `&mut self` method takes another, so
+    /// two equal generations are the same content. `active_workspace` is a
+    /// public field outside it. Draws key their cached row models on it.
+    generation: u64,
     #[allow(dead_code)]
     pub workspace_revision: u64,
     pub pane_revision: Option<u64>,
     pub active_workspace: usize,
     #[doc(hidden)]
     pub(crate) location_index: OnceLock<TreeLocationIndex>,
+}
+
+/// A number no other tree content has had.
+fn next_tree_generation() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+impl Default for TreeView {
+    fn default() -> Self {
+        Self {
+            workspaces: Vec::new(),
+            generation: next_tree_generation(),
+            workspace_revision: 0,
+            pane_revision: None,
+            active_workspace: 0,
+            location_index: OnceLock::new(),
+        }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -175,6 +199,7 @@ impl TreeView {
     ) -> Self {
         Self {
             workspaces,
+            generation: next_tree_generation(),
             workspace_revision,
             pane_revision,
             active_workspace,
@@ -261,6 +286,7 @@ impl TreeView {
         workspace_index: usize,
         screen_index: usize,
     ) -> bool {
+        self.touch();
         let Some(workspace) = self.workspaces.get_mut(workspace_index) else { return false };
         if screen_index >= workspace.screens.len() {
             return false;
@@ -276,6 +302,7 @@ impl TreeView {
         screen_index: usize,
         pane_id: PaneId,
     ) -> bool {
+        self.touch();
         let Some(screen) = self
             .workspaces
             .get_mut(workspace_index)
@@ -298,6 +325,7 @@ impl TreeView {
         pane_id: PaneId,
         tab_index: usize,
     ) -> bool {
+        self.touch();
         let Some(pane) = self
             .workspaces
             .get_mut(workspace_index)
@@ -330,6 +358,7 @@ impl TreeView {
             return false;
         }
         pane.active_tab = tab_index;
+        self.touch();
         true
     }
 
@@ -412,6 +441,7 @@ impl TreeView {
         let changed = tab.title != title;
         if changed {
             tab.title = title.to_owned();
+            self.touch();
         }
         Some(changed)
     }
@@ -443,6 +473,7 @@ impl TreeView {
         let screen = &mut workspace.screens[screen_index];
         screen.active_pane = screen.panes[pane_index].id;
         screen.panes[pane_index].active_tab = tab_index;
+        self.touch();
         true
     }
 
@@ -542,6 +573,17 @@ impl TreeView {
 
     pub(crate) fn invalidate_location_index(&mut self) {
         self.location_index = OnceLock::new();
+        self.touch();
+    }
+
+    /// The content generation (see the field): equal generations, equal
+    /// workspaces, screens, panes and tabs.
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    fn touch(&mut self) {
+        self.generation = next_tree_generation();
     }
 
     /// Put the workspaces in the order of `rank` (lower first; a workspace
@@ -701,6 +743,7 @@ pub fn tree_from_state_with_notifications(
         })
     };
     TreeView {
+        generation: next_tree_generation(),
         workspace_revision: state.workspace_revision,
         pane_revision: Some(state.pane_revision),
         active_workspace: state.active_workspace,

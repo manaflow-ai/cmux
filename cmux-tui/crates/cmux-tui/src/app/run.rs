@@ -487,6 +487,7 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         tabs_footer_scroll: 0,
         projection_rails: HashMap::new(),
         projection_order_cache: AgentOrderCache::default(),
+        sidebar_frame_cache: Default::default(),
         sidebar_status: crate::sidebar_status::SidebarStatus::default(),
         agent_section_scroll: 0,
         done_tab_ack_sent: None,
