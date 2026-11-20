@@ -11,6 +11,16 @@ made). A frame's number is a row's time over the display's frame time. With no a
 median step of the recording's rows, and the recorder gives its rows at its own pace in the still part of a
 recording: a frame with no row directly before the page is then not seen. So each row of a run with no asked rate
 is INVALID (`display`; new_surface_frames.py `NO_RATE`), and its line says `not known` for the frames with no row.
+Only a finite number above 0 is an asked rate (`asked_rate`): a given `--display-hz` that is none (0, a number below
+0, `inf`, `nan`) stops the run at its arguments (`given_rate`). An asked rate that is lower than the display's has
+the same fault, and the rows can prove it when the rate is more than about 15 % too low and enough rows come one
+after the other at the display's own rate: a row whose rows do not agree
+with the asked rate, or do not judge it, is INVALID (`display` too; `rate_fault`), and the line of a row has the
+judged number (`rate_share`) when its recording has 9 rows or more and a frame after the key. With an asked rate
+the head says the limit of this check in one
+sentence (`rate_limit_sentence`), and, when a valid row's number is near the limit, that too
+(`rate_margin_sentence`). The rows cannot prove that the asked rate is right: the true rate is the display's own,
+which the entry makes.
 
 The session: `--workspaces N` makes the session that many workspaces with the repository's one session maker
 (scripts/perf-bench/session_real.py make, as scripts/measure/pane-motion-films.py does): each added workspace
@@ -210,6 +220,18 @@ def close_cases(text):
     return ",".join(kinds)
 
 
+def given_rate(text):
+    """`--display-hz`: a finite number above 0 (argparse's type). A given value that is none stops the run at its
+    arguments, before a launch and before a case; only a run with no `--display-hz` goes on with no asked rate."""
+    try:
+        rate = frames_of.asked_rate(float(text))
+    except ValueError:
+        rate = None
+    if rate is None:
+        raise argparse.ArgumentTypeError(f"{text}: --display-hz takes a finite number above 0 (with no --display-hz the run goes on and each row is INVALID)")
+    return rate
+
+
 def close_plan(kind, opts):
     """The New Tab key-downs of one Close Tab recording: how long before the Close Tab key's time each one goes
     in, in ms, the first one first. `idle` has none, `key` has one, `downs` and `hold` have `--hold-keys` at a held
@@ -276,8 +298,9 @@ def add_arguments(parser):
     parser.add_argument("--keep-keys", type=int, default=2, help="--screen: recordings of each case whose pictures are kept in any case")
     parser.add_argument("--screen-tgz", help="--screen: write the report and the kept pictures here")
     parser.add_argument("--display", default="", help="--screen: the display's own line, for the report (the entry's virtual display)")
-    parser.add_argument("--display-hz", type=float, default=0,
-                        help="--screen: the display's refresh rate (the entry gives it for the display that it made); with none each row is INVALID")
+    parser.add_argument("--display-hz", type=given_rate, default=None,
+                        help="--screen: the display's refresh rate, a finite number above 0 (the entry gives it for the display that it made); "
+                             "with none each row is INVALID")
     parser.add_argument("--build", help="--screen: the build's form (scripts/measure/build-flags.py's file), for the report")
     parser.add_argument("--page-engine", default="cef", choices=bench_page_engine.WANTED,
                         help="--screen: the engine that the new page must run in for a row to be a number (any: each row only says it)")
@@ -336,11 +359,12 @@ def fresh_session(tag, app=None):
 def holes(row):
     """The end of a row's printed line: the frames with no row from the key to its first frame, how early that
     frame can be, the second key's own first frame of a recording of two keys, and the app's opening records.
-    An INVALID row's line so still says how wrong its first frame can be. A row of a run with no asked display rate
-    says `not known` for each of these counts: its frame time is the rows' own step, which does not see such a frame."""
+    An INVALID row's line so still says how wrong its first frame can be. A row with a `display` reason (no asked
+    display rate, or an asked rate that the rows do not prove) says `not known` for each of these counts, and why:
+    its frame time does not see such a frame."""
     span, second, records = row.get("first_frame_span"), row.get("second_first"), row.get("opening_records")
-    blind = frames_of.NO_RATE in (row.get("invalid") or [])
-    said = "" if not span else " no_row_to_content_first=not known early_ms_at_most=not known (no asked display rate)" if blind else (
+    blind = frames_of.rate_not_known(row.get("invalid"))
+    said = "" if not span else f" no_row_to_content_first=not known early_ms_at_most=not known ({blind})" if blind else (
         f" no_row_to_content_first={span['no_row']}/{span['frames']} longest_gap_ms={span['longest_gap_ms']:g} "
         f"early_ms_at_most={span['early_ms_at_most']:g}"
         + (f" partial state: not seen in {span['no_row']} frames" if span["no_row"] else ""))
@@ -356,18 +380,26 @@ def holes(row):
 
 
 def close_said(row):
-    """The end of a Close Tab row's printed line: which tab closed, which tab shows, and the close's frames."""
+    """The end of a Close Tab row's printed line: which tab closed, which tab shows, and the close's frames. A row
+    with a `display` reason says `not known` for the order, and why: the order is a count of frames, and the row's
+    frame time does not see a frame with no row (the row's `close_tab.order` in the JSON stays as the reader made it)."""
     fact = row.get("close_tab")
     if not fact:
         return ""
+    blind = frames_of.rate_not_known(row.get("invalid"))
+    order = f"not known ({blind})" if blind else fact["order"]
 
     def at(name):
         return json.dumps(fact.get(name) and [fact[name]["frame"], fact[name]["ms"]])
     keys = "" if not fact["new_tab_keys"] else (f" new_tab_marks_before_ms={json.dumps(fact['new_tab_marks_before_ms'])} "
                                                 f"new_tab_keys_sent_ms={json.dumps(fact.get('new_tab_keys_sent_ms'))}")
+    # Frames with no row directly before the strip's first change: `strip_first` is then the latest frame of it.
+    earlier = fact.get("strip_first_can_be_frames_earlier")
     return (f" closed={fact.get('closed_is')!r} shows={(fact.get('shown_after') or {}).get('is')!r} content_gone={at('content_gone')} "
-            f"shown={at('content_shown')} strip_first={at('strip_first')} between={fact.get('content_between_frames')} "
-            f"blank={fact.get('blank_frames')}{keys} order={fact['order']!r}")
+            f"shown={at('content_shown')} strip_first={at('strip_first')}"
+            + (f" strip_first_can_be_frames_earlier={earlier}" if earlier else "")
+            + f" between={fact.get('content_between_frames')} "
+            f"blank={fact.get('blank_frames')}{keys} order={order!r}")
 
 
 def beside(work):
@@ -392,7 +424,8 @@ class Screen:
         # `launched`: the launch's environment and the bundle's CLI (new_surface_look.py `cli_try`), None with no launch.
         self.launch_fault, self.launch, self.launched = None, None, None
         # A run with no asked display rate: this reason is in each row that has a recording (the module doc).
-        self.display_fault = None if opts.display_hz and opts.display_hz > 0 else frames_of.NO_RATE
+        self.rate = frames_of.asked_rate(opts.display_hz)
+        self.display_fault = None if self.rate else frames_of.NO_RATE
         # `made`: the workspaces that the session's maker made. `size`, `tag`: with `--key-tabs`, the count in work
         # (asked and had) and its part of a row's label. `activation`, `key_workspace`: the report's facts of both.
         self.made, self.size, self.tag, self.activation, self.key_workspace = [], None, "", None, None
@@ -491,7 +524,7 @@ class Screen:
             self.close(min(keys_sent, max(0, self.count(key) - before_count)), own_tabs)
             return row
         records = self.opened()
-        row.update(frames_of.one_key(reply, key, gap, opts.tolerance, opts.display_hz or None))
+        row.update(frames_of.one_key(reply, key, gap, opts.tolerance, self.rate))
         row["label"] = label
         opened = frames_of.opened_since(before_opened, records)
         faults, starts = frames_of.input_proof(key, keys_sent, opened, self.count(key) - before_count, reply.get("spans"))
@@ -732,7 +765,7 @@ class Screen:
             self.close_own(own_tabs, mine)
             return row
         after, records = self.pane(), self.opened()
-        row.update(frames_of.one_key(reply, "w", 0, opts.tolerance, opts.display_hz or None))
+        row.update(frames_of.one_key(reply, "w", 0, opts.tolerance, self.rate))
         row.update({"label": label, "case": kind})
         fact, faults = frames_of.close_of(row, reply.get("spans"), before, after, len(plan))
         fact.update({"case": kind, "new_tab_keys_plan_ms": [-offset for offset in plan], "new_tab_keys_sent_ms": sent})
@@ -861,7 +894,7 @@ class Screen:
         opts = self.opts
         report = {"head": [], "mode": "screen", "keys": opts.keys.split(","), "gaps_ms": [float(g) for g in opts.gaps.split(",") if g],
                   "runs": opts.runs, "duration_ms": opts.duration_ms, "scale": opts.scale, "tolerance": opts.tolerance,
-                  "display": opts.display or "as the host has it", "display_hz_asked": opts.display_hz or None, "build": None,
+                  "display": opts.display or "as the host has it", "display_hz_asked": self.rate, "build": None,
                   "key_path": "debug.key's sender: the app's own key path, not the keyboard's driver",
                   "numbers": "new_surface_frames.py", "rows": self.rows, "cases": {}}
         # The run's first lines: what the app itself says of its settings and its window (new_surface_look.py).
@@ -915,7 +948,7 @@ class Screen:
                 print(f"{MARK}-ROW {row['label']}: {'INVALID ' + '; '.join(row['invalid']) if row['invalid'] else 'valid'} "
                       f"{json.dumps(said)} first_is_final={row.get('first_is_final')} whole_window={row.get('whole_window')} "
                       f"changes_after_content={row.get('changes_after_content')} "
-                      f"refresh_ms={row.get('refresh_ms')} capture={row.get('capture')}{holes(row)}{tabs} "
+                      f"refresh_ms={row.get('refresh_ms')} rate_share={row.get('rate_share')} capture={row.get('capture')}{holes(row)}{tabs} "
                       f"app_active={row.get('app_active')} shell_window_is_key={row.get('shell_window_is_key')}", flush=True)
                 if row.get("call_went_on"):
                     break
@@ -942,8 +975,10 @@ class Screen:
             if report.get("stopped"):
                 print(f"{MARK} STOPPED {report['stopped']}", flush=True)
                 break
-        # The head's first sentences keep their places; then the recorder's lost rows, then the app's settings lines.
-        report["head"] = self.head() + [frames_of.recorder_sentence(report["cases"])] + settings["lines"]
+        # The head's first sentences keep their places; then the recorder's lost rows, with an asked rate the limit of
+        # its check (and the asked rate's margin when a valid row's is small), then the app's settings lines.
+        rate = [said for said in (frames_of.rate_limit_sentence(self.rate), frames_of.rate_margin_sentence(self.rows)) if said]
+        report["head"] = self.head() + [frames_of.recorder_sentence(report["cases"])] + rate + settings["lines"]
         print(f"{MARK}-HEAD {'; '.join(report['head'])}", flush=True)
         # A stopped run is not a whole run: the driver ends with this code (0: each case ran).
         report["exit_code"] = STOPPED_EXIT if report.get("stopped") else 0
