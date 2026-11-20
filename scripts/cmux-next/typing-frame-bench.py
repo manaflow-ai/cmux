@@ -480,7 +480,13 @@ def open_agent_chat():
         made = rpc("debug.agent_pane", {"action": "new_chat", "pane": pane, "harness": "fake", "cwd": WORK}, timeout=90)
         attached = wait(lambda: (lambda state: state if state.get("connection") == "attached" and state.get("sessionId") else None)(
             rpc("debug.agent_pane", {"action": "chat_state", "pane": pane}, timeout=10) or {}), 40, step=0.5)
-        note(f"chat {pane}: new_chat {json.dumps(made)[:160]} attached={bool(attached)}")
+        # The chat's state when it never attached (connection, error, pending ask): the report says why its stream
+        # could not run, and stream_load_missing names it beside the number.
+        last = None if attached else rpc("debug.agent_pane", {"action": "chat_state", "pane": pane}, timeout=10) or {}
+        LOAD.setdefault("attach", {})[pane] = {"attached": bool(attached), "new_chat": made,
+                                               "state": None if attached else json.dumps(last)[:400]}
+        note(f"chat {pane}: new_chat {json.dumps(made)[:160]} attached={bool(attached)}"
+             + ("" if attached else f" state {json.dumps(last)[:240]}"))
     elif pane:
         rpc("debug.agent_pane", {"action": "select_session", "pane": pane, "session": "mock-session"}, timeout=30)
     if pane:
@@ -1068,16 +1074,29 @@ def seed_transcript(pane, rows):
     return LOAD["seed"]
 
 
+def stream_load_missing(panes, attach=None):
+    """With the real agent, a chat that never attached has no session to prompt, so its stream never ran: the load
+    is not the mode's. A line naming how many of the streaming chats that is, or None when every one attached (or
+    the mock agent streams, which needs no session)."""
+    if opts.chat_agent != "real" or not panes:
+        return None
+    attach = LOAD.get("attach", {}) if attach is None else attach
+    dead = [p for p in panes if not (attach.get(p) or {}).get("attached")]
+    if not dead:
+        return None
+    return f"{len(dead)} of {len(panes)} streaming chats never attached to the agent, so their streams never ran"
+
+
 def surface_agentpane(phase, pid):
     pane = ensure_agentpane()
     seed = seed_transcript(pane, ((MODE or {}).get("native") or {}).get("rows") or 0)
-    streams = []
+    streams, source = [], []
     if phase == "load":
         make_load(None)
         mode_id = (MODE or {}).get("id")
         # L1/L3 type into the focused chat while it streams; L2 adds the ten background chats;
         # L5 combines both. The legacy --phases path preserves its existing mock-chat load.
-        source = []
+        source.clear()
         if mode_id in ("L1", "L3", "L5"):
             source.append(pane)
         if mode_id in ("L2", "L5"):
@@ -1088,6 +1107,10 @@ def surface_agentpane(phase, pid):
         if stream:
             streams.append(stream)
     entry = measure_agentpane(phase, pid, pane, streams)
+    missing = stream_load_missing(source)
+    if missing:
+        entry["mode_missing"] = [*(entry.get("mode_missing") or []), missing]
+        entry["attach"] = {p: LOAD.get("attach", {}).get(p) for p in source}
     if seed is not None:
         entry["transcript_seed"] = seed
         if seed["rows"] < seed["requested"]:
