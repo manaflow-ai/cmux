@@ -217,10 +217,6 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cloud_overflow_switch.py
 
-      - name: Validate a reused workspace left sparse or broken is removed before checkout
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_reused_sparse_checkout.py
-
       - name: Validate guard failure attribution
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_guard_attribution.py

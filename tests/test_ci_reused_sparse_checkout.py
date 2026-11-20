@@ -23,13 +23,21 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import importlib.util as _git_fixture_importlib
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location("git_fixture_env", ROOT / "tests" / "git_fixture_env.py")
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 STEP_NAME = "Remove a reused workspace left sparse or broken (self-hosted Linux)"
 WORKFLOWS = (
     ROOT / ".github/workflows/rust-workspaces.yml",
     ROOT / ".github/workflows/cmux-next-guards.yml",
+    # cloud-vm-image-roll.yml's bake job calls this one: rolls 44741017720, 44748040694 and 44750854346 failed on
+    # "not uptodate; will not remove" and then "Module not found ../images/cmux-vm/pin-cmux-tui.ts" (2026-11-20).
+    ROOT / ".github/workflows/cloud-vm-image-bake.yml",
+    ROOT / ".github/workflows/cloud-vm-image-roll.yml",
 )
 CHECKOUT = re.compile(r"^actions/checkout@")
 POOL = re.compile(r"RUNNER_POOLS|LINUX_RUNNER|linux_runner|mini_runner")
@@ -49,8 +57,8 @@ def step_script() -> str:
 
 
 def git(cwd: Path, *args: str) -> str:
-    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
-           "GIT_COMMITTER_EMAIL": "t@t", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+    env = git_fixture_env.fixture_env({**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                                       "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"})
     return subprocess.run(["git", *args], cwd=cwd, env=env, check=True, capture_output=True, text=True).stdout
 
 
@@ -59,7 +67,7 @@ class Fixture:
         self.tmp = Path(tempfile.mkdtemp(prefix="reused-sparse-"))
         self.ws = self.tmp / "work" / "cmux" / "cmux"
         self.ws.mkdir(parents=True)
-        git(self.ws, "init", "-q", "-b", "main")
+        git_fixture_env.init_repo(self.ws, "-b", "main", env=git_fixture_env.fixture_env())
         for rel in ("a/x", "b/y", ".github/rust-workspaces.toml"):
             (self.ws / rel).parent.mkdir(parents=True, exist_ok=True)
             (self.ws / rel).write_text(rel + "\n")
@@ -67,8 +75,8 @@ class Fixture:
         git(self.ws, "commit", "-qm", "A")
 
     def run_step(self, environment: str = "self-hosted") -> subprocess.CompletedProcess:
-        env = {"PATH": os.environ["PATH"], "HOME": str(self.tmp), "GITHUB_WORKSPACE": str(self.ws),
-               "RUNNER_ENVIRONMENT": environment, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+        env = git_fixture_env.fixture_env({**os.environ, "HOME": str(self.tmp), "GITHUB_WORKSPACE": str(self.ws),
+                                           "RUNNER_ENVIRONMENT": environment})
         return subprocess.run(["bash", "-e", "-c", step_script()], env=env, capture_output=True, text=True)
 
     def entries(self) -> list[str]:

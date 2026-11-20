@@ -231,7 +231,7 @@ import { markOneRowChange } from "./rowChanges";
 import { noteKeptPrefix } from "./conversation/prefixFlatMap";
 import { RowUpdates } from "./rowUpdates";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
-import { permissionModes, reportsModes, reportsNoModes } from "./permissionModes";
+import { liveModes, permissionModes, reportsModes, reportsNoModes } from "./permissionModes";
 import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
 import { STALL_CHECK_MS, type StallCause, quietDelay, stallLine, stallTiming } from "./stallLog";
 import { hostTurn, hostTurnState } from "./hostTurnState";
@@ -11287,7 +11287,7 @@ export class AcpmuxDirectClient {
           ...stuckAttention(summary),
           enforcement: sessionEnforcement(summary.enforcement),
           // Modes that only copy a non-mode config option (Pi's thinking levels) are none (permissionModes.ts).
-          modes: permissionModes(summary.modes, summary.configOptions),
+          modes: permissionModes(liveModes(summary.modes, summary.currentModeId), summary.configOptions),
           configOptions: summary.configOptions,
           tools: chatTools(summary.tools),
           toolsMutable: summary.toolsMutable === true,

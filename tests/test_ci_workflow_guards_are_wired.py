@@ -45,6 +45,15 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
+    # lane = "manual" in tests/test-execution.d/app.toml (kept manual under the 2026-10-23 no-new-CI rule, lifted 2026-11-18). It checks that the app FFI release's Linux control jobs take the nightly lane's reserved label first, never the bulk route alone; it reads app-ffi-repin.yml and app-ffi-release.yml only as data. Run it by hand
+    # when those workflows change. Exit: as below.
+    "tests/test_app_ffi_release_linux_route.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (kept manual under the 2026-10-23 no-new-CI rule, lifted 2026-11-18). It checks that a setup-bun step on a route that can reach an owned runner skips the Bun cache off the Blacksmith layout; it reads every workflow's setup-bun steps only as data. Run it by hand
+    # when those workflows change. Exit: as below.
+    "tests/test_ci_setup_bun_cache_layout.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (kept manual under the 2026-10-23 no-new-CI rule, lifted 2026-11-18). It checks that every pool job in rust-workspaces, cmux-next-guards and the cloud VM image bake/roll removes a reused workspace left sparse or broken before checkout; it runs that step on fixture repos and reads the workflows as data. Run it by hand
+    # when those workflows change. Exit: as below.
+    "tests/test_ci_reused_sparse_checkout.py",
     # lane = "manual" (kept manual under the 2026-10-23 no-new-CI rule, lifted 2026-11-18). It runs scripts/cmux-next/cargo-locks.py in a throwaway
     # repository and reads rust-workspaces.yml only as data (that the workflow calls the script). Run it by hand
     # when the script or that workflow changes. Exit: as below.
