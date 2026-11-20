@@ -34,10 +34,11 @@ lenses its own copy of it.
 
 ### Host (Swift)
 
-- **Mode.** The Debug Settings choice `glass.lens` (Glass and Overlays > Liquid
-  Glass) is one of `plain` (the default), `lens` or `spectrum`, and lives in the
-  build's debug-tunables.json, outside the settings schema. Release never activates
-  Debug Settings, so it draws `plain`. The effective mode is `plain` under Reduce
+- **Mode.** The setting `appearance.glass.composer.material` (palette, `cmux settings`,
+  MCP, theme files; Toggle Liquid Glass Lens flips it) picks `plain` (the default),
+  `lens` or `spectrum`; any other material draws `plain` on the web. It was the Debug
+  Settings choice `glass.lens` until 2026-11-20: a Debug file that still chose lens or
+  spectrum moves into the setting once (`DebugSettingsService+GlassLens.swift`). The effective mode is `plain` under Reduce
   Transparency or Low Power Mode. `WebTheme` sends the effective mode, and the
   bootstrap sets it as `data-glass` on `<html>`. The theme is pushed again whenever
   the choice, Reduce Transparency or Low Power Mode changes.

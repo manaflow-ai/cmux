@@ -49,7 +49,6 @@
   "focus.flashOnMove": {"case": "keep", "why": "Off until Leo judges the focus-ring flash live (code comment); the feature is not yet accepted."},
   "focus.inactiveTabStyle": {"case": "keep", "why": "A look comparison for unfocused pane tabs, also set from cmux.json; the default is the shipped look."},
   "focus.indicator": {"case": "keep", "why": "A look choice for what marks the focused pane, and it overrides cmux.json; the default is the chosen one."},
-  "glass.lens": {"case": "keep", "why": "A look comparison for window glass; plain is the default and the Toggle Liquid Glass Lens action uses this choice."},
   "history.menuLayout": {"case": "keep", "why": "A look comparison for the Back and Forward menu; the default scope-then-window is the shipped layout."},
   "home.chatHeader": {"case": "keep", "why": "Leo turned the header off on 10-21 and Lawrence turned it back on 10-23; both looks were wanted, so the choice stays until settled."},
   "home.chiefViewGallery": {"case": "keep", "why": "Dev and nightly only: offers experimental Chief views for trying out, not a shipped feature."},

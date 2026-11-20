@@ -85,7 +85,8 @@ public nonisolated enum TunableFile {
 
     /// Reads `url`. Blocking file IO: call it off the main actor only.
     package static func readRaw(_ url: URL) -> [String: Any] {
-        // concurrency-allow: called from TunableStore.activate's detached task, never on the main actor
+        // concurrency-allow: called from TunableStore.activate's detached task and from the detached task of
+        // SettingsController.moveRetiredGlassLens (GlassLensMode.retiredChoice), never on the main actor
         guard let data = try? Data(contentsOf: url) else { return [:] }
         return decode(data)
     }
