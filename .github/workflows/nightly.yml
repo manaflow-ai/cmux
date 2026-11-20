@@ -6889,6 +6889,7 @@ jobs:
             scripts/ci/gh_budget_wait.sh
             scripts/ci/publish-nightly-next-r2.py
             scripts/ci/nightly_next_delta_check.py
+            scripts/ci/deadline_http.py
             scripts/ci/upload-r2-object.py
             scripts/ci/gh_app_token.sh
             scripts/ci/nightly_next_dev_ring.sh
