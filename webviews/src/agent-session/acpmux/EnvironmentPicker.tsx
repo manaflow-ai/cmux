@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useLocationShortcut } from "./composerControls";
 import { MacBookGlyph } from "./MacBookGlyph";
 import { Combobox } from "../../ui/Combobox";
 import { ContextMenu } from "../../ui/ContextMenu";
@@ -243,6 +244,7 @@ export function EnvironmentPicker({
     if (!next) reset();
   });
   useLocationOpener(menu, () => setOpen(true));
+  const shortcut = useLocationShortcut(menu);
   useEffect(() => {
     if (!closeOnTrustAsk || !open) return;
     setPopoverOpen(false);
@@ -938,6 +940,7 @@ export function EnvironmentPicker({
       data-rows={listRows}
       data-machine-card={card ? "" : undefined}
       title={label + ": " + value}
+      data-tooltip-shortcut={shortcut}
     >
       {moreActions.length > 0 ? (
         <ContextMenu items={moreActions} className="acpmux-env-more" targets="own">
