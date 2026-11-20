@@ -13,6 +13,16 @@ const paths: Record<string, ReactNode> = {
   paintbrush: (
     <path d="M13.5 2.5 7 9l-1.8-.2L5 7l6.5-6.5M5 9.2c-1.6 0-2.6 1-2.6 2.6 0 .9-.4 1.6-1 1.9 2.8.7 5.2-.3 5.2-2.9" />
   ),
+  "circle.lefthalf.filled": (
+    <>
+      <circle cx="8" cy="8" r="6" strokeWidth="1.7" />
+      <path
+        fill="currentColor"
+        stroke="none"
+        d="M8 2a6 6 0 0 0 0 12v-3.7a2.3 2.3 0 0 1 0-4.6ZM8 5.7a2.3 2.3 0 0 1 0 4.6Z"
+      />
+    </>
+  ),
   terminal: (
     <>
       <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2" />

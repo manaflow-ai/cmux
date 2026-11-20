@@ -27,9 +27,14 @@ const hostSymbols = () => globalThis.location?.protocol === "cmux-page:";
 /** The host's bold drawing of a symbol (`symbol-bold/<name>`, MenuSymbolImages; Lucas 2026-11-11). */
 const symbolHref = (name: string) => `symbol-bold/${encodeURIComponent(encodeURIComponent(name))}`;
 
-/** Symbols whose page drawing reads better than the SF Symbol (Lucas 2026-11-11: he picked these
- * four from feat-cmux-next's sidebar); every other category keeps the host's bold symbol. */
-const PAGE_DRAWN: ReadonlySet<string> = new Set(["terminal", "bell", "keyboard", "contextualmenu.and.cursorarrow"]);
+/** Sidebar symbols with a custom drawing in the page. */
+const PAGE_DRAWN: ReadonlySet<string> = new Set([
+  "terminal",
+  "bell",
+  "keyboard",
+  "contextualmenu.and.cursorarrow",
+  "circle.lefthalf.filled",
+]);
 
 /** The host-drawn icons loaded so far, kept so the browser keeps them decoded for the rows' masks. */
 const loadedSymbols: HTMLImageElement[] = [];

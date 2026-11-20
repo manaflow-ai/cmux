@@ -566,10 +566,10 @@ Object.assign(variants, {
     ],
     note: "Change Background…: the art picker and its Opacity slider on Appearance, with a public-safe sample thumbnail.",
   }),
-  // Personalization opens its Theme panel by default and lists its panels in the sidebar.
+  // Appearance opens its Theme panel by default and lists its panels in the sidebar.
   "personalization-sidebar": variant("general", {
     steps: [click('[data-section-link="personalization"]'), wait('[data-part-link="theme"][aria-current="page"]')],
-    note: "Open Personalization from General to expand the five sidebar links and show Theme.",
+    note: "Open Appearance from General to show Theme and its sidebar links.",
   }),
   "personalization-background": variant("personalization", {
     focus: "personalization.background",

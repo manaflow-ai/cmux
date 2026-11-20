@@ -102,9 +102,9 @@
       "categories": [
         {
           "id": "personalization",
-          "title": {"key": "settings.category.personalization", "text": "Personalization"},
-          "symbol": "wand.and.stars",
-          "note": "Leo 2026-11-07: the profile menu's Personalization is a fast jump into the look of the app. Its one card draws rows whose homes stay in Theme, Appearance, Chief and Notifications, so it holds no group and claims no key. The one home of the theme (the Theme page's card moved here; old theme links open this page), the wallpaper, density, the Chief's look, chat text and sounds: no other page draws them.",
+          "title": {"key": "settings.category.personalization", "text": "Appearance"},
+          "symbol": "circle.lefthalf.filled",
+          "note": "Appearance shows the theme (including old Theme links), wallpaper, density, the Chief's look, chat text and sounds.",
           "lead": ["personalization"],
           "trail": ["customizeLibrary"],
           "groups": [
@@ -114,9 +114,9 @@
         },
         {
           "id": "appearance",
-          "title": {"section": "appearance"},
-          "symbol": "paintbrush",
-          "note": "Change Background… lands here: the art picker draws appearance.background and appearance.backgroundOpacity (search still shows them as rows). The density card draws appearance.density, .customDensity and .customDensities.",
+          "title": {"key": "settings.category.interface", "text": "Interface"},
+          "symbol": "macwindow",
+          "note": "Interface holds window sizing, motion, status indicators and surface controls.",
           "groups": [
             {"group": "settings.group.densityMotion"},
             {"title": {"key": "settings.pageGroup.sizes", "text": "Sizes"}, "note": "Text Size (appearance.metrics.chromeFontSize) is in the Density card.", "keys": [
@@ -226,6 +226,29 @@
       "title": {"key": "settings.sidebarSection.tools", "text": "Tools"},
       "categories": [
         {
+          "id": "browser",
+          "title": {"section": "browser"},
+          "symbol": "globe",
+          "groups": [
+            {"group": "settings.group.engine"},
+            {"group": "settings.group.addressBar"},
+            {"group": "settings.group.toolbar"},
+            {"group": "settings.group.media"},
+            {"group": "settings.group.bookmarks"},
+            {"group": "settings.group.agentInput"},
+            {"group": "settings.group.extensions"},
+            {"group": "settings.group.links"},
+            {"group": "settings.group.openingLinks"},
+            {"group": "settings.group.passwords"},
+            {"group": "settings.group.import"},
+            {"group": "settings.group.memory"},
+            {"group": "settings.group.remote"}
+          ],
+          "trail": ["browserProfiles"],
+          "actions": ["browser"],
+          "aliases": ["browser"]
+        },
+        {
           "id": "terminal",
           "title": {"section": "terminal"},
           "symbol": "terminal",
@@ -264,29 +287,6 @@
           ],
           "actions": ["editor"],
           "aliases": ["editor"]
-        },
-        {
-          "id": "browser",
-          "title": {"section": "browser"},
-          "symbol": "globe",
-          "groups": [
-            {"group": "settings.group.engine"},
-            {"group": "settings.group.addressBar"},
-            {"group": "settings.group.toolbar"},
-            {"group": "settings.group.media"},
-            {"group": "settings.group.bookmarks"},
-            {"group": "settings.group.agentInput"},
-            {"group": "settings.group.extensions"},
-            {"group": "settings.group.links"},
-            {"group": "settings.group.openingLinks"},
-            {"group": "settings.group.passwords"},
-            {"group": "settings.group.import"},
-            {"group": "settings.group.memory"},
-            {"group": "settings.group.remote"}
-          ],
-          "trail": ["browserProfiles"],
-          "actions": ["browser"],
-          "aliases": ["browser"]
         }
       ]
     },
