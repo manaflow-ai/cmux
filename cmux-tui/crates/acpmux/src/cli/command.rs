@@ -383,15 +383,27 @@ pub enum Command {
         /// (stdin stays the prompt), for one that prints only to a terminal.
         #[arg(long)]
         tty: bool,
+        /// The program only prints a reply and changes nothing (a test or
+        /// echo program): say so at `initialize` (`asksBeforeTools`), so the
+        /// agent runs under a permission policy such as a remote start's
+        /// `ask`. acpmux believes it only from a harness entry of its own
+        /// config. Never for a program that edits files or runs commands.
+        #[arg(long)]
+        prints_only: bool,
         /// The program and its arguments, after `--`.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
         command: Vec<String>,
     },
     /// Be an ACP agent backed by a UniiChat server (uniichat.com or your own
     /// `unii serve`), over UniiChat's own protocol: streaming, stop, images.
-    /// Signs in with the token `unii login` keeps. In a profile:
-    /// `args = ["uniichat-agent"]`.
+    /// Signs in with the token `unii login` keeps; `uniichat-agent login`
+    /// makes that sign-in itself, so no `unii` program is needed. In a
+    /// profile: `args = ["uniichat-agent"]`.
     UniichatAgent {
+        /// `login`: sign in to the server (an email or @github, a link, a
+        /// code) and keep the token where the adapter reads it.
+        #[arg(value_parser = ["login"])]
+        action: Option<String>,
         /// The server; default `$UNII_URL`, else https://uniichat.com.
         #[arg(long)]
         url: Option<String>,
