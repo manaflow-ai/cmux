@@ -22,7 +22,10 @@ on:
   # Only PRs into main and feat-cmux-next: the tooling comes from the PR base branch, so a PR
   # into any other branch (whose tooling its author controls) must never run here.
   pull_request_target:
-    # edited: a base-branch change (for example main -> feat-cmux-next) re-runs the gate.
+    # edited: a base-branch change (for example main -> feat-cmux-next) re-runs the gate. A title
+    # or body edit into feat-cmux-next takes no runner: every job skips it (pattern
+    # pr-edit-fans-out-ci, checked by tests/test_ci_pr_runs_cancel_superseded.py). main's copy
+    # still gates every edit: its ruleset requires `backend migrations applied` (#13871).
     types: [opened, synchronize, reopened, labeled, edited]
     branches: [main, feat-cmux-next]
   merge_group:
@@ -32,11 +35,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: backend-migrations-${{ github.event.pull_request.number || github.event.merge_group.head_sha }}
+  # A title or body edit gets its own group so it never replaces a push's pending run.
+  group: backend-migrations-${{ github.event.pull_request.number || github.event.merge_group.head_sha }}${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && '-metadata' || '' }}
   cancel-in-progress: false
 
 jobs:
   plan:
+    if: ${{ !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; CI_TRUSTED_RUNNER picks the Blacksmith size
     # Recent runs: 20s median, 51s max (GitHub API reads and a SQL lint).
     timeout-minutes: 10
@@ -242,9 +247,11 @@ jobs:
           bun migrate.ts --env production --dir "$RUNNER_TEMP/head-migrations" --verify
 
   gate:
-    name: backend migrations applied
+    # A skipped job reads as success for a required check, so a title or body edit's skipped
+    # run publishes another name and never answers for `backend migrations applied`.
+    name: ${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && 'backend migrations metadata edit (ignored)' || 'backend migrations applied' }}
     needs: [plan, apply-production]
-    if: always()
+    if: ${{ always() && !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base) }}
     # merge_group runs this file from the queue commit (PR content), so it never gets an
     # environment or secrets (the environments allow only main and feat-cmux-next); the queue
     # only admits PRs whose pull_request_target gate passed. Fork PRs never get secrets here.
