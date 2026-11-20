@@ -127,9 +127,9 @@ final class AppOnboardingServices: OnboardingServices {
     private lazy var computerUseSource: any ComputerUsePermissionSource = {
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_NEXT_ONBOARDING_COMPUTER_USE"] == "mock" {
-            // This build's cmux Remote, so the window and panel show its icon and name when it is embedded.
+            // Use the embedded grant holder's icon and name in the window and panel.
             let remote = ComputerUseRemoteBundle.embedded()?.appURL
-            return MockComputerUsePermissionSource(helperAppURL: remote ?? URL(fileURLWithPath: "/Applications/cmux.app/Contents/Library/cmux Remote.app"))
+            return MockComputerUsePermissionSource(helperAppURL: remote ?? URL(fileURLWithPath: "/Applications/cmux.app/Contents/Library/cmux Computer Use.app"))
         }
         #endif
         return AppComputerUsePermissionSource(setup: services.onboarding.computerUseSetup)

@@ -2,9 +2,8 @@
 public import Foundation
 import CmuxNextCompat
 
-/// cmux Remote as this app embeds it (docs/cmux-remote.md): the signed host whose Computer Use
-/// worker runs the cmux Computer Use engine. The cmux-tui daemon copies it out of the app and
-/// starts it; the app only needs to know whether this build has one, and where.
+/// The signed cmux Computer Use bundle embedded in this app. The daemon stages and starts its
+/// supervisor. The app uses the bundle's location for onboarding and permission settings.
 public nonisolated struct ComputerUseRemoteBundle: Sendable, Equatable {
     /// The `cmux-remote` executable.
     public var executable: URL
@@ -18,9 +17,9 @@ public nonisolated struct ComputerUseRemoteBundle: Sendable, Equatable {
         executable.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     }
 
-    /// cmux Remote's executable in this app's bundle (`Contents/Library`), or nil.
+    /// The supervisor executable in the embedded cmux Computer Use bundle.
     public static func embedded(bundle: Bundle = .main) -> ComputerUseRemoteBundle? {
-        for name in ["cmux Remote.app", "cmux Remote (dev).app"] {
+        for name in ["cmux Computer Use.app", "cmux Computer Use (dev).app"] {
             let url = bundle.bundleURL.appending(path: "Contents/Library/\(name)/Contents/MacOS/cmux-remote")
             if FileManager.checked.isExecutableFile(atPath: url.path) { return ComputerUseRemoteBundle(executable: url) }
         }
