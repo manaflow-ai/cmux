@@ -7,8 +7,9 @@
 use crate::cli::output::print_json;
 use crate::client::Client;
 use crate::rpc::method;
-use anyhow::Result;
+use anyhow::{Context, Result, anyhow, bail};
 use clap::Args;
+use futures::StreamExt;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -35,60 +36,99 @@ pub async fn run(client: Arc<Client>, args: SearchArgs, json_out: bool) -> Resul
         .map(crate::cli::run::ls::parse_duration_ms)
         .transpose()?
         .map(|ago| crate::store::now_ms().saturating_sub(ago));
-    let limit = args.limit.clamp(1, 200);
+    let limit = args.limit.clamp(1, crate::session_search::MAX_LIMIT);
     let query = args.text.join(" ");
-    let listed = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
-    let rows = listed.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
-    let session_count = rows.len();
-    let role = args.role.clone();
+    let params = json!({"query": query, "role": args.role, "sinceMs": since_ms, "limit": limit,
+        "withTurnTime": true});
+    crate::session_search::Query::from_params(&params).map_err(|why| anyhow!(why))?;
+    let mut listed = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
+    let rows = listed
+        .get_mut("sessions")
+        .and_then(Value::as_array_mut)
+        .context("the daemon's session list has no sessions array")?;
+    crate::cli::send_relay::merge_rows(rows, crate::cli::send_relay::relay_rows(false).await);
+    let own_host = crate::pairing::machine_name();
+    let targets: Vec<_> = rows
+        .iter()
+        .filter_map(|row| {
+            let id = row.get("sessionId")?.as_str().filter(|id| !id.is_empty())?;
+            let peer = row.get("peer").and_then(Value::as_str).filter(|p| !p.is_empty());
+            let key = row
+                .get("qualifiedSessionId")
+                .and_then(Value::as_str)
+                .filter(|k| !k.is_empty())
+                .map(str::to_owned)
+                .unwrap_or_else(|| match peer {
+                    Some(host) => format!("{host}/{id}"),
+                    None => id.to_owned(),
+                });
+            Some((key, peer.unwrap_or(&own_host).to_owned()))
+        })
+        .collect();
+    let session_count = targets.len();
+    // Match the concurrency budget of the ls --with-tools peer reads.
+    let mut reads = futures::stream::iter(targets.into_iter().map(|(session, host)| {
+        let client = &client;
+        let mut params = params.clone();
+        params["sessionId"] = json!(session);
+        async move {
+            let reply = client.request(method::MUX_SESSION_SEARCH, params).await;
+            (session, host, reply)
+        }
+    }))
+    .buffer_unordered(8);
     let mut hits = Vec::new();
     let mut unreached = Vec::new();
-    for row in rows {
-        let id = row.get("sessionId").and_then(Value::as_str).unwrap_or_default();
-        if id.is_empty() {
-            continue;
-        }
-        let host = row
-            .get("peer")
-            .and_then(Value::as_str)
-            .filter(|host| !host.is_empty())
-            .map(str::to_owned)
-            .unwrap_or_else(|| crate::pairing::machine_name());
-        let session = row
-            .get("qualifiedSessionId")
-            .and_then(Value::as_str)
-            .filter(|key| !key.is_empty())
-            .map(str::to_owned)
-            .unwrap_or_else(|| id.to_owned());
-        let params = json!({
-            "sessionId": session.clone(),
-            "query": query.clone(),
-            "role": role.clone(),
-            "sinceMs": since_ms,
-            "limit": limit,
-        });
-        match client.request(method::MUX_SESSION_SEARCH, params).await {
-            Ok(answer) => {
-                for mut hit in
-                    answer.get("hits").and_then(Value::as_array).cloned().unwrap_or_default()
-                {
-                    hit["session"] = json!(session.clone());
-                    hit["host"] = json!(host.clone());
+    while let Some((session, host, answer)) = reads.next().await {
+        match answer.and_then(|mut reply| {
+            reply
+                .get_mut("hits")
+                .and_then(Value::as_array_mut)
+                .map(std::mem::take)
+                .context("the search response has no hits array")
+        }) {
+            Ok(rows) => {
+                for mut hit in rows {
+                    hit["session"] = json!(session);
+                    hit["host"] = json!(host);
+                    let at = hit["turnStartedAt"].as_i64().or_else(|| hit["at"].as_i64());
+                    hit["time"] = json!(
+                        at.and_then(chrono::DateTime::from_timestamp_millis)
+                            .map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+                    );
                     hits.push(hit);
                 }
+                // Only the newest global limit can survive later replies.
+                hits.sort_unstable_by(|a, b| {
+                    b["at"]
+                        .as_u64()
+                        .cmp(&a["at"].as_u64())
+                        .then_with(|| a["host"].as_str().cmp(&b["host"].as_str()))
+                        .then_with(|| a["session"].as_str().cmp(&b["session"].as_str()))
+                        .then_with(|| b["seq"].as_u64().cmp(&a["seq"].as_u64()))
+                });
+                hits.truncate(limit);
             }
             Err(error) => unreached
                 .push(json!({"session": session, "host": host, "error": error.to_string()})),
         }
     }
-    hits.sort_by_key(|hit| std::cmp::Reverse(hit.get("at").and_then(Value::as_u64).unwrap_or(0)));
-    hits.truncate(limit);
+    let failed = unreached.len();
     let answer =
         json!({"query": query, "hits": hits, "unreached": unreached, "sessions": session_count});
     if json_out {
         print_json(&answer);
     } else {
         print!("{}", text(&answer));
+        if failed > 0 {
+            eprintln!(
+                "Could not search {failed} of {session_count} sessions. First failure: {}",
+                answer["unreached"][0]["error"].as_str().unwrap_or("unknown error")
+            );
+        }
+    }
+    if failed > 0 && failed == session_count {
+        bail!("no session history could be searched");
     }
     Ok(())
 }
@@ -96,10 +136,7 @@ pub async fn run(client: Arc<Client>, args: SearchArgs, json_out: bool) -> Resul
 fn text(answer: &Value) -> String {
     let mut out = String::new();
     for hit in answer.get("hits").and_then(Value::as_array).into_iter().flatten() {
-        let at = hit.get("at").and_then(Value::as_i64).unwrap_or_default();
-        let timestamp = chrono::DateTime::from_timestamp_millis(at)
-            .map(|time| time.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
-            .unwrap_or_else(|| "unknown".to_owned());
+        let timestamp = hit["time"].as_str().unwrap_or("unknown");
         let preview = hit
             .get("snippet")
             .and_then(Value::as_str)
@@ -116,7 +153,7 @@ fn text(answer: &Value) -> String {
             preview,
         ));
     }
-    if out.is_empty() {
+    if out.is_empty() && answer["unreached"].as_array().is_none_or(Vec::is_empty) {
         out.push_str("no message holds every word\n");
     }
     out
@@ -129,7 +166,7 @@ mod tests {
     #[test]
     fn text_has_session_host_utc_time_role_and_one_line_preview() {
         let answer = json!({"hits": [{
-            "session": "peer/s-1", "host": "peer", "at": 1_735_689_600_000,
+            "session": "peer/s-1", "host": "peer", "time": "2025-01-01T00:00:00Z",
             "role": "assistant", "snippet": "first line\nsecond line"
         }]});
         assert_eq!(

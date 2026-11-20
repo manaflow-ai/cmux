@@ -141,6 +141,7 @@ pub struct Query {
     pub role: Option<Role>,
     pub since_ms: Option<u64>,
     pub limit: usize,
+    pub with_turn_time: bool,
 }
 
 impl Query {
@@ -165,7 +166,8 @@ impl Query {
                 usize::try_from(n).unwrap_or(MAX_LIMIT).min(MAX_LIMIT)
             }
         };
-        Ok(Self { needle, role, since_ms, limit })
+        let with_turn_time = params.get("withTurnTime").and_then(Value::as_bool) == Some(true);
+        Ok(Self { needle, role, since_ms, limit, with_turn_time })
     }
 }
 
@@ -197,13 +199,42 @@ pub fn search(store: &dyn Store, id: &str, query: &Query) -> anyhow::Result<Valu
             }));
         }
     })?;
-    let hits: Vec<Value> = hits.into_iter().rev().collect();
+    let mut hits: Vec<Value> = hits.into_iter().rev().collect();
+    if query.with_turn_time {
+        attach_turn_times(store, id, &mut hits)?;
+    }
     Ok(json!({
         "sessionId": id,
         "hits": hits,
         "entries": entries,
         "tookMs": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
     }))
+}
+
+/// Match the turn boundary used by Hub::history: an ordinary prompt opens a turn and a
+/// steer belongs to the running turn. Read indexed prompts backwards once, stopping at
+/// the oldest hit's prompt.
+fn attach_turn_times(store: &dyn Store, id: &str, hits: &mut [Value]) -> anyhow::Result<()> {
+    let mut pending = hits.iter_mut().peekable();
+    let Some(newest) = pending.peek().and_then(|hit| hit["seq"].as_u64()) else { return Ok(()) };
+    store.scan_back_indexed(
+        id,
+        0,
+        newest.saturating_add(1),
+        &|_, k| k != b"user_message",
+        &mut |rec| {
+            if rec.kind == "user_message"
+                && rec.msg.get("steer").and_then(Value::as_bool) != Some(true)
+            {
+                while let Some(hit) =
+                    pending.next_if(|hit| hit["seq"].as_u64().is_some_and(|seq| seq >= rec.seq))
+                {
+                    hit["turnStartedAt"] = json!(rec.at);
+                }
+            }
+            pending.peek().is_some()
+        },
+    )
 }
 
 #[cfg(test)]

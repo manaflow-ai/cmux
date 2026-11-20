@@ -392,12 +392,19 @@ async fn history_reads_through_the_hub_and_other_session_reads_never_answer_no_s
         (Some("machine-b"), Some("hub"))
     );
 
-    for m in [
+    let found = call(
+        &a,
         method::MUX_SESSION_SEARCH,
-        method::MUX_QUEUE_TEXT,
-        method::MUX_ATTACHMENT,
-        method::MUX_WAIT,
-    ] {
+        json!({
+            "sessionId": "machine-b/own-e2e", "role": "user",
+            "query": "turn on b", "withTurnTime": true, "limit": 1
+        }),
+    )
+    .await;
+    let hit = &found["hits"][0];
+    assert_eq!(hit["snippet"], "turn on b", "{found}");
+    assert_eq!(hit["turnStartedAt"], history["turns"][0]["startedAt"]);
+    for m in [method::MUX_QUEUE_TEXT, method::MUX_ATTACHMENT, method::MUX_WAIT] {
         let refused = call_error(&a, m, json!({"sessionId": "machine-b/own-e2e"})).await;
         assert_eq!(
             refused.pointer("/data/reason"),

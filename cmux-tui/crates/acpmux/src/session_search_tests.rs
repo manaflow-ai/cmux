@@ -127,6 +127,20 @@ fn newest_first_with_role_since_and_limit() {
 }
 
 #[test]
+fn search_matches_history_turn_time_for_replies_and_steers() {
+    let log = [
+        prompt(1, "match"),
+        chunk(2, "a", "match"),
+        rec(3, "mux", "user_message", json!({"text": "match", "steer": true})),
+        prompt(4, "match"),
+        chunk(5, "b", "match"),
+    ];
+    let found = hits(&store(&log), json!({"query":"match", "withTurnTime":true}));
+    let times: Vec<_> = found.iter().map(|hit| hit["turnStartedAt"].as_u64()).collect();
+    assert_eq!(times, [Some(4000), Some(4000), Some(1000), Some(1000), Some(1000)]);
+}
+
+#[test]
 fn a_bad_query_is_refused() {
     for params in [
         json!({}),
