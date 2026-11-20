@@ -45,7 +45,8 @@ public enum AgentSourceUsesPageBridge {
         let requested = URL(fileURLWithPath: raw)
         guard local, let file, canonical(requested) == file, let source, source.matches(file) else { throw PageError.invalidParams("no source context for this page's file") }
         if op == "sourceUses" { let result = try await source.read(cursor: cursor); guard read(), stillCurrent() else { throw PageError.closed }; return result }
-        guard gesture, let reply = params["replyId"]?.stringValue, let turn = params["turnId"]?.stringValue, source.reveal(reply: reply, turn: turn) else { throw PageError.invalidParams("reply is not a recorded use of this page's file") }
+        guard gesture else { throw PageError(code: "cmux.page.gesture", message: "opening a reply needs a user gesture") }
+        guard let reply = params["replyId"]?.stringValue, let turn = params["turnId"]?.stringValue, source.reveal(reply: reply, turn: turn) else { throw PageError.invalidParams("reply is not a recorded use of this page's file") }
         return .object([:])
     }
 
