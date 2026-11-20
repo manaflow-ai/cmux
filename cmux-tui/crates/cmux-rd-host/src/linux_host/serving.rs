@@ -128,7 +128,7 @@ pub(super) fn join(dir: &Path, join: &machine::Join, unit: &dyn Unit) -> Res<Dev
                 // The hub signs the join in as the recorded account: the host serves the join's.
                 Ok(Some(user)) if user == account.user_id => {
                     let marked = if unmarked {
-                        machine::Joined::of(home, credential).save(dir)
+                        machine::Joined::signed_in(Some(joined), home, credential).save(dir)
                     } else {
                         Ok(())
                     };

@@ -135,6 +135,11 @@ pub struct Joined {
     pub machine_id: String,
     #[serde(default)]
     pub credential_generation: u64,
+    /// Whether this join's consent is tracked by consent-join.json (#45480): set when a build
+    /// that writes that marker first signs the join in. A record without it is from before, so
+    /// its consent.json, or the absence of one, is its person's choice, never a stopped run.
+    #[serde(default)]
+    pub consent_tracked: bool,
 }
 
 impl Joined {
@@ -144,12 +149,35 @@ impl Joined {
             acpmux_home: acpmux_home.to_owned(),
             machine_id: credential.machine_id.clone(),
             credential_generation: credential.credential_generation,
+            consent_tracked: false,
         }
+    }
+
+    /// The record a sign-in with `credential` from `acpmux_home` writes over `previous` (what
+    /// `joined.json` held): a new join's consent is tracked from now on; the same join (or a
+    /// record from before joins were marked, from this home) keeps what it had, so signing in
+    /// again never makes a person's earlier choice read as a stopped run.
+    pub fn signed_in(
+        previous: Option<&Self>,
+        acpmux_home: &Path,
+        credential: &MachineCredential,
+    ) -> Self {
+        let _ = previous;
+        Self { consent_tracked: true, ..Self::of(acpmux_home, credential) }
+    }
+
+    /// Whether this record and `other` are the same joined machine from the same acpmux home,
+    /// whatever credential generation the hub gave it since.
+    pub fn same_machine(&self, other: &Self) -> bool {
+        !self.machine_id.is_empty()
+            && self.machine_id == other.machine_id
+            && self.acpmux_home == other.acpmux_home
     }
 
     /// Whether this record is the join `credential` from `acpmux_home` is now.
     pub fn is(&self, acpmux_home: &Path, credential: &MachineCredential) -> bool {
-        !self.machine_id.is_empty() && *self == Self::of(acpmux_home, credential)
+        let of = Self::of(acpmux_home, credential);
+        self.same_machine(&of) && self.credential_generation == of.credential_generation
     }
 
     /// Whether this record was written from `acpmux_home` before joins were marked (#45369): it
