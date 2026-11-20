@@ -70,11 +70,14 @@ export function CloudEnvironmentsCard() {
   useEffect(() => {
     void refresh();
     let open = editor.getSnapshot().open;
-    return editor.subscribe(() => {
+    const unsubscribe = editor.subscribe(() => {
       const now = editor.getSnapshot().open;
       if (open && !now) void refresh();
       open = now;
     });
+    return () => {
+      unsubscribe();
+    };
   }, [editor, refresh]);
   // A failed open (the read, or Add Environment's create) shows in the editor itself, with Retry.
   const run = async (gesture: () => Promise<void>) => {
