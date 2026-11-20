@@ -1064,7 +1064,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "{n} need you"
+            "value": "{n} for you"
           }
         },
         "ar": {
@@ -2120,7 +2120,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inbox holding {held}, {need} need you"
+            "value": "Inbox holding {held}, {need} for you"
           }
         },
         "ar": {
