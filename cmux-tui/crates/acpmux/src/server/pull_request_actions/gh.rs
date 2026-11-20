@@ -34,6 +34,7 @@ pub(super) async fn read(cwd: &Path, args: &[String], tail: bool) -> Result<Stri
             .args(args)
             .current_dir(cwd)
             .env("GH_PROMPT_DISABLED", "1")
+            .env("GH_HOST", "github.com")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

@@ -7008,7 +7008,12 @@ export class AcpmuxDirectClient {
     const sessionId = this.selectedSessionId;
     if (!sessionId) return Promise.reject(new Error(translate("error.notOpen")));
     const generation = this.selectionGeneration;
-    const result = await this.request("_acpmux/pull_request_action", { sessionId, ...params });
+    const result = await this.request(
+      "_acpmux/pull_request_action",
+      { sessionId, ...params },
+      95_000,
+      () => generation === this.selectionGeneration && sessionId === this.selectedSessionId,
+    );
     if (this.closed || generation !== this.selectionGeneration || sessionId !== this.selectedSessionId)
       throw new Error(translate("error.notOpen"));
     return result;
