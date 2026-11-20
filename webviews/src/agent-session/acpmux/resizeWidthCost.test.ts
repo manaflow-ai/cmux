@@ -64,22 +64,22 @@ test("at a new width with `near.all`, only the rows near the view are measured",
   expect(narrow.remembered).toBe(true);
 });
 
-test("the cost of a new width with `near.all` does not grow with the chat", () => {
-  const time = (count: number) => {
+test("the text layout of a drag with `near.all` does not grow with the chat", () => {
+  // Counted, not timed: a wall-clock bound fails on a loaded runner (164 ms against a 129 ms bound at
+  // load 24 on 16 cores) and says nothing about which rows were laid out.
+  const measured = (count: number) => {
     const chat = rows(count);
     const known: RowHeights = new WeakMap();
     const cache = new Map<string, PreparedRow>();
-    layoutConversation(chat, 800, cache, undefined, known);
+    const { calls, measure } = counting();
+    layoutConversation(chat, 800, cache, measure, known);
     const near = { from: Math.floor(count / 2), to: Math.floor(count / 2) + 80, all: true };
-    const started = performance.now();
+    calls.count = 0;
     for (let width = 790; width > 400; width -= 30)
-      layoutConversation(chat, width, cache, undefined, known, undefined, undefined, undefined, near);
-    return performance.now() - started;
+      layoutConversation(chat, width, cache, measure, known, undefined, undefined, undefined, near);
+    return calls.count;
   };
-  time(500);
-  const small = time(1_000);
-  const large = time(16_000);
-  // Sixteen times the rows: the text layout stays the rows near the view; the per-row walk is a
-  // fraction of it. Measured whole, the large chat costs well over 16x the small one.
-  expect(large).toBeLessThan(small * 6 + 40);
+  // Sixteen times the rows: the same rows near the view are laid out at each width of the drag.
+  expect(measured(16_000)).toBe(measured(1_000));
+  expect(measured(1_000)).toBe(80 * 13);
 });
