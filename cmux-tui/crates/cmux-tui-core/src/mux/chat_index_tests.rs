@@ -191,3 +191,20 @@ fn chat_changed_fires_once_per_change() {
     assert!(mux.update_chat("missing", |_| {}).is_none());
     assert!(!mux.chat_listed("missing"));
 }
+
+#[test]
+fn forum_local_recipient_never_resolves_a_peer_with_the_same_id() {
+    let mux = Mux::new_for_test("forum-local-recipient", crate::SurfaceOptions::default());
+    mux.change_chats(|chats| {
+        chats.page(&[with(summary("shared", "idle"), json!({"peer":"remote"}))])
+    });
+    assert!(mux.chat_listed("shared"));
+    assert!(!mux.local_chat_listed("shared"));
+    mux.change_chats(|chats| chats.page(&[summary("shared", "idle")]));
+    assert!(mux.local_chat_listed("shared"));
+    mux.change_chats(|chats| {
+        chats.page(&[with(summary("shared", "idle"), json!({"status":"closed"}))])
+    });
+    assert!(!mux.local_chat_listed("shared"));
+    assert!(mux.chat_listed("shared"));
+}
