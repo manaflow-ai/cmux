@@ -39,11 +39,12 @@ extension SidebarBridge {
                 self.handle(.reorderGroup(group, index: position.index))
             }
         }
-        guard let source, source != room, let personal = home.store.personal.group(item: group.rawValue) else { return finish() }
-        let previous = document?.groupRoom(personal.id.rawValue)
+        guard let source, source != room else { return finish() }
+        let personal = home.store.personal.group(item: group.rawValue), previous = document?.groupRoom(group.rawValue)
+        let pins = personal == nil ? members.map { WindowProfiles.qualified($0, machines: services.machines) } : []
         services.registry.track(Task {
-            if let failed = await home.failure("update-personal-group", { try await $0.updatePersonalGroup(personal.id, room: room) }) { return failed }
-            document?.moveGroup(personal.id.rawValue, toSpace: room.rawValue, from: previous)
+            if let failed = await home.moveGroupToSpace(personal?.id, members: pins, to: room) { return failed }
+            document?.moveGroup(group.rawValue, toSpace: room.rawValue, from: previous)
             finish()
             return nil
         })

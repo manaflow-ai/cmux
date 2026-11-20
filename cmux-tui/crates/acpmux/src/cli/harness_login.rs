@@ -275,6 +275,16 @@ fn codex_cli_at(
     Ok(CodexCli { program, globals: codex_globals(args).to_vec(), env: layered.env })
 }
 
+/// The account and configuration the native bridge uses, for its model catalog probe.
+pub(crate) fn catalog_launch(
+    cfg: &Config,
+    id: &str,
+    profile: &HarnessProfile,
+) -> Result<(Vec<String>, BTreeMap<String, String>)> {
+    let cli = codex_cli(cfg, id, profile)?;
+    Ok((cli.argv(&[]), cli.env))
+}
+
 /// The global options before `app-server` in a bridge launch's args, read
 /// the way `codex_app_server::is_launch` reads them: `--flag=value` is one
 /// word, `-c value` and `--flag value` are two.

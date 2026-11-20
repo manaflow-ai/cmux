@@ -19,6 +19,14 @@ pub(super) fn args() -> Vec<String> {
     vec!["app-server".to_owned()]
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("codex app-server refused {method}: {message}")]
+struct RpcFailure {
+    method: String,
+    code: Option<i64>,
+    message: String,
+}
+
 /// Sends request `id` and returns its result; notifications and other
 /// replies in between are skipped.
 async fn request(child: &mut Probe, id: u64, method: &str, params: Value) -> Result<Value> {
@@ -30,7 +38,12 @@ async fn request(child: &mut Probe, id: u64, method: &str, params: Value) -> Res
         }
         if let Some(error) = v.get("error") {
             let message = text(error, "message").unwrap_or("request failed");
-            return Err(anyhow!("codex app-server refused {method}: {message}"));
+            return Err(RpcFailure {
+                method: method.into(),
+                code: error["code"].as_i64(),
+                message: message.into(),
+            }
+            .into());
         }
         return Ok(v.get("result").cloned().unwrap_or(Value::Null));
     }
@@ -58,11 +71,27 @@ pub(super) async fn rate_limits(child: &mut Probe) -> Result<Value> {
 
 pub(super) async fn list(child: &mut Probe) -> Result<Vec<LiveModel>> {
     initialize(child).await?;
+    let config = request(child, 2, "config/read", json!({})).await.ok();
+    let mut provider =
+        config.as_ref().and_then(|v| v.pointer("/config/model_provider")).and_then(Value::as_str);
     let mut rows = Vec::new();
     let mut cursor: Option<String> = None;
     for page in 0..MAX_PAGES {
-        let params = cursor.as_ref().map_or_else(|| json!({}), |c| json!({"cursor": c}));
-        let result = request(child, 2 + page as u64, "model/list", params).await?;
+        let mut params = cursor.as_ref().map_or_else(|| json!({}), |c| json!({"cursor": c}));
+        if let Some(provider) = provider {
+            params["modelProvider"] = json!(provider);
+        }
+        let id = 3 + 2 * page as u64;
+        let result = match request(child, id, "model/list", params).await {
+            Err(e)
+                if page == 0
+                    && e.downcast_ref::<RpcFailure>().is_some_and(|e| e.code == Some(-32602))
+                    && provider.take().is_some() =>
+            {
+                request(child, id + 1, "model/list", json!({})).await?
+            }
+            result => result?,
+        };
         rows.extend(result.get("data").and_then(Value::as_array).cloned().unwrap_or_default());
         cursor = text(&result, "nextCursor").map(str::to_owned);
         if cursor.is_none() {

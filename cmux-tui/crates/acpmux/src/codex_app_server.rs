@@ -21,6 +21,7 @@ use crate::codex_auth_file::{self, AccessFile};
 use cmux_json::JsonSet as _;
 
 mod background;
+mod catalog;
 mod message_phases;
 pub use background::TERMINATE;
 mod usage_limits;
@@ -33,6 +34,7 @@ pub use usage_limits::{is_plan_snapshot, read_usage_limits, usage_limits};
 pub struct Translator {
     inner: cmux_codex_acp::Translator,
     background: Mutex<background::Background>,
+    catalog: Mutex<catalog::Catalog>,
     message_phases: Mutex<message_phases::MessagePhases>,
     #[cfg(unix)]
     auth: Mutex<AuthGate>,
@@ -407,7 +409,18 @@ impl Translator {
     }
 
     fn translate_server(&self, raw: &Value) -> Vec<Out> {
-        let mut out = self.inner.from_server(raw);
+        let mut catalog = self.catalog.lock().unwrap_or_else(|e| e.into_inner());
+        let complete;
+        let msg = match catalog.receive(raw) {
+            Some(Err(next)) => return vec![next],
+            Some(Ok(reply)) => {
+                complete = reply;
+                &complete
+            }
+            None => raw,
+        };
+        let mut out = self.inner.from_server(msg);
+        catalog.start(&mut out);
         self.message_phases.lock().unwrap_or_else(|e| e.into_inner()).enrich(raw, &mut out);
         out
     }
@@ -487,6 +500,7 @@ fn translator_with(prompt_suggestions: bool) -> Arc<Translator> {
             ..Options::default()
         }),
         background: Mutex::default(),
+        catalog: Mutex::default(),
         message_phases: Mutex::default(),
         #[cfg(unix)]
         auth: Mutex::new(AuthGate::new()),
@@ -530,6 +544,11 @@ pub fn into_value(m: Message) -> Value {
 /// The session-log kind of a raw app-server line (`codex.<method>`, or
 /// `codex.response`), or None for item notifications and streaming deltas.
 pub fn tap_kind(raw: &Value) -> Option<String> {
+    // Config can include private provider and MCP environment values. No part of this reply belongs in a session log.
+    if raw.get("method").is_none() && raw.get("id").and_then(Value::as_str) == Some(catalog::CONFIG)
+    {
+        return None;
+    }
     match raw.get("method").and_then(Value::as_str) {
         // Item notifications become session updates that carry what they
         // say; logging the raw line too would double the busiest records.
@@ -623,7 +642,10 @@ mod tests {
         let list = split(tr.from_server(
             &json!({"id": init, "result": {"userAgent": "acpmux/0.164.0 (Linux; x86_64)"}}),
         ));
-        let list = list.server.iter().find(|m| m["method"] == "model/list").unwrap()["id"].clone();
+        let config =
+            list.server.iter().find(|m| m["method"] == "config/read").unwrap()["id"].clone();
+        let list = split(tr.from_server(&json!({"id": config, "result": {"config": {}}})));
+        let list = list.server[0]["id"].clone();
         split(tr.from_server(&json!({"id": list, "result": {"data": []}})));
         let new = split(tr.from_client(
             &json!({"jsonrpc": "2.0", "id": 1, "method": "session/new", "params": {"cwd": "/tmp", "mcpServers": []}}),

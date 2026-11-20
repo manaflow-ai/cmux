@@ -172,6 +172,67 @@ async fn cli_changes_codex_speed_without_switching_model() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
+/// Two profiles use the same executable. A model offered only on the second
+/// provider page can be selected and accepts its own effort and tier.
+#[tokio::test]
+async fn running_chat_uses_its_own_providers_later_model_page() {
+    let d = dir("provider-page");
+    let codex = shim(&d, "codex", FAKE_APP_SERVER);
+    let profiles = [("work", "gpt-6.2-astra"), ("personal", "personal-model")];
+    let harnesses: serde_json::Map<_, _> = profiles
+        .iter()
+        .map(|(name, model)| {
+            (
+                (*name).to_owned(),
+                json!({"family": "codex", "argv": [codex, "-p", model, "app-server"]}),
+            )
+        })
+        .collect();
+    let hub = hub_with(
+        json!({"harnesses": harnesses, "defaultHarness": "work", "permissionPolicy": "ask"}),
+    );
+    let mut c = Client::local(&hub);
+    let catalog = c.call("_acpmux/models", json!({"refresh": true})).await;
+    for (name, model) in profiles {
+        let row = catalog["result"]["harnesses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["harness"] == name)
+            .unwrap();
+        assert!(row["models"].as_array().unwrap().iter().any(|m| m["id"] == model), "{row}");
+        let other = profiles.iter().find(|(n, _)| *n != name).unwrap().1;
+        assert!(!row["models"].as_array().unwrap().iter().any(|m| m["id"] == other), "{row}");
+        let (session, _) = harness_of_new(&mut c, &d, name).await;
+        for (key, value) in
+            [("model", model), ("reasoning_effort", "high"), ("fast-mode", "priority")]
+        {
+            let reply = c
+                .call(
+                    "session/set_config_option",
+                    json!({"sessionId": session, "configId": key, "value": value}),
+                )
+                .await;
+            let options =
+                reply["result"]["configOptions"].as_array().unwrap_or_else(|| panic!("{reply}"));
+            assert!(
+                options.iter().any(|o| o["id"] == "model" && o["currentValue"] == model),
+                "{reply}"
+            );
+            if key == "fast-mode" {
+                assert!(
+                    options
+                        .iter()
+                        .any(|o| o["id"] == "fast-mode" && o["currentValue"] == "priority"),
+                    "{reply}"
+                );
+                assert!(options.iter().any(|o| o["currentValue"] == "high"), "{reply}");
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(&d);
+}
+
 /// A chat's Codex starts with its agent-thread limits lifted (Leo
 /// 2026-10-14, no caps on subagents): `-c` overrides before `app-server`,
 /// so a new chat has them without a restart. A key the profile's command

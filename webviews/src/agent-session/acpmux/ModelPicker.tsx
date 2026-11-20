@@ -1023,7 +1023,10 @@ export function ModelPicker(props: ModelPickerProps) {
     registerModelCommand((text) => {
       const typed = parseQuery(text, effortWords(harnesses.flatMap((entry) => entry.models)));
       if (!typed.effort && !typed.fast) return undefined;
-      const candidates = quickSearch(text, typed).filter((row) => !row.disabled && !row.setupNote);
+      // A submitted command must match every word, including its last one.
+      const candidates = quickSearch(text, { ...typed, typing: undefined }).filter(
+        (row) => !row.disabled && !row.setupNote,
+      );
       const currentRoute = candidates.filter((row) => row.family === current?.id);
       const matches = currentRoute.length ? currentRoute : candidates;
       if (matches.length !== 1 || !typed.words.length) {

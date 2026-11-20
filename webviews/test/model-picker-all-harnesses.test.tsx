@@ -149,6 +149,7 @@ describe("harnesses this machine does not have", () => {
     expect(runModelCommand("astra-6.2 fast high")).toBe(true);
     expect(picked).toEqual([{ harness: "codex", model: model.id, fast: true, effort: "high" }]);
     expect(typeof runModelCommand("astra-6.2 fast low")).toBe("string");
+    expect(typeof runModelCommand("astra-6.2 high fas")).toBe("string");
     expect(picked).toHaveLength(1);
   });
 

@@ -122,8 +122,7 @@ enum AgentSessionWorkspace {
                 // The workspace's first pane once the store mirrors it, found
                 // by the key chosen here (as CloudHandlers finds its anchor).
                 guard let pane = await daemon.store.firstPane(mirroring: key) else {
-                    logger.error("agent.openSessionWorkspace: the pane of workspace \(key.rawValue, privacy: .public) did not appear")
-                    return ActionWorkFailure("agent.openSessionWorkspace: the new workspace's pane did not appear")
+                    throw ActionWorkFailure("agent.openSessionWorkspace: the pane of workspace \(key.rawValue) did not appear")
                 }
                 // Selected wherever the workspace is shown later, never shown now.
                 if focus {
