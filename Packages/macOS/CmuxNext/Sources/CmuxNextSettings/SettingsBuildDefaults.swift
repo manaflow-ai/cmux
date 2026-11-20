@@ -14,10 +14,10 @@ public nonisolated struct SettingsBuildDefaults: Sendable, Equatable {
         self.values = values
     }
 
-    /// `updates.downloadAutomatically` follows the channel (`UpdateTrack.downloadsAutomaticallyByDefault`):
-    /// on for cmux NEXT's nightly ring (Leo 2026-11-10: "the nightly automatically downloads and
-    /// installs/unpacks and you simply click and it restarts"), filled here; off (the schema's
-    /// default, `.none`) on every other channel.
+    /// `updates.downloadAutomatically` follows the release track
+    /// (`UpdateTrack.downloadsAutomaticallyByDefault`): signed builds get background download and
+    /// install, while DEV/staging builds keep the schema's off default because they have no public
+    /// Sparkle feed.
     ///
     /// `mobile.allowIPhoneConnections` is on in a DEV build (`BuildStatePaths.isolatesSharedState`): DEV builds
     /// pair with the person's iPhone by default, so a fresh one is reachable from the phone without a trip to

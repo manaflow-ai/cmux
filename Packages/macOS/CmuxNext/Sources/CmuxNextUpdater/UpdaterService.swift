@@ -13,11 +13,10 @@ import Observation
 ///
 /// One per process, owned by the App. Action handlers call ``checkForUpdates()``,
 /// ``installAvailableUpdate()`` and ``switchChannel(to:)``. No Sparkle window opens; Sparkle's
-/// user-driver steps are the sidebar's cards. Without the automatic-install opt-in
-/// (`updates.downloadAutomatically`, off by default on every channel) a found update is the
-/// update-found step (the notice card after Check for Updates, else the titlebar's Update
-/// Available) and a downloaded one is the Update Ready card, which asks before relaunching; with
-/// it, updates download by themselves and the Update Ready card still asks before the relaunch.
+/// user-driver steps are the sidebar's cards. Signed release tracks download and install updates
+/// in the background; the automatic install waits for a quiet relaunch moment and keeps drafts,
+/// terminals and agents intact. A user can turn automatic downloads off, which returns to the
+/// update-found and Update Ready cards that ask before each step.
 /// A check's progress and result show on the notice card (``card``). The update sheet
 /// (``UpdateSheetModel``) opens only for a failure's details.
 @MainActor
@@ -347,9 +346,9 @@ public final class UpdaterService {
             // A found update is offered at once, deltas listed or not: no check holds a build back
             // for deltas that come minutes later (a later check uses them for the next build).
             // Until the settings load (``configure``), a launch check's update waits: nothing
-            // downloads or installs by itself, whichever way `updates.downloadAutomatically` is set.
-            // Once it is on, a downloaded update installs by itself once staged; the daemon preserves
-            // agents, commands and turns while the app relaunches.
+            // downloads or installs by itself. Once automatic downloads are enabled, a staged
+            // update installs at a quiet moment; the daemon preserves agents, commands and turns
+            // while the app relaunches.
             controller.installsUpdatesWhenIdle = false
             controller.downloadsUpdatesInBackground = false
             self.controller = controller

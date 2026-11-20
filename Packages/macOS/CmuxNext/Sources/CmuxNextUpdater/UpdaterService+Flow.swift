@@ -267,9 +267,9 @@ extension UpdaterService {
 extension UpdaterService {
     /// Applies `updates.checkAutomatically`, `checkIntervalSeconds`,
     /// `downloadAutomatically`, `meteredNetwork` and, when given, `channel`
-    /// (``follow(ring:)``) to Sparkle, and when given the idle install's wait cap and quiet window
-    /// (`idleInstallMaxWaitSeconds`, `idleInstallQuietSeconds`). The ring is kept without a driver
-    /// too (the probe reads it).
+    /// (``follow(ring:)``) to Sparkle, and when given the automatic install's wait cap and quiet
+    /// window (`idleInstallMaxWaitSeconds`, `idleInstallQuietSeconds`). The ring is kept without a
+    /// driver too (the probe reads it).
     public func configure(checkAutomatically: Bool, checkInterval: TimeInterval, downloadAutomatically: Bool,
                           metered: UpdateMeteredMode = .deferLowData, ring: String? = nil,
                           idleInstall: (maxWait: TimeInterval, quiet: TimeInterval)? = nil) {
@@ -282,10 +282,6 @@ extension UpdaterService {
         }
         downloadSetting = (downloadAutomatically, metered)
         settingsApplied = true
-        // `updates.downloadAutomatically` downloads found updates and stages them; it never installs
-        // them. The app restarts only on the person's click (Restart to Update), so the idle install
-        // stays off whatever the download setting says (nightly restart policy, 2026-10-27).
-        if let controller, controller.installsUpdatesWhenIdle { controller.installsUpdatesWhenIdle = false }
         stagedRefresh.reschedule(automatic: checkAutomatically, interval: checkInterval, updater: self)
         tipCheck.reschedule(automatic: checkAutomatically, updater: self)
         refreshReleasePush()
@@ -315,7 +311,7 @@ extension UpdaterService {
         checkForUpdates()
     }
 
-    /// Recomputes whether found updates download by themselves: the user's
+    /// Recomputes whether found updates download and install by themselves: the user's
     /// `updates.downloadAutomatically` (a managed configuration can force it)
     /// on the user's metered-network choice, except that an update the
     /// organization requires (`MinimumVersion`) always downloads, and an app
@@ -336,6 +332,10 @@ extension UpdaterService {
         }
         let resumed = downloads && !downloadsFoundUpdates
         downloadsFoundUpdates = downloads
+        if let controller, controller.installsUpdatesWhenIdle != downloads {
+            controller.installsUpdatesWhenIdle = downloads
+            log.append("automatic installs \(downloads ? \"on\" : \"off\")")
+        }
         if let controller, controller.downloadsUpdatesInBackground != downloads {
             controller.downloadsUpdatesInBackground = downloads
             log.append("automatic downloads \(downloads ? "on" : "deferred") (setting \(downloadSetting.enabled), required \(required), off managed channel \(isOffManagedChannel), constrained \(network.constrained), expensive \(network.expensive), link pending \(networkPending))")

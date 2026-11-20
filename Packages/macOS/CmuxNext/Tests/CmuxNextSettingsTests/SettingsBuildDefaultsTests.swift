@@ -4,9 +4,9 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
-/// `updates.downloadAutomatically` is opt-in on stable and on by default in NIGHTLY and DEV. The
-/// channel default fills the effective settings only: cmux-next.json is shared by every channel,
-/// so nothing is written there, and a value someone wrote always wins.
+/// `updates.downloadAutomatically` is on by default for signed release tracks and off for DEV. The
+/// channel default fills the effective settings only: cmux-next.json is shared by every channel, so
+/// nothing is written there, and a value someone wrote always wins.
 @MainActor @Suite(.serialized) struct SettingsBuildDefaultsTests {
     private static func settings(_ json: String, _ defaults: SettingsBuildDefaults) async throws -> (SettingsController, URL) {
         let home = FileManager.default.temporaryDirectory.appending(path: "cn-build-defaults-\(UUID().uuidString)")
@@ -23,7 +23,7 @@ import Testing
     @Test func theDogfoodDefaultFillsTheEffectiveSettingsOnly() async throws {
         let (settings, home) = try await Self.settings("{}", .channel(downloadsAutomatically: true))
         defer { try? FileManager.default.removeItem(at: home) }
-        #expect(settings.snapshot.updates.downloadAutomatically, "NIGHTLY and DEV download by default")
+        #expect(settings.snapshot.updates.downloadAutomatically, "signed release tracks download by default")
         #expect(settings.fileRoot.value(at: UpdatesSettings.downloadAutomaticallyPath) == nil, "the channel default counted as the person's")
         #expect(try await settings.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == nil, "the channel default was written to the shared file")
     }
