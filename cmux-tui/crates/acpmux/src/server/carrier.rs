@@ -224,7 +224,10 @@ pub const TEAMMATE_METHODS: &[(&str, &[&str])] = &[
     // Watch it without writing: the same hidden attach, and its detail.
     ("agent-session-observe", &[method::MUX_ATTACH, method::MUX_INFO]),
     // Page through its log, and the images its prompts sent.
-    ("agent-session-events", &[method::MUX_EVENTS, method::MUX_ATTACHMENT]),
+    (
+        "agent-session-events",
+        &[method::MUX_EVENTS, method::MUX_ATTACHMENT, method::MUX_SOURCE_USES],
+    ),
     ("agent-session-prompt", &[method::SESSION_PROMPT]),
     ("agent-session-cancel", &[method::SESSION_CANCEL]),
     ("agent-session-detach", &[method::MUX_DETACH]),

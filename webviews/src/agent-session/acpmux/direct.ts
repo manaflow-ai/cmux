@@ -1,3 +1,4 @@
+import { markMessageSources } from "./messageSources";
 import { pageAttention } from "./attention";
 import { sentFrom, type SentFrom } from "./conversation/sentFromHarness";
 import { stuckAttention } from "./loopEpisode";
@@ -9763,6 +9764,9 @@ export class AcpmuxDirectClient {
       if (left && this.subagents.stopRunning(left, event.at)) this.takeSubagentRows();
       if (event.kind === "race" && msg.parent === this.selectedSessionId && typeof msg.id === "string") {
         for (const listener of this.raceListeners) listener(msg as RaceRecord);
+      } else if (event.kind === "turn_sources") {
+        const row = markMessageSources(this.rows.get(`assistant-${msg.replyId}`), msg);
+        if (row) this.rows.set(row.id, row);
       } else if (event.kind === "claim_checks") {
         this.markClaims(msg);
       } else if (event.kind === BOOKMARKS_KIND) {
@@ -15436,16 +15440,16 @@ export class AcpmuxDirectClient {
   /// Reads the transcript window containing an indexed prompt. `_acpmux/events` accepts both
   /// cursors, so the daemon can seek to the target in one bounded read; this is deliberately
   /// separate from `fetchOlder`, whose cursor must walk from the currently held tail.
-  private indexedPage(seq: number): Promise<EventRecord[]> | undefined {
+  private indexedPage(seq: number, endingAt = false): Promise<EventRecord[]> | undefined {
     const sessionId = this.selectedSessionId;
     const generation = this.selectionGeneration;
     if (!sessionId || !Number.isFinite(seq) || seq < 1) return undefined;
     const bucket = Math.floor(seq / INDEXED_PAGE_RADIUS);
-    const key = `${sessionId}:${generation}:${bucket}`;
+    const key = `${sessionId}:${generation}:${endingAt ? `source-${seq}` : bucket}`;
     const held = this.indexedPages.get(key);
     if (held) return held;
     const after = Math.max(0, seq - INDEXED_PAGE_RADIUS);
-    const before = seq + INDEXED_PAGE_RADIUS + 1;
+    const before = endingAt ? seq + 1 : seq + INDEXED_PAGE_RADIUS + 1;
     const kinds = ["transcript", ...(this.localOrigin ? PRESET_APPROVAL_KINDS : [])];
     const read = this.typed(
       "_acpmux/events",
@@ -15475,7 +15479,7 @@ export class AcpmuxDirectClient {
     return read;
   }
 
-  private mergeIndexedPage(page: EventRecord[]): boolean {
+  private mergeIndexedPage(page: EventRecord[], fillGaps = true, keepPlaceholders = true): boolean {
     if (!page.length) return false;
     const before = this.events.length ? this.events[0]!.seq : Number.POSITIVE_INFINITY;
     const pageStart = Math.min(...page.map((event) => event.seq));
@@ -15486,13 +15490,15 @@ export class AcpmuxDirectClient {
     // newly held records, as `checkFinishedTurn` does for a narrow repair read.
     this.rebuildKeepingLiveState(Math.min(before, ...page.map((event) => event.seq)) - 1);
     const held = new Set(this.events.map((event) => event.seq));
-    for (const row of indexedPromptPlaceholders(this.promptIndex?.rows ?? [], held, pageStart, tailStart))
-      this.indexedPlaceholders.set(row.id, row);
+    if (keepPlaceholders) {
+      for (const row of indexedPromptPlaceholders(this.promptIndex?.rows ?? [], held, pageStart, tailStart))
+        this.indexedPlaceholders.set(row.id, row);
+    }
     this.emit("history");
     // The page sits below the held tail with a hole between them: no older page reads across it
     // (they page down from `firstSeq`), so read it forward from the page's end, in the background.
     const pageEnd = Math.max(...page.map((event) => event.seq));
-    if (Number.isFinite(tailStart) && pageEnd + 1 < tailStart) {
+    if (fillGaps && Number.isFinite(tailStart) && pageEnd + 1 < tailStart) {
       this.indexedGaps.unshift({ after: pageEnd, before: tailStart });
       this.startIndexedGapFill();
     }
@@ -15633,6 +15639,31 @@ export class AcpmuxDirectClient {
       await this.loadOlder(seq);
       if (this.firstSeq === from) return held();
     }
+  }
+
+  /// A source-use click already has the exact record sequence, authorized by its native host.
+  /// Read one bounded window ending at that record, with no page walk or background gap fill.
+  async loadSourceReply(seq: number, replyId: string): Promise<boolean> {
+    if (!Number.isSafeInteger(seq) || seq < 1 || replyId.length === 0 || replyId.length > 200) return false;
+    const id = `assistant-${replyId}`;
+    if (this.rows.get(id)?.kind === "assistant") return true;
+    const sessionId = this.selectedSessionId;
+    const generation = this.selectionGeneration;
+    const page = await this.indexedPage(seq, true);
+    if (!page || this.closed || generation !== this.selectionGeneration || sessionId !== this.selectedSessionId)
+      return false;
+    if (
+      !page.some(
+        (record) =>
+          record.seq === seq &&
+          record.dir === "mux" &&
+          record.kind === "turn_sources" &&
+          record.msg?.replyId === replyId,
+      )
+    )
+      return false;
+    this.mergeIndexedPage(page, false, false);
+    return this.rows.get(id)?.kind === "assistant";
   }
 
   /// Pages older transcript events in without reattaching, so the live summary,

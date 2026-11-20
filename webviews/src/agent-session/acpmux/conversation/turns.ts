@@ -2153,7 +2153,7 @@ function shapeTurn(
     ...(continuable && { continuable }),
     ...(failedAgain && { failedAgain: true as const }),
     ...(changedFiles && { changedFiles: true as const }),
-    ...(answer && { answerId: answer.id }),
+    ...(answer && { answerId: answer.id, sources: answer.sources }),
     // Retry sends the prompt as the agent got it: an incoming message with its sender. A
     // notification, or acpmux's inbox notice, is not a prompt to send again (incomingMessage.ts).
     // The retry target's prompt (``isRetryablePrompt``, which implies the rest), or, as on base, the
@@ -2261,7 +2261,7 @@ function withTailAnswers(tail: AcpmuxRow[], endedBackground: ReadonlySet<string>
     const key = body.reduce((sum, each) => (sum * 31 + each.version) % VERSION_SPAN, body.length);
     out[at] = {
       ...row,
-      ...(answer && { text: answer.text, answerId: answer.id }),
+      ...(answer && { text: answer.text, answerId: answer.id, sources: answer.sources }),
       turnCopy: parts,
       ...withWork(body),
       version: row.version * VERSION_SPAN + key,
@@ -2332,6 +2332,7 @@ function backgroundFooters(tail: AcpmuxRow[], endedBackground: ReadonlySet<strin
       durationMs: Math.max(0, row.at - body.rows[0]!.at),
       text: answer.text,
       answerId: answer.id,
+      sources: answer.sources,
       turnCopy: parts,
       ...withWork(body.rows),
       ...(through !== undefined && { seq: through }),
@@ -2612,6 +2613,7 @@ function supersededFooters(
       ...workedSpan(began, turn[to]?.at ?? stretch.at(-1)!.at),
       text: answer.text,
       answerId: answer.id,
+      sources: answer.sources,
       turnCopy: parts,
       ...withWork(stretch),
     });
@@ -2653,7 +2655,7 @@ function supersededFooters(
       const footer = list[at];
       if (footer && (footer.text || footer.turnCopy)) {
         out ??= [...drawn];
-        const { text: _text, turnCopy: _turnCopy, answerId: _answerId, ...rest } = footer;
+        const { text: _text, turnCopy: _turnCopy, answerId: _answerId, sources: _sources, ...rest } = footer;
         // A new version, so the memoized footer and its measured height draw again.
         out[at] = { ...rest, version: footer.version * 2 + 1 };
       }

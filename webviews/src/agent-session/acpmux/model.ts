@@ -1,3 +1,4 @@
+import type { MessageSource } from "./messageSources";
 import { experimentArm } from "../../experiments/experiment";
 import { permissionCardHeight } from "./permissions/cardHeight";
 import { freshMeasureContext } from "./measureContext";
@@ -492,6 +493,7 @@ export type AcpmuxRow = {
   /// A finished reply's checked claims ("tests pass"), from acpmux's `claim_checks` at its turn's
   /// end (hub/claim_check.rs): each one's phrase draws a mark (conversation/ClaimMark.tsx).
   claims?: ClaimCheck[];
+  sources?: MessageSource[];
   streaming?: boolean;
   pending?: boolean;
   failed?: boolean;

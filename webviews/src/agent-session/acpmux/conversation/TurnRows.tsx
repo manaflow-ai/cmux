@@ -63,6 +63,7 @@ import { CodeRouterAction } from "./CodeRouterOffer";
 import { useCodeRouterChoice } from "./codeRouterOfferModel";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { PresentationContext } from "./presentationContextModel";
+import { MessageSources } from "./MessageSources";
 import { useTurnWaterfall } from "./useTurnWaterfall";
 import { groupDisclosureKey, runDisclosureKey, runLinks, runShape, thoughtIds } from "./turnRowsModel";
 
@@ -552,6 +553,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           {stoppedLook === "trailing" && stoppedWord}
         </MessageFooterRow>
       </div>
+      <MessageSources sources={row.sources} />
       {!messages && timeline.panel}
     </>
   );

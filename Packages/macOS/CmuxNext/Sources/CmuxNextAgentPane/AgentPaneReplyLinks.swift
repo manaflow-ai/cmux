@@ -321,7 +321,12 @@ extension AgentPaneModel {
         }
         guard let url = AgentPaneFileOpen.resolve(canonical), let onOpenFile else { return .failure(.pathInvalid) }
         // A tab is cmux's file pages, which show any file as text and never run it.
-        return await onOpenFile(url, .tab) ? .success(()) : .failure(.openFailed)
+        let opened = if let onOpenFileWithSource {
+            await onOpenFileWithSource(url, .tab, path)
+        } else {
+            await onOpenFile(url, .tab)
+        }
+        return opened ? .success(()) : .failure(.openFailed)
     }
 
     private func confirmOutside(_ path: String) async -> Bool {

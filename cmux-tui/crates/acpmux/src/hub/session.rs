@@ -477,6 +477,7 @@ pub struct Session {
     /// The running turn's finished command calls, bounded, that its last reply's claims are
     /// checked against when it ends (`claim_check.rs`).
     pub(super) claim_runs: StdMutex<super::claim_check::ClaimRuns>,
+    pub(super) turn_sources: StdMutex<super::turn_sources::TurnSources>,
     /// Its command calls while its harness's sandbox refuses them, newest last and bounded
     /// (`harness_sandbox.rs`): one that completes ends the failure. Empty otherwise.
     pub(super) harness_sandbox_calls: StdMutex<std::collections::VecDeque<String>>,

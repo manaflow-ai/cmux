@@ -550,6 +550,22 @@ export class MarkdownStore {
    * Shows `path` in the page; true when it is shown (already, or loaded now). `reread` reads the
    * file shown now from disk again (Reload).
    */
+  /** A reused viewer gains a new originating chat without reloading or saving its document. */
+  updateSourceContext(value: unknown): void {
+    if (!value || typeof value !== "object") return;
+    const { path, sourceUses, sourceContext } = value as Record<string, unknown>;
+    const config = this.state.config;
+    if (
+      !config ||
+      path !== config.path ||
+      this.state.navigating ||
+      typeof sourceUses !== "boolean" ||
+      (sourceUses && (typeof sourceContext !== "string" || !sourceContext))
+    )
+      return;
+    this.set({ config: { ...config, sourceUses, sourceContext: sourceUses ? (sourceContext as string) : undefined } });
+  }
+
   private async show(path: string, reread = false): Promise<boolean> {
     const config = this.state.config;
     if (!config || !this.client) return false;
@@ -582,6 +598,8 @@ export class MarkdownStore {
         text: file.text,
         hash: file.hash,
         githubRepository: file.githubRepository,
+        sourceUses: file.sourceUses,
+        sourceContext: file.sourceContext,
         readOnly,
         readOnlyReason: file.readOnlyReason,
         assetBase: file.assetBase,

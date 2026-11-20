@@ -7,6 +7,7 @@
 // A reply's checkable claims against the turn's runs (`claim_checks`).
 mod claim_check;
 mod control_asks;
+mod turn_sources;
 
 mod activity;
 // A foreground shell still running after a minute goes to the background (Claude Code).
@@ -2086,6 +2087,7 @@ impl Hub {
             stops: AtomicU64::new(0),
             cancels: AtomicU64::new(0),
             claim_runs: StdMutex::new(Default::default()),
+            turn_sources: StdMutex::new(Default::default()),
             start_retry_wake: Notify::new(),
             start_retry_waits: AtomicBool::new(false),
             start_retry_cancels: AtomicU64::new(start_retry::NO_RETRY),
@@ -2948,6 +2950,16 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         crate::session_search::search(self.store.as_ref(), id, query)
             .map_err(|e| RpcError::internal(format!("the session's log could not be read: {e}")))
+    }
+
+    /// Only persisted source-use edges, read through the existing journal's kind index.
+    pub fn source_uses(
+        &self,
+        id: &str,
+        query: &crate::source_uses::Query,
+    ) -> Result<Value, RpcError> {
+        crate::source_uses::read(self.store.as_ref(), id, query)
+            .map_err(|e| RpcError::invalid_params(format!("{e:#}")))
     }
 
     /// Turn-by-turn summary from the event log.

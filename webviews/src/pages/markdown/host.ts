@@ -64,6 +64,9 @@ export const MARKDOWN_OPEN_LINK_OP = "cmux.markdown.openLink";
 export const MARKDOWN_HISTORY_OP = "cmux.markdown.history";
 export const MARKDOWN_RESOLVE_LINKS_OP = "cmux.markdown.resolveLinks";
 export const MARKDOWN_LIST_FILES_OP = "cmux.markdown.listFiles";
+/** Only offered for a file opened from a trusted originating chat. No session is supplied by the page. */
+export const MARKDOWN_SOURCE_USES_OP = "cmux.markdown.sourceUses";
+export const MARKDOWN_REVEAL_SOURCE_USE_OP = "cmux.markdown.revealSourceUse";
 /** A user click approves guarded web-image loads for the document currently shown in this tab. */
 export const MARKDOWN_LOAD_REMOTE_IMAGES_OP = "cmux.markdown.loadRemoteImages";
 export const MARKDOWN_SET_TABLE_WIDTHS_OP = "cmux.markdown.setTableWidths";
@@ -91,6 +94,10 @@ export const MARKDOWN_UNAVAILABLE = "cmux.markdown.unavailable";
 export type MarkdownReadOnlyReason = "outside" | "encoding" | "binary" | "permission" | "transcript";
 
 export interface MarkdownConfig {
+  /** The native host captured an originating chat and can list this document's source-use edges. */
+  sourceUses?: boolean;
+  /** Opaque identity of the host's captured chat context; replacing it invalidates pending queries. */
+  sourceContext?: string;
   /** The file's absolute path. */
   path: string;
   /** The file's text (UTF-8). A host refuses or opens read only a file that is not valid UTF-8. */
@@ -171,6 +178,8 @@ export interface MarkdownConflict {
 
 /** The file part of what `cmux.markdown.open` answers (a `MarkdownConfig`). */
 export interface MarkdownFile {
+  sourceUses?: boolean;
+  sourceContext?: string;
   path: string;
   text: string;
   hash: string;

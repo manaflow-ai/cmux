@@ -107,7 +107,7 @@ impl Hub {
         }
         match method {
             INITIALIZE | MUX_STATUS | MUX_PERSON_ENROLL | MUX_PERSON_PROVE => {}
-            MUX_ATTACH | MUX_INFO | MUX_EVENTS => {
+            MUX_ATTACH | MUX_INFO | MUX_EVENTS | MUX_SOURCE_USES => {
                 if let Ok(key) = crate::server::session_key(params) {
                     self.session_meta(key).await;
                 }

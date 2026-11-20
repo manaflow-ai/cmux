@@ -542,6 +542,7 @@ import {
   setLinkScheme,
 } from "./links";
 import { NeedsYouButton } from "./needsYou/NeedsYou";
+import { revealedSourceReply, sourceReplyRows } from "./sourceReplyReveal";
 import { useNeedsYou } from "./needsYou/useNeedsYou";
 import { copyText } from "./conversation/clipboard";
 import { lastCodeBlock } from "./conversation/lastCodeBlock";
@@ -2210,10 +2211,37 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// which row it asked for; undefined while this chat has no row for that message. Set below,
   /// where the chat's rows are.
   const showMessage = useRef<(messageId: string) => string | undefined>(() => undefined);
+  const showSourceReply = useRef<(segment: string) => string | undefined>(() => undefined);
   const showTimelineTurn = useRef<(turnId: string) => void>(() => undefined);
   /// ``showMessage`` for a message the chats page found by its words (a `said:` reveal).
   const showSaid = useRef<(said: SaidReveal) => string | undefined>(() => undefined);
   const reveal = (value: string) => {
+    const sourceReply = revealedSourceReply(value);
+    if (sourceReply !== undefined) {
+      const chat = shownView.current;
+      const client = directClient.current;
+      const current = () => shownView.current === chat && directClient.current === client;
+      const show = async () => {
+        if (
+          sourceReply.seq !== undefined &&
+          (!client || !(await client.loadSourceReply(sourceReply.seq, sourceReply.replyId)))
+        ) {
+          if (current()) notices.failed(t("turn.sources.revealFailed"));
+          return;
+        }
+        if (!current()) return;
+        const shown = await revealMessageWhenShown(
+          sourceReply.replyId,
+          (segment) => (current() ? showSourceReply.current(segment) : undefined),
+          document,
+          { chat: () => shownView.current },
+        );
+        if (!shown && current()) notices.failed(t("turn.sources.revealFailed"));
+      };
+      return void show().catch(() => {
+        if (current()) notices.failed(t("turn.sources.revealFailed"));
+      });
+    }
     // The command palette's chats page opens a chat at the message it found by what was said:
     // the newest row of that kind holding the words, brought in as a `message=<id>` link's is.
     const said = revealedSaid(value);
@@ -6317,6 +6345,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     return target.rowId;
   };
   showMessage.current = (messageId) => showRows(() => directClient.current?.rowsOfMessage(messageId) ?? []);
+  showSourceReply.current = (segment) => showRows((rows) => sourceReplyRows(rows, segment));
   showSaid.current = (said) => showRows((rows) => saidRows(rows, said));
   // Jump to new (conversation/SinceDivider.tsx): "New since you looked" is a row like any other, so
   // the transcript brings it in by its place in the chat even when it is far above the view.
