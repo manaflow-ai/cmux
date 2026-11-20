@@ -67,6 +67,16 @@ struct TerminalChatSwitchMenuTests {
         #expect(!rows.contains { ActionRegistry.menuRun(of: $0)?.id == Self.toggle }, "a shell with no agent session has no chat")
     }
 
+    // The title the palette and both menus read: only a terminal running a session the toggle can open as a chat
+    // reads Switch to Chat; a plain shell or an agent it cannot open keeps the catalog's title (no promise it breaks).
+    @Test(arguments: [("claude", "Switch to Chat"), ("codex", "Switch to Chat"), ("opencode", nil)] as [(String, String?)])
+    func aTerminalsTitleNamesTheWayItGoes(agent: String, title: String?) throws {
+        let fixture = try Fixture()
+        #expect(TerminalChatHandler.switchTitle(of: fixture.terminal, services: fixture.services) == nil)
+        fixture.terminal.agent = AgentStatus(surface: SurfaceID(rawValue: 1), state: .idle, session: "s-1", agent: agent)
+        #expect(TerminalChatHandler.switchTitle(of: fixture.terminal, services: fixture.services) == title)
+    }
+
     // The right-click's row is the same row, titled the same way (one path: the action's target title).
     @Test func theRightClickNamesTheDirectionToo() throws {
         let fixture = try Fixture()

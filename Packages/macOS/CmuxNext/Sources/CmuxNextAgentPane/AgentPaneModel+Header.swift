@@ -125,7 +125,7 @@ public struct AgentPaneHeaderHooks {
     /// Whether the chat's tab still shows acpmux session `session` (a session-bound `action.run`).
     public var showsChat: @MainActor (String) -> Bool
     /// Whether the chat is half of a terminal and chat pair, so its "..." offers Switch to Terminal
-    /// (`pane.tabState`'s `terminalSwitch`, read as the menu opens). None by default.
+    /// (`pane.tabState {terminalSwitch: true}`'s `terminalSwitch`, read as the menu opens). None by default.
     public var switchesToTerminal: @MainActor () -> Bool
 
     public init(run: @escaping @MainActor (String, String?) -> Void,
@@ -312,7 +312,7 @@ extension AgentPaneModel {
             guard tabRow.nativeToolsEnabled else { return AgentPaneReply.success() }
             onTabRowToolMenuRequested?(id, menuItemID)
             return AgentPaneReply.success()
-        case .tabState(let refresh):
+        case .tabState(let refresh, let terminalSwitch):
             guard let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.tabState")
             }
@@ -321,7 +321,7 @@ extension AgentPaneModel {
             state["moves"] = moves.ids
             state["moveReasons"] = moves.reasons
             state["moveTargets"] = header.moveTargets().map(\.reply)
-            state["terminalSwitch"] = header.switchesToTerminal()
+            if terminalSwitch { state["terminalSwitch"] = header.switchesToTerminal() }
             return AgentPaneReply.success(state)
         case .sideChat(let fork, let splitRight):
             return await AgentPaneSideChat.open(fork, splitRight: splitRight, in: self)

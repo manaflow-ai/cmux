@@ -10819,7 +10819,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     window.addEventListener("cmux-acpmux-menu-command", run);
     return () => window.removeEventListener("cmux-acpmux-menu-command", run);
   }, [localCwd, openInstructions, summary?.family, summary?.harness, t]);
-  const readTabState = () => callNative("pane.tabState").then(setHeaderState);
+  // `pair`: also ask whether a terminal runs this chat (its "..." offers Switch to terminal): the App walks every
+  // machine's agents for it, so only the chat's load and its menu opening ask, never a hover.
+  const readTabState = (pair = false) =>
+    callNative("pane.tabState", pair ? { terminalSwitch: true } : undefined).then(setHeaderState);
   const refreshTabState = () => void readTabState().catch(() => undefined);
   // Terminal and Browser change what is beside the chat: [+] follows once their split lands.
   const runSplitAction = (id: string, cwd: string | undefined, mode: QuickActionMode) => {
@@ -10915,7 +10918,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   // The label starts from the chat's layout; Quick Chat's panel has no tab to read.
   useEffect(() => {
-    if (!quick) void readTabState().catch(() => undefined);
+    if (!quick) void readTabState(true).catch(() => undefined);
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- reread per chat, not per render
   }, [quick, snapshot.sessionId]);
   // A turn's end asks the App for the chat's pull request again (cx-ncc.77.1): the agent may have
@@ -11285,10 +11288,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // Move to Terminal (header/terminalMoveRow.ts): this pane stops running the chat, then the
     // harness's own resume runs it in a terminal and the tab closes; never while a turn runs.
     // Not on a chat a terminal already runs: Switch to terminal shows that one.
-    const terminalMove = terminalSwitch.length
-      ? []
-      : guarded(
-          terminalMoveRow(
+    const terminalMove = guarded(
+      terminalSwitch.length
+        ? undefined
+        : terminalMoveRow(
             {
               sessionId,
               family: summary?.family || summary?.harness,
@@ -11313,7 +11316,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               ),
             t,
           ),
-        );
+    );
     // Quick Chat's panel is not a tab: only the chat's own actions.
     if (quick) return menuGroups(fork, continueIn, resend, copy ? [copy] : [], moveRow, tools, remove);
     // ChatGPT's order: the chat's name and pin, new chats from it, Copy, where it shows, then Archive.
@@ -14305,7 +14308,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       }
                       summary={sessionInfo.on ? null : (native) => <SummaryButton card={summaryCard} native={native} />}
                       menu={chatMenu}
-                      onMenuOpen={() => Promise.all([readTabState(), readChatMini()])}
+                      onMenuOpen={() => Promise.all([readTabState(true), readChatMini()])}
                       expand={continuing && canContinue ? "continue" : undefined}
                       onExpanded={stopContinuing}
                     />

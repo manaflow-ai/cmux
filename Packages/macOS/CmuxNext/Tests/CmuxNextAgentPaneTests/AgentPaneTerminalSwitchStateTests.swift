@@ -1,7 +1,9 @@
 import Testing
 @testable import CmuxNextAgentPane
 
-/// The chat's menu reads whether it is half of a pair from `pane.tabState` (its `terminalSwitch`), as the menu opens.
+/// The chat's menu reads whether it is half of a pair from `pane.tabState {terminalSwitch: true}`, which it sends as
+/// the chat loads and as its "..." opens. Other reads (a hover over the header tools, a turn's end) do not ask, so the
+/// App does not walk every machine's agents for them.
 @MainActor
 struct AgentPaneTerminalSwitchStateTests {
     private actor NoHost: AgentPaneHostProviding {
@@ -12,8 +14,16 @@ struct AgentPaneTerminalSwitchStateTests {
     func theTabStateSaysWhetherATerminalRunsTheChat(pair: Bool) async {
         let model = AgentPaneModel(host: NoHost())
         model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() }, switchesToTerminal: { pair })
-        let reply = await model.respond(to: .tabState(refresh: false))
-        let result = reply["value"] as? [String: Any]
-        #expect(result?["terminalSwitch"] as? Bool == pair)
+        let reply = await model.respond(to: AgentPaneRequest(body: ["method": "pane.tabState", "params": ["terminalSwitch": true]]))
+        #expect((reply["value"] as? [String: Any])?["terminalSwitch"] as? Bool == pair)
+    }
+
+    @Test func aReadThatDoesNotAskWalksNothing() async {
+        let model = AgentPaneModel(host: NoHost())
+        var asked = 0
+        model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() }, switchesToTerminal: { asked += 1; return true })
+        let reply = await model.respond(to: AgentPaneRequest(body: ["method": "pane.tabState"]))
+        #expect((reply["value"] as? [String: Any])?["terminalSwitch"] == nil)
+        #expect(asked == 0)
     }
 }

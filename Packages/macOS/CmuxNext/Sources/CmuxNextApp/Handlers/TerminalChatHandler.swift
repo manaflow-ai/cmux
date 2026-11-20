@@ -31,19 +31,23 @@ enum TerminalChatHandler {
         }
     }
 
-    /// The row's title on `tab`, the way Toggle goes from it: a terminal running an agent session switches to its
-    /// chat, an agent chat to its terminal; nil (the catalog's "Toggle Terminal and Chat") for any other tab.
-    /// Reads only the tab's kind and session: a palette title must not walk every machine's agents.
+    /// The row's title on `tab`, the way Toggle goes from it: a terminal running a Claude Code or Codex session
+    /// switches to its chat, a chat with a session to its terminal; nil (the catalog's "Toggle Terminal and Chat")
+    /// for any other tab. Reads only the tab and its session: a palette title must not walk every machine's agents.
     static func switchTitle(of tab: TabModel, services: AppServices) -> String? {
-        if tab.kind == .pty { return tab.agent?.harnessSessionID == nil ? nil : MiscHandlerStrings.terminalChatSwitchToChat }
-        return services.agentTabs.isAgentTab(tab.id) ? MiscHandlerStrings.terminalChatSwitchToTerminal : nil
+        if tab.kind == .pty {
+            guard tab.agent?.harnessSessionID != nil, let agent = tab.agent?.agent, WindowRules().agentHarness(agent) != nil else { return nil }
+            return MiscHandlerStrings.terminalChatSwitchToChat
+        }
+        return services.agentTabs.isAgentTab(tab.id) && chatSession(of: tab, services: services) != nil ? MiscHandlerStrings.terminalChatSwitchToTerminal : nil
     }
 
     /// The tab `invocation` names (a menu row's), else the focused pane's selected tab (the palette's).
     private static func targetTab(_ invocation: ActionInvocation, context: AppActionContext) -> TabModel? {
         if let target = invocation.target, target.kind == .tab {
             let services = context.services
-            return (invocation.targetMachineID.flatMap { services.locateTab(target.id, onMachine: $0) } ?? services.locateTab(target.id))?.0
+            // A named machine never falls back to a same-id tab of another (a fork keeps its ids).
+            return (invocation.targetMachineID.map { services.locateTab(target.id, onMachine: $0) } ?? services.locateTab(target.id))?.0
         }
         guard let (pane, id) = context.scope(invocation).tab else { return nil }
         return pane.tab(id)
