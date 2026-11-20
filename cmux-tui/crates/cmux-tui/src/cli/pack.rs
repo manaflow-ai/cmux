@@ -529,7 +529,15 @@ fn reload(
 /// name, made with no clobber (mode 0700 on unix), never a predictable path
 /// and never one that was there before. Removed when it drops.
 fn scratch_dir() -> std::io::Result<tempfile::TempDir> {
-    tempfile::Builder::new().prefix("cmux-pack-bench-").tempdir()
+    let mut builder = tempfile::Builder::new();
+    builder.prefix("cmux-pack-bench-");
+    // Only this user may read or write the scratch folder, whatever the umask.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        builder.permissions(std::fs::Permissions::from_mode(0o700));
+    }
+    builder.tempdir()
 }
 
 /// The nearest-rank `percent` percentile of sorted `samples`.
