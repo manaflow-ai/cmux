@@ -3,7 +3,7 @@ import { useIcons } from "../../agent-session/acpmux/icons/iconsContextModel";
 import { bundledIconPack, MISSING_ICON } from "../../agent-session/acpmux/icons/iconPack";
 import { AgentMark } from "../../agent-session/shared/AgentMark";
 import { sceneText } from "./sceneStyle";
-import { symbolGlyphColor } from "./sceneSymbolRendering";
+import { symbolLayerPaint } from "./sceneSymbolRendering";
 
 /** The common SF symbols emitted by sample apps; pack names also pass through directly. */
 const SYMBOLS: Record<string, string> = {
@@ -63,6 +63,29 @@ const SYMBOLS: Record<string, string> = {
   "pin.fill": "state.pinned",
   gearshape: "settings",
   "gearshape.fill": "settings",
+  // The symbols `cmux ext new`'s templates and its design defaults (templates/common/DESIGN.md) use.
+  circle: "task.status.todo",
+  sparkles: "task.ai",
+  rectangle: "workspace",
+  "rectangle.inset.filled": "workspace",
+  "chevron.right": "disclosure.collapsed",
+  house: "home",
+  timer: "time.waiting",
+  bell: "notification",
+  gearshape: "settings",
+  magnifyingglass: "search",
+  "chart.bar": "agent.activity",
+  star: "bookmark",
+  "star.fill": "bookmark.active",
+  tray: "inbox",
+  person: "account",
+  globe: "link.web",
+  "play.fill": "media.play",
+  "pause.fill": "media.pause",
+  "list.bullet": "view.list",
+  "square.grid.2x2": "view.grid",
+  "bubble.left": "agent.chat",
+  "arrow.clockwise": "action.reload",
 };
 
 export function appSceneIcon(value: unknown): string {
@@ -75,8 +98,8 @@ export function appSceneIcon(value: unknown): string {
 export const HARNESS_PREFIX = "harness:";
 
 /** Unknown SF names deliberately draw a neutral fallback without an icon-pack warning. `rendering`
- * (`symbolRendering`) and `palette` (`symbolColors`) pick the glyph's color as SF Symbols' modes
- * do, for the glyph as a whole (sceneSymbolRendering.ts). */
+ * (`symbolRendering`) and `palette` (`symbolColors`) color the glyph's layers as SF Symbols' modes
+ * do, as far as the pack's layers allow (sceneSymbolRendering.ts). */
 export function SceneSymbol({
   symbol,
   size = 14,
@@ -105,6 +128,6 @@ export function SceneSymbol({
   }
   const mapped = Object.hasOwn(pack.icons, value) ? value : SYMBOLS[value];
   const name = mapped && Object.hasOwn(pack.icons, mapped) ? mapped : MISSING_ICON;
-  const modeColor = name === MISSING_ICON ? undefined : symbolGlyphColor(value, rendering, palette);
-  return <Icon name={name} size={size} row fit color={modeColor ?? color} className={className} />;
+  const layerPaint = name === MISSING_ICON ? undefined : symbolLayerPaint(value, rendering, palette);
+  return <Icon name={name} size={size} row fit color={color} className={className} layerPaint={layerPaint} />;
 }

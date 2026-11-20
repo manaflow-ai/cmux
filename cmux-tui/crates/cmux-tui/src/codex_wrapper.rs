@@ -41,6 +41,7 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
         current_executable().ok().and_then(|exe| crate::own_build_helpers::wrapper_shim_dir(&exe));
     let Some(codex) = find_real_codex(&path, shim_dir.as_deref()) else {
         eprintln!("{}", messages.agent_not_found);
+        eprintln!("{}", messages.codex_install_hint);
         return 127;
     };
 

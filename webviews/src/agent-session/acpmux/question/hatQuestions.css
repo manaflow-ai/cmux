@@ -93,7 +93,7 @@
   overflow: hidden;
   padding: 0 var(--ds-space-1, 4px);
   border-radius: var(--ds-radius-md, 6px);
-  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  background: var(--ds-surface-inset);
   color: var(--agent-muted);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
