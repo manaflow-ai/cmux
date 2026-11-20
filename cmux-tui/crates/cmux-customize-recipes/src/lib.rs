@@ -31,6 +31,7 @@ pub enum Group {
     Type,
     Widgets,
     Keys,
+    /// Looks and behavior like another app's, whole: theme file, chat stylesheet and settings.
     Apps,
 }
 
@@ -216,9 +217,9 @@ pub const RECIPES: &[Recipe] = &[
     },
     Recipe {
         name: "claude-code-app",
-        title: "Like the Claude Code desktop app",
+        title: "Like the Claude desktop app",
         group: Group::Apps,
-        ask: "make cmux look and work like the Claude Code desktop app",
+        ask: "make cmux look and work like the Claude desktop app's Code tab",
         profile: include_str!("../recipes/claude-code-app.json"),
         includes: CLAUDE_CODE_APP,
     },

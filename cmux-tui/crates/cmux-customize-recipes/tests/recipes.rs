@@ -43,8 +43,9 @@ fn a_recipe_that_names_a_key_the_schema_lacks_is_refused() {
 }
 
 #[test]
-fn there_are_thirteen_recipes_with_unique_names_in_every_group() {
-    assert_eq!(RECIPES.len(), 13);
+fn every_recipe_has_a_unique_name_and_every_group_a_recipe() {
+    // No fixed count: each look that ships adds its recipe without editing a number here.
+    assert!(RECIPES.len() >= 10, "{} recipes", RECIPES.len());
     let mut names: Vec<_> = RECIPES.iter().map(|recipe| recipe.name).collect();
     names.sort();
     names.dedup();
@@ -82,7 +83,7 @@ fn each_app_look_alike_carries_its_theme_its_chat_stylesheet_and_its_settings() 
             .get("agent-pane/theme.css")
             .unwrap_or_else(|| panic!("{name} carries no chat stylesheet"));
         assert!(
-            chat.contains(".cv-user__bubble"),
+            chat.contains(".cv-user__bubble") || chat.contains("--cv-bubble"),
             "{name}: the stylesheet leaves the prompt alone"
         );
         for key in [

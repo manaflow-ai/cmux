@@ -19,7 +19,7 @@ use std::sync::Mutex;
 mod compact;
 pub use compact::{CompactMode, Compaction, Staged};
 mod deferred;
-pub use deferred::{Deferral, Keep};
+pub use deferred::{Deferral, HeldBack, Keep, held_file};
 mod cold;
 pub use cold::{COLD_FILE, ColdStats, RehydrateHook, StagedCold};
 mod superseded;
@@ -40,9 +40,10 @@ pub use log_bytes::{
 };
 mod meta_parts;
 pub use meta_parts::PARTS_FILE;
+pub(crate) use meta_parts::to_writer_without_parts;
 mod shared_value;
 mod text_index;
-pub use shared_value::{SharedRows, SharedValue};
+pub use shared_value::{SharedRows, SharedText, SharedValue};
 
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -183,6 +184,9 @@ pub struct SessionMeta {
     pub schema: String,
     pub id: String,
     pub name: String,
+    /// Explicit spoken handle. Older and unnamed sessions derive one from the same stable id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handle: Option<String>,
     /// Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
     /// default (`hub/new_request.rs` `unique_name_among`). False in a log from before it was kept.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -840,6 +844,10 @@ pub struct ToolRow {
 pub const RETIRED_AGENT_SESSION_IDS: usize = 32;
 
 impl SessionMeta {
+    pub(crate) fn spoken_handle(&self) -> std::borrow::Cow<'_, str> {
+        crate::session_handle::display(self.handle.as_deref(), &self.id)
+    }
+
     /// Whether its harness counts a turn's input apart from the prompt cache, as Anthropic's
     /// usage does, told from what this record knows of how the chat ran (a daemon that has its
     /// config asks the profile's kind first, `Hub::input_excludes_cache`):
@@ -1464,6 +1472,19 @@ pub trait Store: Send + Sync {
     fn kept_parked(&self, _id: &str) -> Result<Option<Vec<u8>>> {
         Ok(None)
     }
+    /// Keeps `held`, the body of a tool output snapshot or turn diff chat `id` holds back from
+    /// its log (`store/deferred.rs`), as slot `slot` (lowercase hex, `Deferral::slot`) beside the
+    /// log, in place of what the slot kept; None removes it, and a slot with nothing is Ok. The
+    /// body is kept before its stub is logged, so the next start stores what a killed daemon held
+    /// (`Hub::take_back_held`). Not synced: a kill keeps it, a power cut may not. Never makes a
+    /// chat's folder that is gone. A store that keeps nothing across a restart keeps nothing here.
+    fn keep_held(&self, _id: &str, _slot: &str, _held: Option<&[u8]>) -> Result<()> {
+        Ok(())
+    }
+    /// What [`Store::keep_held`] keeps for chat `id`: each slot and its bytes, in no order.
+    fn kept_held(&self, _id: &str) -> Result<Vec<(String, Vec<u8>)>> {
+        Ok(Vec::new())
+    }
     /// Writes a cold archive of `id`'s log beside it and checks it (`store/cold.rs`); None
     /// without a log to archive, or for a store that keeps none.
     fn stage_cold(&self, _id: &str) -> Result<Option<StagedCold>> {
@@ -1648,6 +1669,8 @@ struct Writers {
 
 /// What a chat keeps while a journal restore holds it (`Store::keep_parked`), beside its log.
 const PARKED: &str = "parked.json";
+/// The folder of a chat's held tool output bodies (`Store::keep_held`), beside its log.
+const HELD: &str = "held";
 
 struct SegmentWriter {
     index: u32,
@@ -2581,6 +2604,59 @@ impl Store for LocalStore {
             Err(_) if crate::home_fs::symlink_metadata(&path).is_err() => Ok(None),
             Err(e) => Err(e),
         }
+    }
+
+    /// `<id>/held/<slot>.json`, beside the chat's `events/`: written whole by a rename, not
+    /// synced (a kill keeps what the kernel was given). Never makes the chat's folder: a deleted
+    /// chat gets no file of its own again.
+    fn keep_held(&self, id: &str, slot: &str, held: Option<&[u8]>) -> Result<()> {
+        anyhow::ensure!(deferred::is_slot(slot), "{slot:?} names no held slot");
+        let _open = self.writable()?;
+        let dir = self.dir(id).join(HELD);
+        let path = dir.join(format!("{slot}.json"));
+        match held {
+            Some(bytes) => {
+                // `held/` alone, never its parent: whenever a delete removed the chat's folder,
+                // this fails. Read in the held home, never by path (#41721 review F1).
+                if crate::home_fs::symlink_metadata(&dir).is_err() {
+                    match crate::home_fs::create_dir(&dir, 0o700) {
+                        Ok(()) => {}
+                        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+                        Err(e) => {
+                            return Err(e).with_context(|| format!("create {}", dir.display()));
+                        }
+                    }
+                }
+                crate::config::write_atomic_unsynced(&path, bytes)
+            }
+            None => match crate::home_fs::remove_file(&path) {
+                Ok(()) => Ok(()),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(e) => Err(e).with_context(|| format!("remove {}", path.display())),
+            },
+        }
+    }
+
+    /// Every `<slot>.json` in `<id>/held/`; none without the folder. A copy a write left (named
+    /// `<slot>.tmp-<pid>`) is no slot's.
+    fn kept_held(&self, id: &str) -> Result<Vec<(String, Vec<u8>)>> {
+        let dir = self.dir(id).join(HELD);
+        let entries = match crate::home_fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(e).with_context(|| format!("list {}", dir.display())),
+        };
+        let mut out = Vec::new();
+        for entry in entries {
+            let name = entry.name.to_str().and_then(|n| n.strip_suffix(".json"));
+            let Some(slot) = name.filter(|s| entry.is_file && deferred::is_slot(s)) else {
+                continue;
+            };
+            let mut bytes = Vec::new();
+            crate::home_fs::private_state_file(dir.join(&entry.name))?.read_to_end(&mut bytes)?;
+            out.push((slot.to_owned(), bytes));
+        }
+        Ok(out)
     }
 
     fn delete(&self, id: &str) -> Result<()> {

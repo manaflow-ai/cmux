@@ -1,6 +1,6 @@
 # Customize recipes
 
-Thirteen ready-made changes to cmux. Press **Run** on a recipe's command to try it: cmux changes at
+Ready-made changes to cmux. Press **Run** on a recipe's command to try it: cmux changes at
 once, as a preview. Nothing is kept until you apply it.
 
 - Keep it: `cmux customize apply`
@@ -199,22 +199,25 @@ Or ask: "make cmux true black with a dense sidebar of chats by project"
 | Switch threads | Shift-Command-[ and ] step through the sidebar; Command-1 to 9 already | |
 | Default model for new threads | | No cmux setting picks the agent or model of a new chat, and a recipe does not edit the agent's own config |
 
-### Like the Claude Code desktop app
+### Like the Claude desktop app
 
-A warm dark page, your sessions by project in the sidebar with their branch and pull request,
-the clay accent, and tool rows that show each file and its line counts. Command-N starts a
-Claude chat, Shift-Command-M opens the mode menu (plan mode is in it), and new panes open beside
-the chat.
+The Claude desktop app's Code tab, dark, with colors measured from the real app: a #191919 page,
+a warm #282524 sidebar with a 1 pt line at its edge, sessions under their project with sub-sessions
+nested under the session that started them, title-only rows, a one-line #303030 composer with a
+1 pt edge and 12 pt corners, and your prompt in a #252525 pill. It ships its theme file
+(`themes/claude-code-app.json`) and chat stylesheet (`agent-pane/theme.css`), so you can copy and
+change either. Command-N starts a Claude chat, Shift-Command-M opens the mode menu (plan mode is
+in it), and new panes open beside the chat.
 
 ```sh
 cmux customize use ~/.local/state/cmux/customize/recipes/claude-code-app.json
 ```
 
-Or ask: "make cmux look and work like the Claude Code desktop app"
+Or ask: "make cmux look and work like the Claude desktop app's Code tab"
 
 | Feature | How the recipe does it | Gap |
 | --- | --- | --- |
-| Sessions by project | `sidebar.groupBy` `folder`, `sidebar.workspaceRow.branch`, `sidebar.workspaceRow.pullRequest` | |
+| Sessions by project | `sidebar.groupBy` `folder`, `sidebar.sessionTree` nests sub-sessions | Rows stay title-only, as in the app |
 | New session | Command-N: New Agent Chat with Claude (`harness: claude`) | It opens as a tab in this workspace. Command-N was New Workspace |
 | Permission modes, plan mode | Shift-Command-M: the mode menu, with plan mode (was Copy Mode) | A recipe can't set `agents.defaultPermissionMode` (only you can), nor the default mode in Claude Code's own settings. No Accept edits or Auto mode of cmux's own |
 | Model and effort | Shift-Command-I: Switch Model; Shift-Command-E: Set Effort | |
