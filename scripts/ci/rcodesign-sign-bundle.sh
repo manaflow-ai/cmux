@@ -77,6 +77,16 @@ for dir in bin libexec; do
   done
 done
 
+# Sign the supervisor and screen worker under the helper bundle identifier.
+computer_use="$APP/Contents/Library/cmux Computer Use.app"
+if [[ -d "$computer_use" ]]; then
+  for lib in libcmux_computer_use.dylib libWebRTC.dylib; do
+    sign "$computer_use/Contents/Frameworks/$lib"
+  done
+  sign --binary-identifier com.cmuxterm.cua "$computer_use/Contents/MacOS/cmux-screen-sharing"
+  sign --binary-identifier com.cmuxterm.cua "$computer_use"
+fi
+
 # 2. The Screen Sharing helper app ("<app> Screen Sharing.app",
 # plans/cmux-next/screen-sharing-helper.md): hardened runtime, no entitlements.
 # Its --stamp (bundle-screen-sharing-helper.sh) is not ported, as above.

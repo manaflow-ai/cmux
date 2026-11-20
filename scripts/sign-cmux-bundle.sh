@@ -100,6 +100,7 @@ else
 fi
 
 COMMON=(--force --options runtime "${TS_FLAG[@]}" --sign "$IDENTITY")
+COMPUTER_USE_HELPER="$APP_PATH/Contents/Library/cmux Computer Use.app"
 SYSTEM_EXTENSIONS_DIR="$APP_PATH/Contents/Library/SystemExtensions"
 CEF_FRAMEWORK_NAME="Chromium Embedded Framework.framework"
 SHARE_EXTENSION=CmuxShare.appex
@@ -138,7 +139,28 @@ if [[ "$SIGN_MODE" == "all" ]]; then
   # Developer ID signed; the script re-pins them in the bundled manifest.
   "$SCRIPT_DIR/sign-cmux-tui-ssh-payloads.sh" "$APP_PATH" "$HELPER_ENTITLEMENTS" "$IDENTITY"
 
-  # 2. The Screen Sharing helper app (Contents/Library, bundle-screen-sharing-helper.sh;
+  # 2. The Computer Use helper owns both permission-requesting workers. Its
+  # nested code is signed first, and every executable uses the helper's stable
+  # TCC identity. A release app carries this bundle at Contents/Library and no
+  # separate cmux Remote app.
+  if [[ -d "$COMPUTER_USE_HELPER" ]]; then
+    helper_requirement='identifier "com.cmuxterm.cua" and anchor apple generic and certificate leaf[subject.OU] = "7WLXT3NR37" and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13]'
+    for lib in libcmux_computer_use.dylib libWebRTC.dylib; do
+      nested_dylib="$COMPUTER_USE_HELPER/Contents/Frameworks/$lib"
+      echo "==> signing Computer Use helper library $(basename "$nested_dylib")"
+      "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" "$nested_dylib"
+    done
+    for nested_executable in cmux-remote cmux-screen-sharing; do
+      nested_path="$COMPUTER_USE_HELPER/Contents/MacOS/$nested_executable"
+      echo "==> signing Computer Use helper executable $nested_executable"
+      "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" --identifier com.cmuxterm.cua "$nested_path"
+    done
+    echo "==> signing Computer Use helper"
+    "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$COMPUTER_USE_HELPER"
+    /usr/bin/codesign --verify --strict --verbose=2 -R="$helper_requirement" "$COMPUTER_USE_HELPER"
+  fi
+
+  # 2b. The legacy Screen Sharing helper app (Contents/Library, bundle-screen-sharing-helper.sh;
   # plans/cmux-next/screen-sharing-helper.md): stamped for this app's final bundle id and name
   # (nightly and RC rename the app after the build, and stable-next-identity.sh and
   # nightly-next-legacy-identity.sh re-identify it), then signed as its own app with the
@@ -227,8 +249,17 @@ for screen_helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
 done
 # One Screen Recording holder whose bundle id and requirement stay the same between builds, so a
 # grant survives every update (an ad-hoc signing's requirement is a cdhash by design).
-if [[ "$SIGN_MODE" == "all" && "$IDENTITY" != "-" ]]; then
+if [[ "$SIGN_MODE" == "all" && "$IDENTITY" != "-" && ! -d "$COMPUTER_USE_HELPER" ]]; then
   "$SCRIPT_DIR/ci/check-screen-share-identity.sh" "$APP_PATH"
+fi
+
+if [[ -d "$COMPUTER_USE_HELPER" ]]; then
+  helper_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$COMPUTER_USE_HELPER/Contents/Info.plist" 2>/dev/null || true)"
+  [[ "$helper_id" == com.cmuxterm.cua ]] || {
+    echo "error: Computer Use helper has bundle id '$helper_id', expected com.cmuxterm.cua" >&2
+    exit 1
+  }
+  /usr/bin/codesign --verify --strict --verbose=2 "$COMPUTER_USE_HELPER"
 fi
 # An unsandboxed app extension is one macOS never lists in the Share menu.
 share_extension="$APP_PATH/Contents/PlugIns/$SHARE_EXTENSION"

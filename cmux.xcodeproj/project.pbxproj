@@ -178,7 +178,7 @@
 				CE7A00000000000000000046 /* Bundle Share extension */,
 				CE7A00000000000000000017 /* Embed CEF */,
 				CE7A00000000000000000041 /* Embed remote browser host */,
-				CE7A00000000000000000042 /* Embed cmux Remote (dev) */,
+				CE7A00000000000000000042 /* Embed Computer Use helper (dev) */,
 				CE7A00000000000000000018 /* Bundle Ghostty resources */,
 				CE7A00000000000000000031 /* Bundle server helper */,
 				CE7A00000000000000000043 /* Bundle MediaRemote adapter */,
@@ -739,7 +739,7 @@
 			shellPath = /bin/sh;
 			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/embed-remote-browser-host.sh\"\n";
 		};
-		CE7A00000000000000000042 /* Embed cmux Remote (dev) */ = {
+		CE7A00000000000000000042 /* Embed Computer Use helper (dev) */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -764,11 +764,11 @@
 				"$(CMUX_CUA_ASSET_CACHE_DIR)",
 				"$(CMUX_CUA_ASSET_FILE)",
 			);
-			name = "Embed cmux Remote (dev)";
+			name = "Embed Computer Use helper (dev)";
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(TARGET_BUILD_DIR)/$(WRAPPER_NAME)/Contents/Library/cmux Remote (dev).app",
+				"$(TARGET_BUILD_DIR)/$(WRAPPER_NAME)/Contents/Library/cmux Computer Use (dev).app",
 				"$(TARGET_TEMP_DIR)/embed-cmux-remote-dev.stamp",
 			);
 			runOnlyForDeploymentPostprocessing = 0;

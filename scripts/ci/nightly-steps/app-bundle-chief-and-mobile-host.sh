@@ -25,3 +25,4 @@ env "${phase_env[@]}" CMUX_NEXT_MOBILE_HOST_BIN="${CMUX_NEXT_MOBILE_HOST_PENDING
 python3 scripts/ci/background_build.py join --state "$state" screen-sharing-helper
 env "${phase_env[@]}" CMUX_NEXT_SCREEN_HELPER_BIN="${CMUX_NEXT_SCREEN_HELPER_PENDING_BIN:?}" \
   CMUX_NEXT_REQUIRE_SCREEN_HELPER=1 scripts/cmux-next/bundle-screen-sharing-helper.sh
+bash scripts/ci/nightly-steps/app-bundle-computer-use-helper.sh

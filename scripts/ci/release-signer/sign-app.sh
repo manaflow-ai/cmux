@@ -285,6 +285,21 @@ PY
   echo "==> signed and re-pinned ${#signed[@]} cmux-tui SSH payload(s)"
 fi
 
+# Computer Use ships its supervisor and Screen Sharing worker under one TCC identity.
+computer_use_rel="Contents/Library/cmux Computer Use.app"
+if [[ -d "$APP_PATH/$computer_use_rel" ]]; then
+  info_plist="$APP_PATH/$computer_use_rel/Contents/Info.plist"
+  [[ "$(plist_get "$info_plist" CFBundleIdentifier)" == com.cmuxterm.cua &&
+     "$(plist_get "$info_plist" CFBundleExecutable)" == cmux-remote ]] ||
+    { echo "error: unexpected Computer Use helper identity" >&2; exit 1; }
+  for leaf in MacOS/cmux-remote MacOS/cmux-screen-sharing Frameworks/libcmux_computer_use.dylib Frameworks/libWebRTC.dylib; do
+    rel="$computer_use_rel/Contents/$leaf"
+    [[ -n "${is_macho[$rel]:-}" ]] || { echo "error: missing Mach-O $rel" >&2; exit 1; }
+    clear["$rel"]=1
+    if [[ "$leaf" == MacOS/* ]]; then ident["$rel"]=com.cmuxterm.cua; fi
+  done
+fi
+
 # 2. Plugins (--deep, no entitlements), but the Share extension's executable: the App Sandbox.
 for rel in "${machos[@]}"; do [[ "$rel" == Contents/PlugIns/* ]] && clear["$rel"]=1; done
 if [[ -d "$APP_PATH/$share_extension_rel/Contents" ]]; then
