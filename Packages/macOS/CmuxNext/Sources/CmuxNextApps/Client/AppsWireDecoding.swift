@@ -29,6 +29,12 @@ public nonisolated struct AppsWireDecoding {
         case "apps-log":
             guard let app = json["app"]?.stringValue else { return nil }
             return .log(app: app, level: json["level"]?.stringValue ?? "info", message: json["message"]?.stringValue ?? "", date: date)
+        case "apps-widgets-changed":
+            return .widgetsChanged(revision: json["revision"]?.numberValue.flatMap { UInt64(exactly: $0) }, place: json["place"]?.stringValue)
+        case "apps-widget-health":
+            guard let mount = json["mount_id"]?.stringValue else { return nil }
+            return .widgetHealth(mountID: mount, stale: json["stale"]?.boolValue == true, reason: json["reason"]?.stringValue,
+                                 retryMilliseconds: json["retry_ms"]?.numberValue)
         default:
             return nil
         }
