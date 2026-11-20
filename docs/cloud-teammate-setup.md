@@ -9,13 +9,13 @@ You need an Apple Silicon Mac, membership in the team that owns the machine, and
 
    ```sh
    machine='replace-with-machine-name'
-   brief=$(mktemp)
-   printf '%s\n' 'Reply with the hostname on which you are running.' > "$brief"
+   brief=$(mktemp -t cmux-cloud-brief)
+   printf '%s\n' 'Run hostname and reply with its output.' > "$brief"
    cmux chat new --machine "$machine" --harness codex --prompt-file "$brief"
    ```
 
    Use `--harness claude` for Claude, or add `--model MODEL` for a model available on that machine. On a joined lane, add `--fast` to use a faster tier offered by the selected model. If the harness cannot confirm that tier, cmux gives you the started chat’s name and does not send the prompt. Open the chat in cmux. A reply from the selected host verifies that the machine received the prompt; the creation receipt alone does not. If the command reports an uncertain start, inspect the named chat before retrying.
 
-**Copy this into a chat with an agent helping you set up:**
+**Copy this into a chat with an agent on the clean Mac. Replace `MACHINE_NAME` first:**
 
-> Set up cmux NEXT on this Mac using the steps in `docs/cloud-teammate-setup.md`. Let me finish browser sign-in. Use the machine I name; if it already appears online, reuse it. If it needs joining, show me how to run the join command in my own terminal without copying the credential or join line into this chat. Start one Codex chat there with a prompt file asking for its hostname. Report the machine, the session reference returned by cmux, and the hostname the remote agent actually reports. If something fails, give me the exact step and refusal without creating another machine or chat.
+> Help me start one Codex chat on `MACHINE_NAME`. If cmux NEXT is missing, install the macOS arm64 app from `https://github.com/manaflow-ai/cmux/releases/tag/nightly-next` and open it. Inside its terminal, run `cmux chat new --help` and check for `--machine` and `--prompt-file`. Run `cmux login` and let me finish browser sign-in. Use `cmux machine list` to find `MACHINE_NAME` on my team. If it needs joining, tell me to run `cmux machine add --no-wait` privately and paste the join line on that host; keep the line and all keys out of chat. Verify the joined machine appears in the CLI and in the sidebar. With Codex signed in on that machine, write “Run hostname and reply with its output.” to a temporary file. Run `cmux chat new --machine MACHINE_NAME --harness codex --prompt-file FILE` once, substituting the machine and file. Open the returned link and read back the assistant’s reply. Report the CLI build, machine, link, and hostname it actually returned. On a refusal or uncertain start, tell me the step and message; don’t launch another chat or provision another VM.
