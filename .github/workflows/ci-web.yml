@@ -93,7 +93,7 @@ jobs:
           [ -s "$manifest" ] || printf '{}\n' > "$manifest"
           echo "duration manifest: $(grep -c '": ' "$manifest" || true) files"
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
-            history="$RUNNER_TEMP/webviews-base-history.json"
+            history="$RUNNER_TEMP/webviews-durations/base-history.json"
             { timeout 90 python3 scripts/ci/webviews_test_history.py fetch "$history" --repo "$GITHUB_REPOSITORY" --branch "$BASE_REF" --need-read &&
               python3 scripts/ci/webviews_test_history.py known-reds "$history" --before "$(git log -1 --format=%ct HEAD^1)" \
                 --out "$RUNNER_TEMP/webviews-durations/base-reds.json"; } ||
@@ -110,6 +110,7 @@ jobs:
           path: |
             ${{ runner.temp }}/webviews-durations/manifest.json
             ${{ runner.temp }}/webviews-durations/base-reds.json
+            ${{ runner.temp }}/webviews-durations/base-history.json
           if-no-files-found: error
           # A same-run handoff: the cache keeps the manifest between runs.
           retention-days: 1
@@ -505,7 +506,7 @@ jobs:
           echo "CMUX_PR_CHANGED_FILES=$RUNNER_TEMP/pr-changed-files" >> "$GITHUB_ENV"
 
       # Partition the affected tests with the same duration manifest and widths as the runner.
-      # Empty focused shards publish an empty result and reuse the base-history verdict; pushes and
+      # Empty focused shards require cached green file verdicts at the exact merge parent; pushes and
       # full-ci keep the complete matrix so the shared history remains fresh.
       - name: Plan this shard's affected tests
         id: shard-scope
@@ -515,6 +516,7 @@ jobs:
         run: |
           args=(--root "$GITHUB_WORKSPACE" --base HEAD^1 --head HEAD \
             --manifest "$RUNNER_TEMP/webviews-durations/manifest.json" \
+            --history "$RUNNER_TEMP/webviews-durations/base-history.json" \
             --shard "${{ matrix.shard }}" --shard-count "${{ matrix.shard_count }}" \
             --out "$RUNNER_TEMP/webviews-durations/shard-scope.json")
           [ "$PULL_REQUEST" = true ] && args+=(--pull-request)
@@ -750,18 +752,13 @@ jobs:
           cp ../scripts/ci/run-webviews-tests.sh ../scripts/ci/timeout.sh ../scripts/ci/webviews_test_results.py ../scripts/ci/webviews_test_shards.py \
             ../scripts/ci/guards_new_reds.py ../scripts/ci/webviews_test_history.py ../scripts/ci/test_reds.py \
             "$RUNNER_TEMP/webviews-head-results/runner/"
-          # Focused pull requests already pass the planner's selected files. Recompute only for
-          # full-mode pull requests and pushes; otherwise this would replace the one-file shard
-          # assignment with every affected file.
-          if [ -n "$BASE_REF" ] && [ "$FULL_CI" = true ]; then
-            CMUX_WEB_TEST_FILES="$(python3 ../scripts/ci/webviews_affected.py --base "$BASE_REF" --head HEAD)" || CMUX_WEB_TEST_FILES=""
-            export CMUX_WEB_TEST_FILES
-          fi
+          # The planner owns this list. An empty full-mode list runs the whole suite.
           ../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"
 
       - name: Publish empty result for unchanged shard
         if: ${{ always() && github.event_name == 'pull_request' && steps.shard-scope.outputs.scope-ready == 'true' && steps.shard-scope.outputs.mode == 'focused' && steps.shard-scope.outputs.run == 'false' }}
         run: |
+          mkdir -p "$RUNNER_TEMP/webviews-head-results"
           # Shard 1 still supplies the real runner to base replay when every selected
           # test was assigned elsewhere; other empty shards supply only their verdict.
           if [ "${{ matrix.shard }}" = 1 ]; then
@@ -819,7 +816,7 @@ jobs:
           retention-days: 1
 
       - name: Fail on the gate checks
-        if: ${{ !cancelled() && steps.shard-scope.outputs.run == 'true' }}
+        if: ${{ !cancelled() && steps.shard-scope.outputs.setup == 'true' }}
         env:
           SOURCE_BUILD: ${{ steps.source-build.outcome }}
           BUNDLES: ${{ steps.bundles.outcome }}
