@@ -59,7 +59,7 @@ Fleet (an owned mini with a console; the step builds the app):
 import argparse, csv, glob, json, math, os, re, shlex, socket, statistics, subprocess, sys, tempfile, threading, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import load_modes  # noqa: E402
-from bench_launch import BenchApp, LaunchError  # noqa: E402
+from bench_launch import BenchApp, LaunchError, tag_state_root  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FAKE_AGENT = os.path.join(os.path.dirname(os.path.dirname(HERE)), "cmux-tui/crates/acpmux/tests/fake_agent.py")
@@ -169,8 +169,10 @@ results = {"tag": TAG, "host": os.uname().nodename, "opts": vars(opts), "log": [
 app = None
 SESSION = "light"
 ROUND = 0
-# The --ab arm being measured (None without --ab): False (the key off) or True (on).
+# The --ab arm being measured (None without --ab): False (the key off) or True (on). ARM is the live-set arm;
+# LAUNCH_ARM is the arm this whole launch was started with, for a key read once at startup.
 ARM = None
+LAUNCH_ARM = None
 # The mode being measured, when --modes is given: its id, its `native` knobs and what it cannot express here.
 MODE = None
 
@@ -180,11 +182,43 @@ LOADSPEC = {"busy": opts.busy, "chats": opts.chats, "cpu": False}
 BURNERS = []
 
 
+# Keys Chromium (or the app) reads once at startup: a live `debug.tunables set` cannot change them, because the
+# process it would change already parsed its command line. Both arms of such a key need their own launch, with the
+# value written into the build's own debug-tunables.json before the app starts (`--tunables build` in
+# cef-layer-verify.py is the same route). A live set here would leave both arms on the build's default and report
+# them as off and on, which is how an inert change measures as a win (cmux#45709).
+LAUNCH_TIME_TUNABLES = {"browserPage.noFrameRateLimit"}
+
+
+def launch_arm_key():
+    """--ab's key if it needs a launch per arm, else None."""
+    return opts.ab if opts.ab in LAUNCH_TIME_TUNABLES else None
+
+
+def write_launch_tunable(tag, key, value):
+    """Sets a launch-time key in the build's own override file, read at the next launch. The app must be down: its
+    coalesced writer would race this."""
+    path = os.path.join(tag_state_root(tag), "debug-tunables.json")
+    try:
+        data = json.load(open(path))
+    except (OSError, ValueError):
+        data = {"version": 1, "values": {}}
+    data.setdefault("values", {})[key] = value
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    json.dump(data, open(path, "w"), indent=2, sort_keys=True)
+    return path
+
+
 def set_arm(arm):
-    """Sets --ab's key for one arm. Returns why it could not, else None. The store is off in a bench build until
-    asked (debug-settings.md), and `browserPage.drawKeysAtOnce` is read per key, so this reaches the open chats."""
-    rpc("debug.tunables", {"action": "activate"})
-    row = rpc("debug.tunables", {"action": "set", "key": opts.ab, "value": arm}, timeout=10) or {}
+    """Sets --ab's key for one arm. Returns why it could not, else None.
+
+    Only for a key read per use (`browserPage.drawKeysAtOnce` is read per key, so this reaches the open chats). A
+    launch-time key never comes here: `run_session` gives each of its arms a launch instead."""
+    if opts.ab in LAUNCH_TIME_TUNABLES:
+        return (f"{opts.ab} is read once at launch, so a live set cannot change this process; "
+                "a launch-time key takes one launch per arm (LAUNCH_TIME_TUNABLES)")
+    rpc("debug.tunables", {"action": "activate"})  # a bench build's tunable store is off until asked (debug-settings.md)
+    row = rpc("debug.tunables", {"action": "set", "key": opts.ab, "value": arm}) or {}
     if row.get("value") is not arm:
         return f"debug.tunables set {opts.ab}={arm} answered {json.dumps(row)[:200]}"
     time.sleep(0.5)  # the arm starts at rest: the switch reaches the open pages before the first key
@@ -1135,7 +1169,8 @@ def run_session(session, phases=None, backdrop="default"):
             for ROUND in range(opts.rounds):
                 # With --ab, both arms in the same round, the order alternating: a drift over the launch (thermals, a
                 # warming cache) then falls on both arms, not on whichever one ran second.
-                arms = [None] if not opts.ab else ([False, True] if ROUND % 2 == 0 else [True, False])
+                arms = ([None] if not opts.ab or launch_arm_key()
+                        else [False, True] if ROUND % 2 == 0 else [True, False])
                 for ARM in arms:
                     if ARM is not None:
                         problem = set_arm(ARM)
@@ -1153,8 +1188,10 @@ def run_session(session, phases=None, backdrop="default"):
                         except Exception as error:  # one surface failing must not hide the others
                             note(f"{session} {surface}.{phase}: failed: {error!r}")
                         if opts.ab:
+                            arm = LAUNCH_ARM if launch_arm_key() else ARM
                             for row in results["runs"][first:]:
-                                row["ab"] = {"key": opts.ab, "arm": ARM, "round": ROUND}
+                                row["ab"] = {"key": opts.ab, "arm": arm, "round": ROUND,
+                                             "route": "launch" if launch_arm_key() else "live"}
                 ARM = None
         reset_arm()
     finally:
@@ -1165,7 +1202,7 @@ def run_session(session, phases=None, backdrop="default"):
 def main():
     results["refresh_hz"] = refresh_hz()
     results["macos"] = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
-    global MODE
+    global MODE, LAUNCH_ARM
     sessions = opts.sessions.split(",") if opts.sessions else (["stress"] if opts.stress else ["light"])
     try:
         if opts.modes:
@@ -1175,7 +1212,7 @@ def main():
                 wanted = load_modes.load(opts.modes)
             except KeyError as error:
                 sys.exit(str(error))
-            for mode in wanted:
+            for index, mode in enumerate(wanted):
                 MODE = mode
                 native = mode["native"]
                 LOADSPEC.update({"busy": native["busyTerminals"], "chats": native["chats"],
@@ -1187,7 +1224,19 @@ def main():
                      + (f"; not expressed here: {'; '.join(missing)}" if missing else ""))
                 phase = "idle" if mode["id"] == "L0" else "load"
                 for backdrop in opts.backdrops.split(","):
-                    run_session(native["session"], [phase], backdrop)
+                    # A launch-time --ab key cannot be set in a running app, so each arm gets its own launch, the
+                    # order alternating per mode so a drift over the run does not land on one arm.
+                    if launch_arm_key():
+                        order = [False, True] if index % 2 == 0 else [True, False]
+                        for arm in order:
+                            LAUNCH_ARM = arm
+                            path = write_launch_tunable(TAG, opts.ab, arm)
+                            note(f"mode {mode['id']} arm {opts.ab}={arm}: wrote {path} for the next launch")
+                            run_session(native["session"], [phase], backdrop)
+                        LAUNCH_ARM = None
+                        write_launch_tunable(TAG, opts.ab, None)
+                    else:
+                        run_session(native["session"], [phase], backdrop)
             MODE = None
         else:
             for session in sessions:
@@ -1198,6 +1247,8 @@ def main():
         for r in results["runs"]:
             key = (f"{r['mode']}.{r['surface']}" if r.get("mode")
                    else f"{r['session']}.{r['surface']}.{r['phase']}")
+            if r.get("ab"):
+                key = f"{key}.{opts.ab}={r['ab'].get('arm')}"
             summary.setdefault(key, []).append((r.get("key_to_frame_ms") or {}).get("p95"))
         results["summary_p95_ms"] = summary
         note(f"summary p95 ms: {json.dumps(summary)} refresh {results.get('refresh_hz')}")
