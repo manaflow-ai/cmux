@@ -1,4 +1,4 @@
-// Mounts every view of the three looks (claude, codex, studio) in cmux-app-host's fake host, with
+// Mounts every view of the four looks (claude, codex, studio, hosts) in cmux-app-host's fake host, with
 // only the ops their manifests' scopes grant, and fails on any script error or empty mount.
 // Run from cmux-tui/crates/cmux-app-host/js (it needs dist/cmux-app-runtime.js):
 //   bun test ../../../../examples/customize-demo/looks/check/views.test.ts
@@ -89,14 +89,15 @@ test("studio's thread list stays bounded with 2000 chats", async () => {
 })
 
 // Both list dimensions must stay bounded, including when the host inventory grows.
-// Optional before source gives before/after node counts from this exact same harness.
+// Run an optional before source in a separate process: it may exceed the runtime's node limit.
 for (const size of [100, 3000]) {
   for (const render of ["renderHosts", "renderPicker"]) {
     test(`hosts ${render} stays bounded with ${size} sessions`, async () => {
       const many = Array.from({ length: size }, (_, i) => ({ ...CHATS[0], id: `c${i}`, title: `Chat ${i}`,
         workspace: null, machine: `host-${Math.floor(i / 20)}`, updated_ms: NOW - i }))
-      const sources: Array<[string, string | undefined]> = [["after", undefined]]
-      if (process.env.DEMO_BEFORE_HOSTS) sources.unshift(["before", readFileSync(process.env.DEMO_BEFORE_HOSTS, "utf8")])
+      const sources: Array<[string, string | undefined]> = process.env.DEMO_BEFORE_HOSTS
+        ? [["before", readFileSync(process.env.DEMO_BEFORE_HOSTS, "utf8")]]
+        : [["after", undefined]]
       for (const [version, source] of sources) {
         const { h } = host("hosts", source)
         h.handlers["agent_chat.list"] = () => ({ ok: true, body: { value: { chats: many } } })
