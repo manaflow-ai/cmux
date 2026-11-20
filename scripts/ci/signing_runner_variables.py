@@ -43,7 +43,10 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 DIRS_ENV = "SIGNING_WORKFLOW_DIRS"
-EPHEMERAL_LABEL = re.compile(r"^(blacksmith-|ubuntu-)[a-z0-9.-]+$")
+# cmux-fleet-linux-x64 is our own one-job Linux VMs (runner_pools.OWNED_LINUX): one VM per job, deleted after, so it
+# is as ephemeral as a Blacksmith size (Leo, 2026-11-18: "it's just my pull request. There's essentially no risk. ...
+# remove that belt and suspenders, please.").
+EPHEMERAL_LABEL = re.compile(r"^(?:(?:blacksmith-|ubuntu-)[a-z0-9.-]+|cmux-fleet-linux-x64)$")
 # Rule 7's tests (tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py).
 SIGNING_SECRET = re.compile(
     r"secrets(\.|\[\s*(format\(\s*)?\\?['\"])(APPLE_|ASC_API_|IOS_|SPARKLE_|NIGHTLY_SPARKLE_|CMUX_RELEASE_APP_"
@@ -119,7 +122,7 @@ def is_signing_variable(name: str, env: dict[str, str] | None = None) -> bool:
 
 
 def ephemeral_label(value: str | None) -> bool:
-    """Whether a runner label names an ephemeral runner (blacksmith-* or ubuntu-*)."""
+    """Whether a runner label names an ephemeral runner (blacksmith-*, ubuntu-* or our one-job cmux-fleet-linux-x64)."""
     return bool(EPHEMERAL_LABEL.match((value or "").strip()))
 
 
