@@ -373,8 +373,15 @@ mkdir -p "$out/screens" "$out/bench" "$work"
 summary="$out/SUMMARY.md"
 note() { printf '%s\n' "$*" | tee -a "$summary"; }
 
-# Steps run with a per-step HOME; Homebrew tools live outside it.
-export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.cargo/bin:$PATH"
+# Steps run with a per-step HOME; Homebrew tools live outside it. Appended, not
+# prepended: on a fleet worker the first PATH entry is the worker's rustup shim,
+# which takes the shared RUSTUP_HOME's install lock for every `rustup target add`
+# and cargo auto-install. Homebrew's rustup ahead of it installed the iOS std
+# targets with no lock, and concurrent simulator steps left the toolchain's
+# component records disagreeing (cmuxs-Mac-mini-4 and cmux14, 2026-11-19:
+# "detected conflict: 'lib/rustlib/aarch64-apple-ios-sim/...'" and "the 'cargo'
+# binary ... is not applicable"). It also kept Homebrew's bun ahead of the pin.
+export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:$HOME/.cargo/bin"
 
 # Everything this step makes outside its checkout goes away when it ends: the
 # pinned xcodegen's temp dir and, once made, the simulator device set.
