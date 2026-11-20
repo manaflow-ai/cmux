@@ -196,17 +196,19 @@ public struct StatusMapping {
         var states: [StatusIndicatorState] = []
         states.reserveCapacity(tabs.count)
         var working = false
+        let seenWorkspace = workspaceID ?? status?.workspaceID.rawValue
         for tab in tabs {
             let own = reports(tab)
-            if own.isEmpty {
+            let visible = statusSeen.visible(own, workspaceID: seenWorkspace)
+            if visible.isEmpty {
                 states.append(.idle)
                 continue
             }
-            states.append(StatusStack.resolve(own, honoring: honored).state)
-            working = working || own.contains { $0.state.isWorking }
-            all += own
+            states.append(StatusStack.resolve(visible, honoring: honored).state)
+            working = working || visible.contains { $0.state.isWorking }
+            all += visible
         }
-        let workspaceReports = statusSeen.visible(all + reports(status), workspaceID: workspaceID ?? status?.workspaceID.rawValue)
+        let workspaceReports = statusSeen.visible(all + reports(status), workspaceID: seenWorkspace)
         return (StatusStack.resolve(workspaceReports, honoring: honored), states, working)
     }
 
