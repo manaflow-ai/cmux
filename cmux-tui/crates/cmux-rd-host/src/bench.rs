@@ -742,7 +742,13 @@ pub fn run(opts: &Opts) -> Res<()> {
     };
     let mut v = Viewer {
         io,
-        reassembler: Reassembler::new(opts.num_or("deadline-ms", 200u64)? * 1000),
+        reassembler: {
+            let mut r = Reassembler::new(opts.num_or("deadline-ms", 200u64)? * 1000);
+            // `--rtt-nack-retry 1`: NACK retries a measured repair round trip apart
+            // instead of every 50 ms (design D6). Off by default.
+            r.set_rtt_nack_retry(opts.num_or("rtt-nack-retry", 0u8)? == 1);
+            r
+        },
         decoder: Decoder::new()?,
         sender: InputSender::new(),
         arrivals: Vec::new(),
@@ -831,11 +837,12 @@ pub fn run(opts: &Opts) -> Res<()> {
             None => None,
         },
         service: cmux_rd_core::service::SERVICE_DESKTOP.into(),
-        // Upstream media needs both caps (rd change C4).
+        // Upstream media needs both caps (rd change C4). This reassembler rebuilds frames in
+        // interleaved FEC blocks.
         caps: if upstream.is_some() {
-            vec![caps::UP_MEDIA.into(), caps::STREAM_OPEN.into()]
+            vec![caps::UP_MEDIA.into(), caps::STREAM_OPEN.into(), caps::FEC_BLOCKS.into()]
         } else {
-            Vec::new()
+            vec![caps::FEC_BLOCKS.into()]
         },
     })?;
     v.io.send_control(&Control::Start {
