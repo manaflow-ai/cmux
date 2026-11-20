@@ -17,6 +17,7 @@ const KNOWN: Record<string, string> = {
   qwen: "Qwen Code",
   copilot: "GitHub Copilot",
   aider: "Aider",
+  deepseek: "DeepSeek",
   // acpmux's built-in Chief harness (`cmux chief acp`): the person's chat with their Chief.
   chief: "Chief",
 };
@@ -25,10 +26,16 @@ const KNOWN: Record<string, string> = {
 /// Claude Code); an unknown id is title-cased ("my-agent" is "My Agent").
 export function agentDisplayName(id: string): string {
   const words = id.split(/[-_\s]+/).filter(Boolean);
-  const key = agentKey(id);
-  const known = key && Object.hasOwn(KNOWN, key) ? KNOWN[key] : undefined;
+  const known = knownAgentName(id);
   if (known) return known;
   return words.map((word) => word[0]!.toUpperCase() + word.slice(1)).join(" ") || id;
+}
+
+/// The name of the agent this app knows a harness id or program as ("claude-sr" is Claude Code), or
+/// undefined for one it does not know ("cmux", "my-agent").
+export function knownAgentName(id: string): string | undefined {
+  const key = agentKey(id);
+  return key && Object.hasOwn(KNOWN, key) ? KNOWN[key] : undefined;
 }
 
 /// The catalog's name when the daemon gave a real one, else the display name for the id.
