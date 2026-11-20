@@ -1,4 +1,5 @@
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// The app's setting starts one bundled Rust worker. It checks the setting again
@@ -24,7 +25,7 @@ public final class NightlyDaemonUpdate {
         process.executableURL = resources.appending(path: "bin/cmux", directoryHint: .notDirectory)
         process.arguments = ["app", "try", "follow-channel", "--app", bundle.bundlePath]
         process.terminationHandler = { [weak self] finished in
-            Task { @MainActor in
+            MainDelivery().run { [weak self] in
                 guard let self, self.worker === finished else { return }
                 self.worker = nil
                 // Re-enable may have arrived after the worker read the off setting.

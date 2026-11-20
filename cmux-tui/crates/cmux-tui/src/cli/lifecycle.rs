@@ -12,7 +12,7 @@ const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 
 /// Verify the owner itself after a NIGHTLY daemon handoff, on this build's socket.
 pub(super) fn owner_reports_commit(socket: &std::path::Path, pid: i32, commit: &str) -> bool {
-    let Ok(stream) = cmux_tui_core::server::connect_session_socket(socket, false) else {
+    let Ok(stream) = cmux_tui_core::server::connect_session_socket(socket, true) else {
         return false;
     };
     let deadline = Instant::now() + Duration::from_secs(3);
