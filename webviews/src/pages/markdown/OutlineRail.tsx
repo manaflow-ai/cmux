@@ -3,6 +3,7 @@
 // (or a click, or Return on it) opens the table of contents beside it, the headings by name; a
 // heading there scrolls to its section. A file with fewer than two headings shows no rail.
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
+import { focusRoute } from "../../ui/focusRoute";
 import type { Strings } from "../shared/i18n";
 import type { Outline } from "./outline";
 import { L } from "./strings";
@@ -21,7 +22,7 @@ export function OutlineRail({ outline, strings }: { outline: Outline; strings: S
   const label = strings.t(L.outlineLabel);
   const close = (focusRail: boolean) => {
     setOpen(null);
-    if (focusRail) rail.current?.focus();
+    if (focusRail) focusRoute(rail.current, "person", "Escape closed the outline contents");
   };
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key !== "Escape" || !open) return;
