@@ -1,8 +1,9 @@
 // A new chat whose first send starts it on a Cloud machine: the Mode chip names the mode that machine
 // starts it in from the first frame. On the person's own Cloud machine that is their start level for
 // new chats (`agents.defaultPermissionMode`, full access unless they set otherwise), as on this Mac
-// (cmux-tui agent_session_start.rs `start_policy`): Bypass permissions for Claude Code, Full access
-// for Codex. Lawrence 2026-11-20: "cloud mode should default in bypass permissions/auto mode".
+// (cmux-tui agent_session_start.rs `start_policy`, `cloud_default_mode`): Claude Code's Auto, Full
+// access for Codex. Lawrence 2026-11-20: "cloud mode should default in bypass permissions/auto mode",
+// then "we need to support auto mode for cloud mode for claude harness".
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -129,14 +130,14 @@ async function chipText(
 const BYPASS = { modeId: "bypassPermissions", name: "Bypass permissions" };
 const MANUAL = { modeId: "default", name: "Manual" };
 
-test("a Cloud start names Bypass permissions when new chats start in full access", async () => {
-  expect(await chipText(cloudNewChat("claude", "claude"), BYPASS)).toBe("Bypass permissions");
+test("a Claude Cloud start names Auto when new chats start in full access", async () => {
+  expect(await chipText(cloudNewChat("claude", "claude"), BYPASS)).toBe("Auto");
 });
 
-test("a Cloud start names Bypass permissions on its first frame, before any start-mode answer", async () => {
+test("a Claude Cloud start names Auto on its first frame, before any start-mode answer", async () => {
   // A fresh viewer: no answer kept, none asked yet. The default level is full access, so the chip
   // never shows Manual and then flips once the chat reports.
-  expect(await chipText(cloudNewChat("claude", "claude"))).toBe("Bypass permissions");
+  expect(await chipText(cloudNewChat("claude", "claude"))).toBe("Auto");
 });
 
 test("a Codex Cloud start names Full access by default", async () => {

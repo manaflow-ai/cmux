@@ -553,9 +553,9 @@ export default componentEntry<Props>({
       play: async (ctx) => expectModeChip(ctx, "Bypass permissions"),
     },
     "new-chat-cloud": {
-      note: 'The same new chat with Cloud picked: the person\'s own Cloud machine starts it at their start level, full access, so the chip names Bypass permissions from the first frame, never Manual and never the bare word Mode (Lawrence 2026-11-20: "cloud mode should default in bypass permissions/auto mode").',
+      note: 'The same new chat with Cloud picked: the person\'s own Cloud machine starts it at their start level, full access, which on Claude Code is its Auto, so the chip names Auto from the first frame, never Manual and never the bare word Mode (Lawrence 2026-11-20: "we need to support auto mode for cloud mode for claude harness").',
       props: { newChat: { start: { modeId: "bypassPermissions", name: "Bypass permissions" }, cloud: true } },
-      play: async (ctx) => expectModeChip(ctx, "Bypass permissions"),
+      play: async (ctx) => expectModeChip(ctx, "Auto"),
     },
     "new-chat-here-manual": {
       note: "A new chat on this Mac whose acpmux starts chats asking (agents.defaultPermissionMode ask): the chip names Manual.",

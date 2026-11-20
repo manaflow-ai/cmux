@@ -6,10 +6,11 @@
 // in Manual on the machine (cloud-ergo-start-chat capture, 2026-11-09). With Cloud picked, the chip
 // names the mode the Cloud machine starts the chat in, never the bare word "Mode" (Leo 2026-11-10:
 // "the "mode" is weird"): the person's own machine starts it at their start level for new chats
-// (cmux-tui agent_session_start.rs `start_policy`), full access by default, so Claude's Bypass
-// permissions and the Codex bridge's Full access (Lawrence 2026-11-20: "cloud mode should default in
-// bypass permissions/auto mode"); the harness's asking mode (Manual, Ask) when new chats ask. The
-// real composer chips, in JSDOM.
+// (cmux-tui agent_session_start.rs `start_policy`, `cloud_default_mode`), full access by default,
+// so Claude Code's Auto and the Codex bridge's Full access (Lawrence 2026-11-20: "cloud mode should
+// default in bypass permissions/auto mode", "we need to support auto mode for cloud mode for claude
+// harness"); the harness's asking mode (Manual, Ask) when new chats ask. The real composer chips,
+// in JSDOM.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -163,9 +164,14 @@ test("a new chat that starts on this Mac names the mode this Mac's acpmux starts
   expect(chipText()).toBe("Bypass permissions");
 });
 
-test("with Cloud picked, a Claude chat's chip names Bypass permissions, the start level on the machine", async () => {
+test("with Cloud picked, a Claude chat's chip names Auto, the machine's start under full access", async () => {
   await render(await newChat(true));
-  expect(chipText()).toBe("Bypass permissions");
+  expect(chipText()).toBe("Auto");
+});
+
+test("with Cloud picked, an Auto pick is what the chip names", async () => {
+  await render(await newChat(true, "claude", "auto"));
+  expect(chipText()).toBe("Auto");
 });
 
 test("with Cloud picked, a Codex chat's chip names the bridge's Full access", async () => {
@@ -229,8 +235,9 @@ test("with Cloud picked, the menu offers only the modes a Cloud start can run in
   const rows = [...dom.window.document.querySelectorAll("[role=menuitemradio]")].map((row) => row.textContent ?? "");
   expect(rows.some((row) => row.includes("Manual"))).toBe(true);
   expect(rows.some((row) => row.includes("Bypass permissions"))).toBe(true);
+  expect(rows.some((row) => row.includes("Claude handles permission decisions"))).toBe(true);
   expect(rows.some((row) => row.includes("Accept edits"))).toBe(false);
-  expect(rows.some((row) => row.includes("Auto"))).toBe(false);
+  expect(rows.some((row) => row.includes("Plan"))).toBe(false);
 });
 
 // A Mac with no agent CLI shows another harness (unii) in the composer; the Cloud send names none,
@@ -238,7 +245,7 @@ test("with Cloud picked, the menu offers only the modes a Cloud start can run in
 // name that agent's modes, never a bare "Mode" (journey run 42975854214: every cell read "Mode").
 test("with Cloud picked and a harness cmux knows no Cloud mode for, the chip names Claude's start mode", async () => {
   await render(await newChat(true, "unii"));
-  expect(chipText()).toBe("Bypass permissions");
+  expect(chipText()).toBe("Auto");
 });
 
 test("with Cloud picked and such a harness, a Manual pick is what the chip names", async () => {
@@ -287,9 +294,9 @@ test("both Cloud sends start the agent and mode the chip names, for every face h
     await import("../src/agent-session/acpmux/harnessModes");
   const { cloudSendAgent, clearCloudModePick } = await import("../src/agent-session/acpmux/cloudModePick");
   const cases = [
-    { face: "claude", family: "claude", runs: "claude", starts: "Bypass permissions", asking: "Manual" },
+    { face: "claude", family: "claude", runs: "claude", starts: "Auto", asking: "Manual" },
     { face: "codex", family: "codex", runs: "codex", starts: "Full access", asking: "Ask" },
-    { face: "unii", family: "unii", runs: CLOUD_DEFAULT_AGENT, starts: "Bypass permissions", asking: "Manual" },
+    { face: "unii", family: "unii", runs: CLOUD_DEFAULT_AGENT, starts: "Auto", asking: "Manual" },
   ];
   // Another agent the person picked is the one the machine runs, never swapped for Claude.
   expect(cloudSendAgent("opencode", "opencode", "m")).toEqual({ harness: "opencode", model: "m" });
@@ -354,7 +361,7 @@ for (const [face, modes] of [
   test(`with Cloud picked and a local ${face} session already open (${modes.length ? "with" : "no"} modes), the chip names the Cloud start's mode and a pick`, async () => {
     clearCloudModePickSync();
     await render(withLocalSession(await newChat(true, face), [...modes]));
-    expect(chipText()).toBe("Bypass permissions");
+    expect(chipText()).toBe("Auto");
     const rows = await openModeMenu();
     expect(rows.some((row) => row.includes("Manual"))).toBe(true);
     expect(rows.some((row) => row.includes("Accept edits"))).toBe(false);
@@ -366,7 +373,7 @@ for (const [face, modes] of [
 test("with Cloud picked and no harness listed yet, the chip names the machine's default agent's mode", async () => {
   const snapshot = await newChat(true);
   await render({ ...snapshot, summary: { ...snapshot.summary!, harness: undefined } as unknown as Summary });
-  expect(chipText()).toBe("Bypass permissions");
+  expect(chipText()).toBe("Auto");
 });
 
 test("the Cloud start request carries the picked mode to the host, and only a pick", async () => {

@@ -1,6 +1,6 @@
-title: Cloud chats start in Bypass permissions
+title: Cloud chats start in Auto
 category: improved
 gallery: agent-pane.composer-pickers/new-chat-cloud
 before: agent-pane.composer-pickers/new-chat-cloud-manual
 
-A new chat on your own Cloud machine starts at your level for new chats, Bypass permissions by default, and the Mode chip says so before you send. Pick Manual on the chip to have it ask.
+A new Claude chat on your own Cloud machine starts in Auto, and Codex in Full access, when your new chats start with full access. The Mode chip says so before you send, and also offers Manual and Bypass permissions.

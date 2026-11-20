@@ -97,6 +97,7 @@ import {
   type ModeIconName,
   RECOMMENDED_BADGE,
   type ShownMode,
+  cloudPickableModes,
   cloudStartAgent,
   cloudStartMode,
   harnessFamilyMenu,
@@ -1012,8 +1013,8 @@ export function ComposerPickers({
   // chat is another machine's) it is the inert "Mode" chip, which the session's own replaces in
   // place, so nothing in the row moves when the harness, its model or its modes arrive.
   // A new chat whose first send starts it on a Cloud machine (`startsOnCloud`) begins there at the
-  // person's start level (cloudStartMode): full access by default, so Claude's Bypass permissions and
-  // the Codex bridge's Full access; their asking mode (Claude's Manual, Codex's Ask) when new chats
+  // person's start level (cloudStartMode): full access by default, so Claude Code's Auto and the
+  // Codex bridge's Full access; their asking mode (Claude's Manual, Codex's Ask) when new chats
   // ask. The chip names that mode from the first frame, as the model chip names its model, never the
   // bare word "Mode" (Leo 2026-11-10: "the "mode" is weird"). A mode the person picked for that start
   // (`cloudStartMode`, cloudModePick.ts) is what the machine starts it in (Leo 2026-11-10: "but
@@ -1029,12 +1030,9 @@ export function ComposerPickers({
           (cloudPick === cloudAsking.id ? cloudAsking.name : cloudPick),
       }
     : cloudDefault;
-  // The modes a Cloud start can be picked into: the harness's asking mode and its highest level (the
-  // default, cloudStartMode). acpmux starts a chat in another mode that does not ask (Auto, Accept edits) only
-  // on the person's own proof, which the Cloud start does not carry, so the menu lists neither.
-  const cloudPickable = cloudAsking
-    ? [cloudAsking.id, highestMode(cloudFamily, cloudHarness)?.id].filter((id): id is string => id !== undefined)
-    : undefined;
+  // The modes a Cloud start can be picked into (cloudPickableModes): the harness's asking mode, its
+  // Cloud default (Claude Code's Auto) and its highest level.
+  const cloudPickable = cloudAsking ? cloudPickableModes(cloudFamily, cloudHarness) : undefined;
   // The default agent's own menu, not the face harness's modes, for a Cloud start that runs it.
   const cloudDefaultMenu = cloudAsking && !cloudKnown ? harnessFamilyMenu(cloudFamily, cloudHarness) : undefined;
   // A harness whose chats report no permission modes (Pi: its ACP modes only copy its thinking

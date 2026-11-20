@@ -38,6 +38,10 @@ export type HarnessModeMenu = {
    *  `BRIDGE_ASKING_MODES`). The person's own machine starts at their level ([`cloudStartMode`]).
    *  `name` is the harness's own label for a mode its menu does not list (the bridge's `ask`). */
   remoteStart: { id: string; name?: string };
+  /** The mode the person's own Cloud machine moves a new chat to under a full-access start level,
+   *  where the harness takes it (cmux-tui agent_session_start.rs `cloud_default_mode`): Claude Code's
+   *  Auto. None: the chat keeps the highest mode. */
+  cloudDefault?: string;
 };
 
 /** Claude Code's Mode menu: its five permission modes (`--permission-mode` ids), in its order. */
@@ -53,6 +57,8 @@ const CLAUDE: HarnessModeMenu = {
   hidden: [],
   highest: "bypassPermissions",
   remoteStart: { id: "default" },
+  // Lawrence 2026-11-20: "we need to support auto mode for cloud mode for claude harness".
+  cloudDefault: "auto",
 };
 
 /** Codex's approval menu. The bridge (cmux-codex-acp `config.rs` `MODES`) runs Codex's default as
@@ -135,11 +141,12 @@ const FULL_ACCESS_MODE_IDS: ReadonlySet<string> = new Set([
  * nothing was picked for it: the person's start level for new chats, which the start carries to
  * that machine (`permission_mode`, cmux-tui agent_session_start.rs `start_policy`) and which this
  * Mac's acpmux answers as its start mode for the harness (`level`; `null`: it sets none;
- * `undefined`: no answer yet). Full access, the default level, is the family's highest mode
- * (Claude Code's Bypass permissions, Codex's Full access; Lawrence 2026-11-20: "cloud mode should
- * default in bypass permissions/auto mode"), also before any answer and when this Mac's acpmux has
- * none for an agent it does not run. A level that asks is the family's asking mode
- * ([`remoteStartMode`]). None for a harness this table does not list: the Cloud machine decides. */
+ * `undefined`: no answer yet). Full access, the default level, is the family's Cloud default
+ * (Claude Code's Auto, `cloudDefault`) else its highest mode (Codex's Full access; Lawrence
+ * 2026-11-20: "cloud mode should default in bypass permissions/auto mode"), also before any answer
+ * and when this Mac's acpmux has none for an agent it does not run. A level that asks is the
+ * family's asking mode ([`remoteStartMode`]). None for a harness this table does not list: the
+ * Cloud machine decides. */
 export function cloudStartMode(
   family: string | undefined,
   harness: string | undefined,
@@ -149,7 +156,19 @@ export function cloudStartMode(
   const highest = highestMode(family, harness);
   if (!asking || !highest) return asking;
   if (level?.modeId && !FULL_ACCESS_MODE_IDS.has(level.modeId)) return asking;
-  return { id: highest.id, name: highest.name };
+  const menu = familyMenu(family, harness);
+  const start = menu?.rows.find((row) => row.id === menu.cloudDefault) ?? highest;
+  return { id: start.id, name: start.name };
+}
+
+/** The modes a Cloud start on this family can be picked into: its asking mode, its Cloud default
+ * (Claude Code's Auto) and its highest level. acpmux starts a chat in another mode that does not ask
+ * (Accept edits) only on the person's own proof, which the Cloud start does not carry. None for a
+ * harness this table does not list. */
+export function cloudPickableModes(family: string | undefined, harness: string | undefined): string[] | undefined {
+  const menu = familyMenu(family, harness);
+  if (!menu) return undefined;
+  return [menu.remoteStart.id, menu.cloudDefault, menu.highest].filter((id): id is string => id !== undefined);
 }
 
 /** The agent a Cloud machine starts when its send names none: acpmux's default, Claude first
