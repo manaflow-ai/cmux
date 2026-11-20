@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 use cmux_server_core::layout::{SYSTEMD_UNIT, ServiceKind};
 use cmux_server_core::pg::SOCKET_GROUP;
 use cmux_server_core::units::{
-    SERVICE_USER, UnitError, systemd_app_server_template, systemd_system_unit,
-    systemd_update_path_unit, systemd_update_service_unit, systemd_user_unit,
+    SERVICE_USER, UnitError, systemd_app_server_template, systemd_session_unit,
+    systemd_system_unit, systemd_update_path_unit, systemd_update_service_unit, systemd_user_unit,
 };
 
 use super::{ServiceReport, ServiceState, Services};
@@ -40,6 +40,13 @@ fn unit_dir(s: &Services<'_>) -> Result<PathBuf> {
 pub fn files(s: &Services<'_>) -> Result<Vec<(PathBuf, String)>> {
     let dir = unit_dir(s)?;
     let layout = s.layout;
+    if let Some(host) = &s.session {
+        if system(s) {
+            return Err(Error::rejected("the session service runs as your own user, not --system"));
+        }
+        let unit = systemd_session_unit(layout, &host.binary, &host.session).map_err(unit_error)?;
+        return Ok(vec![(dir.join(SYSTEMD_UNIT), unit)]);
+    }
     if !system(s) {
         return Ok(vec![(dir.join(SYSTEMD_UNIT), systemd_user_unit(layout).map_err(unit_error)?)]);
     }
@@ -62,6 +69,15 @@ fn systemctl(s: &Services<'_>) -> Cmd {
         cmd = cmd.env("XDG_RUNTIME_DIR", format!("/run/user/{}", s.uid));
     }
     cmd
+}
+
+/// The file systemd loads `cmux-server.service` from, when it knows the
+/// unit (`None`: unknown unit, or no service manager to ask).
+pub fn loaded_fragment(s: &Services<'_>) -> Option<PathBuf> {
+    let cmd = systemctl(s).args(["show", "--property=FragmentPath", "--value", SYSTEMD_UNIT]);
+    let out = s.runner.run(&cmd).ok()?;
+    let path = out.stdout_text();
+    (out.ok() && path.starts_with('/')).then(|| PathBuf::from(path))
 }
 
 /// `loginctl show-user <user> -p Linger --value`: `Some(true)` for `yes`,
@@ -134,7 +150,12 @@ pub fn install(s: &Services<'_>, restart: bool) -> Result<ServiceReport> {
         report.changed |= fsx::write_if_changed(path, text.as_bytes(), 0o644)?;
     }
     if !system(s) {
-        ensure_linger(s, &mut report);
+        if s.linger {
+            ensure_linger(s, &mut report);
+        } else {
+            // `install --user`: linger stays as it is.
+            report.linger = linger_state(s.runner, &s.user);
+        }
     }
     let ctl = systemctl(s);
     if report.changed {
