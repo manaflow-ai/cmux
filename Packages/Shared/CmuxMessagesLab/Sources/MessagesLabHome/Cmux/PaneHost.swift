@@ -768,8 +768,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
             let orphans = ComposeInlineText.orphanRanges(in: storage, keeping: Set(draft.map(\.id)))
             for r in orphans { storage.replaceCharacters(in: r, with: "") }
         }
-        composerHistory.textChanged(to: tv.string)
-        dispatch(.setDraft(tv.string))
+        // The draft is a native copy of the field's text (a bridged NSString): each key compares it.
+        let text = String(nativeCopyOf: tv.string)
+        composerHistory.textChanged(to: text)
+        dispatch(.setDraft(text))
         // An attachment whose character the person deleted (Delete, a cut, the remove button) leaves the draft.
         let shown = Set(tv.textStorage.map(ComposeInlineText.ids(in:)) ?? [])
         let gone = draft.filter { !shown.contains($0.id) }
