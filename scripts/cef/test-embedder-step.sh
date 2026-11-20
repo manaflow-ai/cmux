@@ -72,7 +72,9 @@ PY
 fi
 [[ "$PACKAGE" =~ ^sha256:[0-9a-f]{64}$ ]] || die "PACKAGE must be sha256:<64 hex> or a pinned cef release tag"
 
-WORK="${CMUX_EMBEDDER_WORK:-${CI_JOB_DIR:-${TMPDIR:-/tmp}}/cef-embedder}"
+# TMPDIR first: on a lent worker steps/<id> (CI_JOB_DIR) stays root's 0711 and only
+# its subdirectories, TMPDIR among them, are the build user's, which a gui-session-v1 step runs as.
+WORK="${CMUX_EMBEDDER_WORK:-${TMPDIR:-${CI_JOB_DIR:-/tmp}}/cef-embedder}"
 rm -rf "$WORK"; mkdir -p "$WORK/in" "$WORK/cef" "$WORK/run"
 CONTROLLER="${CMUX_CI_CONTROLLER:-http://100.89.225.106:18765}"
 
