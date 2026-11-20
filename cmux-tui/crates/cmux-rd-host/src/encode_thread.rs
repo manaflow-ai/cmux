@@ -36,6 +36,10 @@ pub struct Done {
 pub struct Frame {
     pub access_unit: Vec<u8>,
     pub idr: bool,
+    /// When the capture started, on the protocol clock in µs: from here to `t_capture_us` is
+    /// the frame's capture cost (Linux: the XShm readback and the I420 conversion; macOS:
+    /// taking ScreenCaptureKit's newest frame).
+    pub capture_start_us: u64,
     /// When the capture ended, on the protocol clock in µs (the frame's timestamp).
     pub t_capture_us: u64,
     /// When the encode ended, on the protocol clock in µs.
@@ -219,6 +223,7 @@ fn frame_kbps(job: &Job, current_kbps: u32) -> u32 {
 
 fn encode_one(source: &mut dyn FrameSource, job: &Job) -> Res<Frame> {
     let req = &job.req;
+    let capture_start_us = now_ns() / 1000;
     source.capture(req.damage)?;
     let t_capture_us = now_ns() / 1000;
     source.set_bitrate(frame_kbps(job, source.kbps()));
@@ -229,6 +234,7 @@ fn encode_one(source: &mut dyn FrameSource, job: &Job) -> Res<Frame> {
     Ok(Frame {
         access_unit,
         idr,
+        capture_start_us,
         t_capture_us,
         encoded_us: t1 / 1000,
         picked_times: source.picked_times(),
@@ -295,5 +301,38 @@ mod tests {
         let mut source = Recorder { kbps: 8_000, set: Vec::new() };
         encode_one(&mut source, &job(9_000, false)).expect("encode");
         assert_eq!(source.kbps, 9_000);
+    }
+
+    /// Takes `ms` to capture, as an XShm readback and conversion of a large rect does.
+    struct SlowCapture {
+        ms: u64,
+    }
+
+    impl FrameSource for SlowCapture {
+        fn capture(&mut self, _damage: Rect) -> Res<()> {
+            std::thread::sleep(std::time::Duration::from_millis(self.ms));
+            Ok(())
+        }
+        fn encode(&mut self, _force_idr: bool, _pts_us: i64, out: &mut Vec<u8>) -> Res<bool> {
+            out.extend_from_slice(&[0, 0, 0, 1, 0x65]);
+            Ok(true)
+        }
+        fn set_bitrate(&mut self, _kbps: u32) {}
+        fn kbps(&self) -> u32 {
+            1_000
+        }
+        fn encoder_name(&self) -> String {
+            "slow-capture".into()
+        }
+    }
+
+    /// The capture's own time is on the frame, from its start to `t_capture_us`.
+    #[test]
+    fn a_frame_carries_when_its_capture_started() {
+        let mut source = SlowCapture { ms: 5 };
+        let frame = encode_one(&mut source, &job(1_000, false)).expect("encode");
+        let capture_us = frame.t_capture_us - frame.capture_start_us;
+        assert!(capture_us >= 5_000, "capture took 5 ms, the frame says {capture_us} us");
+        assert!(frame.t_capture_us <= frame.encoded_us);
     }
 }

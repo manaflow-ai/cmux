@@ -56,6 +56,16 @@ class ScreenShareNetemCliTests(unittest.TestCase):
         self.assertEqual(row["total"], 9.0)
         self.assertIn("| encode | 1 | 4.00 | 4.00 |", netem.stage_table([row]))
 
+    def test_capture_start_splits_the_readback_out_of_the_gate(self):
+        sample = {"sent_ns": 1_000_000, "capture_us": 3_000, "decoded_ns": 10_000_000}
+        log = [{"release_us": 3_000, "capture_start_us": 2_700, "damage_us": 2_500,
+                "encoded_us": 7_000}]
+        [row] = netem.stage_samples([sample], log)
+        self.assertEqual(row["gate"], 0.2)
+        self.assertEqual(row["capture"], 0.3)
+        self.assertEqual(row["encode"], 4.0)
+        self.assertIn("| capture | 1 | 0.30 | 0.30 |", netem.stage_table([row]))
+
     def test_stage_join_leaves_unknown_ends_out(self):
         sample = {"sent_ns": 1_000_000, "capture_us": 5_000, "decoded_ns": 10_000_000}
         [row] = netem.stage_samples([sample], [])
