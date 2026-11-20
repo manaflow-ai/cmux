@@ -16,6 +16,11 @@ import CmuxNextDesignTokens
 /// control's label is read from the painted pixels: its ink against its own fill must reach 4.5:1
 /// for text (3:1 for an icon), and a disabled control's 2.5:1, the legible floor.
 ///
+/// A see-through window over the worst desktop can hold less than 4.5:1 for any ink (a dark theme
+/// at 60% over white is a mid gray): there the minimum is what the theme's own primary text reaches
+/// on that ground, so a control fails only when it reads worse than the theme's text does. SwiftUI's
+/// system bezel is read too, for the report only (`isReference`): cmux surfaces must not ship it.
+///
 /// With `CONTRAST_AUDIT_OUT` set the suite writes every reading as a Markdown table
 /// (`native-control-contrast.md`) there; with `CMUX_CONTRAST_ALL_THEMES=1` it reads every bundled
 /// theme instead of the spread.
@@ -40,6 +45,8 @@ import CmuxNextDesignTokens
         let name: String
         let view: NSView
         let isIcon: Bool
+        /// Drawn for the report only: SwiftUI's system bezel, which cmux surfaces must not ship.
+        var isReference = false
     }
 
     /// One reading: the control's ink on its own fill.
@@ -52,6 +59,7 @@ import CmuxNextDesignTokens
         let minimum: Double
         let ink: ThemeRGB
         let fill: ThemeRGB
+        var isReference = false
         var passes: Bool { ratio + 0.005 >= minimum }
     }
 
@@ -71,7 +79,7 @@ import CmuxNextDesignTokens
             }
         }
         if let out = ProcessInfo.processInfo.environment["CONTRAST_AUDIT_OUT"] { try Self.report(readings, to: out) }
-        let failures = readings.filter { !$0.passes }
+        let failures = readings.filter { !$0.passes && !$0.isReference }
         #expect(readings.count > themes.count * 6 * 10, "too few controls were read: \(readings.count)")
         var perControl: [String: Int] = [:]
         for failure in failures { perControl[failure.control + (failure.disabled ? " (disabled)" : ""), default: 0] += 1 }
@@ -113,6 +121,8 @@ import CmuxNextDesignTokens
         scope.adopt(window)
         scope.root(container)
         let samples = catalog(scope: scope, disabled: disabled)
+        // The most any ink reaches on a see-through ground: the theme's own primary text there.
+        let ceiling = ground == .seeThrough ? tokens.textPrimary.withAlpha(1).contrast(with: groundColor) : .infinity
         var x: CGFloat = 16, y: CGFloat = 16, rowHeight: CGFloat = 0
         for sample in samples {
             container.addSubview(sample.view)
@@ -135,11 +145,15 @@ import CmuxNextDesignTokens
             let frame = sample.view.frame
             let inset = frame.insetBy(dx: min(10, frame.width * 0.2), dy: frame.height * 0.22)
             let top = container.bounds.height - inset.maxY
-            guard let patch = Patch(rep, x: inset.minX * scale, y: top * scale, width: inset.width * scale, height: inset.height * scale)
+            // A glyph's few core pixels are its color (WCAG reads a graphic's color, not its antialiased edge).
+            guard let patch = Patch(rep, x: inset.minX * scale, y: top * scale, width: inset.width * scale, height: inset.height * scale,
+                                    percentile: sample.isIcon ? 0.99 : 0.95)
             else { return nil }
-            let minimum = disabled ? disabledMinimum : sample.isIcon ? iconMinimum : textMinimum
+            let standard = disabled ? disabledMinimum : sample.isIcon ? iconMinimum : textMinimum
+            let minimum = min(standard, ceiling * standard / textMinimum)
             return Reading(theme: theme.label, ground: ground, control: sample.name, disabled: disabled,
-                           ratio: patch.ratio, minimum: minimum, ink: patch.ink, fill: patch.fill)
+                           ratio: patch.ratio, minimum: minimum, ink: patch.ink, fill: patch.fill,
+                           isReference: sample.isReference)
         }
     }
 
@@ -152,10 +166,10 @@ import CmuxNextDesignTokens
             button.isEnabled = enabled
             return Sample(name: name, view: button, isIcon: icon)
         }
-        func swiftUI(_ name: String, _ view: some View) -> Sample {
+        func swiftUI(_ name: String, _ view: some View, reference: Bool = false) -> Sample {
             let host = NSHostingView(rootView: AnyView(view.disabled(disabled)))
             host.sizingOptions = [.intrinsicContentSize]
-            return Sample(name: name, view: host, isIcon: false)
+            return Sample(name: name, view: host, isIcon: false, isReference: reference)
         }
         let selection = scope.perform { Color(nsColor: Palette.selectionFill) }
         let ink = scope.perform { Color(nsColor: Palette.textPrimary) }
@@ -185,8 +199,8 @@ import CmuxNextDesignTokens
             appKit("TitlebarBandButton", TitlebarBandButton(symbol: "sidebar.left"), icon: true),
             appKit("SignInButton", SignInButton(onSignIn: {})),
             // The bookmark bubble's shape: SwiftUI's default button in a themed popover, tinted with the selection.
-            swiftUI("SwiftUI Button (default style, selection tint)", Button("More…") {}.tint(selection)),
-            swiftUI("SwiftUI Button (default style)", Button("Remove") {}),
+            swiftUI("system bezel: SwiftUI Button, selection tint", Button("More…") {}.tint(selection), reference: true),
+            swiftUI("system bezel: SwiftUI Button", Button("Remove") {}, reference: true),
             swiftUI("CmuxDialogActionButton (selection tint)", CmuxDialogActionButton("Done", hint: .return) {}.tint(selection)),
             swiftUI("SwiftUI Button (cmuxPressFill)", Button("Rename") {}.buttonStyle(.cmuxPressFill).foregroundStyle(ink)),
         ]
@@ -213,13 +227,13 @@ import CmuxNextDesignTokens
 }
 
 /// The ink of one painted patch against its fill: the fill is the patch's most common color, the ink
-/// the 95th percentile of the other pixels' contrast with it (antialiased edges sit below it).
+/// the given percentile of the other pixels' contrast with it (antialiased edges sit below it).
 private struct Patch {
     let fill: ThemeRGB
     let ink: ThemeRGB
     let ratio: Double
 
-    init?(_ rep: NSBitmapImageRep, x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) {
+    init?(_ rep: NSBitmapImageRep, x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat, percentile: Double) {
         let x0 = max(0, Int(x)), y0 = max(0, Int(y))
         let x1 = min(rep.pixelsWide, Int(x + width)), y1 = min(rep.pixelsHigh, Int(y + height))
         guard x1 > x0, y1 > y0 else { return nil }
@@ -240,7 +254,7 @@ private struct Patch {
         let fill = ThemeRGB(red: mode.sum.0 / n, green: mode.sum.1 / n, blue: mode.sum.2 / n)
         let inks = pixels.map { ($0, $0.contrast(with: fill)) }.filter { $0.1 > 1.1 }.sorted { $0.1 < $1.1 }
         guard inks.count >= 10 else { return nil }
-        let at = inks[Int(0.95 * Double(inks.count - 1))]
+        let at = inks[Int(percentile * Double(inks.count - 1))]
         self.fill = fill
         ink = at.0
         ratio = at.1
