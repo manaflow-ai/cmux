@@ -70,11 +70,12 @@ BLACKSMITH_RUNNER_NAME_CHECK = re.compile(
     r"startsWith\(runner\.name, '" + BLACKSMITH_LABEL.pattern + r"-'\)"
 )
 # The CLA jobs' runner identity guard (validate-cla-policy.rb is the
-# authority): fail unless GitHub-hosted or the dedicated JIT VM, and always
-# fail on an owned glaeda host.
+# authority): fail unless GitHub-hosted or a Blacksmith VM for an allowlisted
+# label, and always fail on an owned glaeda host.
 CLA_EPHEMERAL_RUNNER_GUARD_IF = (
     "(runner.environment != 'github-hosted'"
-    " && !startsWith(runner.name, 'cmux-gha-runner-pc-'))"
+    " && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-')"
+    " && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-'))"
     " || contains(runner.name, 'glaeda')"
 )
 FORK_BRANCHES = (
@@ -1819,23 +1820,23 @@ class ForkRunnerRoutingTests(unittest.TestCase):
             with self.subTest(line=line):
                 self.assertEqual(len(ungated_blacksmith_labels("x.yml", "jobs:\n  a:\n" + line)), 1)
 
-    def test_cla_runner_guard_admits_jit_vm_names(self) -> None:
+    def test_cla_runner_guard_admits_blacksmith_vm_names(self) -> None:
         guard = parse_expression(CLA_EPHEMERAL_RUNNER_GUARD_IF)
         # (runner.environment, runner.name) -> whether the guard step fails the job.
         cases = {
-            # Dedicated one-job JIT VM names.
-            ("self-hosted", "cmux-gha-runner-pc-1120-054815-8145f3"): False,
+            # Blacksmith VM names since October 2026, and the earlier form.
+            ("self-hosted", "blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc"): False,
+            ("self-hosted", "blacksmith-2vcpu-ubuntu-2404-56ere4cqq7ryjqvc"): False,
+            ("self-hosted", "blacksmith-4vcpu-ubuntu-2404-Runner-337101a82d"): False,
             ("github-hosted", "GitHub Actions 12"): False,
             # Owned glaeda hosts, even under a Blacksmith-looking name.
             ("self-hosted", "cmuxs-mac-mini-5-glaeda-1"): True,
-            ("self-hosted", "cmux-gha-runner-pc-glaeda"): True,
+            ("self-hosted", "blacksmith-4vcpu-ubuntu-2404-glaeda"): True,
             ("github-hosted", "x-glaeda-1"): True,
             # Labels outside the runs-on allowlist, and the bare label.
-            ("self-hosted", "blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc"): True,
-            ("self-hosted", "cmux-gcp-pr-control-jit-x64"): True,
-            ("self-hosted", "cmux-gcp-pr-control-jit-x64-1120-054815-8145f3"): True,
-            ("self-hosted", "cmux-runner-pool-e1bx-0019"): True,
-            ("self-hosted", "cmux-gha-runner-nj-1120-054815-8145f3"): True,
+            ("self-hosted", "blacksmith-8vcpu-ubuntu-2404-56ere4cqq7ryjqvc"): True,
+            ("self-hosted", "blacksmith-4vcpu-ubuntu-2204-56ere4cqq7ryjqvc"): True,
+            ("self-hosted", "blacksmith-4vcpu-ubuntu-2404"): True,
         }
         for (environment, name), fails in cases.items():
             with self.subTest(name=name, environment=environment):

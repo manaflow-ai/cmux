@@ -57,15 +57,17 @@ run_check() {
 
 check_cla_guard_runner() {
   # The guard parses attacker-controlled YAML with a trusted token, so only an
-  # ephemeral runner may take it: GitHub-hosted ubuntu-24.04, or a dedicated one-job JIT VM through the reviewed selector. The
-  # selector cannot name a persistent machine. validate-cla-policy.rb holds
+  # ephemeral runner may take it: GitHub-hosted ubuntu-24.04, or a one-job
+  # Blacksmith VM through the CI_TRUSTED_RUNNER selector. The selector cannot
+  # name a persistent machine (its allowlist lives in this base-branch file,
+  # and anything else falls back to Blacksmith). validate-cla-policy.rb holds
   # the same exact allowlist and is the authority; this keeps it visible.
   local hosted selector runs_on
   hosted="    runs-on: ubuntu-24.04"
-  selector="    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-pr-control-jit-x64' }}"
+  selector="    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
   runs_on="$(grep -E '^    runs-on:' "$CLA_GUARD_FILE" || true)"
   if [[ "$runs_on" != "$hosted" && "$runs_on" != "$selector" ]]; then
-    echo "FAIL: cla-policy-guard.yml must use ubuntu-24.04 or the dedicated one-job selector"
+    echo "FAIL: cla-policy-guard.yml must use ubuntu-24.04 or the CI_TRUSTED_RUNNER ephemeral selector"
     exit 1
   fi
 
@@ -74,28 +76,31 @@ check_cla_guard_runner() {
     exit 1
   fi
 
-  # The JIT VM reports runner.environment 'self-hosted', so the selector
-  # needs the guard step that admits only its one-job name prefix.
+  # A Blacksmith VM reports runner.environment 'self-hosted', so the selector
+  # needs the guard step that also admits Blacksmith scale-set VM names.
   local hosted_guard ephemeral_guard
   hosted_guard="        if: runner.environment != 'github-hosted'"
-  ephemeral_guard="        if: (runner.environment != 'github-hosted' && !startsWith(runner.name, 'cmux-gha-runner-pc-')) || contains(runner.name, 'glaeda')"
+  ephemeral_guard="        if: (runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-')) || contains(runner.name, 'glaeda')"
 
-  # Exercise the registration name separately from the routing label.
+  # Blacksmith names a VM '<label>-<id>' (blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc;
+  # before October 2026 '<label>-Runner-<hex>'). Read the prefixes and the
+  # owned-host marker back out of the guard and check that it admits those
+  # names and refuses owned glaeda hosts.
   local prefixes marker case_line expected name admitted prefix
   prefixes="$(grep -oE "startsWith\(runner\.name, '[^']+'\)" <<<"$ephemeral_guard" | sed -E "s/.*'([^']+)'.*/\1/")"
   marker="$(sed -nE "s/.*contains\(runner\.name, '([^']+)'\).*/\1/p" <<<"$ephemeral_guard")"
   if [[ -z "$prefixes" || -z "$marker" ]]; then
-    echo "FAIL: CLA runner guard must name the JIT prefix and an owned-host marker"
+    echo "FAIL: CLA runner guard must name Blacksmith prefixes and an owned-host marker"
     exit 1
   fi
   for case_line in \
-    'admit cmux-gha-runner-pc-1120-054815-8145f3' \
-    'refuse cmux-runner-pool-e1bx-0019' \
-    'refuse cmux-gha-runner-nj-1120-054815-8145f3' \
+    'admit blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc' \
+    'admit blacksmith-2vcpu-ubuntu-2404-56ere4cqq7ryjqvc' \
+    'admit blacksmith-4vcpu-ubuntu-2404-Runner-337101a82d' \
     'refuse cmuxs-mac-mini-5-glaeda-1' \
-    'refuse cmux-gha-runner-pc-glaeda' \
-    'refuse blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc' \
-    'refuse cmux-gcp-pr-control-jit-x64'; do
+    'refuse blacksmith-4vcpu-ubuntu-2404-glaeda' \
+    'refuse blacksmith-8vcpu-ubuntu-2404-56ere4cqq7ryjqvc' \
+    'refuse blacksmith-4vcpu-ubuntu-2404'; do
     expected="${case_line%% *}"
     name="${case_line#* }"
     admitted=refuse
@@ -117,11 +122,11 @@ check_cla_guard_runner() {
     exit 1
   fi
   if [[ "$runs_on" == "$selector" ]] && ! grep -Fqx "$ephemeral_guard" "$CLA_GUARD_FILE"; then
-    echo "FAIL: cla-policy-guard.yml must refuse a runner that is neither GitHub-hosted nor the one-job JIT"
+    echo "FAIL: cla-policy-guard.yml must refuse a runner that is neither GitHub-hosted nor Blacksmith"
     exit 1
   fi
 
-  echo "PASS: CLA policy guard uses an ephemeral GitHub-hosted or one-job runner"
+  echo "PASS: CLA policy guard uses an ephemeral GitHub-hosted or Blacksmith runner"
 }
 
 check_macos_runner() {
