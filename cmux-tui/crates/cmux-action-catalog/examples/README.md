@@ -4,10 +4,11 @@ This default-off prototype tests the transport step in the private
 `docs/design/hot-apply-more-kinds.md` design. It is an explicitly invoked example,
 not part of the app or production daemon. It changes no caller or setting.
 
-From the repository root, on a fleet test worker:
+From `cmux-tui/`, on a fleet test worker (the working directory selects its pinned
+Rust toolchain):
 
 ```sh
-cargo run --release --manifest-path cmux-tui/Cargo.toml -p cmux-action-catalog \
+cargo run --locked --release -p cmux-action-catalog \
   --example catalog_rpc -- --experiment 500
 ```
 
@@ -23,7 +24,8 @@ The same harness compares the existing cached C ABI with the child daemon,
 including JSON decode and disposal on both paths. It checks complete catalog
 parity for English, Japanese, Portuguese and unknown-locale fallback, warms each
 path, alternates measurement order, and prints p50/p99 nanoseconds and their
-ratio. It also exercises invalid requests and oversized-frame failure cleanup.
+ratio. It also exercises invalid requests, oversized-frame failure cleanup, and
+the timeout and cleanup of a peer that never completes its request frame.
 
 The design's p99 bar is at most **1.2x**. A larger value is a useful negative
 experiment result, not a transport failure; the receipt prints

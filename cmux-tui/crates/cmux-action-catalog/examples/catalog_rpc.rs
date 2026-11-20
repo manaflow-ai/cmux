@@ -212,12 +212,25 @@ mod experiment {
         if !refused || broken_socket.exists() {
             return Err(invalid("oversized request refusal/cleanup failed"));
         }
+        // A peer that sends a header but never finishes the body cannot hold the daemon.
+        let mut stalled = Daemon::start()?;
+        let stalled_socket = stalled.directory.path().join("rpc.sock");
+        stalled.stream.write_all(&10_u32.to_be_bytes())?;
+        let timed_out = stalled
+            .child
+            .wait_timeout(DEADLINE + Duration::from_secs(1))?
+            .is_some_and(|status| !status.success());
+        drop(stalled);
+        if !timed_out || stalled_socket.exists() {
+            return Err(invalid("incomplete request timeout/cleanup failed"));
+        }
         println!(
             "{}",
             json!({
                 "experiment": "action-catalog-child-daemon", "production_caller_migrated": false,
                 "child_pid": child_pid, "child_exited": true, "socket_removed": true,
                 "invalid_requests_refused": true, "oversized_request_refused": true,
+                "incomplete_request_timed_out": true,
                 "measurement": "warm catalog retrieval and JSON decode/drop; not palette latency",
                 "rows": rows,
             })
