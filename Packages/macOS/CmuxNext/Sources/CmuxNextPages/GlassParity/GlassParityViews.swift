@@ -118,12 +118,24 @@ final class GlassParityFlippedView: NSView {
 /// ascent), with no text field cell insets.
 final class GlassParityTextView: NSView {
     private let lines: [(String, NSColor)]
+    private let smoothing: Bool
     static let lineHeight: CGFloat = 18
     static let origin = CGPoint(x: 12, y: 8)
 
-    init(frame: NSRect, title: String, detail: String) {
+    init(frame: NSRect, title: String, detail: String, smoothing: Bool = true) {
         lines = [(title, Palette.textPrimary), (detail, Palette.textSecondary)]
+        self.smoothing = smoothing
         super.init(frame: frame)
+    }
+
+    /// The baseline of line `index`, as a CSS line box of ``lineHeight`` places it in WebKit and Chromium:
+    /// the font's ascent and descent rounded to whole pixels, the half leading floored. AppKit's fractional
+    /// metrics put it at 21.62 pt for the 13 pt system font where both engines put 21 (fleet step e573c84a:
+    /// every native line a pixel below the web one).
+    static func baseline(line index: Int, ascender: CGFloat, descender: CGFloat) -> CGFloat {
+        let ascent = ascender.rounded(), descent = (-descender).rounded()
+        let halfLeading = ((lineHeight - ascent - descent) / 2).rounded(.down)
+        return origin.y + CGFloat(index) * lineHeight + halfLeading + ascent
     }
 
     @available(*, unavailable)
@@ -139,9 +151,10 @@ final class GlassParityTextView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let font = NSFont.systemFont(ofSize: TypeScale.body)
-        let halfLeading = (Self.lineHeight - (font.ascender - font.descender)) / 2
+        NSGraphicsContext.current?.cgContext.setShouldSmoothFonts(smoothing)
         for (index, (text, color)) in lines.enumerated() {
-            let top = Self.origin.y + CGFloat(index) * Self.lineHeight + halfLeading
+            // draw(at:) takes the line's top; its baseline is that plus the font's ascender.
+            let top = Self.baseline(line: index, ascender: font.ascender, descender: font.descender) - font.ascender
             NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color])
                 .draw(at: CGPoint(x: Self.origin.x, y: top))
         }
