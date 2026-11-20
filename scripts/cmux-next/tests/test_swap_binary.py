@@ -112,9 +112,10 @@ class SwapBinaryTests(unittest.TestCase):
             self.skipTest("a sparse checkout without the project")
         r = self.run_tool("wrapper", ROOT, self.tmp / "wrapper")
         manifest = (self.tmp / "wrapper/Package.swift").read_text()
-        # -no_exported_symbols comes only from Release's LD_EXPORT_SYMBOLS = NO: the Release block, not Debug's.
-        for flag in ('"-objc_stubs_small"', '"@executable_path/../Frameworks"', '"-no_exported_symbols"', '"Carbon"'):
+        for flag in ('"-objc_stubs_small"', '"@executable_path/../Frameworks"', '"Carbon"'):
             self.assertIn(flag, manifest)
+        # No -no_exported_symbols: it follows the app target's Release LD_EXPORT_SYMBOLS = NO, which #44204
+        # dropped when the app code moved into CmuxNextApp.framework behind a stub executable.
         self.assertIn('.macOS("14.0")', manifest)
         self.assertIn("link flags", r.stderr)
 
