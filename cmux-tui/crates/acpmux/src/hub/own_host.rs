@@ -11,6 +11,14 @@ impl Hub {
     /// that name (its session is the one meant), so it can only reach a session the bare `NAME`
     /// names exactly.
     pub fn resolve(&self, key: &str) -> Result<Arc<Session>, RpcError> {
+        // The request router rewrites selectors before dispatch, but direct callers such as
+        // durable watches and waits resolve their keys here. Reuse the same cross-host matcher so
+        // a native agent id has one meaning on every path.
+        if let Some(route) = self.key_route(key)?
+            && !route.contains('/')
+        {
+            return self.resolve_here(&route);
+        }
         // A configured peer owns its namespace even when its mirrored row disappeared
         // after lookup. A local display name must never intercept the resolved route.
         // The refusal reads as for a name that is no peer: a peer's connection gets this

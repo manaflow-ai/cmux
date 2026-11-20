@@ -258,11 +258,15 @@ impl Hub {
         }
         // The lookups only under the locks, one lock at a time: no row is built while a peer's
         // writer waits.
+        let routed: Vec<String> = keys
+            .iter()
+            .map(|key| self.key_route(key).ok().flatten().unwrap_or_else(|| key.clone()))
+            .collect();
         let mut found: Vec<Option<Found>> =
-            keys.iter().map(|key| self.session_by_id(key).map(Found::Own)).collect();
+            routed.iter().map(|key| self.session_by_id(key).map(Found::Own)).collect();
         {
             let remote = self.remote_sessions.read();
-            for (key, found) in keys.iter().zip(found.iter_mut()) {
+            for (key, found) in routed.iter().zip(found.iter_mut()) {
                 if found.is_none() && key.contains('/') {
                     *found = remote.get(key.as_str()).cloned().map(Found::Mirrored);
                 }

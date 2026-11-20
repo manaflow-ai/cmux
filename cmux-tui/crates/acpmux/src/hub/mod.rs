@@ -2421,6 +2421,7 @@ impl Hub {
     /// `acpmux ls`. Reads every name: only where the refusal goes back to a caller.
     pub fn unknown_session(&self, key: &str) -> RpcError {
         let lower = key.to_ascii_lowercase();
+        let id_query = key.bytes().any(|b| b.is_ascii_digit());
         let mut names: Vec<String> = self
             .sessions
             .lock()
@@ -2431,6 +2432,14 @@ impl Hub {
                 name.to_ascii_lowercase().contains(&lower).then_some(name)
             })
             .collect();
+        if id_query {
+            names.extend(self.sessions().iter().filter_map(|s| {
+                let meta = s.meta();
+                meta.agent_session_id.filter(|id| {
+                    meta.status != SessionStatus::Closed && id.to_ascii_lowercase().contains(&lower)
+                })
+            }));
+        }
         names.extend(self.remote_names_containing(&lower));
         let close = crate::session_name::candidates(names.iter().map(String::as_str), key);
         crate::session_name::not_found(key, &close)

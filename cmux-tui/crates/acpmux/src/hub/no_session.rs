@@ -113,12 +113,13 @@ impl Hub {
     /// (the machine `key` names, the name on it, that machine's live session names): a peer's
     /// rows for `PEER/NAME`, this machine's sessions for a bare key or this machine's own name.
     fn names_on_host_of<'k>(&self, key: &'k str) -> (String, &'k str, Vec<String>) {
+        let id_query = key.bytes().any(|b| b.is_ascii_digit());
         if let Some((host, rest)) = key.split_once('/')
             && !rest.is_empty()
             && self.peer(host).is_some()
         {
             let map = self.remote_sessions.read();
-            let names = map
+            let mut names = map
                 .values()
                 .filter(|r| r.peer == host && !super::peers::remote_closed(r))
                 .filter_map(|r| r.summary.name())
@@ -126,6 +127,14 @@ impl Hub {
                     n.strip_prefix(host).and_then(|n| n.strip_prefix('/')).unwrap_or(n).to_owned()
                 })
                 .collect();
+            if id_query {
+                names.extend(map.values().filter_map(|r| {
+                    (r.peer == host && !super::peers::remote_closed(r))
+                        .then(|| r.summary.agent_session_id())
+                        .flatten()
+                        .map(str::to_owned)
+                }));
+            }
             return (host.to_owned(), rest, names);
         }
         let (host, name) = match key.split_once('/') {
@@ -136,7 +145,7 @@ impl Hub {
             }
             _ => (crate::pairing::machine_name(), key),
         };
-        let names = self
+        let mut names = self
             .sessions
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -147,6 +156,21 @@ impl Hub {
                     .then(|| meta.name.clone())
             })
             .collect();
+        if id_query {
+            names.extend(
+                self.sessions
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .values()
+                    .filter_map(|s| {
+                        let meta = s.meta.lock().unwrap_or_else(|e| e.into_inner());
+                        (meta.status != SessionStatus::Closed)
+                            .then(|| meta.agent_session_id.as_deref())
+                            .flatten()
+                            .map(str::to_owned)
+                    }),
+            );
+        }
         (host, name, names)
     }
 }

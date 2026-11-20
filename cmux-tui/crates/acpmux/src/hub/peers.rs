@@ -1533,6 +1533,15 @@ impl Hub {
     /// `mac-ci-3` for `claude-sr2/mac-ci-3` when `key` names no session here in any way
     /// (`Hub::local_match_counts`), or `PEER/mac-ci-3` on that peer only.
     pub fn resolve_remote(&self, key: &str) -> Option<(Arc<crate::peer::Peer>, String, Value)> {
+        // Direct callers do not pass through `server::route_bare_key`. Resolve a native agent id
+        // through the shared route first, then read the exact mirrored row it selected.
+        if let Ok(Some(route)) = self.key_route(key)
+            && let Some((peer_name, mux_id)) = route.split_once('/')
+            && let Some(row) = self.remote_sessions.read().get(&route)
+        {
+            let peer = self.peer(peer_name)?;
+            return Some((peer, mux_id.to_owned(), row.summary.value()));
+        }
         let map = self.remote_sessions.read();
         // Only the one row picked is parsed.
         let row = |r: &RemoteSession| {
