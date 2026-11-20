@@ -15,6 +15,8 @@ pub(super) struct Counts {
     read_prompts: std::collections::HashSet<String>,
 }
 
+const MAX_READ_PROMPTS: usize = 4096;
+
 impl Counts {
     pub(super) fn json(&self) -> Value {
         json!({"held": self.held, "needYou": self.need_you})
@@ -91,9 +93,24 @@ impl Counts {
                 }
             }
             "inbox_read" => {
+                let surge_ids = event
+                    .msg
+                    .get("surgePromptIds")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .collect::<std::collections::HashSet<_>>();
                 if let Some(ids) = event.msg.get("promptIds").and_then(Value::as_array) {
                     for id in ids.iter().filter_map(Value::as_str) {
-                        self.read_prompts.insert(id.to_owned());
+                        if surge_ids.contains(id) && self.read_prompts.len() >= MAX_READ_PROMPTS {
+                            if let Some(oldest) = self.read_prompts.iter().next().cloned() {
+                                self.read_prompts.remove(oldest);
+                            }
+                        }
+                        if surge_ids.contains(id) {
+                            self.read_prompts.insert(id.to_owned());
+                        }
                         self.remove_actionable(id);
                     }
                 }
@@ -122,7 +139,13 @@ impl Counts {
             event.msg.pointer("/surge/needYou").and_then(Value::as_u64),
         ) {
             self.held = held;
-            if self.actionable_by_thread.is_empty() {
+            let typed_triage = event.kind == "inbox_triaged"
+                && event
+                    .msg
+                    .get("items")
+                    .and_then(Value::as_array)
+                    .is_some_and(|items| !items.is_empty());
+            if self.actionable_by_thread.is_empty() && !typed_triage {
                 self.need_you = need_you;
             } else {
                 self.need_you = self.actionable_by_thread.len() as u64;
@@ -216,7 +239,9 @@ impl Hub {
             (Vec::new(), counts.need_you)
         };
         if let Some(n) = actionable_topics {
-            if additions.is_empty() {
+            let typed_items =
+                msg.get("items").and_then(Value::as_array).is_some_and(|items| !items.is_empty());
+            if !typed_items {
                 next_need = if counts.actionable_by_thread.is_empty() {
                     n
                 } else {
