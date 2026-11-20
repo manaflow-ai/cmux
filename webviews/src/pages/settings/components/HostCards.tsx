@@ -2,7 +2,7 @@
 // (Appearance, where Change Background… lands), the terminal facts (Terminal) and the settings
 // file with its problems (Advanced). Data comes from the host lists; writes run host ops or
 // catalog actions, the palette's paths.
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "../../../ui/Button";
 import { useSettingsState, useStore } from "../context";
 import { settingsFileName } from "../format";
@@ -67,13 +67,6 @@ function BackdropThumb({ src }: { src: string }) {
   return <img className="backdrop-thumb" alt="" src={src} onError={() => setFailed(src)} />;
 }
 
-/** Change Background… (`?focus=appearance.background`) lands on the saved tile. Focus resting on it
- * previews the saved background after the dwell, so nothing changes. */
-function revealTile(tile: HTMLElement | null): void {
-  tile?.scrollIntoView?.({ block: "center" });
-  tile?.focus();
-}
-
 /** Whether the picker draws (the host lists the art); its rows show in their group otherwise. */
 export function useBackdropsShown(): boolean {
   return (useSettingsState().host?.backdrops ?? []).length > 0;
@@ -107,6 +100,18 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   // All Workspaces until This Workspace is picked: Change Background… keeps choosing for every window.
   const [ownScope, setOwnScope] = useState(false);
   const own = ownScope ? workspaceBackground : null;
+  const revealedTile = useRef(false);
+  useLayoutEffect(() => {
+    if (focus !== BACKGROUND_KEY) revealedTile.current = false;
+  }, [focus]);
+  // The deep link reveals the saved tile once. Selecting another tile or switching scope
+  // must keep focus and scroll where the person put them.
+  const revealTile = (tile: HTMLButtonElement | null) => {
+    if (!tile || revealedTile.current) return;
+    revealedTile.current = true;
+    tile.scrollIntoView?.({ block: "center" });
+    tile.focus({ preventScroll: true });
+  };
   const backdrops = host?.backdrops ?? [];
   const cancelDwell = () => {
     if (dwell.current !== null) clearTimeout(dwell.current);
