@@ -100,16 +100,6 @@ extension AppearanceSettingsSchema {
                 keywords: ["theme file", "rice", "ricing", "dotfile", "dotfiles", "look", "config", "themes folder", "json"]
             ),
             SettingDescriptor(
-                ThemeFileExceptionsSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.themeFileExceptions", "Changed Over Theme File"),
-                help: SettingsText.keyed("settings.appearance.themeFileExceptions.help", "Settings you changed while a theme file sets them. Your value applies over the file's; resetting the row returns to the file's. Choosing another theme file clears the list."),
-                kind: .stringList,
-                default: .array(ThemeFileExceptionsSetting.fallback.map { .string($0) }),
-                keywords: ["theme file", "override", "exception"]
-            ).hiddenFromSettingsPage("bookkeeping of the rows changed over the theme file; each row's note says so").hiddenFromPalette("a Settings change to a row the theme file sets edits it: a list of setting keys"),
-            SettingDescriptor(
                 HighlightColorSetting.configPath,
                 section: .appearance,
                 group: group,
@@ -204,6 +194,16 @@ extension AppearanceSettingsSchema {
                 kind: .stringMap,
                 default: nil,
                 keywords: ["wallpaper", "background", "schedule", "time of day", "sunrise", "sunset", "night", "auto switch"]
+            ),
+            SettingDescriptor(
+                BackdropSelectionSetting.modesPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.backgroundModes", "Saved Mode Backgrounds"),
+                help: SettingsText.keyed("settings.appearance.backgroundModes.help", "What Off, Rotate and Sun show again when you switch back to them."),
+                kind: .stringMap,
+                default: nil,
+                keywords: ["wallpaper", "background", "rotate", "folder", "shuffle", "auto switch"]
             ),
             SettingDescriptor(
                 BackdropSelectionSetting.dynamicPath,

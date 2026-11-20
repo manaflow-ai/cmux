@@ -7,7 +7,8 @@ use serde_json::Value;
 
 use super::replay::{Lookup, fingerprint};
 use super::{
-    Applied, Change, Edit, EditKind, MAX_EDITS, Op, Origin, Outcome, State, Target, WriteMeta, diff,
+    Applied, Change, Edit, EditKind, MAX_EDITS, Op, Origin, Outcome, State, Target, WriteMeta,
+    backdrop_modes, diff,
 };
 use crate::guard::{managed_key_for_path, managed_key_for_removal};
 use crate::jsonc::{self, JsoncError};
@@ -63,6 +64,7 @@ pub(super) fn apply_write(state: &State, op: Op) -> Result<Applied, Refusal> {
         Op::Edit { edits, meta } => edit_text(state, &edits, &meta)?,
         _ => return Err(not_a_write()),
     };
+    let text = keep_mode_source(state, text)?;
     let mut next = state.clone();
     let mut applied = if text == state.source {
         let outcome = Outcome {
@@ -90,6 +92,24 @@ pub(super) fn apply_write(state: &State, op: Op) -> Result<Applied, Refusal> {
         applied.state.replay.insert(key, print, applied.outcome.clone());
     }
     Ok(applied)
+}
+
+/// A write that leaves Switch Automatically's Off, Rotate or Sun keeps that mode's background in
+/// `appearance.backgroundModes` in the same publish (`backdrop_modes`), for every writer; not while
+/// the key is managed.
+fn keep_mode_source(state: &State, text: String) -> Result<String, Refusal> {
+    if text == state.source {
+        return Ok(text);
+    }
+    let after = jsonc::parse(&text).map_err(unreadable)?;
+    let Some(modes) = backdrop_modes::remembered_modes(&state.file_root, &after) else {
+        return Ok(text);
+    };
+    let path = Target::Key(backdrop_modes::MODES_KEY.to_string()).path();
+    if check_managed(state, &path).is_err() {
+        return Ok(text);
+    }
+    jsonc::set(&text, &path, &modes).map_err(unreadable)
 }
 
 fn writable_path(state: &State, target: &Target) -> Result<Vec<String>, Refusal> {

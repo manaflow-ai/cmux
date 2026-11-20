@@ -76,6 +76,7 @@ const off: WallpaperValues = {
   dark: null,
   schedule: null,
   dynamic: "appearance",
+  modes: null,
 };
 const lightDark: WallpaperValues = {
   ...off,
@@ -93,6 +94,14 @@ const timeOfDay: WallpaperValues = {
   },
 };
 const sun: WallpaperValues = { ...off, background: choices[4]!.id, dynamic: "time" };
+// Rotate on the paintings after a folder: the remembered folder keeps its tile, one click away.
+const rememberedFolder: WallpaperValues = {
+  ...off,
+  background: "daily",
+  modes: { rotate: "folder:/Users/me/Wallpapers" },
+};
+// Off on Sonoma's frames with Sun remembered on Ventura: picking Sun brings Ventura back.
+const rememberedSun: WallpaperValues = { ...off, background: choices[4]!.id, modes: { sun: choices[5]!.id } };
 
 export default componentEntry<Props>({
   id: "settings.wallpaper-switch",
@@ -124,6 +133,14 @@ export default componentEntry<Props>({
     "segmented-sun": {
       note: "Shipped: a dynamic macOS picture following the sun.",
       props: { design: "segmented", values: sun },
+    },
+    "segmented-remembered-folder": {
+      note: "Shipped: Rotate on the paintings; the folder it had keeps its tile.",
+      props: { design: "segmented", values: rememberedFolder },
+    },
+    "segmented-remembered-sun": {
+      note: "Shipped: Off on a dynamic picture, Sun remembered on another; Sun brings its own back.",
+      props: { design: "segmented", values: rememberedSun },
     },
     "menu-light-dark": { note: "One menu and a summary line.", props: { design: "menu", values: lightDark } },
     "menu-time-of-day": {

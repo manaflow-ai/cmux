@@ -20,6 +20,7 @@ extension SettingsSchema {
         "agents.chats.roots": "domain:chat_roots", "appearance.background": "domain:backdrop_selection",
         "appearance.backgroundLight": "domain:backdrop_picture", "appearance.backgroundDark": "domain:backdrop_picture",
         "appearance.backgroundSchedule": "domain:backdrop_schedule",
+        "appearance.backgroundModes": "domain:backdrop_modes",
         "appearance.backgroundLocation": "domain:backdrop_location",
         "appearance.customDensities": "domain:custom_densities",
         "agentPane.display.commandLabels": "domain:command_labels",

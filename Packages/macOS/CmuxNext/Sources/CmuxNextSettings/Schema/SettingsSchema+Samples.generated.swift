@@ -313,6 +313,21 @@ extension SettingsSchemaSamples {
                 .object(["07:00": .string("__not_a_backdrop__")]), .object(["07:00": .number(1)]),
             ]
         ),
+        "domain:backdrop_modes": SampleSet(
+            accept: [
+                .object([:]),
+                .object(["off": .string("munch-scream"), "rotate": .string("folder:/Users/Shared/Wallpapers"), "sun": .string("system:/System/Library/Desktop Pictures/Sonoma.heic")]),
+                .object(["off": .string("none"), "rotate": .string("daily")]),
+                .object(["off": .string("file:/Users/Shared/Night.png")]),
+            ],
+            refuse: [
+                .string("daily"), .array([]), .object(["rotate": .string("munch-scream")]),
+                .object(["rotate": .string("folder:relative")]), .object(["off": .string("daily")]),
+                .object(["off": .string("folder:/Users/Shared/Wallpapers")]), .object(["sun": .string("desktop")]),
+                .object(["sun": .string("file:/Users/Shared/Night.png")]), .object(["appearance": .string("desktop")]),
+                .object(["off": .number(1)]),
+            ]
+        ),
         "domain:backdrop_location": SampleSet(
             accept: [
                 .string("37.77,-122.42"), .string("-33.87, 151.21"), .string("69.65,18.96"),

@@ -72,7 +72,7 @@ extension SettingsSchema {
         "appearance.highlightColor",
         "appearance.themeEdits",
         // The theme file whose look applies (looks only)
-        "appearance.themeFile", "appearance.themeFileExceptions",
+        "appearance.themeFile",
         // Starred themes and their rotation (looks only)
         "appearance.favoriteThemes", "appearance.rotateFavoriteThemes",
         // The color of each machine's marks (looks only)
@@ -80,7 +80,8 @@ extension SettingsSchema {
         "appearance.backdropArt", "appearance.backgroundOpacity", "appearance.backgroundBlur",
         "appearance.inactiveWindowDim", "appearance.wallpaperTint", "appearance.background",
         "appearance.backgroundRotation", "appearance.backgroundLight", "appearance.backgroundDark",
-        "appearance.backgroundSchedule", "appearance.backgroundDynamic", "appearance.backgroundLocation",
+        "appearance.backgroundSchedule", "appearance.backgroundModes", "appearance.backgroundDynamic",
+        "appearance.backgroundLocation",
         // Per-display background and cadence (looks only)
         "appearance.displayBackgrounds", "appearance.displayBackgroundRotations",
         "appearance.paneBackgrounds", "ui.reducedBackgrounds", "appearance.experimentalControls", "app.uiScale",

@@ -27,6 +27,7 @@ extension SettingDescriptor {
             return BackdropSelectionSetting.acceptsPicture(value)
         }
         if path == BackdropSelectionSetting.schedulePath { return BackdropSelectionSetting.acceptsSchedule(value) }
+        if path == BackdropSelectionSetting.modesPath { return BackdropSelectionSetting.acceptsModes(value) }
         if path == BackdropSelectionSetting.locationPath { return BackdropSelectionSetting.acceptsLocation(value) }
         if path == NewTabAppSetting.configPath { return value.stringValue.map(NewTabAppSetting.isValidID) ?? false }
         if path == ChatSettings.rootsPath {

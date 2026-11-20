@@ -3,6 +3,7 @@
 //! `if_revision`, edits the JSONC text in memory and returns the next state
 //! with the change it causes. No IO; `owner::ConfigStore` commits.
 
+pub(crate) mod backdrop_modes;
 mod diff;
 mod reads;
 mod replay;
