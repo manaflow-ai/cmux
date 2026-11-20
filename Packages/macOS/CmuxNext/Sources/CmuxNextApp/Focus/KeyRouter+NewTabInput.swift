@@ -71,16 +71,16 @@ final class NewTabInputCoordinator {
             self.incoming = incoming
         }
 
-        /// Whether the opening still owns the window's keys: its pane, in its window, shows its New
-        /// Tab page (or, until the page shows, the tab it showed before). An incoming page's hold
-        /// owns them until its readiness, its creation's end or its limit.
+        /// Whether the opening still owns the window's keys: its pane, in its window, shows its New Tab page (or, until the
+        /// page shows, the tab it showed before). An incoming page's hold owns them until its readiness, its creation's end or its limit.
+        /// After the page showed, the tab that the pane showed before is not the opening's, also when it is a New Tab page: the person went back to it.
         var owns: Bool {
             guard let window else { return false }
             if incoming != nil { return true }
             guard let pane, pane.view.window === window, !pane.view.isHiddenOrHasHiddenAncestor else { return false }
             guard let key = pane.currentTabKey else { return !shown || pane.stripModel.selectedID.map { pane.services.agentTabs.isNewTabPage($0.rawValue) } == true } // or its page waits for its frame (`PaneController.apply`)
-            if pane.services.agentTabs.isNewTabPage(key) || LocalPageTab.page(of: key) == .nativeNewTab { return true }
-            return !shown && key == opened
+            if shown, let opened, key == opened || key == pane.services.agentTabs.resolve(opened) { return false } // also by the store's id of a tab that the daemon made since
+            return pane.services.agentTabs.isNewTabPage(key) || LocalPageTab.page(of: key) == .nativeNewTab || (!shown && key == opened)
         }
     }
 
@@ -114,7 +114,7 @@ final class NewTabInputCoordinator {
         // One opening at a time per window: an earlier one ends here, and its keys wait for this page.
         let replaced = entry(for: window), earlier = replaced?.keyboard.persons == true ? replaced?.buffer.takeKeys() ?? [] : [] // a script's hold: its keys were typed where the keyboard is, and go on there now
         release(in: window)
-        let keyboard = NewTabHoldKeyboard(in: window, persons: ActionRunScope.isPersonsAction(), replacing: replaced?.keyboard, standIn: TerminalHostView.keyboardOwner)
+        let keyboard = NewTabHoldKeyboard(in: window, persons: ActionRunScope.isPersonsAction(), replacing: replaced?.keyboard, standIn: TerminalHostView.keyboardOwner, drawn: { $0.isChromiumPageWindow ? AgentPaneView.chromiumAgentPane(under: $0, in: window) : nil })
         // The pane focus had at the opening, when the opening may move focus (a person's, not a script's).
         var focusedAtOpening = ActionRunScope.viewChangeAllowed() ? pane.services.windowController(showing: pane)?.focus.state.pane : nil
         let buffer = NewTabInputBuffer(began: now(), held: earlier, focusField: { [weak pane, weak window] in
@@ -152,7 +152,7 @@ final class NewTabInputCoordinator {
             return FocusRoute(.person, "the new tab the person opened: its page").moveKeyboard(in: window, to: view.webView)
         }, deliver: { [weak router, weak window] event in
             guard let router, let window else { return }
-            Self.replay(Self.retarget(event, to: window), held: event, in: window, router: router, keyboard: keyboard)
+            Self.replay(NewTabInputBuffer.retarget(event, to: window), held: event, in: window, router: router, keyboard: keyboard)
         })
         let entry = Entry(buffer: buffer, keyboard: keyboard, limit: holdLimit, opened: pane.currentTabKey, pane: pane, window: window)
         install(entry, in: window)
@@ -190,7 +190,7 @@ final class NewTabInputCoordinator {
         }, deliver: { [weak router, weak window] event in
             // Ready: the page's window. Not ready (the limit, a failed creation): the key window.
             guard let router, let to = target.pageWindow ?? (target.followsNewWindow ? NSApp.keyWindow : nil) ?? window else { return }
-            Self.replay(Self.retarget(event, to: to), held: event, in: to, router: router, keyboard: keyboard)
+            Self.replay(NewTabInputBuffer.retarget(event, to: to), held: event, in: to, router: router, keyboard: keyboard)
         })
         let entry = Entry(buffer: buffer, keyboard: keyboard, limit: incomingHoldLimit, opened: nil, pane: nil, window: window, incoming: target)
         install(entry, in: window)
@@ -228,16 +228,6 @@ final class NewTabInputCoordinator {
         flush(in: window)
     }
 
-    /// `event` as typed into `window` (a key held in one window and replayed in another).
-    private static func retarget(_ event: NSEvent, to window: NSWindow) -> NSEvent {
-        guard event.windowNumber != window.windowNumber,
-              let moved = NSEvent.keyEvent(with: event.type, location: .zero, modifierFlags: event.modifierFlags,
-                                           timestamp: event.timestamp, windowNumber: window.windowNumber, context: nil,
-                                           characters: event.characters ?? "", charactersIgnoringModifiers: event.charactersIgnoringModifiers ?? "",
-                                           isARepeat: event.isARepeat, keyCode: event.keyCode) else { return event }
-        return moved
-    }
-
     /// `window`'s hold, else a New Window hold, which takes every window's keys until its page shows.
     private func entry(for window: NSWindow) -> Entry? {
         held(in: window) ?? buffers.values.first { $0.incoming?.followsNewWindow == true }
@@ -259,7 +249,7 @@ final class NewTabInputCoordinator {
             // or (the app not active yet) the shown agent page's window.
             if let page = Self.chromiumPageWindow(in: window) {
                 if keyboard?.drops(keyFor: page) == true { return }
-                Self.chromiumAgentPane(under: page, in: window)?.judge(held, eventWindow: page)
+                AgentPaneView.chromiumAgentPane(under: page, in: window)?.judge(held, eventWindow: page)
                 return page.sendEvent(event)
             }
             if keyboard?.drops(keyFor: window.firstResponder) == true { return }
@@ -276,21 +266,7 @@ final class NewTabInputCoordinator {
     private static func chromiumPageWindow(in window: NSWindow) -> NSWindow? {
         if let key = NSApp.keyWindow, key !== window, key.parent === window { return key }
         guard window.firstResponder === window || window.firstResponder == nil else { return nil }
-        return window.childWindows?.first { child in
-            child.isVisible && chromiumAgentPane(under: child, in: window).map { !$0.isHiddenOrHasHiddenAncestor } == true
-        }
-    }
-
-    /// The agent pane in `window` whose Chromium page shows in `page` (its child window).
-    private static func chromiumAgentPane(under page: NSWindow, in window: NSWindow) -> AgentPaneView? {
-        let center = CGPoint(x: page.frame.midX, y: page.frame.midY)
-        var stack: [NSView] = window.contentView.map { [$0] } ?? []
-        while let view = stack.popLast() {
-            if let pane = view as? AgentPaneView, let content = pane.chromiumPage?.contentView, let host = content.window,
-               host.convertToScreen(content.convert(content.bounds, to: nil)).contains(center) { return pane }
-            stack.append(contentsOf: view.subviews)
-        }
-        return nil
+        return window.childWindows?.first { $0.isVisible && AgentPaneView.chromiumAgentPane(under: $0, in: window) != nil }
     }
 
     private func install(_ entry: Entry, in window: NSWindow) {
@@ -305,6 +281,16 @@ final class NewTabInputCoordinator {
 
     /// The open put the page's tab on screen: leaving it now ends the hold at once.
     func didShow(in window: NSWindow?) { if let window { held(in: window)?.shown = true } }
+
+    /// The open showed its tab with a page view that was there before the key. When that view had the keyboard at the key, the hold has no owner, so an end with no field ready gives its keys to that view (`NewTabHoldKeyboard.newTabTook`).
+    /// Not when the tab that the pane showed at the key has that view still: the selection did not move then. The hold knows the view of a page window from the key (`begin`): after this show 2 page views are at one place.
+    func tookPage(in pane: PaneController) {
+        guard let window = pane.view.window, let entry = held(in: window) else { return }
+        let tabs = pane.services.agentTabs
+        guard let view = pane.stripModel.selectedID.flatMap({ tabs.existingView($0.rawValue) }) else { return }
+        guard entry.opened.flatMap({ tabs.existingView($0) }) !== view else { return }
+        entry.keyboard.newTabTook(view)
+    }
 
     /// The New Tab page `tab` this hold opened closed before the daemon made it: its held keys go with it.
     func drop(tab: String, in window: NSWindow?) { if let window, let entry = entry(for: window), (entry.pane?.currentTabKey ?? entry.pane?.stripModel.selectedID?.rawValue) == tab { entry.buffer.discard(); release(entry, why: "closed before created") } }
