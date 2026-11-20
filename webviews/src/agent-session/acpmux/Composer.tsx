@@ -2770,6 +2770,9 @@ function ComposerFrame({
   );
   // Why a failed turn paused the queue: the paused note names it (queuePause.ts).
   const pauseReason = snapshot.summary?.queuePaused === true ? queuePauseReason(snapshot.rows) : undefined;
+  // The queue does not read the prompt: with one handler that keeps its identity, a key leaves it be
+  // (`MemoComposerQueue`). It drew once a key.
+  const leaveQueue = useCallback(() => field.current?.focus(), []);
   return (
     <form
       ref={form}
@@ -2826,7 +2829,7 @@ function ComposerFrame({
           findingFiles,
         )}
       {/* The bottom stack's queue slot (bottomStack.css): above the strip, in the layout flow. */}
-      <ComposerQueue
+      <MemoComposerQueue
         // One per chat: a chat's long queue keeps its fold, open or closed, as you switch chats.
         key={snapshot.summary?.sessionId || sessionId}
         chat={snapshot.summary?.sessionId || sessionId}
@@ -3122,6 +3125,7 @@ function ComposerFrame({
 }
 
 const MemoComposer = React.memo(ComposerFrame);
+const MemoComposerQueue = React.memo(ComposerQueue);
 
 /// One attachment above the prompt. An image draws a thumbnail in its own shape and opens in the chat's image
 /// viewer on a click; one the pane cannot draw falls back to its name, never an empty square.
