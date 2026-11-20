@@ -140,7 +140,7 @@ const V1_LIST_USES: &[(&str, &str, usize, &str)] = &[
     // The peer link's reads: row 8's, which moves them to the list stream on the link.
     ("peer.rs", "method::MUX_SESSIONS", 1, "row 8: the peer link's watch pages"),
     ("peer_list_read.rs", "method::MUX_SESSIONS", 1, "row 8: the peer link's watch pages"),
-    ("peer.rs", "method::MUX_WATCH", 4, "row 8: the peer link's watch"),
+    ("peer.rs", "method::MUX_WATCH", 3, "row 8: the peer link's watch"),
     ("peer_runtime_io.rs", "method::MUX_WATCH", 1, "row 8: the link's watch, page by page"),
     // `deliver::sessions` has no caller outside its own test.
     ("deliver.rs", "method::MUX_SESSIONS", 3, "`deliver::sessions` and its test; no caller"),
