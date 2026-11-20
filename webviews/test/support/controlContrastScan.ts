@@ -143,11 +143,42 @@ export function markControls(): Control[] {
   return controls;
 }
 
-/** Hides (or shows again) every control's ink: text, `currentColor` and SVG. Layout does not move. */
+/**
+ * Hides (or shows again) every control's ink: text, `currentColor` and SVG. Layout does not move.
+ *
+ * Borders, outlines, shadows and the fill of any element with content keep the color they were drawn
+ * in (frozen inline before `color` goes): a `currentColor` border or a 7% `currentColor` wash is the
+ * control's shape, not its ink, and WCAG does not hold a button's edge to 3:1 when its label names
+ * it. A mask icon or an empty mark (a tick, a dot) still hides, so it is read as the icon it is.
+ */
 export function hideInk(hidden: boolean): void {
   const id = "contrast-audit-hide-ink";
+  const frozen = "data-contrast-audit-frozen";
   document.getElementById(id)?.remove();
+  for (const el of document.querySelectorAll<HTMLElement>(`[${frozen}]`)) {
+    const before = el.getAttribute(frozen)!;
+    if (before === "\u0000") el.removeAttribute("style");
+    else el.setAttribute("style", before);
+    el.removeAttribute(frozen);
+  }
   if (!hidden) return;
+  const pending: [HTMLElement, string][] = [];
+  for (const el of document.querySelectorAll<HTMLElement>("body *")) {
+    if (el instanceof SVGElement) continue;
+    const css = getComputedStyle(el);
+    const masked = css.maskImage !== "none" || css.getPropertyValue("-webkit-mask-image") !== "none";
+    const mark = el.childNodes.length === 0;
+    let rules = "";
+    for (const side of ["top", "right", "bottom", "left"])
+      rules += `border-${side}-color: ${css.getPropertyValue(`border-${side}-color`)} !important;`;
+    rules += `outline-color: ${css.outlineColor} !important; box-shadow: ${css.boxShadow} !important;`;
+    if (!masked && !mark) rules += `background-color: ${css.backgroundColor} !important;`;
+    pending.push([el, rules]);
+  }
+  for (const [el, rules] of pending) {
+    el.setAttribute(frozen, el.getAttribute("style") ?? "\u0000");
+    el.setAttribute("style", `${el.getAttribute("style") ?? ""};${rules}`);
+  }
   const style = document.createElement("style");
   style.id = id;
   style.textContent = `
