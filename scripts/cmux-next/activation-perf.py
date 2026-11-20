@@ -155,10 +155,14 @@ def main_thread_sample(path, limit=2500):
     lines, keep = [], False
     with open(path, errors="replace") as f:
         for line in f:
-            if "com.apple.main-thread" in line:
+            # `sample` names the main thread "DispatchQueue_1: com.apple.main-thread" or "Main Thread" (the
+            # second on the first fleet run, step 76abb42ac4c65321ef27605b, so nothing was kept).
+            if not keep and ("com.apple.main-thread" in line or "Main Thread" in line):
                 keep = True
-            elif keep and line.strip().startswith(("Thread_", "Total number in stack")):
-                break
+            elif keep and (line.strip().startswith("Total number in stack")
+                           or (lines and "Thread_" in line and line.lstrip().split(" ", 1)[0].isdigit()
+                               and line.split("Thread_", 1)[0].strip().isdigit())):
+                break  # the next thread's header ("    120 Thread_2 ...") or the end of the call graph
             if keep:
                 lines.append(line.rstrip("\n"))
                 if len(lines) >= limit:
