@@ -566,6 +566,8 @@ def measure_agentpane(phase, pid, pane, streams=()):
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL), sample_path)
     expected = agent_expected_text(opts.samples)
     dispatch, trips = [], []
+    probe = SchedProbe(pid, opts.samples * opts.interval)
+    probe.start()
     send_start = time.monotonic()
     for index, key in enumerate(expected):
         deadline = send_start + index * opts.interval
@@ -577,6 +579,8 @@ def measure_agentpane(phase, pid, pane, streams=()):
                          "late_ms": (started - deadline) * 1000,
                          "rpc_ms": (time.monotonic() - started) * 1000, "reply": reply})
         trips.append(dispatch[-1]["rpc_ms"])
+    probe.halt.set()
+    probe.join(timeout=10)
     typing = wait(lambda: (lambda report: report if report.get("keys", 0) >= len(expected) else None)(
         rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=5) or {}), 15, step=0.25)
     typing = typing or (rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=10) or {})
@@ -607,6 +611,7 @@ def measure_agentpane(phase, pid, pane, streams=()):
                   "frame_bursts": frame_report.get("frame_bursts"), "main_thread_cost": frame_report.get("main_thread_cost"),
                   "hangs": hangs,
                   "streams": [stream.calls for stream in streams], "main_profile": main_profile,
+                  "sched_probe": probe.snapshots,
                   "complete": bool(verdict["complete"] and cleared)})
     results["runs"].append(entry)
     if opts.json:
@@ -750,6 +755,53 @@ def cpu_seconds(pid):
     for x in parts:
         total = total * 60 + x
     return total
+
+
+class SchedProbe(threading.Thread):
+    """Scheduler state while keys are typed: `ps -M` (one row per thread with its scheduler priority PRI and CPU
+    times) of the app, each Chromium helper it started (renderer, GPU, utility) and one CPU burner, at `points`
+    evenly spaced through the typing window. Read-only; signals nothing."""
+
+    def __init__(self, pid, seconds, points=4):
+        super().__init__(daemon=True)
+        self.pid, self.seconds, self.points = pid, seconds, points
+        self.snapshots = []
+        self.halt = threading.Event()
+
+    def helpers(self):
+        out = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True).stdout
+        found = []
+        for line in out.splitlines():
+            parts = line.split(None, 2)
+            if len(parts) < 3 or not parts[0].isdigit() or parts[1] != str(self.pid):
+                continue
+            command = parts[2]
+            kind = re.search(r"--type=([\w-]+)", command)
+            found.append({"pid": int(parts[0]), "kind": kind.group(1) if kind else "other",
+                          "helper": " Helper" in command, "command": command[:400]})
+        return found
+
+    def snapshot(self, index):
+        children = self.helpers()
+        pids = [self.pid] + [child["pid"] for child in children if child["helper"]]
+        if BURNERS:
+            pids.append(BURNERS[0].pid)
+        threads = subprocess.run(["ps", "-M", "-p", ",".join(str(p) for p in pids)],
+                                 capture_output=True, text=True).stdout
+        load = subprocess.run(["sysctl", "-n", "vm.loadavg"], capture_output=True, text=True).stdout.strip()
+        self.snapshots.append({"index": index, "t": time.time(), "app_pid": self.pid,
+                               "burner_pid": BURNERS[0].pid if BURNERS else None, "loadavg": load,
+                               "children": children, "ps_M": threads})
+
+    def run(self):
+        step = self.seconds / (self.points + 1)
+        for index in range(self.points):
+            if self.halt.wait(step):
+                return
+            try:
+                self.snapshot(index)
+            except Exception as error:  # the probe must never end a run
+                self.snapshots.append({"index": index, "error": repr(error)})
 
 
 def window_server_pid():
