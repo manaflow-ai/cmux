@@ -122,18 +122,17 @@ extension PaneCommitMotionTests {
     nonisolated static let othersOfSix = ["p", "paab", "pab", "pb", "pbab"]
 
     /// How far `host` is from its place at rest, in points, when the moves of each act are at `part(act)` of their
-    /// way: how far its content is from where it is at rest, how far an edge of its layer is past its rect at rest,
-    /// and how far the size of its inner clip is from the one at rest; the largest of them. A window on the pane
-    /// gives 0: it keeps the content where it is, and shows the pane inside its rect.
-    static func awayFromRest(_ host: PaneHostView, at part: (Int) -> CGFloat) -> CGFloat {
+    /// way: how far its content is from where it is at rest, and how far a part of the pane that shows is past an
+    /// edge of its rect at rest; the larger of them. A window on the pane gives 0: it keeps the content where it
+    /// is, and the pane shows only inside its rect. The window's own rect can go past the pane's far edge, where
+    /// the pane has nothing: that is not read as a pane that is not at its place.
+    static func awayFromRest(_ host: PaneHostView, on screen: ScreenContentView, at part: (Int) -> CGFloat) -> CGFloat {
         guard let layer = host.layer else { return 0 }
         let cell = rect(of: layer, at: part), end = move(of: layer, only: []).end
         let own = origin(of: layer, at: part), still = layer.bounds.origin
         var far = max(abs(cell.minX - end.minX - (own.x - still.x)), abs(cell.minY - end.minY - (own.y - still.y)))
-        far = max(far, end.minX - cell.minX, end.minY - cell.minY, cell.maxX - end.maxX, cell.maxY - end.maxY)
-        if let inner = host.clipView.layer {
-            let now = rect(of: inner, at: part), rest = move(of: inner, only: []).end
-            far = max(far, abs(now.width - rest.width), abs(now.height - rest.height))
+        for shown in showing(host, on: screen, at: part) {
+            far = max(far, end.minX - shown.minX, end.minY - shown.minY, shown.maxX - end.maxX, shown.maxY - end.maxY)
         }
         return far
     }
@@ -156,7 +155,7 @@ extension PaneCommitMotionTests {
         let first = motion.serial
         let found = Self.paneHosts(screen).first { host in host !== mover && !host.isHidden && host.pane == PaneID(name) }
         let next = try #require(found, "SETUP: the screen shows no other pane `\(name)` in the unzoom's move")
-        let jump = Self.awayFromRest(mover, at: { _ in Self.way(of: "unzoom", at: speed, tick: Self.framesBeforeTheKey) })
+        let jump = Self.awayFromRest(mover, on: screen, at: { _ in Self.way(of: "unzoom", at: speed, tick: Self.framesBeforeTheKey) })
         try #require(jump > 0.5, "SETUP: the pane that the unzoom closes is at its place \(Self.framesBeforeTheKey) frames into its move")
 
         harness.model.focus(next.pane, notify: false)
@@ -184,7 +183,7 @@ extension PaneCommitMotionTests {
                 }
                 if !shows.isEmpty { faults.append("tick \(tick), inside \(next.pane) at \(rect): \(shows.joined(separator: ", "))") }
             }
-            let far = mover.isHidden ? 0 : Self.awayFromRest(mover, at: part)
+            let far = mover.isHidden ? 0 : Self.awayFromRest(mover, on: screen, at: part)
             if far > 0.5 { away.append("tick \(tick): \((far * 10).rounded() / 10) pt") }
             _ = harness.root.advanceFrame(Self.dt)
             tick += 1

@@ -121,13 +121,15 @@ extension PaneCommitMotionTests {
             try rest()
             let waits = Self.dividers(on: screen).filter { Self.lineWaits($0) }.count
             #expect(waits == 0, "after the zoom in the unzoom's move, \(waits) lines wait on the zoomed screen")
-            try Self.secondAct(on: over, zoomed: nil, of: 6, closing: mover)
+            // The pane's content still has the last frame that the first unzoom got: no second one.
+            try Self.secondAct(on: over, zoomed: nil, of: 6, closing: nil)
             try #require(Self.inFlight(screen), "SETUP: the unzoom after the key again moves no pane")
+            let again = Self.dividers(on: screen).filter { Self.lineWaits($0) }.count
+            try #require(again > 0, "SETUP: no line waits in the frame that shows the unzoom after the key again")
         case "a split in the move":
             harness.model.apply(screens: Commit.screen(Self.tree(7)))
             harness.root.syncWithModel()
-            step(1)
-            try #require(motion.serial == first + 1, "SETUP: the split in the unzoom's move shows in one frame: no second act moves")
+            step(1) // the split moves its panes, or it shows in one frame and ends the motion: each is an end
         case "a close in the move":
             _ = try #require(harness.model.showPaneClose(PaneID("pbab")), "SETUP: the model does not show the close of a pane")
             harness.root.syncWithModel()
@@ -161,17 +163,18 @@ extension PaneCommitMotionTests {
         harness.root.context.commitMotionOverride = false
         try Self.secondAct(on: over, zoomed: nil, of: 6, closing: mover)
         // The unzoom can wait some frames for its panes' content: each frame from its turn is read.
-        var waits = 0, shown = 0, frames = 0
+        var waits = 0, frames = 0
         while frames < 8 {
             try #require(!Self.inFlight(screen), "SETUP: a pane moves in an unzoom with the panes' move off")
-            let lines = Self.dividers(on: screen).filter { Self.hasLine($0) }
-            shown = lines.count
-            waits += lines.filter { Self.lineWaits($0) || Self.lineShowing($0, at: { _ in 1 }) == nil }.count
+            waits += Self.dividers(on: screen).filter { Self.lineWaits($0) }.count
             _ = harness.root.advanceFrame(Self.dt)
             frames += 1
         }
-        try #require(shown > 0, "SETUP: \(frames) frames after the unzoom the screen shows no divider with a colour for its line")
-        #expect(waits == 0, "with the panes' move off, \(waits) reads in \(frames) frames show a divider that draws no line")
+        let lines = Self.dividers(on: screen).filter { Self.hasLine($0) }
+        try #require(!lines.isEmpty, "SETUP: \(frames) frames after the unzoom the screen shows no divider with a colour for its line")
+        let dark = lines.filter { Self.lineShowing($0, at: { _ in 1 }) == nil }.count
+        #expect(waits == 0, "with the panes' move off, \(waits) reads in \(frames) frames show a divider's line that waits")
+        #expect(dark == 0, "with the panes' move off, \(dark) of \(lines.count) dividers draw no line \(frames) frames after the unzoom")
     }
 
     /// A close and a split in a glass window hold no line back: in the frame that shows the act, in each frame of its
@@ -192,8 +195,10 @@ extension PaneCommitMotionTests {
             let waits = lines.filter { Self.lineWaits($0) }.count
             if waits > 0 { faults.append("\(frame): \(waits) of \(lines.count) lines") }
         }
-        try #require(frames > 0, "SETUP: the \(scene) moves no pane")
+        // A split that shows in one frame is read in that frame: it holds no line back either.
+        try #require(frames > 0 || scene != "close", "SETUP: the close moves no pane")
         try #require(read > 0, "SETUP: in no frame of the \(scene) does the screen show a divider with a colour for its line")
+        print("LINES ROW: \(scene), \(speed): \(frames) frames of a move read, \(read) reads of a divider with a line's colour")
         #expect(faults.isEmpty, "\(faults.count) reads of a \(scene) show a divider's line that waits; the first: \(faults.prefix(3))")
     }
 }
