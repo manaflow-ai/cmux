@@ -40,7 +40,7 @@
     { "name": "menu", "var": "var(--cmux-menu-highlight-radius)", "for": "AppKit's menu highlight (menu-metrics)" }
   ],
   "glass": [
-    { "name": "chrome", "kind": "level", "tint": 62, "darkTint": 55, "blur": "blur(20px) saturate(1.6)", "for": "chrome docked on the window where no native glass is under the page: panes, bars, rails, side tabs, sticky headers and the minimap; over the App's own window glass the page draws text only (design/glass-system.md, rule 1)" },
+    { "name": "chrome", "kind": "level", "tint": 62, "darkTint": 62, "blur": "blur(20px) saturate(1.6)", "for": "chrome docked on the window where no native glass is under the page: panes, bars, rails, side tabs, sticky headers and the minimap; over the App's own window glass the page draws text only (design/glass-system.md, rule 1)" },
     { "name": "popover", "kind": "level", "tint": 72, "darkTint": 70, "artTint": 50, "blur": "blur(24px) saturate(1.6)", "for": "glass in the page that floats but is not a popup: the composer, Session Info, the running tray, side tabs and viewers (artTint over art or a see-through window)" },
     { "name": "menu", "kind": "level", "tint": 80, "darkTint": 72, "veil": 40, "blur": "blur(32px) saturate(1.6)", "for": "every floating popup, menu, picker and card, web and native (design/surface-materials.md, One floating material); veil is the theme surface the page or the App lays on the App's own glass under it (Swift GlassMenuMaterial reads the same numbers)" },
     { "name": "chip", "kind": "level", "tint": 60, "blur": "blur(24px) saturate(1.6)", "for": "small glass on one line: tooltips, the find pill and chips; the tint is the host's contrast-fitted --cmux-tooltip-tint (TooltipSurface.swift), this percentage of the popup surface before the host speaks; the blur and the floor are the native tooltip's (TooltipSurface.blurRadius, minimumTintAlpha)" },
@@ -54,6 +54,7 @@
     "topDark": 24
   },
   "glassContent": { "tint": 88, "darkTint": 86, "for": "a card in the content layer (.ui-glass-content: a permission ask, a turn error, a Settings card): the theme surface at this share with no backdrop-filter, since it scrolls with the content; near-solid, under the glass rule's 90% cap, so a wallpaper behind a see-through page shows only faintly (design/glass-system.md, rule 2)" },
+  "glassInk": { "secondary": 64, "darkSecondary": 68, "for": "the secondary ink on glass (design/glass-system.md, rule 5): the theme's text at this share over the glass, so a hint, a placeholder or a detail line keeps 3:1 over the glass laid on pure black, pure white and a busy wallpaper at every floating level, without raising the tint; every glass surface's secondary tokens (--cmux-text-secondary, --agent-muted, the composer placeholder) read it while glass draws" },
   "glassUnderlay": { "value": 40, "for": "the theme surface a floating glass lays under its tint in a see-through Chromium page where the page cannot blur itself: the menu's 80% over 40% covers 88%, not 93% (design/glass-system.md, rule 6)" },
   "glassMaterial": {
     "for": "the neutral glass every neutral overlay role is one of (FloatingGlassStyle.look; schemas/surface-roles): the gray its veil mixes at the role's opacity on each side, and the lit and shaded rims, so the sidebar's cards, group headers and sheets are one material with only their opacities apart",

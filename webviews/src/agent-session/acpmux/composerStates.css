@@ -112,13 +112,14 @@
 }
 
 /* Over art or a see-through window (data-cmux-see-through, desktop.ts) the composer is glass, like
-   iOS's (Leo 2026-10-18, replacing the solid surface of 10-14): its surface at 60% so the art shows
+   iOS's (Leo 2026-10-18, replacing the solid surface of 10-14): its surface at the chrome glass
+   level's tint (design/glass-system.md; a private 60% before the one glass system) so the art shows
    through the window's tint (the New Tab box's fill; the chat card is clearer still, below), and the
    light rim above. The prompt is primary text, which the window's tint floor already keeps at 4.5:1
    over the art. Reduce Transparency keeps it solid. */
 :root[data-cmux-see-through] .acpmux-shell,
 :root[data-cmux-see-through] :where(.ui-positioner:has(> .nt-popover)) {
-  --acpmux-composer-surface: color-mix(in srgb, var(--acpmux-composer-solid) 60%, transparent);
+  --acpmux-composer-surface: color-mix(in srgb, var(--acpmux-composer-solid) var(--ds-glass-chrome-tint), transparent);
 }
 /* All cards in the bottom stack use the input's material. Extra text washes on individual
    cards otherwise change the wallpaper's tint at every seam. */

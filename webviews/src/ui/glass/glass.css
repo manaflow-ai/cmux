@@ -195,6 +195,41 @@
   --glass-backdrop: none;
   --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
 }
+/* THE SECONDARY INK ON GLASS (design/glass-system.md, rule 5): a hint, a detail line or a
+   placeholder on glass keeps 3:1 over the glass laid on pure black, pure white and a busy wallpaper.
+   The page's own secondary ink is fitted to the opaque page, so on a level that lets a white page
+   through under dark glass (or a black one under light glass) it fell to 1.9-2.8:1. Rather than
+   raise any tint, every glass surface reads one secondary ink: the theme's text at the design
+   scale's --ds-glass-ink-secondary (64% light, 68% dark) over the glass, so it moves with whatever
+   the glass lets through. The page's secondary tokens point at it inside .ui-glass, so the
+   composer's placeholder and dim words, a tooltip's detail and hint, and a hover card's muted rows
+   are one recipe (--agent-soft too: a permission ask's command). Reduce Transparency (an opaque
+   surface) and the previous glass keep the page's ink; Increase Contrast keeps the full text, as
+   on the page. */
+@media (not (prefers-reduced-transparency: reduce)) and (not (prefers-contrast: more)) {
+  /* The onboarding import cards are the chrome level on classes of their own (onboarding/styles.css). */
+  :root:not([data-reduce-transparency], [data-glass-levels="previous"])
+    :is(.ui-glass, .onb-import .onb-import-list, .onb-import .onb-import-options, .onb-import .onb-express-ask) {
+    --glass-ink-secondary: color-mix(
+      in srgb,
+      var(--agent-text, var(--cmux-text, CanvasText)) var(--ds-glass-ink-secondary),
+      transparent
+    );
+    --cmux-text-secondary: var(--glass-ink-secondary);
+    --agent-muted: var(--glass-ink-secondary);
+    --agent-soft: var(--glass-ink-secondary);
+    --acpmux-composer-placeholder: var(--glass-ink-secondary);
+    --acpmux-composer-dim: var(--glass-ink-secondary);
+    --cmux-text-tertiary: var(--glass-ink-secondary);
+    --page-text-2: var(--glass-ink-secondary);
+    --page-text-3: var(--glass-ink-secondary);
+  }
+  /* A field on glass with no placeholder colour of its own takes the glass's secondary ink, not the
+     browser's grey (#757575, 1.4:1 under dark glass on a white page). :where keeps any field's own. */
+  :where(:root:not([data-reduce-transparency], [data-glass-levels="previous"]) .ui-glass) ::placeholder {
+    color: var(--glass-ink-secondary);
+  }
+}
 /* A popup's own sheet often paints the solid popup surface on its class (`background:
    var(--surface-popup)`); as glass that hides the blur, so the glass tint wins over one class. */
 .ui-popup.ui-glass {

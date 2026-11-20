@@ -71,6 +71,12 @@ function load() {
     "the content surface is near-solid, never opaque, and no denser in dark",
   );
   assert(data.glassUnderlay.value > 0 && data.glassUnderlay.value <= 50, "the see-through underlay stays light");
+  assert(
+    data.glassInk.secondary >= 50 &&
+      data.glassInk.darkSecondary >= data.glassInk.secondary &&
+      data.glassInk.darkSecondary < 100,
+    "the secondary ink on glass stays a step under the text, and no fainter in dark (dark glass passes more of a white page)",
+  );
   const levels = data.glass.filter((level) => level.kind === "level").map((level) => level.name);
   assert(
     levels.join() === "chrome,popover,menu,chip",
@@ -177,6 +183,8 @@ function cssBlock(data) {
   out.push(`  --ds-glass-edge-top: ${data.glassEdge.topLight}%;`);
   out.push(`  /* glass content: ${data.glassContent.for} */`);
   out.push(`  --ds-glass-content-tint: ${data.glassContent.tint}%;`);
+  out.push(`  /* glass ink: ${data.glassInk.for} */`);
+  out.push(`  --ds-glass-ink-secondary: ${data.glassInk.secondary}%;`);
   out.push(`  /* glass underlay: ${data.glassUnderlay.for} */`);
   out.push(`  --ds-glass-underlay: ${data.glassUnderlay.value}%;`);
   out.push(`  /* glass material: ${data.glassMaterial.for} */`);
@@ -230,6 +238,7 @@ function cssBlock(data) {
     `    --ds-transient-web-tint: ${data.transientMaterial.webTintDark}%;`,
     `    --ds-glass-edge-top: ${data.glassEdge.topDark}%;`,
     `    --ds-glass-content-tint: ${data.glassContent.darkTint}%;`,
+    `    --ds-glass-ink-secondary: ${data.glassInk.darkSecondary}%;`,
   ];
   out.push("@media (prefers-color-scheme: dark) {", '  :root:not([data-theme="light"]) {', ...dark, "  }", "}");
   out.push(':root[data-theme="dark"] {', ...dark.map((line) => line.slice(2)), "}");
