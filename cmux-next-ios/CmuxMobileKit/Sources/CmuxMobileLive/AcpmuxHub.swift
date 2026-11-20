@@ -66,6 +66,9 @@ public final class AcpmuxHub {
     /// Every chat of the Mac is in `sessions` (the whole list was read on this connection). A
     /// chat not in `sessions` before then may be one of the older ones still being read.
     public internal(set) var listWhole = false
+    /// The rest of the list stopped short on this connection (every try of a page failed): the
+    /// chats past the pages read are not on the phone until the next connection reads them.
+    public internal(set) var listRestStopped = false
     /// Where each chat keeps its newest records on this phone (nil: none kept, as in tests and
     /// Cloud chats). Set by the live coordinator before any chat opens.
     @ObservationIgnored public var transcriptCache: AgentTranscriptCache?
@@ -153,6 +156,7 @@ public final class AcpmuxHub {
         purgedSinceWatch = []
         droppedSinceWatch = false
         listWhole = false
+        listRestStopped = false
         if let old = connection { Task { await old.close() } }
         connection = nil
         isReady = false

@@ -63,6 +63,8 @@ struct CmuxMobileApp: App {
                 BrowserEventsDemoRoot()
             } else if RecoveryGalleryRoot.isRequested {
                 RecoveryGalleryRoot()
+            } else if PagedScreensGalleryRoot.isRequested {
+                PagedScreensGalleryRoot()
             } else if PagedListLabRoot.isRequested {
                 PagedListLabRoot()
             } else if ShellScreenSharingDemo.isRequested {

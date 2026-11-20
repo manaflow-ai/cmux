@@ -139,6 +139,11 @@ import Testing
             return loaded.max() ?? 0
         }
 
+        /// Waits until `count` `sessionsLoaded` events came (the first page's is one).
+        func loads(_ count: Int) async {
+            await wait { self.loaded.count >= count }
+        }
+
         /// Waits until `count` `session_changed` notices were applied.
         func told(_ count: Int) async {
             await wait { self.changed >= count }
@@ -160,9 +165,51 @@ import Testing
         mac.release()
         #expect(await events.loaded(atLeast: 250) == 250)
         #expect(hub.sessions.count == 250)
+        #expect(hub.listWhole && !hub.listRestStopped)
         // The rest is read in pages, each with the cursor of the one before.
         #expect(mac.methods == ["initialize", "_acpmux/watch", "_acpmux/sessions", "_acpmux/sessions"])
         await bound.value
+    }
+
+    /// A Cloud machine's chats (CLOUD-4): a chat the phone was asked to open that is not in the
+    /// first page is not reported unavailable while the older pages are read; it opens when its
+    /// page lands. Only a chat missing from the whole list is unavailable.
+    @Test func aPreferredOlderChatIsNotUnavailableUntilTheWholeListIsRead() async throws {
+        let mac = Self.mac()
+        defer { mac.release() }
+        let hub = AcpmuxHub()
+        let events = Events(hub)
+        let bound = Task { await hub.bind(mac) }
+        #expect(await hub.waitUntilReady(timeout: Self.readyWait, clock: ContinuousClock()))
+        #expect(hub.sessions["s200"] == nil && !hub.listWhole)
+        #expect(!CloudChatList.preferredUnavailable("s200", sessions: hub.sessions, listWhole: hub.listWhole, opened: false))
+        #expect(!CloudChatList.preferredUnavailable("gone", sessions: hub.sessions, listWhole: hub.listWhole, opened: false))
+
+        mac.release()
+        #expect(await events.loaded(atLeast: 250) == 250)
+        #expect(hub.listWhole)
+        #expect(hub.sessions["s200"] != nil)
+        #expect(!CloudChatList.preferredUnavailable("s200", sessions: hub.sessions, listWhole: hub.listWhole, opened: false))
+        #expect(CloudChatList.preferredUnavailable("gone", sessions: hub.sessions, listWhole: hub.listWhole, opened: false))
+        await bound.value
+    }
+
+    /// A read of older chats that stopped short never reports the asked-for chat unavailable: it
+    /// may be on a page not read; the list's end offers Try Again instead.
+    @Test func aStoppedReadNeverReportsThePreferredChatUnavailable() async throws {
+        let mac = HeldPagesChannel(watch: #"{"sessions":[\#(Self.rows(0..<100))],"nextCursor":"c1"}"#, pages: ["c1": "{}"])
+        mac.release()
+        let hub = AcpmuxHub()
+        let events = Events(hub)
+        let bound = Task { await hub.bind(mac) }
+        #expect(await hub.waitUntilReady(timeout: Self.readyWait, clock: ContinuousClock()))
+        await events.loads(2)
+        #expect(hub.listRestStopped && !hub.listWhole)
+        #expect(!CloudChatList.preferredUnavailable("s200", sessions: hub.sessions, listWhole: hub.listWhole, opened: false))
+        #expect(CloudChatList.edge(hasOlder: false, listWhole: hub.listWhole, restStopped: hub.listRestStopped)
+                == .failed(String(localized: "Couldn't load older chats.")))
+        await bound.value
+        await hub.bind(nil)
     }
 
     /// A chat a notice told while the rest was read keeps the notice's newer state, and one
@@ -193,6 +240,25 @@ import Testing
         #expect(hub.isReady)
         #expect(hub.sessions.count == 3)
         #expect(!mac.methods.contains("_acpmux/sessions"))
+    }
+
+    /// A later page the hub cannot read stops the rest: the hub says so (Cloud machine chats show
+    /// Try Again at the list's end instead of a spinner that never ends), and a new connection
+    /// starts over.
+    @Test func aRestThatStopsShortSaysSo() async throws {
+        let mac = HeldPagesChannel(watch: #"{"sessions":[\#(Self.rows(0..<100))],"nextCursor":"c1"}"#, pages: ["c1": "{}"])
+        mac.release()
+        let hub = AcpmuxHub()
+        let events = Events(hub)
+        let bound = Task { await hub.bind(mac) }
+        #expect(await hub.waitUntilReady(timeout: Self.readyWait, clock: ContinuousClock()))
+        // The first page's load, then the stopped rest's.
+        await events.loads(2)
+        #expect(hub.listRestStopped)
+        #expect(!hub.listWhole)
+        await bound.value
+        await hub.bind(nil)
+        #expect(!hub.listRestStopped)
     }
 
     // MARK: Compressed replies
