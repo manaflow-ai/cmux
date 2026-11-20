@@ -104,7 +104,7 @@ jobs:
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
-      # 44733869883, 2026-11-20); remove it so checkout clones fresh. tests/test_ci_reused_sparse_checkout.py.
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -181,7 +181,7 @@ jobs:
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
-      # 44733869883, 2026-11-20); remove it so checkout clones fresh. tests/test_ci_reused_sparse_checkout.py.
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -287,7 +287,7 @@ jobs:
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
-      # 44733869883, 2026-11-20); remove it so checkout clones fresh. tests/test_ci_reused_sparse_checkout.py.
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -376,7 +376,7 @@ jobs:
           RECEIPT_PRODUCER: ${{ needs.receipt.outputs.producer }}
         run: |
           # A receipt skip says so in the log, a notice and the step summary, so neither a reader nor merge_hold
-          # takes it for a plain skip (work nobody judged). tests/test_ci_receipt.py runs this step.
+          # takes it for a plain skip (work nobody judged). its manual test test_ci_receipt.py runs this step.
           if [[ "$RECEIPT_VALID" == true && "$RECEIPT_AUDIT" != true ]]; then
             line="rust workspaces: verified reuse of receipt $RECEIPT_RUN (by $RECEIPT_PRODUCER); plan and every workspace skipped on it"
             echo "$line"
