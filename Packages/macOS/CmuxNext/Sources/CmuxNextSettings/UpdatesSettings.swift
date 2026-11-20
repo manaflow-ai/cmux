@@ -71,4 +71,3 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
         return settings
     }
 }
-
