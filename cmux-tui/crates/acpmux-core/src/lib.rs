@@ -38,6 +38,8 @@ mod allocation_metrics {
     // SAFETY: every operation forwards to System and only updates an atomic counter.
     unsafe impl GlobalAlloc for CountingAllocator {
         unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            // SAFETY: the caller upholds `GlobalAlloc::alloc`'s contract (non-zero-size `layout`),
+            // which is System's.
             let ptr = unsafe { System.alloc(layout) };
             if !ptr.is_null() {
                 adjust(bounded_delta(layout.size(), 0));
@@ -46,6 +48,7 @@ mod allocation_metrics {
         }
 
         unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            // SAFETY: as for `alloc`: the caller's layout contract is System's.
             let ptr = unsafe { System.alloc_zeroed(layout) };
             if !ptr.is_null() {
                 adjust(bounded_delta(layout.size(), 0));
@@ -55,10 +58,14 @@ mod allocation_metrics {
 
         unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
             adjust(bounded_delta(0, layout.size()));
+            // SAFETY: every block this allocator hands out came from System with the same layout
+            // (alloc and realloc forward unchanged), so `ptr`/`layout` are a valid System pair.
             unsafe { System.dealloc(ptr, layout) }
         }
 
         unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            // SAFETY: `ptr` came from System with `layout` (see dealloc); the caller upholds
+            // realloc's size rules.
             let next = unsafe { System.realloc(ptr, layout, new_size) };
             if !next.is_null() {
                 adjust(bounded_delta(new_size, layout.size()));

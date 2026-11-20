@@ -87,7 +87,9 @@ pub(crate) fn classify(
 /// Verify the filesystem mounted at a held directory fd. The fd is borrowed
 /// only for these bounded fstatfs/ioctl calls; no path is reconstructed here.
 pub(crate) fn verify_dir(fd: BorrowedFd<'_>) -> Result<(), String> {
+    // SAFETY: libc::statfs is plain integers, for which all-zero bytes are valid.
     let mut fs: libc::statfs = unsafe { std::mem::zeroed() };
+    // SAFETY: fs is a live, writable statfs; fd is borrowed and open for the call.
     if unsafe { libc::fstatfs(fd.as_raw_fd(), &mut fs) } < 0 {
         return Err(format!("fstatfs failed for directory: errno {}", errno()));
     }
@@ -95,6 +97,7 @@ pub(crate) fn verify_dir(fd: BorrowedFd<'_>) -> Result<(), String> {
     // O_PATH is enough for fstatfs, but inode and XFS ioctls need a readable
     // directory description. Reopen the same held object without following a
     // mutable child name.
+    // SAFETY: fd is a live borrowed dirfd and c"." is a NUL-terminated literal.
     let readable = unsafe {
         libc::openat(
             fd.as_raw_fd(),
@@ -105,9 +108,12 @@ pub(crate) fn verify_dir(fd: BorrowedFd<'_>) -> Result<(), String> {
     if readable < 0 {
         return Err(format!("cannot reopen directory for lookup verification: errno {}", errno()));
     }
+    // SAFETY: readable is a fresh fd from openat that nothing else owns.
     let readable = unsafe { OwnedFd::from_raw_fd(readable) };
     let readable_fd = readable.as_raw_fd();
     let mut bits: c_long = 0;
+    // SAFETY: FS_IOC_GETFLAGS writes at most a long (the kernel writes an int)
+    // into bits, a live c_long; readable_fd is owned by readable.
     let flags = if unsafe { libc::ioctl(readable_fd, libc::FS_IOC_GETFLAGS as _, &mut bits) } < 0 {
         Err(errno())
     } else {
@@ -115,6 +121,8 @@ pub(crate) fn verify_dir(fd: BorrowedFd<'_>) -> Result<(), String> {
     };
     let geometry = if magic == XFS_MAGIC {
         let mut geom = XfsFsopGeomV1::default();
+        // SAFETY: XFS_IOC_FSGEOMETRY_V1 encodes a 112-byte output, and geom is a
+        // live repr(C) struct whose size is asserted to be 112 at compile time.
         if unsafe {
             libc::ioctl(
                 readable_fd,
@@ -201,20 +209,29 @@ mod tests {
 
     #[test]
     fn real_tmpfs_and_ext4_directories_verify_when_present() {
+        // SAFETY: the path is a NUL-terminated literal; returns a new fd or -1.
         let tmpfs = unsafe {
             libc::open(c"/dev/shm".as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC)
         };
         assert!(tmpfs >= 0);
+        // SAFETY: tmpfs is a fresh fd from open that nothing else owns.
         let tmpfs = unsafe { std::os::fd::OwnedFd::from_raw_fd(tmpfs) };
         verify_dir(tmpfs.as_fd()).expect("runner tmpfs lookup semantics");
 
+        // SAFETY: the path is a NUL-terminated literal; returns a new fd or -1.
         let ext = unsafe {
             libc::open(c"/tmp".as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC)
         };
         assert!(ext >= 0);
+        // SAFETY: ext is a fresh fd from open that nothing else owns.
         let ext = unsafe { std::os::fd::OwnedFd::from_raw_fd(ext) };
+        // SAFETY: libc::statfs is plain integers; all-zero bytes are valid.
         let mut fs: libc::statfs = unsafe { std::mem::zeroed() };
-        assert_eq!(unsafe { libc::fstatfs(ext.as_raw_fd(), &mut fs) }, 0);
+        assert_eq!(
+            // SAFETY: fs is a live, writable statfs and ext is open.
+            unsafe { libc::fstatfs(ext.as_raw_fd(), &mut fs) },
+            0
+        );
         if fs.f_type as u64 == EXT_MAGIC {
             verify_dir(ext.as_fd()).expect("runner ext4 lookup semantics");
         } else {

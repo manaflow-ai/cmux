@@ -59,6 +59,7 @@ fn read_in(home: &Path) -> BTreeMap<String, String> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt as _;
+        // SAFETY: geteuid has no preconditions.
         if meta.uid() != unsafe { libc::geteuid() } || meta.mode() & 0o077 != 0 {
             return BTreeMap::new();
         }

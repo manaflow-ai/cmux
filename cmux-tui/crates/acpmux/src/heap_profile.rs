@@ -12,10 +12,15 @@ static PROFILER: std::sync::Mutex<Option<dhat::Profiler>> = std::sync::Mutex::ne
 /// Starts the profile when [`OUT_ENV`] names a file: first thing in `main`, before any thread.
 /// The variable is removed, so a process this one starts (an agent host) writes no profile over
 /// it.
-pub fn start() {
+///
+/// # Safety
+///
+/// Call it while no other thread runs (first in `main`): with `dhat-heap` it removes a variable
+/// from the process environment, which is unsound while another thread can read it.
+pub unsafe fn start() {
     #[cfg(feature = "dhat-heap")]
     if let Some(out) = std::env::var_os(OUT_ENV) {
-        // SAFETY: called first in `main`, while no other thread runs.
+        // SAFETY: forwarded from this function's contract: no other thread runs yet.
         unsafe { std::env::remove_var(OUT_ENV) };
         // Deep enough to pass serde's recursion and reach the acpmux frame that asked.
         let profiler = dhat::Profiler::builder().file_name(out).trim_backtraces(Some(48)).build();

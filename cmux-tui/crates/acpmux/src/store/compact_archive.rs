@@ -78,6 +78,8 @@ mod unix {
     fn lstat_at(parent: &File, name: &CString) -> std::io::Result<Option<libc::stat>> {
         // SAFETY: zeroed is a valid `stat`; a valid descriptor and a NUL-terminated name.
         let mut st: libc::stat = unsafe { std::mem::zeroed() };
+        // SAFETY: `parent` is open for the call, `name` a NUL-terminated CString and `st` a
+        // writable out-parameter on this frame.
         let rc = unsafe {
             libc::fstatat(parent.as_raw_fd(), name.as_ptr(), &mut st, libc::AT_SYMLINK_NOFOLLOW)
         };

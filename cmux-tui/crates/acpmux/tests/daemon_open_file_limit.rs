@@ -72,6 +72,7 @@ impl Drop for Daemon {
 
 fn hard_limit() -> u64 {
     let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: `lim` is a live, writable rlimit that getrlimit fills.
     assert_eq!(unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) }, 0);
     lim.rlim_max
 }
@@ -106,6 +107,8 @@ async fn daemon_started_with_launchds_256_raises_it_for_itself_and_its_agents() 
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null());
     // Start it the way launchd does: soft 256, hard as it was.
+    // SAFETY: the hook runs in the forked child and calls only getrlimit/setrlimit, which are
+    // async-signal-safe, on a stack rlimit; it allocates nothing and takes no locks.
     unsafe {
         cmd.pre_exec(|| {
             let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };

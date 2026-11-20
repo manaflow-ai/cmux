@@ -73,6 +73,7 @@ async fn daemon_update_and_sigterm_send_1012_but_explicit_stop_is_normal() {
         ));
         let command = if trigger == "sigterm" {
             // Only the child this test created is signaled.
+            // SAFETY: integer args only; `id()` is Some only while the child is unreaped.
             assert_eq!(unsafe { libc::kill(child.id().unwrap() as i32, libc::SIGTERM) }, 0);
             None
         } else {

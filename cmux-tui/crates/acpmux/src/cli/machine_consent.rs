@@ -338,9 +338,12 @@ pub(super) fn home_of_uid(uid: libc::uid_t) -> Result<PathBuf> {
         )
     };
     anyhow::ensure!(code == 0 && !result.is_null(), "OS account home unavailable");
-    // SAFETY: successful lookup populated result and pw_dir is NUL terminated.
-    anyhow::ensure!(!unsafe { (*result).pw_dir }.is_null(), "OS account home unavailable");
-    let home = unsafe { CStr::from_ptr((*result).pw_dir) };
+    // SAFETY: a successful lookup (code 0, non-null) points `result` at `entry`, now initialized.
+    let dir = unsafe { (*result).pw_dir };
+    anyhow::ensure!(!dir.is_null(), "OS account home unavailable");
+    // SAFETY: a non-null pw_dir is a NUL-terminated string in `buffer`, which outlives `home`
+    // (copied into `path` below).
+    let home = unsafe { CStr::from_ptr(dir) };
     let path = PathBuf::from(OsStr::from_bytes(home.to_bytes()));
     anyhow::ensure!(path.is_absolute(), "OS account home unavailable");
     Ok(path)

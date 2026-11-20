@@ -36,8 +36,8 @@ fn listing_open_chats_does_not_read_their_log_directories() {
     let events =
         std::ffi::CString::new(store.dir("chat").join("events").as_os_str().as_encoded_bytes())
             .unwrap();
-    // SAFETY: watch is live and events is a NUL-terminated path.
     assert!(
+        // SAFETY: watch is live and events is a NUL-terminated path.
         unsafe { libc::inotify_add_watch(watch.as_raw_fd(), events.as_ptr(), libc::IN_ACCESS) }
             >= 0
     );

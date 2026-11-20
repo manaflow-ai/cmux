@@ -341,6 +341,7 @@ fn set_cloexec(fd: &OwnedFd) -> std_io::Result<()> {
     let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFD) };
     // SAFETY: as above.
     if flags < 0
+        // SAFETY: as above: fcntl on a valid owned descriptor.
         || unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0
     {
         return Err(std_io::Error::last_os_error());

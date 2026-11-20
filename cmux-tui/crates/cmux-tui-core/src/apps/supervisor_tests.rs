@@ -28,6 +28,8 @@ fn scripted_app_host() {
     use std::os::unix::net::UnixStream;
     // SAFETY: fstat only inspects descriptor 3.
     let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+    // SAFETY: `stat` is a live, writable libc::stat; fstat writes only into it and fails with EBADF
+    // when fd 3 is not open.
     if unsafe { libc::fstat(3, &mut stat) } != 0 || (stat.st_mode & libc::S_IFMT) != libc::S_IFSOCK
     {
         return;

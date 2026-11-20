@@ -68,6 +68,8 @@ pub async fn run(argv: &[String], cwd: &Path, timeout_ms: Option<u64>) -> Result
     // (`sh -c 'x &'`) would hold the pipes open and outlive the request.
     #[cfg(unix)]
     if let Some(pid) = pgid {
+        // SAFETY: kill takes integers only: `pid` is the child we spawned as its group's leader, so
+        // `-pid` names its group; a group already gone fails with ESRCH.
         unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
     }
     let _ = pgid;

@@ -41,8 +41,8 @@ fn ipv4(source: Ipv4Addr, destination: Ipv4Addr, payload: &[u8]) -> Vec<u8> {
 
 fn socketpair() -> (OwnedFd, OwnedFd) {
     let mut fds = [0 as RawFd; 2];
-    // SAFETY: `fds` has room for both fds.
     assert_eq!(
+        // SAFETY: `fds` has room for both fds.
         unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_DGRAM, 0, fds.as_mut_ptr()) },
         0
     );
@@ -66,8 +66,8 @@ fn read_frame(fd: RawFd, wait: Duration) -> Option<Vec<u8>> {
 fn write_frame(fd: RawFd, packet: &[u8]) {
     let mut frame = (libc::AF_INET as u32).to_be_bytes().to_vec();
     frame.extend_from_slice(packet);
-    // SAFETY: live buffer of its own length.
     assert_eq!(
+        // SAFETY: live buffer of its own length.
         unsafe { libc::write(fd, frame.as_ptr().cast(), frame.len()) },
         frame.len() as isize
     );

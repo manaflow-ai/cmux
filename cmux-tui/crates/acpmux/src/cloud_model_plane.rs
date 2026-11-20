@@ -310,6 +310,7 @@ mod tests {
         assert_eq!(read_at(&file, false).unwrap().len(), 5);
         // Not root's (tests do not run as root).
         #[cfg(unix)]
+        // SAFETY: geteuid takes no arguments, touches no memory and cannot fail.
         if unsafe { libc::geteuid() } != 0 {
             assert_eq!(read_at(&file, true), Err(Problem::Untrusted));
         }

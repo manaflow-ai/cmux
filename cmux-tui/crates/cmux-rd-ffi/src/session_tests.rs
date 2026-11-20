@@ -316,8 +316,8 @@ fn a_tile_frame_is_released_with_its_flag_and_its_video_reference() {
         flags: 0,
     };
     let mut stream = 0u16;
-    // SAFETY: live session, writable outs.
     assert_eq!(
+        // SAFETY: live session, writable outs.
         unsafe { cmux_rd_session_pop_frame(s.0, &mut f, &mut stream) },
         1,
         "a tile frame is released"

@@ -39,6 +39,8 @@ fn sockets() -> Vec<(RawFd, String)> {
 fn sockopt(fd: RawFd, option: libc::c_int) -> libc::c_int {
     let mut value: libc::c_int = 0;
     let mut len = std::mem::size_of::<libc::c_int>() as libc::socklen_t;
+    // SAFETY: `value` and `len` are live locals; `len` holds `value`'s size, so getsockopt writes
+    // within it.
     let status = unsafe {
         libc::getsockopt(
             fd,
@@ -54,14 +56,19 @@ fn sockopt(fd: RawFd, option: libc::c_int) -> libc::c_int {
 /// Sends `bytes` on `socket`, with `fd` attached over `SCM_RIGHTS` when given.
 fn send(socket: RawFd, bytes: &[u8], fd: Option<RawFd>) {
     let mut iov = libc::iovec { iov_base: bytes.as_ptr() as *mut _, iov_len: bytes.len() };
+    // SAFETY: CMSG_SPACE is pure arithmetic on its argument.
     let space = unsafe { libc::CMSG_SPACE(std::mem::size_of::<RawFd>() as u32) } as usize;
     let mut control = vec![0_u64; space.div_ceil(8)];
+    // SAFETY: msghdr is plain C data (integers and nullable pointers); all-zero is a valid value.
     let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
     msg.msg_iov = &mut iov;
     msg.msg_iovlen = 1;
     if let Some(fd) = fd {
         msg.msg_control = control.as_mut_ptr().cast();
         msg.msg_controllen = space as _;
+        // SAFETY: `msg_control` points at `control`, at least CMSG_SPACE(sizeof fd) bytes and
+        // 8-byte aligned, so CMSG_FIRSTHDR returns a non-null header inside it with room for
+        // CMSG_LEN(sizeof fd); the fd is written unaligned since CMSG_DATA makes no promise.
         unsafe {
             let cmsg = libc::CMSG_FIRSTHDR(&msg);
             (*cmsg).cmsg_level = libc::SOL_SOCKET;
@@ -70,6 +77,7 @@ fn send(socket: RawFd, bytes: &[u8], fd: Option<RawFd>) {
             libc::CMSG_DATA(cmsg).cast::<RawFd>().write_unaligned(fd);
         }
     }
+    // SAFETY: `msg` points at `iov` (over `bytes`) and `control`, all live for the call.
     let sent = unsafe { libc::sendmsg(socket, &msg, 0) };
     assert_eq!(sent, bytes.len() as isize, "sendmsg: {}", std::io::Error::last_os_error());
 }

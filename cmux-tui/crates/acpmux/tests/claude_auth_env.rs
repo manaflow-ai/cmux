@@ -91,6 +91,7 @@ struct Daemon {
 
 impl Drop for Daemon {
     fn drop(&mut self) {
+        // SAFETY: integer args only; `child` is ours and not yet reaped, so its pid is not reused.
         unsafe {
             libc::kill(self.child.id() as i32, libc::SIGTERM);
         }

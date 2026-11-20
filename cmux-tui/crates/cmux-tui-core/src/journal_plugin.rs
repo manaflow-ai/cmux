@@ -98,6 +98,7 @@ impl JournalPluginChild {
                 // The child is placed in a fresh process group before exec.
                 // A negative pid addresses that group, including helpers that
                 // inherited it from the plugin.
+                // SAFETY: integer args only; the group is the plugin's own (positive id checked).
                 unsafe {
                     libc::kill(-self.process_group_id, libc::SIGKILL);
                 }
@@ -127,6 +128,8 @@ impl WindowsJournalPluginJob {
     }
 
     fn assign(child: &Child) -> std::io::Result<Self> {
+        // SAFETY: null attributes and name are allowed; the returned handle is owned by
+        // `WindowsJournalPluginJob`, whose Drop closes it once.
         let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
         if handle.is_null() {
             return Err(std::io::Error::last_os_error());
@@ -136,6 +139,8 @@ impl WindowsJournalPluginJob {
         information.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
         let information_size = u32::try_from(size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
             .expect("Windows job information fits in u32");
+        // SAFETY: the job handle is live (owned by `job`); the pointer and size describe the
+        // `information` local, which outlives the call.
         if unsafe {
             SetInformationJobObject(
                 job.raw_handle(),
@@ -148,12 +153,16 @@ impl WindowsJournalPluginJob {
             return Err(std::io::Error::last_os_error());
         }
 
+        // SAFETY: integer arguments only; `child` is unwaited, so its pid still names it. The
+        // handle is closed exactly once below.
         let process = unsafe { OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, child.id()) };
         if process.is_null() {
             return Err(std::io::Error::last_os_error());
         }
+        // SAFETY: both handles are live: the job owned by `job` and `process` opened above.
         let assigned = unsafe { AssignProcessToJobObject(job.raw_handle(), process) };
         let assign_error = (assigned == 0).then(std::io::Error::last_os_error);
+        // SAFETY: `process` is non-null, opened above, and closed only here.
         unsafe {
             CloseHandle(process);
         }
@@ -164,6 +173,7 @@ impl WindowsJournalPluginJob {
     }
 
     fn terminate_descendants(&self) {
+        // SAFETY: the job handle this value owns, live until Drop.
         unsafe {
             TerminateJobObject(self.raw_handle(), 1);
         }
@@ -173,6 +183,8 @@ impl WindowsJournalPluginJob {
 #[cfg(windows)]
 impl Drop for WindowsJournalPluginJob {
     fn drop(&mut self) {
+        // SAFETY: the non-null job handle this value owns; Drop runs once and the type is not
+        // Clone, so it is closed exactly once.
         unsafe {
             CloseHandle(self.raw_handle());
         }
@@ -181,6 +193,7 @@ impl Drop for WindowsJournalPluginJob {
 
 #[cfg(windows)]
 fn resume_suspended_journal_plugin(child: &Child) -> std::io::Result<()> {
+    // SAFETY: integer arguments only; the snapshot handle is closed once at the end of this fn.
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
     if snapshot == INVALID_HANDLE_VALUE {
         return Err(std::io::Error::last_os_error());
@@ -191,22 +204,29 @@ fn resume_suspended_journal_plugin(child: &Child) -> std::io::Result<()> {
                 .expect("Windows thread entry size fits in u32"),
             ..THREADENTRY32::default()
         };
+        // SAFETY: `snapshot` is valid (checked above) and `entry` is a live THREADENTRY32 whose
+        // dwSize was initialized to its size, as the API requires.
         if unsafe { Thread32First(snapshot, &mut entry) } == 0 {
             return Err(std::io::Error::last_os_error());
         }
         loop {
             if entry.th32OwnerProcessID == child.id() {
+                // SAFETY: integer arguments only; the handle is checked for null and closed once
+                // below.
                 let thread = unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID) };
                 if thread.is_null() {
                     return Err(std::io::Error::last_os_error());
                 }
+                // SAFETY: `thread` is the non-null handle opened above with THREAD_SUSPEND_RESUME.
                 let resumed = unsafe { ResumeThread(thread) };
                 let error = (resumed == u32::MAX).then(std::io::Error::last_os_error);
+                // SAFETY: `thread` was opened above and is closed only here.
                 unsafe {
                     CloseHandle(thread);
                 }
                 return error.map_or(Ok(()), Err);
             }
+            // SAFETY: same live snapshot and dwSize-initialized `entry` as Thread32First.
             if unsafe { Thread32Next(snapshot, &mut entry) } == 0 {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
@@ -215,6 +235,7 @@ fn resume_suspended_journal_plugin(child: &Child) -> std::io::Result<()> {
             }
         }
     })();
+    // SAFETY: `snapshot` is the valid handle created above; nothing else closes it.
     unsafe {
         CloseHandle(snapshot);
     }
@@ -496,6 +517,8 @@ fn spawn_exit_waiter(shared: Arc<(Mutex<SupervisorState>, Condvar)>, pid: u32) -
         loop {
             // SAFETY: `info` is a zeroed siginfo_t that waitid fills in.
             let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+            // SAFETY: waitid writes only into the live local `info`; WNOWAIT leaves the child
+            // waitable for the supervisor's try_wait.
             let result = unsafe {
                 libc::waitid(
                     libc::P_PID,

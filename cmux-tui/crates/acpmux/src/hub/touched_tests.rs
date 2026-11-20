@@ -158,7 +158,9 @@ async fn an_edit_of_a_file_another_running_session_edits_steers_one_notice_into_
     // B runs a turn until its gate opens.
     let fifo = f.dir.join("gate");
     let path = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
-    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+    // SAFETY: `path` is a NUL-terminated CString live for the call.
+    let made = unsafe { libc::mkfifo(path.as_ptr(), 0o600) };
+    assert_eq!(made, 0);
     let (hub, session) = (f.hub.clone(), b.clone());
     let text = format!("gate: {}", fifo.display());
     let turn = tokio::spawn(async move {
@@ -194,7 +196,9 @@ async fn a_notice_for_a_turn_that_ended_is_refused_not_steered_into_the_next() {
     let mut events = f.hub.subscribe();
     let fifo = f.dir.join("gate");
     let path = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
-    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+    // SAFETY: `path` is a NUL-terminated CString live for the call.
+    let made = unsafe { libc::mkfifo(path.as_ptr(), 0o600) };
+    assert_eq!(made, 0);
     let (hub, session) = (f.hub.clone(), b.clone());
     let text = format!("gate: {}", fifo.display());
     let turn = tokio::spawn(async move {

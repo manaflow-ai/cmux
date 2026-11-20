@@ -480,15 +480,15 @@ fn reset_lock_prepares_missing_publication_lock() {
         .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
         .open(terminal_host_publication_lock_path(&root))
         .unwrap();
-    // SAFETY: flock only observes the advisory lock on this valid test descriptor.
     assert_ne!(
+        // SAFETY: flock only observes the advisory lock on this valid test descriptor.
         unsafe { libc::flock(publication_lock.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) },
         0,
         "publication reservation should be blocked while reset holds the lock"
     );
     drop(reset_lock);
-    // SAFETY: flock only observes the advisory lock on this valid test descriptor.
     assert_eq!(
+        // SAFETY: flock only observes the advisory lock on this valid test descriptor.
         unsafe { libc::flock(publication_lock.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) },
         0
     );

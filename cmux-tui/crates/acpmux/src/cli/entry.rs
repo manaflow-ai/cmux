@@ -53,7 +53,8 @@ pub unsafe fn process_main() -> Result<()> {
         // SAFETY: as above, before any thread exists.
         unsafe { std::env::remove_var(key) };
     }
-    crate::heap_profile::start();
+    // SAFETY: as above, before any thread exists.
+    unsafe { crate::heap_profile::start() };
     // glibc builds: two malloc arenas, not eight per core (malloc_arenas.rs).
     // SAFETY: as above, before any thread exists.
     unsafe {
@@ -69,6 +70,8 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     // inherit it, so SIGTERM would stay pending forever and child exits
     // would never be seen. Clear it before the runtime starts its threads.
     #[cfg(unix)]
+    // SAFETY: `empty` is a live sigset_t on this frame (zeroed, then sigemptyset); pthread_sigmask
+    // changes only the calling thread's mask and accepts a null old-set pointer.
     unsafe {
         let mut empty: libc::sigset_t = std::mem::zeroed();
         libc::sigemptyset(&mut empty);
@@ -180,6 +183,8 @@ fn runtime(args: &[OsString]) -> std::io::Result<tokio::runtime::Runtime> {
 async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     // `acpmux ls | head` must end quietly, not panic on a closed pipe.
     #[cfg(unix)]
+    // SAFETY: signal takes integers only; setting SIGPIPE's disposition is process-wide and
+    // thread-safe.
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }

@@ -77,6 +77,8 @@ pub fn acquire(path: &Path, kind: LeaseKind, wait: bool) -> io::Result<Option<Le
 /// Locks the whole of an open `file` through this handle. `wait`: block
 /// until free; else Ok(false) when another handle holds a conflicting lock.
 /// The lock lives until [`unlock_file`] or the handle closes.
+/// `file` must be opened for synchronous I/O (no FILE_FLAG_OVERLAPPED), as
+/// every caller's is: the OVERLAPPED passed to the kernel is a stack local.
 pub fn lock_file(file: &File, kind: LeaseKind, wait: bool) -> io::Result<bool> {
     let mut flags = 0;
     if kind == LeaseKind::Exclusive {
@@ -97,12 +99,14 @@ pub fn lock_file(file: &File, kind: LeaseKind, wait: bool) -> io::Result<bool> {
     }
 }
 
-/// Releases this handle's whole-file lock.
+/// Releases this handle's whole-file lock. Same synchronous-handle
+/// requirement as [`lock_file`].
 pub fn unlock_file(file: &File) {
+    // SAFETY: all-zero is a valid OVERLAPPED (offset 0, no event).
+    let mut overlapped: OVERLAPPED = unsafe { std::mem::zeroed() };
     // SAFETY: a valid handle; the whole range `lock_file` locked. `UnlockFileEx` is
     // synchronous on every handle (`NtUnlockFile` takes no event or completion context and
     // finishes in the call), so the OVERLAPPED is read and written only during it.
-    let mut overlapped: OVERLAPPED = unsafe { std::mem::zeroed() };
     unsafe { UnlockFileEx(file.as_raw_handle() as HANDLE, 0, u32::MAX, u32::MAX, &mut overlapped) };
 }
 

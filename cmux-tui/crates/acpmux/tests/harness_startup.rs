@@ -87,6 +87,7 @@ impl Drop for Daemon {
         if !matches!(self.0.try_wait(), Ok(None)) {
             return;
         }
+        // SAFETY: integer args only; try_wait just saw the child running and unreaped.
         unsafe {
             libc::kill(self.0.id() as i32, libc::SIGTERM);
         }

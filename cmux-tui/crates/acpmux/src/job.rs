@@ -101,5 +101,8 @@ impl Job {
 }
 
 // The job handle is used only through its own calls.
+// SAFETY: Job holds only an OwnedHandle (itself Send + Sync); job-object calls on it are
+// kernel calls that Windows serializes, and Job exposes no interior state to share.
 unsafe impl Send for Job {}
+// SAFETY: as above: the only state is the job handle, used through thread-safe kernel calls.
 unsafe impl Sync for Job {}

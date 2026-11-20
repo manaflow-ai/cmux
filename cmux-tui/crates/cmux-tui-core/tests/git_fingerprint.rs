@@ -87,6 +87,9 @@ fn fixture() -> &'static Fixture {
         }
         // Every test takes the fixture before it starts a daemon or a child,
         // and this runs once, under the cell's lock.
+        // SAFETY: test-only: std serializes its own env reads with this write, and every test
+        // calls the fixture before any other work, so no thread is in a non-std getenv
+        // (C code) during this one-time write inside the OnceLock initializer.
         unsafe { std::env::set_var("PATH", path) };
         Fixture { dir, real }
     })

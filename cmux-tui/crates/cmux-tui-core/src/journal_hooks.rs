@@ -128,6 +128,8 @@ struct WindowsHookJob {
 #[cfg(windows)]
 impl WindowsHookJob {
     fn assign(child: &std::process::Child) -> std::io::Result<Self> {
+        // SAFETY: null attributes and name are allowed (an unnamed job with default security); the
+        // returned handle is owned by `WindowsHookJob`, whose Drop closes it once.
         let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
         if handle.is_null() {
             return Err(std::io::Error::last_os_error());
@@ -137,6 +139,8 @@ impl WindowsHookJob {
         information.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
         let information_size = u32::try_from(size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
             .expect("Windows job information fits in u32");
+        // SAFETY: `job.handle` is the live job created above; the pointer and size describe the
+        // `information` local, a JOBOBJECT_EXTENDED_LIMIT_INFORMATION that outlives the call.
         if unsafe {
             SetInformationJobObject(
                 job.handle,
@@ -149,12 +153,16 @@ impl WindowsHookJob {
             return Err(std::io::Error::last_os_error());
         }
 
+        // SAFETY: integer arguments only; `child` is unwaited, so its pid still names it. The
+        // returned handle is closed exactly once below, after the assign.
         let process = unsafe { OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, child.id()) };
         if process.is_null() {
             return Err(std::io::Error::last_os_error());
         }
+        // SAFETY: both handles are live: the job owned by `job` and `process` opened above.
         let assigned = unsafe { AssignProcessToJobObject(job.handle, process) };
         let assign_error = (assigned == 0).then(std::io::Error::last_os_error);
+        // SAFETY: `process` is non-null, opened above, and closed only here.
         unsafe {
             CloseHandle(process);
         }
@@ -165,6 +173,7 @@ impl WindowsHookJob {
     }
 
     fn terminate_descendants(&self) {
+        // SAFETY: `self.handle` is the live job this value owns (closed only in Drop).
         unsafe {
             TerminateJobObject(self.handle, 1);
         }
@@ -179,6 +188,7 @@ impl WindowsHookJob {
 
 #[cfg(windows)]
 fn resume_suspended_hook_child(child: &std::process::Child) -> std::io::Result<()> {
+    // SAFETY: integer arguments only; the snapshot handle is closed once at the end of this fn.
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
     if snapshot == INVALID_HANDLE_VALUE {
         return Err(std::io::Error::last_os_error());
@@ -189,23 +199,30 @@ fn resume_suspended_hook_child(child: &std::process::Child) -> std::io::Result<(
                 .expect("Windows thread entry size fits in u32"),
             ..THREADENTRY32::default()
         };
+        // SAFETY: `snapshot` is valid (checked above) and `thread_entry` is a live THREADENTRY32
+        // whose dwSize was initialized to its size, as the API requires.
         if unsafe { Thread32First(snapshot, &mut thread_entry) } == 0 {
             return Err(std::io::Error::last_os_error());
         }
         loop {
             if thread_entry.th32OwnerProcessID == child.id() {
+                // SAFETY: integer arguments only; the handle is checked for null and closed once
+                // below.
                 let thread =
                     unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, thread_entry.th32ThreadID) };
                 if thread.is_null() {
                     return Err(std::io::Error::last_os_error());
                 }
+                // SAFETY: `thread` is the non-null handle opened above with THREAD_SUSPEND_RESUME.
                 let resume_result = unsafe { ResumeThread(thread) };
                 let resume_error = (resume_result == u32::MAX).then(std::io::Error::last_os_error);
+                // SAFETY: `thread` was opened above and is closed only here.
                 unsafe {
                     CloseHandle(thread);
                 }
                 return resume_error.map_or(Ok(()), Err);
             }
+            // SAFETY: same live snapshot and dwSize-initialized `thread_entry` as Thread32First.
             if unsafe { Thread32Next(snapshot, &mut thread_entry) } == 0 {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
@@ -214,6 +231,8 @@ fn resume_suspended_hook_child(child: &std::process::Child) -> std::io::Result<(
             }
         }
     })();
+    // SAFETY: `snapshot` is the valid handle created above; the closure no longer uses it and
+    // nothing else closes it.
     unsafe {
         CloseHandle(snapshot);
     }
@@ -223,6 +242,8 @@ fn resume_suspended_hook_child(child: &std::process::Child) -> std::io::Result<(
 #[cfg(windows)]
 impl Drop for WindowsHookJob {
     fn drop(&mut self) {
+        // SAFETY: `self.handle` is the non-null job handle this value owns; Drop runs once and the
+        // type is not Clone, so it is closed exactly once.
         unsafe {
             CloseHandle(self.handle);
         }
@@ -1025,11 +1046,13 @@ fn execute_hook_child_unix(
     child_exit: &UnixChildExitSignal,
 ) -> Result<(), (Option<i32>, Option<String>)> {
     let fd = stdin.as_raw_fd();
+    // SAFETY: integer args only; `fd` is borrowed from `stdin`, which outlives this fn.
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
     if flags < 0 {
         let error = std::io::Error::last_os_error();
         return Err((None, Some(format!("configure hook stdin: {error}"))));
     }
+    // SAFETY: integer args only, same descriptor owned by `stdin`.
     if unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
         let error = std::io::Error::last_os_error();
         return Err((None, Some(format!("configure hook stdin: {error}"))));
@@ -1115,6 +1138,7 @@ fn wait_hook_stdin_writable(
         }
         let mut descriptor = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
         let poll_ms = remaining.min(Duration::from_millis(50)).as_millis().max(1) as libc::c_int;
+        // SAFETY: `descriptor` is one live pollfd and nfds is 1.
         let result = unsafe { libc::poll(&mut descriptor, 1, poll_ms) };
         if result > 0 {
             return Ok(());
@@ -1408,11 +1432,15 @@ mod tests {
                     // A normal daemon closes inherited descriptors before it
                     // creates a new session.
                     for fd in 3..1024 {
+                        // SAFETY: helper process (re-exec'd test binary): closing descriptors does
+                        // not touch Rust memory, and this process never uses those fds again.
                         unsafe {
                             libc::close(fd);
                         }
                     }
                 }
+                // SAFETY: test helper process running only this test (`--exact`); libtest's main
+                // thread is parked joining it, so no other thread reads the environment.
                 "clear-environment" => unsafe {
                     // A daemon can replace its environment after exec. The
                     // scope must retain an independent ownership marker.
@@ -1420,10 +1448,14 @@ mod tests {
                 },
                 "close-fds-and-clear-environment" => {
                     for fd in 3..1024 {
+                        // SAFETY: as above: helper process, descriptors this process never uses
+                        // again.
                         unsafe {
                             libc::close(fd);
                         }
                     }
+                    // SAFETY: as above: the helper runs only this test, so no other thread reads
+                    // the environment.
                     unsafe {
                         std::env::remove_var("CMUX_TUI_PROCESS_SCOPE");
                     }
@@ -1431,6 +1463,7 @@ mod tests {
                 "fork-during-cleanup" => {}
                 other => panic!("unexpected detached hook helper mode {other}"),
             }
+            // SAFETY: no arguments; it only changes this process's session.
             let session = unsafe { libc::setsid() };
             if mode == "fork-during-cleanup" {
                 assert!(session > 0, "the test-only tracker path could not create a session");

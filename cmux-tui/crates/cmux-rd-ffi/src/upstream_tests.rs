@@ -38,8 +38,8 @@ fn unconsented(carrier: u32) -> Up {
 /// A camera sender the app granted consent to.
 fn upstream(carrier: u32) -> Up {
     let u = unconsented(carrier);
-    // SAFETY: live sender.
     assert_eq!(
+        // SAFETY: live sender.
         unsafe { cmux_rd_upstream_set_consent(u.0, CMUX_RD_MEDIA_CAMERA, true) },
         CMUX_RD_OK
     );

@@ -411,6 +411,8 @@ pub fn main() -> anyhow::Result<()> {
     let spec: Spec = serde_json::from_str(&line)?;
     // SAFETY: plain signal-mask calls before any thread starts; the signal thread takes them.
     let mut set: libc::sigset_t = unsafe { std::mem::zeroed() };
+    // SAFETY: `set` is a live sigset_t on this frame; pthread_sigmask changes only the calling
+    // thread's mask and its null old-set pointer is allowed.
     unsafe {
         libc::sigemptyset(&mut set);
         for s in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
@@ -665,6 +667,8 @@ pub fn main() -> anyhow::Result<()> {
     // the task's, so a stop still reaches what it left behind.
     // SAFETY: waitid into a zeroed siginfo this function owns; WNOWAIT leaves the leader unreaped.
     let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+    // SAFETY: `info` is a writable siginfo_t on this frame; `pid` is our own unreaped child, and
+    // WNOWAIT leaves it unreaped so its pid (and group id) cannot be reused meanwhile.
     while unsafe { libc::waitid(libc::P_PID, pid, &mut info, libc::WEXITED | libc::WNOWAIT) } != 0 {
         if std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
             // The leader cannot be waited for, so its group id is not known to be the task's:

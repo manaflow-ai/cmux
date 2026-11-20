@@ -7,8 +7,23 @@ license.workspace = true
 publish.workspace = true
 description = "In-process WireGuard transport for cmux clients: boringtun plus a userspace TCP stack"
 
-[lints]
-workspace = true
+# Every `unsafe` block, impl and `pub unsafe fn` here states why it is sound: a `// SAFETY:`
+# comment above it, or a `# Safety` doc section on the fn. Cargo cannot extend
+# `[workspace.lints]`, so the inheriting crates mirror it here; the workspace lint drift test
+# (.github/scripts/test_cmux_tui_unsafe_lints.py) keeps the copy equal.
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_qualifications = "warn"
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }
+
+[lints.clippy]
+uninlined_format_args = "warn"
+semicolon_if_nothing_returned = "warn"
+redundant_clone = "warn"
+await_holding_lock = "warn"
+await_holding_refcell_ref = "warn"
+undocumented_unsafe_blocks = "deny"
+missing_safety_doc = "deny"
 
 [dependencies]
 base64.workspace = true

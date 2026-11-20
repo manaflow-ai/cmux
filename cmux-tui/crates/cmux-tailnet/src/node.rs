@@ -53,12 +53,19 @@ pub struct Node {
     closed: AtomicBool,
 }
 
+// SAFETY: `Node` holds only an integer handle (`sd`) into libtailscale's handle table and
+// Rust-owned state, no pointer. libtailscale's exported calls are cgo functions that take that
+// handle from any OS thread; the one per-handle state they share unguarded (the last error that
+// `tailscale_errmsg` reads) is only touched inside `call`, under `calls`.
 unsafe impl Send for Node {}
+// SAFETY: as for `Send`: every `&self` path that reaches libtailscale either goes through `call`
+// (serialized by `calls`) or is `close`, which takes the same lock.
 unsafe impl Sync for Node {}
 
 impl Node {
     pub fn new(config: &NodeConfig) -> Result<Self> {
         create_private_dir(&config.state_dir)?;
+        // SAFETY: takes no arguments; returns a fresh handle owned by this `Node` (closed in Drop).
         let sd = unsafe { ffi::tailscale_new() };
         let node = Self {
             sd,
@@ -66,19 +73,29 @@ impl Node {
             calls: Mutex::new(()),
             closed: AtomicBool::new(false),
         };
+        // Each string the four setters below take is a live `CString` (NUL-terminated, no
+        // interior NUL) borrowed for the call only; libtailscale copies it into a Go string before
+        // returning and keeps no pointer to it.
         let dir = cstring(config.state_dir.to_string_lossy().as_ref())?;
+        // SAFETY: see above; `dir` outlives the call.
         node.call(|| unsafe { ffi::tailscale_set_dir(sd, dir.as_ptr()) })?;
         let hostname = cstring(&config.hostname)?;
+        // SAFETY: see above; `hostname` outlives the call.
         node.call(|| unsafe { ffi::tailscale_set_hostname(sd, hostname.as_ptr()) })?;
         if let Some(key) = &config.auth_key {
             let key = cstring(key.trim())?;
+            // SAFETY: see above; `key` outlives the call.
             node.call(|| unsafe { ffi::tailscale_set_authkey(sd, key.as_ptr()) })?;
         }
         if let Some(url) = &config.control_url {
             let url = cstring(url)?;
+            // SAFETY: see above; `url` outlives the call.
             node.call(|| unsafe { ffi::tailscale_set_control_url(sd, url.as_ptr()) })?;
         }
+        // SAFETY: integer arguments only.
         node.call(|| unsafe { ffi::tailscale_set_ephemeral(sd, config.ephemeral as i32) })?;
+        // SAFETY: integer arguments only. tsnet writes its log to this fd; a bad one is an I/O
+        // error on its side, never a memory access of ours.
         node.call(|| unsafe { ffi::tailscale_set_logfd(sd, config.log_fd.unwrap_or(-1)) })?;
         Ok(node)
     }
@@ -87,17 +104,22 @@ impl Node {
     /// saved login and no auth key goes to NeedsLogin and offers a sign-in
     /// link ([`Node::watch`]).
     pub fn start(&self) -> Result<()> {
+        // SAFETY: integer handle only.
         self.call(|| unsafe { ffi::tailscale_start(self.sd) })
     }
 
     /// The node's current status (ipnstate.Status), read in memory.
     pub fn status(&self) -> Result<Status> {
         let mut json: *mut c_char = std::ptr::null_mut();
+        // SAFETY: `json` is a live local the call writes one pointer into.
         self.call(|| unsafe { ffi::tailscale_status_json(self.sd, &mut json) })?;
         if json.is_null() {
             return Err(Error("status: no data".into()));
         }
+        // SAFETY: on success libtailscale stores a `C.CString` (malloc'd, NUL-terminated) that the
+        // caller owns; it is non-null (checked above) and nothing else holds it.
         let text = unsafe { CStr::from_ptr(json) }.to_string_lossy().into_owned();
+        // SAFETY: that same malloc'd pointer, freed once with C's `free`, never read again.
         unsafe { libc::free(json.cast()) };
         serde_json::from_str(&text).map_err(|error| Error(format!("status: {error}")))
     }
@@ -125,6 +147,7 @@ impl Node {
         if self.closed.swap(true, Ordering::AcqRel) {
             return Ok(());
         }
+        // SAFETY: integer handle only; `closed` makes this the handle's one close.
         if unsafe { ffi::tailscale_close(self.sd) } == 0 {
             Ok(())
         } else {
@@ -149,8 +172,10 @@ impl Node {
     /// This node's tailnet addresses.
     pub fn ips(&self) -> Result<Vec<String>> {
         let mut buf = vec![0 as c_char; 256];
+        // SAFETY: `buf` is a live, writable buffer of exactly `buf.len()` bytes; libtailscale
+        // writes at most that many (ERANGE when the text does not fit).
         self.call(|| unsafe { ffi::tailscale_getips(self.sd, buf.as_mut_ptr(), buf.len()) })?;
-        let text = unsafe { CStr::from_ptr(buf.as_ptr()) }.to_string_lossy().into_owned();
+        let text = c_text(&buf);
         Ok(text.split(',').filter(|ip| !ip.is_empty()).map(str::to_owned).collect())
     }
 
@@ -160,6 +185,8 @@ impl Node {
         let network = cstring("tcp")?;
         let addr = cstring(&format!(":{port}"))?;
         let mut fd = -1;
+        // SAFETY: `network` and `addr` are live `CString`s libtailscale copies before returning;
+        // `fd` is a live local it writes the listener fd into.
         self.call(|| unsafe {
             ffi::tailscale_listen(self.sd, network.as_ptr(), addr.as_ptr(), &mut fd)
         })?;
@@ -173,10 +200,13 @@ impl Node {
         let network = cstring("tcp")?;
         let addr = cstring(addr)?;
         let mut fd = -1;
+        // SAFETY: as in `listen_tcp`: live `CString`s copied by the callee, a live out-param.
         self.call(|| unsafe {
             ffi::tailscale_dial(self.sd, network.as_ptr(), addr.as_ptr(), &mut fd)
         })?;
         close_on_exec(fd);
+        // SAFETY: a successful `tailscale_dial` hands the caller a new open fd (its end of a
+        // socketpair) that nothing else owns, so the stream takes sole ownership and closes it.
         Ok(unsafe { UnixStream::from_raw_fd(fd) })
     }
 
@@ -189,6 +219,9 @@ impl Node {
                 let mut addr = vec![0 as c_char; 128];
                 let mut proxy = vec![0 as c_char; 33];
                 let mut local = vec![0 as c_char; 33];
+                // SAFETY: `addr` is a live writable buffer of `addr.len()` bytes; `proxy` and
+                // `local` are 33 bytes each, the size tailscale.h requires for the two
+                // credential outputs (32 hex digits and a NUL).
                 self.call(|| unsafe {
                     ffi::tailscale_loopback(
                         self.sd,
@@ -199,9 +232,8 @@ impl Node {
                     )
                 })
                 .map_err(|error| error.0)?;
-                let addr = unsafe { CStr::from_ptr(addr.as_ptr()) }.to_string_lossy().into_owned();
-                let local =
-                    unsafe { CStr::from_ptr(local.as_ptr()) }.to_string_lossy().into_owned();
+                let addr = c_text(&addr);
+                let local = c_text(&local);
                 LocalApi::new(&addr, &local).map_err(|e| e.0)
             })
             .as_ref()
@@ -225,10 +257,11 @@ impl Node {
 
     fn message(&self) -> String {
         let mut buf = vec![0 as c_char; 1024];
+        // SAFETY: `buf` is a live, writable buffer of exactly `buf.len()` bytes.
         if unsafe { ffi::tailscale_errmsg(self.sd, buf.as_mut_ptr(), buf.len()) } != 0 {
             return "libtailscale: unknown error".into();
         }
-        unsafe { CStr::from_ptr(buf.as_ptr()) }.to_string_lossy().into_owned()
+        c_text(&buf)
     }
 }
 
@@ -250,19 +283,23 @@ impl Listener {
     /// Blocks until a peer connects.
     pub fn accept(&self) -> Result<(UnixStream, String)> {
         let mut conn = -1;
+        // SAFETY: `conn` is a live local the call writes the accepted fd into.
         match unsafe { ffi::tailscale_accept(self.fd, &mut conn) } {
             0 => {}
             libc::EBADF => return Err(Error(LISTENER_CLOSED.into())),
             _ => return Err(Error("accept failed".into())),
         }
         close_on_exec(conn);
+        // SAFETY: a successful `tailscale_accept` hands the caller a new open fd that nothing
+        // else owns; the stream takes sole ownership (and closes it on the error below).
         let stream = unsafe { UnixStream::from_raw_fd(conn) };
         let mut buf = vec![0 as c_char; 64];
+        // SAFETY: `buf` is a live, writable buffer of exactly `buf.len()` bytes.
         if unsafe { ffi::tailscale_getremoteaddr(self.fd, conn, buf.as_mut_ptr(), buf.len()) } != 0
         {
             return Err(Error("accept: no remote address".into()));
         }
-        let remote = unsafe { CStr::from_ptr(buf.as_ptr()) }.to_string_lossy().into_owned();
+        let remote = c_text(&buf);
         Ok((stream, remote))
     }
 }
@@ -278,6 +315,7 @@ impl Listener {
     /// A single owner must consume the listener; incomplete records stay queued.
     pub fn try_accept(&mut self) -> std::io::Result<Option<(UnixStream, String)>> {
         let mut record = [0_u8; 64];
+        // SAFETY: `record` is a live stack buffer and `recv` writes at most `record.len()` bytes.
         let n = unsafe {
             libc::recv(
                 self.fd,
@@ -302,6 +340,7 @@ impl Listener {
         }
         if n < record.len() as isize {
             let mut poll = libc::pollfd { fd: self.fd, events: libc::POLLIN, revents: 0 };
+            // SAFETY: `poll` is one live, initialized `pollfd`, matching the count of 1.
             if unsafe { libc::poll(&mut poll, 1, 0) } > 0 && poll.revents & libc::POLLHUP != 0 {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::UnexpectedEof,
@@ -329,6 +368,9 @@ impl Drop for Listener {
         // libtailscale that does not set close-on-exec), and close alone sends no EOF while a
         // copy is open, so tsnet would keep accepting. Shutdown acts on the socket, whatever
         // copies remain.
+        // SAFETY: integer fd calls on the fd this listener owns (fields are private, built only
+        // here from libtailscale's listen or a test's socketpair); Drop runs once, so it is
+        // closed once.
         unsafe {
             libc::shutdown(self.fd, libc::SHUT_RDWR);
             libc::close(self.fd);
@@ -342,12 +384,21 @@ impl Drop for Listener {
 /// (`LIBTAILSCALE_A`). An inherited copy outlives our close: the socket stays open, so
 /// libtailscale sees no EOF and keeps the listener or connection alive.
 fn close_on_exec(fd: RawFd) {
+    // SAFETY: F_GETFD/F_SETFD take and return integers; on a bad fd they fail with EBADF and
+    // touch no memory.
     unsafe {
         let flags = libc::fcntl(fd, libc::F_GETFD);
         if flags >= 0 && flags & libc::FD_CLOEXEC == 0 {
             libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC);
         }
     }
+}
+
+/// The text before the first NUL of a buffer libtailscale filled, or the whole buffer when it
+/// holds none: a bounded read, so a callee that forgot the terminator cannot make us read past it.
+fn c_text(buf: &[c_char]) -> String {
+    let bytes: Vec<u8> = buf.iter().take_while(|&&c| c != 0).map(|&c| c as u8).collect();
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 fn cstring(value: &str) -> Result<CString> {
@@ -385,12 +436,14 @@ mod tests {
         use std::io::Read;
         let (ours, mut theirs) = UnixStream::pair().unwrap();
         let listener = Listener { fd: ours.into_raw_fd() };
+        // SAFETY: integer fd call; the listener's fd is open here.
         let inherited = unsafe { libc::dup(listener.fd) };
         assert!(inherited >= 0, "dup: {}", std::io::Error::last_os_error());
         drop(listener);
         theirs.set_nonblocking(true).unwrap();
         let mut byte = [0_u8; 1];
         assert_eq!(theirs.read(&mut byte).unwrap(), 0, "libtailscale's side must read EOF");
+        // SAFETY: `inherited` is the fd `dup` returned above, owned by this test, closed once.
         unsafe { libc::close(inherited) };
     }
 

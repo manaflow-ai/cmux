@@ -124,6 +124,8 @@ impl Drop for Started {
     fn drop(&mut self) {
         #[cfg(unix)]
         if let Some(pid) = self.child.id() {
+            // SAFETY: killpg takes integers only; `child.id()` is Some only while the child is
+            // unreaped, so the group id is still the harness's own.
             unsafe {
                 libc::killpg(pid as libc::pid_t, libc::SIGKILL);
             }

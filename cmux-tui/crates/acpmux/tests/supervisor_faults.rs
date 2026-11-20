@@ -133,6 +133,7 @@ impl Drop for Shutdown<'_> {
 
 fn sigkill(pid: u64) {
     // Only a daemon this test started.
+    // SAFETY: integer args only; no memory is passed.
     assert_eq!(unsafe { libc::kill(pid as i32, libc::SIGKILL) }, 0);
 }
 

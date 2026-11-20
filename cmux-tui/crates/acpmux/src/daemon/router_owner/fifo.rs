@@ -112,6 +112,8 @@ fn start_or_adopt() -> Option<FifoOwner> {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
     // Its own session: a terminal hangup does not stop it; the owner FIFO does.
+    // SAFETY: the closure runs in the forked child before exec and calls only setsid, which is
+    // async-signal-safe; it captures nothing and allocates nothing.
     unsafe {
         command.pre_exec(|| {
             libc::setsid();

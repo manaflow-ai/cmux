@@ -15,3 +15,9 @@ base64.workspace = true
 rustls.workspace = true
 reqwest = { workspace = true, features = ["blocking"] }
 libc = "0.2"
+
+# Every `unsafe` block, impl and `pub unsafe fn` here states why it is sound: a `// SAFETY:`
+# comment above it, or a `# Safety` doc section on the fn.
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+missing_safety_doc = "deny"

@@ -225,6 +225,8 @@ async fn a_worktree_start_runs_nothing_the_agent_wrote_in_its_repository() {
             json!({"prompt": "echo x", "name": "Partial", "worktree": true, "cwd": partial.join("web")}),
         )
         .await;
+    // SAFETY: as above; the current-thread test runtime has no other thread reading the
+    // environment once the call has returned.
     unsafe { std::env::remove_var("GIT_TRACE") };
     let traced = std::fs::read_to_string(&trace).unwrap_or_default();
     assert!(traced.contains("fetch"), "the missing files were not fetched: {traced}");

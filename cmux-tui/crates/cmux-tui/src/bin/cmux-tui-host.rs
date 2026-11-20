@@ -64,6 +64,7 @@ fn main() -> std::process::ExitCode {
 }
 
 fn run(args: &[String]) -> anyhow::Result<()> {
-    cmux_tui_core::terminal_host_runtime::enter_terminal_host_process()?;
+    // SAFETY: the host's first step, dispatched from `main` before this process starts a thread.
+    unsafe { cmux_tui_core::terminal_host_runtime::enter_terminal_host_process()? };
     cmux_tui_core::terminal_host_runtime::serve_terminal_host_process(args)
 }

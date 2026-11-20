@@ -93,6 +93,7 @@ fn lossy_input_fits(master_fd: Option<MasterFd>, len: usize) -> bool {
         return true;
     };
     let mut pending: libc::c_int = 0;
+    // SAFETY: FIONREAD writes one c_int into the live local `pending`; a stale fd fails with EBADF.
     if unsafe { libc::ioctl(fd, libc::FIONREAD, &mut pending) } != 0 {
         return true;
     }

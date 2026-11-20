@@ -67,6 +67,8 @@ fn open_at(dir: &std::fs::File, parts: &[&std::ffi::OsStr], folder: bool) -> Opt
         // SAFETY: `dir` is open for the call and `name` is NUL-terminated; the descriptor opened
         // is owned at once.
         let fd = unsafe { libc::openat(dir.as_raw_fd(), name.as_ptr(), flags) };
+        // SAFETY: openat just returned `fd` (checked >= 0), owned by nothing else, so the File
+        // closes it exactly once.
         (fd >= 0).then(|| std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) }))
     };
     let (last, folders) = parts.split_last()?;

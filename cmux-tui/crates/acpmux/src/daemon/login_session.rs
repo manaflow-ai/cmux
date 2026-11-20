@@ -87,7 +87,8 @@ pub(crate) fn launchctl(args: &[&str], budget: std::time::Duration) -> Result<(b
 /// The user's GUI launchd domain, `gui/<uid>`.
 fn gui_domain() -> String {
     // SAFETY: getuid has no preconditions.
-    format!("gui/{}", unsafe { libc::getuid() })
+    let uid = unsafe { libc::getuid() };
+    format!("gui/{uid}")
 }
 
 /// The user's GUI launchd domain as `launchctl print` shows it, or None: no GUI login now (the
@@ -123,8 +124,8 @@ fn sweep_stale_jobs(domain: &str, domain_print: &str, keep: &[&str]) {
         else {
             continue;
         };
-        // SAFETY: flock on a descriptor this function owns; released when `lock` drops.
         let fd = std::os::fd::AsRawFd::as_raw_fd(&lock);
+        // SAFETY: flock on a descriptor this function owns; released when `lock` drops.
         if unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) } != 0 {
             continue; // That home is starting: its own start handles its job.
         }

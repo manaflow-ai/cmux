@@ -898,6 +898,11 @@ mod tests {
         let pid = unsafe { fork() };
         assert!(pid >= 0, "fork failed: {}", io::Error::last_os_error());
         if pid == 0 {
+            // SAFETY: forked child of a multithreaded harness: only async-signal-safe
+            // calls follow. sigset_t is plain data, so zeroed is valid; install()
+            // with this valid-length filter allocates nothing (its only error is
+            // the non-allocating last_os_error), and _exit never unwinds or runs
+            // atexit handlers.
             unsafe {
                 let mut empty: sigset_t = std::mem::zeroed();
                 sigemptyset(&mut empty);
@@ -912,6 +917,7 @@ mod tests {
         }
         let mut status = 0;
         loop {
+            // SAFETY: status is a live, writable c_int; pid is our own child.
             let result = unsafe { waitpid(pid, &mut status, 0) };
             if result == pid {
                 break;

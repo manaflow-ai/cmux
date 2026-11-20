@@ -13,6 +13,9 @@ fn pointer_length_calls_drive_the_same_core_as_rust() {
     let handle = acpmux_client_new();
     assert!(!handle.is_null());
 
+    // SAFETY: `handle` is a live client from `acpmux_client_new*`, freed at most once, last; every
+    // input is a live slice passed with its own length, every out-param a live local, and each
+    // returned `Bytes` is read only before its one `acpmux_client_bytes_free`.
     unsafe {
         assert_eq!(acpmux_client_connected(handle), ACPMUX_CLIENT_OK);
 
@@ -45,6 +48,9 @@ fn pointer_length_calls_drive_the_same_core_as_rust() {
 fn mirror_and_wanted_calls_match_the_rust_window_change() {
     let handle = acpmux_client_new();
     assert!(!handle.is_null());
+    // SAFETY: `handle` is a live client from `acpmux_client_new*`, freed at most once, last; every
+    // input is a live slice passed with its own length, every out-param a live local, and each
+    // returned `Bytes` is read only before its one `acpmux_client_bytes_free`.
     unsafe {
         let request = serde_json::json!({
             "sub": {"sid":"m","stream":"list","view":"live","rows":"v1"},
@@ -135,6 +141,9 @@ fn folder_changes_are_readable_through_the_ffi_json_surface() {
     let handle = acpmux_client_new();
     assert!(!handle.is_null());
 
+    // SAFETY: `handle` is a live client from `acpmux_client_new*`, freed at most once, last; every
+    // input is a live slice passed with its own length, every out-param a live local, and each
+    // returned `Bytes` is read only before its one `acpmux_client_bytes_free`.
     unsafe {
         assert_eq!(acpmux_client_connected(handle), ACPMUX_CLIENT_OK);
         let mut outbound = Bytes { ptr: std::ptr::null_mut(), len: 0 };
@@ -279,11 +288,14 @@ fn folder_changes_are_readable_through_the_ffi_json_surface() {
 
 unsafe fn take_json(handle: *mut std::ffi::c_void) -> serde_json::Value {
     let mut change = Bytes { ptr: std::ptr::null_mut(), len: 0 };
+    // SAFETY: the caller passes a live handle; `change` is a live out-param.
     assert_eq!(unsafe { acpmux_client_next_change(handle, &mut change) }, ACPMUX_CLIENT_OK);
     assert!(change.len > 0);
     let value =
+        // SAFETY: `change` came back OK from next_change: `len` initialized bytes at `ptr`, not yet freed.
         serde_json::from_slice(unsafe { std::slice::from_raw_parts(change.ptr, change.len) })
             .unwrap();
+    // SAFETY: frees `change` once; it is not read after.
     unsafe { acpmux_client_bytes_free(change) };
     value
 }
@@ -292,16 +304,19 @@ unsafe fn sent_requests(handle: *mut std::ffi::c_void) -> Vec<serde_json::Value>
     let mut out = Vec::new();
     loop {
         let mut bytes = Bytes { ptr: std::ptr::null_mut(), len: 0 };
+        // SAFETY: the caller passes a live handle; `bytes` is a live out-param.
         assert_eq!(unsafe { acpmux_client_take_send(handle, &mut bytes) }, ACPMUX_CLIENT_OK);
         if bytes.len == 0 {
             return out;
         }
+        // SAFETY: `bytes` came back OK and non-empty from take_send and is freed only after its last use.
         let encoded = unsafe { std::slice::from_raw_parts(bytes.ptr, bytes.len) };
         if let Ok(frame) = Frame::from_encoded(encoded) {
             out.push(frame.decode_json().unwrap());
         } else {
             out.push(serde_json::from_slice(encoded).unwrap());
         }
+        // SAFETY: frees `bytes` once, after `encoded`'s last use.
         unsafe { acpmux_client_bytes_free(bytes) };
     }
 }
@@ -309,6 +324,7 @@ unsafe fn sent_requests(handle: *mut std::ffi::c_void) -> Vec<serde_json::Value>
 unsafe fn give(handle: *mut std::ffi::c_void, bytes: &[u8]) -> usize {
     let mut consumed = 0;
     assert_eq!(
+        // SAFETY: the caller passes a live handle; `bytes` is a live slice with its own length.
         unsafe { acpmux_client_received(handle, bytes.as_ptr(), bytes.len(), &mut consumed) },
         ACPMUX_CLIENT_OK
     );
@@ -327,9 +343,14 @@ fn one_handle_carries_a_chat_through_each_c_function() {
     assert_eq!(acpmux_client_abi_version(), ACPMUX_CLIENT_ABI_VERSION);
     assert_eq!(ACPMUX_CLIENT_ABI_VERSION, 4);
     let surfaces = br#"["list","chat"]"#;
+    // SAFETY: a live one-byte input with its length.
     assert!(unsafe { acpmux_client_new_with_surfaces(b"{".as_ptr(), 1) }.is_null());
+    // SAFETY: a live input slice with its own length.
     let handle = unsafe { acpmux_client_new_with_surfaces(surfaces.as_ptr(), surfaces.len()) };
     assert!(!handle.is_null());
+    // SAFETY: `handle` is a live client from `acpmux_client_new*`, freed at most once, last; every
+    // input is a live slice passed with its own length, every out-param a live local, and each
+    // returned `Bytes` is read only before its one `acpmux_client_bytes_free`.
     unsafe {
         let request =
             br#"{"sid":"c","chat":"c1","anchor":{"rowId":7,"side":"around"},"window":50}"#;

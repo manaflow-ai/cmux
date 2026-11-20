@@ -25,8 +25,12 @@ pub(crate) struct HostListener {
     accept_event: OwnedHandle,
 }
 
-// SAFETY: a socket and an event handle; accept and wait are thread-safe.
+// SAFETY: a socket and an event handle, both process-wide kernel objects this
+// value owns (each closed once by its owner's Drop); valid on any thread.
 unsafe impl Send for HostListener {}
+// SAFETY: `&self` methods only call thread-safe Winsock/kernel functions
+// (accept, WSAEventSelect on a fresh socket, WaitForMultipleObjects); no
+// field is mutated through `&self` and the handles close only on Drop.
 unsafe impl Sync for HostListener {}
 
 fn wsa_error() -> io::Error {

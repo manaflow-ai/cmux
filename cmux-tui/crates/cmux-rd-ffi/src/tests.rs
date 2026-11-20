@@ -206,29 +206,29 @@ fn bad_input_is_refused() {
     let r = receiver(CMUX_RD_CARRIER_DATAGRAM);
     assert_eq!(push(&r, &[0x11, 0x01], 0), CMUX_RD_ERR_INVALID);
     assert_eq!(push(&r, &[0x21; HEADER_LEN], 0), CMUX_RD_ERR_INVALID);
-    // SAFETY: NULL bytes with a length are refused before any read.
     assert_eq!(
+        // SAFETY: NULL bytes with a length are refused before any read.
         unsafe { cmux_rd_receiver_push_datagram(r.0, std::ptr::null(), 4, 0) },
         CMUX_RD_ERR_NULL
     );
     // SAFETY: NULL receiver is refused.
     assert_eq!(unsafe { cmux_rd_receiver_tick(std::ptr::null_mut(), 0) }, CMUX_RD_ERR_NULL);
-    // SAFETY: live receiver; wrong carrier.
     assert_eq!(
+        // SAFETY: live receiver; wrong carrier.
         unsafe { cmux_rd_receiver_push_stream(r.0, [1u8].as_ptr(), 1, 0) },
         CMUX_RD_ERR_CARRIER
     );
     // SAFETY: NULL is allowed and returns the sentinel.
     assert_eq!(unsafe { cmux_rd_receiver_next_deadline_us(std::ptr::null()) }, u64::MAX);
     let s = receiver(CMUX_RD_CARRIER_STREAM);
-    // SAFETY: live receiver, readable bytes.
     assert_eq!(
+        // SAFETY: live receiver, readable bytes.
         unsafe { cmux_rd_receiver_push_stream(s.0, [9u8, 0, 0, 0, 0].as_ptr(), 5, 0) },
         CMUX_RD_ERR_FAILED
     );
     // The failure is sticky.
-    // SAFETY: as above.
     assert_eq!(
+        // SAFETY: as above.
         unsafe { cmux_rd_receiver_push_stream(s.0, [1u8, 0, 0, 0, 0].as_ptr(), 5, 0) },
         CMUX_RD_ERR_FAILED
     );

@@ -105,6 +105,7 @@ fn lock_is_held(file: &std::fs::File) -> bool {
     // before returning.
     let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) };
     if rc == 0 {
+        // SAFETY: as above: unlocks the shared lock just taken on this live descriptor.
         unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
         false
     } else {
@@ -155,6 +156,7 @@ pub(crate) fn socket_held_by_other(socket: &Path) -> Option<u32> {
         }
         // SAFETY: flock on a descriptor this function owns, released before it returns.
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) } == 0 {
+            // SAFETY: as above: unlocks the shared lock just taken on this live descriptor.
             unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
             return None;
         }
@@ -198,6 +200,7 @@ pub(super) fn holder_socket(path: &Path) -> Option<PathBuf> {
 pub(super) fn acquire_lock(path: &Path) -> Result<DaemonLock> {
     use std::os::unix::io::AsRawFd;
     let file = crate::config::private_state_rw(path)?;
+    // SAFETY: flock on the live descriptor `file` owns for the call; integers only.
     let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
     if rc != 0 {
         let e = std::io::Error::last_os_error();
@@ -318,6 +321,9 @@ pub(super) fn fork_a_child_for_tests() {
         // SAFETY: the child only calls nanosleep and _exit, both
         // async-signal-safe, and touches no Rust state.
         if unsafe { libc::fork() } == 0 {
+            // SAFETY: in the forked child: `nap` is a live timespec copied into it and the
+            // remaining-time pointer may be null; nanosleep and _exit are async-signal-safe and the
+            // child never returns.
             unsafe {
                 libc::nanosleep(&nap, std::ptr::null_mut());
                 libc::_exit(0);

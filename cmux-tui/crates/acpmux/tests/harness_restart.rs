@@ -267,6 +267,7 @@ async fn profile_change_respawns_a_busy_agent_with_the_new_args_after_its_turn()
     // A turn in progress, held on a FIFO, while the profile file changes and the catalog reloads.
     let gate = root.join("gate");
     let c = std::ffi::CString::new(gate.to_str().unwrap()).unwrap();
+    // SAFETY: `c` is a NUL-terminated CString that outlives the call.
     assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
     local.2 += 1;
     let turn_id = local.2;
@@ -361,6 +362,7 @@ async fn a_model_switch_during_a_turn_applies_after_it_and_never_stops_it() {
     // A turn in progress, held on a FIFO, while the person picks another model.
     let gate = root.join("gate");
     let c = std::ffi::CString::new(gate.to_str().unwrap()).unwrap();
+    // SAFETY: `c` is a NUL-terminated CString that outlives the call.
     assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
     local.2 += 1;
     let turn_id = local.2;

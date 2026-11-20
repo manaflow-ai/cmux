@@ -61,13 +61,20 @@ pub struct NamedJob {
     name: String,
 }
 
-// SAFETY: a kernel handle; the calls made on it are thread-safe.
+// SAFETY: `handle` is a process-wide kernel job handle owned by this value
+// (closed once, in Drop); it is valid on any thread and nothing thread-local
+// is tied to it.
 unsafe impl Send for NamedJob {}
+// SAFETY: `&self` methods only pass the handle to thread-safe kernel calls
+// (AssignProcessToJobObject, IsProcessInJob); no field is mutated through
+// `&self`, and only Drop (exclusive access) closes the handle.
 unsafe impl Sync for NamedJob {}
 
 impl Drop for NamedJob {
     fn drop(&mut self) {
-        // SAFETY: the handle this value owns.
+        // SAFETY: the non-null handle this value owns (both constructors check
+        // null first); the type is not Clone and Drop runs once, so it is
+        // closed exactly once.
         unsafe { CloseHandle(self.handle) };
     }
 }
@@ -104,6 +111,8 @@ impl NamedJob {
         let wname = wide(name);
         // SAFETY: valid attributes and name for the call.
         let handle = unsafe { CreateJobObjectW(&attributes, wname.as_ptr()) };
+        // SAFETY: no arguments; reads this thread's last error, which
+        // CreateJobObjectW just set (ERROR_ALREADY_EXISTS on a reopen).
         let created_error = unsafe { GetLastError() };
         // SAFETY: the descriptor the conversion allocated.
         unsafe { LocalFree(descriptor as _) };
@@ -169,7 +178,12 @@ pub(super) fn current_user_sid_string() -> io::Result<String> {
         }
         // SAFETY: a NUL-terminated string the call allocated.
         let len = (0..).take_while(|&i| unsafe { *text.add(i) } != 0).count();
+        // SAFETY: `text` is non-null and u16-aligned, its first `len` units were
+        // just read above (all before the NUL), and it stays allocated until
+        // the LocalFree below.
         let value = String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(text, len) });
+        // SAFETY: ConvertSidToStringSidW allocated `text` with LocalAlloc; it is
+        // freed only here and `value` owns a copy.
         unsafe { LocalFree(text as _) };
         Ok(value)
     })
@@ -189,6 +203,8 @@ fn with_current_user_sid<R>(f: impl FnOnce(*mut c_void) -> io::Result<R>) -> io:
     let ok = unsafe {
         GetTokenInformation(token, TokenUser, buffer.as_mut_ptr().cast(), size, &mut size)
     };
+    // SAFETY: `token` was opened above (the call succeeded) and is closed only
+    // here; it is not used after this line.
     unsafe { CloseHandle(token) };
     if ok == 0 {
         return Err(io::Error::last_os_error());
@@ -218,8 +234,17 @@ pub fn owned_by_current_user(handle: HANDLE, kind: SE_OBJECT_TYPE) -> io::Result
     if status != 0 {
         return Err(io::Error::from_raw_os_error(status as i32));
     }
-    // SAFETY: `owner` points into `descriptor`, alive until LocalFree.
+    // A security descriptor with no owner leaves `owner` null: not ours.
+    if owner.is_null() {
+        // SAFETY: the descriptor GetSecurityInfo allocated, freed only here.
+        unsafe { LocalFree(descriptor as _) };
+        return Ok(false);
+    }
+    // SAFETY: `owner` is non-null and points into `descriptor`, alive until the
+    // LocalFree below; `ours` is valid for the closure's duration.
     let same = with_current_user_sid(|ours| Ok(unsafe { EqualSid(owner, ours) } != 0));
+    // SAFETY: the descriptor GetSecurityInfo allocated, freed exactly once here,
+    // after its last use through `owner`.
     unsafe { LocalFree(descriptor as _) };
     same
 }

@@ -134,6 +134,7 @@ async fn losing_direct_starts_report_the_starting_winner_and_leave_no_process_or
     assert!(String::from_utf8_lossy(&refused.stderr).contains("another acpmux daemon holds"));
 
     // Only this test's recorded child is stopped; its agents were disabled.
+    // SAFETY: integer args only; `winner` is not yet reaped (waited on below).
     unsafe { libc::kill(winner_pid as _, libc::SIGTERM) };
     assert!(
         tokio::time::timeout(Duration::from_secs(8), winner.wait())
@@ -149,6 +150,7 @@ async fn a_waiting_start_takes_over_when_the_old_daemon_releases_its_lock() {
     use std::os::fd::AsRawFd;
     let dir = Scratch::new();
     let lock = std::fs::File::create(dir.0.join("daemon.lock")).unwrap();
+    // SAFETY: integer args only; `lock` is an open File that outlives the call.
     assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
     // Use info only for this rendezvous; the daemon has reached the held lock,
     // so releasing it cannot race ahead of the behavior this test exercises.
@@ -158,6 +160,7 @@ async fn a_waiting_start_takes_over_when_the_old_daemon_releases_its_lock() {
     let answer = tokio::time::timeout(Duration::from_secs(10), async {
         while let Some(line) = lines.next_line().await.unwrap() {
             if line.contains("waiting for its socket or exit") {
+                // SAFETY: integer args only; `lock` is still open here.
                 assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
             }
             if let Ok(value) = serde_json::from_str::<Value>(&line) {
@@ -171,6 +174,7 @@ async fn a_waiting_start_takes_over_when_the_old_daemon_releases_its_lock() {
     assert_eq!(answer["ready"], true, "{answer}");
     assert_eq!(answer["pid"], pid, "the waiting process is the successor");
     assert_eq!(status(&dir.0.join("s.sock")).await["pid"], pid);
+    // SAFETY: integer args only; `child` is not yet reaped (waited on below).
     unsafe { libc::kill(pid as _, libc::SIGTERM) };
     assert!(
         tokio::time::timeout(Duration::from_secs(8), child.wait())
@@ -190,6 +194,7 @@ async fn cli_start_waits_for_a_lock_held_beyond_the_normal_bind_budget() {
     let dir = Scratch::new();
     let socket = dir.0.join("s.sock");
     let lock = std::fs::File::create(dir.0.join("daemon.lock")).unwrap();
+    // SAFETY: integer args only; `lock` is an open File that outlives the call.
     assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
     let cli = |args: &[&str]| {
         let mut cmd = daemon_env::acpmux(&dir.0);
@@ -209,6 +214,7 @@ async fn cli_start_waits_for_a_lock_held_beyond_the_normal_bind_budget() {
         .unwrap();
     let release = async {
         tokio::time::sleep(Duration::from_secs(9)).await;
+        // SAFETY: integer args only; `lock` is still open here.
         assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
     };
     let (_, output) = tokio::join!(

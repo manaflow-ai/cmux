@@ -29,6 +29,8 @@ pub(crate) fn write_bounded(
                 return Err(io::Error::new(io::ErrorKind::TimedOut, timeout_message));
             }
             let Some(remaining) = bytes.get(delivered..) else { break };
+            // SAFETY: `remaining` is a live slice; write reads at most its len bytes. A bad fd
+            // fails with EBADF.
             let written = unsafe { libc::write(fd, remaining.as_ptr().cast(), remaining.len()) };
             if written > 0 {
                 delivered += written as usize;
@@ -51,6 +53,7 @@ pub(crate) fn write_bounded(
             }
             let millis = wait.as_nanos().saturating_add(999_999) / 1_000_000;
             let mut poll_fd = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
+            // SAFETY: `poll_fd` is one live pollfd and nfds is 1.
             let ready =
                 unsafe { libc::poll(&mut poll_fd, 1, millis.clamp(1, i32::MAX as u128) as i32) };
             if ready == 0 {
@@ -78,10 +81,12 @@ struct NonblockingFdGuard {
 
 impl NonblockingFdGuard {
     fn install(fd: RawFd) -> io::Result<Self> {
+        // SAFETY: integer args only; a bad fd fails with EBADF.
         let original_flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
         if original_flags < 0 {
             return Err(io::Error::last_os_error());
         }
+        // SAFETY: integer args only; a bad fd fails with EBADF.
         if unsafe { libc::fcntl(fd, libc::F_SETFL, original_flags | libc::O_NONBLOCK) } < 0 {
             return Err(io::Error::last_os_error());
         }
@@ -90,6 +95,7 @@ impl NonblockingFdGuard {
 
     fn restore(&mut self) -> io::Result<()> {
         if !self.restored {
+            // SAFETY: integer args only; restores the flags read in `install`.
             if unsafe { libc::fcntl(self.fd, libc::F_SETFL, self.original_flags) } < 0 {
                 return Err(io::Error::last_os_error());
             }

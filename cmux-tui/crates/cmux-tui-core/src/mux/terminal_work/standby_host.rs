@@ -197,6 +197,8 @@ mod memory_pressure {
         // SAFETY: the context is the leaked `Watch` set in `watch`, alive for
         // the source's lifetime (the process); its source is that source.
         let watch = unsafe { &*(context as *const Watch) };
+        // SAFETY: `watch.source` is the source created and resumed in `watch`, never released
+        // (it lives for the process), and this handler runs on it.
         let level = unsafe { dispatch_source_get_data(watch.source) };
         if let Some(slot) = watch.slot.upgrade() {
             slot.set_memory_pressure(level & DISPATCH_MEMORYPRESSURE_NORMAL == 0);

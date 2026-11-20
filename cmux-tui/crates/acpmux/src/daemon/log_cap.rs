@@ -30,6 +30,7 @@ pub(super) fn rotate_at_start(log: &Path, cap: u64) -> anyhow::Result<bool> {
     let same = |fd: i32| {
         // SAFETY: `fstat` writes into the zeroed struct it is given, and only reads `fd`.
         let mut st: libc::stat = unsafe { std::mem::zeroed() };
+        // SAFETY: `st` is a writable stat on this frame; a bad `fd` only fails with EBADF.
         (unsafe { libc::fstat(fd, &mut st) } == 0)
             && st.st_dev as u64 == meta.dev()
             && st.st_ino as u64 == meta.ino()

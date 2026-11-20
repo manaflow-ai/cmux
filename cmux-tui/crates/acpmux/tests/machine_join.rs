@@ -101,8 +101,8 @@ fn response_server(
         for index in 0..requests {
             let mut fd =
                 libc::pollfd { fd: listener.as_raw_fd(), events: libc::POLLIN, revents: 0 };
-            // SAFETY: one live pollfd and a valid listener; timeout is bounded.
             assert_eq!(
+                // SAFETY: one live pollfd and a valid listener; timeout is bounded.
                 unsafe { libc::poll(&mut fd, 1, 10_000) },
                 1,
                 "missing HTTP request {index}"

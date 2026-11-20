@@ -334,6 +334,8 @@ pub fn now_ms() -> u64 {
 /// "Today 10:13 PM", "Yesterday 9:02 AM", or "Sep 12, 9:02 AM", in local time.
 pub fn when_label(ms: u64) -> String {
     #[cfg(unix)]
+    // SAFETY: `tm` and `now_tm` are writable libc::tm values (plain integers and a tm_zone pointer
+    // libc sets, all-zero valid); localtime_r reads `t`/`n` and writes only them.
     unsafe {
         let mut tm: libc::tm = std::mem::zeroed();
         let mut now_tm: libc::tm = std::mem::zeroed();

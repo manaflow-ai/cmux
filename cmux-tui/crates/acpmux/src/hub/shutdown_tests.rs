@@ -731,6 +731,7 @@ async fn a_cut_terminate_still_kills_an_agent_that_ignores_sigterm() {
 async fn until_group_gone(group: i32, what: &str) {
     let by = tokio::time::Instant::now() + Duration::from_secs(1);
     loop {
+        // SAFETY: killpg takes integers only; signal 0 sends nothing, it only probes the group.
         let gone = unsafe { libc::killpg(group, 0) } != 0
             && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
         if gone {

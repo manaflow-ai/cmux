@@ -67,7 +67,9 @@ impl GdiCapture {
         if screen.is_null() {
             return Err("Windows screen capture: GetDC failed".into());
         }
+        // SAFETY: `screen` is the non-null DC GetDC returned above; integer index.
         let desktop_w = unsafe { GetDeviceCaps(screen, HORZRES as i32) }.max(1) as u32;
+        // SAFETY: as above.
         let desktop_h = unsafe { GetDeviceCaps(screen, VERTRES as i32) }.max(1) as u32;
         let (mut width, mut height) = requested.unwrap_or((desktop_w, desktop_h));
         width = width.min(desktop_w).max(2) & !1;
@@ -75,12 +77,15 @@ impl GdiCapture {
         // SAFETY: the screen DC is valid and owned by this value.
         let memory = unsafe { CreateCompatibleDC(screen) };
         if memory.is_null() {
+            // SAFETY: releases the screen DC once on this early-return path; nothing else holds it.
             unsafe { ReleaseDC(0 as HWND, screen) };
             return Err("Windows screen capture: CreateCompatibleDC failed".into());
         }
         // SAFETY: dimensions are positive and even.
         let bitmap = unsafe { CreateCompatibleBitmap(screen, width as i32, height as i32) };
         if bitmap.is_null() {
+            // SAFETY: frees the memory DC and screen DC created above, each once, on this
+            // early-return path; nothing else holds them and none is used after.
             unsafe {
                 DeleteDC(memory);
                 ReleaseDC(0 as HWND, screen);
@@ -90,6 +95,8 @@ impl GdiCapture {
         // SAFETY: select the bitmap into the memory DC and retain the old object.
         let previous = unsafe { SelectObject(memory, bitmap as HGDIOBJ) };
         if previous.is_null() {
+            // SAFETY: frees the bitmap, memory DC and screen DC created above, each once, on this
+            // early-return path; nothing else holds them and none is used after.
             unsafe {
                 DeleteObject(bitmap as HGDIOBJ);
                 DeleteDC(memory);
@@ -130,6 +137,8 @@ impl GdiCapture {
         if copied == 0 {
             return Err("Windows screen capture: BitBlt failed".into());
         }
+        // SAFETY: BITMAPINFO is plain C data (integers); all-zero is valid and the header is filled
+        // next.
         let mut info: BITMAPINFO = unsafe { zeroed() };
         info.bmiHeader = BITMAPINFOHEADER {
             biSize: size_of::<BITMAPINFOHEADER>() as u32,
@@ -139,11 +148,15 @@ impl GdiCapture {
             biPlanes: 1,
             biBitCount: 32,
             biCompression: BI_RGB,
+            // SAFETY: BITMAPINFOHEADER is plain C data; all-zero is a valid value for its remaining
+            // fields.
             ..unsafe { zeroed() }
         };
         // `GetDIBits` requires the bitmap not to be selected into the DC.
         // Temporarily restore the original object, then put our bitmap back
         // before returning so the next capture can reuse the DC.
+        // SAFETY: `memory` and `previous` are the DC and original object `new` stored; both live
+        // until Drop.
         let restored = unsafe { SelectObject(self.memory, self.previous) };
         if restored.is_null() {
             return Err("Windows screen capture: failed to deselect bitmap".into());
@@ -161,6 +174,7 @@ impl GdiCapture {
                 DIB_RGB_COLORS,
             )
         };
+        // SAFETY: puts our live bitmap back into our live memory DC.
         let selected = unsafe { SelectObject(self.memory, self.bitmap as HGDIOBJ) };
         if selected.is_null() {
             return Err("Windows screen capture: failed to reselect bitmap".into());
@@ -237,17 +251,25 @@ fn media_foundation_probe() -> bool {
     if module.is_null() {
         return false;
     }
+    // SAFETY: `module` is the non-null mfplat handle loaded above; the name is a static C string.
     let startup = unsafe { GetProcAddress(module, c"MFStartup".as_ptr().cast()) };
+    // SAFETY: as above.
     let shutdown = unsafe { GetProcAddress(module, c"MFShutdown".as_ptr().cast()) };
     let (Some(startup), Some(shutdown)) = (startup, shutdown) else {
+        // SAFETY: frees the module LoadLibraryA returned, once on each path; no symbol from it is
+        // used after.
         unsafe { FreeLibrary(module) };
         return false;
     };
     // SAFETY: these symbols have the documented Media Foundation signatures.
     let started = unsafe { std::mem::transmute::<_, Startup>(startup)(0x0002_0070, 1) } == 0;
     if started {
+        // SAFETY: MFShutdown's documented signature is `HRESULT MFShutdown(void)` (system ABI),
+        // matching `Shutdown`; called once after a successful MFStartup while the module is loaded.
         unsafe { std::mem::transmute::<_, Shutdown>(shutdown)() };
     }
+    // SAFETY: frees the module LoadLibraryA returned, once on each path; no symbol from it is used
+    // after.
     unsafe { FreeLibrary(module) };
     started
 }
@@ -264,7 +286,10 @@ fn dxgi_desktop_duplication_probe() -> bool {
         return false;
     }
     let present =
+        // SAFETY: `module` is the non-null dxgi handle loaded above; the name is a static C string.
         unsafe { GetProcAddress(module, c"CreateDXGIFactory1".as_ptr().cast()) }.is_some();
+    // SAFETY: frees the module LoadLibraryA returned, once on each path; no symbol from it is used
+    // after.
     unsafe { FreeLibrary(module) };
     present
 }
@@ -492,6 +517,7 @@ fn send_mouse(x: i32, y: i32, flags: u32, data: i32) -> Res<()> {
             },
         },
     };
+    // SAFETY: `input` is one initialized INPUT owned by this call, and cbSize is its size.
     let sent = unsafe { SendInput(1, &input, size_of::<INPUT>() as i32) };
     if sent == 1 {
         Ok(())
@@ -517,6 +543,7 @@ fn send_input_unicode(code: u16, down: bool) -> Res<()> {
             },
         },
     };
+    // SAFETY: `input` is one initialized INPUT owned by this call, and cbSize is its size.
     let sent = unsafe { SendInput(1, &input, size_of::<INPUT>() as i32) };
     if sent == 1 {
         Ok(())
