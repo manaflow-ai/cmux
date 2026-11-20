@@ -20,7 +20,8 @@ declare global {
   interface Window {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
-    benchChangeOne(index: number): Promise<void>;
+    // `void |` because other harnesses declare the same global with a sync change.
+    benchChangeOne(index: number): void | Promise<void>;
   }
 }
 

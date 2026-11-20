@@ -23,8 +23,11 @@ declare global {
   interface Window {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
-    /** Changes the `index`th action's `when` and has the page read the table again. */
-    benchChangeOne(index: number): Promise<void>;
+    /**
+     * Changes the `index`th action's `when` and has the page read the table again. `void |` because
+     * other harnesses declare the same global with a sync change.
+     */
+    benchChangeOne(index: number): void | Promise<void>;
   }
 }
 

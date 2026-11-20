@@ -151,6 +151,7 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
   // The first mounted row of each kind sizes every one not yet mounted, so the rows a scroll brings
   // in measure as estimated: TanStack places all N rows again whenever a measure differs.
   const sizes = useRef(new Map<SizeKind, number>());
+  // react-doctor-disable-next-line react-hooks-js/incompatible-library -- TanStack Virtual returns functions the React Compiler cannot memoize safely, so the keybindings page stays uncompiled on purpose; it windows table rows between spacer <tr> rows under a measured header and keeps the selected, focused, editing and recording rows mounted, so ui/VirtualList does not fit.
   const virtualizer = useVirtualizer({
     count: list.ids.length,
     getScrollElement: () => scroller.current,
