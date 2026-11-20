@@ -1119,6 +1119,7 @@ jobs:
   # committed to cmux-platform/main and its settle job owns rollback. This job
   # still starts so the environment switch is observable, then does no work.
   image-roll-settle:
+    # runs-after-cancel: settles or rolls back a production image roll after a person or timeout cancels the deploy (see above); feat-cmux-next push/dispatch only, so a PR cancel never queues it.
     needs: [deploy-production, smoke-production]
     if: >-
       always() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' &&

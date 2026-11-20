@@ -6431,6 +6431,7 @@ jobs:
 
   # Why: docs/ci/cmux-next-workflow-notes.md#note-352
   same-tree-status-daemon:
+    # runs-after-cancel: posts the dispatched same-tree commit status, which otherwise stays pending on that sha forever; only a same_tree_status_sha dispatch reaches it.
     needs: [same-tree-cmux-tui, daemon-test]
     if: ${{ always() && inputs.same_tree_status_sha != '' && contains(inputs.same_tree_tiers, 'daemon') }}
     name: same-tree status (daemon)
@@ -6481,6 +6482,7 @@ jobs:
 
   # Why: docs/ci/cmux-next-workflow-notes.md#note-352
   same-tree-status-scheme:
+    # runs-after-cancel: posts the dispatched same-tree commit status, which otherwise stays pending on that sha forever; only a same_tree_status_sha dispatch reaches it.
     needs: [same-tree-cmux-tui, cmux-scheme-compile, crash-ends-app]
     if: ${{ always() && inputs.same_tree_status_sha != '' && contains(inputs.same_tree_tiers, 'scheme') }}
     name: same-tree status (scheme)
@@ -7038,7 +7040,7 @@ jobs:
   # Why: docs/ci/cmux-next-workflow-notes.md#note-383
   release-compile-revert:
     needs: [release-compile, release-compile-fast-admission]
-    if: ${{ always() && (needs.release-compile.result == 'failure' || needs.release-compile-fast-admission.result == 'failure') && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
+    if: ${{ !cancelled() && (needs.release-compile.result == 'failure' || needs.release-compile-fast-admission.result == 'failure') && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
     name: cmux-next Release compile revert
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }} # ephemeral-required: holds a contents and pull-requests write App token; ephemeral Blacksmith VM
     # Why: docs/ci/cmux-next-workflow-notes.md#note-344

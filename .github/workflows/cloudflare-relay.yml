@@ -733,6 +733,7 @@ jobs:
           echo "regressed=false" >> "$GITHUB_OUTPUT"
 
   rollback-production:
+    # runs-after-cancel: a production journey that recorded a regression still rolls back if the run is cancelled after it; push-only, so a PR cancel never queues it.
     needs: [plan, deploy-production, journey-production]
     if: always() && needs.journey-production.outputs.regressed == 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}

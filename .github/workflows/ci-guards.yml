@@ -745,9 +745,13 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: ./tests/test_ci_actionlint_download.sh
 
+      # The second line: no `if: always()` job in a run its concurrency group can
+      # cancel; a cancelled run still queues it and holds the group (cmuxterm-hq#14963).
       - name: Check that every workflow is linted
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_actionlint_covers_every_workflow.py
+        run: |
+          python3 tests/test_ci_actionlint_covers_every_workflow.py
+          python3 tests/test_ci_no_always_in_cancellable_runs.py
 
       - name: Check that every workflow file is under GitHub's 500 KB limit, with room
         if: ${{ !cancelled() && matrix.group == 'ci' }}
