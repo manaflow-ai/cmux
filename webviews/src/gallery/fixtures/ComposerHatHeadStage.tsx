@@ -13,7 +13,7 @@ const STEPS = ["Bash", "Read SubagentTray.tsx", "Grep latestLine", "Edit trayMot
 const NO_WAITING: ReadonlySet<string> = new Set();
 const shown = { current: "gallery-hat" as string | undefined };
 
-export type ComposerHatHeadState = "running" | "done" | "two" | "joined-command";
+export type ComposerHatHeadState = "running" | "done" | "two" | "joined-command" | "two-and-command";
 
 export function ComposerHatHeadStage({
   start = "running",
@@ -26,8 +26,8 @@ export function ComposerHatHeadStage({
   const [clock] = useState(() => Date.now());
   const [step, setStep] = useState(0);
   const [done, setDone] = useState(start === "done");
-  const [joined, setJoined] = useState(start === "two" ? 1 : 0);
-  const [command, setCommand] = useState(start === "joined-command");
+  const [joined, setJoined] = useState(start === "two" || start === "two-and-command" ? 1 : 0);
+  const [command, setCommand] = useState(start === "joined-command" || start === "two-and-command");
   const lead: Subagent = {
     id: "gallery-hat-lead",
     parent: null,
