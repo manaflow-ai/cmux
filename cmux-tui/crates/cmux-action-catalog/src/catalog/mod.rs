@@ -32,6 +32,7 @@ mod cloud_port;
 mod cloud_session;
 mod cloud_team;
 mod cmux_remote;
+mod computer_use_approval;
 mod density;
 mod divider;
 mod extension;
@@ -179,6 +180,7 @@ pub static GROUPS: &[&[Action]] = &[
     list::ACTIONS,
     palette_key::ACTIONS,
     import::ACTIONS,
+    computer_use_approval::ACTIONS,
     hang_reports::ACTIONS,
     palette_history::ACTIONS,
 ];
