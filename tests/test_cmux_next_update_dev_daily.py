@@ -90,9 +90,12 @@ elif name == "osascript":
         print("true" if running() else "false")
     elif "to quit" in script: running(False)
 elif name == "lsappinfo":
-    # `front` names the front app; `info -only bundleid ASN` says its bundle id, as macOS prints it.
+    # `front` names the front app; `info -only bundleid ASN` says the bundle id of that ASN, as macOS prints it.
+    # A quit app is the front app no more (the app behind it is), and another ASN is not the front app's.
+    front = (state / "front").read_text()
+    if front == "com.cmuxterm.app.debug.next" and not running(): front = "com.apple.Terminal"
     if args[:1] == ["front"]: print("ASN:0x0-0x1001:")
-    elif args[:1] == ["info"]: print('"CFBundleIdentifier"="%s"' % (state / "front").read_text())
+    elif args == ["info", "-only", "bundleid", "ASN:0x0-0x1001:"]: print('"CFBundleIdentifier"="%s"' % front)
 elif name == "open":
     running(True)
 elif name == "cmux":
