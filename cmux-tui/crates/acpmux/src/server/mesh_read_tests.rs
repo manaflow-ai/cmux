@@ -53,6 +53,9 @@ struct Loopback {
     user: &'static str,
     receipts: Mutex<std::collections::HashMap<String, Receipt>>,
     unknown: bool,
+    /// Before each part read, another asker's answer fills B's held total, so B drops the
+    /// answers it held before.
+    crowded: bool,
 }
 
 impl Loopback {
@@ -62,7 +65,14 @@ impl Loopback {
             Some(dir.join("mesh-controls.json")),
         )
         .with_own_user(Arc::new(|| Some("person-1".to_owned())));
-        Self { b: b.clone(), hook, user, receipts: Mutex::default(), unknown: false }
+        Self {
+            b: b.clone(),
+            hook,
+            user,
+            receipts: Mutex::default(),
+            unknown: false,
+            crowded: false,
+        }
     }
 }
 
@@ -113,6 +123,9 @@ impl MeshHub for Loopback {
                 state: Some("queued".into()),
                 subject: None,
             };
+            if self.crowded && m.body.contains(READ_PART) {
+                self.b.mesh_read_parts.hold("another-chat", "x".repeat(parts::MAX_HELD_BYTES));
+            }
             let ack = super::super::deliver(&self.b, &message, &self.hook, Some("inst_b"))
                 .await
                 .expect("a read is always answered");
@@ -229,14 +242,11 @@ async fn the_same_persons_machine_reads_a_reply_through_the_hub_and_no_one_else_
     assert_eq!(unknown.code, RpcError::not_found("").code, "{unknown:?}");
 }
 
-/// A chat with one record over the hub's 64 KiB opens through the hub, and its older pages read
-/// back to that record: a page always holds at least one record, so no smaller page fits it.
-#[tokio::test]
-async fn a_chat_page_with_a_record_over_64_kib_opens_through_the_hub() {
-    let b = machine_b();
+/// A chat on B whose one turn has a record over 64 KiB: its id, and the long prompt.
+async fn big_record_chat(b: &Arc<Hub>) -> (String, String) {
     let meta = json!({"acpmux": {"harness": "fake", "name": "big-record"}});
     let made = call(
-        &b,
+        b,
         "session/new",
         json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
     )
@@ -245,11 +255,20 @@ async fn a_chat_page_with_a_record_over_64_kib_opens_through_the_hub() {
     let big = "a 65 KiB line ".repeat(65 * 1024 / 14 + 1);
     assert!(big.len() > 65 * 1024);
     call(
-        &b,
+        b,
         method::SESSION_PROMPT,
         json!({"sessionId": session, "prompt": [{"type": "text", "text": big}]}),
     )
     .await;
+    (session, big)
+}
+
+/// A chat with one record over the hub's 64 KiB opens through the hub, and its older pages read
+/// back to that record: a page always holds at least one record, so no smaller page fits it.
+#[tokio::test]
+async fn a_chat_page_with_a_record_over_64_kib_opens_through_the_hub() {
+    let b = machine_b();
+    let (session, big) = big_record_chat(&b).await;
     let dir = tempfile::tempdir().unwrap();
     let hub = Loopback::new(&b, dir.path(), "person-1");
 
@@ -286,6 +305,93 @@ async fn a_chat_page_with_a_record_over_64_kib_opens_through_the_hub() {
         })
         .collect();
     assert_eq!(replies, [format!("echo: {big}")]);
+}
+
+/// An answer B held in parts and then dropped for a newer one refuses only that read, and the
+/// refusal says to read again: the page is still in B's session log.
+#[tokio::test]
+async fn send_path_a_dropped_held_answer_is_refused_retryable() {
+    let b = machine_b();
+    let (session, _) = big_record_chat(&b).await;
+    let dir = tempfile::tempdir().unwrap();
+    let hub = Loopback { crowded: true, ..Loopback::new(&b, dir.path(), "person-1") };
+    let attach =
+        json!({"sessionId": format!("machine-b/{session}"), "limit": 200, "maxBytes": 1 << 20});
+    let failed = read(&hub, "machine-b", &session, method::MUX_ATTACH, &attach).await.unwrap_err();
+    let data = failed.data.clone().unwrap_or_default();
+    assert_eq!(data["reason"].as_str(), Some("mesh.read_part_gone"), "{failed:?}");
+    assert_eq!(data["retryable"].as_bool(), Some(true), "{failed:?}");
+}
+
+/// A hub that answers every message slowly, within each wait: the first read says its answer is
+/// held in `count` parts, and each part read gets one byte.
+struct Slow {
+    count: u64,
+    each: Duration,
+    bodies: Mutex<std::collections::HashMap<String, String>>,
+}
+
+impl MeshHub for Slow {
+    fn inbox(&self, _: Duration, _: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
+    fn ack<'a>(&'a self, _: &'a str, _: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn heartbeat<'a>(
+        &'a self,
+        _: &'a crate::mesh::Heartbeat,
+    ) -> BoxFuture<'a, Result<crate::mesh::HeartbeatReply, HubError>> {
+        Box::pin(async { Err(HubError::unavailable("unused")) })
+    }
+
+    fn send<'a>(&'a self, m: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        Box::pin(async move {
+            let id = format!("msg_{}", uuid::Uuid::now_v7().simple());
+            self.bodies.lock().unwrap().insert(id.clone(), m.body.clone());
+            Ok(serde_json::from_value(json!({"messageId": id, "state": "queued", "createdAt": 1}))
+                .unwrap())
+        })
+    }
+
+    fn receipt<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        Box::pin(async move {
+            tokio::time::sleep(self.each).await;
+            let body = self.bodies.lock().unwrap().get(id).cloned().unwrap_or_default();
+            let result = if body.contains("_acpmux/readPart") {
+                json!({"part": "eA=="})
+            } else {
+                json!({"_acpmuxParts": {"id": "held", "count": self.count}})
+            };
+            let mut receipt: Receipt = serde_json::from_value(
+                json!({"messageId": id, "state": "delivered", "createdAt": 1}),
+            )
+            .unwrap();
+            receipt.result = Some(result.to_string());
+            Ok(receipt)
+        })
+    }
+}
+
+/// A read in parts ends within a total time that grows with its parts: a hub that answers
+/// each part just inside its own wait cannot hold the asker for hours.
+#[tokio::test(start_paused = true)]
+async fn send_path_a_read_in_parts_ends_within_its_total_time() {
+    let hub = Slow { count: 700, each: Duration::from_secs(10), bodies: Mutex::default() };
+    let started = tokio::time::Instant::now();
+    let page = json!({"limit": 200, "maxBytes": 1 << 20});
+    let failed =
+        read(&hub, "machine-b", "big-record", method::MUX_EVENTS, &page).await.unwrap_err();
+    let took = started.elapsed();
+    // 700 parts at 10 s each is 7000 s; the total for 700 parts is about an hour.
+    assert!(took < Duration::from_secs(3700), "the read took {took:?}");
+    assert_eq!(
+        failed.data.as_ref().and_then(|d| d["reason"].as_str()),
+        Some("mesh.read_unanswered"),
+        "{failed:?}"
+    );
 }
 
 #[tokio::test]
