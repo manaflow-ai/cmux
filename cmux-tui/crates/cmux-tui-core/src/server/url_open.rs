@@ -342,6 +342,40 @@ mod tests {
     }
 
     #[test]
+    fn url_claim_keeps_the_prepare_deadline_for_delivery() {
+        let broker = URLRequests::default();
+        let (writer, _) = captured_writer();
+        broker.subscribe(1, vec![TERMINAL.into()], writer).unwrap();
+        let (id, _claim_receiver, _) =
+            broker.prepare(TERMINAL, OpenEvent::Url { url: "https://example.com" }).unwrap();
+        let claim_deadline = broker.0.lock().unwrap().pending[&id].claim_deadline;
+
+        assert!(broker.claim(&id, OpenKind::Url));
+
+        let pending = broker.0.lock().unwrap();
+        assert_eq!(pending.pending[&id].delivery_deadline, Some(claim_deadline));
+    }
+
+    #[test]
+    fn file_preview_capacity_is_bounded_without_waiting_for_claim_deadlines() {
+        let broker = URLRequests::default();
+        let (writer, _) = captured_writer();
+        broker.subscribe(1, vec![TERMINAL.into()], writer).unwrap();
+        for _ in 0..CAPACITY {
+            assert!(
+                broker
+                    .prepare(TERMINAL, OpenEvent::FilePreview { path: "/srv/notes.md", line: None })
+                    .is_some()
+            );
+        }
+        assert!(
+            broker
+                .prepare(TERMINAL, OpenEvent::FilePreview { path: "/srv/notes.md", line: None })
+                .is_none()
+        );
+    }
+
+    #[test]
     fn url_open_validates_without_rewriting_auth_url_bytes() {
         assert!(validate_url("HTTPS://github.com/login/device?state=AbC%2F%2b#fragment"));
         for url in [
