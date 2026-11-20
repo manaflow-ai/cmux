@@ -59,7 +59,8 @@ UNTRACKED = re.compile(
     # example in prose is not an expression either.
     # The graph does not parse comments inside imports. Keep those unresolved,
     # including static relative imports, until its parser can follow them.
-    r"|\bimport\s*/[/*]"
+    r"|\b(?:import|from)\s*/[/*]"
+    r"|\brequire" + JS_GAP + r"\("
     r"|import" + JS_GAP + r"\((?!\s*[\"'`])\s*(?=[\w$({\[/])"
     r"|import" + JS_GAP + r"\(" + JS_GAP + r"`[^`]*\$\{"
     r"|(from\s+|import\(\s*)[\"']cmux:|Bun\.spawn")

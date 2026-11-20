@@ -166,6 +166,18 @@ class SelectTest(unittest.TestCase):
                 selected, _ = wa.Selector(self.root).select(["webviews/src/leaf.ts"])
                 self.assertIn("webviews/test/tools.test.ts", selected)
 
+    def test_commented_from_and_require_edges_remain_unresolved(self) -> None:
+        for source in ('import { other } from /* static */ "./other";',
+                       'export { other } from // static\n "./other";',
+                       'const other = require /* static */ ("./other");',
+                       'const other = require(/* static */ "./other");',
+                       'const other = require ("./other");',
+                       'const other = require(runtimePath);'):
+            with self.subTest(source=source):
+                (self.root / "webviews/src/tools.ts").write_text(source + "\n")
+                selected, _ = wa.Selector(self.root).select(["webviews/src/other.ts"])
+                self.assertIn("webviews/test/tools.test.ts", selected)
+
     def test_generated_table_reader_is_not_an_input_of_an_isolated_test(self) -> None:
         reader = "webviews/src/agent-session/acpmux/frameOwners.ts"
         destination = self.root / reader
