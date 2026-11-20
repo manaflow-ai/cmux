@@ -35,7 +35,10 @@ export function ThinkingGlyph({
   const pointRef = useRef<HTMLSpanElement>(null);
   const controls = useRef<ReturnType<typeof mountChoreographyGlyph> | null>(null);
   const triggerRef = useRef(trigger);
-  triggerRef.current = trigger;
+  // Declared before the mount effect, so a remount starts from this render's trigger.
+  useEffect(() => {
+    triggerRef.current = trigger;
+  });
   const extent = useMemo(() => glyphExtent(doc, size), [doc, size]);
 
   useEffect(() => {
