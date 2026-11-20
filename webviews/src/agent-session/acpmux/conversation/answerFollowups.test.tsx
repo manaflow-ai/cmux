@@ -153,12 +153,12 @@ test("F2: the card's two copies share the answer on its way, so two clicks send 
   // Both copies show the picked answer at once, with nothing left to click (Leo, 2026-11-19: "plus
   // it's not instant yet").
   expect(buttons()).toHaveLength(0);
-  expect(container.querySelectorAll(".acpmux-next-step--answered")).toHaveLength(2);
+  expect(container.querySelectorAll(".acpmux-next-step--picked")).toHaveLength(2);
   // No asker named: the quote is the question alone (nextStepAsk.ts `answerPrompt`).
   expect(sent).toEqual(["> Which look should ship?\n\nInline"]);
   await act(async () => finish());
   expect(buttons()).toHaveLength(0);
-  expect(container.querySelectorAll(".acpmux-next-step--answered")).toHaveLength(2);
+  expect(container.querySelectorAll(".acpmux-next-step--picked")).toHaveLength(2);
 });
 
 test("F3: a send acpmux already took counts as sent; one it never took still says so", async () => {

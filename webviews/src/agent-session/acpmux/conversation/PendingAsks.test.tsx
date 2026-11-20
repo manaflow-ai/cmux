@@ -153,7 +153,7 @@ test("question, a peer message's turn, then the answer through the card reaches 
   const reply = "> Codex: Do you mean computer use, still working while the Mac is locked?\n\nYes";
   expect(sent).toEqual([reply]);
   // Both copies show the answer at once and offer no second send.
-  expect(container.querySelectorAll(".acpmux-next-step--answered")).toHaveLength(2);
+  expect(container.querySelectorAll(".acpmux-next-step--picked")).toHaveLength(2);
   expect(buttons(container).some((b) => b.textContent?.includes("Yes"))).toBe(false);
   // Once sent, the person's prompt settles the card in the transcript and leaves the pinned list.
   const answered = [...rows, line("p2", "user", { text: reply })];
@@ -211,9 +211,9 @@ test("a click shows the picked answer in place at once and after the send", asyn
   );
   await act(async () => named(container, "Inline").click());
   expect(sent).toHaveLength(1);
-  expect(container.querySelector(".acpmux-next-step--answered")?.textContent).toContain("Inline");
+  expect(container.querySelector(".acpmux-next-step--picked .is-picked")?.textContent).toContain("Inline");
   expect(buttons(container).some((b) => b.textContent?.includes("Box"))).toBe(false);
   await act(async () => release());
-  expect(container.querySelector(".acpmux-next-step--answered")?.textContent).toContain("Inline");
+  expect(container.querySelector(".acpmux-next-step--picked .is-picked")?.textContent).toContain("Inline");
   expect(buttons(container).some((b) => b.textContent?.includes("Box"))).toBe(false);
 });
