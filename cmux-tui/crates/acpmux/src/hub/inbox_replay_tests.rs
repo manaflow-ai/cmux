@@ -36,7 +36,20 @@ fn replay(trace: Trace) -> (usize, usize) {
     let (hub, session) = hub_with_chat("replay");
     let mut admitted = BTreeSet::new();
     let mut held = BTreeSet::new();
+    let mut protected_by_kind: [BTreeSet<String>; 4] = Default::default();
     for a in trace.arrivals {
+        // Check the source fields independently of the exporter's expected-ID manifest.
+        // A missing question in that manifest must fail even if the gate held it.
+        for (ids, protected) in protected_by_kind.iter_mut().zip([
+            a.provenance.pointer("/notice/severity").and_then(Value::as_str) == Some("fire"),
+            a.class == PromptClass::Question,
+            a.class == PromptClass::Block,
+            a.person,
+        ]) {
+            if protected {
+                ids.insert(a.prompt_id.clone());
+            }
+        }
         {
             let mut state = session.time_breakdown.lock().unwrap();
             while timeline.peek().is_some_and(|event| event.at <= a.at) {
@@ -66,6 +79,13 @@ fn replay(trace: Trace) -> (usize, usize) {
         }
     }
     assert!(held.is_disjoint(&admitted));
+    assert_eq!(held.len() + admitted.len(), 378, "prompt IDs must identify distinct arrivals");
+    let required: BTreeSet<_> = protected_by_kind.iter().flatten().cloned().collect();
+    assert!(
+        required.is_subset(&trace.protected_ids),
+        "source urgency missing from manifest: {:?}",
+        required.difference(&trace.protected_ids).collect::<Vec<_>>()
+    );
     assert!(
         trace.protected_ids.is_subset(&admitted),
         "protected IDs held or missing: {:?}",
@@ -81,10 +101,14 @@ fn replay(trace: Trace) -> (usize, usize) {
     assert_eq!(original_ids, held);
     assert_eq!(hub.inbox_threads(&session)["surge"]["held"], held.len());
     println!(
-        "arrivals=378 senders=86 held={} immediate_path={} protected={}",
+        "arrivals=378 senders=86 held={} immediate_path={} protected={} fire={} questions={} blocks={} person={}",
         held.len(),
         admitted.len(),
-        trace.protected_ids.len()
+        trace.protected_ids.len(),
+        protected_by_kind[0].len(),
+        protected_by_kind[1].len(),
+        protected_by_kind[2].len(),
+        protected_by_kind[3].len()
     );
     (held.len(), admitted.len())
 }
