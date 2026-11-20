@@ -494,3 +494,13 @@ fn a_follower_too_far_behind_is_told_it_lagged() {
 fn folded_version(folded: &super::serve::Folded) -> u64 {
     super::serve::version(folded)
 }
+
+#[test]
+fn shadow_review_survives_the_row_fold_as_a_notice() {
+    let log = [mux(1, "shadow_review", json!({"text": "Repair the fixture"}))];
+    let table = RowTable::fold(&log);
+    assert_eq!(table.rows().len(), 1);
+    assert_eq!(table.rows()[0].head.kind, RowKind::Notice);
+    assert_eq!(table.rows()[0].head.notice.as_deref(), Some("shadow_review"));
+    assert_eq!(table.rows()[0].text, "Repair the fixture");
+}

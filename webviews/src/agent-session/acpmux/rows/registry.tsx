@@ -94,6 +94,7 @@ export const defaultRegistry: NativeRegistry = {
   editedFiles: EditedFilesRow,
   turnSummary: SummaryRow,
   notice: NoticeRow,
+  shadowReview: NoticeRow,
   plan: PlanRow,
   backgroundTask: BackgroundTaskRow,
   compaction: CompactionRow,

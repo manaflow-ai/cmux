@@ -92,3 +92,16 @@ test("a decided ask adapted before the chat's harness is known names its mode on
   harness = "claude";
   expect(mode()).toBe("Accept edits");
 });
+
+test("shadow review v2 notice retains its objective", async () => {
+  const { snapshot } = await chat([
+    row(1, {
+      kind: "notice",
+      body: { notice: "shadow_review", content: [{ type: "text", text: "Repair the fixture" }] },
+    }),
+  ]);
+  const rows = new ChatAdapter({ sessionId: "s1" }).adapt(snapshot()).rows;
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.kind).toBe("shadowReview");
+  expect(rows[0]?.text).toBe("Repair the fixture");
+});

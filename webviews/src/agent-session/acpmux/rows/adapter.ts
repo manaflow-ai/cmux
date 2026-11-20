@@ -124,6 +124,9 @@ export function adaptRow(
       return [{ ...head, kind: "activity", toolCount: 1, items: [item], streaming: row.open }];
     }
     case "notice":
+      if (body.notice === "shadow_review") {
+        return [{ ...head, kind: "shadowReview", text: textFromContent(body.content) }];
+      }
       return body.notice === "turn_result"
         ? [{ ...turnSummary(head, body, row.group ? held.get(row.group) : undefined), ...turnOf(row) }]
         : [];

@@ -299,3 +299,27 @@ fn an_interrupted_claude_turn_leaves_no_tokens_to_the_next() {
     assert!(!turn_end(&ops).contains_key("tokens"));
     assert_eq!(state.counters().line_errors, 0);
 }
+
+#[test]
+fn shadow_review_survives_v2_translation_without_starting_a_turn() {
+    let mut state = State::default();
+    let ops = run(
+        &mut state,
+        Harness::V1,
+        &[mux(1, "shadow_review", r#"{"text":"Repair the fixture","result":"not-sent"}"#)],
+    );
+    let notices: Vec<_> = ops
+        .iter()
+        .filter_map(|op| match &op.change {
+            Change::Row(row)
+                if row.fields.get("notice").map(String::as_str) == Some("\"shadow_review\"") =>
+            {
+                Some(row)
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(notices.len(), 1);
+    assert!(notices[0].fields.get("content").unwrap().contains("Repair the fixture"));
+    assert!(!state.in_turn());
+}
