@@ -81,7 +81,7 @@ main() {
     run_side head "$i" || rc=1
   done
   git -c advice.detachedHead=false checkout --quiet --detach "$checkout"
-  rm -rf "$out/base" "$out/head" "${work_dirs[@]}"
+  rm -rf "$out/base" "$out/head" ${work_dirs[@]+"${work_dirs[@]}"}
   mkdir -p "$(dirname "$report")" || exit 3
   tar -czf "$out.tgz" -C "$out" . 2>/dev/null && mv "$out.tgz" "$report" || exit 3
   exit "$rc"
