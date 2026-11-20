@@ -253,37 +253,6 @@ fn is_accepted(kind: &Kind, value: &Value, domains: &Domains) -> bool {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn workspace_color_indicator_accepts_swift_legacy_values() {
-        let row = super::super::Schema::embedded()
-            .row("workspaceColors.indicatorStyle")
-            .expect("workspace color indicator row");
-        for value in [
-            "solidFill",
-            "rail",
-            "border",
-            "wash",
-            "lift",
-            "typography",
-            "washRail",
-            "blueWashColorRail",
-        ] {
-            assert!(
-                accepts(row, &Value::String(value.to_owned()), &Default::default()).is_ok(),
-                "{value}"
-            );
-        }
-        assert!(
-            accepts(row, &Value::String("__not_a_choice__".to_owned()), &Default::default())
-                .is_err()
-        );
-    }
-}
-
 /// The events a sound rule may name (Swift `NotificationSoundEvent`).
 pub(crate) const SOUND_RULE_EVENTS: [&str; 5] =
     ["finished", "needsInput", "error", "bell", "message"];
@@ -462,5 +431,36 @@ fn domain_name(kind: DomainKind) -> &'static str {
         DomainKind::CustomDensities => "custom_densities",
         DomainKind::CommandLabels => "command_labels",
         DomainKind::AppId => "app_id",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn workspace_color_indicator_accepts_swift_legacy_values() {
+        let row = super::super::Schema::embedded()
+            .row("workspaceColors.indicatorStyle")
+            .expect("workspace color indicator row");
+        for value in [
+            "solidFill",
+            "rail",
+            "border",
+            "wash",
+            "lift",
+            "typography",
+            "washRail",
+            "blueWashColorRail",
+        ] {
+            assert!(
+                accepts(row, &Value::String(value.to_owned()), &Default::default()).is_ok(),
+                "{value}"
+            );
+        }
+        assert!(
+            accepts(row, &Value::String("__not_a_choice__".to_owned()), &Default::default())
+                .is_err()
+        );
     }
 }
