@@ -13,6 +13,7 @@ mod billing;
 mod browser;
 mod cli_connection;
 mod coderouter;
+mod computer_use_readiness;
 mod config;
 mod copy_mode;
 mod foreign_viewport;
@@ -53,6 +54,9 @@ pub(crate) use billing::BillingMessages;
 pub(crate) use browser::BrowserMessages;
 pub(crate) use cli_connection::CliConnectionMessages;
 pub(crate) use coderouter::CodeRouterMessages;
+pub(crate) use computer_use_readiness::{
+    computer_use_readiness_disabled, computer_use_readiness_help,
+};
 pub(crate) use config::ConfigMessages;
 pub(crate) use copy_mode::CopyModeMessages;
 pub(crate) use foreign_viewport::ForeignViewportMessages;

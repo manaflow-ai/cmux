@@ -15,6 +15,8 @@ use serde_json::{Value, json};
 
 use super::{GlobalArgs, parse_globals};
 
+mod readiness;
+
 const HELP: &str = "Usage: cmux computer-use <status|tools|call|screenshot|approvals|machines>\n\ncmux Computer Use is built into cmux: agents get it in the cmux MCP server as the cu_* tools (scripted in cmux_exec as cu.click({...})). These commands reach the same worker.\n\n  cmux computer-use status [--machine M]        Platform, permissions, mode and denied apps\n  cmux computer-use tools                        The tools and their arguments\n  cmux computer-use mcp [--primary]              Serve the tools alone as an MCP stdio server (cmux-computer-use, for other MCP clients;\n                                                 --primary: the client's only Computer Use, never presented as a second choice)\n  cmux computer-use call TOOL [--args JSON] [--machine M]\n                                                 Run one tool (arguments as a JSON object)\n  cmux computer-use screenshot --out FILE [--window ID] [--machine M]\n                                                 Save a PNG of a window, or of the main display\n  cmux computer-use approvals list               Apps saved as Always allow or Never\n  cmux computer-use approvals forget APP         Forget APP's saved answer (needs the cmux app; use Settings > Computer Use)\n  cmux computer-use approvals revoke-sessions    End every agent session's approvals now\n  cmux computer-use machines                     Your other machines and whether Computer Use is on there\n\nSettings (mode, denied apps, other machines) are in Settings > Computer Use and `cmux settings get|set computerUse.<key>`.\n";
 
 /// The daemon command for saved approvals (served with the worker's host).
@@ -42,6 +44,7 @@ pub(super) enum Request {
     Screenshot { out: String, window: Option<String>, machine: Option<String> },
     Approvals { action: &'static str, app: Option<String> },
     Machines,
+    Readiness { machine: Option<String> },
 }
 
 pub(super) fn parse(args: &[String]) -> Result<Request, String> {
@@ -76,6 +79,10 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
             })
         }
         "machines" if rest.is_empty() => Ok(Request::Machines),
+        "readiness" => {
+            let f = flags(rest, &["--machine"])?;
+            Ok(Request::Readiness { machine: get(&f, "--machine") })
+        }
         "call" => {
             let (tool, rest) = rest.split_first().ok_or("call needs a tool name")?;
             if tools::find(tool).is_none() {
@@ -218,8 +225,10 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
     match request {
         Request::Help => {
             print!("{HELP}");
+            println!("{}", crate::localization::computer_use_readiness_help());
             0
         }
+        Request::Readiness { machine } => readiness::run(global, machine.as_deref()),
         Request::Mcp { primary } => {
             // The same bridge acpmux gives every agent session, on stdio.
             let runtime = match tokio::runtime::Builder::new_multi_thread()

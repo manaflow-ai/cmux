@@ -11,6 +11,11 @@ fn the_commands_parse() {
     assert_eq!(parse(&words("mcp --primary")).unwrap(), Request::Mcp { primary: true });
     assert!(parse(&words("mcp --stdio")).is_err());
     assert_eq!(parse(&words("machines")).unwrap(), Request::Machines);
+    assert_eq!(parse(&words("readiness")).unwrap(), Request::Readiness { machine: None });
+    assert_eq!(
+        parse(&words("readiness --machine studio")).unwrap(),
+        Request::Readiness { machine: Some("studio".into()) }
+    );
     assert_eq!(
         parse(&words("status --machine studio")).unwrap(),
         Request::Call { tool: "status".into(), args: json!({}), machine: Some("studio".into()) }
@@ -56,6 +61,8 @@ fn bad_commands_are_usage_errors() {
         "approvals",
         "settings set mode off",
         "status --force",
+        "readiness --force",
+        "readiness --machine",
     ] {
         assert!(parse(&words(bad)).is_err(), "{bad}");
     }
