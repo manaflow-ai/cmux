@@ -21,7 +21,10 @@ labeled-only tour) gets no run from a push, so it is not judged either.
 
 Push, schedule and dispatch runs are not judged: workflows that also run on a
 push to feat-cmux-next or main keep their own policy there, usually
-`cancel-in-progress: ${{ github.event_name == 'pull_request' }}`.
+`cancel-in-progress: ${{ github.event_name == 'pull_request' }}`. But a pull
+request run that cancels must never share a group with one of them (a push to
+main or feat-cmux-next, a schedule, a dispatch), or the pull request run would
+cancel it: that is checked here too.
 
 A workflow that must not cancel a superseded pull request run goes in ALLOWED
 with the reason. Entries that stop being needed fail the test.
@@ -87,10 +90,10 @@ ALLOWED = {
     # could stop one between applying a migration and recording it.
     "backend-migrations.yml": "applies database migrations; never cancelled mid-apply",
     # Deploys preview, staging and production backends; deploy workflows
-    # serialise instead of cancelling.
-    "backend.yml": "deploy workflow",
-    # Writes to the nightly R2 bucket; serialising is the safe answer there.
-    "repair-nightly-appcast-content-types.yml": "writes nightly R2 objects; serialised",
+    # serialise instead of cancelling. A pull request run also applies its
+    # migrations to the shared development database (migrations-development)
+    # before its preview deploy, so a cancel could stop one mid-apply.
+    "backend.yml": "deploy workflow; PR runs apply migrations to the shared development database",
 }
 
 
@@ -442,6 +445,40 @@ def push_starts_a_run(trigger: Any) -> bool:
     return bool(PUSH_TYPES & set(types))
 
 
+# Runs a pull request run must never cancel: (event, ref) of each.
+NON_PR_RUNS = (
+    ("push", "refs/heads/feat-cmux-next"),
+    ("push", "refs/heads/main"),
+    ("schedule", "refs/heads/feat-cmux-next"),
+    ("workflow_dispatch", "refs/heads/feat-cmux-next"),
+    ("workflow_dispatch", "refs/heads/main"),
+)
+
+
+def non_pr_context(workflow: dict, event: str, ref: str) -> dict[str, Any]:
+    context = pr_context(workflow, "pull_request", 101, 1)
+    context["github"].update({"event_name": event, "ref": ref, "ref_name": ref.rsplit("/", 1)[-1],
+                              "head_ref": "", "base_ref": "", "event": {}, "run_id": 9000})
+    return context
+
+
+def collision_problem(concurrency: Any, workflow: dict, event: str) -> str | None:
+    """Why a cancelling pull request run of `event` could cancel a push, schedule or dispatch run, or None."""
+    if not isinstance(concurrency, dict):
+        return None
+    try:
+        pr_group = group_of(concurrency, pr_context(workflow, event, 101, 2))
+        for other, ref in NON_PR_RUNS:
+            if other not in triggers(workflow):
+                continue
+            if group_of(concurrency, non_pr_context(workflow, other, ref)) == pr_group:
+                return (f"a {event} run shares group {pr_group!r} with a {other} run on {ref} and cancels it: "
+                        "key the pull request group by its number")
+    except (ExpressionError, KeyError, IndexError, TypeError, ValueError) as error:
+        return f"cannot evaluate its group for a non-pull-request run: {error}"
+    return None
+
+
 def workflow_problem(workflow: dict) -> str | None:
     for event in PR_EVENTS:
         if event not in triggers(workflow):
@@ -450,6 +487,9 @@ def workflow_problem(workflow: dict) -> str | None:
             continue
         reason = problem(workflow.get("concurrency"), workflow, event)
         if reason is None:
+            collision = collision_problem(workflow.get("concurrency"), workflow, event)
+            if collision:
+                return f"{event}: {collision}"
             continue
         jobs = jobs_on(workflow, event)
         job_reasons = {job_id: problem(job.get("concurrency"), workflow, event) for job_id, job in jobs.items()}
@@ -647,6 +687,14 @@ def self_check() -> list[str]:
         verdict = problem(concurrency, on, "pull_request") is None
         if verdict != ok:
             failures.append(f"self-check {name!r}: expected {'pass' if ok else 'fail'}")
+    shared = {"on": {"pull_request": None, "push": None},
+              "concurrency": {"group": "w-${{ github.event.pull_request.number || 'deploy' }}", "cancel-in-progress": True}}
+    if workflow_problem(shared) is None:
+        failures.append("self-check: a pull request group that equals the push group must fail")
+    split = {**shared, "concurrency": {"group": "w-${{ github.event.pull_request.number || github.ref }}",
+                                       "cancel-in-progress": "${{ github.event_name == 'pull_request' }}"}}
+    if workflow_problem(split) is not None:
+        failures.append(f"self-check: a per-PR group with a ref fallback must pass: {workflow_problem(split)}")
     if workflow_problem({"on": {"pull_request": {"types": ["labeled"]}}, "concurrency": {"group": "w-${{ github.run_id }}"}}) is not None:
         failures.append("self-check: a labeled-only workflow gets no push run to cancel")
     if workflow_problem({"on": {"pull_request": {"types": ["labeled", "synchronize"]}}, "concurrency": {"group": "w-${{ github.run_id }}"}}) is None:
