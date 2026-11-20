@@ -57,7 +57,18 @@ const readThread = async (threadId: string): Promise<InboxMessage[]> => {
 
 function Stage({ look = "counts", held, needYou, open = false, failing = false }: Props) {
   return (
-    <div className="acpmux-shell" style={{ padding: 16, maxWidth: 760, justifyContent: "flex-end", height: "100%" }}>
+    <div
+      className="acpmux-shell"
+      style={{
+        padding: 16,
+        maxWidth: 760,
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "flex-end",
+        alignItems: "stretch",
+      }}
+    >
       <SurgeHoldRow
         surge={{ held, needYou, seq: 1 }}
         sessionId={`gallery-surge-${look}-${open}`}
