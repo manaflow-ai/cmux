@@ -52,6 +52,8 @@ pub struct Dialer {
     pub device_id: String,
     pub device_name: String,
     pub base_url: String,
+    /// A dev build's `x-cmux-build-space` (`HostConfig::build_space`).
+    pub build_space: Option<cmux_mobile_link::BuildSpace>,
     pub tokens: Arc<Tokens>,
     pub ice: IceSource,
     /// The current signaling socket (`None` while reconnecting).
@@ -148,7 +150,10 @@ fn traffic_reply(now: Instant) -> Value {
 
 async fn machines(dialer: &Dialer) -> Result<Vec<Value>> {
     let token = dialer.tokens.access_token().await?;
-    let devices = ApiClient::new(&dialer.base_url, &token).my_devices().await?;
+    let devices = ApiClient::new(&dialer.base_url, &token)
+        .with_build_space(dialer.build_space.clone())
+        .my_devices()
+        .await?;
     Ok(devices
         .into_iter()
         .filter(|d| d.kind == "mac")
