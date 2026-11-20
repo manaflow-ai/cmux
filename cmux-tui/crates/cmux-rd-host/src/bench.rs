@@ -564,8 +564,12 @@ impl Viewer {
     /// estimate only the viewer's times are given, on this Mac's clock, so spans between them
     /// (Reassembly, Decode) still read right. A time never known is left out, never zero.
     fn sample_ledger(&self, frame: u32, sent_ns: u64) -> Option<serde_json::Value> {
-        let row =
-            self.ledger.rows().rev().find(|r| r.frame == frame && r.viewer.decoded_us.is_some())?;
+        // The newest row of the frame (a host that started over numbers frames again).
+        let row = self
+            .ledger
+            .rows()
+            .filter(|r| r.frame == frame && r.viewer.decoded_us.is_some())
+            .last()?;
         let offset = self.clock.as_ref().and_then(ClockEstimator::estimate).map(|e| e.offset_us);
         let mut out = serde_json::Map::new();
         out.insert("schema".into(), json!(LEDGER_SCHEMA));
