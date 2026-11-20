@@ -13,7 +13,7 @@ use super::*;
 
 const DECK: &str = "---
 title: Q4 <plan>
-marp: true
+slides: true
 ---
 
 # Q4 plan
@@ -89,11 +89,11 @@ fn a_deck_with_no_front_matter_takes_the_file_name_and_drops_bad_classes() {
 #[test]
 fn deck_files_are_told_apart_from_documents() {
     let folder = tempfile::tempdir().expect("a temp dir");
-    let marp = folder.path().join("talk.md");
-    std::fs::write(&marp, "---\nmarp: true\n---\n# Hi\n").unwrap();
+    let deck = folder.path().join("talk.md");
+    std::fs::write(&deck, "---\nslides: true\n---\n# Hi\n").unwrap();
     let plain = folder.path().join("notes.md");
     std::fs::write(&plain, "---\ntitle: notes\n---\n# Hi\n").unwrap();
-    assert!(md_deck::is_deck(marp.to_str().unwrap()));
+    assert!(md_deck::is_deck(deck.to_str().unwrap()));
     assert!(!md_deck::is_deck(plain.to_str().unwrap()));
     assert!(md_deck::is_deck("/no/such/Q4.SLIDES.md"));
     assert!(md_deck::is_deck("/no/such/q4.deck.md"));

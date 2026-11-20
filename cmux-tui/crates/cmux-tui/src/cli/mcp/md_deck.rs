@@ -2,12 +2,12 @@
 //! cmux deck page (the `cmux-rich-output` skill's `templates/deck.html`: slide strip,
 //! arrow keys, Present, Export PDF, Export .pptx).
 //!
-//! The format is Marp's, so a deck an agent already knows how to write works:
-//! optional front matter (`title:`), a `---` line between slides (never inside a code
-//! fence), `<!-- _class: title -->` (or `center`) on a slide for its layout, and any other
-//! HTML comment as the slide's speaker notes. A `Notes:` line also starts the notes, as in
-//! reveal.js. A slide with nothing but headings is a title slide. Raw HTML (an inline
-//! `<svg>` chart, a `<div class="cols">`) passes through.
+//! The format is the common Markdown slide format, so a deck an agent already knows how to
+//! write works: optional front matter (`title:`), a `---` line between slides (never inside
+//! a code fence), `<!-- _class: title -->` (or `center`) on a slide for its layout, and any
+//! other HTML comment as the slide's speaker notes. A `Notes:` line also starts the notes.
+//! A slide with nothing but headings is a title slide. Raw HTML (an inline `<svg>` chart, a
+//! `<div class="cols">`) passes through.
 //!
 //! The deck viewer (`pptx_view`) compiles the file on every load, so a deck the agent
 //! keeps editing shows its newest text when `open {live}` reloads the tab.
@@ -26,7 +26,8 @@ const TITLE_TAG: &str = "<title>Deck title</title>";
 const SNIFF_BYTES: usize = 4096;
 
 /// Whether `open` shows `path` as a deck: a `.slides.md` or `.deck.md` name, or a
-/// Markdown file whose front matter says `marp: true` or `slides: true`.
+/// Markdown file whose front matter says `slides: true` (or `deck: true`, or the key other
+/// slide tools write).
 pub(super) fn is_deck(path: &str) -> bool {
     let name = Path::new(path)
         .file_name()
