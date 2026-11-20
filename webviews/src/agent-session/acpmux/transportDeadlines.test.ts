@@ -28,7 +28,7 @@ test("a slow but open daemon answers after the request progress threshold, and t
   let saidWaiting = false;
   let latest: { daemonWaitingSince?: number } | undefined;
   // The request crossing its threshold emits a snapshot ("waiting: daemon"); this resolves on it.
-  let client: InstanceType<typeof AcpmuxDirectClient> | undefined;
+  let client: Awaited<ReturnType<typeof AcpmuxDirectClient.connect>> | undefined;
   let sawCrossing = () => {};
   const crossed = new Promise<void>((resolve) => {
     sawCrossing = resolve;
