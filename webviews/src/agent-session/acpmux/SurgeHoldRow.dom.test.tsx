@@ -118,29 +118,40 @@ const click = (element: Element | null | undefined) =>
 const threadIds = (container: HTMLElement) =>
   [...container.querySelectorAll(".acpmux-surge-threads .cv-inbox")].map((node) => node.textContent ?? "");
 
-test("nothing held draws no row, and reads nothing", async () => {
+const type = (input: HTMLInputElement, value: string) =>
+  act(async () => {
+    Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!.call(input, value);
+    input.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+
+test("nothing held draws no row; the chat opening reads the listing once for its cumulative snapshot", async () => {
   const { container, calls, draw } = await render(undefined);
+  await settle();
   expect(container.querySelector(".acpmux-surge")).toBeNull();
   await draw({ held: 0, needYou: 0, seq: 3 });
+  await settle();
   expect(container.querySelector(".acpmux-surge")).toBeNull();
-  expect(calls.list).toBe(0);
+  expect(calls.list).toBe(1);
 });
 
-test("one row whose counts update in place as snapshots come", async () => {
-  const { container, draw } = await render({ held: 12, needYou: 0, seq: 1 });
+test("one row whose counts update in place as snapshots come, with no read per snapshot", async () => {
+  const { container, calls, draw } = await render({ held: 12, needYou: 0, seq: 1 });
+  await settle();
   expect(container.querySelectorAll(".acpmux-surge").length).toBe(1);
   expect(container.querySelector(".acpmux-surge-count")?.textContent).toContain("12");
   expect(container.querySelector("button.acpmux-surge-need")).toBeNull();
-  await draw({ held: 37, needYou: 2, seq: 2 });
+  for (let n = 13; n <= 37; n += 1) await draw({ held: n, needYou: 2, seq: n });
   expect(container.querySelectorAll(".acpmux-surge").length).toBe(1);
   expect(container.querySelector(".acpmux-surge-count")?.textContent).toContain("37");
   expect(container.querySelector("button.acpmux-surge-need")?.textContent).toContain("2");
-  await draw({ held: 0, needYou: 0, seq: 3 });
+  expect(calls.list).toBe(1);
+  await draw({ held: 0, needYou: 0, seq: 99 });
   expect(container.querySelector(".acpmux-surge")).toBeNull();
 });
 
-test("opening lists the held threads once, need-you first; search and the need-you filter narrow them", async () => {
+test("opening on the counts already listed reads nothing more; need-you first; search and the filter narrow", async () => {
   const { container, calls } = await render({ held: 10, needYou: 1, seq: 1 });
+  await settle();
   await click(container.querySelector(".acpmux-surge-toggle"));
   await settle();
   expect(calls.list).toBe(1);
@@ -149,19 +160,11 @@ test("opening lists the held threads once, need-you first; search and the need-y
   expect(lines.length).toBe(2);
   expect(lines[0]).toContain("lane-7");
   const input = container.querySelector<HTMLInputElement>(".acpmux-surge-search input")!;
-  await act(async () => {
-    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!;
-    setter.call(input, "fleet");
-    input.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
-  });
+  await type(input, "fleet");
   lines = threadIds(container);
   expect(lines.length).toBe(1);
   expect(lines[0]).toContain("runner-watch");
-  await act(async () => {
-    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!;
-    setter.call(input, "");
-    input.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
-  });
+  await type(input, "");
   const [, needOnly] = container.querySelectorAll(".acpmux-surge-filters button");
   await click(needOnly);
   lines = threadIds(container);
@@ -170,8 +173,44 @@ test("opening lists the held threads once, need-you first; search and the need-y
   expect(calls.list).toBe(1);
 });
 
+test("posts held while the panel is open offer Refresh instead of relisting; opening on new counts reads once", async () => {
+  const { container, calls, draw } = await render({ held: 10, needYou: 1, seq: 1 });
+  await settle();
+  await click(container.querySelector(".acpmux-surge-toggle"));
+  await settle();
+  expect(container.querySelector(".acpmux-surge-refresh")).toBeNull();
+  for (let n = 11; n <= 40; n += 1) await draw({ held: n, needYou: 1, seq: n });
+  await settle();
+  expect(calls.list).toBe(1);
+  expect(container.querySelector(".acpmux-surge-refresh")).not.toBeNull();
+  await click(container.querySelector(".acpmux-surge-refresh"));
+  await settle();
+  expect(calls.list).toBe(2);
+  expect(container.querySelector(".acpmux-surge-refresh")).toBeNull();
+  // Shut, more come; opening again reads once for them.
+  await click(container.querySelector(".acpmux-surge-toggle"));
+  await draw({ held: 41, needYou: 1, seq: 41 });
+  await click(container.querySelector(".acpmux-surge-toggle"));
+  await settle();
+  expect(calls.list).toBe(3);
+});
+
+test("a listing with its own snapshot is not stale against the counts it brought", async () => {
+  const { container, draw } = await render({ held: 2, needYou: 0, seq: 1 }, async () => ({
+    ...LISTING,
+    surge: { held: 9, needYou: 1 },
+  }));
+  await settle();
+  // The client moves the row to the listing's snapshot (direct.ts inboxThreads).
+  await draw({ held: 9, needYou: 1, seq: 1 });
+  await click(container.querySelector(".acpmux-surge-toggle"));
+  await settle();
+  expect(container.querySelector(".acpmux-surge-refresh")).toBeNull();
+});
+
 test("the need-you pill opens the panel on those alone", async () => {
   const { container } = await render({ held: 10, needYou: 1, seq: 1 });
+  await settle();
   await click(container.querySelector("button.acpmux-surge-need"));
   await settle();
   const lines = threadIds(container);
@@ -185,12 +224,14 @@ test("a failed listing says so with Try again, which reads again", async () => {
     if (fail) throw new Error("offline");
     return LISTING;
   });
+  await settle();
   await click(container.querySelector(".acpmux-surge-toggle"));
   await settle();
   expect(container.querySelector('.acpmux-surge-note[role="alert"]')).not.toBeNull();
+  const before = calls.list;
   fail = false;
   await click(container.querySelector(".acpmux-surge-retry"));
   await settle();
-  expect(calls.list).toBe(2);
+  expect(calls.list).toBe(before + 1);
   expect(threadIds(container).length).toBe(2);
 });

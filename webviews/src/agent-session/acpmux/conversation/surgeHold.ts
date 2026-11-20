@@ -71,11 +71,18 @@ type ListedThread = {
   sender?: unknown;
   surgeHeld?: unknown;
   held?: unknown;
+  needYou?: unknown;
+  needsYou?: unknown;
 };
 
 /// A listed thread as the received-messages card (InboxNoticeCard.tsx) draws one, with when its
 /// newest message came for the order.
-export type HeldThread = InboxThread & { newestAt: number };
+export type HeldThread = InboxThread & {
+  newestAt: number;
+  /// It needs this session (the person or its agent): the triage's own per-thread mark (`needYou`),
+  /// else a block or a question (`class: "blocker"`) from a listing that marks none.
+  needYou: boolean;
+};
 
 const text = (value: unknown): string => (typeof value === "string" ? value : "");
 
@@ -112,9 +119,15 @@ export function heldThreads(reply: unknown): HeldThread[] {
       blocker: row.class === "blocker",
       promptIds: [],
       newestAt: count(row.newestAt) ?? 0,
+      needYou:
+        typeof row.needYou === "boolean"
+          ? row.needYou
+          : typeof row.needsYou === "boolean"
+            ? row.needsYou
+            : row.class === "blocker",
     });
   }
-  return threads.sort((a, b) => Number(b.blocker) - Number(a.blocker) || b.newestAt - a.newestAt);
+  return threads.sort((a, b) => Number(b.needYou) - Number(a.needYou) || b.newestAt - a.newestAt);
 }
 
 /// The threads a search keeps: every word of it in the thread's label, senders or newest preview

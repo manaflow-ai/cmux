@@ -110,3 +110,18 @@ test("the panel draws a page of threads at a time", () => {
   expect(heldNotice(many, 20).threads.length).toBe(20);
   expect(heldNotice(many, 60).threads.length).toBe(45);
 });
+
+test("a thread's own needYou mark decides need-you over its class, either way", () => {
+  const threads = heldThreads({
+    threads: [
+      { threadId: "a", class: "fyi", needYou: true, newestAt: 1, surgeHeld: true },
+      { threadId: "b", class: "blocker", needYou: false, newestAt: 3, surgeHeld: true },
+      { threadId: "c", class: "blocker", newestAt: 2, surgeHeld: true },
+    ],
+  });
+  expect(threads.map((t) => [t.threadId, t.needYou])).toEqual([
+    ["c", true],
+    ["a", true],
+    ["b", false],
+  ]);
+});
