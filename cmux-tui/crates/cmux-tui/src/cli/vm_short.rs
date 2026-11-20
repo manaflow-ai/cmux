@@ -44,6 +44,11 @@ const VERBS: &[(&str, &str)] = &[
     ("move", "move"),
 ];
 
+/// The app's Cloud verb a short verb runs (`pause` → `pause-machine`), for its `--help`.
+pub(super) fn long_verb(short: &str) -> Option<&'static str> {
+    VERBS.iter().find(|(name, _)| *name == short).map(|(_, long)| *long)
+}
+
 /// The short verbs the VM API (vm.rs) also has: with no signed-in app to answer, they go there.
 const API_VERBS: &[&str] = &["ls", "list", "pause", "shutdown", "resume", "rm", "fork", "exec"];
 
