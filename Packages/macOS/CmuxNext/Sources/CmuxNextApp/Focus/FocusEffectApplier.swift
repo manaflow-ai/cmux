@@ -25,6 +25,11 @@ final class FocusEffectApplier: FocusEffectApplying {
     }
     /// The tab whose docked DevTools this window gave focus to.
     private weak var focusedDevTools: (any BrowserDevToolsHosting)?
+    /// The in-tree page this window last gave focus to. A page asked for focus before it is in the tree keeps the ask
+    /// and takes the keys when it attaches (`CEFTab.grantFocus`); once focus moved on, that ask must go, or the page
+    /// takes the keyboard back from where the person is and the focus model follows it (STRESS in tree, offin-a896f429:
+    /// focus never reached pane 13 of 14 while 84 Chromium tabs attached). `ChildPageFocus` drops a child-window page's.
+    private weak var inTreePage: (any BrowserTab)?
     private var observers: [MainActorObservation] = []
     /// The panel bubble over this window that has the keyboard (group editor).
     private weak var overlayPanel: NSWindow?
@@ -198,6 +203,8 @@ final class FocusEffectApplier: FocusEffectApplying {
             // In-tree pages (InTreePages): the page's view is in this window, which stays key. No page window, no key
             // change: the grant makes the page view this window's first responder through its gate.
             blurDevTools()
+            if let previous = inTreePage, previous !== page { dropInTreeFocusAsk() }
+            inTreePage = page
             if !responder(of: window, isInside: page.contentView) { setPageFocus(page, true) }
         case .childWindow:
             // The page the person left for a creation keeps no keys while it is on its way: this window takes them now (P0 INVERSE-KEY).
@@ -240,6 +247,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         blurDevTools()
         // Not `blurChildWindowPage`: that would make this window key again.
         pageFocus.replace(with: nil)
+        dropInTreeFocusAsk()
         devTools.setDevToolsFocused(true)
         focusedDevTools = devTools
     }
@@ -250,7 +258,14 @@ final class FocusEffectApplier: FocusEffectApplying {
         devTools.setDevToolsFocused(false)
     }
 
+    /// Focus left the in-tree page this window focused: its kept ask (if it was not in tree yet) goes.
+    private func dropInTreeFocusAsk() {
+        (inTreePage as? CEFTab)?.dropFocusAsk()
+        inTreePage = nil
+    }
+
     private func blurChildWindowPage() {
+        dropInTreeFocusAsk()
         blurDevTools()
         pageFocus.blurPage()
         reclaimKeyFromPageWindow()
