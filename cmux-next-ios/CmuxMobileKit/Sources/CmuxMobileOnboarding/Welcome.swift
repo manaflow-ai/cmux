@@ -133,6 +133,8 @@ public struct WelcomeView: View {
             .safeAreaInset(edge: .top, spacing: 0) { heroPicker }
             launchMark(t: rawT)
         }
+        // A direction with no chevron slot starts the intro on its own.
+        .onChange(of: scenePhase, initial: true) { _, _ in startIntroIfReady() }
     }
 
     /// DEBUG, unless a launch argument pinned a variant: the prototype picker.
@@ -151,29 +153,24 @@ public struct WelcomeView: View {
     private func runHeroEntrance() async {
         guard heroShownAt != nil else { return }
         animating = true
-        try? await ContinuousClock().sleep(for: .seconds(hero == .now ? WelcomeArt.introDuration + 0.1 : 1.6))
+        try? await ContinuousClock().sleep(for: .seconds(hero.entranceDuration))
         guard !Task.isCancelled else { return }
         if (WelcomeIntroClock.shared.t ?? 0) >= WelcomeArt.introDuration { animating = false }
     }
 
     private func column(t: Double, heroT: Double, idle: Double?, fade: Double, controls: Double, showsArt: Bool, fills: Bool) -> some View {
         VStack(spacing: 0) {
-            switch hero.lockup {
-            case .topCenter:
+            // Today's design keeps its lockup at the top; the directions put
+            // the mark in the middle and nothing above it.
+            if hero == .now {
                 lockup(t: t).opacity(fade).padding(.top, 8)
-            case .topLeading:
-                lockup(t: t).opacity(fade).padding(.top, 8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, theme.metrics.sideMargin + 4)
-            case .inHero:
-                EmptyView()
             }
             if fills { Spacer(minLength: 24) }
             heroSection(t: t, heroT: heroT, idle: idle, fade: fade, controls: controls, showsArt: showsArt)
                 // Optical center: a little above the middle of the free space.
-                .offset(y: fills && hero != .statement ? -16 : 0)
+                .offset(y: fills ? -16 : 0)
                 .padding(.vertical, fills ? 0 : 32)
-            if fills { Spacer(minLength: hero == .statement ? 40 : 72) }
+            if fills { Spacer(minLength: 72) }
             buttons
                 .opacity(controls)
                 .overlay(alignment: .top) { errorLine }
@@ -207,18 +204,28 @@ public struct WelcomeView: View {
                     .opacity(controls)
                     .accessibilityAddTraits(.isHeader)
             }
-        case .terminal:
-            WelcomeHeroTerminal(t: heroT, showsArt: showsArt).opacity(fade)
-        case .statement:
-            WelcomeHeroStatement(t: heroT).opacity(fade)
-        case .mark:
-            WelcomeHeroMark(t: heroT, showsArt: showsArt) {
-                markSlot(size: showsArt ? 72 : lockupMarkSize)
-            }
-            .opacity(fade)
-        case .feed:
-            WelcomeHeroFeed(t: heroT, showsArt: showsArt).opacity(fade)
+        case .lockup:
+            WelcomeHeroLockup(t: heroT) { markSlot(size: WelcomeHeroLockup<EmptyView>.markSize) }
+                .opacity(fade)
+        case .prompt:
+            WelcomeHeroPrompt(t: heroT, blinks: cursorBlinks) { markSlot(size: WelcomeHeroPrompt<EmptyView>.markSize) }
+                .opacity(fade)
+        case .cells:
+            WelcomeHeroCells(t: heroT).opacity(fade)
+        case .banner:
+            WelcomeHeroBanner(t: heroT).opacity(fade)
+        case .poster:
+            WelcomeHeroPoster(t: heroT).opacity(fade)
         }
+    }
+
+    /// The Prompt direction's cursor blinks, except under Reduce Motion and
+    /// in a frozen (verification) capture.
+    private var cursorBlinks: Bool {
+        #if DEBUG
+        if WelcomeIntroClock.debugFreeze != nil { return false }
+        #endif
+        return !reduceMotion
     }
 
     // MARK: Lockup
@@ -263,15 +270,25 @@ public struct WelcomeView: View {
             let size = E.lerp(Self.launchMarkSize, lockupMark.width > 0 ? lockupMark.width : lockupMarkSize, glide)
             // Reduce Motion: the launch mark crossfades into the lockup's.
             let fade = reduceMotion ? E.seg(t, 0, 0.35) : 1
+            // A direction without a chevron slot: the launch mark dissolves
+            // where it is (shrinking a little) while the wordmark comes in.
+            let dissolve = E.out(E.seg(t, 0, 0.3))
             ZStack {
-                if reduceMotion {
+                if !hero.carriesMark {
+                    CmuxLogoMark(chevronHeight: Self.launchMarkSize)
+                        .scaleEffect(1 - 0.12 * dissolve)
+                        .position(center)
+                        .opacity(1 - dissolve)
+                } else if reduceMotion {
                     CmuxLogoMark(chevronHeight: Self.launchMarkSize)
                         .position(center)
                         .opacity(1 - fade)
                 }
-                CmuxLogoMark(chevronHeight: size)
-                    .position(lockupMark == .zero ? center : E.lerp(center, target, glide))
-                    .opacity(fade)
+                if hero.carriesMark {
+                    CmuxLogoMark(chevronHeight: size)
+                        .position(lockupMark == .zero ? center : E.lerp(center, target, glide))
+                        .opacity(fade)
+                }
             }
         }
         .ignoresSafeArea()
@@ -289,7 +306,7 @@ public struct WelcomeView: View {
     /// intro's own frame clock (it advances with rendered frames), not a sleep.
     private func startIntroIfReady() {
         let clock = WelcomeIntroClock.shared
-        if clock.t == nil, clock.lockupMark.width > 0, scenePhase == .active {
+        if clock.t == nil, clock.lockupMark.width > 0 || !hero.carriesMark, scenePhase == .active {
             clock.t = -(WelcomeIntroClock.launchCrossfade + WelcomeIntroClock.debugHold)
             // When the launch mark starts moving (launch timing checks).
             welcomeLog.info("intro started")

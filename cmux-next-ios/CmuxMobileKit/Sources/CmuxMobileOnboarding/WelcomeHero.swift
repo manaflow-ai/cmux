@@ -4,349 +4,364 @@ import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
 
-/// Prototype: alternatives for the welcome's top section (everything above the
-/// sign-in rows). The rows and the legal line are the same in every variant.
-/// `Now` is the shipped design, kept for comparison. Pick one, then the others,
-/// the picker and this enum go (prototype skill, phase 6).
+/// Prototype, round 2: directions for the welcome's top section, after
+/// Conductor's sign-in (one wordmark in the middle, one gray line under it,
+/// nothing at the top). The sign-in rows and the legal line are the same in
+/// every variant. `now` is the shipped design: Release shows it until a
+/// direction is picked; then the picked one replaces it and the rest of this
+/// file, the picker and the enum go (prototype skill, phase 6).
 enum WelcomeHeroVariant: Int, CaseIterable, Identifiable, Sendable {
-    /// Today: lockup, Mac and phone line art, one line.
+    /// Today: lockup at the top, Mac and phone line art, one line.
     case now
-    /// A live agent session on the Mac, as the hero.
-    case terminal
-    /// Big left-aligned type, no picture.
-    case statement
-    /// The app icon's chevron, large and centered, glowing.
-    case mark
-    /// What reaches the phone: agent notifications.
-    case feed
+    /// The cmux lockup, large, alone in the middle.
+    case lockup
+    /// A shell prompt: the chevron, "cmux" in SF Mono, a block cursor.
+    case prompt
+    /// "cmux" drawn in terminal cells, the chevron leading in its gradient.
+    case cells
+    /// A figlet-style terminal banner (block letters with a line shadow).
+    case banner
+    /// Type only: "cmux" in SF Pro Expanded Black, edge to edge.
+    case poster
 
     var id: Int { rawValue }
 
     var name: String {
         switch self {
         case .now: "Now"
-        case .terminal: "Terminal"
-        case .statement: "Statement"
-        case .mark: "Mark"
-        case .feed: "Feed"
+        case .lockup: "Lockup"
+        case .prompt: "Prompt"
+        case .cells: "Cells"
+        case .banner: "Banner"
+        case .poster: "Poster"
         }
     }
 
-    /// Where the cmux lockup sits.
-    enum Lockup { case topCenter, topLeading, inHero }
+    /// The variants the picker offers (today's design is in the report, not the pill).
+    static let directions: [WelcomeHeroVariant] = [.lockup, .prompt, .cells, .banner, .poster]
 
-    var lockup: Lockup {
+    /// The launch screen's chevron glides into this variant's own chevron;
+    /// otherwise it dissolves in place while the wordmark comes in.
+    var carriesMark: Bool {
         switch self {
-        case .now, .terminal, .feed: .topCenter
-        case .statement: .topLeading
-        case .mark: .inHero
+        case .now, .lockup, .prompt: true
+        case .cells, .banner, .poster: false
         }
     }
 
-    /// The variant this process shows: `-cmux-mobile-welcome-hero <name|n>`
+    /// How long the variant's entrance runs (the welcome's timeline stays awake that long).
+    var entranceDuration: Double {
+        switch self {
+        case .now: WelcomeArt.introDuration + 0.1
+        case .lockup, .poster: 0.9
+        case .prompt: 1.2
+        case .cells, .banner: 1.0
+        }
+    }
+
+    /// The variant this process shows: `-cmux-mobile-welcome-hero <name>`
     /// (DEBUG; pins it and hides the picker), else the picker's last choice,
-    /// else `now`. Release always shows `now`.
+    /// else the first direction. Release always shows `now`.
     static var launchChoice: (variant: WelcomeHeroVariant, pinned: Bool) {
         #if DEBUG
         let arguments = ProcessInfo.processInfo.arguments
         if let i = arguments.firstIndex(of: "-cmux-mobile-welcome-hero"), i + 1 < arguments.count {
             let value = arguments[i + 1].lowercased()
-            if let n = Int(value), let v = WelcomeHeroVariant(rawValue: n - 1) { return (v, true) }
             if let v = allCases.first(where: { $0.name.lowercased() == value }) { return (v, true) }
         }
-        let stored = UserDefaults.standard.integer(forKey: storeKey)
-        return (WelcomeHeroVariant(rawValue: stored) ?? .now, false)
+        let stored = UserDefaults.standard.object(forKey: storeKey) as? Int
+        return (stored.flatMap(WelcomeHeroVariant.init(rawValue:)) ?? directions[0], false)
         #else
         return (.now, true)
         #endif
     }
 
-    static let storeKey = "cmuxMobile.prototype.welcomeHero"
+    static let storeKey = "cmuxMobile.prototype.welcomeHero.v2"
 }
 
-/// Shared easing for the heroes' entrances: `ease-out`, under 0.5 s, transform
-/// and opacity only. `t` is seconds since the hero appeared (`.infinity` settled).
-private enum HeroEntrance {
-    /// Opacity and rise of the `index`th piece, `step` apart, starting at `start`.
-    static func piece(_ t: Double, index: Int, start: Double = 0.1, step: Double = 0.07, length: Double = 0.4) -> Double {
-        IntroEase.outQuint(IntroEase.seg(t, start + Double(index) * step, start + Double(index) * step + length))
-    }
-}
-
-private extension View {
-    /// Fades in and rises `rise` points as `p` goes 0 → 1.
-    func heroPiece(_ p: Double, rise: CGFloat = 10) -> some View {
-        opacity(p).offset(y: rise * CGFloat(1 - p))
-    }
-}
-
-// MARK: Terminal
-
-/// A Mac's agent session, drawn as a small dark window: the product itself.
-struct WelcomeHeroTerminal: View {
-    var t: Double
-    var showsArt: Bool
-    @ScaledMetric(relativeTo: .footnote) private var mono: CGFloat = 13
-
-    private struct Line: Identifiable {
-        let id: Int
-        let glyph: String
-        let tint: Color
-        let text: String
-        let dim: Bool
-    }
-
-    private static let blue = Color(red: 0.36, green: 0.62, blue: 1.0)
-    private static let green = Color(red: 0.25, green: 0.84, blue: 0.43)
-    private static let amber = Color(red: 1.0, green: 0.72, blue: 0.25)
-
-    private let lines: [Line] = [
-        Line(id: 0, glyph: "❯", tint: blue, text: "fix the flaky login test", dim: false),
-        Line(id: 1, glyph: "●", tint: .white.opacity(0.55), text: "Reading auth/session.ts", dim: true),
-        Line(id: 2, glyph: "●", tint: .white.opacity(0.55), text: "Edited 2 files  +18 −4", dim: true),
-        Line(id: 3, glyph: "✓", tint: green, text: "42 tests passed", dim: false),
-        Line(id: 4, glyph: "?", tint: amber, text: "Open a pull request?", dim: false),
-    ]
-
+/// The tagline every direction shares, so the comparison is about the mark.
+struct WelcomeHeroTagline: View {
     var body: some View {
-        VStack(spacing: 28) {
-            if showsArt {
-                window
-                    .heroPiece(HeroEntrance.piece(t, index: 0, start: 0.05, length: 0.45), rise: 14)
-            }
-            VStack(spacing: 10) {
-                Text("Your agents, on your phone.")
-                    .font(.title2.weight(.bold))
-                    .foregroundStyle(theme.colors.label)
-                    .accessibilityAddTraits(.isHeader)
-                Text("Watch them work on your Mac, answer when they ask, and ship from anywhere.")
-                    .font(.body)
-                    .foregroundStyle(theme.colors.label2)
-            }
-            .multilineTextAlignment(.center)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, theme.metrics.sideMargin + 8)
-            .heroPiece(HeroEntrance.piece(t, index: 0, start: 0.15))
-        }
-    }
-
-    private var window: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 6) {
-                ForEach([Color(red: 1, green: 0.37, blue: 0.34), Color(red: 1, green: 0.74, blue: 0.18), Color(red: 0.16, green: 0.79, blue: 0.25)], id: \.self) {
-                    Circle().fill($0).frame(width: 9, height: 9)
-                }
-                Spacer()
-                Text(verbatim: "MacBook Pro — claude")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.45))
-                Spacer()
-                Color.clear.frame(width: 39, height: 9)
-            }
-            .padding(.horizontal, 12)
-            .frame(height: 30)
-            Rectangle().fill(.white.opacity(0.08)).frame(height: 0.5)
-            VStack(alignment: .leading, spacing: 7) {
-                ForEach(lines) { line in
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(verbatim: line.glyph).foregroundStyle(line.tint)
-                        Text(verbatim: line.text).foregroundStyle(.white.opacity(line.dim ? 0.55 : 0.92))
-                            .lineLimit(1)
-                    }
-                    .font(.system(size: min(mono, 16), weight: .regular, design: .monospaced))
-                    .opacity(IntroEase.out(IntroEase.seg(t, 0.35 + Double(line.id) * 0.16, 0.5 + Double(line.id) * 0.16)))
-                }
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .background(Color(red: 0.09, green: 0.09, blue: 0.10), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.white.opacity(0.1), lineWidth: 0.5)
-        }
-        .shadow(color: .black.opacity(0.18), radius: 24, y: 10)
-        .frame(maxWidth: 340)
-        .padding(.horizontal, theme.metrics.sideMargin + 8)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("An agent on your Mac fixed a test and asks to open a pull request."))
-    }
-}
-
-// MARK: Statement
-
-/// Large left-aligned type, no picture: confident and quiet.
-struct WelcomeHeroStatement: View {
-    var t: Double
-    @ScaledMetric(relativeTo: .largeTitle) private var size: CGFloat = 44
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("Your Macs.")
-                    .foregroundStyle(theme.colors.label)
-                    .heroPiece(HeroEntrance.piece(t, index: 0))
-                Text("In your pocket.")
-                    .foregroundStyle(theme.colors.label3)
-                    .heroPiece(HeroEntrance.piece(t, index: 1))
-            }
-            .font(.system(size: min(size, 72), weight: .bold))
-            .tracking(-0.8)
-            .lineSpacing(-2)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text("Your Macs. In your pocket."))
-            .accessibilityAddTraits(.isHeader)
-            Text("Run, watch and steer the coding agents on your Macs from your iPhone.")
-                .font(.title3)
-                .foregroundStyle(theme.colors.label2)
-                .heroPiece(HeroEntrance.piece(t, index: 2))
-        }
-        .multilineTextAlignment(.leading)
-        .fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: 440, alignment: .leading)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, theme.metrics.sideMargin + 4)
-    }
-}
-
-// MARK: Mark
-
-/// The app icon's chevron, large in a soft glow, the wordmark and one line.
-/// `slot` is where the launch mark lands (it glides here from the launch screen).
-struct WelcomeHeroMark<Slot: View>: View {
-    var t: Double
-    var showsArt: Bool
-    @ViewBuilder var slot: () -> Slot
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        let glow = HeroEntrance.piece(t, index: 0, start: 0.2, length: 0.6)
-        VStack(spacing: 22) {
-            slot()
-                .background {
-                    if showsArt {
-                        ZStack {
-                            Circle()
-                                .fill(RadialGradient(
-                                    colors: [Color(red: 0.25, green: 0.55, blue: 1).opacity(colorScheme == .dark ? 0.45 : 0.22), .clear],
-                                    center: .center, startRadius: 0, endRadius: 130))
-                                .frame(width: 260, height: 260)
-                            ForEach(0..<2) { ring in
-                                Circle()
-                                    .strokeBorder(theme.colors.label.color.opacity(colorScheme == .dark ? 0.10 : 0.07), lineWidth: 1)
-                                    .frame(width: 150 + CGFloat(ring) * 80, height: 150 + CGFloat(ring) * 80)
-                            }
-                        }
-                        .opacity(glow)
-                        .scaleEffect(0.85 + 0.15 * glow)
-                        .accessibilityHidden(true)
-                    }
-                }
-                .padding(.vertical, showsArt ? 62 : 0)
-            VStack(spacing: 8) {
-                Text(verbatim: "cmux")
-                    .font(.system(.largeTitle, weight: .bold))
-                    .tracking(-0.5)
-                    .foregroundStyle(theme.colors.label)
-                    .accessibilityAddTraits(.isHeader)
-                Text("Your Macs, in your pocket.")
-                    .font(.title3)
-                    .foregroundStyle(theme.colors.label2)
-            }
+        Text("Your Macs, in your pocket")
+            .font(.body)
+            .foregroundStyle(theme.colors.label2)
             .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, theme.metrics.sideMargin)
-            .heroPiece(HeroEntrance.piece(t, index: 0, start: 0.3))
+    }
+}
+
+/// The app icon's chevron colours (`AppIcon.icon`): cyan to indigo, left to right.
+private enum ChevronGradient {
+    static let start = (red: 0.0, green: 0.78, blue: 1.0)
+    static let end = (red: 0.36, green: 0.36, blue: 1.0)
+
+    static func color(at x: Double) -> Color {
+        let x = min(max(x, 0), 1)
+        return Color(red: start.red + (end.red - start.red) * x,
+                     green: start.green + (end.green - start.green) * x,
+                     blue: start.blue + (end.blue - start.blue) * x)
+    }
+}
+
+/// A direction's wordmark and the tagline under it, with the shared entrance:
+/// the tagline fades in once the mark has arrived.
+private struct HeroStack<Mark: View>: View {
+    var t: Double
+    var taglineAt: Double
+    var spacing: CGFloat = 18
+    var name: String
+    @ViewBuilder var mark: () -> Mark
+
+    var body: some View {
+        VStack(spacing: spacing) {
+            mark()
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(verbatim: "cmux"))
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("welcome.wordmark.\(name.lowercased())")
+            WelcomeHeroTagline()
+                .opacity(IntroEase.out(IntroEase.seg(t, taglineAt, taglineAt + 0.3)))
         }
     }
 }
 
-// MARK: Feed
+// MARK: Lockup
 
-/// What reaches the phone: three agent notifications, stacked like the Lock Screen.
-struct WelcomeHeroFeed: View {
+/// The cmux lockup, large and alone: the launch chevron glides into `slot`,
+/// the wordmark slides in beside it.
+struct WelcomeHeroLockup<Slot: View>: View {
     var t: Double
-    var showsArt: Bool
-    @Environment(\.colorScheme) private var colorScheme
+    @ViewBuilder var slot: () -> Slot
 
-    private struct Note: Identifiable {
-        let id: Int
-        let title: String
-        let time: String
-        let body: String
-        let symbol: String
-        let tint: Color
-    }
-
-    private let notes: [Note] = [
-        Note(id: 0, title: "Claude · api-server", time: "now", body: "Needs you: run the database migration?", symbol: "hand.raised.fill", tint: Color(red: 1, green: 0.62, blue: 0.04)),
-        Note(id: 1, title: "Codex · ios-app", time: "2m ago", body: "Done. 42 tests pass, 3 files changed.", symbol: "checkmark", tint: Color(red: 0.2, green: 0.78, blue: 0.35)),
-        Note(id: 2, title: "MacBook Pro", time: "9m ago", body: "Build finished in 2m 14s.", symbol: "laptopcomputer", tint: Color(red: 0.36, green: 0.62, blue: 1)),
-    ]
+    static var markSize: CGFloat { 46 }
 
     var body: some View {
-        VStack(spacing: 28) {
-            if showsArt {
-                VStack(spacing: 8) {
-                    ForEach(notes) { note in
-                        card(note)
-                            .heroPiece(HeroEntrance.piece(t, index: note.id, start: 0.1, step: 0.08), rise: -12)
+        let word = IntroEase.outQuint(IntroEase.seg(t, 0.2, 0.6))
+        HeroStack(t: t, taglineAt: 0.35, spacing: 16, name: WelcomeHeroVariant.lockup.name) {
+            HStack(spacing: 12) {
+                slot()
+                Text(verbatim: "cmux")
+                    .font(.system(size: 56, weight: .bold))
+                    .tracking(-1.6)
+                    .foregroundStyle(theme.colors.label)
+                    .opacity(word)
+                    .offset(x: -10 * (1 - word))
+            }
+            // The chevron's glow sits left of the slot: center the letters, not the box.
+            .offset(x: -4)
+        }
+    }
+}
+
+// MARK: Prompt
+
+/// A shell prompt: the chevron (the launch mark glides into `slot`), "cmux"
+/// typed one letter at a time in SF Mono, and a block cursor that then blinks.
+struct WelcomeHeroPrompt<Slot: View>: View {
+    var t: Double
+    /// The cursor blinks after typing (not under Reduce Motion or a frozen capture).
+    var blinks: Bool
+    @ViewBuilder var slot: () -> Slot
+
+    static var markSize: CGFloat { 38 }
+    private static let word = Array("cmux")
+    private static let typeStart = 0.45
+    private static let typeStep = 0.075
+    private static let cursor = Color(red: 0.18, green: 0.56, blue: 1.0)
+
+    var body: some View {
+        let typed = Self.word.indices.filter { t >= Self.typeStart + Double($0) * Self.typeStep }.count
+        HeroStack(t: t, taglineAt: 0.8, spacing: 18, name: WelcomeHeroVariant.prompt.name) {
+            HStack(spacing: 14) {
+                slot()
+                HStack(spacing: 0) {
+                    ForEach(Array(0...Self.word.count), id: \.self) { i in
+                        // One fixed cell per letter plus one for the resting
+                        // cursor, so typing never moves anything.
+                        ZStack {
+                            Text(verbatim: i < Self.word.count ? String(Self.word[i]) : "x")
+                                .opacity(i < typed ? 1 : 0)
+                            if i == typed { cursorBlock(typing: typed < Self.word.count) }
+                        }
                     }
                 }
-                .frame(maxWidth: 360)
-                .padding(.horizontal, theme.metrics.sideMargin)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text("Notifications from your agents: one needs you, one is done, a build finished."))
+                .font(.system(size: 46, weight: .semibold, design: .monospaced))
+                .foregroundStyle(theme.colors.label)
             }
-            VStack(spacing: 10) {
-                Text("Know the moment an agent needs you.")
-                    .font(.title2.weight(.bold))
-                    .foregroundStyle(theme.colors.label)
-                    .accessibilityAddTraits(.isHeader)
-                Text("Answer from your phone. Your Macs keep working.")
-                    .font(.body)
-                    .foregroundStyle(theme.colors.label2)
-            }
-            .multilineTextAlignment(.center)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, theme.metrics.sideMargin + 8)
-            .heroPiece(HeroEntrance.piece(t, index: 3, start: 0.1, step: 0.08))
+            // Optical center: the empty cursor cell is weightless.
+            .offset(x: 10)
         }
     }
 
-    private func card(_ note: Note) -> some View {
-        HStack(alignment: .top, spacing: 11) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 9, style: .continuous).fill(.black)
-                CmuxLogoMark(chevronHeight: 15)
+    @ViewBuilder
+    private func cursorBlock(typing: Bool) -> some View {
+        if blinks && !typing {
+            TimelineView(.periodic(from: .now, by: 0.53)) { context in
+                let on = Int(context.date.timeIntervalSinceReferenceDate / 0.53).isMultiple(of: 2)
+                block.opacity(on ? 1 : 0)
             }
-            .frame(width: 36, height: 36)
-            .overlay(alignment: .bottomTrailing) {
-                Image(systemName: note.symbol)
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 16, height: 16)
-                    .background(note.tint, in: Circle())
-                    .overlay { Circle().strokeBorder(theme.colors.surface.color, lineWidth: 1.5) }
-                    .offset(x: 4, y: 4)
+        } else {
+            block.opacity(t >= Self.typeStart - 0.15 ? 1 : 0)
+        }
+    }
+
+    private var block: some View {
+        RoundedRectangle(cornerRadius: 2, style: .continuous)
+            .fill(Self.cursor)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 1)
+    }
+}
+
+// MARK: Cells
+
+/// "cmux" set in terminal cells on a 5-row grid (lowercase, x-height only),
+/// the chevron leading in the icon's gradient. The columns light left to right.
+struct WelcomeHeroCells: View {
+    var t: Double
+
+    /// One column per entry; nil is an empty spacer column.
+    private static let columns: [(glyph: Character, bits: [Bool])?] = {
+        let glyphs: [Character: [String]] = [
+            ">": ["#..", ".#.", "..#", ".#.", "#.."],
+            "c": [".###", "#...", "#...", "#...", ".###"],
+            "m": ["####.", "#.#.#", "#.#.#", "#.#.#", "#.#.#"],
+            "u": ["#..#", "#..#", "#..#", "#..#", ".###"],
+            "x": ["#...#", ".#.#.", "..#..", ".#.#.", "#...#"],
+        ]
+        var out: [(glyph: Character, bits: [Bool])?] = []
+        for (n, ch) in Array(">cmux").enumerated() {
+            if n == 1 { out += [nil, nil] } else if n > 1 { out.append(nil) }
+            let rows = glyphs[ch] ?? []
+            for c in 0..<(rows.first?.count ?? 0) {
+                out.append((ch, rows.map { Array($0)[c] == "#" }))
             }
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(verbatim: note.title).font(.subheadline.weight(.semibold)).foregroundStyle(theme.colors.label)
-                    Spacer(minLength: 6)
-                    Text(verbatim: note.time).font(.footnote).foregroundStyle(theme.colors.label2)
+        }
+        return out
+    }()
+
+    var body: some View {
+        let columns = Self.columns
+        HeroStack(t: t, taglineAt: 0.6, spacing: 20, name: WelcomeHeroVariant.cells.name) {
+            Canvas { context, size in
+                let pitch = size.width / CGFloat(columns.count)
+                let cell = pitch * 0.84
+                let label = context.resolve(GraphicsContext.Shading.color(theme.colors.label.color))
+                for (x, column) in columns.enumerated() {
+                    guard let column else { continue }
+                    let lit = IntroEase.out(IntroEase.seg(t, 0.1 + Double(x) * 0.016, 0.24 + Double(x) * 0.016))
+                    guard lit > 0 else { continue }
+                    let shading = column.glyph == ">" ? .color(ChevronGradient.color(at: Double(x) / 2)) : label
+                    for (y, on) in column.bits.enumerated() where on {
+                        let rect = CGRect(x: CGFloat(x) * pitch, y: CGFloat(y) * pitch, width: cell, height: cell)
+                        context.opacity = lit
+                        context.fill(Path(roundedRect: rect, cornerRadius: pitch * 0.16, style: .continuous), with: shading)
+                    }
                 }
-                Text(verbatim: note.body).font(.subheadline).foregroundStyle(theme.colors.label)
-                    .lineLimit(1)
             }
+            .aspectRatio(CGFloat(columns.count) / 5, contentMode: .fit)
+            .frame(maxWidth: 300)
+            .padding(.horizontal, 40)
         }
-        .padding(.horizontal, 13)
-        .padding(.vertical, 11)
-        .background(theme.colors.surface.color, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(theme.colors.label.color.opacity(colorScheme == .dark ? 0.08 : 0.06), lineWidth: 0.5)
+    }
+}
+
+// MARK: Banner
+
+/// A terminal banner (figlet "ANSI Shadow"): block letters with a double-line
+/// shadow, drawn cell by cell (no font fallback can misalign it). Rows print
+/// top to bottom.
+struct WelcomeHeroBanner: View {
+    var t: Double
+
+    private static let rows: [[Character]] = [
+        " ██████╗███╗   ███╗██╗   ██╗██╗  ██╗",
+        "██╔════╝████╗ ████║██║   ██║╚██╗██╔╝",
+        "██║     ██╔████╔██║██║   ██║ ╚███╔╝ ",
+        "██║     ██║╚██╔╝██║██║   ██║ ██╔██╗ ",
+        "╚██████╗██║ ╚═╝ ██║╚██████╔╝██╔╝ ██╗",
+        " ╚═════╝╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═╝",
+    ].map(Array.init)
+
+    var body: some View {
+        let rows = Self.rows
+        let columns = rows.map(\.count).max() ?? 1
+        HeroStack(t: t, taglineAt: 0.55, spacing: 22, name: WelcomeHeroVariant.banner.name) {
+            Canvas { context, size in
+                let w = size.width / CGFloat(columns)
+                let h = size.height / CGFloat(rows.count)
+                let gap = w * 0.2
+                let stroke = StrokeStyle(lineWidth: max(1, w * 0.13), lineCap: .square)
+                let fill = context.resolve(GraphicsContext.Shading.color(theme.colors.label.color))
+                let shadow = context.resolve(GraphicsContext.Shading.color(theme.colors.label3.color))
+                for (r, row) in rows.enumerated() {
+                    let shown = IntroEase.out(IntroEase.seg(t, 0.1 + Double(r) * 0.06, 0.2 + Double(r) * 0.06))
+                    guard shown > 0 else { continue }
+                    context.opacity = shown
+                    for (c, ch) in row.enumerated() {
+                        let x = CGFloat(c) * w, y = CGFloat(r) * h
+                        let cx = x + w / 2, cy = y + h / 2
+                        if ch == "█" {
+                            // A hair wider so neighbouring blocks join with no seam.
+                            context.fill(Path(CGRect(x: x, y: y, width: w + 0.4, height: h + 0.4)), with: fill)
+                            continue
+                        }
+                        var p = Path()
+                        func line(_ a: CGPoint, _ b: CGPoint) { p.move(to: a); p.addLine(to: b) }
+                        switch ch {
+                        case "═":
+                            line(CGPoint(x: x, y: cy - gap), CGPoint(x: x + w, y: cy - gap))
+                            line(CGPoint(x: x, y: cy + gap), CGPoint(x: x + w, y: cy + gap))
+                        case "║":
+                            line(CGPoint(x: cx - gap, y: y), CGPoint(x: cx - gap, y: y + h))
+                            line(CGPoint(x: cx + gap, y: y), CGPoint(x: cx + gap, y: y + h))
+                        case "╗":
+                            line(CGPoint(x: x, y: cy - gap), CGPoint(x: cx + gap, y: cy - gap)); line(CGPoint(x: cx + gap, y: cy - gap), CGPoint(x: cx + gap, y: y + h))
+                            line(CGPoint(x: x, y: cy + gap), CGPoint(x: cx - gap, y: cy + gap)); line(CGPoint(x: cx - gap, y: cy + gap), CGPoint(x: cx - gap, y: y + h))
+                        case "╔":
+                            line(CGPoint(x: x + w, y: cy - gap), CGPoint(x: cx - gap, y: cy - gap)); line(CGPoint(x: cx - gap, y: cy - gap), CGPoint(x: cx - gap, y: y + h))
+                            line(CGPoint(x: x + w, y: cy + gap), CGPoint(x: cx + gap, y: cy + gap)); line(CGPoint(x: cx + gap, y: cy + gap), CGPoint(x: cx + gap, y: y + h))
+                        case "╝":
+                            line(CGPoint(x: x, y: cy + gap), CGPoint(x: cx + gap, y: cy + gap)); line(CGPoint(x: cx + gap, y: cy + gap), CGPoint(x: cx + gap, y: y))
+                            line(CGPoint(x: x, y: cy - gap), CGPoint(x: cx - gap, y: cy - gap)); line(CGPoint(x: cx - gap, y: cy - gap), CGPoint(x: cx - gap, y: y))
+                        case "╚":
+                            line(CGPoint(x: x + w, y: cy + gap), CGPoint(x: cx - gap, y: cy + gap)); line(CGPoint(x: cx - gap, y: cy + gap), CGPoint(x: cx - gap, y: y))
+                            line(CGPoint(x: x + w, y: cy - gap), CGPoint(x: cx + gap, y: cy - gap)); line(CGPoint(x: cx + gap, y: cy - gap), CGPoint(x: cx + gap, y: y))
+                        default:
+                            continue
+                        }
+                        context.stroke(p, with: shadow, style: stroke)
+                    }
+                }
+            }
+            // Terminal cells are twice as tall as wide.
+            .aspectRatio(CGFloat(columns) / (CGFloat(rows.count) * 2), contentMode: .fit)
+            .frame(maxWidth: 316)
+            .padding(.horizontal, 36)
         }
-        .shadow(color: .black.opacity(colorScheme == .dark ? 0 : 0.08), radius: 14, y: 4)
+    }
+}
+
+// MARK: Poster
+
+/// Type only: "cmux" in SF Pro Expanded Black, as wide as the screen allows.
+struct WelcomeHeroPoster: View {
+    var t: Double
+
+    var body: some View {
+        let p = IntroEase.outQuint(IntroEase.seg(t, 0.1, 0.6))
+        HeroStack(t: t, taglineAt: 0.4, spacing: 10, name: WelcomeHeroVariant.poster.name) {
+            Text(verbatim: "cmux")
+                .font(.system(size: 132, weight: .black).width(.expanded))
+                .tracking(-5)
+                .foregroundStyle(theme.colors.label)
+                .lineLimit(1)
+                .minimumScaleFactor(0.4)
+                .padding(.horizontal, 24)
+                .opacity(p)
+                .offset(y: 14 * (1 - p))
+        }
     }
 }
 
@@ -363,7 +378,7 @@ struct WelcomeHeroPicker: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            ForEach(WelcomeHeroVariant.allCases) { variant in
+            ForEach(WelcomeHeroVariant.directions) { variant in
                 Button {
                     selection = variant
                     UserDefaults.standard.set(variant.rawValue, forKey: WelcomeHeroVariant.storeKey)
