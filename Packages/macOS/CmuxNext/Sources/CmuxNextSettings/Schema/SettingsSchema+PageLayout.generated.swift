@@ -62,6 +62,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case customizeLibrary
         /// Settings > Keys: the keys agents keep on this Mac (`cmux keys ls`, never a value) with Revoke, and the key requests waiting for the person (`cmux keys request`, answered with Store or Decline; design/settings-keys.md); `cmux.settings.keys.*`. Deep link: #/settings/keys.
         case keys
+        /// Settings > Agents > Claude Code & Codex (Labs labs.agentCustomization; nothing while off): one section per surface of the agents' own config, edited by the bundled `cmux agent-config` (cmux-agent-customize). Hooks: every Claude Code and Codex hook by agent, event and matcher, with Turn Off / Turn On, Add and Remove; `cmux.settings.agentHooks.*`.
+        case agentCustomization
         /// Settings > MCP Servers: the services the person connected for their agents (a connect card in a chat, or a Chief), from the Mac's one store of connections (docs/chief-mcp-hub.md), with Sign In and Remove; `cmux.settings.mcp.*`, which the app runs through the bundled `optchat-chief integrations --json`. Deep link: #/settings/mcpServers.
         case mcpServers
         /// Settings > Agents > Worktree Setup: a project's worktree recipe (setup, run and teardown scripts, files to copy) over the repository's .worktreeinclude and .cmux/worktree.toml (design/worktree-setup.md); `cmux.project.list`, `cmux.project.update` and `cmux.git.worktree.setup` through the page relay.

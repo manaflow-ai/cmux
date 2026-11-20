@@ -45,6 +45,7 @@ export const CATEGORY_CARDS = [
   "models",
   "keys",
   "mcpServers",
+  "agentCustomization",
 ] as const;
 
 /** A non-schema part a category draws (host lists, the theme studio, file actions). */

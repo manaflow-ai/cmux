@@ -1,0 +1,24 @@
+[package]
+name = "cmux-agent-customize"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Claude Code and Codex customization (hooks, and siblings: MCP servers, skills, settings) read and edited in each agent's own config files, round-trip safe"
+
+[lints]
+workspace = true
+
+[dependencies]
+# Codex hook trust hash, state keys and cmux's own hook markers.
+cmux-tui-hooks.workspace = true
+anyhow.workspace = true
+indexmap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+toml_edit.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
