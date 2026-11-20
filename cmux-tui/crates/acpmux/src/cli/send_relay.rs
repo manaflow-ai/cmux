@@ -163,7 +163,7 @@ pub(crate) fn relayed_row(e: &anyhow::Error) -> Option<&Value> {
 }
 
 /// At most this many rows from one relay listing.
-const LS_MAX_ROWS: usize = 5000;
+pub(crate) const LS_MAX_ROWS: usize = 5000;
 
 /// The other machines' sessions the configured relay lists (`relay_ls`, off the async runtime),
 /// or none: no relay, no `lsArgv`, or a listing that failed, which is said on stderr unless

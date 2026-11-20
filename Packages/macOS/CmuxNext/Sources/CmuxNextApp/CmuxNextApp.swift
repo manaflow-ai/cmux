@@ -60,8 +60,8 @@ public struct CmuxNextApp {
         StateFolderMove().run(build: environment.launch.build)
         environment.sidebarSnapshotFile = SidebarSnapshotFile.standard(launch: environment.launch)
         environment.layoutTemplatesFile = environment.sidebarSnapshotFile?.url.deletingLastPathComponent().appending(path: "layout-templates.json")
-        environment.homeCachesDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
+        // `~/Library/Caches`, a DEV build's own caches folder (BuildStatePaths): Home's blob cache is not keyed by owner.
+        environment.homeCachesDirectory = BuildStatePaths.current.homeCachesRoot
         // Each chat's unsent chips, beside it, so reopening or restoring a chat brings them back.
         AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
         // The last quit's agent pages, terminal frames and chat composers are read and decoded off the main thread

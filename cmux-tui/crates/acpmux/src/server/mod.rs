@@ -839,7 +839,8 @@ pub async fn serve_unix_with_v2(
     }
 }
 
-const INDEX_HTML: &str = include_str!("../../web/index.html");
+static INDEX_HTML: cmux_embed::PackedStr =
+    cmux_embed::packed_str!(include_str!("../../web/index.html"));
 
 /// One TCP port serves both the dashboard page (plain HTTP GET) and the
 /// WebSocket protocol. The request head is peeked, never consumed, so the
@@ -1458,7 +1459,7 @@ async fn serve_http(
     } else if path == "/health" {
         ("200 OK", "ok".to_owned(), "text/plain")
     } else if path == "/" || path == "/index.html" {
-        ("200 OK", INDEX_HTML.to_owned(), "text/html; charset=utf-8")
+        ("200 OK", INDEX_HTML.inflate(), "text/html; charset=utf-8")
     } else {
         ("404 Not Found", "not found".to_owned(), "text/plain")
     };
@@ -1817,7 +1818,10 @@ async fn serve_connection_from(
                                 "reason": "connection.busy",
                                 "retryable": true,
                             }));
-                        conn.send(&Message::err(id, error));
+                        // In the lane of its method's answer: a busy refusal of a cheap read (the
+                        // pane's liveness probe) proves the daemon alive only if it arrives.
+                        let reply_to = outbound::is_cheap_read(&m).then_some(m.as_str());
+                        conn.send_replying(&Message::err(id, error), reply_to);
                         continue;
                     }
                 };
@@ -2424,6 +2428,7 @@ pub(crate) mod queue_gauge;
 mod review_queue;
 mod run_elsewhere;
 mod sign_in_follow;
+mod ssh_carry;
 pub use pairing::serve_connection_device;
 pub(crate) mod host_power;
 pub mod peer_auth;

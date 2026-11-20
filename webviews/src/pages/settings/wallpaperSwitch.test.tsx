@@ -31,7 +31,7 @@ afterEach(() => {
 });
 
 async function card(values: Record<string, unknown> = { "appearance.background": "friedrich-forest-moonlight" }) {
-  page = await renderPage({ path: "/settings/personalization", mock: { values } });
+  page = await renderPage({ path: "/settings/personalization?part=background", mock: { values } });
   await act(async () =>
     page!.provider.setHost({
       ...page!.provider.host,
