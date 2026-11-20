@@ -5,7 +5,10 @@
 // test holds the change until it lets it answer, so only `busy` changes, on and off, and counts the
 // rows React's commits touched (test/support/commitRenders.ts). It also checks every row control:
 // the ones a change waits for match `:disabled` and fire nothing, and the ones that never waited
-// (an account's rename field and its Cancel) stay usable.
+// (an account's rename field and its Cancel) stay usable. Each waiting button also says
+// aria-disabled="true" until the change answers (cardWindow.ts useWaitingControls), so Chromium's
+// accessibility tree drops `focusable` from it (test/settings-busy-ax-browser.test.ts), with no row
+// render either.
 import { act } from "react";
 import { afterAll, afterEach, expect, setSystemTime, test } from "bun:test";
 import { installDom } from "./testDom";
@@ -37,6 +40,7 @@ afterEach(() => {
 
 const disabled = (element: Element) => element.matches(":disabled");
 const controls = (within: ParentNode) => [...within.querySelectorAll<HTMLElement>("button, input, select, textarea")];
+const marked = (element: Element) => element.getAttribute("aria-disabled") === "true";
 /** A change the test lets answer: `answer()` resolves it with `value`. */
 function held<T>(value: T) {
   let answer: () => void = () => {};
@@ -100,11 +104,13 @@ test("a harness's accounts: a routing change in flight disables every gesture co
   const save = renameForm()!.querySelector<HTMLButtonElement>('button[type="submit"]')!;
   expect(waits.length).toBeGreaterThan(6);
   expect([...waits, save].every(disabled)).toBe(true);
+  expect([...waits, save].every(marked)).toBe(true);
   // Never waited: the rename field and its Cancel; nothing else in a row is a control.
   const field = renameForm()!.querySelector<HTMLInputElement>("input")!;
   const cancel = [...renameForm()!.querySelectorAll("button")].find((button) => button.type === "button")!;
   const usable: HTMLElement[] = [field, cancel];
   expect(usable.some(disabled)).toBe(false);
+  expect(usable.some(marked)).toBe(false);
   const all = rows().flatMap(controls);
   // The Switch's hidden form input waits with its switch.
   const hidden = all.filter((one) => one instanceof window.HTMLInputElement && one !== field);
@@ -126,6 +132,7 @@ test("a harness's accounts: a routing change in flight disables every gesture co
   await settle();
   expect(renders.end()).toMatchObject({ rerendered: 0, added: 0 });
   expect(rows().flatMap(controls).some(disabled)).toBe(false);
+  expect(rows().flatMap(controls).some(marked)).toBe(false);
 });
 
 test("Customization Library: a switch's change in flight disables every row control and draws no row, on and off", async () => {
@@ -151,6 +158,7 @@ test("Customization Library: a switch's change in flight disables every row cont
   const all = rows().flatMap(controls);
   expect(all.length).toBeGreaterThan(rows().length * 4 - 1);
   expect(all.every(disabled)).toBe(true);
+  expect(all.filter((one) => one instanceof window.HTMLButtonElement).every(marked)).toBe(true);
   await click(page.container.querySelector(`${selector}[data-index="7"] [role="switch"]`)!);
   await click(page.container.querySelector(`${selector}[data-index="7"] [data-library-action="down"]`)!);
   expect(change.calls()).toBe(1);
@@ -164,6 +172,7 @@ test("Customization Library: a switch's change in flight disables every row cont
       .flatMap(controls)
       .every((one) => disabled(one) === own(one)),
   ).toBe(true);
+  expect(rows().flatMap(controls).some(marked)).toBe(false);
 });
 
 test("Shared Links: a revoke in flight disables every Revoke and draws no row, on and off", async () => {
@@ -187,6 +196,7 @@ test("Shared Links: a revoke in flight disables every Revoke and draws no row, o
   // Revoke is a row's only control, and it waits.
   expect(rows().flatMap(controls)).toEqual(revokes() as HTMLElement[]);
   expect(revokes().every(disabled)).toBe(true);
+  expect(revokes().every(marked)).toBe(true);
   await click(revokes()[6]!);
   expect(change.calls()).toBe(1);
 
@@ -195,4 +205,5 @@ test("Shared Links: a revoke in flight disables every Revoke and draws no row, o
   await settle();
   expect(renders.end()).toMatchObject({ rerendered: 0, added: 0 });
   expect(revokes().some(disabled)).toBe(false);
+  expect(revokes().some(marked)).toBe(false);
 });
