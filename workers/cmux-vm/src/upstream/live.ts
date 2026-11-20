@@ -28,7 +28,7 @@ import {
   type UpstreamClientService,
 } from "./client.ts";
 import { execResultStream } from "./exec-stream.ts";
-import { timedUpstream } from "./timing.ts";
+import { timedUpstream, timedUpstreamBody } from "./timing.ts";
 
 const DirListing = Schema.Struct({
   entries: Schema.Array(Schema.Struct({ name: Schema.String, kind: Schema.String })),
@@ -159,6 +159,8 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
       },
       catch: () => new UpstreamError({ operation, status: response.status }),
     }).pipe(
+      // `send` timed the call to its answer headers; the body comes after, still the provider's time.
+      timedUpstreamBody,
       Effect.flatMap(Schema.decodeUnknown(schema)),
       Effect.mapError((error) => (error instanceof UpstreamError ? error : new UpstreamError({ operation, status: response.status }))),
       Effect.tapError(() =>
