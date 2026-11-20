@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 
 use cmux_server_core::layout::LAUNCHD_LABEL;
-use cmux_server_core::units::launch_agent_plist;
+use cmux_server_core::units::{launch_agent_plist, session_launch_agent_plist};
 
 use super::{ServiceReport, ServiceState, Services};
 use crate::error::{Error, Result};
@@ -30,8 +30,11 @@ fn loaded(s: &Services<'_>) -> bool {
 }
 
 pub fn plist(s: &Services<'_>) -> Result<String> {
-    launch_agent_plist(s.layout)
-        .map_err(|e| Error::rejected(format!("cannot render the plist: {e:?}")))
+    match &s.session {
+        Some(host) => session_launch_agent_plist(s.layout, &host.binary, &host.session),
+        None => launch_agent_plist(s.layout),
+    }
+    .map_err(|e| Error::rejected(format!("cannot render the plist: {e:?}")))
 }
 
 pub fn install(s: &Services<'_>, restart: bool) -> Result<ServiceReport> {

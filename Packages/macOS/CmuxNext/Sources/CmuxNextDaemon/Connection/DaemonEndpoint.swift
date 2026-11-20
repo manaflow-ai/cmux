@@ -198,6 +198,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case browserHostProvider = "browser-host-provider-v1"
     /// `remote-host-*`: cmux Remote, the daemon's signed host for Computer Use and Screen Sharing (docs/cmux-remote.md).
     case remoteHost = "remote-host-v1"
+    /// `computer-use-*`: cmux Computer Use (the worker's endpoint for acpmux, the person's policy, saved approvals).
+    case computerUse = "computer-use-v1"
     /// `activate` on `new-frontend-browser-tab`: a background tab keeps the pane's active tab.
     case frontendBrowserActivate = "frontend-browser-activate-v1"
     /// `after` on `new-frontend-browser-tab`: a link's tab lands next to its opener.
@@ -593,6 +595,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// reports already-gone ids as `gone_ids` and skips a tab that left before the commit
     /// (`WorkspaceClose.close` sends every workspace of a daemon in one request then).
     case layoutBulkBare = "layout-bulk-bare-v1"
+    /// `browser_import.read`: the daemon reads another browser's bookmarks, history, tabs, search
+    /// engine and extensions for the browser import (`BrowserImportClient`, the cmux-browser-import crate).
+    case browserImport = "browser-import-v1"
     /// The one-time move from classic cmux: `classic_import.*` (`ClassicImportClient`).
     case classicImport = "classic-import-v1"
     /// `diff.comments.send`: the session host hands a diff tab's review comments to an acpmux
@@ -633,7 +638,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .splitClientKeys, .splitClientSplitID, .splitAround, .splitDividerVisibility, .splitBefore, .rowClientKeys, .conversationTabSplit, .frontendBrowserTabSplit, .workspaceFirstTab, .frontendBrowserTabWorkspace,
              .terminalInputWhileCreating, .creatingInputCancel, .terminalReap, .resumeCommand, .terminalLastCommand, .terminalReaperActive,
              .endTerminalsKeepLayout, .batchClose, .sendExpectForeground, .closeReason, .closeWorkspaceIfEmpty,
-             .browserHostProvider, .remoteHost, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
+             .browserHostProvider, .remoteHost, .computerUse, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
              .browserRuntime, .notificationSource, .terminalShellArgs, .terminalFrontendShellIntegration,
              .launchSnapshot, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
              .dockColumns, .edgeDocks, .dockColumnRole, .dockColumnSplitDown, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft, .floatingPanes,
@@ -656,7 +661,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation, .appProviderChanged,
              .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare,
-             .classicImport, .diffCommentsSend, .gitFingerprint, .layoutSizesBatch:
+             .browserImport, .classicImport, .diffCommentsSend, .gitFingerprint, .layoutSizesBatch:
             return .optional
         }
     }
