@@ -78,6 +78,11 @@ describe("with no pack keys", () => {
       // New, and unset: replies keep --cv-font (conversation.css falls back to it).
       "--cv-reply-font": null,
       "--cv-reply-tracking": null,
+      // New, and unset: a pack's weights and reply size (chat-font-weight-scale.test.ts).
+      "--cv-ui-weight": null,
+      "--cv-reply-weight": null,
+      "--cv-reply-font-size": null,
+      "--cv-reply-line-height": null,
       // New, and unset: code keeps its font's ligatures.
       "--cv-code-ligatures": null,
       "--cv-code-features": null,

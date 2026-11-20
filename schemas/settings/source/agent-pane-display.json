@@ -638,6 +638,200 @@
           ]
         },
         {
+          "key": "agentPane.display.font.uiFamily",
+          "name": "uiFamily",
+          "note": "A CSS family or comma stack, no quotes; when set it wins over agentPane.display.font.ui (webviews chatUiFont). A theme's font pack names its faces here and in agentPane.display.font.faces.",
+          "title": {
+            "key": "settings.agentPane.display.uiFamily",
+            "text": "Chat Interface Font Family"
+          },
+          "help": {
+            "key": "settings.agentPane.display.uiFamily.help",
+            "text": "A font family or a comma list of them. When set, it replaces the Chat Interface Font."
+          },
+          "kind": "font_family",
+          "default": null,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "font",
+            "interface",
+            "ui",
+            "family",
+            "typeface",
+            "custom"
+          ]
+        },
+        {
+          "key": "agentPane.display.font.proseFamily",
+          "name": "proseFamily",
+          "note": "The face of the agent's reply prose; when set it wins over agentPane.display.font.preset.",
+          "title": {
+            "key": "settings.agentPane.display.proseFamily",
+            "text": "Chat Reply Font Family"
+          },
+          "help": {
+            "key": "settings.agentPane.display.proseFamily.help",
+            "text": "The font of the agent's replies. When set, it replaces the Chat Font."
+          },
+          "kind": "font_family",
+          "default": null,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "font",
+            "reply",
+            "prose",
+            "family",
+            "serif",
+            "typeface",
+            "custom"
+          ]
+        },
+        {
+          "key": "agentPane.display.font.faces",
+          "name": "faces",
+          "note": "Font files the chat page declares as @font-face: key = family, optionally suffixed :italic; value = file:PATH (absolute or at ~; in a theme file relative to the themes folder). At most 8 faces, each a plain woff2, woff, ttf or otf file of at most 2 MiB whose extension matches its bytes (cmux-config font_faces, Swift ChatFontFaces); the page gets each as a data:font URL.",
+          "title": {
+            "key": "settings.agentPane.display.fontFaces",
+            "text": "Chat Font Files"
+          },
+          "help": {
+            "key": "settings.agentPane.display.fontFaces.help",
+            "text": "A font file for each family, such as \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          },
+          "kind": "string_map",
+          "default": null,
+          "keywords": [
+            "agent",
+            "chat",
+            "display",
+            "font",
+            "file",
+            "woff2",
+            "ttf",
+            "otf",
+            "face",
+            "typeface",
+            "custom"
+          ]
+        },
+        {
+          "key": "agentPane.display.font.uiWeight",
+          "name": "uiWeight",
+          "note": "A font pack's weight for the chat's text that draws at the normal weight (webviews chatDisplay.ts --cv-ui-weight on the page root); bold, headings and controls keep their own. 100 to 900, clamped, whole numbers; null is the face's normal. A variable face draws any weight; a static one snaps to its nearest.",
+          "title": {
+            "key": "settings.agentPane.display.uiWeight",
+            "text": "Chat Interface Font Weight"
+          },
+          "help": {
+            "key": "settings.agentPane.display.uiWeight.help",
+            "text": "The weight of the chat's regular text, from 100 (thin) to 900 (black). Empty uses the font's normal weight."
+          },
+          "kind": "number",
+          "range": {
+            "min": 100,
+            "max": 900,
+            "step": 10,
+            "unit": "count",
+            "placeholder": 400
+          },
+          "default": null,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "font",
+            "interface",
+            "ui",
+            "weight",
+            "thickness",
+            "bold",
+            "light",
+            "typeface",
+            "custom"
+          ]
+        },
+        {
+          "key": "agentPane.display.font.proseWeight",
+          "name": "proseWeight",
+          "note": "The weight of the agent's reply prose (webviews chatDisplay.ts --cv-reply-weight on .cv-reply); null follows agentPane.display.font.uiWeight. 100 to 900, clamped, whole numbers.",
+          "title": {
+            "key": "settings.agentPane.display.proseWeight",
+            "text": "Chat Reply Font Weight"
+          },
+          "help": {
+            "key": "settings.agentPane.display.proseWeight.help",
+            "text": "The weight of the agent's replies, from 100 (thin) to 900 (black). Empty uses the Chat Interface Font Weight."
+          },
+          "kind": "number",
+          "range": {
+            "min": 100,
+            "max": 900,
+            "step": 10,
+            "unit": "count",
+            "placeholder": 400
+          },
+          "default": null,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "font",
+            "reply",
+            "prose",
+            "weight",
+            "thickness",
+            "bold",
+            "light",
+            "custom"
+          ]
+        },
+        {
+          "key": "agentPane.display.font.proseScale",
+          "name": "proseScale",
+          "note": "The agent's reply prose size as a share of agentPane.display.font.size (webviews chatDisplay.ts --cv-reply-font-size and --cv-reply-line-height on .cv-reply; model.ts measures reply rows at it). A font pack matches its face's x-height to a reference look with it: the Claude look's sans at 1.095 has the reference's 0.540 em x-height. Headings scale with the prose; code, tables, prompts and the composer keep their sizes. 0.8 to 1.4, clamped; null is 1.",
+          "title": {
+            "key": "settings.agentPane.display.proseScale",
+            "text": "Chat Reply Text Scale"
+          },
+          "help": {
+            "key": "settings.agentPane.display.proseScale.help",
+            "text": "The size of the agent's replies as a share of the Chat Font Size. Code, tables and your own messages keep their size. Empty keeps replies at the Chat Font Size."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0.8,
+            "max": 1.4,
+            "step": 0.005,
+            "unit": "fraction",
+            "placeholder": 1
+          },
+          "default": null,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "font",
+            "reply",
+            "prose",
+            "scale",
+            "size",
+            "x-height",
+            "custom"
+          ]
+        },
+        {
           "key": "agentPane.display.font.size",
           "name": "fontSize",
           "title": {

@@ -437,6 +437,101 @@ fn with_no_theme_file_nothing_changes() {
     assert!(state.theme_file().is_none());
 }
 
+#[test]
+fn a_theme_file_sets_the_chat_typography_and_its_faces_resolve_against_the_themes_folder() {
+    let folder = Path::new("/tmp/cmux-config/themes");
+    let text = r#"{
+        "agentPane.display.font.uiFamily": "Pack Sans, system-ui",
+        "agentPane.display.font.proseFamily": "Pack Serif",
+        "agentPane.display.code.family": "Pack Mono",
+        "agentPane.display.code.scale": 0.8,
+        "agentPane.display.font.faces": {
+            "Pack Sans": "file:../fonts/PackSans.woff2",
+            "Pack Serif:italic": "file:/Library/Fonts/PackSerif-Italic.otf"
+        }
+    }"#;
+    let file = ThemeFile::read(
+        "pack",
+        Some(Ok(text)),
+        &json!({}),
+        Some(folder),
+        Schema::embedded(),
+        &Domains::default(),
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(
+        file.keys(),
+        [
+            "agentPane.display.code.family",
+            "agentPane.display.code.scale",
+            "agentPane.display.font.faces",
+            "agentPane.display.font.proseFamily",
+            "agentPane.display.font.uiFamily",
+        ]
+    );
+    let applied = file.applied(&json!({}), &none());
+    assert_eq!(
+        at(&applied, "agentPane.display.font.faces"),
+        Some(&json!({
+            "Pack Sans": "file:/tmp/cmux-config/fonts/PackSans.woff2",
+            "Pack Serif:italic": "file:/Library/Fonts/PackSerif-Italic.otf"
+        }))
+    );
+    // Missing files: the check names each face; the read never stats them.
+    let faces = file.face_diagnostics();
+    assert_eq!(
+        faces.iter().map(|d| d.path.as_str()).collect::<Vec<_>>(),
+        [
+            "agentPane.display.font.faces.Pack Sans",
+            "agentPane.display.font.faces.Pack Serif:italic"
+        ]
+    );
+    assert!(faces[0].display().starts_with("themes/pack.json: "), "{}", faces[0].display());
+}
+
+#[test]
+fn a_theme_file_sets_the_chat_font_weights_and_reply_scale() {
+    // The Claude look: its sans at 430, replies at 1.095 (the reference's 0.540 em x-height).
+    let file = overlay(
+        r#"{
+            "agentPane.display.font.uiWeight": 430,
+            "agentPane.display.font.proseWeight": 450,
+            "agentPane.display.font.proseScale": 1.095
+        }"#,
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(
+        file.keys(),
+        [
+            "agentPane.display.font.proseScale",
+            "agentPane.display.font.proseWeight",
+            "agentPane.display.font.uiWeight",
+        ]
+    );
+    let applied = file.applied(&json!({}), &none());
+    assert_eq!(at(&applied, "agentPane.display.font.uiWeight"), Some(&json!(430)));
+    assert_eq!(at(&applied, "agentPane.display.font.proseScale"), Some(&json!(1.095)));
+
+    // A value that is no number is the file's error, not the chat's.
+    let bad = overlay(r#"{ "agentPane.display.font.uiWeight": "bold" }"#);
+    assert!(bad.keys().is_empty(), "{:?}", bad.keys());
+    assert_eq!(
+        bad.diagnostics.iter().map(|d| d.path.as_str()).collect::<Vec<_>>(),
+        ["agentPane.display.font.uiWeight"]
+    );
+}
+
+#[test]
+fn a_theme_file_still_refuses_chat_keys_that_are_no_look() {
+    let file =
+        overlay(r#"{ "agentPane.display.font.size": 15, "agentPane.display.minimap": "off" }"#);
+    assert_eq!(file.keys(), ["agentPane.display.font.size"]);
+    assert_eq!(
+        file.diagnostics.iter().map(|d| d.path.as_str()).collect::<Vec<_>>(),
+        ["agentPane.display.minimap"]
+    );
+}
+
 /// #44894: a key the person changed in Settings while the theme file sets it
 /// (`appearance.themeFileExceptions`) keeps the person's value; the file still
 /// applies everywhere else, as the Mac app's `ThemeFileOverlay` does.

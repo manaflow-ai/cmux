@@ -41,6 +41,9 @@
      (--page-edge, #20121). model.ts transcriptColumn mirrors it. */
   --cv-font-size: 14px;
   --cv-line-height: 22.75px;
+  /* A font pack's interface weight (chatDisplay.ts `--cv-ui-weight`): the text that draws at the
+     normal weight takes it; bold, headings and controls with a weight of their own keep it. */
+  font-weight: var(--cv-ui-weight, normal);
   /* CSS px grow with the page zoom. Divide the caps by the effective zoom so the column's
      on-screen measure remains the same when Interface Scale or Agent Chat Zoom changes. */
   --cv-ui-scale: var(--cmux-ui-scale, 1);
@@ -1201,6 +1204,13 @@
 .cv-md.cv-reply {
   font-family: var(--cv-reply-font, var(--cv-font));
   letter-spacing: var(--cv-reply-tracking, var(--cv-tracking, 0px));
+  /* A pack's reply weight and size (chatDisplay.ts `--cv-reply-weight`, `--cv-reply-font-size`,
+     `--cv-reply-line-height`): the prose and its headings scale; code, tables and the reply's
+     chrome keep their sizes. model.ts measures reply rows at the same size and line. */
+  font-weight: var(--cv-reply-weight, var(--cv-ui-weight, normal));
+  font-size: var(--cv-reply-font-size, var(--cv-font-size));
+  line-height: var(--cv-reply-line-height, var(--cv-line-height));
+  --cv-prose-size: var(--cv-reply-font-size, var(--cv-font-size));
 }
 /* A code block's header (its language, its buttons) is chrome, not prose: the chat's font, as in a
    prompt, never the reply's serif. Without a pack the two are the same font. */
@@ -1230,22 +1240,22 @@
   color: var(--cv-text);
 }
 .cv-h1 {
-  font-size: calc(var(--cv-font-size) * 1.5);
-  line-height: calc(var(--cv-font-size) * 2);
+  font-size: calc(var(--cv-prose-size, var(--cv-font-size)) * 1.5);
+  line-height: calc(var(--cv-prose-size, var(--cv-font-size)) * 2);
   margin: 20px 0 12px;
 }
 .cv-h2 {
-  font-size: calc(var(--cv-font-size) * 1.25);
-  line-height: calc(var(--cv-font-size) * 24 / 14);
+  font-size: calc(var(--cv-prose-size, var(--cv-font-size)) * 1.25);
+  line-height: calc(var(--cv-prose-size, var(--cv-font-size)) * 24 / 14);
   margin: 15px 0 3.5px;
 }
 .cv-h3 {
-  font-size: calc(var(--cv-font-size) * 1.125);
-  line-height: calc(var(--cv-font-size) * 22 / 14);
+  font-size: calc(var(--cv-prose-size, var(--cv-font-size)) * 1.125);
+  line-height: calc(var(--cv-prose-size, var(--cv-font-size)) * 22 / 14);
   margin: 15px 0 5px;
 }
 .cv-h4 {
-  font-size: var(--cv-font-size);
+  font-size: var(--cv-prose-size, var(--cv-font-size));
   margin: 16px 0 4px;
 }
 .cv-md strong {
