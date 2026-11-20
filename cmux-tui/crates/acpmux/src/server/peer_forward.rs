@@ -1074,6 +1074,7 @@ async fn forward_inner(
             method::MUX_INFO
                 | method::MUX_EVENTS
                 | method::MUX_HISTORY
+                | method::MUX_LAST
                 | method::MUX_SESSION_SEARCH
         ) {
             // History reads answer from the current snapshot, even during a running turn.

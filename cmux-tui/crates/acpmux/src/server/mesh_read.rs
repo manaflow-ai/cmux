@@ -48,6 +48,7 @@ const READ_METHODS: &[&str] = &[
     method::MUX_EVENTS,
     method::MUX_ATTACH,
     method::MUX_HISTORY,
+    method::MUX_LAST,
     method::MUX_SESSION_SEARCH,
 ];
 
@@ -104,6 +105,7 @@ fn crossing(m: &str) -> &'static [&'static str] {
         method::MUX_RETRY => &["subagentId"],
         method::MUX_SESSION_HOLD => &["held"],
         method::MUX_TAG => &["set", "remove", "ttlSeconds"],
+        method::MUX_LAST => &["count"],
         _ => &[],
     }
 }

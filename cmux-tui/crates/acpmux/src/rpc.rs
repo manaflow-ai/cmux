@@ -772,6 +772,9 @@ pub mod method {
     /// (`hub/start_mode.rs`), for the pane's pending chat. Read only.
     pub const MUX_START_MODE: &str = "_acpmux/start_mode";
     pub const MUX_HISTORY: &str = "_acpmux/history";
+    /// A session's last replies, built where its log is (`server/requests/last.rs`): one
+    /// answer for `acpmux last`, never a page of its turn per round trip.
+    pub const MUX_LAST: &str = "_acpmux/last";
     /// One session's messages holding every word of a query, newest first (`session_search.rs`).
     pub const MUX_SESSION_SEARCH: &str = "_acpmux/session_search";
     /// Read-only pages and find for a terminal pane's exact provider session.

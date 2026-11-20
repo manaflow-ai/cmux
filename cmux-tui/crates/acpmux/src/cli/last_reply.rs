@@ -5,6 +5,13 @@
 //! pages that grow from [`FIRST_PAGE`], and the read stops as soon as the replies asked for are
 //! the ones the whole log gives ([`replies`]). The whole 5,000 records (up to 4 MiB of JSON) were
 //! read for a reply of a few hundred: 50 ms of each `acpmux last` on a fleet Mac.
+//!
+//! The daemon that holds the log does this paging itself (`_acpmux/last`,
+//! `server/requests/last.rs`) and answers the replies in one reply. A session on another machine
+//! then costs one round trip, not one per page: through the mesh hub each page was at most 40 KiB
+//! and its own round trip through a busy machine's inbox, and a coordinator's long turn ran past
+//! the 50 s a read waits (cmuxterm-hq#15806). A daemon or machine without the method gets the
+//! pages, as before.
 use crate::client::Client;
 use crate::rpc::method;
 use crate::transcript::{Item, Transcript};
@@ -26,30 +33,88 @@ pub(crate) async fn last_replies(
     count: usize,
 ) -> Result<Vec<String>> {
     let count = count.max(1);
-    let mut events: Vec<Value> = Vec::new();
-    let (mut before, mut ask) = (u64::MAX, FIRST_PAGE);
-    loop {
-        let limit = ask.min(LAST_REPLY_RECORDS - events.len());
+    match client.request(method::MUX_LAST, json!({"sessionId": id, "count": count})).await {
+        Ok(reply) => return Ok(texts(&reply)),
+        Err(e) if !served(&e) => {}
+        Err(e) => return Err(e),
+    }
+    let mut pages = Pages::new(count);
+    while let Some(query) = pages.next_query(id) {
+        pages.take(&client.request(method::MUX_EVENTS, query).await?);
+    }
+    Ok(pages.replies())
+}
+
+/// The reply texts of an `_acpmux/last` answer.
+fn texts(reply: &Value) -> Vec<String> {
+    let replies = reply.get("replies").and_then(Value::as_array);
+    replies.into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect()
+}
+
+/// Whether `e` is an answer from a daemon that serves `_acpmux/last`: false for one that does
+/// not know it (an older daemon or peer), or a machine past the hub that does not carry it.
+fn served(e: &anyhow::Error) -> bool {
+    let Some(daemon) = e.downcast_ref::<crate::client::DaemonError>() else { return true };
+    daemon.0.code != crate::rpc::RpcError::method_not_found("").code
+        && !daemon.0.message.contains("mesh.read_unsupported")
+}
+
+/// The newest transcript records read back page by page until they give the last `count`
+/// replies whole: [`last_replies`] over a client, and the daemon's own `_acpmux/last` over its
+/// log.
+pub(crate) struct Pages {
+    count: usize,
+    events: Vec<Value>,
+    before: u64,
+    ask: usize,
+    done: bool,
+}
+
+impl Pages {
+    pub(crate) fn new(count: usize) -> Self {
+        Self {
+            count: count.max(1),
+            events: Vec::new(),
+            before: u64::MAX,
+            ask: FIRST_PAGE,
+            done: false,
+        }
+    }
+
+    /// The `_acpmux/events` params of the next page of `id`, or None once the records read give
+    /// the replies.
+    pub(crate) fn next_query(&self, id: &str) -> Option<Value> {
+        if self.done {
+            return None;
+        }
+        let limit = self.ask.min(LAST_REPLY_RECORDS.saturating_sub(self.events.len()));
         // Transcript records only. Read newest first (`beforeSeq`): this one-shot read must not
         // attach the shared daemon-to-daemon link to a running chat's live stream.
-        let query = json!({
+        Some(json!({
             "sessionId": id, "limit": limit, "kinds": ["transcript"], "maxBytes": PAGE_BYTES,
-            "beforeSeq": before,
-        });
-        let page = client.request(method::MUX_EVENTS, query).await?;
+            "beforeSeq": self.before,
+        }))
+    }
+
+    /// Takes the page [`Self::next_query`] asked for.
+    pub(crate) fn take(&mut self, page: &Value) {
         let older = page.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
         let more = page.get("hasMore").and_then(Value::as_bool).unwrap_or(false);
         let Some(first) = older.first().and_then(|e| e.get("seq")).and_then(Value::as_u64) else {
-            break;
+            self.done = true;
+            return;
         };
-        before = first;
-        events.splice(0..0, older);
-        if !more || events.len() >= LAST_REPLY_RECORDS || replies(&events, count).1 {
-            break;
-        }
-        ask = ask.saturating_mul(4);
+        self.before = first;
+        self.events.splice(0..0, older);
+        self.done =
+            !more || self.events.len() >= LAST_REPLY_RECORDS || replies(&self.events, self.count).1;
+        self.ask = self.ask.saturating_mul(4);
     }
-    Ok(replies(&events, count).0)
+
+    /// The last replies of the records read, oldest first.
+    pub(crate) fn replies(&self) -> Vec<String> {
+        replies(&self.events, self.count).0
+    }
 }
 
 /// The last `count` assistant replies in `events` (oldest first), and whether they are whole:

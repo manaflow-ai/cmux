@@ -36,6 +36,7 @@ const ALLOWED: &[&str] = &[
     method::MUX_QUEUE_TEXT,
     method::MUX_ROWS,
     method::MUX_HISTORY,
+    method::MUX_LAST,
     method::MUX_SESSION_SEARCH,
     method::MUX_WAIT,
     method::MUX_SCHEMA,
