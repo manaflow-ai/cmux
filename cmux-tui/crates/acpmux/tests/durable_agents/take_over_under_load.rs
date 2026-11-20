@@ -6,6 +6,11 @@
 //! finish once, and every queued prompt must reach its agent exactly once, in order, counted at
 //! the agent itself (`FAKE_WIRE_LOG`) as well as in the session log.
 //!
+//! Each install starts two take-overs: the replaced daemon's own swap starts one
+//! (`daemon/exe_swap.rs`) and the installer starts the other. Before, the start that lost the race
+//! asked only the first holder and then waited forever on the one that won: the fourth install of
+//! a fleet run hung here with three daemons up (2026-11-20).
+//!
 //! Leo: "BRO CANT YOU JUST LIKE SUSPEND SHIT AFTER A TOOL CALL/TURN THEN JUST GO AND AUTOUPDATE".
 
 use super::*;
@@ -273,4 +278,20 @@ async fn nightly_take_overs_mid_tool_call_keep_agents_and_run_each_queued_prompt
     // whichever agent process ran it.
     let prompts = read.iter().filter(|l| l["method"] == "session/prompt").count();
     assert_eq!(prompts, CHATS * (1 + INSTALLS), "the agents read {prompts} prompts");
+
+    // The daemon that serves now may be one the replaced daemon's own swap started, not the
+    // test's child: end it as the harness ends its own.
+    let holder = std::fs::read_to_string(daemon.home.join("daemon.lock"))
+        .ok()
+        .and_then(|t| t.lines().next()?.trim().parse::<i32>().ok());
+    if let Some(pid) = holder
+        && daemon.child.as_ref().is_none_or(|c| c.id() as i32 != pid)
+    {
+        // SAFETY: signalling the daemon this test's home runs.
+        unsafe { libc::kill(pid, libc::SIGTERM) };
+        assert!(
+            gone_within(pid.into(), Duration::from_secs(30)),
+            "the serving daemon outlived its stop"
+        );
+    }
 }
