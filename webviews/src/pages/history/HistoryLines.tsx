@@ -39,6 +39,7 @@ export function HistoryLines({
     [groups],
   );
   const selected = selection === undefined ? -1 : lines.findIndex((line) => line.entry?.id === selection);
+  // react-doctor-disable-next-line react-hooks-js/incompatible-library -- the virtualizer is read only here, never passed to a memoized child
   const virtualizer = useVirtualizer({
     count: lines.length,
     getScrollElement: () => scroller.current,
