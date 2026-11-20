@@ -216,7 +216,8 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   calls and each batch the driver hands it; it builds the page's one call per batch and hops to main once for it; the
   page's `taken` is its back-pressure, one batch of at most 64 KiB out at a time, and it blocks only on the client
   handle's own queue), `com.cmuxterm.app.next.chief-settle`, `com.cmuxterm.app.next.tasks.socket`,
-  `cua-helper-v2-reap`, `cua-helper-v2-stdout`, `cmux-remote-device` (one per open channel to cmux Remote's Screen
+  `signed-helper-reap` (one per signed Screen Sharing helper launch, SignedHelperLaunch.reap: a blocking waitpid that
+  ends when that helper exits; no back-pressure, one per launch), `cmux-remote-device` (one per open channel to cmux Remote's Screen
   Sharing worker: a blocking read(2) that ends at the channel's EOF; answers and hub pushes go to their waiters, pushes
   bounded at 256, docs/cmux-remote.md)
 - Input: `com.cmuxterm.next.event-source-processes` (``EventSourceProcesses``: the executable path and start time of

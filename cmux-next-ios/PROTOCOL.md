@@ -948,6 +948,16 @@ that phone device id first registered with the service (`createdAt` of `GET
 absent when the lookup failed or took over 3 s; the dialog then says the
 date is unknown.
 
+`bundle_id` (string; added 2026-11-17) is the phone app's bundle id as the
+phone states it in its `auth` args (`bundleId`, 1 to 155 ASCII letters,
+digits, `.` and `-`; the phone app sends `Bundle.main.bundleIdentifier`). hostd
+forwards it for phones only and drops a malformed one without refusing the
+link. It is a claim, not a proof: the app reads it only to auto-approve its own
+tag's dev iPhone app in a DEBUG tagged dev build (`dev.cmux.mobile.<tag>`) and
+to keep another build's dev iPhone app from prompting (SECURITY.md "Dev
+auto-approve"). An older phone sends none, an older hostd forwards none, and
+the app then asks as before.
+
 ### Mac identity (trust on first use)
 
 `auth` args may carry `macNonce` (16 to 128 letters or digits, the phone's

@@ -26,9 +26,16 @@ look, or of an app that holds another value for a key of the look. The debug rea
 `resolved.blur` is the app's settings answer. `look_head` gives a report's first lines: each key that the launch wrote
 with the app's answer beside it, and each other setting that the app holds.
 
+A look that names a theme (`appearance.theme=NAME`): the app's answer has no name of the theme that it resolved, so
+`shown_look` checks the theme by the ground (`look_theme`): the window's ground is the ground of the file with that
+name in the theme folder of the app's own bundle. It proves that and no more. Its line says how many of the bundle's
+theme files have that ground: with more than one, the name is not proved. A theme of the user's own folder is not
+in the bundle: such a look fails the check.
+
 No app and no socket in this file: the caller gives its own `rpc`. Tests: scripts/measure/tests/window-look.test.py
 """
 import json
+import os
 import time
 
 SHORT = {"background": "appearance.background", "opacity": "appearance.backgroundOpacity", "blur": "appearance.backgroundBlur"}
@@ -255,11 +262,75 @@ def look_kind(resolved):
     return "seethrough" if opacity < 1 else "opaque"
 
 
+def theme_ground(text):
+    """The ground of a theme file's `text`: the color of its `background` line as 6 hex digits in small letters. None
+    when the file has no such line, or the line holds no such color."""
+    for line in text.splitlines() if isinstance(text, str) else []:
+        key, equals, value = line.partition("=")
+        if equals and key.strip() == "background":
+            color = value.strip().removeprefix("#").lower()
+            return color if len(color) == 6 and not color.strip(DIGITS + "abcdef") else None
+    return None
+
+
+def theme_grounds(folder, read=None, names=None):
+    """Each theme file of `folder` (the theme folder that the app names in its own bundle) with its ground
+    (`theme_ground`; None for a file that was not read or has none). None when there is no folder or its list was
+    not read. `read(path)` gives a file's text and `names(folder)` the folder's file names."""
+    read = read or (lambda path: open(path, encoding="utf-8", errors="replace").read())
+    try:
+        found = sorted((names or os.listdir)(folder)) if isinstance(folder, str) and folder else None
+    except OSError:
+        found = None
+    if found is None:
+        return None
+    grounds = {}
+    for name in found:
+        try:
+            grounds[name] = theme_ground(read(f"{folder.rstrip('/')}/{name}"))
+        except OSError:
+            grounds[name] = None
+    return grounds
+
+
+def look_theme(look, themes, grounds):
+    """The check of the look's theme (the settings path `appearance.theme`): (line, problem), problem None when the
+    check passed, and (None, None) for a look that names no theme. `themes` is `debug.themes`' answer and `grounds`
+    is `theme_grounds` of the app's bundle. The app's answer has no name of the theme that it resolved, so the check
+    is by the ground, and it proves this and no more: the window's ground (`windows[0].window_background`) is the
+    ground of the file with the theme's name in the app's bundle. The line has the count of the bundle's files with
+    that ground: with more than one, the name is not proved. An answer with no `window_background`, a bundle with
+    files that were not read, no file of the theme, or a file with no `background` line fails: none of them passes."""
+    name = (look or {}).get("appearance.theme")
+    if not isinstance(name, str):
+        return None, None
+
+    def failed(text):
+        return f"theme check: {text}", f"theme check: {text}"
+
+    windows = themes.get("windows") if isinstance(themes, dict) else None
+    window = windows[0] if isinstance(windows, list) and windows and isinstance(windows[0], dict) else {}
+    shown = theme_ground(f"background = {window.get('window_background')}") if isinstance(window.get("window_background"), str) else None
+    if shown is None:
+        return failed("the app's answer has no window_background: the window's ground was not read")
+    if not isinstance(grounds, dict):
+        return failed("the theme files of the app's bundle were not read: the theme is not proved")
+    if name not in grounds:
+        return failed("the app's bundle has no file of the look's theme: the theme is not proved")
+    if grounds[name] is None:
+        return failed("the theme's file in the app's bundle has no background line: the theme is not proved")
+    if shown != grounds[name]:
+        return failed(f"the window's ground is #{shown}, not #{grounds[name]}, the ground of the theme's file in the app's bundle")
+    same = sum(1 for ground in grounds.values() if ground == shown)
+    return (f"theme check: the window's ground = the ground of the theme's file in the app's bundle; {same} of the {len(grounds)} "
+            f"theme files of the bundle {'has' if same == 1 else 'have'} that ground" + (": the name is not proved" if same > 1 else ""), None)
+
+
 def look_head(look, facts):
     """A report's first lines about the app's settings, from `shown_look`'s `facts`: each settings path of the look
     with what the launch wrote and the app's own answer for it (`NOT THE LOOK` when they differ), each other setting
     that the app holds, and the speed that the motion runs at. `NOT READ` where the app gave no answer: no line says
-    a default as a fact of the app then."""
+    a default as a fact of the app then. The last line is the theme check's (`look_theme`) for a look with a theme."""
     resolved = facts.get("resolved") or {}
     held, speed = resolved.get("app_settings"), resolved.get("motion_speed")
     wrote = look_paths(look)
@@ -271,39 +342,52 @@ def look_head(look, facts):
     lines += [f"app setting, not of the look: {path} = {value!r}" for path, value in (held or {}).items() if path not in wrote]
     lines.append("each other setting: NOT READ" if held is None else "each other setting: not in the app's settings (the app's default)")
     lines.append(f"the app's motion speed: {'NOT READ' if speed is None else repr(speed)}")
+    if facts.get("theme"):  # the line of `look_theme`: what the theme's check proves, and its count
+        lines.append(facts["theme"])
     return lines
 
 
-def shown_look(rpc, look, monotonic=time.monotonic, sleep=time.sleep, seconds=10.0, step=0.5):
+def shown_look(rpc, look, monotonic=time.monotonic, sleep=time.sleep, seconds=10.0, step=0.5, read=None, names=None):
     """Asks the running app what its first window shows: (facts, problem). `rpc(method, params=None)` is the caller's
     socket call. The settings answers (the `appearance` keys, then the whole settings) and the motion's answer are
     read one time: a read of the whole settings or of the motion that raises, or that is no such answer, is not
     read (None in `resolved`). The backdrop is read until it is the look and its tint blends no more, for `seconds`
     at most (a picture loads and a tint blends after the launch). An opaque window is read one time and has no
     problem. `facts` holds `resolved` (`look_resolved`), `kind` (`look_kind`), `backdrop_shown` (the backdrop as the
-    app gave it) and `terminal_background` (the terminal's own background color, as the app says it)."""
+    app gave it), `terminal_background` (the terminal's own background color, as the app says it) and `theme` (the
+    line of `look_theme`, None for a look that names no theme).
+    A look that names a theme (`appearance.theme`) is checked by the ground, in this one place for each tool: the
+    app says where the theme folder of its own bundle is (`debug.appearance` with no mode, which changes nothing),
+    the folder's files are read one time (`read` and `names` as `theme_grounds` takes them), and the window's ground
+    is in the same answer as the backdrop, so the wait is for the theme too. A theme that fails is in `problem`."""
     answer = rpc("settings.get", {"path": "appearance"})
     settings = answer.get("value") if isinstance(answer, dict) and isinstance(answer.get("value"), dict) else {"not read": answer}
 
-    def read(method, params):
+    def ask(method, params):
         try:
             return rpc(method, params)
         except Exception:  # noqa: BLE001  a read for the report's head: the look's own rows say what a look needs
             return None
 
-    whole = read("settings.get", {})
+    whole = ask("settings.get", {})
     root = whole.get("value") if isinstance(whole, dict) and isinstance(whole.get("value"), dict) else None
-    motion = read("debug.motion", {"action": "read"})
+    motion = ask("debug.motion", {"action": "read"})
+    grounds = None
+    if isinstance((look or {}).get("appearance.theme"), str):  # the bundle's theme files: one read, before the wait
+        bundle = ask("debug.appearance", {})
+        grounds = theme_grounds(bundle.get("themes") if isinstance(bundle, dict) else None, read, names)
     deadline = monotonic() + seconds
     while True:
         themes = rpc("debug.themes")
         windows = themes.get("windows") if isinstance(themes, dict) else None
         shown = windows[0].get("backdrop") if isinstance(windows, list) and windows and isinstance(windows[0], dict) else None
         resolved, problem = look_resolved(look, shown, settings, root, motion)
+        theme, theme_problem = look_theme(look, themes, grounds)
+        problem = "; ".join(part for part in (problem, theme_problem) if part) or None
         blending = isinstance(shown, dict) and shown.get("blending") == "true"
         if not look or not (problem or blending) or monotonic() > deadline:
             break
         sleep(step)  # test harness: the picture's load and the tint's blend, between 2 reads of the app
     facts = {"resolved": resolved, "kind": look_kind(resolved), "backdrop_shown": shown,
-             "terminal_background": themes.get("ghostty_background") if isinstance(themes, dict) else None}
+             "terminal_background": themes.get("ghostty_background") if isinstance(themes, dict) else None, "theme": theme}
     return facts, problem

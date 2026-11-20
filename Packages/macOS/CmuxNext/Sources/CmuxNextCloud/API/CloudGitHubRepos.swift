@@ -1,4 +1,5 @@
 public import Foundation
+import os
 
 /// The new chat folder picker's GitHub section: the person's repositories the cmux GitHub App reaches
 /// for their team (`GET /v1/integrations/github/repos?team=&query=`, with their own session), as the
@@ -115,8 +116,19 @@ extension CloudOwnerAPIClient {
         var params = ["provider": "github"]
         if let returnTo { params["return_to"] = returnTo }
         let body: [String: Any] = ["op": "integration.connect", "params": params, "origin": "user", "idempotency_key": key]
-        guard let json = try? JSONSerialization.data(withJSONObject: body), let answer = await person("/v1/ops", post: json) else { return .noAnswer }
-        return CloudGitHubConnects.answer(status: answer.status, body: answer.body)
+        guard let json = try? JSONSerialization.data(withJSONObject: body), let answer = await person("/v1/ops", post: json) else {
+            CloudGitHubConnects.logger.notice("github connect: no answer (return link \(returnTo != nil, privacy: .public))")
+            return .noAnswer
+        }
+        let result = CloudGitHubConnects.answer(status: answer.status, body: answer.body)
+        if case .page = result {} else {
+            // Why it opened nothing: the HTTP status and the API's error code and whether it replayed (no tokens, no page).
+            let reply = (try? JSONSerialization.jsonObject(with: answer.body)) as? [String: Any]
+            let code = ((reply?["error"] as? [String: Any])?["code"] as? String) ?? "-"
+            let replayed = reply?["replayed"] as? Bool == true
+            CloudGitHubConnects.logger.notice("github connect: HTTP \(answer.status, privacy: .public) error \(code, privacy: .public) replayed \(replayed, privacy: .public) return link \(returnTo != nil, privacy: .public)")
+        }
+        return result
     }
 
     /// `integration.list` on `/v1/read` in ``teamID``'s team: whether a GitHub connection this person sees is pending
@@ -161,6 +173,7 @@ public final class CloudGitHubConnects {
         case noAnswer
     }
 
+    nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.github")
     private var flows: [String: (key: String, page: URL?)] = [:]
     private let newKey: () -> String
 
@@ -344,7 +357,14 @@ public struct CloudGitHubPicker {
             }
         }
         let returnTo = CloudGitHubCompletion.link(scheme: auth.configuration.callbackScheme)
-        guard let page = await connects.page(team: owner.team, now: Date(), ask: { await client.gitHubConnect(key: $0, returnTo: returnTo) }) else { return .failed }
+        // An API from before the completion link refuses its params (`validation.invalid`): ask again without it, and the
+        // console finishes the connection as before. Under its own key, derived so a retry of it is the same ask: the API
+        // keeps the first key, and the same key with other params is an `idempotency.conflict`.
+        guard let page = await connects.page(team: owner.team, now: Date(), ask: { key in
+            let answer = await client.gitHubConnect(key: key, returnTo: returnTo)
+            guard case .refused = answer else { return answer }
+            return await client.gitHubConnect(key: key + ":plain")
+        }) else { return .failed }
         return .open(page)
     }
 }
