@@ -72,6 +72,9 @@ export type LinearGradient = CmuxLinearGradient
 export type Trim = CmuxTrim
 export type ParticlePreset = CmuxParticlePreset
 export type ParticlesProps = CmuxParticlesProps
+export type ParticleChoreography = CmuxParticleChoreography
+export type ChoreographyTrigger = CmuxChoreographyTrigger
+export type ChoreographyEase = CmuxChoreographyEase
 
 // ---------------------------------------------------------------------------------------------
 // Places. Export the result under the name the manifest gives the place's `export`.

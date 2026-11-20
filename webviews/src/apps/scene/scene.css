@@ -484,6 +484,27 @@
   align-self: stretch;
   justify-self: stretch;
 }
+/* `Particles {choreography}`: a zero-size point at the frame's centre; each dot is a span on it that
+   only `transform` moves (choreographyGlyph.ts), so a frame never lays out. */
+.cmux-app-scene-choreography {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  color: var(--cv-accent, currentColor);
+}
+.cmux-choreography-dot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 50%;
+  will-change: transform;
+  transform-origin: center;
+}
+.cmux-choreography-dot[data-shape="square"] {
+  border-radius: 0;
+}
 .cmux-app-scene-particles-canvas {
   position: absolute;
   inset: 0;
