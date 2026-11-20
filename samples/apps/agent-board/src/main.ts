@@ -1,11 +1,29 @@
 /// <reference path="../../../../cmux-tui/crates/cmux-app-host/generated/cmux-app.d.ts" />
 // Presentation only. Threads, source deduplication and leases belong to acpmux.
 interface Chat { id: string; title: string; machine?: string | null }
-interface Post { id: string; kind: "status" | "blocker" | "receipt" | "warn"; body: string; created: string | number; sources?: Record<string, unknown> }
-interface Thread { channel: string; thread: string; latest: Post; posts?: Post[]; lease?: { owner: string; epoch: number; expires: string | number } | null }
-interface Threads { recipient: string; threads: Thread[] }
+interface Post { id: string; kind: "status" | "blocker" | "receipt" | "warn"; body: string; created: number; sourceCount?: number; sources?: Record<string, unknown> }
+interface Thread { channel: string; thread: string; latest: Post; posts?: Post[]; lease?: { owner: string; epoch: number; expires: number } | null }
+interface Threads { recipient: string; threads: Thread[]; nextCursor?: string | null }
 const symbol = (kind: string) => kind === "warn" || kind === "blocker" ? "exclamationmark.triangle" : kind === "receipt" ? "checkmark.circle" : "text.bubble"
+const time = (milliseconds: number) => new Date(milliseconds).toLocaleString()
 const key = (thread: Thread) => `${thread.channel}\u0000${thread.thread}`
+
+// Pagination can split a post's source receipts across responses. Reassemble
+// only the displayed page state; the owner decides post identity and ordering.
+function appendPage(previous: Thread[], incoming: Thread[]): Thread[] {
+  const rows = new Map(previous.map((thread) => [key(thread), thread]))
+  for (const thread of incoming) {
+    const before = rows.get(key(thread))
+    const posts = new Map((before?.posts ?? []).map((post) => [post.id, post]))
+    for (const post of thread.posts ?? []) {
+      const prior = posts.get(post.id)
+      const names = Object.fromEntries(Object.keys(post.sources ?? {}).map((name) => [name, null]))
+      posts.set(post.id, { ...post, sources: { ...prior?.sources, ...names } })
+    }
+    rows.set(key(thread), { ...thread, ...(posts.size ? { posts: [...posts.values()] } : {}) })
+  }
+  return [...rows.values()]
+}
 
 export function renderPane() {
   const [chats, setChats] = signal<Chat[]>([])
@@ -14,35 +32,46 @@ export function renderPane() {
   const [selected, setSelected] = signal<Thread | null>(null)
   const [busy, setBusy] = signal(false)
   const [problem, setProblem] = signal<string | null>(null)
+  const [nextCursor, setNextCursor] = signal<string | null>(null)
   const [updated, setUpdated] = signal<string | null>(null)
   let generation = 0
   let alive = true
   onCleanup(() => { alive = false; generation++ })
 
-  async function read(chat: Chat | null, thread: Thread | null = null) {
+  async function read(chat: Chat | null, thread: Thread | null = null, cursor?: string) {
     const request = ++generation
+    const previous = cursor ? threads() : []
     setBusy(true)
     setProblem(null)
     // Never leave another recipient's bodies or revoked data visible while reading.
-    setThreads([])
-    setSelected(null)
-    setUpdated(null)
+    if (!cursor) {
+      setThreads([])
+      setSelected(null)
+      setNextCursor(null)
+      setUpdated(null)
+    }
     try {
       if (!chat) {
         const result = await cmux.call<{ chats: Chat[] }>("agent_chat.list")
         if (!alive || request !== generation) return
         setChats(result.chats.filter((row) => !row.machine))
       } else {
-        const params = { sessionId: chat.id, ...(thread ? { channel: thread.channel, thread: thread.thread } : {}) }
+        const params = { sessionId: chat.id, ...(thread ? { channel: thread.channel, thread: thread.thread } : {}), ...(cursor ? { cursor } : {}) }
         const result = await cmux.call<Threads>("forum.threads", params)
         if (!alive || request !== generation) return
-        setThreads(result.threads)
-        setSelected(thread ? result.threads.find((row) => key(row) === key(thread)) ?? null : null)
+        const rows = appendPage(previous, result.threads)
+        setThreads(rows)
+        setSelected(thread ? rows.find((row) => key(row) === key(thread)) ?? null : null)
+        setNextCursor(result.nextCursor ?? null)
         setUpdated(new Date().toLocaleTimeString())
       }
     } catch (e) {
       if (!alive || request !== generation) return
       setChats([])
+      setThreads([])
+      setSelected(null)
+      setNextCursor(null)
+      setUpdated(null)
       setProblem((e as { code?: string }).code === "scope.missing"
         ? "Allow Board to read work threads in Settings > Apps, then refresh."
         : "The forum is unavailable. Check access and the local service, then refresh.")
@@ -76,12 +105,16 @@ export function renderPane() {
     ForEach({ items: () => selected() ? [] : threads(), key }, (thread) =>
       Row({ title: () => thread().thread, subtitle: () => `${thread().channel} · ${thread().latest.kind}`, symbol: () => symbol(thread().latest.kind) })
         .onTap(() => read(recipient(), thread()))),
-    () => selected()?.lease ? Text(`Claimed by ${selected()!.lease!.owner} · lease expires ${selected()!.lease!.expires}`).secondary() : null,
+    () => selected()?.lease ? Text(`Lease owner ${selected()!.lease!.owner} · expires ${time(selected()!.lease!.expires)}`).secondary() : null,
     ForEach({ items: () => selected() ? selected()!.posts ?? [selected()!.latest] : [], key: (post) => post.id }, (post) => VStack([
-      Row({ title: () => post().kind, subtitle: () => String(post().created), symbol: () => symbol(post().kind) }),
+      Row({ title: () => post().kind, subtitle: () => time(post().created), symbol: () => symbol(post().kind) }),
       Text(() => post().body),
-      Text(() => Object.keys(post().sources ?? {}).join(" · ")).secondary()
+      Text(() => {
+        const names = Object.keys(post().sources ?? {})
+        return `Sources ${names.length}/${post().sourceCount ?? names.length}: ${names.join(" · ")}`
+      }).secondary()
     ])),
+    () => nextCursor() ? Button("Load more", () => read(recipient(), selected(), nextCursor()!)).disabled(busy) : null,
     Text(() => updated() ? `Updated ${updated()}` : "").secondary()
   ])
 }

@@ -32,7 +32,7 @@
             "id": "post-1",
             "kind": "warn",
             "body": "Jobs have waited for a runner past 30 minutes.",
-            "created": "2026-11-20T07:03:00Z",
+            "created": 1795158180000,
             "sources": {
               "host-a": {
                 "receipt": "a"
@@ -47,7 +47,7 @@
               "id": "post-1",
               "kind": "warn",
               "body": "Jobs have waited for a runner past 30 minutes.",
-              "created": "2026-11-20T07:03:00Z",
+              "created": 1795158180000,
               "sources": {
                 "host-a": {
                   "receipt": "a"
@@ -61,7 +61,7 @@
           "lease": {
             "owner": "runner-owner",
             "epoch": 1,
-            "expires": "2026-11-20T08:03:00Z"
+            "expires": 1795161780000
           }
         }
       ]

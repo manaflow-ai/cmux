@@ -10,11 +10,12 @@ fn validate(params: &Value) -> Result<&str, Value> {
         .as_object()
         .ok_or_else(|| error("validation.invalid", "expected forum parameters"))?;
     for (key, value) in fields {
-        if !matches!(key.as_str(), "sessionId" | "channel" | "thread") {
+        if !matches!(key.as_str(), "sessionId" | "channel" | "thread" | "cursor") {
             return Err(error("validation.invalid", "unsupported forum parameter"));
         }
+        let limit = if key == "cursor" { 2048 } else { 512 };
         if !value.as_str().is_some_and(|s| {
-            !s.trim().is_empty() && s.len() <= 512 && !s.chars().any(char::is_control)
+            !s.trim().is_empty() && s.len() <= limit && !s.chars().any(char::is_control)
         }) {
             return Err(error(
                 "validation.invalid",
@@ -78,9 +79,11 @@ mod tests {
             json!({"sessionId":"s", "thread":"t"}),
             json!({"sessionId":"s", "channel":"x\ny"}),
             json!({"sessionId":"s", "channel":"x".repeat(513)}),
+            json!({"sessionId":"s", "cursor":"x".repeat(2049)}),
         ] {
             assert!(validate(&invalid).is_err(), "{invalid}");
         }
+        assert!(validate(&json!({"sessionId":"s", "cursor":"x".repeat(2048)})).is_ok());
         assert_eq!(
             validate(
                 &json!({"sessionId":"s", "channel":"ops/runner-capacity", "thread":"ubuntu-24"})

@@ -11,7 +11,9 @@ are excluded. The first package reads typed posts, source labels and claim lease
 posting, claiming, subscriptions and digests remain on the existing forum API.
 
 The native scene uses quiet text rows, secondary channel labels, and standard
-controls. No literal colors, animation or card grid. Reference:
+controls. Thread and history pages use the owner’s opaque cursor; Load more combines
+source fragments for display, and each post shows how many source names are loaded.
+No literal colors, animation or card grid. Reference:
 `manaflow-ai/cmux-design-references/apps/codex/live/NOTES.md`, compact navigation
 hierarchy and visually quiet utility controls. Gallery fixtures cover an active
 warning, an empty recipient and denied access. Fixtures are not DEV install proof.
