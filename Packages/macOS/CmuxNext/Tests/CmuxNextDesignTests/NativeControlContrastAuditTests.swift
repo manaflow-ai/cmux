@@ -40,6 +40,8 @@ import CmuxNextDesignTokens
         let name: String
         let view: NSView
         let isIcon: Bool
+        /// Drawn for the report only: SwiftUI's system bezel, which cmux surfaces must not ship.
+        var isReference = false
     }
 
     /// One reading: the control's ink on its own fill.
@@ -52,6 +54,7 @@ import CmuxNextDesignTokens
         let minimum: Double
         let ink: ThemeRGB
         let fill: ThemeRGB
+        var isReference = false
         var passes: Bool { ratio + 0.005 >= minimum }
     }
 
@@ -71,7 +74,7 @@ import CmuxNextDesignTokens
             }
         }
         if let out = ProcessInfo.processInfo.environment["CONTRAST_AUDIT_OUT"] { try Self.report(readings, to: out) }
-        let failures = readings.filter { !$0.passes }
+        let failures = readings.filter { !$0.passes && !$0.isReference }
         #expect(readings.count > themes.count * 6 * 10, "too few controls were read: \(readings.count)")
         var perControl: [String: Int] = [:]
         for failure in failures { perControl[failure.control + (failure.disabled ? " (disabled)" : ""), default: 0] += 1 }
@@ -139,7 +142,8 @@ import CmuxNextDesignTokens
             else { return nil }
             let minimum = disabled ? disabledMinimum : sample.isIcon ? iconMinimum : textMinimum
             return Reading(theme: theme.label, ground: ground, control: sample.name, disabled: disabled,
-                           ratio: patch.ratio, minimum: minimum, ink: patch.ink, fill: patch.fill)
+                           ratio: patch.ratio, minimum: minimum, ink: patch.ink, fill: patch.fill,
+                           isReference: sample.isReference)
         }
     }
 
@@ -152,10 +156,10 @@ import CmuxNextDesignTokens
             button.isEnabled = enabled
             return Sample(name: name, view: button, isIcon: icon)
         }
-        func swiftUI(_ name: String, _ view: some View) -> Sample {
-            let host = NSHostingView(rootView: AnyView(view.disabled(disabled)))
+        func swiftUI(_ name: String, _ view: some View, reference: Bool = false) -> Sample {
+            let host = NSHostingView(rootView: AnyView(view.disabled(disabled).cmuxThemeTokens(scope.tokens)))
             host.sizingOptions = [.intrinsicContentSize]
-            return Sample(name: name, view: host, isIcon: false)
+            return Sample(name: name, view: host, isIcon: false, isReference: reference)
         }
         let selection = scope.perform { Color(nsColor: Palette.selectionFill) }
         let ink = scope.perform { Color(nsColor: Palette.textPrimary) }
@@ -185,9 +189,12 @@ import CmuxNextDesignTokens
             appKit("TitlebarBandButton", TitlebarBandButton(symbol: "sidebar.left"), icon: true),
             appKit("SignInButton", SignInButton(onSignIn: {})),
             // The bookmark bubble's shape: SwiftUI's default button in a themed popover, tinted with the selection.
-            swiftUI("SwiftUI Button (default style, selection tint)", Button("More…") {}.tint(selection)),
-            swiftUI("SwiftUI Button (default style)", Button("Remove") {}),
-            swiftUI("CmuxDialogActionButton (selection tint)", CmuxDialogActionButton("Done", hint: .return) {}.tint(selection)),
+            swiftUI("system bezel: SwiftUI Button, selection tint", Button("More…") {}.tint(selection), reference: true),
+            swiftUI("system bezel: SwiftUI Button", Button("Remove") {}, reference: true),
+            swiftUI("CmuxDialogButtonStyle normal", Button("More…") {}.buttonStyle(.cmuxDialog)),
+            swiftUI("CmuxDialogButtonStyle destructive", Button("Remove", role: .destructive) {}.buttonStyle(.cmuxDialog)),
+            swiftUI("CmuxDialogActionButton return (selection tint)", CmuxDialogActionButton("Done", hint: .return) {}.tint(selection)),
+            swiftUI("CmuxDialogActionButton escape", CmuxDialogActionButton("Cancel", hint: .escape) {}),
             swiftUI("SwiftUI Button (cmuxPressFill)", Button("Rename") {}.buttonStyle(.cmuxPressFill).foregroundStyle(ink)),
         ]
     }
@@ -198,14 +205,15 @@ import CmuxNextDesignTokens
         let url = URL(fileURLWithPath: directory, isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         let failing = readings.filter { !$0.passes }.sorted { $0.ratio / $0.minimum < $1.ratio / $1.minimum }
-        var lines = [
+        var lines: [String] = [
             "# Native control contrast", "",
             "\(readings.count) readings, \(failing.count) under their minimum.", "",
             "| theme | ground | control | state | measured | minimum | ink on fill |",
             "| --- | --- | --- | --- | --- | --- | --- |",
         ]
         for r in failing {
-            lines.append(String(format: "| %@ | %@ | %@ | %@ | %.2f:1 | %.1f:1 | %@ on %@ |", r.theme, r.ground.rawValue, r.control,
+            lines.append(String(format: "| %@ | %@ | %@%@ | %@ | %.2f:1 | %.1f:1 | %@ on %@ |", r.theme, r.ground.rawValue, r.control,
+                                r.isReference ? " (reference)" : "",
                                 r.disabled ? "disabled" : "enabled", r.ratio, r.minimum, r.ink.auditHex, r.fill.auditHex))
         }
         try (lines.joined(separator: "\n") + "\n").write(to: url.appending(path: "native-control-contrast.md"), atomically: true, encoding: .utf8)

@@ -40,6 +40,9 @@ public nonisolated struct CmuxDialogButtonLook: Equatable, Sendable {
     /// The least contrast of every ink on every surface under it.
     public static let minimumContrast = 4.5
 
+    /// How far a disabled button dims as a whole (its fill and its inks together).
+    public static let disabledOpacity = 0.45
+
     /// `quiet` draws a destructive button as red text with no fill at rest, a faint danger wash under the
     /// pointer (``CmuxDialogSpec/Layout/safeDefault``: the choices a person should not reach for first).
     public init(role: CmuxDialogButton.Role, tokens: ThemeTokens, state: State = .rest, filledDestructive: Bool = true,
