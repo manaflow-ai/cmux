@@ -86,5 +86,17 @@ class StreamLoadMissing(unittest.TestCase):
             self.assertIsNone(bench.stream_load_missing(["b"], {"b": {"attached": False}}))
 
 
+class SeedShort(unittest.TestCase):
+    """cmux23 at f9ea9362 (2026-11-20): L3 seeded 99,999 of 100,000 rows (whole three-row turns) and read short."""
+
+    def test_the_last_partial_turn_is_not_a_short_seed(self):
+        self.assertFalse(bench.seed_short({"requested": 100000, "rows": 99999}))
+        self.assertFalse(bench.seed_short({"requested": 100000, "rows": 100000}))
+
+    def test_a_seed_a_turn_or_more_short_is_named(self):
+        self.assertTrue(bench.seed_short({"requested": 100000, "rows": 99997}))
+        self.assertTrue(bench.seed_short({"requested": 100000, "rows": 0}))
+
+
 if __name__ == "__main__":
     unittest.main()

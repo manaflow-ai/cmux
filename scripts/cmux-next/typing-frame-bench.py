@@ -1082,6 +1082,16 @@ def seed_transcript(pane, rows):
     return LOAD["seed"]
 
 
+# The page's synthetic transcript is whole turns of a prompt, a reply and a turn summary (webviews
+# src/agent-session/acpmux/synthetic.ts), so a 100,000-row ask seeds 99,999.
+SEED_TURN_ROWS = 3
+
+
+def seed_short(seed):
+    """Whether SEED put fewer rows into the chat than the mode asks for, past the last partial turn."""
+    return seed["rows"] <= seed["requested"] - SEED_TURN_ROWS
+
+
 def stream_load_missing(panes, attach=None):
     """With the real agent, a chat that never attached has no session to prompt, so its stream never ran: the load
     is not the mode's. A line naming how many of the streaming chats that is, or None when every one attached (or
@@ -1121,7 +1131,7 @@ def surface_agentpane(phase, pid):
         entry["attach"] = {p: LOAD.get("attach", {}).get(p) for p in source}
     if seed is not None:
         entry["transcript_seed"] = seed
-        if seed["rows"] < seed["requested"]:
+        if seed_short(seed):
             # Fewer rows than the mode asks for is not that mode: say so beside the number.
             entry["mode_missing"] = [*(entry.get("mode_missing") or []),
                                      f"the {seed['requested']}-row chat transcript (seeded {seed['rows']})"]
