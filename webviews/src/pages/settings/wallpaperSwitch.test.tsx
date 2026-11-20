@@ -24,6 +24,7 @@ const { act } = await import("react");
 const { changeValue, click, ops, renderPage, run, settle } = await import("./testing");
 
 const SONOMA = "system:/System/Library/Desktop Pictures/Sonoma.madesktop";
+const VENTURA = "system:/System/Library/Desktop Pictures/Ventura.heic";
 const HARBOR = "file:/Users/me/Pictures/Harbor.png";
 
 let page: Rendered | null = null;
@@ -122,14 +123,14 @@ describe("the model", () => {
       rotate: { ...off, background: FOLDER },
     };
     // What cmux-config's store::backdrop_modes keeps on every write that leaves Off, Rotate or Sun.
-    const appKeeps = (before: WallpaperValues, after: WallpaperValues): WallpaperValues => {
-      const from = modeOf(before, choices);
-      if (from === modeOf(after, choices) || from === "appearance" || from === "schedule") return after;
+    const appKeeps = (before: WallpaperValues, after: WallpaperValues, list = choices): WallpaperValues => {
+      const from = modeOf(before, list);
+      if (from === modeOf(after, list) || from === "appearance" || from === "schedule") return after;
       if (from === "off" && before.background === "none") return after;
       if (after.modes?.[from] !== before.modes?.[from]) return after;
       return { ...after, modes: { ...after.modes, [from]: before.background } };
     };
-    const apply = (values: WallpaperValues, writes: WallpaperWrite[]): WallpaperValues => {
+    const apply = (values: WallpaperValues, writes: WallpaperWrite[], list = choices): WallpaperValues => {
       const field: Record<string, keyof WallpaperValues> = {
         "appearance.background": "background",
         "appearance.backgroundLight": "light",
@@ -143,7 +144,7 @@ describe("the model", () => {
         expect(key).not.toBe(MODES_KEY);
         const name = field[key]!;
         const written = { ...next, [name]: value ?? (name === "dynamic" ? "appearance" : null) } as WallpaperValues;
-        next = appKeeps(next, written);
+        next = appKeeps(next, written, list);
       }
       return next;
     };
@@ -197,6 +198,20 @@ describe("the model", () => {
       // Off first came from Sun, so its picture is Sun's dynamic one, on its light and dark frames.
       expect(values.modes).toEqual({ rotate: FOLDER, sun: SONOMA, off: SONOMA });
       expect(values.background).toBe(seen.off ?? "desktop");
+    });
+
+    // Two dynamic pictures: Sun on Ventura, Off on Sonoma's light and dark frames.
+    test("Sun and Off on two different dynamic pictures each keep their own", () => {
+      const both = [...choices, { id: VENTURA, title: "Ventura", dynamic: true }];
+      const sun: WallpaperValues = { ...off, background: VENTURA, dynamic: "time", modes: { off: SONOMA } };
+      const atOff = apply(sun, writesFor("off", sun, { choices: both, lastFixed: null }), both);
+      expect(modeOf(atOff, both)).toBe("off");
+      expect(atOff.background).toBe(SONOMA);
+      expect(atOff.modes?.sun).toBe(VENTURA);
+      const back = apply(atOff, writesFor("sun", atOff, { choices: both, lastFixed: null }), both);
+      expect(modeOf(back, both)).toBe("sun");
+      expect(back.background).toBe(VENTURA);
+      expect(back.modes?.off).toBe(SONOMA);
     });
   });
 });
