@@ -1,7 +1,16 @@
 // l10n-allow-file: test fixtures.
 // The held surge's one row (surgeHold.ts): the newest snapshot by seq, the panel's threads and search.
 import { expect, test } from "bun:test";
-import { heldNotice, heldThreads, newerSurge, searchThreads, surgeCounts, surgeOfEvent, surgeShows } from "./surgeHold";
+import {
+  heldNotice,
+  heldThreads,
+  listedSurge,
+  newerSurge,
+  searchThreads,
+  surgeCounts,
+  surgeOfEvent,
+  surgeShows,
+} from "./surgeHold";
 
 test("a held inbox event carries the cumulative snapshot; an ordinary inbox event carries none", () => {
   const msg = { surgeHeld: true, surge: { held: 12, needYou: 2 }, threadId: "from:lane", promptId: "p1" };
@@ -29,6 +38,12 @@ test("the row keeps the newest snapshot by seq, so an older page read later neve
   expect(newerSurge(live, triaged)).toBe(triaged);
   expect(newerSurge(undefined, live)).toBe(live);
   expect(newerSurge(live, undefined)).toBe(live);
+});
+
+test("a slow inbox listing cannot overwrite a newer push", () => {
+  const live = { held: 32, needYou: 1, seq: 91 };
+  expect(newerSurge(live, listedSurge({ held: 30, needYou: 2, seq: 87 }))).toBe(live);
+  expect(newerSurge(live, listedSurge({ held: 5, needYou: 0 }))).toBe(live);
 });
 
 test("the row shows while something is held or needs the person, and hides at zero", () => {

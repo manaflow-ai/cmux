@@ -162,7 +162,7 @@ import {
 } from "./conversation/incomingMessage";
 import { noticeRowText } from "./conversation/agentNotice";
 import { inboxMessages, inboxText, type InboxMessage, type InboxNotice } from "./conversation/inboxNotice";
-import { newerSurge, surgeCounts, surgeOfEvent, type SurgeHold } from "./conversation/surgeHold";
+import { listedSurge, newerSurge, surgeOfEvent, type SurgeHold } from "./conversation/surgeHold";
 import { withoutRelayEnvelope, withoutRelayLabel, withoutRelayLabelOfMessage } from "./conversation/relayEnvelope";
 import { bareSender, provenanceAuthenticated } from "./conversation/senderIdentity";
 import { recapDismissed, rememberRecapDismissed } from "./conversation/recapDismissed";
@@ -4020,8 +4020,10 @@ export class AcpmuxDirectClient {
     const from = this.replayThrough ?? 0;
     if (throughSeq === from) return;
     this.replayThrough = throughSeq;
-    if (throughSeq < from) this.rebuild();
-    else
+    if (throughSeq < from) {
+      this.surge = undefined;
+      this.rebuild();
+    } else
       for (const event of this.events) {
         if (event.seq <= from || event.seq > throughSeq) continue;
         this.lastSeq = event.seq;
@@ -7407,6 +7409,11 @@ export class AcpmuxDirectClient {
   /// SCREEN").
   private startAttachReads(sessionId: string): AttachReads {
     this.permissions.select(sessionId);
+    if (this.features.has("surgeInboxCounts")) {
+      // The page can contain only newer turns. This owner-scoped read restores just the
+      // counters, off the first-paint path, including after the daemon has recovered its log.
+      void this.readInboxThreads(sessionId, true).catch(() => undefined);
+    }
     if (this.handoffSupported) this.handoff.select(sessionId);
     return {
       permissions: this.permissions.refresh().catch(() => {}),
@@ -13241,19 +13248,22 @@ export class AcpmuxDirectClient {
     } | null;
     return inboxMessages(Array.isArray(reply?.messages) ? reply.messages : []).reverse();
   }
-  /// The chat's inbox threads (acpmux `_acpmux/inbox_threads`), as acpmux sent them, for the held
-  /// surge's panel (SurgeHoldRow.tsx). A reply that carries the surge's snapshot is as new as every
-  /// event the page has heard, so it takes the row's place until a later event moves it.
+  /// The chat's inbox threads for the panel. A slow listing must not rewind a live event.
   async inboxThreads(): Promise<unknown> {
     const sessionId = this.selectedSessionId;
     if (!sessionId) throw new Error(translate("error.notOpen"));
-    const reply = (await this.request("_acpmux/inbox_threads", { sessionId }, 15_000)) as {
-      surge?: unknown;
-    } | null;
-    const counts = surgeCounts(reply?.surge);
-    if (counts && this.selectedSessionId === sessionId) {
-      this.surge = newerSurge(this.surge, { ...counts, seq: this.lastSeq });
-      this.emit();
+    return this.readInboxThreads(sessionId, false);
+  }
+
+  private async readInboxThreads(sessionId: string, countsOnly: boolean): Promise<unknown> {
+    const generation = this.selectionGeneration;
+    const reply = await this.request("_acpmux/inbox_threads", { sessionId, ...(countsOnly && { countsOnly }) }, 15_000);
+    if (sessionId === this.selectedSessionId && generation === this.selectionGeneration) {
+      const next = newerSurge(this.surge, listedSurge(reply?.surge));
+      if (next !== this.surge && (next?.held || next?.needYou || this.surge)) {
+        this.surge = next;
+        this.emit();
+      }
     }
     return reply;
   }
