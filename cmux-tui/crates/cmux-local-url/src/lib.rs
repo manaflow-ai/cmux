@@ -15,6 +15,8 @@ use std::time::Duration;
 
 use regex::Regex;
 
+pub mod side;
+
 /// Distinct ports [`candidates`] returns, most recently printed first.
 pub const MAX_CANDIDATES: usize = 32;
 const PROBE_TIMEOUT: Duration = Duration::from_millis(150);

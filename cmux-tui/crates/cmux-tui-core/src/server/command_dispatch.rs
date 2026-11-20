@@ -66,6 +66,9 @@ fn dispatch_command(
         cmd @ (Command::UrlOpenSubscribe { .. }
         | Command::UrlOpenClaim { .. }
         | Command::UrlOpenResult { .. }) => url_open::handle(mux, client, cmd, writer),
+        Command::OfferLinkToPhone { terminal_id, url } => {
+            phone_link::offer(mux, client, &terminal_id, &url)
+        }
         cmd @ (Command::TerminalClipboardSubscribe { .. }
         | Command::TerminalClipboardReply { .. }) => {
             clipboard_read::handle(mux, client, cmd, writer)

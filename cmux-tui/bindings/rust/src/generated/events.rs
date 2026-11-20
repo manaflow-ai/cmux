@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226.
+// cmux-tui mux protocol 12, IR 9d14b92e4794cc2e34e6ed8c4c9e3803c3c9043fd50e2d7ff592e0f111de28ba.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -635,6 +635,13 @@ pub struct PersonalChangedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PhoneOpenLinkEvent {
+    pub terminal_id: String,
+    pub url: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProgramStatusChangedEvent {
     pub program_status: Nullable<T::ShownProgramStatus>,
     pub surface: T::Id,
@@ -1128,6 +1135,7 @@ pub enum Event {
     PaneClosed(PaneClosedEvent),
     ParticipantAvatarChanged(ParticipantAvatarChangedEvent),
     PersonalChanged(PersonalChangedEvent),
+    PhoneOpenLink(PhoneOpenLinkEvent),
     ProgramStatusChanged(ProgramStatusChangedEvent),
     RenderDelta(RenderDeltaEvent),
     RenderState(RenderStateEvent),
@@ -1232,6 +1240,7 @@ impl Event {
             Self::PaneClosed(_) => Some("pane-closed"),
             Self::ParticipantAvatarChanged(_) => Some("participant-avatar-changed"),
             Self::PersonalChanged(_) => Some("personal-changed"),
+            Self::PhoneOpenLink(_) => Some("phone-open-link"),
             Self::ProgramStatusChanged(_) => Some("program-status-changed"),
             Self::RenderDelta(_) => Some("render-delta"),
             Self::RenderState(_) => Some("render-state"),
@@ -1335,6 +1344,7 @@ impl Event {
             Self::PaneClosed(_) => Some(&PANE_CLOSED_EVENT_METADATA),
             Self::ParticipantAvatarChanged(_) => Some(&PARTICIPANT_AVATAR_CHANGED_EVENT_METADATA),
             Self::PersonalChanged(_) => Some(&PERSONAL_CHANGED_EVENT_METADATA),
+            Self::PhoneOpenLink(_) => Some(&PHONE_OPEN_LINK_EVENT_METADATA),
             Self::ProgramStatusChanged(_) => Some(&PROGRAM_STATUS_CHANGED_EVENT_METADATA),
             Self::RenderDelta(_) => Some(&RENDER_DELTA_EVENT_METADATA),
             Self::RenderState(_) => Some(&RENDER_STATE_EVENT_METADATA),
@@ -1841,6 +1851,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("personal-changed") => match serde_json::from_value::<PersonalChangedEvent>(raw.clone()) {
             Ok(event) => Event::PersonalChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("phone-open-link") => match serde_json::from_value::<PhoneOpenLinkEvent>(raw.clone()) {
+            Ok(event) => Event::PhoneOpenLink(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

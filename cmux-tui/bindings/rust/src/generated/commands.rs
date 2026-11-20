@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226.
+// cmux-tui mux protocol 12, IR 9d14b92e4794cc2e34e6ed8c4c9e3803c3c9043fd50e2d7ff592e0f111de28ba.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2878,6 +2878,16 @@ pub struct NotifyRequest {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OfferLinkToPhoneRequest {
+    pub terminal_id: String,
+    pub url: String,
+}
+
+#[rustfmt::skip]
+pub type OfferLinkToPhoneResult = T::PhoneLinkOfferResult;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct PageCredentialRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -5542,6 +5552,10 @@ impl CmuxClient {
             self.require_capability_field("notify", "notification-source-v1")?;
         }
         self.execute(&NOTIFY_METADATA, &request)
+    }
+
+    pub fn offer_link_to_phone(&mut self, request: OfferLinkToPhoneRequest) -> Result<OfferLinkToPhoneResult> {
+        self.execute(&OFFER_LINK_TO_PHONE_METADATA, &request)
     }
 
     pub fn page_credential(&mut self, request: PageCredentialRequest) -> Result<PageCredentialResult> {

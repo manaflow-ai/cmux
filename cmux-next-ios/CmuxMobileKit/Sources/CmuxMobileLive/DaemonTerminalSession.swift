@@ -1015,6 +1015,11 @@ public final class DaemonTerminalSession: TerminalSession {
         case .sizeState(let state, let participant):
             sizing.apply(state, selfParticipant: participant)
             noteHostGridOwner()
+        case .openLink(let url, let terminal):
+            // The daemon sends it only on a channel attached to the terminal the program runs
+            // in; never held behind the reclaim hold, which is about the grid. The URL is never logged.
+            log.notice("surface \(self.surface, privacy: .public): a program in terminal \(terminal ?? "-", privacy: .public) opened a link: it opens on this phone")
+            handler?(.openLink(url))
         }
     }
 
@@ -1254,6 +1259,11 @@ public final class DaemonTerminalSession: TerminalSession {
         Task { [weak self] in
             guard let lane = try? await openInput() else { return }
             await lane.start()
+            // The Mac's splice marks every `set-client-info` with this phone's device id and
+            // `remote`: the daemon then knows the keys on this lane are this phone's, so a link a
+            // program opens right after them comes to this phone (`phone-open-link`). Until it
+            // answers, keys keep going on the attach channel.
+            _ = try? await lane.request("set-client-info", params: [:], deadline: .seconds(5))
             guard let self, self.client === main, self.attached, self.inputClient == nil else {
                 await lane.close()
                 return
@@ -1572,7 +1582,11 @@ public final class DaemonTerminalSession: TerminalSession {
     /// and only that many history rows (latest screen first).
     static let replayHistoryRowsCapability = "attach-replay-history-rows-v1"
     /// What the attach channel lists in `set-client-info`.
-    static let clientCapabilities = [shortSizeLeaseCapability, sizeLeaseCapability, sharedSizingCapability, hostGridViewCapability]
+    static let clientCapabilities = [shortSizeLeaseCapability, sizeLeaseCapability, sharedSizingCapability, hostGridViewCapability,
+                                     phoneOpenLinkCapability]
+    /// `phone-open-link-v1`: this phone opens a link a program in the terminal asks a browser for
+    /// while the phone drives it (the daemon's `phone-open-link` event, `offer-link-to-phone`).
+    static let phoneOpenLinkCapability = "phone-open-link-v1"
 
     /// The Mac's daemon sends an agent CLI's terminal (Claude Code, Codex, opencode) as the
     /// cells that changed instead of its PTY bytes (`agent-cli-frame` events).

@@ -322,6 +322,9 @@ public final class TerminalModel {
             heldComposerSend = nil
         case .hostGrid, .hostGridOwner:
             break
+        case .openLink(let url):
+            // The same Safari view a tapped public link opens in (``TerminalLinkRoute``).
+            openLink(url, action: .openOnPhone)
         }
     }
 

@@ -24,6 +24,10 @@ public enum TerminalSessionEvent: Sendable, Equatable {
     /// The device that sets the Mac's grid changed (its name, or nil when it
     /// is this phone or unknown), for the letterbox note.
     case hostGridOwner(String?)
+    /// A program in the terminal asked a browser for this public page while this phone drove
+    /// the terminal (`gh auth login`, `open URL`): the Mac's daemon sent it here instead of
+    /// opening it on the Mac (`phone-open-link`), so it opens on this phone.
+    case openLink(URL)
 }
 
 /// Whether the screen shows the Mac's terminal yet. Anything but `attached`
