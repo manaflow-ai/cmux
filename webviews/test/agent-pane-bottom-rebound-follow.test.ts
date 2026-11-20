@@ -16,54 +16,54 @@ import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane } from "./support/papercutChat";
 
-/// A spring back from a scroll down past the end, px past it per frame: the stretch the trackpad's
-/// last events pulled, then the rebound to the end.
-const STRETCH = [6, 14, 22, 28, 30, 26, 19, 12, 7, 3, 1, 0];
-
-/// Draws the stretch as WebKit reports it, one scroll event a frame, then lets the real offset show.
-const rebound = (page: Page) =>
-  page.evaluate(async (stretch) => {
-    const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-    const real = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop")!;
-    let past = 0;
-    Object.defineProperty(scroller, "scrollTop", {
-      configurable: true,
-      get: () => (real.get!.call(scroller) as number) + past,
-      set: (value: number) => real.set!.call(scroller, value),
-    });
-    const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-    try {
-      for (const px of stretch) {
-        await frame();
-        past = px;
-        scroller.dispatchEvent(new Event("scroll"));
-      }
-      await frame();
-    } finally {
-      delete (scroller as { scrollTop?: number }).scrollTop;
-    }
-  }, STRETCH);
-
-/// Where the view sits against its end, and whether Jump to latest shows, read each frame for `ms`.
-const watch = (page: Page, ms: number) =>
-  page.evaluate(async (ms) => {
-    const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-    let worst = 0;
-    let jump = false;
-    const start = performance.now();
-    while (performance.now() - start < ms) {
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-      worst = Math.max(worst, scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop);
-      jump ||= !!document.querySelector(".acpmux-jump-latest[data-shown]");
-    }
-    return {
-      worst: Math.round(worst),
-      jump,
-      end: Math.round(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop),
-    };
-  }, ms);
-
 await requireBrowserLane("agent-pane-bottom-rebound-follow.test.ts", async () => {
+  /// A spring back from a scroll down past the end, px past it per frame: the stretch the trackpad's
+  /// last events pulled, then the rebound to the end.
+  const STRETCH = [6, 14, 22, 28, 30, 26, 19, 12, 7, 3, 1, 0];
+
+  /// Draws the stretch as WebKit reports it, one scroll event a frame, then lets the real offset show.
+  const rebound = (page: Page) =>
+    page.evaluate(async (stretch) => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const real = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop")!;
+      let past = 0;
+      Object.defineProperty(scroller, "scrollTop", {
+        configurable: true,
+        get: () => (real.get!.call(scroller) as number) + past,
+        set: (value: number) => real.set!.call(scroller, value),
+      });
+      const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      try {
+        for (const px of stretch) {
+          await frame();
+          past = px;
+          scroller.dispatchEvent(new Event("scroll"));
+        }
+        await frame();
+      } finally {
+        delete (scroller as { scrollTop?: number }).scrollTop;
+      }
+    }, STRETCH);
+
+  /// Where the view sits against its end, and whether Jump to latest shows, read each frame for `ms`.
+  const watch = (page: Page, ms: number) =>
+    page.evaluate(async (ms) => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      let worst = 0;
+      let jump = false;
+      const start = performance.now();
+      while (performance.now() - start < ms) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        worst = Math.max(worst, scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop);
+        jump ||= !!document.querySelector(".acpmux-jump-latest[data-shown]");
+      }
+      return {
+        worst: Math.round(worst),
+        jump,
+        end: Math.round(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop),
+      };
+    }, ms);
+
   setDefaultTimeout(120_000);
   let browser: Browser;
   let pane: Awaited<ReturnType<typeof papercutPane>>;
@@ -81,7 +81,8 @@ await requireBrowserLane("agent-pane-bottom-rebound-follow.test.ts", async () =>
   const scrollDownAtEnd = async (springBack: boolean) => {
     const page = await pane.open({ width: 900, height: 700 });
     try {
-      // Let the open settle first: the first draw's own motion is not this test's.
+      // fixed-wait: the open's own motion settles first, as agent-pane-ticking-bottom-still does; the
+      // draw has no event for its last motion ending.
       await page.waitForTimeout(1500);
       const box = (await page.locator(".acpmux-scroll").boundingBox())!;
       await page.mouse.move(box.x + box.width * 0.8, box.y + box.height * 0.7);
