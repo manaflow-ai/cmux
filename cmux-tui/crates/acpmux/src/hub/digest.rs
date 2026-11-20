@@ -678,17 +678,17 @@ mod tests {
     /// under the stamped one.
     #[test]
     fn a_peer_forwarded_sender_names_its_machine() {
-        assert_eq!(on_peer_host("lane-a".into(), Some("swarm-07")), "swarm-07/lane-a");
-        assert_eq!(on_peer_host("swarm-07/lane-a".into(), Some("swarm-07")), "swarm-07/lane-a");
+        assert_eq!(on_peer_host("lane-a".into(), Some("host-a")), "host-a/lane-a");
+        assert_eq!(on_peer_host("host-a/lane-a".into(), Some("host-a")), "host-a/lane-a");
         assert_eq!(on_peer_host("lane-a".into(), None), "lane-a");
         assert_eq!(on_peer_host("lane-a".into(), Some(" ")), "lane-a");
         assert_eq!(on_peer_host("lane-a".into(), Some("a/b")), "lane-a", "no host smuggles a '/'");
         assert_eq!(
-            on_peer_host("huge-blue/coord".into(), Some("swarm-07")),
-            "swarm-07/huge-blue/coord",
+            on_peer_host("host-b/coord".into(), Some("host-a")),
+            "host-a/host-b/coord",
             "a label can't claim another machine"
         );
-        let long = on_peer_host("x".repeat(MAX_FROM_AGENT_CHARS), Some("swarm-07"));
+        let long = on_peer_host("x".repeat(MAX_FROM_AGENT_CHARS), Some("host-a"));
         assert_eq!(long.chars().count(), MAX_FROM_AGENT_CHARS);
     }
 

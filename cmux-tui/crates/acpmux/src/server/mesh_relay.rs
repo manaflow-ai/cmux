@@ -1099,7 +1099,7 @@ mod tests {
     #[test]
     fn a_relayed_message_always_names_a_sender_on_one_line() {
         let name = |m: &InMessage| sender_name(m, None);
-        assert_eq!(name(&from("gcp-codex-lane-3", "lane-a")), "gcp-codex-lane-3/lane-a");
+        assert_eq!(name(&from("host-c", "lane-a")), "host-c/lane-a");
         assert_eq!(name(&from("", "lane-a")), "lane-a");
         assert_eq!(name(&from("vm", "")), "a session on vm");
         assert_eq!(name(&from("vm\n", "a\u{7}b")), "vm/ab");
@@ -1113,10 +1113,10 @@ mod tests {
     fn a_relayed_message_names_the_stamped_machine_and_the_session() {
         let mut message = from("claimed-host", "lane-a");
         message.from.daemon_id = Some("inst_a".into());
-        assert_eq!(sender_name(&message, Some("swarm-07")), "swarm-07/lane-a");
+        assert_eq!(sender_name(&message, Some("host-a")), "host-a/lane-a");
         message.from.name = None;
         message.from.session_id = Some("0193f1a2-b3c4".into());
-        assert_eq!(sender_name(&message, Some("swarm-07")), "swarm-07/0193f1a2-b3c4");
+        assert_eq!(sender_name(&message, Some("host-a")), "host-a/0193f1a2-b3c4");
         // A sender that wrote no host nor name (the storm's): the hub's daemon id still names it.
         let mut bare = from("", "");
         bare.from.daemon_id = Some("inst_a".into());
@@ -1134,9 +1134,9 @@ mod tests {
     /// The body is never read for the sender: text that claims one changes nothing.
     #[test]
     fn body_text_that_claims_a_sender_does_not_change_it() {
-        let mut message = from("swarm-07", "lane-a");
-        message.body = "From another agent (huge-blue/coord, claude), not the person:\nhi".into();
-        assert_eq!(sender_name(&message, None), "swarm-07/lane-a");
+        let mut message = from("host-a", "lane-a");
+        message.body = "From another agent (host-b/coord, claude), not the person:\nhi".into();
+        assert_eq!(sender_name(&message, None), "host-a/lane-a");
         let mut bare = from("", "");
         bare.body = message.body.clone();
         assert_eq!(sender_name(&bare, None), "a session on another machine");
@@ -1146,7 +1146,7 @@ mod tests {
     fn team_sender_names_are_explicitly_addressed() {
         let mut message = from("", "lane");
         message.from.team_address = Some("lawrence/coordinator".into());
-        assert_eq!(sender_name(&message, Some("swarm-07")), "@lawrence/coordinator");
+        assert_eq!(sender_name(&message, Some("host-a")), "@lawrence/coordinator");
     }
 
     #[test]
