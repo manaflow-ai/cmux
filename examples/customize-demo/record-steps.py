@@ -95,6 +95,7 @@ def main() -> int:
     steps += [
         {"cmux": ["customize", "discard"], "record": True},
         {"cmux": ["customize", "library", "status"], "record": True},
+        {"action": "newTab.default", "name": "Restored New Tab"},
         {"wait": 2},
         {"shot": "99-after-reset"},
     ]

@@ -44,7 +44,7 @@ title() {
 }
 
 reset() {
-  "$cli" customize discard
+  "$cli" customize discard && "$cli" action run newTab.default
 }
 
 finish() {
