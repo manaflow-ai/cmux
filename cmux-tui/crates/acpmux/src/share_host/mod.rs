@@ -39,6 +39,8 @@ mod route;
 mod session;
 #[cfg(unix)]
 mod state;
+#[cfg(unix)]
+mod verbs;
 
 #[cfg(all(test, unix))]
 mod tests;
