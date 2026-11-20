@@ -25,6 +25,7 @@ use crate::{KeyPair, LinkError, Role};
 use cmux_rd_proto::{DatagramDeparture, DatagramHeader, MAX_DEPARTURE_RECEIPTS};
 use cmux_transport::PathKind;
 use cmux_transport::stun::{TransactionId, binding_request, parse_binding_success};
+use std::collections::VecDeque;
 use std::io;
 use std::mem::size_of_val;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
@@ -382,6 +383,7 @@ impl Net {
             endpoint,
             commands: command_rx,
             media_queue: Arc::clone(&media_queue),
+            pending_datagrams: VecDeque::new(),
             command_fd: command_wake.read,
             events: event_tx,
             event_fd: event_wake.write,
@@ -579,6 +581,8 @@ struct Driver {
     endpoint: Endpoint,
     commands: mpsc::Receiver<Command>,
     media_queue: Arc<Mutex<MediaQueue>>,
+    /// Protected one-datagram sends received before the Noise link is ready.
+    pending_datagrams: VecDeque<Vec<u8>>,
     command_fd: RawFd,
     events: mpsc::Sender<NetEvent>,
     event_fd: RawFd,
@@ -608,6 +612,16 @@ impl Driver {
         let frame = self.media_queue.lock().ok().and_then(|mut queue| queue.pop());
         let Some(frame) = frame else { return Ok(()) };
         for datagram in frame.datagrams {
+            self.send_media_datagram(&datagram, now)?;
+        }
+        Ok(())
+    }
+
+    fn drain_pending_datagrams(&mut self, now: u64) -> Result<(), LinkError> {
+        if !self.endpoint.link().is_established() {
+            return Ok(());
+        }
+        while let Some(datagram) = self.pending_datagrams.pop_front() {
             self.send_media_datagram(&datagram, now)?;
         }
         Ok(())
@@ -839,7 +853,8 @@ impl Driver {
 
     fn deadline_ms(&self, now: u64) -> i32 {
         if self.endpoint.link().is_established()
-            && self.media_queue.lock().is_ok_and(|queue| !queue.frames.is_empty())
+            && (self.media_queue.lock().is_ok_and(|queue| !queue.frames.is_empty())
+                || !self.pending_datagrams.is_empty())
         {
             return 0;
         }
@@ -917,6 +932,8 @@ impl Driver {
                         // Input, cursor and repair traffic never replaces queued video.
                         if self.endpoint.link().is_established() {
                             self.send_media_datagram(&datagram, now)?;
+                        } else {
+                            self.pending_datagrams.push_back(datagram);
                         }
                     }
                     Command::NetworkChange => {
@@ -981,6 +998,7 @@ impl Driver {
                 }
             }
             self.flush(now)?;
+            self.drain_pending_datagrams(now)?;
             self.drain_media(now)?;
             if std::mem::take(&mut self.departure_wake) {
                 // One wake per driver turn, not a syscall per media datagram.
