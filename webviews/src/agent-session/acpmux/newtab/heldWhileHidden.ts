@@ -8,7 +8,7 @@
 // Hidden is the document's: a tab in the background, or a page the host says nobody sees
 // (`window.cmuxPageSeen(false)`, shared/pageSeen.ts), which reads as hidden and fires
 // `visibilitychange`.
-import { useState, useSyncExternalStore } from "react";
+import { useRef, useSyncExternalStore } from "react";
 
 function subscribe(onChange: () => void): () => void {
   if (typeof document === "undefined") return () => {};
@@ -24,10 +24,11 @@ export function usePageSeen(): boolean {
 }
 
 /// `value` while the page is seen; while hidden, the value it had when it was last seen (or its
-/// first, for a page that opens hidden), so nothing that depends on it runs again.
+/// first, for a page that opens hidden), so nothing that depends on it runs again. A ref, not state:
+/// a seen page's change renders once, not twice.
 export function useHeldWhileHidden<T>(value: T): T {
   const visible = usePageSeen();
-  const [held, setHeld] = useState(value);
-  if (visible && held !== value) setHeld(value);
-  return visible ? value : held;
+  const held = useRef(value);
+  if (visible) held.current = value;
+  return held.current;
 }

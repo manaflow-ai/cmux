@@ -18,7 +18,7 @@
 //   pane_renders_per_change  the pane root's renders (`acpmuxPerf.render("pane")`) per change, per page (the
 //                        first page's keys add theirs)
 //   bun bench/session-scale-typing.bench.ts [--sizes 100,10000] [--pages 4] [--rate 4] [--pad 17000]
-//     [--newtabs 2] [--keys 40] [--gap 80] [--settle 4000] [--shape fleet|plain] [--profile]
+//     [--newtabs 2] [--keys 40] [--gap 80] [--settle 4000] [--shape fleet|plain] [--unseen] [--profile]
 /// <reference types="bun" />
 import path from "node:path";
 import { chromium } from "./browsers";
@@ -48,6 +48,9 @@ const SHAPE = (flag("--shape") ?? "fleet") as "fleet" | "plain";
 /// mockFixture.ts FLEET_OPEN_EVERY: one fleet row in this many is open.
 const OPEN_EVERY = 20;
 const PROFILE = argv.includes("--profile");
+/// `--unseen`: the New Tab pages are told nobody sees them, as the app's host tells a tab's New Tab behind
+/// another tab and the parked spare once they painted (AgentPaneShownPushes.swift `AgentPageSeenSignal`).
+const UNSEEN = argv.includes("--unseen");
 /// Turns of the light chat each chat page opens (two rows each): his coordinator chat ran 2,275 turns.
 const TURNS = Number(flag("--turns") ?? 2000);
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
@@ -236,6 +239,9 @@ try {
       await typing.locator(PROMPT).first().click();
       for (const key of "warm") await typing.keyboard.press(key);
       for (let i = 0; i < 4; i += 1) await typing.keyboard.press("Backspace");
+      if (UNSEEN)
+        for (const page of pages.slice(PAGES - NEWTABS))
+          await page.evaluate(() => (window as any).cmuxPageSeen?.(false));
       for (const page of pages) await page.evaluate(() => (window as any).__scale.start());
       // fixed-wait: the change stream reaches its steady state (every page's list and caches warm) before keys.
       await typing.waitForTimeout(SETTLE_MS);
@@ -280,6 +286,7 @@ try {
         shape: SHAPE,
         pages: PAGES,
         newtabs: NEWTABS,
+        unseen: UNSEEN,
         rate: RATE,
         keys: stats.keys,
         to_frame_p50: round1(stats.to_frame?.p50_ms ?? 0),

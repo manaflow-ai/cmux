@@ -2194,29 +2194,19 @@ test("a Minimal page reads only the changed chat when another chat changes", asy
 // shared/pageSeen.ts makes it) does no work over the chats when any chat changes: not the chat
 // cards (`recentSessions`, `indexChildren`), the leaders row (`leaders`), the needs-you cards or the
 // folder lists. Shown, it draws the newest list once. Counted field reads, not time.
-test.each(["default", "cards", "stage"] as const)(
+test.each(["minimal", "default", "cards", "composer", "threads", "console"] as const)(
   "a hidden %s page reads no chat when chats change; shown, it draws the newest",
   async (template) => {
     let reads = 0;
+    let counting = false;
+    // React's development build diffs a re-rendered component's props field by field for its
+    // profiler tracks (`addObjectDiffToProperties`); production React does not, so those reads are
+    // the test's, not the page's.
+    const byPage = () => !(new Error().stack ?? "").includes("addObjectDiffToProperties");
     const counted = (fields: Parameters<typeof session>[0]) =>
       new Proxy(session(fields), {
         get(target, key, receiver) {
-          if (key !== "sessionId") {
-            reads++;
-            if (TRACE.on)
-              TRACE.lines.push(
-                `${String(key)} <- ${(new Error().stack ?? "")
-                  .split("\n")
-                  .slice(2, 6)
-                  .map((l) =>
-                    l
-                      .trim()
-                      .replace(/^at /, "")
-                      .replace(/\(.*\/(src|node_modules)\//, "("),
-                  )
-                  .join(" | ")}`,
-              );
-          }
+          if (counting && key !== "sessionId" && byPage()) reads++;
           return Reflect.get(target, key, receiver);
         },
       });
@@ -2251,8 +2241,7 @@ test.each(["default", "cards", "stage"] as const)(
 
     // The newest chat changes: it would lead every list, so a page that ran its passes would read it.
     let next = sessions;
-    reads = 0;
-    TRACE.on = true;
+    counting = true;
     for (let change = 0; change < 5; change++) {
       const at = next.length - 1;
       const moved = next.slice();
@@ -2267,17 +2256,6 @@ test.each(["default", "cards", "stage"] as const)(
       next = moved;
       await act(async () => root!.render(page(next)));
     }
-    TRACE.on = false;
-    const by = new Map<string, number>();
-    for (const line of TRACE.lines) by.set(line, (by.get(line) ?? 0) + 1);
-    console.log(
-      [...by]
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 12)
-        .map(([l, n]) => `${n} ${l}`)
-        .join("\n"),
-    );
-    TRACE.lines = [];
     expect(reads).toBe(0);
     expect(container.textContent).not.toContain("Renamed");
 
@@ -2287,5 +2265,3 @@ test.each(["default", "cards", "stage"] as const)(
     expect(reads).toBeGreaterThan(0);
   },
 );
-
-const TRACE: { on: boolean; lines: string[] } = { on: false, lines: [] };
