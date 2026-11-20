@@ -27,6 +27,13 @@ export {};
   writeDesignScale({ log: () => {} });
 }
 
+// React reads its commit hook once, when react-dom loads: install the row render counter
+// (support/commitRenders.ts) first, so a jsdom test can count which rows a change rendered.
+{
+  const { installRowRenderCounter } = await import("./support/commitRenders");
+  installRowRenderCounter();
+}
+
 // React's scheduler keeps its queue private, and react-dom copies its entry points when it first
 // loads: count the tasks it queues from here on, before anything loads react-dom, so a teardown can
 // wait for them (support/domTeardown.ts: a scheduler task that runs after a file deletes its DOM
