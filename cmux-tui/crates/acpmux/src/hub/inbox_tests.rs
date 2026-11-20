@@ -536,7 +536,7 @@ async fn surge_cold_headless_burst_uses_the_last_held_measurement() {
         let receipt = hub.hold_surge_message(&session, id, "cli", &blocks, &opts).unwrap();
         assert_eq!(receipt.unwrap()["surgeHeld"], true);
     }
-    assert_eq!(hub.surge_snapshot(&session)["held"], 3);
+    assert_eq!(hub.inbox_threads(&session)["surge"]["held"], 3);
 }
 
 #[tokio::test]
