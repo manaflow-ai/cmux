@@ -185,7 +185,20 @@ LEGACY_TRUSTED_RUNNER_LINE = re.compile(
     r"^\s*runs-on:\s*" + re.escape(LEGACY_TRUSTED_RUNNER_EXPRESSION) + r"\s*(?:#.*)?$")
 
 
+# The one-job GCP control pool is distinct from cmux-linux. The CLA workflows
+# have their own trusted validator and keep its exact reviewed selector.
+JIT_SELECTOR = TRUSTED_RUNNER_EXPRESSION.replace(
+    '"blacksmith-4vcpu-ubuntu-2404"]', '"blacksmith-4vcpu-ubuntu-2404","cmux-gcp-pr-control-jit-x64"]')
+JIT_RUNNER_LINE = re.compile(r"^\s*runs-on:\s*" + re.escape(JIT_SELECTOR) + r"\s*(?:#.*)?$")
+HOSTED_JIT_RUNNER_LINE = re.compile(r"^\s*runs-on:\s*" + re.escape(
+    JIT_SELECTOR.replace("('[", "('[\"ubuntu-24.04\",", 1)) + r"\s*(?:#.*)?$")
+
+
 def trusted_runner_line(workflow: str, line: str) -> bool:
+    if workflow not in {"cla.yml", "cla-policy-guard.yml", "language-boundaries.yml"} and JIT_RUNNER_LINE.match(line):
+        return True
+    if workflow == "ci-pr-closed-cancel.yml" and HOSTED_JIT_RUNNER_LINE.match(line):
+        return True
     return bool(TRUSTED_RUNNER_LINE.match(line) or (
         workflow in LEGACY_TRUSTED_RUNNER_WORKFLOWS and LEGACY_TRUSTED_RUNNER_LINE.match(line)))
 
@@ -1066,31 +1079,57 @@ class ForkRunnerRoutingTests(unittest.TestCase):
     def test_fork_events_cannot_select_the_persistent_linux_pool(self) -> None:
         from runs_on_labels import resolve_labels
 
-        documents = {p.name: workflow_jobs.document(p) for p in WORKFLOWS.glob('*.y*ml')}
+        documents = {p.name: workflow_jobs.document(p) for p in WORKFLOWS.glob("*.y*ml")}
         callers = workflow_jobs.Workflows(documents)
-        for event in ('pull_request', 'pull_request_target'):
+        checked = set()
+        for event in ("pull_request", "pull_request_target"):
             roots = []
             for name, doc in documents.items():
-                triggers = doc.get('on', doc.get(True, {}))
+                triggers = doc.get("on", doc.get(True, {}))
                 if event in ([triggers] if isinstance(triggers, str) else triggers):
                     roots.append(WORKFLOWS / name)
             for path in fork_exercised_workflows(roots):
                 for name, job in workflow_jobs.jobs(documents[path.name]).items():
                     cells = workflow_jobs.runs_on_label_cells(job, path.name, callers)
                     if cells is None:
-                        self.assertNotIn('cmux-linux', str(job.get('runs-on', '')) + str(job.get('strategy', '')),
-                                         f'{path.name}#{name}: unresolved persistent-pool matrix')
+                        raw = str((job.get("runs-on"), job.get("strategy"))).lower()
+                        for token in ("cmux-linux", "vars.linux_runner"):
+                            self.assertNotIn(token, raw, f"{path.name}#{name}: unresolved Linux matrix")
                         continue
-                    for cell in cells:
-                        for label in cell:
-                            if 'cmux-linux' not in label.casefold():
-                                continue
-                            for head in ('outside/contribution', 'manaflow-ai/fork', ''):
-                                context = {'github.event_name': event, 'github.repository': 'manaflow-ai/cmux',
-                                           'github.event.pull_request.head.repo.full_name': head}
-                                with self.subTest(workflow=path.name, job=name, event=event, head=head):
-                                    choices = resolve_labels(label, context=context)
-                                    self.assertNotIn('cmux-linux', {str(v).casefold() for v in choices})
+                    for label in {item for cell in cells for item in cell}:
+                        if not re.search(r"cmux-linux|vars\.LINUX_RUNNER\b|RUNNER_POOLS\)\.linux", label, re.I):
+                            continue
+                        checked.add((event, path.name, name))
+                        heads = ["outside/contribution", "manaflow-ai/fork", ""]
+                        if event == "pull_request_target":
+                            heads.append("manaflow-ai/cmux")  # Even trusted heads use one-job runners here.
+                        for head in heads:
+                            context = {"github.event_name": event, "github.repository": "manaflow-ai/cmux",
+                                       "github.event.pull_request.head.repo.full_name": head}
+                            with self.subTest(workflow=path.name, job=name, event=event, head=head):
+                                choices = resolve_labels(label, context=context,
+                                                         variables={"LINUX_RUNNER": ["cmux-linux"]})
+                                self.assertNotIn("cmux-linux", {str(v).lower() for v in choices})
+        self.assertIn(("pull_request", "pr-checks.yml", "size"), checked)
+
+    def test_pool_jobs_have_read_only_tokens_and_no_private_secrets(self) -> None:
+        from runs_on_labels import holds_signing_material
+
+        count = 0
+        for path in WORKFLOWS.glob("*.y*ml"):
+            document = workflow_jobs.document(path)
+            for name, job in workflow_jobs.jobs(document).items():
+                if "cmux-linux" not in str((job.get("runs-on"), job.get("strategy"))).lower():
+                    continue
+                count += 1
+                permissions = job.get("permissions", document.get("permissions"))
+                with self.subTest(workflow=path.name, job=name):
+                    self.assertTrue(permissions == "read-all" or isinstance(permissions, dict) and
+                                    all(v in ("none", "read") for v in permissions.values()), permissions)
+                    self.assertFalse(workflow_jobs.secret_names(job) - {"GITHUB_TOKEN"})
+                    self.assertNotIn("environment", job)
+                    self.assertFalse(holds_signing_material(job))
+        self.assertGreater(count, 0)
 
     def test_pull_request_branch_must_select_the_hosted_label(self) -> None:
         selected = (

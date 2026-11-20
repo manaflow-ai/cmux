@@ -66,7 +66,7 @@ env:
 jobs:
   rust:
     name: rust (fmt, clippy, tests)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository != 'manaflow-ai/cmux' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && (!inputs.ref || inputs.ref == github.sha || inputs.ref == github.event.pull_request.head.sha && github.event_name == 'pull_request') && 'cmux-linux' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -367,7 +367,7 @@ jobs:
 
   android:
     name: android (cargo-ndk, AAR, Kotlin tests)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository != 'manaflow-ai/cmux' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') || github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')) && (!inputs.ref || inputs.ref == github.sha || inputs.ref == github.event.pull_request.head.sha && github.event_name == 'pull_request') && 'cmux-linux' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 45
     permissions:
       contents: read
