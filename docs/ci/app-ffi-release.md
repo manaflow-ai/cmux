@@ -84,7 +84,7 @@ request with no review receipt (`repin_bot_exempt`) once its checks finish, and 
 first on every pass. Its runner-lost reds get one rerun. The base's pin check
 fails 120 min after the FFI change (`--stale-grace 7200`). At 90 min,
 base-red-watch sends the coordinator a WARN that names the open re-pin pull
-request. If the PR is still unmerged then, land it by hand: `merge_hold
+request. If the PR is still unmerged then, land it by hand: `land-judge
 explain`, then a pinned squash. Only with a passing `cmux-next fast tier` (on a
 re-pin it runs `HandlerCoverageTests` alone) at the PR head: a `cancelled` or
 skipped tier is no verdict. When the release's action catalog differs from the
