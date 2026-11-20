@@ -254,7 +254,15 @@ struct AgentIncomingCard: View {
     /// Markdown parser, so a fence, a rule and display math are skipped, a table shows its header
     /// cells, a list or task its first item, and inline marks (emphasis, code, strike, links) go. A
     /// closed message never previews as `swift`, `| a | b |`, `[ ] todo` or `[docs](https://…)`.
-    nonisolated static func firstLine(_ text: String) -> String {
+    nonisolated static func firstLine(_ text: String) -> String { firstLine(text, depth: 0) }
+
+    /// How many quotes and list items deep a preview reads the Markdown inside; past it, the rest
+    /// is read as text with its quote and list marks dropped. A message can nest without end
+    /// (3,000 `>`), and each level parses it again, which overflowed a phone's stack.
+    private nonisolated static let nestingLimit = 4
+
+    private nonisolated static func firstLine(_ text: String, depth: Int) -> String {
+        guard depth < nestingLimit else { return unnestedFirstLine(text) }
         var math: String?
         for block in MarkdownDocument(parsing: text).blocks {
             let lines: [String]
@@ -269,9 +277,14 @@ struct AgentIncomingCard: View {
                 lines = plainInline(text).split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
             case .quote(let text):
                 // A quote holds Markdown of its own (a fence, a heading): its first line, read so.
-                lines = [firstLine(text)]
+                lines = [firstLine(text, depth: depth + 1)]
             case .list(let list):
-                lines = list.items.map { itemFirstLine($0.text) }
+                // Only the first item with text is shown, so the rest are not read.
+                for item in list.items {
+                    let line = itemFirstLine(item.text, depth: depth + 1)
+                    if !line.isEmpty { return line }
+                }
+                continue
             case .table(let table):
                 lines = [table.header.map { plainInline($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: " · ")]
             case .code(_, let code, _):
@@ -292,7 +305,7 @@ struct AgentIncomingCard: View {
     /// A list item's first line, read as the Markdown it holds (a heading, a fence). The parser joins
     /// an item's indented lines with spaces, so a fence under the item's text (`Install:` then
     /// ```` ```bash ````) is cut off, and a fence the item opens with keeps only its code.
-    nonisolated private static func itemFirstLine(_ text: String) -> String {
+    nonisolated private static func itemFirstLine(_ text: String, depth: Int) -> String {
         var item = text
         if let fence = item.range(of: #"\s(?:```|~~~)"#, options: .regularExpression) {
             item = String(item[..<fence.lowerBound])
@@ -300,7 +313,19 @@ struct AgentIncomingCard: View {
         if let range = item.range(of: #"^(?:```|~~~)\S*\s*"#, options: .regularExpression) {
             return item[range.upperBound...].trimmingCharacters(in: .whitespaces)
         }
-        return firstLine(item)
+        return firstLine(item, depth: depth)
+    }
+
+    /// Past ``nestingLimit``: the first line with text, its leading quote, bullet, number and task
+    /// marks dropped, read for its inline marks.
+    nonisolated private static func unnestedFirstLine(_ text: String) -> String {
+        for raw in text.split(whereSeparator: \.isNewline) {
+            let line = raw.replacingOccurrences(
+                of: #"^(?:\s*(?:>|[-*+](?=\s)|\d{1,9}[.)](?=\s)|\[[ xX]\](?=\s)))+\s*"#, with: "", options: .regularExpression)
+            let plain = plainInline(line).trimmingCharacters(in: .whitespaces)
+            if !plain.isEmpty { return plain }
+        }
+        return ""
     }
 
     /// Text's inline Markdown (emphasis, code, strike, links, `$math$`) as the plain characters it
