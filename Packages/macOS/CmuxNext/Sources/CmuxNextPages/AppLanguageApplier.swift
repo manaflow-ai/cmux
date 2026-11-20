@@ -39,7 +39,7 @@ public final class AppLanguageApplier {
         self.defaults = defaults
         self.domain = domain
         self.pages = pages ?? Self.pushToPages
-        self.refreshPages = pages == nil ? Self.refreshToPages : { _ in }
+        if let pages { self.refreshPages = pages } else { self.refreshPages = Self.refreshToPages }
         self.language = language
     }
 

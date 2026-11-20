@@ -94,7 +94,8 @@ struct AppLanguageApplierTests {
     }
 
     @Test func thePageScriptHandsTheCodeOrNull() {
-        #expect(PageWebView.languageScript("pt-BR") == #"window.__cmuxSetAppLanguage?.("pt-BR");"#)
-        #expect(PageWebView.languageScript(nil) == "window.__cmuxSetAppLanguage?.(null);")
+        #expect(PageWebView.languageScript("pt-BR") == #"window.__cmuxSetAppLanguage?.("pt-BR", false);"#)
+        #expect(PageWebView.languageScript(nil) == "window.__cmuxSetAppLanguage?.(null, false);")
+        #expect(PageWebView.languageScript("fr", refresh: true) == #"window.__cmuxSetAppLanguage?.("fr", true);"#)
     }
 }

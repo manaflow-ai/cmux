@@ -135,8 +135,10 @@ test("a split table loads the new locale's script before the pane switches", asy
     expect(replacement).toBeDefined();
     expect(replacement).not.toBe(script);
     expect(refreshed).toBe(false);
-    replacement!.dispatchEvent(new dom.window.Event("load"));
-    await refresh;
+    await act(async () => {
+      replacement!.dispatchEvent(new dom.window.Event("load"));
+      await refresh;
+    });
   } finally {
     tables.fr = french;
     english.remove();
