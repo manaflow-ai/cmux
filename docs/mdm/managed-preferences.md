@@ -24,7 +24,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `window.titlebarButtons` | string | `"hover"` | `hover`, `always` | Titlebar Buttons. With the sidebar hidden, On Hover shows its buttons only over the top row. |
 | `app.globalHotKey` | boolean | `false` |  | Global Hot Key. Show/Hide All Windows (⌃⌥⌘.) works while another app is in front. |
 | `app.startAgentGlobalHotKey` | boolean | `false` |  | Start Agent from Any App. ⌃⌥⌘Space starts an agent while another app is in front. |
-| `app.hideDockIconWithoutWindows` | boolean | `true` |  | Hide Dock Icon When No Windows Are Open. cmux stays in the menu bar until a window opens. |
+| `app.hideDockIconWithoutWindows` | boolean | `false` |  | Hide Dock Icon When No Windows Are Open. cmux stays in the menu bar until a window opens. |
 | `app.showMenuBarIcon` | boolean | `true` |  | Show Menu Bar Icon |
 | `tabs.newTabTemplate` | string | `"minimal"` | `minimal`, `cards`, `default`, `threads`, `console`, `classic`, `terminal` | New Tab Template. The layout of the New Tab page. Terminal opens a terminal instead. |
 | `tabs.nativeNewTabPage` | boolean | `false` |  | Native New Tab Page. Cmd-T opens the faster native New Tab page. Recent chats and widgets are web only. |
@@ -67,6 +67,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `updates.web` | string | `"every-merge"` | `every-merge`, `nightly`, `off` | Web UI Updates. Every Merge gets web UI changes minutes after they land. |
 | `updates.liveWebReload` | boolean | `true` |  | cmux Live. Lets cmux live start show your checkout's web UI, each saved edit at once. |
 | `updates.installOnQuit` | boolean | `false` |  | Install Updates When Quitting. A downloaded update installs as cmux quits. Terminals keep running. |
+| `updates.installWhenIdle` | boolean | `false` |  | Update When Idle. Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running. |
+| `updates.installWhenIdleMinutes` | real | `15` | 1 to 240 | Idle Time Before Updating. How long cmux must be idle before Update When Idle installs. |
 | `updates.notify` | string | `"badge"` | `badge`, `silent` | When an Update Is Ready |
 | `updates.keepPreviousVersions` | real | `1` | 0 to 5 | Keep Previous Versions. Earlier builds kept so you can roll back. Uses almost no disk until files change. |
 | `updates.showWhatsNew` | boolean | `true` |  | Show What's New After Updates. A sidebar card links to What's New after an update. |
@@ -192,6 +194,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.displayBackgroundRotations` | dictionary |  |  | Per-display Background Rotation. Display ID to 15m, hourly or daily. Others use the global rotation. |
 | `appearance.paneBackgrounds` | string | `"shared"` | `shared`, `perPane` | Pane Backgrounds. One background behind the window, or a copy in each pane. |
 | `ui.reducedBackgrounds` | boolean | `false` |  | Plain Backgrounds. The plain theme color, without paintings, wallpapers or glass. |
+| `appearance.agentGlow` | boolean | `false` |  | React to Agents. Calm while agents are idle; a soft glow in the machine's color when an agent needs you. |
 | `appearance.experimentalControls` | boolean | `false` |  | Experimental Appearance Controls. Applies Hue and Saturation to the window's tint. Off, they have no effect. |
 | `appearance.backgroundOpacity` | real |  | 0 to 1 | Opacity. How much of the theme color covers the material behind the window. |
 | `appearance.backgroundBlur` | string |  | `frosted`, `glass`, `glass-clear`, `none` | Material. Unset, the window follows Ghostty's background-opacity and background-blur. |
@@ -334,6 +337,10 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.promptCoach` | boolean | `true` |  | Prompt Coach. After a chat with many corrections, shows a better first prompt. |
 | `agentPane.display.statusVerbs.mode` | string | `"thinking"` | `thinking`, `rotate`, `custom` | Working Status Verbs. Choose whether the live status line rotates through verbs or stays on Thinking. |
 | `agentPane.display.statusVerbs.custom` | string |  |  | Custom Working Verbs. Comma-separated -ing verbs for the live status line. |
+| `agentPane.display.thinking.shimmer` | string | `"cadenced"` | `cadenced`, `continuous` | Thinking Shimmer. How the light band moves across the live status line. |
+| `agentPane.display.thinking.shimmerPeriod` | real | `1250` | 600 to 4000 | Shimmer Speed. How long one continuous pass of the shimmer takes. |
+| `agentPane.display.thinking.shimmerBand` | real | `0` | 0 to 240 | Shimmer Width. The width of the shimmer's light band. 0 uses half the line. |
+| `agentPane.display.thinking.jumpButton` | string | `"arrow"` | `arrow`, `dots` | Jump to Latest While Working. What the Jump to latest button shows while the agent works. |
 | `agentPane.display.harnessPlacement` | string | `"symbols"` | `symbols`, `left`, `top`, `compact` | Model Picker Harness Placement |
 | `agentPane.display.rail.side` | string | `"left"` | `left`, `right` | Prompt Rail Side. Right-click the rail to move it. |
 | `agentPane.display.commandLabels` | string | `[]` |  | Command Labels. The names the chat shows for background commands. |
@@ -410,6 +417,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.floatOnHover` | boolean | `true` |  | Float Hidden Sidebar on Hover. With the sidebar hidden, point at the window's edge to show it over your work. |
 | `sidebar.minimal` | boolean | `false` |  | Minimal Mode. Sidebar and tab bar buttons show only while the pointer is over them. |
 | `sidebar.style` | string | `"standard"` | `standard`, `rail` | Sidebar Style. Rail shrinks the sidebar to a strip; point at it to open the full sidebar. |
+| `sidebar.drawnMenus` | boolean | `false` |  | Styled Sidebar Menus. Right-click and more-button menus in the sidebar follow the menu look instead of the system menu. |
 | `sidebar.density` | string | `"compact"` | `compact`, `comfortable`, `expanded` | Sidebar Density. Expanded shows status, age, pull request and computer under each name. |
 | `sidebar.textSize` | string | `"default"` | `default`, `large`, `larger` | Sidebar Text Size. Makes the sidebar's names, icons and rows larger together. |
 | `sidebar.detailedStatusIcons` | boolean | `false` |  | Detailed Status Icons. Icons for working, waiting, error and done. Off: a spinner and a dot. |
@@ -650,6 +658,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `notifications.attention.flashOnTyping` | boolean | `true` |  | Flash When Typing Reads It |
 | `notifications.attention.showOnTab` | boolean | `true` |  | Mark the Tab |
 | `notifications.attention.showOnSidebar` | boolean | `true` |  | Mark the Sidebar Row |
+| `notifications.attention.mark` | string | `"badge"` | `badge`, `glow` | Needs You Look. How a tab and a sidebar row that wait for you show it: the badge, or a gentle glow until you look at them. |
 | `notifications.attention.moveToTop` | boolean | `true` |  | Move the Workspace to the Top. A notification moves its workspace to the top, unless you are looking at it. |
 | `notifications.attention.moveToTopOnAgentFinish` | boolean | `false` |  | Move the Workspace to the Top When Its Agent Finishes. Unless you are looking at its pane. |
 | `notifications.mutedWorkspaces` | array | `[]` |  | Muted Workspaces. Workspace ids whose notifications are silent. Mute a workspace from its sidebar row menu. |

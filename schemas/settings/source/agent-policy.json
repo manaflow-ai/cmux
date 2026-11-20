@@ -89,6 +89,7 @@
         "sidebar.steppingWraps",
         "sidebar.side",
         "sidebar.style",
+        "sidebar.drawnMenus",
         "sidebar.spacesPosition",
         "sidebar.spacesVisibility",
         "tabs.newTabTemplate"
