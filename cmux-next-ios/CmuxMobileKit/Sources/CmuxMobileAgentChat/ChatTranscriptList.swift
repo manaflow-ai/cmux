@@ -524,13 +524,16 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     private let dataSource: UICollectionViewDiffableDataSource<Int, String>
     /// The rows by id and their environment, for the cells.
     private let lookup: ChatRowLookup
+    // `_modify`, not `set`: a write through a get/set pair (`rows[id] = row`) copied the whole
+    // dictionary first (the getter's copy and the lookup's own share storage), so weighing N rows
+    // on open copied N dictionaries of N rows on the main thread: the open's long frame.
     private var rows: [String: ChatRow] {
         get { lookup.rows }
-        set { lookup.rows = newValue }
+        _modify { yield &lookup.rows }
     }
     private var revisions: ChatRowRevisions {
         get { lookup.revisions }
-        set { lookup.revisions = newValue }
+        _modify { yield &lookup.revisions }
     }
     private var shownIDs: [String] = []
     /// Rows to reconfigure on the next reload although their content is the same (a code
@@ -559,6 +562,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// The main actor's time in `reload`, in all (the scroll-up bench, `chat_scroll_fill_ui`: a
     /// page that lands between two frames costs the frame after it).
     private(set) var reloadTime: Duration = .zero
+    /// The first reloads' main-actor times (ms), in order (tests: which reload of an open is long).
+    private(set) var reloadLog: [Double] = []
     /// Older history is read ahead as the reader scrolls (`readAheadIfNear`). Off, only the oldest
     /// row coming into view asks (`willDisplay`): the trigger before the read-ahead, which the
     /// scroll-up bench measures as its before.
@@ -567,6 +572,10 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// Rows a reload weighed in full: compared, estimated, given a layout item (tests: a token
     /// weighs the rows it changed, not every row of its turn).
     private(set) var rowsWeighed = 0
+    #if DEBUG
+    /// Why each row was weighed, `reason:kind`, in order (tests: what an open weighs twice).
+    var weighReasons: [String] = []
+    #endif
     /// Rows offered to the warm-up (tests: once each, not every row on every reload).
     private(set) var warmUpOffers = 0
     /// Snapshot applies by `reload` (tests: a token whose rows keep their ids applies none).
@@ -725,7 +734,36 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         var turns = Set<String>()
         for id in ids { if let row = rows[id] { turns.insert(row.turnID) } }
         guard !turns.isEmpty else { return }
-        for turn in turns { shownTurns[turn] = nil }
+        // Only the landed rows' items change (their estimate becomes the real height); the rest of
+        // each turn keeps its item. Dropping the turns' kept rows instead weighed every row of every
+        // landed turn again on the main thread: on open, one batch for the whole history, a frame
+        // over 100 ms in a 200-turn chat (`ChatOpenCostTests`).
+        let landed = Set(ids)
+        var unpatched = Set<String>()
+        for turn in turns {
+            guard var shown = shownTurns[turn] else { continue }
+            var whole = true
+            for (position, id) in shown.ids.enumerated() where landed.contains(id) {
+                guard let row = rows[id], lookup.eligible(row) else { continue }
+                let revision = revisions[id] ?? 0
+                let open = lookup.expanded(id)
+                guard shown.items[position].revision == revision else {
+                    whole = false
+                    break
+                }
+                // A layout for an older revision or disclosure state (the row changed while its batch was
+                // laid out, as an edit row does when its diff lands): the row keeps its item, and the
+                // layout queued for its current state patches it when it lands. Dropping the turn here
+                // weighed its every row again.
+                guard lookup.layouts.has(id, revision: revision, expanded: open) else { continue }
+                // Laid out as SwiftUI after all (math): it keeps its estimate, as a reload weighs it.
+                guard let height = lookup.layouts.height(id, revision: revision, expanded: open) else { continue }
+                shown.items[position].estimate = height
+                shown.items[position].exact = true
+            }
+            if whole { shownTurns[turn] = shown } else { unpatched.insert(turn) }
+        }
+        for turn in unpatched { shownTurns[turn] = nil }
         reload()
     }
 
@@ -836,7 +874,11 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
 
     func reload() {
         let reloadStart = ContinuousClock.now
-        defer { reloadTime += reloadStart.duration(to: .now) }
+        defer {
+            let took = reloadStart.duration(to: .now)
+            reloadTime += took
+            if reloadLog.count < 64 { reloadLog.append(Double(took.components.seconds) * 1000 + Double(took.components.attoseconds) / 1e15) }
+        }
         // A disclosure opened or closed, or a file was marked viewed: shown rows may change
         // their cell type or their drawing.
         let disclosures = surface.disclosures.revision
@@ -932,6 +974,17 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             // The turn as last shown: a row at the same place with the same content keeps its
             // layout item (a streamed token changes the answer's last block, not the ones above it).
             let previous = shownTurns[turn.turnID]
+            // A row the turn's change moved (its diff landed: the edited-files card goes in above
+            // the actions row) is found by its id: it keeps its item when its content is the same.
+            var previousIndex: [String: Int]?
+            func previousPosition(of id: String, at position: Int) -> Int? {
+                guard let previous else { return nil }
+                if position < previous.ids.count, previous.ids[position] == id { return position }
+                if previousIndex == nil {
+                    previousIndex = Dictionary(previous.ids.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+                }
+                return previousIndex?[id]
+            }
             for (position, var row) in turn.rows.enumerated() {
                 // Ids are unique by construction; a repeat from a misbehaving source still
                 // must not reach the snapshot (a duplicate identifier traps).
@@ -941,14 +994,23 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                     row.id = "\(row.id)~\(n)"
                     seen.insert(row.id)
                 }
-                if let previous, position < previous.rows.count, previous.ids[position] == row.id, previous.rows[position] == row,
+                if let previous, let was = previousPosition(of: row.id, at: position), previous.rows[was] == row,
                    rows[row.id] == row, !forced.contains(row.id), !prime.contains(row.id) {
                     turnIDs.append(row.id)
-                    turnItems.append(previous.items[position])
+                    turnItems.append(previous.items[was])
                     turnRows.append(row)
                     continue
                 }
                 rowsWeighed += 1
+                #if DEBUG
+                if weighReasons.count < 4000 {
+                    let was = previousPosition(of: row.id, at: position)
+                    let why = previous == nil ? "noPrevious" : was == nil ? "new"
+                        : previous?.rows[was ?? 0] != row ? "changed"
+                        : rows[row.id] != row ? "stale" : forced.contains(row.id) ? "forced" : "prime"
+                    weighReasons.append("\(why):\(row.costKind)")
+                }
+                #endif
                 weighed.append(row.id)
                 if rows[row.id] != row {
                     let isNew = rows[row.id] == nil

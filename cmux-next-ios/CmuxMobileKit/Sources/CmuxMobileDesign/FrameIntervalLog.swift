@@ -209,6 +209,11 @@ public final class FrameIntervalLog {
     private var cpuAtBegin: Double?
     private var cpuAtLastTick: Double?
     private var cpuPerFrame: [Double] = []
+    #if DEBUG
+    /// What the main thread did in the window's long frames (`MainThreadStallSampler`).
+    private var stalls: MainThreadStallSampler?
+    private var tickTimes: [CFTimeInterval] = []
+    #endif
     /// Called with every finished window (tests and drivers).
     public var onSummary: ((FrameIntervalStats) -> Void)?
 
@@ -230,6 +235,11 @@ public final class FrameIntervalLog {
         cpuPerFrame.reserveCapacity(4096)
         window = signposter.beginInterval("window", "\(label, privacy: .public)")
         token = FrameClock.shared.subscribe { [weak self] in self?.tick($0) }
+        #if DEBUG
+        tickTimes = []
+        stalls = MainThreadStallSampler()
+        stalls?.start()
+        #endif
     }
 
     /// Ends the window and returns its summary (nil when none was open).
@@ -250,6 +260,17 @@ public final class FrameIntervalLog {
             data.append(0x0A)
             FrameLogFile.append(data, to: Self.fileURL)
         }
+        #if DEBUG
+        if let stalls {
+            stalls.stop()
+            var ranges: [(CFTimeInterval, CFTimeInterval)] = []
+            for index in tickTimes.indices.dropFirst() where tickTimes[index] - tickTimes[index - 1] > 0.05 {
+                ranges.append((tickTimes[index - 1], tickTimes[index]))
+            }
+            stalls.report(label: label, ranges: ranges, log: log)
+        }
+        stalls = nil
+        #endif
         onSummary?(stats)
         return stats
     }
@@ -261,6 +282,10 @@ public final class FrameIntervalLog {
         if let lastTimestamp {
             let interval = tick.timestamp - lastTimestamp
             intervals.append(interval)
+            #if DEBUG
+            if tickTimes.isEmpty { tickTimes.append(lastTimestamp) }
+            tickTimes.append(tick.timestamp)
+            #endif
             if let cpu, let cpuAtLastTick { cpuPerFrame.append(cpu - cpuAtLastTick) }
             signposter.emitEvent("frame", "\(interval * 1000, format: .fixed(precision: 2), privacy: .public)")
         }
