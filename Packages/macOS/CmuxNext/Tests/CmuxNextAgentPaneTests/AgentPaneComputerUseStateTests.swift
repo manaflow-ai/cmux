@@ -1,28 +1,13 @@
 import Testing
 @testable import CmuxNextAgentPane
 
-/// The composer's `@computer-use` (CMUX-682): the page asks whether Computer Use is set up
-/// (`chat.computerUse.state`) and, when it is not, offers Set Up Computer Use, which opens the
-/// onboarding step on the person's own click in the pane.
+/// The composer's `@computer-use` (CMUX-682): the App pushes Computer Use's state to every page as it
+/// changes (`computerUseState`), so a send decides on it at once; when it is not ready, Set Up Computer
+/// Use opens the onboarding step on the person's own key press or click in the pane.
 @MainActor
 struct AgentPaneComputerUseStateTests {
     private actor NoHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
-    }
-
-    private static let ask: [String: Any] = ["method": "chat.computerUse.state", "params": [String: Any]()]
-
-    @Test func thePageReadsTheAppsAnswerAndAnOldHostSaysUnsupported() async {
-        let model = AgentPaneModel(host: NoHost())
-        let unanswered = await model.respond(to: AgentPaneRequest(body: Self.ask))
-        #expect(unanswered["ok"] as? Bool != true, "no App answer: the page holds nothing")
-        for state in [AgentPaneComputerUseState.ready, .starting, .needsSetup, .disabled] {
-            model.onComputerUseState = { state }
-            let reply = await model.respond(to: AgentPaneRequest(body: Self.ask))
-            #expect(reply["ok"] as? Bool == true)
-            #expect((reply["value"] as? [String: Any])?["state"] as? String == state.rawValue)
-        }
-        #expect(AgentPaneComputerUseState.needsSetup.rawValue == "needs_setup")
     }
 
     @Test func theSetupPhaseMapsToWhatThePageHolds() {
@@ -35,8 +20,25 @@ struct AgentPaneComputerUseStateTests {
         }
     }
 
-    @Test func paramsAreRefused() {
-        let request = AgentPaneRequest(body: ["method": "chat.computerUse.state", "params": ["state": "ready"]])
+    @Test func thePageGetsTheStateAsItsRawValueAndNullWhileUnknown() {
+        #expect(AgentPageEvent.computerUseState(.needsSetup).kind == "computerUseState")
+        #expect(AgentPageEvent.computerUseState(.needsSetup).value == .string("needs_setup"))
+        #expect(AgentPageEvent.computerUseState(.ready).value == .string("ready"))
+        #expect(AgentPageEvent.computerUseState(nil).value == .null)
+    }
+
+    @Test func theFollowerKeepsTheLatestState() {
+        let follower = AgentPaneComputerUse(read: nil)
+        #expect(follower.state == nil)
+        follower.set(.needsSetup)
+        #expect(follower.state == .needsSetup)
+        follower.set(.ready)
+        #expect(follower.state == .ready)
+    }
+
+    @Test func thePaneNoLongerAnswersAStateQuery() {
+        // The page no longer asks: the state comes as a push.
+        let request = AgentPaneRequest(body: ["method": "chat.computerUse.state", "params": [String: Any]()])
         #expect(request == .unsupported("chat.computerUse.state"))
     }
 

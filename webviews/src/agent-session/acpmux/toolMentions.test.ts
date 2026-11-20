@@ -23,6 +23,9 @@ test("a message names a tool as its own @word outside code, once, in menu order"
   expect(toolMentionsIn("```\n@browser-use\n```")).toEqual([]);
   expect(toolMentionsIn("mail me@computer-use.dev")).toEqual([]);
   expect(toolMentionsIn("@computer-user")).toEqual([]);
+  // A double-backtick code span is code too, and emphasis then letters is another word.
+  expect(toolMentionsIn("run `` a `@computer-use` b `` now")).toEqual([]);
+  expect(toolMentionsIn("see @computer-use_notes and @browser-use**x")).toEqual([]);
   // Markdown's emphasis around it is no part of the word.
   expect(toolMentionsIn("use **@computer-use** now and _@browser-use_")).toEqual(["computer-use", "browser-use"]);
   // A file named after it is a file; a sentence's full stop still ends the mention.

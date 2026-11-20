@@ -276,10 +276,10 @@ export function mentionItems({
           ...matchRuns(file.path, file.matches),
         })),
       ];
-  if (/[./]/.test(text)) return [...paths, ...harnessRows, ...toolRows];
-  // The plugins lead the paths, typed word or not, as Codex's @ lists them first (Lucas 2026-11-21):
-  // files follow, and a word specific enough to name no plugin lists only them.
-  return [...harnessRows, ...toolRows, ...paths];
+  if (/[./]/.test(text)) return [...paths, ...toolRows, ...harnessRows];
+  // The plugins lead, typed word or not, as Codex's @ lists them first (Lucas 2026-11-21): `@c` is
+  // Computer Use before a guest harness; files follow, and a word that names no plugin lists only them.
+  return [...toolRows, ...harnessRows, ...paths];
 }
 
 /// The row Return or Tab picks: the one the person moved to (by key, so it stays put when the

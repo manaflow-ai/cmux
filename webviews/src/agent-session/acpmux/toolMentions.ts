@@ -10,7 +10,7 @@
 //
 // l10n-allow-file: the notes are text for the agent, not the person, so they are not localized.
 import type { StringKey, Translate } from "./i18n";
-import type { SlashCommand } from "./slashCommands";
+import { codeSpans, type SlashCommand } from "./slashCommands";
 
 export type ToolMentionId = "computer-use" | "browser-use";
 
@@ -92,11 +92,17 @@ export function toolSlashCommands(t: Translate): SlashCommand[] {
 /// fenced block or an inline span is literal text, never a mention), in menu order.
 export function toolMentionsIn(text: string): readonly ToolMentionId[] {
   if (!text.includes("@") && !text.includes("$")) return [];
-  const outsideCode = text.replace(/(```|~~~)[\s\S]*?(?:\1|$)|`[^`\n]*`/g, (code) => code.replace(/[^\n]/g, " "));
+  const blank = (code: string) => code.replace(/[^\n]/g, " ");
+  // Code is literal text: fenced blocks, then inline spans as CommonMark reads them (`` ` `` runs too).
+  let outsideCode = text.replace(/(```|~~~)[\s\S]*?(?:\1|$)/g, blank);
+  for (const span of codeSpans(outsideCode))
+    outsideCode =
+      outsideCode.slice(0, span.start) + blank(outsideCode.slice(span.start, span.end)) + outsideCode.slice(span.end);
   const found = new Set<string>();
-  // Markdown's emphasis around it (`**@computer-use**`) is no part of the word: the badge drew it the same.
+  // Markdown's emphasis around it (`**@computer-use**`) is no part of the word, the badge drew it the
+  // same; emphasis then more letters (`@computer-use_notes`) is another word.
   for (const match of outsideCode.matchAll(
-    /(^|[\s\uFFFC*_~])[@$](computer-use|browser-use)(?=[\s\uFFFC*_~]|$|[,;:!?)]|\.(?:\s|$))/gi,
+    /(^|[\s\uFFFC])[*_~]*[@$](computer-use|browser-use)(?=[*_~]*(?:[\s\uFFFC]|$|[,;:!?)]|\.(?:\s|$)))/gi,
   ))
     found.add(match[2]!.toLowerCase());
   return TOOL_MENTIONS.filter((tool) => found.has(tool.id)).map((tool) => tool.id);

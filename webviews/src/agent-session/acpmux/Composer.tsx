@@ -265,10 +265,6 @@ export type ComposerHandle = {
   /// Sends what is typed now, as Enter would, even while a trust `blocked` reason is still drawn
   /// (the user just answered Trust). A pending folder choice still holds it. False when nothing went.
   send(): boolean;
-  /// Sends what is typed now exactly as Enter (or ⌘Return, `steer`) did a moment ago: a send the pane held
-  /// for a check (App.tsx `computerUseLets`) goes on once it passed. Every hold applies again. False when
-  /// nothing went.
-  resend(steer: boolean): boolean;
   /// Puts the caret in the prompt (Edit and Resend).
   focus(): void;
   /// Starts the prompt with `prefix` (the palette's Side Question writes `/btw `), keeping what is
@@ -325,9 +321,6 @@ type Props = {
   /// Binds the person's current key press or click to one prompt (`transport.gesture`), for a send
   /// the composer holds until its files are ready (attachmentIntake.tsx `useSendWhenAttached`).
   onBindSendGesture?(): SendGesture | undefined;
-  /// A built-in tool picked from the @ menu (toolMentions.ts): the pane reads Computer Use's state
-  /// again, so the send that follows holds or goes on a fresh answer.
-  onToolMention?(): void;
   /// Binds the person's key press or click to `/side`'s prompt, held for its files, bound to no chat:
   /// the side chat it goes to does not exist yet (#40066). The prompt redeems it by its prompt id.
   onBindSideGesture?(): SendGesture | undefined;
@@ -548,7 +541,6 @@ function ComposerFrame({
   turnQueue,
   chips: Chips,
   onSend,
-  onToolMention,
   onBindSendGesture,
   onBindSideGesture,
   transcriptFollowing,
@@ -1079,7 +1071,6 @@ function ComposerFrame({
         for (const id of ids) field.current?.removeInline(id);
       },
       send: () => submitNow.current(true),
-      resend: (steer) => submitNow.current(false, steer),
       focus: () => field.current?.focus(),
       prefill(prefix) {
         const typed = (field.current?.value() ?? textRef.current).trimStart();
@@ -1533,7 +1524,6 @@ function ComposerFrame({
   /// Writes the picked chat, folder or file over the `@word` being typed.
   const pickMention = (item: MentionItem) => {
     if (!mentionAt) return;
-    if (item.kind === "tool") onToolMention?.();
     rememberMentionPath(recentScope, item);
     const { markdown, shown } = mentionInsert(item);
     // Markdown doesn't show trailing whitespace, so what follows an end-of-prompt caret is dropped.

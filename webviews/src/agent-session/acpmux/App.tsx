@@ -265,7 +265,12 @@ import {
 } from "./computerUse/computerUsePreview";
 import { ComputerUsePreviewCard } from "./computerUse/ComputerUsePreviewCard";
 import { ComputerUseSetupNotice } from "./computerUse/ComputerUseSetupNotice";
-import { computerUseGate, holdsForComputerUse, useComputerUseState } from "./computerUse/computerUseState";
+import {
+  computerUseGate,
+  computerUseState,
+  holdsForComputerUse,
+  useComputerUseState,
+} from "./computerUse/computerUseState";
 import { toolMentionsIn, toolSlashCommands } from "./toolMentions";
 import { askOnSingleCard, cardTakesShortcuts, heldOnCard } from "./permissionKeys";
 import { agentName } from "./agents";
@@ -1906,28 +1911,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const computerUse = useComputerUseState();
   const [computerUseAsked, setComputerUseAsked] = useState(false);
   // Set up since (in onboarding, then back here): the notice has nothing left to say.
-  const computerUseAsk = computerUseAsked && holdsForComputerUse(computerUse.state) ? computerUse.state : undefined;
+  const computerUseAsk = computerUseAsked && holdsForComputerUse(computerUse) ? computerUse : undefined;
   const setUpComputerUse = () => {
     setComputerUseAsked(false);
-    computerUse.setupRan();
     void callNative("action.run", { id: "palette.computerUse.setup" }).catch(sayActionRefusal(notices.transient));
   };
-  /// Whether a send of `text` from this Mac waits for Computer Use setup (`@computer-use` with the last
-  /// answer `needs_setup` or `disabled`). Not set up: the send's own Enter or click opens the Computer
-  /// Use setup page (Lucas 2026-11-21: "when they hit send, we want to show the computer use setup
-  /// page"), the message stays, and the page reads the state again once it is back in front. Turned
-  /// off by the organization, or a host that did not open the page: the chat's notice says why.
-  /// Whether `text` may go now (`@computer-use` decided on a fresh answer, never a remembered one:
-  /// Computer Use may have been turned off, or set up, since the last read). Not ready: the send's own
-  /// key press or click opens the setup page (its one grant credit, unspent: nothing was sent); turned
-  /// off by the organization, or a host that did not open the page: the chat says why, and `toast`
-  /// too where no notice slot shows (New Tab). An app too old to answer: it goes.
-  const computerUseLets = async (text: string, toast = false): Promise<boolean> => {
-    const gate = computerUseGate(text, await computerUse.refresh());
-    if (gate === "free") {
-      setComputerUseAsked(false);
-      return true;
-    }
+  /// Whether a send of `text` from this Mac waits for Computer Use (`@computer-use` while the app's
+  /// latest push, `computerUseState()`, is not `ready`; decided at once, never on an answer still on
+  /// its way). Not set up: the send's own Enter or click opens the setup page (Lucas 2026-11-21: "when
+  /// they hit send, we want to show the computer use setup page"; its one grant credit, unspent, since
+  /// nothing was sent), and the message stays. Turned off by the organization, or a host that did not
+  /// open the page: the chat says why, and `toast` too where no notice slot shows (New Tab).
+  const holdsForComputerUseSetup = (text: string, toast = false): boolean => {
+    const gate = computerUseGate(text, computerUseState());
+    if (gate === "free") return false;
     const say = () => {
       setComputerUseAsked(true);
       if (toast)
@@ -1939,13 +1936,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (gate === "notice") say();
     else {
       setComputerUseAsked(false);
-      computerUse.setupRan();
       void callNative("action.run", { id: "palette.computerUse.setup" }).catch(say);
     }
-    return false;
+    return true;
   };
-  /// The draft the composer sends again once its fresh check let it go (`computerUseLets`).
-  const computerUseLet = useRef<string | undefined>(undefined);
   /// The pane's connected clients, one after another: a prompt a connection lost waits on the next
   /// one for the host's journal to send it again there (lostPrompt.ts).
   const [connectedClients] = useState(() => clientWaiter<AcpmuxDirectClient>());
@@ -9807,19 +9801,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // `splitRight`: `/side`'s, always a new split right of the chat (the menu's keeps the right
           // column's placement, AgentSidePanes).
           "chat.side": async ({ throughSeq, live, prompt, splitRight, attachments, gesture }) => {
-            // The chat it is beside, read before anything waits (the reader may open another chat meanwhile).
-            const chat = client.selectedSession;
-            // `/side` with `@computer-use` from this Mac forks nothing until a fresh read of Computer Use
-            // lets it (`computerUseLets`); held, the composer keeps `/side <prompt>` and says why. A chat
-            // switched to during the read is not forked in its place.
+            // `/side` with `@computer-use` from this Mac forks nothing while Computer Use is not ready
+            // (`holdsForComputerUseSetup`, decided at once); held, the composer keeps `/side <prompt>`.
             if (
               !snapshotRef.current?.sideChatOnMachine &&
               typeof prompt === "string" &&
-              toolMentionsIn(prompt).includes("computer-use")
-            ) {
-              if (!(await computerUseLets(prompt))) throw new Error(translate("computerUseSetup.title"));
-              if (client.selectedSession !== chat) throw new Error(translate("error.notOpen"));
-            }
+              holdsForComputerUseSetup(prompt)
+            )
+              throw new Error(translate("computerUseSetup.title"));
+            // The chat it is beside, read before the fork (the reader may open another chat meanwhile).
+            const chat = client.selectedSession;
             const split = splitRight === true ? { split: "right" } : {};
             // `/side`'s staged files (in-page only; the app's own calls name none): the side chat's
             // first prompt carries them, as a send does (#40066).
@@ -11640,16 +11631,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const start = (folder?: string) =>
       void (async () => {
         if (!isCurrent()) return;
-        // `@computer-use` from this Mac starts only on a fresh read of Computer Use (`computerUseLets`):
-        // held, nothing starts and the page keeps its text.
-        if (
-          text &&
-          !directClient.current?.startsOnSend &&
-          toolMentionsIn(text).includes("computer-use") &&
-          !(await computerUseLets(text, true))
-        )
-          return;
-        if (!isCurrent()) return;
+        // `@computer-use` from this Mac starts nothing while Computer Use is not ready
+        // (`holdsForComputerUseSetup`, decided at once): the page keeps its text.
+        if (text && !directClient.current?.startsOnSend && holdsForComputerUseSetup(text, true)) return;
         // A chat on another machine starts only with a send (cx-k21v): with no text, the folder
         // waits for the first send.
         if (folder && !text && directClient.current?.startsOnSend) {
@@ -12972,7 +12956,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               return client && bindsHeldSendNow(route) ? client.bindSendGesture() : undefined;
             }}
             transcriptFollowing={transcriptFollowing}
-            onToolMention={() => void computerUse.refresh()}
             onSend={(text, chips, steer, gesture) => {
               // A Sandboxed new chat: the message runs once on a throwaway VM, through the
               // host, and the chat shows its receipt; no acpmux chat starts.
@@ -12992,21 +12975,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 !snapshot.summary?.host &&
                 !machinePeer &&
                 !snapshot.summary?.peer;
-              if (onThisMac && toolMentionsIn(text).includes("computer-use") && computerUseLet.current !== text) {
-                // Held while the state is read; the composer keeps the draft and sends it again, the way it
-                // was sent (a steer stays one), only if neither the draft nor the chat changed meanwhile.
-                const heldDraft = composerHandle.current?.draftText();
-                const heldChat = directClient.current?.selectedSession;
-                void computerUseLets(text).then((go) => {
-                  const handle = composerHandle.current;
-                  if (!go || !handle || handle.draftText() !== heldDraft) return;
-                  if (directClient.current?.selectedSession !== heldChat) return;
-                  computerUseLet.current = text;
-                  handle.resend(steer === true);
-                });
-                return false;
-              }
-              computerUseLet.current = undefined;
+              if (onThisMac && holdsForComputerUseSetup(text)) return false;
               setComputerUseAsked(false);
               if (cloudPicked) {
                 // The project picked for this chat, else the folder the chip names, copied to the machine; none: the
@@ -14132,8 +14101,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       chatCwd: startFolder,
                       requestFolder,
                       startsHere: () => !directClient.current?.startsOnSend,
-                      letsSend: (text) =>
-                        toolMentionsIn(text).includes("computer-use") ? computerUseLets(text, true) : undefined,
+                      holdsSend: (text) => holdsForComputerUseSetup(text, true),
                       // A start belongs to this New Tab visit. Cmd-T adoption, chat selection,
                       // or another start advances the marker and fences every late completion.
                       // Harness starts may reconnect their client while the queued prompt waits;

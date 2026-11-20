@@ -43,10 +43,6 @@ ALLOWED_LISTENERS = {
     (f"{ACPMUX}/App.tsx", "visibilitychange"): "harness health re-reads only after a Log In ran "
     "in a terminal (`healthStale`)",
     (f"{ACPMUX}/App.tsx", "focus"): "harness health, as above",
-    (f"{ACPMUX}/computerUse/computerUseState.ts", "visibilitychange"): "re-reads the Computer Use "
-    "state once, only after the person pressed Set Up Computer Use (`stale`, as harness health "
-    "after a Log In); a switch with no setup run reads nothing",
-    (f"{ACPMUX}/computerUse/computerUseState.ts", "focus"): "Computer Use state, as above",
     (f"{ACPMUX}/header/worktreePillModel.ts", "visibilitychange"): "the worktree pill reads "
     "`git.status` as the page shows only when a read came due while it was hidden (its chat started "
     "or ended a turn, or came back to a folder: the one read it held back, `owed`); a switch away "

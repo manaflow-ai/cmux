@@ -161,7 +161,6 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .paneNoticeAction: "paneNoticeAction"
         case .toolCard: "toolCard"
         case .computerUsePreview: "computerUsePreview"
-        case .computerUseState: "computerUseState"
         case .upload: "upload"
         case .uploadStage: "uploadStage"
         case .uploadStageForSend: "uploadStageForSend"

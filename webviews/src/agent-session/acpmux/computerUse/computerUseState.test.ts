@@ -1,19 +1,35 @@
-// What the app says of Computer Use (`chat.computerUse.state`), and which answers hold a send that
-// names @computer-use (CMUX-682).
+// Computer Use on this Mac, as the app pushes it (`computerUseState` event), and what a send that
+// names @computer-use does with it (CMUX-682): decided at once on the latest push, never on an answer
+// still on its way.
 import { expect, test } from "bun:test";
-import { computerUseGate, holdsForComputerUse, readComputerUseState } from "./computerUseState";
+import {
+  computerUseGate,
+  computerUseState,
+  holdsForComputerUse,
+  readComputerUseState,
+  setComputerUseState,
+} from "./computerUseState";
 
 test("only the app's four answers are read; anything else is unknown", () => {
-  expect(readComputerUseState({ state: "ready" })).toBe("ready");
-  expect(readComputerUseState({ state: "starting" })).toBe("starting");
-  expect(readComputerUseState({ state: "needs_setup" })).toBe("needs_setup");
-  expect(readComputerUseState({ state: "disabled" })).toBe("disabled");
-  expect(readComputerUseState({ state: "off" })).toBeUndefined();
-  expect(readComputerUseState("ready")).toBeUndefined();
+  expect(readComputerUseState("ready")).toBe("ready");
+  expect(readComputerUseState("starting")).toBe("starting");
+  expect(readComputerUseState("needs_setup")).toBe("needs_setup");
+  expect(readComputerUseState("disabled")).toBe("disabled");
+  expect(readComputerUseState("off")).toBeUndefined();
+  expect(readComputerUseState({ state: "ready" })).toBeUndefined();
   expect(readComputerUseState(null)).toBeUndefined();
 });
 
-test("a send goes only when Computer Use is ready; an app that cannot answer sends", () => {
+test("the latest push is the state a send reads", () => {
+  setComputerUseState("needs_setup");
+  expect(computerUseState()).toBe("needs_setup");
+  setComputerUseState("ready");
+  expect(computerUseState()).toBe("ready");
+  setComputerUseState(null);
+  expect(computerUseState()).toBeUndefined();
+});
+
+test("a send waits only while not ready; an app that cannot answer sends", () => {
   expect(holdsForComputerUse("needs_setup")).toBe(true);
   expect(holdsForComputerUse("disabled")).toBe(true);
   expect(holdsForComputerUse("starting")).toBe(true);
@@ -27,11 +43,8 @@ test("a send naming @computer-use goes only when ready; otherwise setup opens, o
   expect(computerUseGate(text, "needs_setup")).toBe("setup");
   expect(computerUseGate(text, "starting")).toBe("setup");
   expect(computerUseGate(text, "disabled")).toBe("notice");
-  // An app too old to answer: nothing to check, so it sends.
   expect(computerUseGate(text, undefined)).toBe("free");
-  // No @computer-use (browser use, code, a file named after it): never held.
   for (const other of ["check it with @browser-use", "run `@computer-use`", "read @computer-use.md"])
     expect(computerUseGate(other, "needs_setup")).toBe("free");
-  // Codex's $ mark counts too.
   expect(computerUseGate("open it with $computer-use", "needs_setup")).toBe("setup");
 });

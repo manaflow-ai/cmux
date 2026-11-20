@@ -413,8 +413,8 @@ public final class AgentPaneModel {
     /// The chat's live preview card (``AgentPaneComputerUsePreview``), and the App's answer to a click on it (its session).
     @ObservationIgnored public internal(set) var computerUsePreview: AgentPaneComputerUsePreview?
     @ObservationIgnored public var onComputerUsePreview: (@MainActor (_ session: String, _ action: AgentPaneComputerUsePreview.Action) -> Void)?
-    /// Whether computer use is set up on this Mac (``AgentPaneComputerUseState``); nil: the App gives no answer.
-    @ObservationIgnored public var onComputerUseState: (@MainActor () -> AgentPaneComputerUseState?)?
+    /// Computer Use's state for this pane's page (``AgentPaneComputerUse``, the App's one); nil (tests): none.
+    @ObservationIgnored var computerUse: AgentPaneComputerUse?
     /// The App's upload for this chat (a chat moved to a Cloud machine), nil when it takes none (``AgentPaneUpload``).
     @ObservationIgnored public var onUpload: (@MainActor () -> AgentPaneUploader?)?
     @ObservationIgnored public var onUploadStage: (@MainActor () -> AgentPaneUploadStager?)?
@@ -953,7 +953,6 @@ public final class AgentPaneModel {
         case .paneNoticeAction(let id): return paneNoticeAction(id, userGesture: userGesture)
         case .toolCard(let card, let action, let value): return AgentPaneToolCard.respond(card: card, action: action, value: value, in: self)
         case .computerUsePreview(let action): return AgentPaneComputerUsePreview.respond(action, in: self)
-        case .computerUseState: return AgentPaneComputerUseState.reply(onComputerUseState?() ?? nil)
         case .upload(let files): return await AgentPaneUpload.respond(files, in: self)
         case .uploadStage(let stage):
             // A chat with no session yet (a new chat, the New Tab page) stages too: its stager says

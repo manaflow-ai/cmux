@@ -458,9 +458,6 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case toolCard(card: String, action: String, value: AgentPaneToolCard.Entered?)
     /// `chat.computerUsePreview {action}`: a click on the live preview card (``AgentPaneComputerUsePreview``).
     case computerUsePreview(AgentPaneComputerUsePreview.Action)
-    /// `chat.computerUse.state`: whether computer use is set up on this Mac, for the composer's
-    /// `@computer-use` (``AgentPaneComputerUseState``).
-    case computerUseState
     /// `chat.upload {files: [{name, data}]}`: files the person dropped or pasted, for the chat's Cloud machine (``AgentPaneUpload``).
     case upload([AgentPaneUpload])
     case uploadStage(AgentPaneUploadStageRequest)

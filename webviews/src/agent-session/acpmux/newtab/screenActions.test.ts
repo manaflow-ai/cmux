@@ -103,10 +103,9 @@ test("every pick from the field opens in the page's tab, never a split; Option-R
   ]);
 });
 
-test("a send held for the Computer Use check starts nothing once the visit changed meanwhile", async () => {
+test("a send held for Computer Use starts nothing and keeps the prompt", async () => {
   const calls: string[] = [];
-  let release!: (go: boolean) => void;
-  let generation = 0;
+  const asked: string[] = [];
   const actions = newTabScreenActions({
     callNative: async (method) => {
       calls.push(method);
@@ -116,16 +115,13 @@ test("a send held for the Computer Use check starts nothing once the visit chang
     selectSession: () => {},
     showAllChats: () => {},
     runShell: () => {},
-    startScope: () => {
-      const mine = ++generation;
-      return () => generation === mine;
+    holdsSend: (text) => {
+      asked.push(text);
+      return true;
     },
-    letsSend: () => new Promise<boolean>((resolve) => (release = resolve)),
   });
   const sent = actions.onAsk("claude", "open the settings app with @computer-use", undefined, undefined, true);
-  // Another start (another chat, Cmd-T adoption) takes the visit while the check is out.
-  generation += 1;
-  release(true);
   await expect(sent).rejects.toBeDefined();
+  expect(asked).toEqual(["open the settings app with @computer-use"]);
   expect(calls).toEqual([]);
 });

@@ -305,3 +305,10 @@ test("the file search says nothing under rows that work: no error under a plugin
   await render(container, [], [], { kind: "failed" });
   expect(note()?.textContent).not.toContain("Couldn't");
 });
+
+test("a plugin leads a guest harness the same word names: `@c` is Computer Use first", () => {
+  const catalog = [{ id: "codex", name: "Codex", models: [], pickable: true, family: "codex" }];
+  const keys = mentionItems({ query: "c", files: [], harnesses: catalog }).map((item) => item.key);
+  expect(keys).toEqual(["tool:computer-use", "harness:codex"]);
+  expect(mentionSelection(mentionItems({ query: "c", files: [], harnesses: catalog }), undefined)).toBe(0);
+});
