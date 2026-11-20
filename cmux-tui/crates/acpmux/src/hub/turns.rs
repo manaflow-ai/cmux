@@ -544,7 +544,8 @@ impl Hub {
             }
             let input: crate::forum::work::Input = serde_json::from_str(wire)
                 .map_err(|e| RpcError::invalid_params(format!("forum.bad_post: {e}")))?;
-            let provenance = opts.provenance.clone().unwrap_or(Value::Null);
+            let provenance =
+                self.typed_work_provenance(opts.provenance.clone().unwrap_or(Value::Null));
             let recipient = session.id.clone();
             let hub = self.clone();
             let receipt = tokio::task::spawn_blocking(move || {
@@ -2806,6 +2807,92 @@ impl Hub {
         if session.status() != SessionStatus::Closed {
             self.set_status(session, SessionStatus::Idle);
         }
+    }
+}
+
+impl Hub {
+    /// Add the daemon-authenticated author projection to a typed work post.
+    ///
+    /// `fromSessionId` is stamped by the request path and is the only sender identity this
+    /// projection trusts. A local sender must also carry the daemon's `verified` bit. Peer and
+    /// carrier sends are resolved through a unique mirrored row, so a bare UUID can never pick a
+    /// local session by accident. Declared labels (`source`, `fromAgent`, `fromName`, and
+    /// `fromRelay`) are intentionally ignored.
+    fn typed_work_provenance(&self, mut provenance: Value) -> Value {
+        let Some(sender_id) = crate::prompt_provenance::sender_of(Some(&provenance)).0 else {
+            return provenance;
+        };
+        let transport = provenance
+            .get(crate::prompt_provenance::TRANSPORT)
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+
+        let author = if matches!(transport, "peer" | "carrier") {
+            self.remote_author(&sender_id)
+        } else if matches!(transport, "unix" | "app")
+            && provenance.get(crate::prompt_provenance::VERIFIED).and_then(Value::as_bool)
+                == Some(true)
+        {
+            self.local_author(&sender_id)
+        } else {
+            None
+        };
+        if let Some(author) = author
+            && let Some(fields) = provenance.as_object_mut()
+        {
+            fields.insert("author".to_owned(), author);
+        }
+        provenance
+    }
+
+    fn local_author(&self, sender_id: &str) -> Option<Value> {
+        let session = self.resolve(sender_id).ok().filter(|session| session.id == sender_id)?;
+        let meta = session.meta();
+        let mut author = serde_json::Map::new();
+        author.insert("kind".to_owned(), Value::String("agent".to_owned()));
+        author.insert("sessionId".to_owned(), Value::String(session.id.clone()));
+        // Spoken handles are durable tags. The handles module adds deterministic fallbacks for
+        // old sessions; the parent integration wires that helper when it is available.
+        if let Some(handle) = meta
+            .tags
+            .get("acpmux.spokenHandle")
+            .map(|tag| tag.value.clone())
+            .filter(|value| !value.is_empty())
+        {
+            author.insert("handle".to_owned(), Value::String(handle));
+        }
+        author.insert("name".to_owned(), Value::String(meta.name));
+        Some(Value::Object(author))
+    }
+
+    fn remote_author(&self, sender_id: &str) -> Option<Value> {
+        let rows = self.remote_sessions.read();
+        let mut matches = rows
+            .values()
+            .filter(|row| row.receipt.mux_session_id == sender_id)
+            .map(|row| &row.summary)
+            .filter_map(|summary| {
+                let name = summary.value().get("name").and_then(Value::as_str).map(str::to_owned);
+                let handle =
+                    summary.value().get("spokenHandle").and_then(Value::as_str).map(str::to_owned);
+                Some((handle, name))
+            });
+        let (handle, name) = matches.next()?;
+        // A UUID may be present on more than one peer. Without the originating peer in the
+        // stamped provenance, refusing an ambiguous match is safer than attributing it wrongly.
+        if matches.next().is_some() {
+            return None;
+        }
+        let mut author = serde_json::Map::new();
+        author.insert("kind".to_owned(), Value::String("agent".to_owned()));
+        author.insert("sessionId".to_owned(), Value::String(sender_id.to_owned()));
+        if let Some(handle) = handle.filter(|value| !value.is_empty()) {
+            author.insert("handle".to_owned(), Value::String(handle));
+        }
+        if let Some(name) = name.filter(|value| !value.is_empty()) {
+            author.insert("name".to_owned(), Value::String(name));
+        }
+        Some(Value::Object(author))
     }
 }
 
