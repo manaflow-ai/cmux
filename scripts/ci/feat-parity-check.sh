@@ -66,6 +66,7 @@ case "$mode" in
 esac
 case "$mode" in
   clippy-changed | react-doctor) [[ "$workspace" =~ ^[0-9a-f]{40}$ ]] || usage ;;
+  rust-workspace | swift-portable | sdk-rust | sdk-msrv | cef-shim-cpp | web | notices) ;;
   *) usage ;;
 esac
 umask 022
@@ -294,10 +295,15 @@ fi
 # change is compared with (the pull request's base tip; its merge base with HEAD when the
 # checkout can reach it), and runs its workflow job's own commands.
 required_base() { # BASE: fetch it when the checkout lacks it, then print the merge base (or BASE)
-  local base="$1" depth=()
+  local base="$1" depth=() remote
   [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=200)
+  if git -C "$root" remote get-url origin >/dev/null 2>&1; then
+    remote=origin
+  else
+    remote="${CMUX_CI_BASE_REMOTE:-https://github.com/manaflow-ai/cmux.git}"
+  fi
   git -C "$root" cat-file -e "$base^{commit}" 2>/dev/null \
-    || git -C "$root" fetch --quiet --no-tags ${depth[@]+"${depth[@]}"} origin "$base" 2>/dev/null \
+    || git -C "$root" fetch --quiet --no-tags ${depth[@]+"${depth[@]}"} "$remote" "$base" 2>/dev/null \
     || echo "base: cannot fetch $base" >&2
   git -C "$root" merge-base "$base" HEAD 2>/dev/null || echo "$base"
 }

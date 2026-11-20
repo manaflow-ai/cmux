@@ -35,8 +35,11 @@ STUB
 chmod +x "$TMP/bin/"*
 # A checkout with every input the modes read.
 W="$TMP/work"
-mkdir -p "$W/.github/workflows" "$W/Packages/Shared/Port/Tests" "$W/Packages/Shared/NoTests" "$W/.github/scripts" "$W/crates/ws" "$W/crates/pinned" "$W/crates/off" "$W/cmux-tui" "$W/scripts/cmux-next" "$W/web/scripts"
+mkdir -p "$W/.github/workflows" "$W/Packages/Shared/Port/Tests" "$W/Packages/Shared/NoTests" "$W/.github/scripts" "$W/crates/ws" "$W/crates/pinned" "$W/crates/off" "$W/cmux-tui" "$W/scripts/cmux-next" "$W/scripts/ci" "$W/scripts/react-doctor" "$W/tests" "$W/web/scripts"
 cp "$ROOT/.github/scripts/rust-workspaces.py" "$W/.github/scripts/"
+cp "$ROOT/scripts/ci/react_doctor_gate.py" "$ROOT/scripts/ci/react-doctor-baseline.json" "$W/scripts/ci/"
+cp "$ROOT/scripts/react-doctor/package.json" "$W/scripts/react-doctor/"
+cp "$ROOT/tests/test_react_doctor_gate.py" "$W/tests/"
 cat >"$W/.github/rust-workspaces.toml" <<'TOML'
 [[workspace]]
 root = "crates/ws"
@@ -82,6 +85,11 @@ mkdir -p "$W/webviews"
 printf '{"devEngines": {"packageManager": {"name": "bun", "version": "1.4.4"}}}\n' >"$W/webviews/package.json"
 chmod +x "$W"/scripts/cmux-next/*.sh "$W/web/scripts/run-tests.sh"
 git -C "$W" init -q && git -C "$W" add -A && git -C "$W" -c user.email=t@t -c user.name=t commit -qm fixture
+BASE_REMOTE="$TMP/base.git"
+BASE_SHA=$(git -C "$W" rev-parse HEAD)
+git clone -q --bare "$W" "$BASE_REMOTE"
+printf 'base-resolution\n' >"$W/base-resolution.txt"
+git -C "$W" add base-resolution.txt && git -C "$W" -c user.email=t@t -c user.name=t commit -qm head
 run() { (cd "$W" && env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" "$@" /bin/bash "$SCRIPT" "${ARGS[@]}") 2>&1; }
 calls() { cat "$TMP/calls" 2>/dev/null || true; }
 
@@ -133,6 +141,14 @@ ARGS=(rust-workspace)
 run CMUX_CI_STEP_KEY=k >/dev/null && fail "rust-workspace ran with no root"
 grep -q '^cargo' "$TMP/calls" 2>/dev/null && fail "cargo ran for a refused root: $(calls)"
 rm -f "$TMP/calls"
+
+# react-doctor BASE: the fleet worker checkout has no origin, so fetch the base
+# through the controller-provided repository remote before diffing the head.
+ARGS=(react-doctor "$BASE_SHA")
+out=$(run CMUX_CI_STEP_KEY=k CMUX_CI_BASE_REMOTE="$BASE_REMOTE") || fail "react-doctor without origin refused: $out"
+grep -q "^base: $BASE_SHA$" <<<"$out" || fail "react-doctor did not resolve the fetched base: $out"
+grep -q 'feat-parity-check: green' <<<"$out" || fail "react-doctor without origin was not green: $out"
+git -C "$W" cat-file -e "$BASE_SHA^{commit}" || fail "react-doctor did not fetch the base commit"
 
 # sdk-rust: cmux-tui-sdks.yml's rust package job, in cmux-tui, with the pinned cargo.
 ARGS=(sdk-rust)
