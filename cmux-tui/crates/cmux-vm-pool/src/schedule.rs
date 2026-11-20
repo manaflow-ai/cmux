@@ -29,6 +29,8 @@ pub struct Policy {
     pub busy_pct: f64,
     /// Measured CPU under this (and no job) for `idle_ms`: the machine pauses.
     pub quiet_pct: f64,
+    /// How long a machine this scheduler resumed counts as on its way while none of its runners is online.
+    pub start_grace_ms: u64,
 }
 
 impl Default for Policy {
@@ -40,6 +42,7 @@ impl Default for Policy {
             label: "cmux-linux".to_owned(),
             busy_pct: 90.0,
             quiet_pct: 20.0,
+            start_grace_ms: 3 * 60 * 1000,
         }
     }
 }
@@ -64,8 +67,9 @@ pub struct Decision {
 pub enum Demand {
     /// Queued jobs no runner took (the controller feed): one slot each.
     Jobs(u32),
-    /// vCPU wanted (the learned-size scheduler's `--demand-file`: learned p90 over queued and starting jobs).
-    Vcpu(u64),
+    /// vCPU wanted (the learned-size scheduler's `--demand-file`: learned p90 over queued and starting jobs),
+    /// with the feed's queued jobs beside it: work waits while either is above 0.
+    Vcpu { vcpu: u64, queued: u32 },
 }
 
 impl Demand {
@@ -73,7 +77,7 @@ impl Demand {
     pub fn wanted(self) -> bool {
         match self {
             Self::Jobs(n) => n > 0,
-            Self::Vcpu(v) => v > 0,
+            Self::Vcpu { vcpu, queued } => vcpu > 0 || queued > 0,
         }
     }
 }
@@ -90,15 +94,23 @@ pub struct Scheduler {
     idle_since: HashMap<String, u64>,
     /// Measured load by machine name, set before each tick ([`Scheduler::set_loads`]); empty when unmeasured.
     loads: HashMap<String, Load>,
+    /// When this scheduler resumed each machine (by id), kept for `start_grace_ms`.
+    resumed_at: HashMap<String, u64>,
 }
 
 impl Scheduler {
     pub fn new(policy: Policy) -> Self {
-        Self { policy, idle_since: HashMap::new(), loads: HashMap::new() }
+        Self { policy, ..Self::default() }
     }
 
     pub fn set_loads(&mut self, loads: HashMap<String, Load>) {
         self.loads = loads;
+    }
+
+    fn note_resumed(&mut self, now_ms: u64, ids: &[String]) {
+        for id in ids {
+            self.resumed_at.insert(id.clone(), now_ms);
+        }
     }
 
     fn in_pool(&self, runner: &str) -> bool {
@@ -114,17 +126,32 @@ impl Scheduler {
     ) -> Decision {
         let pool: Vec<Runner> = roster.iter().filter(|r| self.in_pool(&r.name)).cloned().collect();
         let by = plan::runners_by_machine(machines, &pool);
-        let idle_online =
-            u32::try_from(pool.iter().filter(|r| r.online && !r.busy).count()).unwrap_or(u32::MAX);
-        let starting: u32 = machines
-            .iter()
-            .filter(|m| {
-                m.power == Power::Starting
-                    || (m.power == Power::Running
-                        && by.get(&m.id).is_none_or(|rs| rs.iter().all(|r| !r.online)))
-            })
-            .map(|m| m.slots.max(1))
-            .sum();
+        let no_runner_online =
+            |m: &Machine| by.get(&m.id).is_none_or(|rs| rs.iter().all(|r| !r.online));
+        // On its way: a machine the provider says is starting, or one this scheduler resumed within the grace
+        // window whose runners are not online yet. A running machine with no online runner past that window
+        // (a dead listener, or a full VM's stopped listeners) is not capacity on the way.
+        let grace = self.policy.start_grace_ms;
+        self.resumed_at.retain(|_, at| now_ms.saturating_sub(*at) < grace);
+        let on_the_way = |m: &Machine| {
+            m.power == Power::Starting
+                || (m.power == Power::Running
+                    && self.resumed_at.contains_key(&m.id)
+                    && no_runner_online(m))
+        };
+        // Idle online runners on running machines only: GitHub keeps a paused machine's runners online for a
+        // while, and those take no job.
+        let idle_online = u32::try_from(
+            machines
+                .iter()
+                .filter(|m| m.power == Power::Running)
+                .filter_map(|m| by.get(&m.id))
+                .flatten()
+                .filter(|r| r.online && !r.busy)
+                .count(),
+        )
+        .unwrap_or(u32::MAX);
+        let starting: u32 = machines.iter().filter(|m| on_the_way(m)).map(|m| m.slots.max(1)).sum();
 
         // Idle clocks. Measured: running, no job on it, CPU under the quiet line (its runners may be offline: the
         // guest's admit loop stops listeners while the VM is full). Unmeasured: running with every listed runner
@@ -147,8 +174,7 @@ impl Scheduler {
         self.idle_since.retain(|id, _| live.contains(id));
 
         let queued = match demand {
-            Demand::Jobs(n) => n,
-            Demand::Vcpu(_) => 0,
+            Demand::Jobs(n) | Demand::Vcpu { queued: n, .. } => n,
         };
         let mut decision = Decision { queued, idle_online, starting, ..Decision::default() };
         let picked = match demand {
@@ -156,7 +182,7 @@ impl Scheduler {
                 let available = idle_online.saturating_add(starting);
                 (n > available).then(|| plan::pick_up(machines, n - available))
             }
-            Demand::Vcpu(need) => {
+            Demand::Vcpu { vcpu: need, .. } => {
                 // Free vCPU: a running machine's idle runners' share of it, plus machines on their way.
                 let free: u64 = machines
                     .iter()
@@ -164,10 +190,20 @@ impl Scheduler {
                         let runners = by.get(&m.id).map_or(&[][..], Vec::as_slice);
                         let online = runners.iter().filter(|r| r.online).count() as u64;
                         let idle = runners.iter().filter(|r| r.online && !r.busy).count() as u64;
+                        if on_the_way(m) {
+                            return plan::vcpu_of(m);
+                        }
+                        // Measured: the room under the admission line (90% of its vCPU less what it uses, by
+                        // the higher of CPU and RAM), not its runners' count.
+                        if m.power == Power::Running
+                            && let Some(load) = self.loads.get(&m.name)
+                        {
+                            let used = load.cpu_pct.max(load.mem_pct.unwrap_or(0.0));
+                            let room = (self.policy.busy_pct - used).max(0.0) / 100.0;
+                            return (plan::vcpu_of(m) as f64 * room).floor() as u64;
+                        }
                         match m.power {
-                            Power::Starting => plan::vcpu_of(m),
-                            Power::Running if online == 0 => plan::vcpu_of(m),
-                            Power::Running => plan::vcpu_of(m) * idle / online,
+                            Power::Running if online > 0 => plan::vcpu_of(m) * idle / online,
                             _ => 0,
                         }
                     })
@@ -179,23 +215,29 @@ impl Scheduler {
         };
         if let Some(picked) = picked {
             decision.resume = picked.into_iter().map(|m| m.id.clone()).collect();
+            self.note_resumed(now_ms, &decision.resume);
             return decision;
         }
         if demand.wanted() {
-            // Measured: work waits and every measured running machine is at the admission line: grow, even when
-            // runners look idle (a full VM's listeners are stopped, or its idle runners cannot fit the work).
-            let measured: Vec<&Load> = machines
-                .iter()
-                .filter(|m| m.power == Power::Running)
-                .filter_map(|m| self.loads.get(&m.name))
-                .collect();
-            if !measured.is_empty() && measured.iter().all(|l| l.full(self.policy.busy_pct)) {
+            // Measured: work waits, nothing is on its way, and every running machine is measured at the admission
+            // line: grow, even when runners look idle (a full VM's listeners are stopped, or its idle runners
+            // cannot fit the work). A machine just resumed has no reading yet, so this waits for it rather than
+            // resuming more on every tick.
+            let running: Vec<&Machine> =
+                machines.iter().filter(|m| m.power == Power::Running).collect();
+            let all_full = starting == 0
+                && !running.is_empty()
+                && running
+                    .iter()
+                    .all(|m| self.loads.get(&m.name).is_some_and(|l| l.full(self.policy.busy_pct)));
+            if all_full {
                 decision.all_full = true;
                 let grow = match demand {
                     Demand::Jobs(n) => plan::pick_up(machines, n.max(1)),
-                    Demand::Vcpu(need) => plan::pick_up_vcpu(machines, need.max(1)),
+                    Demand::Vcpu { vcpu, .. } => plan::pick_up_vcpu(machines, vcpu.max(1)),
                 };
                 decision.resume = grow.into_iter().map(|m| m.id.clone()).collect();
+                self.note_resumed(now_ms, &decision.resume);
             }
             return decision;
         }

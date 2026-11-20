@@ -21,6 +21,9 @@ pub struct Gce {
     pub project: String,
     pub token: String,
     pub label: String,
+    /// The token came from the metadata server or gcloud (not the environment), so it can be fetched again.
+    refreshable: bool,
+    fetched: std::time::Instant,
 }
 
 impl Gce {
@@ -33,18 +36,36 @@ impl Gce {
         project: Option<String>,
     ) -> Option<Self> {
         let set = |name: &str| env(name).filter(|v| !v.is_empty());
-        let token =
+        let (token, refreshable) =
             match set("CLOUDSDK_AUTH_ACCESS_TOKEN").or_else(|| set("GOOGLE_OAUTH_ACCESS_TOKEN")) {
-                Some(token) => token,
-                None => match metadata_token(client).await {
-                    Some(token) => token,
-                    None => gcloud_token().await?,
-                },
+                Some(token) => (token, false),
+                None => (fresh_token(client).await?, true),
             };
         let project = project
             .or_else(|| set("CMUX_VM_POOL_GCP_PROJECT"))
             .unwrap_or_else(|| DEFAULT_PROJECT.to_owned());
-        Some(Self { project, token, label: POOL_LABEL.to_owned() })
+        Some(Self {
+            project,
+            token,
+            label: POOL_LABEL.to_owned(),
+            refreshable,
+            fetched: std::time::Instant::now(),
+        })
+    }
+
+    /// Fetches a new token when this one is older than `max_age` (metadata and gcloud tokens last about an
+    /// hour). A failed fetch keeps the old token and says so.
+    pub async fn refresh_if_old(&mut self, client: &reqwest::Client, max_age: std::time::Duration) {
+        if !self.refreshable || self.fetched.elapsed() < max_age {
+            return;
+        }
+        match fresh_token(client).await {
+            Some(token) => {
+                self.token = token;
+                self.fetched = std::time::Instant::now();
+            }
+            None => eprintln!("cmux vm pool: GCE token refresh failed; keeping the old one"),
+        }
     }
 
     /// Every pool instance, in every zone.
@@ -99,6 +120,14 @@ impl Gce {
     pub async fn suspend(&self, client: &reqwest::Client, machine: &Machine) -> Result<()> {
         let url = self.instance_url(machine, "suspend")?;
         http::call(client, Method::POST, &url, &self.token, &[], None).await.map(drop)
+    }
+}
+
+/// This VM's service-account token from the metadata server, else `gcloud auth print-access-token`.
+async fn fresh_token(client: &reqwest::Client) -> Option<String> {
+    match metadata_token(client).await {
+        Some(token) => Some(token),
+        None => gcloud_token().await,
     }
 }
 

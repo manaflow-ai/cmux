@@ -35,14 +35,21 @@ impl Load {
     }
 }
 
-/// Loads from the controller's pool telemetry body.
-pub fn parse_controller(body: &Value) -> HashMap<String, Load> {
+/// Loads from the controller's pool telemetry body, leaving out samples older than `max_age_s` at `now_s` (a
+/// VM that stopped posting must not stay "full" or "quiet" on its last word). A sample with no `sampled_at`
+/// counts as fresh.
+pub fn parse_controller(body: &Value, now_s: i64, max_age_s: i64) -> HashMap<String, Load> {
     let Some(vms) = body.get("vms").and_then(Value::as_object) else {
         return HashMap::new();
     };
     vms.iter()
         .filter_map(|(name, t)| {
             if t.get("ok").and_then(Value::as_bool) == Some(false) {
+                return None;
+            }
+            if let Some(at) = t.get("sampled_at").and_then(Value::as_str).and_then(parse_rfc3339)
+                && now_s.saturating_sub(at) > max_age_s
+            {
                 return None;
             }
             let cpu_pct = t.get("cpu_percent")?.as_f64()?;
@@ -110,6 +117,9 @@ pub async fn gce_cpu(
     }
 }
 
+/// A controller sample older than this is left out (the guest posts every 15 s).
+pub const CONTROLLER_MAX_AGE_S: i64 = 90;
+
 /// Loads from the controller (`GET load_url`).
 pub async fn controller(
     client: &reqwest::Client,
@@ -123,7 +133,10 @@ pub async fn controller(
         .json()
         .await
         .map_err(|e| format!("{load_url}: {e}"))?;
-    Ok(parse_controller(&body))
+    let now_s = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX));
+    Ok(parse_controller(&body, now_s, CONTROLLER_MAX_AGE_S))
 }
 
 /// p50 and p90 of the machines' CPU, and how many were measured.
@@ -142,6 +155,43 @@ pub fn summary(loads: &HashMap<String, Load>) -> Value {
     json!({"measured": cpu.len(), "cpu_p50": pct(0.5), "cpu_p90": pct(0.9), "at_or_over_90": full, "under_20": quiet})
 }
 
+/// Seconds since the Unix epoch of an RFC 3339 time (`2026-11-20T11:26:40.5Z`, `...+01:00`), as Go's
+/// `time.Time` writes `sampled_at`. `None` when it does not parse.
+pub fn parse_rfc3339(text: &str) -> Option<i64> {
+    let num = |s: &str| -> Option<i64> {
+        (!s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())).then(|| s.parse().ok()).flatten()
+    };
+    let (date, rest) = text.split_once(['T', 't', ' '])?;
+    let mut ymd = date.split('-');
+    let (y, mo, d) = (num(ymd.next()?)?, num(ymd.next()?)?, num(ymd.next()?)?);
+    if ymd.next().is_some() || !(1..=12).contains(&mo) || !(1..=31).contains(&d) {
+        return None;
+    }
+    let (clock, offset_s) = if let Some(clock) = rest.strip_suffix(['Z', 'z']) {
+        (clock, 0)
+    } else {
+        let at = rest.rfind(['+', '-'])?;
+        let (clock, zone) = rest.split_at(at);
+        let sign = if zone.starts_with('-') { -1 } else { 1 };
+        let (zh, zm) = zone[1..].split_once(':')?;
+        (clock, sign * (num(zh)? * 3600 + num(zm)? * 60))
+    };
+    let clock = clock.split_once('.').map_or(clock, |(whole, _)| whole);
+    let mut hms = clock.split(':');
+    let (h, mi, s) = (num(hms.next()?)?, num(hms.next()?)?, num(hms.next()?)?);
+    if hms.next().is_some() {
+        return None;
+    }
+    // Days from civil (Howard Hinnant's algorithm).
+    let y = if mo <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y.rem_euclid(400);
+    let mp = (mo + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    Some(days * 86_400 + h * 3600 + mi * 60 + s - offset_s)
+}
 /// RFC 3339 UTC with seconds (`2026-11-20T11:40:00Z`), from the Unix clock.
 fn rfc3339(at: std::time::SystemTime) -> String {
     let secs = at.duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
@@ -174,13 +224,26 @@ mod tests {
     }
 
     #[test]
+    fn rfc3339_parses_back_what_it_writes_and_go_offsets() {
+        for secs in [0_u64, 951_782_400, 1_795_174_000, 4_102_444_800] {
+            let at = std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs);
+            assert_eq!(parse_rfc3339(&rfc3339(at)), Some(secs as i64));
+        }
+        assert_eq!(parse_rfc3339("2026-11-20T12:26:40.5+01:00"), Some(1_795_174_000));
+        assert_eq!(parse_rfc3339("2026-11-20T03:26:40-08:00"), Some(1_795_174_000));
+        assert_eq!(parse_rfc3339("2026-13-20T03:26:40Z"), None);
+        assert_eq!(parse_rfc3339("yesterday"), None);
+    }
+    #[test]
     fn controller_and_monitoring_bodies_parse() {
         let body = json!({"vms": {
             "fsp-a": {"ok": true, "cpu_percent": 95.0, "mem_total_bytes": 100.0, "mem_used_bytes": 40.0},
             "fsp-b": {"ok": false, "cpu_percent": 1.0},
-            "fsp-c": {"cpu_percent": 10.0}
+            "fsp-c": {"cpu_percent": 10.0, "sampled_at": "2026-11-20T11:26:30.123456789Z"},
+            "fsp-d": {"cpu_percent": 99.0, "sampled_at": "2026-11-20T11:20:00Z"}
         }});
-        let loads = parse_controller(&body);
+        // At 11:26:40Z with a 90 s limit: fsp-d (6 min 40 s old) is left out, fsp-c (10 s) stays.
+        let loads = parse_controller(&body, 1_795_174_000, 90);
         assert_eq!(loads.len(), 2);
         assert_eq!(loads["fsp-a"], Load { cpu_pct: 95.0, mem_pct: Some(40.0) });
         assert!(loads["fsp-a"].full(90.0) && !loads["fsp-a"].quiet(20.0));

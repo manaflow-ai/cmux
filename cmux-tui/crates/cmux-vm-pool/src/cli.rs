@@ -38,7 +38,8 @@ Options:
   --provider freestyle|gcp|all   (default: every provider with a credential)
   --json                         one JSON object on stdout
   up:       --at UNIX_MS (start at that wall-clock time)  --timeout SECS (120)
-            --no-watch
+            --no-watch  --names FILE (resume exactly these machines, by machine
+            or runner name, instead of the pick for N)
   pause:    --names FILE (runner names allowed to pause)  --idle  --max K
   watch:    --since UNIX_MS  --count N  --names FILE  --timeout SECS
             --idle-only --names-out FILE [--prefix P]... [--max N]
@@ -263,6 +264,46 @@ impl Pool {
         Ok(all)
     }
 
+    /// Machines from the providers that answered: one provider's failed list (an expired token, an outage)
+    /// says so and leaves the other's machines scheduled. Their runners then have no machine and count as no
+    /// capacity, so the failure can resume more, never pause more. `Err` only when every provider failed.
+    async fn machines_partial(&self) -> Result<Vec<Machine>, String> {
+        let fs = async {
+            match &self.freestyle {
+                Some(f) => {
+                    Some(f.list(&self.client).await.map_err(|e| format!("Freestyle: {}", e.0)))
+                }
+                None => None,
+            }
+        };
+        let gc = async {
+            match &self.gce {
+                Some(g) => Some(g.list(&self.client).await.map_err(|e| format!("GCE: {}", e.0))),
+                None => None,
+            }
+        };
+        let (fs, gc) = futures_util::join!(fs, gc);
+        let mut all = Vec::new();
+        let mut errors = Vec::new();
+        let mut answered = false;
+        for listed in [fs, gc].into_iter().flatten() {
+            match listed {
+                Ok(machines) => {
+                    answered = true;
+                    all.extend(machines);
+                }
+                Err(e) => errors.push(e),
+            }
+        }
+        if !errors.is_empty() {
+            if !answered {
+                return Err(errors.join("; "));
+            }
+            eprintln!("cmux vm pool: schedule: {}; scheduling the rest", errors.join("; "));
+        }
+        Ok(all)
+    }
+
     async fn roster(&self) -> Result<Vec<Runner>, String> {
         match &self.github {
             Some(g) => g.roster(&self.client).await.map_err(|e| e.0),
@@ -360,6 +401,21 @@ impl Pool {
 
 fn elapsed_ms(since: Instant) -> u64 {
     u64::try_from(since.elapsed().as_millis()).unwrap_or(u64::MAX)
+}
+
+/// The vCPU in `--demand-file`, when it was written within `fresh_for` (a writer that stopped leaves a number
+/// that would hold machines up, or keep them paused, for good).
+fn read_demand(path: &str, fresh_for: Duration) -> Result<u64, String> {
+    let age = std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .map_err(|e| e.to_string())?
+        .elapsed()
+        .unwrap_or_default();
+    if age > fresh_for {
+        return Err(format!("written {}s ago", age.as_secs()));
+    }
+    let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    parse_demand(&text).ok_or_else(|| "no `vcpu=N`".to_owned())
 }
 
 fn read_names(path: &str) -> Result<HashSet<String>, String> {
@@ -492,7 +548,12 @@ async fn up(
     env: &dyn Fn(&str) -> Option<String>,
     out: &mut dyn std::io::Write,
 ) -> Result<(), String> {
-    let count = args.count.ok_or("up needs a count: `cmux vm pool up N`")?;
+    // `--names FILE`: exactly the machines a plan named (machine or runner names), so what is resumed is what
+    // is watched; else the pick for N.
+    let named = args.names.as_deref().map(read_names).transpose()?;
+    if args.count.is_none() && named.is_none() {
+        return Err("up needs a count (`cmux vm pool up N`) or --names FILE".to_owned());
+    }
     if let Some(at) = args.at_ms {
         sleep_until(at).await;
     }
@@ -502,8 +563,16 @@ async fn up(
     let (machines, roster) = futures_util::join!(pool.machines(), pool.roster());
     let (machines, roster) = (machines?, roster?);
     let listed_ms = elapsed_ms(started);
-    let picked = plan::pick_up(&machines, count);
+    let picked: Vec<&Machine> = match &named {
+        Some(names) => machines
+            .iter()
+            .filter(|m| m.power.resumable())
+            .filter(|m| names.contains(&m.name) || names.iter().any(|n| m.owns_runner(n)))
+            .collect(),
+        None => plan::pick_up(&machines, args.count.unwrap_or_default()),
+    };
     let slots: u32 = picked.iter().map(|m| m.slots.max(1)).sum();
+    let count = args.count.unwrap_or(slots);
     let calls = pool.all_at_once(&picked, t0, |m| pool.power_on(m)).await;
     let calls_done_ms = elapsed_ms(started);
     let mut result = json!({
@@ -576,7 +645,11 @@ async fn pause(
         machines
             .iter()
             .filter(|m| {
-                m.power == crate::model::Power::Running && names.iter().any(|n| m.owns_runner(n))
+                m.power == crate::model::Power::Running && {
+                    // Every runner of the machine named idle, never one of several.
+                    let owned = names.iter().filter(|n| m.owns_runner(n)).count();
+                    owned > 0 && owned >= usize::try_from(m.slots.max(1)).unwrap_or(usize::MAX)
+                }
             })
             .collect()
     };
@@ -663,7 +736,7 @@ async fn schedule(
     if args.repos.is_empty() {
         return Err("schedule needs --repo OWNER/NAME (one or more)".to_owned());
     }
-    let pool = Pool::open(args, env, true).await?;
+    let mut pool = Pool::open(args, env, true).await?;
     if pool.github.is_none() {
         return Err("schedule needs GH_TOKEN".to_owned());
     }
@@ -676,34 +749,53 @@ async fn schedule(
     });
     loop {
         let tick_started = Instant::now();
+        if let Some(gce) = pool.gce.as_mut() {
+            // Metadata and gcloud tokens last about an hour; a scheduler runs for days.
+            gce.refresh_if_old(&pool.client, Duration::from_secs(40 * 60)).await;
+        }
         let (queued, machines, roster) = futures_util::join!(
             read_queued(&pool.client, &feed, &args.repos, &scheduler.policy.label),
-            pool.machines(),
+            pool.machines_partial(),
             pool.roster()
         );
         match (machines, roster, queued) {
             (Ok(machines), Ok(roster), Ok(queued)) => {
-                // The learned-size scheduler's vCPU demand when it writes one; else queued jobs.
+                // The learned-size scheduler's vCPU demand when it writes one (and wrote it lately); else queued
+                // jobs. Queued jobs count either way: nothing pauses while the feed shows one.
+                let fresh_for = Duration::from_secs(args.tick_s.saturating_mul(3).max(30));
                 let demand = match &args.demand_file {
-                    Some(path) => {
-                        match std::fs::read_to_string(path).ok().as_deref().and_then(parse_demand) {
-                            Some(vcpu) => Demand::Vcpu(vcpu),
-                            None => {
-                                eprintln!(
-                                    "cmux vm pool: schedule: {path} has no `vcpu=N`; using queued jobs"
-                                );
-                                Demand::Jobs(queued)
-                            }
+                    Some(path) => match read_demand(path, fresh_for) {
+                        Ok(vcpu) => Demand::Vcpu { vcpu, queued },
+                        Err(why) => {
+                            eprintln!("cmux vm pool: schedule: {path}: {why}; using queued jobs");
+                            Demand::Jobs(queued)
                         }
-                    }
+                    },
                     None => Demand::Jobs(queued),
                 };
                 scheduler.set_loads(pool.loads(args.load_url.as_deref()).await);
                 let decision = scheduler.tick(now_ms(), &machines, &roster, demand);
                 let resume: Vec<&Machine> =
                     machines.iter().filter(|m| decision.resume.contains(&m.id)).collect();
-                let pause: Vec<&Machine> =
+                let mut pause: Vec<&Machine> =
                     machines.iter().filter(|m| decision.pause.contains(&m.id)).collect();
+                if !pause.is_empty() {
+                    // A job may have landed since the roster read: read it again and keep busy machines up.
+                    match pool.roster().await {
+                        Ok(now) => {
+                            let by = plan::runners_by_machine(&machines, &now);
+                            pause.retain(|m| {
+                                by.get(&m.id).is_none_or(|rs| rs.iter().all(|r| !r.busy))
+                            });
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "cmux vm pool: schedule: roster re-read: {e}; pausing nothing"
+                            );
+                            pause.clear();
+                        }
+                    }
+                }
                 let t0 = now_ms();
                 let resumed = pool.all_at_once(&resume, t0, |m| pool.power_on(m)).await;
                 let paused = pool.all_at_once(&pause, t0, |m| pool.pause(m)).await;

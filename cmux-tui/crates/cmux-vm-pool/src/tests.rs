@@ -298,13 +298,13 @@ fn vcpu_demand_resumes_until_the_gap_is_covered_and_blocks_pauses() {
         runner("cmux-runner-pool-x-4", true, false),
     ];
     let mut s = Scheduler::new(Policy { idle_ms: 0, keep_idle: 0, ..Policy::default() });
-    let d = s.tick(0, &machines, &roster, Demand::Vcpu(16));
+    let d = s.tick(0, &machines, &roster, Demand::Vcpu { vcpu: 16, queued: 0 });
     assert!(d.resume.is_empty(), "16 free vCPU cover 16 wanted");
     assert_eq!(d.free_vcpu, 16);
-    let d = s.tick(1, &machines, &roster, Demand::Vcpu(40));
+    let d = s.tick(1, &machines, &roster, Demand::Vcpu { vcpu: 40, queued: 0 });
     // 24 short: the paused Freestyle VM (16) first, then the paused GCE VM (32).
     assert_eq!(d.resume, vec!["id-fsp-b".to_owned(), "id-cmux-runner-pool-y".to_owned()]);
-    let d = s.tick(2, &machines, &roster, Demand::Vcpu(20));
+    let d = s.tick(2, &machines, &roster, Demand::Vcpu { vcpu: 20, queued: 0 });
     assert_eq!(d.resume, vec!["id-fsp-b".to_owned()]);
     assert!(d.pause.is_empty(), "nothing pauses while demand waits");
 }
@@ -363,4 +363,90 @@ fn measured_load_grows_when_every_running_vm_is_full_and_pauses_quiet_ones() {
         vec!["id-cmux-runner-pool-a".to_owned()],
         "a quiet with its listener stopped pauses; b has a job"
     );
+}
+
+#[test]
+fn runners_of_paused_machines_are_no_idle_capacity() {
+    // GitHub still shows the paused machines' runners online: they neither cover queued jobs nor hold the floor.
+    let machines = vec![
+        machine(Provider::Freestyle, "fsp-a", Power::Paused, 1),
+        machine(Provider::Freestyle, "fsp-b", Power::Paused, 1),
+        machine(Provider::Freestyle, "fsp-c", Power::Running, 1),
+    ];
+    let roster = vec![
+        runner("fsp-a", true, false),
+        runner("fsp-b", true, false),
+        runner("fsp-c", true, false),
+    ];
+    let mut s = Scheduler::new(Policy { idle_ms: 0, keep_idle: 1, ..Policy::default() });
+    let d = s.tick(0, &machines, &roster, Demand::Jobs(2));
+    assert_eq!(d.idle_online, 1);
+    assert_eq!(d.resume, vec!["id-fsp-a".to_owned()], "2 queued, 1 idle on a running machine");
+    let mut s = Scheduler::new(Policy { idle_ms: 0, keep_idle: 1, ..Policy::default() });
+    let d = s.tick(0, &machines, &roster, Demand::Jobs(0));
+    assert!(d.pause.is_empty(), "the one running idle runner is the floor");
+}
+
+#[test]
+fn all_full_waits_for_what_it_resumed_and_for_every_running_vm_measured() {
+    use crate::load::Load;
+    let full = Load { cpu_pct: 95.0, mem_pct: None };
+    let mut machines = vec![
+        machine(Provider::Gcp, "cmux-runner-pool-a", Power::Running, 1),
+        machine(Provider::Freestyle, "fsp-b", Power::Paused, 1),
+        machine(Provider::Freestyle, "fsp-c", Power::Paused, 1),
+    ];
+    let roster = vec![runner("cmux-runner-pool-a", true, true)];
+    let mut s = Scheduler::new(Policy::default());
+    s.set_loads([("cmux-runner-pool-a".to_owned(), full)].into());
+    let d = s.tick(0, &machines, &roster, Demand::Jobs(1));
+    assert_eq!(d.resume, vec!["id-fsp-b".to_owned()]);
+    // fsp-b is now running with no runner online and no reading: on its way, so the next tick resumes nothing.
+    machines[1].power = Power::Running;
+    let d = s.tick(5_000, &machines, &roster, Demand::Jobs(1));
+    assert_eq!(d.starting, 1);
+    assert!(d.resume.is_empty() && !d.all_full);
+    // Past the grace window it is no longer on its way, but it is unmeasured: still no growth.
+    let d = s.tick(5_000 + 3 * 60 * 1000, &machines, &roster, Demand::Jobs(1));
+    assert_eq!(
+        d.starting, 0,
+        "a running VM with no runner online past the grace window is not capacity"
+    );
+    assert!(!d.all_full);
+}
+
+#[test]
+fn queued_jobs_beside_a_vcpu_demand_block_pauses() {
+    let machines = vec![machine(Provider::Freestyle, "fsp-a", Power::Running, 1)];
+    let roster = vec![runner("fsp-a", true, false)];
+    let mut s = Scheduler::new(Policy { idle_ms: 0, keep_idle: 0, ..Policy::default() });
+    let d = s.tick(0, &machines, &roster, Demand::Vcpu { vcpu: 0, queued: 2 });
+    assert!(d.pause.is_empty(), "jobs are queued");
+    assert_eq!(d.queued, 2);
+    let d = s.tick(1, &machines, &roster, Demand::Vcpu { vcpu: 0, queued: 0 });
+    assert_eq!(d.pause, vec!["id-fsp-a".to_owned()]);
+}
+
+#[test]
+fn measured_vcpu_room_is_the_headroom_under_the_line() {
+    use crate::load::Load;
+    let mut a = machine(Provider::Gcp, "cmux-runner-pool-a", Power::Running, 4);
+    a.vcpu = 32;
+    let mut b = machine(Provider::Freestyle, "fsp-b", Power::Paused, 1);
+    b.vcpu = 16;
+    let machines = vec![a, b];
+    // Every runner looks idle, but the VM is measured at 65%: 32 x (90 - 65)% = 8 vCPU of room.
+    let roster = vec![
+        runner("cmux-runner-pool-a-1", true, false),
+        runner("cmux-runner-pool-a-2", true, false),
+    ];
+    let mut s = Scheduler::new(Policy::default());
+    s.set_loads(
+        [("cmux-runner-pool-a".to_owned(), Load { cpu_pct: 65.0, mem_pct: Some(10.0) })].into(),
+    );
+    let d = s.tick(0, &machines, &roster, Demand::Vcpu { vcpu: 8, queued: 1 });
+    assert_eq!(d.free_vcpu, 8);
+    assert!(d.resume.is_empty());
+    let d = s.tick(1, &machines, &roster, Demand::Vcpu { vcpu: 12, queued: 1 });
+    assert_eq!(d.resume, vec!["id-fsp-b".to_owned()]);
 }
