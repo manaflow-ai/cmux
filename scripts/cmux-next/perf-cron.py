@@ -200,6 +200,18 @@ PARTS = [
     {"name": "throughput", "args": [*MEASURE, "--config=bench", "--suite=terminal-throughput"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "terminal-throughput",
      "run_seconds": 1800},  # a cold bench-configuration build alone took 800 s (2026-11-15)
+    # Quit and reopen with the chats restored (relaunch-wake-cron.py): the window and the shown chat drawn and live
+    # again, warm and after an in-place update. Budgets in that file, each with its source. Its rows
+    # (launch.relaunch.*) and the wake part's (launch.wake_proxy.*) are in the launch family, whose target is each
+    # row's own budget (target_of), and ROW_PARTS sends them to their parts before the plain launch rows.
+    # run_seconds: step ab0db3de ran 2202 s on aws-m4pro-7 with its build (2026-11-19), plus margin.
+    {"name": "relaunch", "args": [*MEASURE, "--suite=relaunch"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "relaunch", "run_seconds": 2400},
+    # The app after a wake, by proxy (wake-proxy-bench.py): every process of it frozen 30 s and resumed, to the main
+    # thread answering and a typed command's output drawn. A measure Mac can't sleep and wake itself in a step.
+    # run_seconds: step 343b7e82 ran 2768 s with a cold build of 2522 s and its three rounds (2026-11-19), plus margin.
+    {"name": "wake", "args": [*MEASURE, "--suite=wake"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "wake", "run_seconds": 3300},
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
@@ -237,6 +249,12 @@ PARTS = [
     # chat to 100k rows on simulated time against an empty chat; bytes per simulated hour and their ratio
     # (chat_disk.growth_ratio). About 30 s after the build, which runs first under its own cap.
     {"name": "chat-disk", "where": "linux", "kind": "webui", "needs": "chat-disk"},
+    # The daemon's restart to a non-empty chat attach (scripts/measure/daemon-restart-linux.sh, goal restart-to-chat's
+    # daemon half in cmuxterm-hq's NOW, row restart_chat_attach_daemon_ms, target 178 ms): god_daemon.rs's small and god
+    # homes, up to three runs in 15 minutes after the build (the job's 40-minute cap holds setup, a cold build of about
+    # 15 minutes and this), each home's median restartChatAttachMs (daemon_restart.<shape>_home.chat_attach_ms). No god
+    # home reading gives no metric, so the small home never stands in for the worst of both.
+    {"name": "daemon-restart", "where": "linux", "kind": "webui", "needs": "daemon-restart"},
 ]
 PART_BY_NAME = {p["name"]: p for p in PARTS}
 # Which part measures a row (bisect re-measures only the parts of the regressed rows).
@@ -244,7 +262,8 @@ ROW_PARTS = [
     (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"), (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
     (r"^workspace_scaling\.", "workspace-scaling"),
-    (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"), (r"^launch\.", "launch"),
+    (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"),
+    (r"^launch\.relaunch\.", "relaunch"), (r"^launch\.wake_proxy\.", "wake"), (r"^launch\.", "launch"),
     (r"^terminal\.throughput\.", "throughput"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
@@ -254,15 +273,17 @@ ROW_PARTS = [
     (r"^webui\.chat_100k_flat\.", "web-ui-flat"),
     (r"^webui\.composer_typing\.", "web-ui-typing"),
     (r"^webui\.chat_disk\.", "chat-disk"),
+    (r"^webui\.daemon_restart\.", "daemon-restart"),
     (r"^webui\.", "web-ui"),
 ]
 # Rows that are stored and shown but never judged: higher is better there (MB/s, a ratio to Ghostty), and every rule
 # here reads a higher p95 as worse. The memory-agents breakdown (memory-agents-cron.py) says where the judged totals'
 # memory is, per process kind; its kinds come and go with the app, so a row each is shown, not judged. The chat
 # composer's typing stages (acp.<engine>.typing.to_listener and .to_work, perf-budgets.py STAGE_ROW_RE) say where
-# the judged to_frame time goes: shown, not judged (measurement only, no new gate).
+# the judged to_frame time goes: shown, not judged (measurement only, no new gate). The wake part's awake echo is the
+# same echo with nothing frozen: the floor under the judged wake row, shown only.
 REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\."
-                                r"|acp\.[^.]+\.typing\.(to_listener|to_work)$)")
+                                r"|acp\.[^.]+\.typing\.(to_listener|to_work)$|launch\.wake_proxy\.awake_echo_ms$)")
 # The diff-viewer budgets of scripts/benchmark-diff-viewer.sh (its env defaults), as rows where lower is better.
 DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_ms_per_gib": 1024 * 1000 / 500.0,
                 "diff.stream.p95": 250.0}
@@ -945,7 +966,7 @@ def linux_bench_runs(root, part="diff-viewer"):
     if part == "web-ui-growth":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "state-growth"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-god":
-        only = ",".join(GOD_BENCHES + [f"{b}-god" for b in GOD_BENCHES])
+        only = ",".join([b for b in GOD_BENCHES if b not in GOD_SELF_PAIRED] + [f"{b}-god" for b in GOD_BENCHES])
         # `paired` runs in rounds (run_paired_rounds): the god and small chats at once, as god-ratio-ab.sh plays them.
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", only], os.path.join(root, "webviews"), {}),
                 "paired": (["bun", "bench/transcript-replay.bench.ts", "--turns", "600", "--only", "long"],
@@ -963,6 +984,9 @@ def linux_bench_runs(root, part="diff-viewer"):
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "composer-typing"], os.path.join(root, "webviews"), {})}
     if part == "chat-disk":
         script = os.path.join(root, CHAT_DISK)
+        return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
+    if part == "daemon-restart":
+        script = os.path.join(root, DAEMON_RESTART)
         return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
     if part == "infinite-items":
         # The release build first, in a run of its own: each run has its own 30-minute cap (LINUX_RUN_SECONDS) and the
@@ -1928,6 +1952,8 @@ def supported_parts_at(sha):
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{INFINITE_ITEMS}"], capture_output=True).returncode == 0
         elif need == "chat-disk":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{CHAT_DISK}"], capture_output=True).returncode == 0
+        elif need == "daemon-restart":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{DAEMON_RESTART}"], capture_output=True).returncode == 0
         elif need == "terminal-throughput":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
@@ -1938,7 +1964,7 @@ def supported_parts_at(sha):
             bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/bench-startup.py"],
                                    capture_output=True, text=True).stdout
             ok = "--suite=launch" in text and '"--activation"' in bench
-        elif need in ("perf-gate", "launch", "memory-agents"):
+        elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
             ok = f"--suite={need}" in text
@@ -1984,10 +2010,15 @@ FLAT_100K_BENCH = "webviews/bench/chat-100k-flat.bench.ts"
 COMPOSER_TYPING_ROWS = "webviews/bench/composerTypingRows.ts"
 INFINITE_ITEMS = "scripts/measure/infinite-items-linux.sh"
 CHAT_DISK = "scripts/measure/chat-disk-growth-linux.sh"
+DAEMON_RESTART = "scripts/measure/daemon-restart-linux.sh"
 # The web-ui-god part: the benches that take FIXTURE=god (web-ui-suite.ts lists each as NAME and NAME-god) and the
 # shared fixture a commit needs for the part. A god row is webui.<prefix>.god.<rest>; its ordinary twin drops `.god`.
 GOD_FIXTURE = "webviews/bench/godFixture.ts"
 GOD_BENCHES = ["chat-open", "chat-switch", "transcript-replay"]
+# The god benches that run their ordinary twin themselves, in the same rounds (chat-open-god: PAIRED=1, interleaved
+# with a runner calibration page), so the part runs no separate ordinary bench for them: its rows would duplicate the
+# paired run's ordinary rows, and come from other minutes of the runner than the god rows they pair with.
+GOD_SELF_PAIRED = ("chat-open",)
 # Leo, 2026-11-10: a god session must open and run the same, or close to the same, as a small one. A god row more
 # than this many times its twin is over target. Only time, size and shift rows have a ratio: a count or a slope
 # (a growth per operation or per row) has its own target, and a twin under its noise floor says nothing.

@@ -68,6 +68,13 @@ EXCEPTIONS: dict[tuple[str, str], str] = {
                                                           "before_bundle_code.py pins its literal Blacksmith label",
     ("ci-cloud-overflow-probe.yml", "watch"): "github-hosted-required: it must run while Blacksmith starts nothing, "
                                               "to switch overflow on",
+    # The CI_TRUSTED_RUNNER selector's fallback stays a one-job Blacksmith label: RUNNER_POOLS.linux holds the
+    # persistent pool (cmux-fleet-linux-x64), which these jobs must never take.
+    ("cla-policy-guard.yml", "validate"): "parses attacker-controlled YAML with a trusted token: ephemeral runner only "
+                                       "(tests/test_ci_self_hosted_guard.sh check_cla_guard_runner)",
+    ("resolve-runners.yml", "resolve"): "it must not run on a fleet it resolves, and starts anywhere: no fromJSON of a "
+                                        "repository variable (tests/test_ci_runner_capability_resolver.py)",
+    ("ci-owned-pool-rescue.yml", "rescue"): "never from an owned pool it may rescue (tests/test_ci_owned_pool_rescue.py)",
 }
 
 COMPARISON = re.compile(r"(?:==|!=)\s*$")
