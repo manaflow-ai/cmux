@@ -75,23 +75,15 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
 - `gh pr merge` saying "base branch policy prohibits the merge" means the token lacks the `workflow`
   scope or GitHub timed out, not a rule: run `gh auth refresh -h github.com -s workflow`, or merge with
   `gh api -X PUT repos/OWNER/REPO/pulls/N/merge -f merge_method=squash -f sha=SHA`, which names the cause. Never `--admin`.
-- A first implementation pass ends with passed scoped verification and an open PR;
-  do not watch CI or run speculative reviews by default.
 - Before opening a PR and before merging, check it against [REVIEW.md](REVIEW.md) (draft),
   the mistakes our review history keeps catching.
-- Before merging, use a [review subagent](skills/cmux-review/SKILL.md), correctness
-  first; a second model is not a review gate. Disclose skipped verification on the PR.
-  `main` is nightly: fix forward, do not revert.
-- A PR merges when an independent review subagent passes it and it causes no red of its own;
-  base reds, flakes and pending checks don't hold it. Don't wait for a person. Ship risky
-  user-visible behavior behind a setting or Debug toggle and fix a bad default in the next
-  nightly. Merge with `gh-merge-green`; [merge freezes](docs/ci/merge-freeze.md) still hold.
-  `gh-merge-green` still waits for the checks it requires; never get around it with
-  `--override` or the API merge path.
-  Follow [dogfood and merge receipts](skills/cmux-review/SKILL.md#dogfood-and-merge).
+- A PR merges when an independent [review subagent](skills/cmux-review/SKILL.md) passes its
+  head and it causes no red of its own; base reds, flakes and pending checks don't hold it, and
+  no person approves it. Merge with `gh-merge-green`; [merge freezes](docs/ci/merge-freeze.md)
+  still hold. A stuck, irrelevant or known red check is not a reason to stop: waive it with
+  `--override "<reason>"`, which posts the reason on the PR ([exact-head merging](docs/ci-runners.md#exact-head-merging)).
+  First pass, dogfood, red base and receipts: [dogfood and merge](skills/cmux-review/references/dogfood-and-merge.md).
   Notify with `cmux notify` when a socket is available.
-- A red base (`main` doesn't compile, or CI is red on every PR) is priority zero. Fix it
-  directly in its own PR; don't note it and leave it for an owner.
 
 ## Implementation rules by task
 
