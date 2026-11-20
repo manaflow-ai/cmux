@@ -76,7 +76,9 @@ python3 examples/customize-demo/record-steps.py --ref "$(git rev-parse HEAD)" \
 cmux-ci capture --nightly latest --state /tmp/demo-states/looks-hosts.json
 ```
 
-Every profile opens a fresh New Tab so its own start page appears. The directory contains one
+Every profile explicitly opens and focuses `newTab.page`, so its own start page appears even
+when your default new tab is a terminal. The capture runner's action steps pass `focus: true`.
+The directory contains one
 state per look, each with a reset shot. Run each state once and retain its capture receipt.
 The library status before and after is recorded too; `discard` resets
 the profile, but does not turn off library overlays. Inspect those answers and every step's
@@ -106,3 +108,11 @@ them. Set `CMUX_AGENT_ID` to your session identity when the fleet capture asks f
 These shots prove the New Tab and visible sidebar; feature verification also needs Session
 Info, hover cards, and the actions and data sources each profile promises. The manifest check
 and fixture renderer alone are not proof that those features work in NIGHTLY.
+
+Hosts pages its host and session lists, so a large fleet does not exceed the app runtime's
+execution budget. Previous/Next controls keep every host and session reachable; the picker
+searches the whole inventory before paging. The regression detector in
+`looks/check/views.test.ts` mounts all four app looks and exercises Hosts with 100 and 3,000
+sessions, navigation, search, and a shrinking inventory. To compare scene counts and fixture
+render times before/after, set `DEMO_BEFORE_HOSTS` to a saved earlier Hosts `main.js` when running
+that test. This fixture does not replace a NIGHTLY capture.

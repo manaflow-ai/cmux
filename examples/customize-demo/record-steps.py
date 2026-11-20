@@ -115,7 +115,7 @@ def capture_steps(args, ordered: list[str], clip: str) -> list[dict]:
         name = clip_name(file)
         steps += [
             {"cmux": ["customize", "use", f"{root}/{file}"], "record": True},
-            {"action": "newTab.default", "name": f"New Tab: {file}"},
+            {"action": "newTab.page", "name": f"New Tab: {file}"},
             {"wait": args.hold},
             {"shot": f"{index:02d}-{name}"[:48]},
         ]
@@ -124,7 +124,7 @@ def capture_steps(args, ordered: list[str], clip: str) -> list[dict]:
     steps += [
         {"cmux": ["customize", "discard"], "record": True},
         {"cmux": ["customize", "library", "status"], "record": True},
-        {"action": "newTab.default", "name": "Restored New Tab"},
+        {"action": "newTab.page", "name": "Restored New Tab"},
         {"wait": 2},
         {"shot": "99-after-reset"},
     ]
