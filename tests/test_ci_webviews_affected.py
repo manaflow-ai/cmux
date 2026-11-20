@@ -147,16 +147,23 @@ class SelectTest(unittest.TestCase):
             'export const tools = ["vite", "playwright", "child_process"];\n'
             '// A static import is synchronous; import() yields.\n'
             '// Generated from\n// schemas/motion.json; do not edit.\n')
+        # Fixture setup is the base; only the subsequent leaf edit is the PR.
+        git(self.root, "add", "webviews/src/tools.ts")
+        git(self.root, "commit", "-qm", "fixture package-name prose")
         self.assertEqual(self.change("webviews/src/leaf.ts"), with_always("webviews/test/leaf.test.ts"))
 
     def test_spaced_static_imports_stay_in_the_import_graph(self) -> None:
         (self.root / "webviews/src/tools.ts").write_text('export const load = () => import( "./other" );\n')
+        git(self.root, "add", "webviews/src/tools.ts")
+        git(self.root, "commit", "-qm", "fixture static import")
         self.assertEqual(self.change("webviews/src/leaf.ts"), with_always("webviews/test/leaf.test.ts"))
         self.assertEqual(self.change("webviews/src/other.ts"),
                          with_always("webviews/test/other.test.ts", "webviews/test/tools.test.ts"))
 
     def test_plain_static_require_stays_in_the_import_graph(self) -> None:
         (self.root / "webviews/src/tools.ts").write_text('const other = require("./other");\n')
+        git(self.root, "add", "webviews/src/tools.ts")
+        git(self.root, "commit", "-qm", "fixture static require")
         self.assertEqual(self.change("webviews/src/leaf.ts"), with_always("webviews/test/leaf.test.ts"))
         self.assertEqual(self.change("webviews/src/other.ts"),
                          with_always("webviews/test/other.test.ts", "webviews/test/tools.test.ts"))
