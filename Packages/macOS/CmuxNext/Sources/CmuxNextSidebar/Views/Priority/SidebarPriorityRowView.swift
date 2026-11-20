@@ -293,7 +293,7 @@ final class SidebarPriorityRowView: NSView {
     /// the hover buttons.
     override func menu(for event: NSEvent) -> NSMenu? {
         let sidebar = sequence(first: superview, next: { $0?.superview }).lazy.compactMap { $0 as? SidebarView }.first
-        return sidebar?.contextMenuProvider?(.priorityChat(entry.id))
+        return sidebarContextMenu(sidebar?.contextMenuProvider?(.priorityChat(entry.id)), for: event)
     }
 
     override func mouseUp(with event: NSEvent) {

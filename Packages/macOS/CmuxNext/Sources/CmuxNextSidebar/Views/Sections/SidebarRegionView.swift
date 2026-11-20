@@ -490,13 +490,15 @@ final class SidebarRegionView: NSView {
         view.onRename = { [weak self] in self?.onRenameItem?(id) }
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
-            NSMenu.popUpContextMenu(menu, with: event, for: view)
+            view.popUpSidebarContextMenu(menu, with: event)
         }
         // A workspace tile's hover more button opens the same menu under itself (SidebarItemRowView+HoverActions).
         // A pinned item has no hover x (Lawrence msg 19392): Close Workspace is in this menu.
         view.onMore = { [weak self, weak view] in
             guard let view, let button = view.hoverMore, let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
             view.showsMenu = true
+            // Drawn menus (`sidebar.drawnMenus`): a GlassMenu does not track modally, so the button stays lit until it closes.
+            if button.showDrawnSidebarMenu(menu, under: button.bounds, onClose: { [weak view] in view?.showsMenu = false }) { return }
             defer { view.showsMenu = false }
             _ = menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.isFlipped ? button.bounds.maxY : 0), in: button)
         }
@@ -510,7 +512,7 @@ final class SidebarRegionView: NSView {
         view.onDragEnded = { [weak self] point in self?.finishDrag(at: point) }
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutSection(id)) else { return }
-            NSMenu.popUpContextMenu(menu, with: event, for: view)
+            view.popUpSidebarContextMenu(menu, with: event)
         }
         addSubview(view)
         headerViews[id] = view
@@ -539,7 +541,7 @@ final class SidebarRegionView: NSView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        contextMenuProvider?(emptySpaceTarget)
+        sidebarContextMenu(contextMenuProvider?(emptySpaceTarget), for: event)
     }
 
     /// `info` drawn active when `id` is the selected item, and as part of the multi-selection when its workspace is.

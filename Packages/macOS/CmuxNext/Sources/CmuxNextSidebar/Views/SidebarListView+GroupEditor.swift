@@ -164,8 +164,11 @@ struct SidebarGroupEditing {
         guard let view = list.rowViews[.group(id)] as? GroupHeaderRowView else {
             // A group drawn as its one row: on that row's trailing edge.
             guard let row = list.displayed.groupRow(id), let view = list.rowViews[row.key] else { return }
+            if view.showDrawnSidebarMenu(menu, under: view.bounds) { return }
             return list.menuPresenter(menu, PopupAnchor(rect: view.bounds, edge: .trailing), view)
         }
+        // A menu look that draws (`sidebar.drawnMenus`): the group's menu as a GlassMenu, as its right-click is.
+        if view.showDrawnSidebarMenu(menu, under: view.moreButton.frame) { return }
         list.menuPresenter(menu, PopupAnchor(rect: view.moreButton.frame, edge: .trailing), view)
     }
 

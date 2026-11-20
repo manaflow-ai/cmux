@@ -521,7 +521,8 @@ public final class SidebarView: NSView {
 
     /// A bottom-band right-click no piece took opens the band's menu: Show for its hidden pieces (cx-wab7m).
     override public func menu(for event: NSEvent) -> NSMenu? {
-        convert(event.locationInWindow, from: nil).y >= footer.frame.minY ? contextMenuProvider?(.footer) : super.menu(for: event)
+        convert(event.locationInWindow, from: nil).y >= footer.frame.minY
+            ? sidebarContextMenu(contextMenuProvider?(.footer), for: event) : super.menu(for: event)
     }
 
     // MARK: Hover reveal

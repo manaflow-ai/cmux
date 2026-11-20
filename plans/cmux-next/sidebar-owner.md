@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-20 (lane/sidebar-drawn-menus-everywhere): Sidebar-Look: Leo, 2026-11-19: "i think y'all also ought to emulate
+  the things for context menu styling and such". With `sidebar.drawnMenus` on, every sidebar menu opens as a
+  `GlassMenu`, not only the list's right-click and a row's more button: the space bar's menu, a pinned tile's
+  right-click and more button, the group's more button, section headers, the footer band, the empty region and
+  Priority rows. Before, those still opened the system menu, now without its name-and-swatches header (review of
+  #46879, F1). One helper, `NSView+SidebarMenu.swift`, opens them all; off, each is the system menu as before.
+
 - 2026-11-19 (lane/look-menus-proportions): Sidebar-Look: Leo, 2026-11-19: "i think y'all also ought to emulate the things
   for context menu styling and such maybne in those repos too and the layout and proportions as well". Opt-in
   `sidebar.drawnMenus` (off, so no visual change by default): the sidebar's right-click menus and a row's more button
