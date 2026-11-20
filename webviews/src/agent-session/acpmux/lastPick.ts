@@ -4,7 +4,7 @@
 // with the launch (its web view's store is not persistent), so the New Tab context brings the app's
 // copy back (`lastPicks`, seedLastPicks). A missing or blocked store only means the harness's own
 // default.
-import { useMemo, useSyncExternalStore } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { isDefaultChoice } from "./defaultChoice";
 import { postNative } from "./native";
 
@@ -67,6 +67,34 @@ const subscribe = (listener: () => void) => {
 export function useLastPick(folder?: string): LastPick | undefined {
   const key = useSyncExternalStore(subscribe, () => JSON.stringify(lastPick(folder) ?? null));
   return useMemo(() => (JSON.parse(key) as LastPick | null) ?? undefined, [key]);
+}
+
+/// The pick a new chat's agent and model chips name: `folder`'s own last pick, until a pick is made
+/// while the page is open (`newest` is then not the one it opened with); from then that newest pick,
+/// whatever folder is picked after it. A folder pick never swaps the agent or model the person just
+/// picked (cmux#47677: the folder, the place and the model are each their own pick).
+export function chipPick(
+  inFolder: LastPick | undefined,
+  newest: { pick?: LastPick; picked: boolean },
+  atOpen: LastPick | undefined,
+): LastPick | undefined {
+  const pickedHere =
+    newest.picked && (newest.pick?.harness !== atOpen?.harness || newest.pick?.model !== atOpen?.model);
+  return pickedHere ? newest.pick : inFolder;
+}
+
+/// ``chipPick`` for this page, drawn again when a pick is remembered or the app's copy arrives.
+export function useChipPick(folder?: string): LastPick | undefined {
+  const inFolder = useLastPick(folder);
+  const key = useSyncExternalStore(subscribe, () => {
+    const stored = read();
+    return JSON.stringify({ pick: stored.global ?? null, picked: stored.picked === true });
+  });
+  const [atOpen] = useState(() => read().global);
+  return useMemo(() => {
+    const parsed = JSON.parse(key) as { pick: LastPick | null; picked: boolean };
+    return chipPick(inFolder, { ...(parsed.pick ? { pick: parsed.pick } : {}), picked: parsed.picked }, atOpen);
+  }, [key, inFolder, atOpen]);
 }
 
 function read(): Stored {
