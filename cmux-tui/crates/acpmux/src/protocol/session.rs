@@ -231,6 +231,12 @@ pub struct SessionSummary {
     /// Tags that have not expired.
     #[schemars(with = "BTreeMap<String, String>")]
     pub tags: Value,
+    /// The tracker beads linked to the session (`bead:<id>` tags, `beads::of_tags`), in id order:
+    /// what a client draws on its row, by the id `acpmux resolve <bead id>` finds it by. Absent
+    /// with none, and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(default)]
+    pub beads: Vec<String>,
     pub state_seq: u64,
     pub unread: bool,
     /// Turns that ended while no client showed the chat, since a person last showed it

@@ -4039,12 +4039,15 @@ async fn a_bead_linked_to_a_peers_session_resolves_to_it() {
     // `acpmux bead link b/bead-lane cx-ab1.2` is this tag, set through A.
     let set = json!({"sessionId": "b/bead-lane", "set": {"bead:cx-ab1.2": "1"}});
     ca.call(method::MUX_TAG, set).await.unwrap();
-    watcher
+    let changed = watcher
         .wait(method::MUX_SESSION_CHANGED, |p| {
             p["session"]["sessionId"] == far.as_str()
                 && p["session"]["tags"].get("bead:cx-ab1.2").is_some()
         })
         .await;
+    // The summary every list row reads names its beads too (`SessionSummary::beads`), so a client
+    // draws them without parsing tags.
+    assert_eq!(changed["session"]["beads"], json!(["cx-ab1.2"]), "{changed}");
 
     let r = ca.call("_acpmux/resolve", json!({"query": "cx-ab1.2"})).await.unwrap();
     assert_eq!(r["session"]["qualifiedSessionId"], format!("b/{far}"), "{r}");

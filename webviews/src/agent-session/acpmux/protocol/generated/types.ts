@@ -1454,6 +1454,12 @@ export type SessionDetail = {
    * Clients offer Ctrl-B from this, not from `harness`.
    */
   backgroundsWork: boolean;
+  /**
+   * The tracker beads linked to the session (`bead:<id>` tags, `beads::of_tags`), in id order:
+   * what a client draws on its row, by the id `acpmux resolve <bead id>` finds it by. Absent
+   * with none, and from a peer on an older acpmux.
+   */
+  beads?: string[];
   /** Its sub-sessions that are not closed. */
   children: number;
   configOptions?: unknown;
@@ -1782,6 +1788,12 @@ export type SessionSummary = {
    * Clients offer Ctrl-B from this, not from `harness`.
    */
   backgroundsWork: boolean;
+  /**
+   * The tracker beads linked to the session (`bead:<id>` tags, `beads::of_tags`), in id order:
+   * what a client draws on its row, by the id `acpmux resolve <bead id>` finds it by. Absent
+   * with none, and from a peer on an older acpmux.
+   */
+  beads?: string[];
   /** Its sub-sessions that are not closed. */
   children: number;
   createdAt: number;

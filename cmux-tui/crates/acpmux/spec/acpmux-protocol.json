@@ -5882,6 +5882,13 @@
           "description": "`_acpmux/process/background` (Ctrl-B) moves its foreground work: its\nharness is Claude Code (claude-stdio), whatever the harness's name.\nClients offer Ctrl-B from this, not from `harness`.",
           "type": "boolean"
         },
+        "beads": {
+          "description": "The tracker beads linked to the session (`bead:<id>` tags, `beads::of_tags`), in id order:\nwhat a client draws on its row, by the id `acpmux resolve <bead id>` finds it by. Absent\nwith none, and from a peer on an older acpmux.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "children": {
           "description": "Its sub-sessions that are not closed.",
           "format": "uint32",
@@ -6591,6 +6598,13 @@
         "backgroundsWork": {
           "description": "`_acpmux/process/background` (Ctrl-B) moves its foreground work: its\nharness is Claude Code (claude-stdio), whatever the harness's name.\nClients offer Ctrl-B from this, not from `harness`.",
           "type": "boolean"
+        },
+        "beads": {
+          "description": "The tracker beads linked to the session (`bead:<id>` tags, `beads::of_tags`), in id order:\nwhat a client draws on its row, by the id `acpmux resolve <bead id>` finds it by. Absent\nwith none, and from a peer on an older acpmux.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         "children": {
           "description": "Its sub-sessions that are not closed.",

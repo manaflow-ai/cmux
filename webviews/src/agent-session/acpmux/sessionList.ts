@@ -111,7 +111,7 @@ export type AcpmuxSessionEntry = {
   /** When its last turn ended stopped (`lastTurn.status` `cancelled`): acpmux can carry it on from
    *  there (subagents/resumeState.ts ``subsessionResumeRow``). */
   stoppedAt?: number;
-  /** The tracker beads linked to it (`acpmux bead link`, `task new --bead`: its `bead:<id>` tags), in id
+  /** The tracker beads linked to it (`acpmux bead link`, `task new --bead`; the summary's `beads`), in id
    *  order: the work it is on, by the `bd` id that `acpmux resolve <bead id>` finds it by. */
   beads?: string[];
   /** Explicit lifecycle evidence; absent until the protocol producer supplies a validated receipt. */
@@ -271,22 +271,6 @@ function trustPending(tags: unknown): string | undefined {
   return undefined;
 }
 
-/** The tag a linked bead rides on (acpmux beads.rs `TAG_PREFIX`). */
-const BEAD_TAG = "bead:";
-/** A tracker id as acpmux takes one (beads.rs `is_bead_id`): `cx-cus7j`, `cx-cus7j.230`. */
-const BEAD_ID = /^[A-Za-z][A-Za-z0-9-]*-[A-Za-z0-9]+(\.[A-Za-z0-9]+)*$/;
-
-/** The bead ids a session's tags link, in id order (acpmux beads.rs `of_tags`); undefined for none. */
-export function sessionBeads(tags: unknown): string[] | undefined {
-  if (typeof tags !== "object" || tags === null || Array.isArray(tags)) return undefined;
-  const ids = Object.keys(tags)
-    .filter((key) => key.startsWith(BEAD_TAG))
-    .map((key) => key.slice(BEAD_TAG.length))
-    .filter((id) => id.length <= 64 && BEAD_ID.test(id))
-    .sort();
-  return ids.length > 0 ? ids : undefined;
-}
-
 /** acpmux's status dots (`SessionSummary.indicator`). */
 export type SessionIndicator = "input" | "working" | "failed" | "lost" | "done";
 const INDICATORS: readonly string[] = ["input", "working", "failed", "lost", "done"];
@@ -325,7 +309,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
   const pending = Number(session.pendingPermissions ?? 0);
   const turn = chiefTurn(session.tags);
   const cold = coldArchive(session.coldArchive);
-  const beads = sessionBeads(session.tags);
+  const beads = sessionBeads(session.beads);
   return {
     sessionId: session.sessionId,
     displayTitle: sessionTitle(session),
@@ -443,6 +427,13 @@ function lifecycleReceipt(value: unknown): LifecycleReceipt | undefined {
   if (typeof raw.state !== "string" || !raw.state) return undefined;
   if (typeof raw.source !== "string" || !raw.source) return undefined;
   return { id: raw.id, sequence, state: raw.state, source: raw.source };
+}
+
+/** The summary's `beads` (acpmux `SessionSummary::beads`, checked and ordered there); undefined for none. */
+export function sessionBeads(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const ids = value.filter((id): id is string => typeof id === "string" && id !== "");
+  return ids.length ? ids : undefined;
 }
 
 function pullRequestUrls(value: unknown): string[] | undefined {

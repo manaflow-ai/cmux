@@ -707,6 +707,7 @@ impl Hub {
             session.stopping.lock().unwrap_or_else(|e| e.into_inner()).as_deref()
                 == Some(t.turn_id.as_str())
         });
+        let tags = live_tags(&m);
         let summary = SessionSummary {
             session_id: m.id.clone(),
             name: m.name.clone(),
@@ -878,7 +879,8 @@ impl Hub {
             tools_mutable: with_tools.then_some(m.tools.mutable),
             // The MCP servers the harness reported loaded (cx-ncc.105), never guessed from config.
             mcp_servers: crate::protocol::session::McpServerSummary::loaded(&m.tools.rows),
-            tags: live_tags(&m),
+            beads: crate::beads::of_tags(&tags),
+            tags,
             state_seq: session.state_seq.load(Ordering::SeqCst),
             unread: m.unread,
             unread_turns: m.unread_turns,
