@@ -48,6 +48,10 @@ pub struct ForkParams {
 pub struct SessionSummary {
     pub session_id: String,
     pub name: String,
+    /// A short spoken handle, stable across compaction and moves. Older peers omit it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub spoken_handle: Option<String>,
     /// Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
     /// default. Absent otherwise, from a session named before it was kept, and from a peer on an
     /// older acpmux.

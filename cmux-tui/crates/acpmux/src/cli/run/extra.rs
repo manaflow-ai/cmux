@@ -312,6 +312,27 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::Handle { session, new_handle } => {
+            if !crate::spoken_handle::validate(&new_handle) {
+                return Err(anyhow!(
+                    "spoken handle must be 2-32 ASCII letters, digits, or '-' and start with a letter"
+                ));
+            }
+            let client = connect(true).await?;
+            let id = resolve_id(&client, &session).await?;
+            let v = client
+                .request(
+                    method::MUX_TAG,
+                    json!({"sessionId": id, "set": {"acpmux.spokenHandle": new_handle}}),
+                )
+                .await?;
+            if json_out {
+                print_json(&v)
+            } else {
+                println!("handle set")
+            }
+            Ok(())
+        }
         Command::Fork { session, name, cwd, force_admit, harness, model } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;

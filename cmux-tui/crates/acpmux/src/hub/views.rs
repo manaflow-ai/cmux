@@ -710,6 +710,7 @@ impl Hub {
         let summary = SessionSummary {
             session_id: m.id.clone(),
             name: m.name.clone(),
+            spoken_handle: Some(crate::spoken_handle::of_meta(&m)),
             name_given: m.name_given,
             harness: m.harness.clone(),
             family: m.family.clone(),

@@ -9,6 +9,7 @@ const TEXT_CHARS: usize = 160;
 const LIST_ITEMS: usize = 8;
 const EXTRA_KEYS: &[&str] = &[
     "name",
+    "spokenHandle",
     "shortName",
     "indicator",
     "titleSource",

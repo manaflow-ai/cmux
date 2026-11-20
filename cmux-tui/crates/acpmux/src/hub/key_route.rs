@@ -34,6 +34,8 @@ pub(crate) struct Candidate {
     pub host: String,
     /// Its name without its peer's `peer/` prefix.
     pub name: String,
+    /// Its stable spoken handle (the name people use in forum and send commands).
+    pub handle: String,
     /// What this daemon routes exactly: a local id, or the peer row's `peer/id`.
     pub route: String,
     pub closed: bool,
@@ -175,21 +177,29 @@ impl Hub {
         // (`short_step`): an exact short name beats a sibling's in another case, and the loose
         // short steps apply only when no short name matches exactly (review of #36919, F1).
         let mut found: Vec<(Option<(bool, Step)>, Candidate)> = Vec::new();
-        let mut take = |host: &str, name: &str, id: &str, route: String, closed: bool| {
-            let at = if name == rest || id.starts_with(rest) {
-                Some((false, Step::Exact))
-            } else {
-                crate::name_match::step(name, rest)
-                    .map(|at| (false, at))
-                    .or_else(|| crate::name_match::short_step(name, rest).map(|at| (true, at)))
+        let mut take =
+            |host: &str, name: &str, handle: &str, id: &str, route: String, closed: bool| {
+                let at = if name == rest || handle == rest || id.starts_with(rest) {
+                    Some((false, Step::Exact))
+                } else {
+                    crate::name_match::step(name, rest)
+                        .map(|at| (false, at))
+                        .or_else(|| crate::name_match::step(handle, rest).map(|at| (false, at)))
+                        .or_else(|| crate::name_match::short_step(name, rest).map(|at| (true, at)))
+                };
+                if at.is_some() {
+                    found.push((
+                        at,
+                        Candidate {
+                            host: host.to_owned(),
+                            name: name.to_owned(),
+                            handle: handle.to_owned(),
+                            route,
+                            closed,
+                        },
+                    ));
+                }
             };
-            if at.is_some() {
-                found.push((
-                    at,
-                    Candidate { host: host.to_owned(), name: name.to_owned(), route, closed },
-                ));
-            }
-        };
         match machine {
             Machine::Here(own) => {
                 for s in
@@ -199,6 +209,7 @@ impl Hub {
                     take(
                         own,
                         &meta.name,
+                        &crate::spoken_handle::of_meta(&meta),
                         &s.id,
                         s.id.clone(),
                         meta.status == SessionStatus::Closed,
@@ -211,8 +222,12 @@ impl Hub {
                 {
                     let name = r.summary.name().unwrap_or_default();
                     let bare = name.strip_prefix(&format!("{peer}/")).unwrap_or(name);
+                    let handle =
+                        crate::spoken_handle::of_summary(&r.summary).unwrap_or_else(|| {
+                            crate::spoken_handle::fallback(&r.receipt.mux_session_id)
+                        });
                     let closed = r.summary.closed();
-                    take(peer, bare, &r.receipt.mux_session_id, route.clone(), closed);
+                    take(peer, bare, &handle, &r.receipt.mux_session_id, route.clone(), closed);
                 }
             }
         }
@@ -243,12 +258,13 @@ impl Hub {
     fn key_candidates(&self, key: &str, own: &str) -> [Vec<Candidate>; 6] {
         use crate::name_match::Step;
         let mut tiers: [Vec<Candidate>; 6] = Default::default();
-        let tier_of = |name: &str, id: &str, here: bool| {
-            if name == key || id.starts_with(key) {
+        let tier_of = |name: &str, handle: &str, id: &str, here: bool| {
+            if name == key || handle == key || id.starts_with(key) {
                 return Some(0);
             }
             let at = crate::name_match::step(name, key);
-            if at == Some(Step::Case) {
+            let handle_at = crate::name_match::step(handle, key);
+            if at == Some(Step::Case) || handle_at == Some(Step::Case) {
                 Some(1)
             } else if here && at == Some(Step::Prefix) {
                 Some(2)
@@ -264,12 +280,16 @@ impl Hub {
         };
         for s in self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).values() {
             let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            let Some(tier) = tier_of(&meta.name, &s.id, true).and_then(|t| tiers.get_mut(t)) else {
+            let handle = crate::spoken_handle::of_meta(&meta);
+            let Some(tier) =
+                tier_of(&meta.name, &handle, &s.id, true).and_then(|t| tiers.get_mut(t))
+            else {
                 continue;
             };
             tier.push(Candidate {
                 host: own.to_owned(),
                 name: meta.name.clone(),
+                handle,
                 route: s.id.clone(),
                 closed: meta.status == SessionStatus::Closed,
             });
@@ -277,14 +297,17 @@ impl Hub {
         for (route, r) in self.remote_sessions.read().iter() {
             let name = r.summary.name().unwrap_or_default();
             let bare = name.strip_prefix(&format!("{}/", r.peer)).unwrap_or(name);
-            let Some(tier) =
-                tier_of(bare, &r.receipt.mux_session_id, false).and_then(|t| tiers.get_mut(t))
+            let handle = crate::spoken_handle::of_summary(&r.summary)
+                .unwrap_or_else(|| crate::spoken_handle::fallback(&r.receipt.mux_session_id));
+            let Some(tier) = tier_of(bare, &handle, &r.receipt.mux_session_id, false)
+                .and_then(|t| tiers.get_mut(t))
             else {
                 continue;
             };
             tier.push(Candidate {
                 host: r.peer.clone(),
                 name: bare.to_owned(),
+                handle,
                 route: route.clone(),
                 closed: r.summary.closed(),
             });
@@ -325,6 +348,7 @@ fn ambiguous(key: &str, many: &[&Candidate]) -> RpcError {
             json!({
                 "host": c.host,
                 "name": c.name,
+                "spokenHandle": c.handle,
                 "route": c.route,
                 "status": if c.closed { "closed" } else { "live" },
                 "use": if unique { qualified(c) } else { c.route.clone() },
@@ -500,7 +524,13 @@ mod tests {
     }
 
     fn c(host: &str, name: &str, route: &str, closed: bool) -> Candidate {
-        Candidate { host: host.into(), name: name.into(), route: route.into(), closed }
+        Candidate {
+            host: host.into(),
+            name: name.into(),
+            handle: name.into(),
+            route: route.into(),
+            closed,
+        }
     }
 
     #[test]

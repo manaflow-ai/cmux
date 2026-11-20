@@ -195,9 +195,7 @@ impl Hub {
     pub fn forum_agent(&self, session: &Session) -> Author {
         Author::Agent {
             session_id: session.id.clone(),
-            // This remains display metadata. The exact session UUID above is
-            // the proven sender identity used for authorization and delivery.
-            handle: None,
+            handle: Some(crate::spoken_handle::of_meta(&session.meta())),
             name: session.meta().name,
         }
     }
