@@ -200,9 +200,17 @@ async fn growth_under_mesh_churn_and_short_clients() {
             let mut round = 0u64;
             while !stop.load(Ordering::Relaxed) {
                 round += 1;
-                if round % 2 == 0 {
+                {
+                    // `acpmux ls`, or an agent's `acpmux send` to a churning peer's chat (a
+                    // delivery the daemon keeps and retries while the peer is down).
+                    let text = format!("note {c} {round}");
+                    let args: Vec<&str> = if round % 2 == 0 {
+                        vec!["ls", "--json"]
+                    } else {
+                        vec!["send", "--no-wait", &target, &text]
+                    };
                     let out = daemon_env::command(&scratch, daemon_env::Agents::StandIn, &[])
-                        .args(["ls", "--json"])
+                        .args(&args)
                         .env("ACPMUX_HOME", &home)
                         .env("ACPMUX_SOCKET", &socket)
                         .stdin(Stdio::null())
@@ -213,9 +221,10 @@ async fn growth_under_mesh_churn_and_short_clients() {
                     match out {
                         Ok(o) if o.status.success() => {}
                         Ok(o) => {
-                            if counts.cli_failed.fetch_add(1, Ordering::Relaxed) == 0 {
+                            if counts.cli_failed.fetch_add(1, Ordering::Relaxed) < 4 {
                                 println!(
-                                    "GROWTH-CLI-FAIL {}",
+                                    "GROWTH-CLI-FAIL {} {}",
+                                    args[0],
                                     String::from_utf8_lossy(&o.stderr).lines().next().unwrap_or("")
                                 );
                             }
