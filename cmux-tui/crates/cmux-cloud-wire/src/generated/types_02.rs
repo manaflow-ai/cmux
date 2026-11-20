@@ -4,6 +4,9 @@
 #[allow(unused_imports)]
 use super::*;
 
+/// A lowercase DNS name such as acme.com.
+pub type EmailDomain = String;
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct EnrollmentToken {
     pub id: EnrollmentTokenId,
