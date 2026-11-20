@@ -12,7 +12,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "remote.showStatus",
         group: GROUP,
-        title: t("ActionCatalog", "action.remote.showStatus", "cmux Remote: Show Status"),
+        title: t("ActionCatalog", "action.remote.showStatus", "cmux Computer Use: Show Status"),
         keywords: &["cmux remote", "screen sharing", "computer use", "permissions", "accessibility", "screen recording", "status"],
         category: "remote",
         symbol: "display.and.arrow.down",
@@ -23,7 +23,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "remote.refreshPermissions",
         group: GROUP,
-        title: t("ActionCatalog", "action.remote.refreshPermissions", "cmux Remote: Refresh Permissions"),
+        title: t("ActionCatalog", "action.remote.refreshPermissions", "cmux Computer Use: Refresh Permissions"),
         keywords: &["cmux remote", "permissions", "accessibility", "screen recording", "grant", "refresh", "tcc"],
         category: "remote",
         symbol: "arrow.clockwise",
@@ -34,7 +34,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "remote.allowAccessibility",
         group: GROUP,
-        title: t("ActionCatalog", "action.remote.allowAccessibility", "cmux Remote: Allow Accessibility"),
+        title: t("ActionCatalog", "action.remote.allowAccessibility", "cmux Computer Use: Allow Accessibility"),
         keywords: &["cmux remote", "accessibility", "permission", "grant", "tcc", "computer use", "screen sharing"],
         category: "remote",
         symbol: "accessibility",
@@ -45,7 +45,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "remote.allowScreenRecording",
         group: GROUP,
-        title: t("ActionCatalog", "action.remote.allowScreenRecording", "cmux Remote: Allow Screen Recording"),
+        title: t("ActionCatalog", "action.remote.allowScreenRecording", "cmux Computer Use: Allow Screen Recording"),
         keywords: &["cmux remote", "screen recording", "permission", "grant", "tcc", "computer use", "screen sharing"],
         category: "remote",
         symbol: "record.circle",
@@ -56,7 +56,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "remote.restartComputerUse",
         group: GROUP,
-        title: t("ActionCatalog", "action.remote.restartComputerUse", "cmux Remote: Restart Computer Use"),
+        title: t("ActionCatalog", "action.remote.restartComputerUse", "cmux Computer Use: Restart Computer Use"),
         keywords: &["cmux remote", "computer use", "restart", "worker", "agents"],
         category: "remote",
         symbol: "arrow.clockwise.circle",
@@ -67,7 +67,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "remote.restartScreenSharing",
         group: GROUP,
-        title: t("ActionCatalog", "action.remote.restartScreenSharing", "cmux Remote: Restart Screen Sharing"),
+        title: t("ActionCatalog", "action.remote.restartScreenSharing", "cmux Computer Use: Restart Screen Sharing"),
         keywords: &["cmux remote", "screen sharing", "mac screen", "restart", "worker"],
         category: "remote",
         symbol: "arrow.clockwise.circle",
@@ -78,7 +78,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "remote.stopScreenSession",
         group: GROUP,
-        title: t("ActionCatalog", "action.remote.stopScreenSession", "cmux Remote: End Screen Sharing Session"),
+        title: t("ActionCatalog", "action.remote.stopScreenSession", "cmux Computer Use: End Screen Sharing Session"),
         keywords: &["cmux remote", "screen sharing", "mac screen", "stop", "end", "disconnect", "viewer", "session"],
         category: "remote",
         symbol: "stop.circle",

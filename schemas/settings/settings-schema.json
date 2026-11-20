@@ -1366,7 +1366,7 @@
             ],
             "title" : {
               "key" : "settings.group.cmuxRemote",
-              "text" : "cmux Remote"
+              "text" : "cmux Computer Use"
             }
           },
           {
@@ -107443,7 +107443,7 @@
       "default_label" : null,
       "group" : {
         "key" : "settings.group.cmuxRemote",
-        "text" : "cmux Remote"
+        "text" : "cmux Computer Use"
       },
       "help" : {
         "key" : "settings.remote.endSharingOnQuit.help",
@@ -107603,7 +107603,7 @@
       "default_label" : null,
       "group" : {
         "key" : "settings.group.cmuxRemote",
-        "text" : "cmux Remote"
+        "text" : "cmux Computer Use"
       },
       "help" : {
         "key" : "settings.remote.ultra.help",

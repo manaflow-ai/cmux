@@ -5,13 +5,13 @@ import Foundation
 /// cmux Remote's app strings (`CmuxRemote` table).
 enum CmuxRemoteStrings {
     static var unavailable: String {
-        String(localized: "remote.unavailable", defaultValue: "cmux Remote is not running in this build.", table: "CmuxRemote", bundle: .module)
+        String(localized: "remote.unavailable", defaultValue: "cmux Computer Use is not running in this build.", table: "CmuxRemote", bundle: .module)
     }
     static var signedOut: String {
         String(localized: "remote.signedOut", defaultValue: "Sign in to cmux to share this Mac.", table: "CmuxRemote", bundle: .module)
     }
     static var statusTitle: String {
-        String(localized: "remote.status.title", defaultValue: "cmux Remote", table: "CmuxRemote", bundle: .module)
+        String(localized: "remote.status.title", defaultValue: "cmux Computer Use", table: "CmuxRemote", bundle: .module)
     }
     static var done: String { String(localized: "remote.done", defaultValue: "Done", table: "CmuxRemote", bundle: .module) }
     static var allow: String { String(localized: "remote.allow", defaultValue: "Allow", table: "CmuxRemote", bundle: .module) }
