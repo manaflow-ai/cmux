@@ -103,7 +103,7 @@ struct ComputerUsePolicyWake: Sendable {
 
 /// The policy the app sends cmux Remote's Computer Use worker: the person's `computerUse.*`
 /// (`ComputerUseSettings.policyConfigJSON()`) and the agent cursor's animation switches.
-public struct CmuxRemoteComputerUsePolicy: Equatable, Sendable {
+public nonisolated struct CmuxRemoteComputerUsePolicy: Equatable, Sendable {
     public var policy: Data
     /// `ui.animations.enabled`, `ui.animations.cursor` and `ui.animationSpeed` not "off".
     public var cursorAnimates: Bool
@@ -241,7 +241,7 @@ extension CmuxRemoteService {
         _ = try? await call("request", .object(["permission": .string(permission)]))
     }
 
-    static func object(_ value: CmuxNextDaemon.JSONValue) -> [String: Any]? {
+    nonisolated static func object(_ value: CmuxNextDaemon.JSONValue) -> [String: Any]? {
         guard let data = try? JSONEncoder().encode(value) else { return nil }
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }

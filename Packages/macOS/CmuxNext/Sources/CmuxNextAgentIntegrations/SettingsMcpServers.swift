@@ -14,7 +14,7 @@ public import Observation
 @Observable
 public final class SettingsMcpServers: PageProvider {
     /// One saved server as `integrations --json list` reports it (optchat-chief `settings_row`).
-    struct Row: Equatable {
+    nonisolated struct Row: Equatable, Sendable {
         var name: String
         /// `remote` (a URL) or `local` (a command on this Mac).
         var kind: String
@@ -120,7 +120,7 @@ public final class SettingsMcpServers: PageProvider {
                 // No answer at all is a refusal with no words of its own.
                 let refusal: String?
                 if let reply = try? await runCLI(chief, ["integrations", "--json", "remove", name], await environment()) {
-                    refusal = Self.refusal(reply)
+                    refusal = await Self.readRefusal(reply)
                 } else {
                     refusal = ""
                 }
@@ -207,9 +207,11 @@ public final class SettingsMcpServers: PageProvider {
         let mine = generation
         loading = true
         let reply = try? await runCLI(chief, ["integrations", "--json", "list"], await environment())
+        var parsed: [Row]?
+        if let reply, reply.0 == 0 { parsed = await Self.readRows(reply.1) }
         guard mine == generation else { return }
         loading = false
-        guard let reply, reply.0 == 0, var read = Self.rows(reply.1) else {
+        guard var read = parsed else {
             problem = "failed"
             return
         }
@@ -221,8 +223,14 @@ public final class SettingsMcpServers: PageProvider {
         problem = nil
     }
 
+    /// ``rows(_:)`` off the main actor (the list answer grows with the servers).
+    @concurrent nonisolated static func readRows(_ data: Data) async -> [Row]? { rows(data) }
+
+    /// ``refusal(_:)`` off the main actor.
+    @concurrent nonisolated static func readRefusal(_ reply: (Int32, Data, Data)) async -> String? { refusal(reply) }
+
     /// The `servers` of a list answer: the whole output, or its last line when something printed before it.
-    static func rows(_ data: Data) -> [Row]? {
+    nonisolated static func rows(_ data: Data) -> [Row]? {
         let last = String(data: data, encoding: .utf8)?.split(separator: "\n").last.map { Data($0.utf8) } ?? Data()
         guard let value = (try? JSONValue.parse(data)) ?? (try? JSONValue.parse(last)),
               let servers = value["servers"]?.arrayValue else { return nil }
@@ -236,7 +244,7 @@ public final class SettingsMcpServers: PageProvider {
     }
 
     /// The CLI's refusal from a failed run's last line; nil when it succeeded.
-    static func refusal(_ reply: (Int32, Data, Data)) -> String? {
+    nonisolated static func refusal(_ reply: (Int32, Data, Data)) -> String? {
         guard reply.0 != 0 else { return nil }
         let last = String(data: reply.1, encoding: .utf8)?.split(separator: "\n").last.map(String.init) ?? ""
         return (try? JSONValue.parse(Data(last.utf8)))?["why"]?.stringValue ?? ""
