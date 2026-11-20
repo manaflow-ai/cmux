@@ -25,6 +25,8 @@ ok 0 "" build fresh 50 chromium 1 || fail "guest=0 checked the guest rules"
 ! ok 1 "" nightly same 0 chromium 0 || fail "guest=1 engines= accepted"
 ! ok 1 "" nightly same 0 "" 1 || fail "guest=1 profile=1 accepted"
 ! LR_STATE=bare ok 1 "" nightly same 0 "" 0 || fail "guest=1 state=bare accepted"
+! LR_KEYS=1 ok 1 "" nightly same 0 "" 0 || fail "guest=1 keys=1 accepted"
+LR_TYPE=1 ok 1 "" nightly same 0 "" 0 || fail "guest=1 type=1 refused"
 echo 'launch-ready guest: the arguments guest=1 takes and refuses'
 
 # guest_copy: the bundle id gets .launch-ready (once), the link claims go, the copy is re-signed ad hoc.
