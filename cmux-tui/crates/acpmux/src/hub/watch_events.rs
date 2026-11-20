@@ -67,6 +67,8 @@ pub const WATCH_KINDS: &[&str] = &[
     "permission_reissued",
     "permission_decision",
     "turn_result",
+    "harness_sandbox_failed",
+    "remote_sandbox",
     "status",
 ];
 
@@ -99,7 +101,13 @@ fn selected(until: &[String], s: &Value) -> Option<&'static str> {
 /// Each candidate is journal-backed. Two turns ending between handler runs
 /// yield two entries; a later turn cannot hide an earlier permission/resolve.
 pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>, bool), RpcError> {
-    let s = summary(hub, key);
+    let mut s = summary(hub, key);
+    // A start's reply can beat the linked peer's inventory notification. The watch
+    // already holds the returned exact id: ask its journal before calling it closed.
+    let linked = hub.resolve_remote(key).map(|(peer, id, _)| (peer, id)).or_else(|| {
+        let (host, id) = key.split_once('/')?;
+        Some((hub.peer(host)?, id.to_owned()))
+    });
     let c = w
         .cursors
         .get_mut(key)
@@ -112,13 +120,25 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
     {
         let events: Vec<crate::store::EventRecord> = if let Ok(local) = hub.resolve(key) {
             hub.events(&local.id, c.seq, 256).map_err(|e| RpcError::internal(e.to_string()))?
-        } else if let Some((peer, id, _)) = hub.resolve_remote(key) {
-            let page = tokio::time::timeout(
+        } else if let Some((peer, id)) = linked {
+            let answer = tokio::time::timeout(
                 std::time::Duration::from_millis(250),
                 peer.request(method::MUX_EVENTS, remote_page(&id, c.seq, w.match_text.as_deref())),
             )
             .await
-            .map_err(|_| RpcError::internal("peer watch page timed out"))??;
+            .map_err(|_| RpcError::internal("peer watch page timed out"))?;
+            let page = match answer {
+                Ok(page) => {
+                    s["missing"] = json!(false);
+                    page
+                }
+                Err(error)
+                    if error.code == RpcError::not_found("").code && s["missing"] == true =>
+                {
+                    json!({"events": []})
+                }
+                Err(error) => return Err(error),
+            };
             end = page["lastSeq"].as_u64();
             more = page["hasMore"] == true;
             let events: Vec<crate::store::EventRecord> =
@@ -129,6 +149,24 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
             // them and the next page never asks for them again.
             through = page.get("pageThrough").and_then(Value::as_u64);
             events
+        } else if let Some(row) = hub.mesh_book_row(key)
+            && let Some(mesh) = hub.mesh.get()
+            && hub.mesh_may_route(key)
+        {
+            let id = &row.receipt.mux_session_id;
+            let page = crate::server::mesh_relay::read::read(
+                mesh.as_ref(),
+                &row.peer,
+                id,
+                method::MUX_EVENTS,
+                &remote_page(id, c.seq, w.match_text.as_deref()),
+            )
+            .await?;
+            end = page["lastSeq"].as_u64();
+            more = page["hasMore"] == true;
+            through = page.get("pageThrough").and_then(Value::as_u64);
+            serde_json::from_value(page["events"].clone())
+                .map_err(|e| RpcError::internal(format!("hub watch events: {e}")))?
         } else {
             Vec::new()
         };
@@ -181,9 +219,30 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
                 ("mux", "permission_decision") => {
                     c.permission_wakes.remove(&format!("permission:{}", e.msg["permissionId"]));
                 }
+                ("mux", "harness_sandbox_failed" | "remote_sandbox")
+                    if w.until.iter().any(|u| u == "blocked") =>
+                {
+                    if let Some(error) =
+                        e.msg.get("error").or_else(|| e.msg.get("refused")).and_then(Value::as_str)
+                    {
+                        c.reply = format!(
+                            "{error}\nCheck the chat's permission level on its machine; restart it with Full access only when authorized, or choose a folder and tools its sandbox permits."
+                        );
+                        candidates.push(("blocked", format!("sandbox:{}", e.seq)));
+                    }
+                }
                 ("mux", "turn_result") => {
                     c.turn_mark = format!("turn:{}", e.msg["turnId"]);
                     c.unread = e.msg.get("unread").unwrap_or(&s["unread"]) == &Value::Bool(true);
+                    let blocked = w.until.iter().any(|u| u == "blocked")
+                        && (e.msg["status"] == "failed"
+                            || crate::session_liveness::blocked_reply(&c.reply).is_some());
+                    if blocked {
+                        if let Some(error) = e.msg["errorText"].as_str() {
+                            c.reply = error.to_owned();
+                        }
+                        candidates.push(("blocked", c.turn_mark.clone()));
+                    }
                     let status = if e.msg["pendingPermissions"].as_u64().unwrap_or(0) > 0 {
                         "waiting"
                     } else {
@@ -193,7 +252,7 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
                         selected(&w.until, &json!({"status": status, "unread": c.unread}))
                     {
                         // Permission wakes have their own journal identity.
-                        if state != "permission" {
+                        if state != "permission" && !blocked {
                             candidates.push((state, c.turn_mark.clone()));
                         }
                     }
@@ -277,7 +336,12 @@ fn emit(
         c.last_resolve = mark;
         let name = s["name"].as_str().unwrap_or(key);
         let reply: String = crate::secret_scan::mask(&c.reply).chars().take(400).collect();
-        found.push(format!("{name} ({key}) is {state}. Last reply: {reply}\nacpmux last {key}\nacpmux history {key}\nacpmux pending"));
+        let next = if state == "blocked" {
+            "\nIf the remote sandbox refused the work, choose Full access on the starting machine only when authorized, or retry with a folder and tools that sandbox permits."
+        } else {
+            ""
+        };
+        found.push(format!("{name} ({key}) is {state}. Last reply: {reply}{next}\nacpmux last {key}\nacpmux history {key}\nacpmux pending"));
     }
 }
 

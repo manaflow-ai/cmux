@@ -1562,6 +1562,7 @@ async fn dispatch_request_with_identity(
                 mux_meta(&params).and_then(|m| m.get("peer")).and_then(Value::as_str)
                 && !peer_name.is_empty()
             {
+                let report_to = super::lane_parent::remote_report_target(hub, conn, &params)?;
                 // A credential is for an agent on this machine only: never sent on to a peer.
                 if mux_meta(&params).and_then(|m| m.get(crate::agent_credentials::FIELD)).is_some()
                 {
@@ -1591,23 +1592,12 @@ async fn dispatch_request_with_identity(
                 let carried = hub
                     .forward_start_policy(person_start(conn, &params), conn.caller(), &mut p)
                     .await;
+                super::lane_parent::mark_forwarded_boundary(hub, conn, &params, &peer, &mut p);
                 crate::hub::merge_mux_meta(&mut p, created_by_stamp(hub, conn, &params));
                 // This caller's own opt-out for its remote chains there (`hub/vm_boundary.rs`),
                 // for the person's own clients here only (`vm_boundary::owner`): a saved
                 // `vmBoundary`, or a dedicated agent VM of this caller's own fleet registry
                 // (`hub/agent_vm.rs`).
-                if crate::hub::vm_boundary::owner(
-                    conn.auth,
-                    super::remote_guard::control_of(conn.origin, conn.auth, &params),
-                    &params,
-                ) && (peer.vm_boundary()
-                    || crate::hub::agent_vm::registry_agent_vm(&peer.name, &peer.url))
-                {
-                    crate::hub::merge_mux_meta(
-                        &mut p,
-                        json!({crate::hub::vm_boundary::FIELD: true}),
-                    );
-                }
                 if let Some((name, digest)) = &unattended {
                     hub.unattended_preset_holds(name, digest).await?;
                 }
@@ -1632,6 +1622,9 @@ async fn dispatch_request_with_identity(
                     hub.log_unattended_start(approved, &peer.name, conn.caller(), id);
                 }
                 if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
+                    super::lane_parent::report_remote_created(
+                        hub, conn, report_to, &peer.name, id,
+                    )?;
                     view::subscribe_remote(hub, conn, id, None);
                     peer.mark_attached(id);
                 }

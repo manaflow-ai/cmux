@@ -1502,7 +1502,11 @@ export type SessionDetail = {
   family?: (string | null);
   /** Where a fork branched off its parent. */
   forkSeq?: (number | null);
+  /** The session's spoken handle, independent of its task name and ids. Older peers omit it. */
+  handle?: (string | null);
   harness: string;
+  /** The refused operation, redacted and bounded; cleared on recovery. */
+  harnessSandboxError?: (string | null);
   /**
    * Unix milliseconds when its harness first refused a command because the harness's own
    * sandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.
@@ -1855,7 +1859,11 @@ export type SessionSummary = {
   family?: (string | null);
   /** Where a fork branched off its parent. */
   forkSeq?: (number | null);
+  /** The session's spoken handle, independent of its task name and ids. Older peers omit it. */
+  handle?: (string | null);
   harness: string;
+  /** The refused operation, redacted and bounded; cleared on recovery. */
+  harnessSandboxError?: (string | null);
   /**
    * Unix milliseconds when its harness first refused a command because the harness's own
    * sandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.
