@@ -15,6 +15,38 @@ import { workerHighlighterOptions } from "../pierre-options";
 type WorkerPool = NonNullable<ReturnType<typeof useWorkerPool>>;
 type PlainHighlighter = Parameters<typeof renderDiffWithHighlighter>[1];
 type PlainDrawingPool = Pick<WorkerPool, "getPlainDiffAST" | "getPlainFileAST">;
+/** The part of @pierre/diffs' CodeView that holds its rows back until the pool is up. */
+type ReadyGatedView = { isReady(): boolean; render(immediate?: boolean): void };
+
+/** Whether a pool's plain rows can draw with this file's instance now, per pool. */
+const plainRowsDrawable = new WeakMap<WorkerPool, () => boolean>();
+
+/**
+ * Lets a CodeView lay out and draw its rows while the pool's plain rows can draw with the
+ * instance from `drawPlainBeforeWorkers`. @pierre/diffs 1.6's CodeView draws no item until the
+ * pool is initialized (`isReady()`), which on a big diff held the first row back about 400 ms after
+ * plain rows could draw. The view's own `isReady` still runs on every frame (it starts the pool
+ * and draws again once the pool is up); this only answers yes while plain rows can draw, and steps
+ * aside once the view's own answer is yes. Returns whether it opened the view.
+ */
+export function letViewDrawBeforePool(view: ReadyGatedView, pool: WorkerPool): boolean {
+  const drawable = plainRowsDrawable.get(pool);
+  if (drawable == null || !drawable() || typeof view.isReady !== "function") return false;
+  const hadOwn = Object.prototype.hasOwnProperty.call(view, "isReady");
+  const own = view.isReady;
+  const gated = () => {
+    if (own.call(view)) {
+      if (view.isReady === gated) {
+        if (hadOwn) view.isReady = own;
+        else delete (view as Partial<ReadyGatedView>).isReady;
+      }
+      return true;
+    }
+    return drawable();
+  };
+  view.isReady = gated;
+  return true;
+}
 
 /**
  * Lets the highlight pool draw a file's rows as plain text before its highlighter is up.
@@ -108,12 +140,14 @@ export async function drawPlainBeforeWorkers(pool: WorkerPool): Promise<PlainBef
   };
   target.getPlainDiffAST = drawDiff;
   target.getPlainFileAST = drawFile;
+  plainRowsDrawable.set(pool, usable);
   // The pool broadcasts its stats once it is up or stopped: its own methods come back, then dispose.
   let unsubscribe: (() => void) | null = null;
   const releaseWhenDone = () => {
     if (released || !(pool.isInitialized() || poolStopped(pool))) return;
     released = true;
     unsubscribe?.();
+    if (plainRowsDrawable.get(pool) === usable) plainRowsDrawable.delete(pool);
     if (target.getPlainDiffAST === drawDiff) target.getPlainDiffAST = ownDiff;
     if (target.getPlainFileAST === drawFile) target.getPlainFileAST = ownFile;
     raw.dispose();
@@ -161,8 +195,13 @@ function useDrawPlainBeforeWorkers(codeViewRef: React.MutableRefObject<CodeViewH
       .then((outcome) => {
         // Read by diff-paint-perf.test.ts, as the pool's counters are (worker-pool.ts).
         document.documentElement.dataset.cmuxDiffPlainBeforeWorkers = outcome;
-        // Files that drew before the instance arrived (no rows) draw again, as plain text.
-        if (active && outcome === "drawn") codeViewRef.current?.getInstance()?.render(true);
+        // Files that drew before the instance arrived (no rows) draw again, as plain text; the
+        // view lays out its rows now instead of when the pool is up.
+        const view = codeViewRef.current?.getInstance();
+        if (active && outcome === "drawn" && view != null) {
+          letViewDrawBeforePool(view as unknown as ReadyGatedView, workerPool);
+          view.render(true);
+        }
       })
       .catch((error: unknown) => console.warn("cmux diff plain rows before the highlight workers failed", error));
     return () => {

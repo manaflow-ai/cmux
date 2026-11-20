@@ -121,3 +121,33 @@ test("a pool with no plain-row methods is unsupported", async () => {
   const { getPlainDiffAST: _diff, ...pool } = startingPool({ dark: "github-dark", light: "github-light" });
   expect(await drawPlainBeforeWorkers(pool as never)).toBe("unsupported");
 });
+
+test("a code view draws its rows while plain rows can draw, then goes back to its own answer", async () => {
+  const { drawPlainBeforeWorkers, letViewDrawBeforePool } = await import("../src/diff-viewer/WorkerRenderOptionsSync");
+  const pool = startingPool({ dark: "github-dark", light: "github-light" });
+  let poolUp = false;
+  let ownCalls = 0;
+  class View {
+    isReady() {
+      ownCalls += 1;
+      return poolUp;
+    }
+    render() {}
+  }
+  const view = new View();
+  // Before the plain-rows instance exists, the view keeps its own answer.
+  expect(letViewDrawBeforePool(view as never, pool as never)).toBe(false);
+  expect(await drawPlainBeforeWorkers(pool as never)).toBe("drawn");
+  expect(letViewDrawBeforePool(view as never, pool as never)).toBe(true);
+  expect(view.isReady()).toBe(true);
+  // Its own check still runs (it starts the pool and draws again when the pool is up).
+  expect(ownCalls).toBe(1);
+  poolUp = true;
+  pool.stats = { managerState: "initialized", workersFailed: false };
+  pool.broadcast();
+  expect(view.isReady()).toBe(true);
+  // The gate stepped aside: the prototype's method answers again.
+  expect(Object.prototype.hasOwnProperty.call(view, "isReady")).toBe(false);
+  poolUp = false;
+  expect(view.isReady()).toBe(false);
+});
