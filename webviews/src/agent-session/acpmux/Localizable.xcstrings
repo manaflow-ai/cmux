@@ -443645,19 +443645,19 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chat"
+            "value": "Razgovor"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chat"
+            "value": "Samtale"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chat"
+            "value": "Unterhaltung"
           }
         },
         "en": {
@@ -443669,19 +443669,19 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chat"
+            "value": "Conversación"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chat"
+            "value": "Discussion"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chat"
+            "value": "Conversazione"
           }
         },
         "ja": {
@@ -443705,7 +443705,7 @@
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chat"
+            "value": "Samtale"
           }
         },
         "pl": {
@@ -443717,7 +443717,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chat"
+            "value": "Conversa"
           }
         },
         "ru": {
