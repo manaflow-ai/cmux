@@ -54,6 +54,7 @@ import {
   devboxClaudeTeamOnboardingCheckCommand,
   devboxWorkUserCmuxConfigDirCommand,
   devboxClaudeSettingsDefaultsCommand,
+  devboxClaudeSettingsDefaultsCheckCommand,
   normalizedBakeScript,
   normalizedDockerfileInstructions,
   rewriteDevboxAgentPins,
@@ -1786,6 +1787,39 @@ test "$daemon_pid" = fixture
       expect(statSync(hooks).mode & 0o777).toBe(0o644);
       expect(JSON.parse(readFileSync(fresh, "utf8"))).toEqual({ crossSessionInbound: "accept" });
       expect(statSync(fresh).mode & 0o777).toBe(0o600);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  for (const [label, existing] of [["accept", "accept"], ["hold", "hold"], ["refuse", "refuse"]] as const) {
+    test(`Claude settings verifier accepts an existing ${label} choice`, async () => {
+      const root = mkdtempSync(path.join(tmpdir(), `claude-settings-verify-${label}-`));
+      try {
+        const file = path.join(root, "settings.json");
+        writeFileSync(file, JSON.stringify({ crossSessionInbound: existing }));
+        const seeded = await runChild("python3", ["-I", path.join(templateDir, "claude-onboarding.py"), "--settings-default", file], { timeout: 10_000 });
+        expect(seeded.status).toBe(0);
+        const result = await runChild("/bin/sh", ["-c", devboxClaudeSettingsDefaultsCheckCommand([file], null)]);
+        expect(result.status).toBe(0);
+        expect(result.stdout).toContain("claude-settings-defaults-ok");
+        expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ crossSessionInbound: existing });
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+  }
+
+  test("Claude settings verifier requires accept when the key was unset", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "claude-settings-verify-unset-"));
+    try {
+      const file = path.join(root, "settings.json");
+      const seeded = await runChild("python3", ["-I", path.join(templateDir, "claude-onboarding.py"), "--settings-default", file], { timeout: 10_000 });
+      expect(seeded.status).toBe(0);
+      expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ crossSessionInbound: "accept" });
+      const result = await runChild("/bin/sh", ["-c", devboxClaudeSettingsDefaultsCheckCommand([file], null)]);
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("claude-settings-defaults-ok");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

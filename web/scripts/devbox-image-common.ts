@@ -1905,10 +1905,16 @@ export function devboxClaudeSettingsDefaultsCommand(): string {
   return `${seed} /root/.claude/settings.json && sudo -n -u ${DEVBOX_WORK_USER} ${seed} ${DEVBOX_WORK_HOME}/.claude/settings.json && ${devboxClaudeSettingsDefaultsCheckCommand()}`;
 }
 
-/** Fails unless both homes' Claude user settings carry the defaults and the managed settings leave them to the person. */
-export function devboxClaudeSettingsDefaultsCheckCommand(): string {
-  const files = JSON.stringify(["/root/.claude/settings.json", `${DEVBOX_WORK_HOME}/.claude/settings.json`]);
-  return `python3 -c 'import json, os; rows = [json.load(open(p)) for p in ${files}]; assert all(r.get("crossSessionInbound") == "accept" for r in rows), rows; m = "/etc/claude-code/managed-settings.json"; assert not os.path.exists(m) or "crossSessionInbound" not in json.load(open(m))' && [ "$(stat -c %U ${DEVBOX_WORK_HOME}/.claude/settings.json)" = ${DEVBOX_WORK_USER} ] && echo claude-settings-defaults-ok`;
+/** Fails unless both homes' Claude user settings carry a valid default or explicit choice. */
+export function devboxClaudeSettingsDefaultsCheckCommand(
+  files: readonly string[] = ["/root/.claude/settings.json", `${DEVBOX_WORK_HOME}/.claude/settings.json`],
+  expectedWorkUser: string | null = DEVBOX_WORK_USER,
+): string {
+  const encodedFiles = JSON.stringify(files);
+  const ownership = expectedWorkUser === null
+    ? ""
+    : ` && [ "$(stat -c %U ${files[1] ?? files[0]})" = ${expectedWorkUser} ]`;
+  return `python3 -c 'import json, os; rows = [json.load(open(p)) for p in ${encodedFiles}]; assert all(r.get("crossSessionInbound", "accept") in ("accept", "hold", "refuse") for r in rows), rows; m = "/etc/claude-code/managed-settings.json"; assert not os.path.exists(m) or "crossSessionInbound" not in json.load(open(m))'${ownership} && echo claude-settings-defaults-ok`;
 }
 
 /**
