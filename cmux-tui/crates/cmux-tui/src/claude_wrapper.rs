@@ -69,6 +69,7 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
     let path = std::env::var_os("PATH").unwrap_or_default();
     let Some(claude) = find_real_claude(&path, shim_dir.as_deref()) else {
         eprintln!("{}", messages.agent_not_found);
+        eprintln!("{}", messages.claude_install_hint);
         return 127;
     };
     let mut command = Command::new(&claude);
