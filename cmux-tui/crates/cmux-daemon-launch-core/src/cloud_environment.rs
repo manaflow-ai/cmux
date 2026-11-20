@@ -39,12 +39,11 @@ pub enum Read {
 
 /// The launch's read ([`Read`]).
 pub fn launch_read(launch: &Launch) -> Read {
-    let read = launch_seed(&launch.arguments, |key| {
-        launch.environment.get(key).cloned()
-    })
-    .and_then(|seed| {
-        Resolver::new(&launch.bundle_id, Path::new(&launch.home))?.launch_read(seed.as_deref())
-    });
+    let read = launch_seed(&launch.arguments, |key| launch.environment.get(key).cloned()).and_then(
+        |seed| {
+            Resolver::new(&launch.bundle_id, Path::new(&launch.home))?.launch_read(seed.as_deref())
+        },
+    );
     match read {
         Ok(Some(selection)) => Read::Selection(Box::new(selection)),
         Ok(None) => Read::Fetch,
@@ -64,10 +63,8 @@ mod tests {
     }
 
     fn home(name: &str) -> Home {
-        let path = std::env::temp_dir().join(format!(
-            "cmux-launch-cloud-env-{name}-{}",
-            std::process::id()
-        ));
+        let path = std::env::temp_dir()
+            .join(format!("cmux-launch-cloud-env-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).unwrap();
         Home(path)
@@ -89,23 +86,14 @@ mod tests {
         let home = home("known");
         let reply = launch(&home, &["cmux"], &[]);
         assert_eq!(reply["selection"]["name"], "dev", "{reply}");
-        assert_eq!(
-            reply["selection"]["config_source"], "known_origin_fallback",
-            "{reply}"
-        );
-        assert_eq!(
-            reply["selection"]["bundle_id"],
-            "com.cmuxterm.app.debug.cloud-env-test"
-        );
+        assert_eq!(reply["selection"]["config_source"], "known_origin_fallback", "{reply}");
+        assert_eq!(reply["selection"]["bundle_id"], "com.cmuxterm.app.debug.cloud-env-test");
         let staging = launch(
             &home,
             &["cmux", "--cloud-backend", "staging"],
             &[("CMUX_NEXT_CLOUD_ENV", "prod")],
         );
-        assert_eq!(
-            staging["selection"]["name"], "staging",
-            "the arguments come first: {staging}"
-        );
+        assert_eq!(staging["selection"]["name"], "staging", "the arguments come first: {staging}");
         let prod = launch(&home, &["cmux"], &[("CMUX_NEXT_CLOUD_ENV", "prod")]);
         assert_eq!(prod["selection"]["name"], "prod", "{prod}");
     }
@@ -118,17 +106,9 @@ mod tests {
             json!("fetch")
         );
         let bad = launch(&home, &["cmux", "--cloud-backend"], &[]);
-        assert!(
-            bad["error"]
-                .as_str()
-                .is_some_and(|m| m.contains("--cloud-backend")),
-            "{bad}"
-        );
-        let refused = launch(
-            &home,
-            &["cmux"],
-            &[("CMUX_NEXT_CLOUD_BACKEND", "https://example.com")],
-        );
+        assert!(bad["error"].as_str().is_some_and(|m| m.contains("--cloud-backend")), "{bad}");
+        let refused =
+            launch(&home, &["cmux"], &[("CMUX_NEXT_CLOUD_BACKEND", "https://example.com")]);
         assert!(refused["error"].is_string(), "{refused}");
     }
 
