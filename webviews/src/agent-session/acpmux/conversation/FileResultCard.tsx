@@ -36,7 +36,7 @@ export function FileResultCard({ id, card, reveal }: { id: string; card: FileCar
 
 /// Opens `path` in cmux on a click, where this page may: never for another machine's chat, a shared
 /// read-only one, or a path on the deny list (as PathChip). Otherwise it draws as plain text.
-function FileButton(props: { path: string; className: string; label: string; children: ReactNode }) {
+export function FileButton(props: { path: string; className: string; label: string; children: ReactNode }) {
   const scope = useMessageScope();
   const readOnly = useTranscriptReadOnly();
   if (scope?.host !== undefined || readOnly || isDeniedPath(props.path))

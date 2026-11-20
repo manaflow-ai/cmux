@@ -76,6 +76,7 @@ impl Hub {
         }
         self.note_harness_sandbox(session, update);
         self.note_claim_run(session, update);
+        self.note_turn_source(session, update);
         // Release the detector before appending: summary readers hold meta before the
         // detector, while append takes meta to publish the record.
         let event = session.loop_detector.lock().unwrap_or_else(|e| e.into_inner()).observe(update);
@@ -126,6 +127,7 @@ impl Hub {
         session.open_tools.lock().unwrap_or_else(|e| e.into_inner()).clear();
         self.reset_loop_detector(session);
         self.reset_claim_runs(session);
+        self.reset_turn_sources(session);
         session.stalled_gen.fetch_add(1, Ordering::SeqCst);
     }
 
@@ -166,6 +168,7 @@ impl Hub {
             session.open_tools.lock().unwrap_or_else(|e| e.into_inner()).clear();
             self.reset_loop_detector(session);
             self.reset_claim_runs(session);
+            self.reset_turn_sources(session);
         }
         session.heard_at.store(at, Ordering::Relaxed);
         session.stalled_recheck.store(0, Ordering::Relaxed);

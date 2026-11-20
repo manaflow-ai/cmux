@@ -39,7 +39,7 @@ function SiteMark({ url }: { url: string }) {
 }
 
 /// An anchor that opens its page in a cmux tab, or, read only, in the reader's browser.
-function PageLink({ url, className, children }: { url: string; className: string; children: ReactNode }) {
+export function PageLink({ url, className, children }: { url: string; className: string; children: ReactNode }) {
   const readOnly = useTranscriptReadOnly();
   return (
     <a
