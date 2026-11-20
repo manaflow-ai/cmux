@@ -733,6 +733,10 @@
       "scope": "finder:write",
       "class": "mutation"
     },
+    "fleet.hosts": {
+      "scope": "fleet:read",
+      "class": "read"
+    },
     "git.branches": {
       "scope": "git:read",
       "class": "read"

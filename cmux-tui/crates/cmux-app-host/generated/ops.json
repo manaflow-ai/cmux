@@ -184,6 +184,7 @@
     "finder.connect_host",
     "finder.cycle_variant",
     "finder.open",
+    "fleet.hosts",
     "git.branches",
     "git.checkpoint.create",
     "git.checkpoint.diff",
