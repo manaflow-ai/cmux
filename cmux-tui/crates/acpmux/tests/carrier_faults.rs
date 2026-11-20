@@ -30,7 +30,9 @@
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+// The measurement row's knobs (`hold_plan`, `store`) pass through.
+const HERMETIC: daemon_env::Process =
+    daemon_env::Process::stand_in().keep(&["ACF_HOLD_PLAN", "ACF_DISK_STORE", "RUST_LOG"]);
 
 use acpmux::config::{Config, PeerConfig, PermissionPolicy, StoreMode};
 use acpmux::hub::Hub;
@@ -84,7 +86,16 @@ fn config() -> Config {
     cfg
 }
 
-fn store(cfg: &Config) -> Box<dyn acpmux::store::Store> {
+/// A memory store, or with `ACF_DISK_STORE=1` a local one in `home`, as a daemon runs: its peer
+/// caches and peer snapshots are on disk, so a reconnect runs the same restore read
+/// (`hub/peer_snapshot/restore.rs`) a user's daemon does.
+fn store(cfg: &Config, home: &Path) -> Box<dyn acpmux::store::Store> {
+    if std::env::var_os("ACF_DISK_STORE").is_some_and(|v| v == "1") {
+        let mut store = cfg.store.clone();
+        store.mode = StoreMode::Local;
+        std::fs::create_dir_all(home).unwrap();
+        return acpmux::store::open(&store, home).unwrap();
+    }
     acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap()
 }
 
@@ -466,7 +477,7 @@ async fn world(tag: &str, route: Route) -> World {
     setup(&scratch);
     // B: owns the agent and serves WebSocket with a peer token.
     let b_cfg = config();
-    let b = Hub::new(b_cfg.clone(), store(&b_cfg));
+    let b = Hub::new(b_cfg.clone(), store(&b_cfg, &scratch.join("b-home")));
     let auth_home = scratch.join("b-auth");
     let auth = PeerAuth::create(&auth_home).unwrap();
     let peer_token =
@@ -494,7 +505,7 @@ async fn world(tag: &str, route: Route) -> World {
                 Route::Ws => format!("ws://{}", tcp.addr),
                 _ => format!("ssh://box.invalid:{}", tcp.addr.port()),
             };
-            let a = Hub::new(a_cfg.clone(), store(&a_cfg));
+            let a = Hub::new(a_cfg.clone(), store(&a_cfg, &scratch.join("a-home")));
             a.add_peer("b", &url, Some("tok".into()), Some(peer_token.clone()), false)
                 .await
                 .unwrap();
@@ -556,7 +567,11 @@ async fn world(tag: &str, route: Route) -> World {
                 .await
                 .unwrap()
                 .unwrap();
-            let a = Hub::new_with_wireguard(a_cfg.clone(), store(&a_cfg), a_transport.clone());
+            let a = Hub::new_with_wireguard(
+                a_cfg.clone(),
+                store(&a_cfg, &scratch.join("a-home")),
+                a_transport.clone(),
+            );
             transports = vec![a_transport, b_transport];
             (udp, spare, a)
         }
@@ -979,6 +994,14 @@ async fn round_trip(c: &mut Client, text: &str) -> (Duration, usize) {
 #[ignore = "measurement, about 7 minutes with the probe's holds: run with --ignored (ACF_HOLD_PLAN \
             sets shorter ones)"]
 async fn ssh_hold_then_a_prompt_comes_back_within_2s_at_p95() {
+    // `RUST_LOG` prints the daemons' lines beside the samples (the probe keeps the same ones).
+    if let Ok(filter) = std::env::var("RUST_LOG") {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::new(filter))
+            .with_ansi(false)
+            .with_writer(std::io::stderr)
+            .try_init();
+    }
     let w = world("ssh-hold-prompt", Route::Ssh).await;
     let mut ca = Client::new(&w.a).await;
     ca.call(method::MUX_ATTACH, json!({"session": "b/lane", "limit": 0})).await.unwrap();
@@ -1285,7 +1308,10 @@ async fn hub_outage_delivers_a_waiting_message_once_when_the_hub_returns() {
     setup(&scratch);
     let a_cfg = config();
     let b_cfg = config();
-    let (a, b) = (Hub::new(a_cfg.clone(), store(&a_cfg)), Hub::new(b_cfg.clone(), store(&b_cfg)));
+    let (a, b) = (
+        Hub::new(a_cfg.clone(), store(&a_cfg, &scratch.join("a-home"))),
+        Hub::new(b_cfg.clone(), store(&b_cfg, &scratch.join("b-home"))),
+    );
     let mut on_b = Client::new(&b).await;
     let meta = json!({"acpmux": {"name": "dep-land"}});
     let made = on_b
