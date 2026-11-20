@@ -41,7 +41,7 @@ enum SidebarSectionHandlers {
             tab: { services.agentTabs.tab(showing: $0, host: $1) }, reveal: { services.revealTab($0) },
             openWorkspace: { session, host in try services.chatsOpener.pending.work(services.registry) { try AgentSessionWorkspace.open(session: session, name: nil, cwd: nil, host: host, focus: true, services: services) } }, openRight: { services.agentTabs.openRight?($0, $1, $2) ?? false }, keeps: { [weak services] in await services?.agentTabs.chiefHomes?.keeps(session: $0, host: $1) ?? false }))
         // Agent chats on other machines are not sidebar rows (the top band holds what the person put there,
-        // Lawrence 2026-10-26): `RemoteMachinesSidebar` is not bound, so it reads no peers and follows no lanes.
+        // Lawrence 2026-10-26).
         SettingsAppFeatures.sidebarItems = storeItems(chief: SettingsAppFeatures.sidebarItems, document: { layout.document }, registry: registry)
         // Item adds and removes are undo steps (P4) through the one pin path,
         // named as the menu showed them.

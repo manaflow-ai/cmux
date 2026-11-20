@@ -37,10 +37,11 @@ struct ChatSnapshotStoreTests {
                                                           allowed: allowed, pageGeneration: AgentPaneTailCache.shared.generation)
     }
 
-    private static func get(_ session: String, allowed: Bool = true) async throws -> JSONValue {
-        try await AgentPaneTailCache.shared.snapshots.reply("chat.snapshot.get", params: .object(["sessionId": .string(session)]),
-                                                      op: "cmux.agent.chat.snapshot.get", allowed: allowed,
-                                                      pageGeneration: AgentPaneTailCache.shared.generation)
+    /// The copy the store keeps for `session` that a document would draw, or null.
+    private static func get(_ session: String) async throws -> JSONValue {
+        guard let kept = await AgentPaneTailCache.shared.snapshots.snapshot(for: session),
+              AgentPaneChatSnapshots.draws(kept) else { return .null }
+        return kept
     }
 
     private static func served(_ resources: AgentPageResources) async -> String? {
@@ -206,7 +207,6 @@ struct ChatSnapshotStoreTests {
             #expect(await disk.read("s-3") == nil)
             try await Self.put("s-3", html: "<main>shown</main>")
             await disk.settled()
-            #expect(try await Self.get("s-3", allowed: false) == .null)
             let resources = AgentPageResources(session: { "s-3" }, allowed: { false })
             #expect(await Self.served(resources) == "self.__cmuxChatSnapshot=null;self.__cmuxChatSnapshotWhy=\"not-kept-here\";self.__cmuxChatSnapshotTheme=\"\";self.__cmuxRestoredChat=null;self.dispatchEvent(new Event('cmux-restored-chat'));self.__cmuxChatSnapshotBoot?.();")
         }
@@ -269,7 +269,7 @@ struct ChatSnapshotStoreTests {
     /// The page's ops are the page host's (the contract both sides check).
     @Test func theOpsAreServed() {
         #expect(AgentPageOps.method(for: "cmux.agent.chat.snapshot.put") == "chat.snapshot.put")
-        #expect(AgentPageOps.method(for: "cmux.agent.chat.snapshot.get") == "chat.snapshot.get")
+        #expect(AgentPageOps.method(for: "cmux.agent.chat.snapshot.get") == nil, "the page never reads a copy back over the bridge")
         #expect(PageDescriptor.agent.dynamicPrefixes.contains("__snapshot"))
     }
 }
