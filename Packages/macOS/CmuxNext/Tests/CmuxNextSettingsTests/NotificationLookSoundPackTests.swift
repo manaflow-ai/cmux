@@ -67,7 +67,7 @@ struct NotificationLookSoundPackTests {
     @Test func aLookWithNoPackChangesNothing() {
         let prefs = Self.prefs(["lookPack": true], pack: [:])
         #expect(prefs.sounds.choice(for: .finished, in: Self.scope, fallback: prefs.sound)?.name == "Glass")
-        #expect(prefs.lookSound(for: .ciGreen, minuteOfDay: 600) == nil)
+        #expect(prefs.lookSound(for: .ciGreen, minuteOfDay: 600) == .unset)
     }
 
     // MARK: The theme file's "sounds"
