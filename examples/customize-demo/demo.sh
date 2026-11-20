@@ -106,14 +106,14 @@ fi
 [[ ${#list[@]} -gt 0 ]] || { echo "demo.sh: no setups found under $here" >&2; exit 1; }
 
 # Before installing the cleanup trap: an existing draft belongs to the user.
-# The CLI snapshots hand edits when the first profile starts, preserving those too.
+# Hand edits must be settled too: a failed first import may never snapshot them.
 "$cli" customize status --json | python3 -c '
 import json, sys
 status = json.load(sys.stdin)
-if "draft" not in status or "try_on" not in status:
+if any(key not in status for key in ("draft", "try_on", "changes")):
     sys.exit("demo.sh: unrecognized customization status; nothing changed")
-if status["draft"] is not None or status["try_on"] is not None:
-    sys.exit("demo.sh: an existing preview or try-on is active; keep or discard it before starting the demo")
+if status["draft"] is not None or status["try_on"] is not None or status["changes"]:
+    sys.exit("demo.sh: existing customization changes or a try-on are active; keep or discard them before starting the demo")
 '
 "$cli" customize library status
 trap finish EXIT

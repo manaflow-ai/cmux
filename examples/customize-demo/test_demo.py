@@ -19,7 +19,8 @@ args = sys.argv[1:]
 with open(os.environ["DEMO_LOG"], "a") as log:
     log.write(json.dumps(args) + "\\n")
 if args[:2] == ["customize", "status"]:
-    print(json.dumps({"draft": {} if os.environ.get("DEMO_DRAFT") else None, "try_on": None}))
+    print(json.dumps({"draft": {} if os.environ.get("DEMO_DRAFT") else None, "try_on": None,
+                      "changes": [{"path": "cmux-next.json"}] if os.environ.get("DEMO_HAND_EDIT") else []}))
 if args[:2] == ["customize", "use"] and os.environ.get("DEMO_FAIL_USE"):
     sys.exit(7)
 if args[:2] == ["customize", "discard"] and os.environ.get("DEMO_FAIL_RESET"):
@@ -58,6 +59,11 @@ class DemoTests(unittest.TestCase):
         self.assertEqual(result.returncode, 7)
         self.assertEqual(calls[-3:], [["customize", "discard"], ["action", "run", "newTab.default"],
                                      ["customize", "library", "status"]])
+
+    def test_hand_edits_survive_a_failed_first_import(self):
+        result, calls = self.run_demo("--auto", "0", DEMO_HAND_EDIT="1", DEMO_FAIL_USE="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(calls, [["customize", "status", "--json"]])
 
     def test_failed_reset_does_not_claim_success(self):
         result, _ = self.run_demo("--only", "looks/claude.json", "--auto", "0", DEMO_FAIL_RESET="1")

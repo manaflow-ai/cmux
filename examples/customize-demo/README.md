@@ -18,8 +18,8 @@ examples/customize-demo/demo.sh reset      # your setup back
 
 `--nightly` selects `/Applications/cmux NIGHTLY.app` explicitly and clears inherited app socket
 and customization-root overrides. It does not restart the app. `--only` and `--auto` can be combined.
-The script checks for an existing preview or try-on before changing anything; keep or discard that
-preview first. Each look starts from your applied setup, so settings from the previous look cannot
+The script checks for an existing preview, hand edits or try-on before changing anything; keep or
+discard those changes first. Each look starts from your applied setup, so settings from the previous look cannot
 leak into the next one. Normal completion, Ctrl-C, and command failures restore the applied setup;
 a failed restore returns an error with the recovery command. This demo needs Python 3 for its
 status check.
