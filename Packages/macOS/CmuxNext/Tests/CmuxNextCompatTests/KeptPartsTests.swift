@@ -318,7 +318,17 @@ import Testing
 
         workspace.tabs[0].title = "A"
         #expect(heard.value, "the caller did not hear the change of a kept part")
-        #expect(titles(kept, workspace, made) == ["A", "b"])
+
+        // The part is made again under the caller, with the mark and the observation that it had. A second caller
+        // makes no part, so it reads only the owner's cell: it hears the next change by the part's second wake.
+        let madeAgain = caller.track(shape: [], { titles(kept, workspace, made) }, onChange: {})
+        let (again, second) = (Heard(), SingleArmedTracking())
+        let keptParts = second.track(shape: [], { titles(kept, workspace, made) }, onChange: { again.hear() })
+        #expect(madeAgain == ["A", "b"] && keptParts == ["A", "b"])
+        #expect(made.titles == ["a", "b", "A"], "setup: the second caller's call made a part")
+        workspace.tabs[0].title = "AA"
+        #expect(again.value, "a caller did not hear the second change of a part that was made again")
+        #expect(titles(kept, workspace, made) == ["AA", "b"])
     }
 
     @Test func aModelThatLeftTheListWakesNoCaller() {

@@ -24,6 +24,10 @@ import Observation
 /// The parts of a model that left the owner's list go at the next call for that owner, with their observations.
 /// An owner is held weakly; the parts of an owner that is gone go when the owners doubled.
 ///
+/// A holder must live as long as each observation that read its parts: after the holder is gone its parts wake no
+/// one. The end of a holder ends no observation of a part. A part's observation then holds no part and no mark,
+/// and it stays on each object whose value `make` read until that value changes (``SingleArmedTracking``).
+///
 /// ```swift
 /// let kept = KeptParts<WorkspaceModel, TabModel, Row?>(step: "Rows.tabParts")
 /// let rows = kept.parts(of: workspace, workspace.tabs) { row(of: $0) }.compactMap { $0 }
@@ -86,8 +90,8 @@ public final class KeptParts<Owner: AnyObject, Model: AnyObject, Part> {
     /// - Parameters:
     ///   - owner: What the models belong to (a workspace).
     ///   - models: The owner's models, in order (its tabs).
-    ///   - make: One model's part. It runs under the part's own observation, and it writes nothing that it reads:
-    ///     that observation starts when `make` returns.
+    ///   - make: One model's part. It runs under the part's own observation, and it writes nothing that it already
+    ///     read: that observation starts when `make` returns.
     public func parts(of owner: Owner, _ models: [Model], make: (Model) -> Part) -> [Part] {
         parts(of: owner, models, input: { _ in NoInput() }, make: { model, _ in make(model) })
     }
@@ -99,7 +103,7 @@ public final class KeptParts<Owner: AnyObject, Model: AnyObject, Part> {
     ///   - models: The owner's models, in order (its tabs).
     ///   - input: One model's input, read at each call for each model, outside the part's observation.
     ///   - make: One model's part from its input. It runs under the part's own observation, and it writes nothing
-    ///     that it reads: that observation starts when `make` returns.
+    ///     that it already read: that observation starts when `make` returns.
     public func parts<Input: Equatable>(of owner: Owner, _ models: [Model], input: (Model) -> Input,
                                         make: (Model, Input) -> Part) -> [Part] {
         let store = held(for: owner)
@@ -130,12 +134,13 @@ public final class KeptParts<Owner: AnyObject, Model: AnyObject, Part> {
             let tracking = kept?.tracking ?? SingleArmedTracking()
             // The part is fresh from here. Its observation starts when `make` returns: a change in the middle of
             // `make` is not heard. Only `make` itself can make one (the values change on the main actor, where
-            // `make` runs), so `make` writes nothing that it reads.
+            // `make` runs), so `make` writes nothing that it already read. The callback holds the mark weakly: the
+            // entry holds it while the part is kept, and a callback that held it kept it after the holder was gone.
             mark.fresh()
             let part = tracking.track(shape: [], { () -> Part in
                 mark.observe()
                 return make(model, now)
-            }, onChange: { mark.fire() }, fileID: site.fileID, line: site.line)
+            }, onChange: { [weak mark] in mark?.fire() }, fileID: site.fileID, line: site.line)
             store.entries[id] = Entry(model: model, part: part, input: Given(value: now), mark: mark, tracking: tracking)
             made += 1
             parts.append(part)
@@ -147,6 +152,8 @@ public final class KeptParts<Owner: AnyObject, Model: AnyObject, Part> {
 
     /// The parts of `models` from `kept`, as ``parts(of:_:input:make:)``; with no holder each part is made now and
     /// none is kept: one map for a caller that keeps its parts (a feed) and for one that does not (a walk).
+    /// - Parameter make: One model's part from its input. With a holder it runs under the part's own observation,
+    ///   and it writes nothing that it already read: that observation starts when `make` returns.
     public static func parts<Input: Equatable>(of owner: Owner, _ models: [Model], kept: KeptParts?, input: (Model) -> Input,
                                                make: (Model, Input) -> Part) -> [Part] {
         guard let kept else { return models.map { make($0, input($0)) } }
