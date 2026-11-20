@@ -79,6 +79,33 @@ final class GlassParityHostLayer: NSView {
             views[id] = nil
         }
     }
+    /// The App's glass under the web surface `id`, for the measure's diagnostics.
+    func surface(_ id: String) -> NSView? { views[id]?.view }
+}
+
+/// A view's tree as the measure reports it (class, frame, alpha, layer fill, filters, shadow), so two surfaces
+/// that should be the same name where they differ.
+@MainActor
+func glassParityTree(_ view: NSView, depth: Int = 0) -> JSONValue {
+    let layer = view.layer
+    var node: [String: JSONValue] = [
+        "class": .string(String(describing: type(of: view))),
+        "frame": .array([view.frame.minX, view.frame.minY, view.frame.width, view.frame.height].map { .number($0) }),
+        "alpha": .number(view.alphaValue), "hidden": .bool(view.isHidden),
+        "appearance": .string(view.effectiveAppearance.name.rawValue),
+    ]
+    if let layer {
+        node["bg"] = .string(layer.backgroundColor.map { color in NSColor(cgColor: color)?.usingColorSpace(.sRGB).map { String(describing: $0) } ?? String(describing: color) } ?? "nil")
+        node["opacity"] = .number(Double(layer.opacity))
+        node["shadow"] = .number(Double(layer.shadowOpacity))
+        node["filters"] = .number(Double((layer.filters?.count ?? 0) + (layer.backgroundFilters?.count ?? 0)))
+        node["masks"] = .bool(layer.masksToBounds)
+    }
+    if view.responds(to: NSSelectorFromString("tintColor")), let tinted = view.value(forKey: "tintColor") as? NSColor {
+        node["tint"] = .string(String(describing: tinted.usingColorSpace(.sRGB) ?? tinted))
+    }
+    if depth < 4 { node["children"] = .array(view.subviews.map { glassParityTree($0, depth: depth + 1) }) }
+    return .object(node)
 }
 
 final class GlassParityFlippedView: NSView {
