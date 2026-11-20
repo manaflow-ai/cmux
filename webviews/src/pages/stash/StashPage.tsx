@@ -115,6 +115,7 @@ export function StashPage({ store, strings }: { store: StashStore; strings: Stri
   // The first mounted item of each kind sizes every one not yet mounted, so the rows a scroll brings
   // in measure as estimated: TanStack places all N items again whenever a measure differs.
   const sizes = useRef(new Map<SizeKind, number>());
+  // react-doctor-disable-next-line react-hooks-js/incompatible-library -- TanStack Virtual returns functions the React Compiler cannot memoize safely, so the stash list stays uncompiled on purpose; it needs a stable getItemKey (so one changed group does not re-measure all N items) and keeps two rows mounted (the focused one and the one whose menu is open), and ui/VirtualList keys items by index and keeps only one active row, so ui/VirtualList does not fit.
   const virtualizer = useVirtualizer({
     count: list.items.length,
     getScrollElement: () => scroller,
