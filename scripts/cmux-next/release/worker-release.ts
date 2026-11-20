@@ -261,12 +261,10 @@ export function* committedVersions(cwd: string, rev: string, path: string, max =
   const changed = git("rev-list", "--first-parent", `--max-count=${Math.max(1, max)}`, head, "--", `:(top)${path}`).split("\n").filter(Boolean)
   for (const commit of changed) {
     if (count >= max) return
-    let text: string
-    try {
-      text = git("show", `${commit}:${path}`)
-    } catch {
-      continue // the commit that removed the file
-    }
+    // A commit that removed the file has no version. Asked of the tree, so that a failed read of a
+    // version that exists (a blob this clone has to fetch) throws and is not taken for a removal.
+    if (git("ls-tree", "--full-tree", commit, "--", path).trim() === "") continue
+    const text = git("show", `${commit}:${path}`)
     if (text === last) continue
     last = text
     count++

@@ -272,6 +272,39 @@ describe("vars --base-rev: the serving version is found however many commits hav
     expect(r.errors.join("\n")).toContain("deploy refused")
   })
 
+  it("a removal, a merge and a version from before the environment existed: the serving version behind them is found", async () => {
+    const other = mkdtempSync(join(tmpdir(), "rails-vars-git-"))
+    const g = (...a: Array<string>) =>
+      execFileSync("git", ["-C", other, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", ...a], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim()
+    const put = (text: string, message: string) => {
+      mkdirSync(join(other, "backend/apps/api"), { recursive: true }) // `git rm` takes the emptied folder too
+      writeFileSync(join(other, path), text)
+      g("add", path)
+      g("commit", "--quiet", "-m", message)
+      return g("rev-parse", "HEAD")
+    }
+    g("init", "--quiet", "--initial-branch=main")
+    const serves = put(readFileSync(config, "utf8"), "config: img-a (serving)")
+    g("rm", "--quiet", path)
+    g("commit", "--quiet", "-m", "config removed")
+    const bare = put("{}\n", "config back, with no environments yet")
+    // The next version lands through a merge commit, as pull requests do.
+    g("checkout", "--quiet", "-b", "side")
+    put(withSnapshot("img-b"), "config: img-b")
+    g("checkout", "--quiet", "main")
+    g("merge", "--quiet", "--no-ff", "-m", "merge side", "side")
+    const tip = g("rev-parse", "HEAD")
+
+    expect([...committedVersions(other, tip, path)].map((v) => v.rev)).toEqual([tip, bare, serves])
+    const r = await run(
+      ["vars", "--worker", "cmux-api-development", "--config", want, "--base-rev", tip, "--base-path", path, "--source-dir", other, "--env", "development", "--wrangler", wrangler],
+      { STATUS_JSON: serving, VERSION_JSON: version(same) },
+    )
+    expect(r.errors).toEqual([])
+    expect(r.code).toBe(0)
+    expect(r.logs.join("\n")).toContain("TEAM_VM_SNAPSHOT: img-a -> img-c")
+  })
+
   it("a base that git cannot read refuses; one flag without the other is a usage error", async () => {
     const unknown = await run(argv("0000000000000000000000000000000000000001"), { STATUS_JSON: serving, VERSION_JSON: version(same) })
     expect(unknown.code).toBe(1)

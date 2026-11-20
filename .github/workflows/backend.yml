@@ -800,6 +800,8 @@ jobs:
           # not drift (a hand-set var matches none of them). Versions, not commits: the last 100
           # commits are a few hours here, and after deploys stayed skipped for two days (2026-11-19)
           # the serving version was 239 commits back, so every later deploy would have been refused.
+          # The cost of 100 versions (weeks) over 100 commits: a Worker whose whole var set equals
+          # one old committed version passes, as it did before inside 100 commits.
           bun ../../../scripts/cmux-next/release/worker-release.ts vars --worker cmux-api-development \
             --config wrangler.jsonc --base-rev "$BASE" --base-path backend/apps/api/wrangler.jsonc --source-dir . \
             --env development --wrangler ./node_modules/.bin/wrangler
