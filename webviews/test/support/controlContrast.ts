@@ -16,9 +16,11 @@
 // reports any more is printed so it can be dropped. With CONTRAST_AUDIT_OUT (or FAST_CHECKS_OUT) set,
 // each part also writes every failing reading, baselined or not, as a table: control-contrast-N.md.
 //
-// Every shipped theme (Resources/ghostty/themes and Resources/cmux-themes, over 600) is also read,
-// at rest with the theme's own accent, on the entries that hold the shared controls (SWEEP_ENTRIES):
-// a theme whose palette breaks a token breaks it on these, so the sweep stays a few thousand stages.
+// Shipped themes (Resources/ghostty/themes and Resources/cmux-themes, over 600) are also read, at rest
+// with the theme's own accent, on the entries that hold the shared controls (SWEEP_ENTRIES): a theme
+// whose palette breaks a token breaks it on these. Every run reads SAMPLED_THEMES of them, spread
+// evenly from the darkest background to the lightest; CONTROL_CONTRAST_SWEEP=1 reads all of them
+// (about 4,400 more stages, an hour of one browser: an audit run, not every pull request's).
 //
 // Captures are at 2x, as the app draws on a Retina screen: thin strokes keep full-ink pixels.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
@@ -70,13 +72,41 @@ export const SWEEP_ENTRIES = [
   "agent-pane.composer",
 ] as const;
 
-/** One scheme per shipped theme, at rest, with the theme's own accent. */
-const sweepSchemes = (): Scheme[] =>
-  readShippedThemes().map((theme) => ({
+/** How many shipped themes every run reads. */
+export const SAMPLED_THEMES = 24;
+
+const luminance = (hex: string): number => {
+  const value = Number.parseInt(hex.slice(1, 7), 16);
+  const linear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  return (
+    0.2126 * linear(((value >> 16) & 0xff) / 255) +
+    0.7152 * linear(((value >> 8) & 0xff) / 255) +
+    0.0722 * linear((value & 0xff) / 255)
+  );
+};
+
+/** One scheme per shipped theme read (every one, or the sample), at rest, with the theme's own accent. */
+const sweepSchemes = (every: boolean): Scheme[] => {
+  const themes = readShippedThemes();
+  const byGround = [...themes].sort(
+    (a, b) => luminance(a.background) - luminance(b.background) || a.name.localeCompare(b.name, "en"),
+  );
+  const picked = every
+    ? themes
+    : Array.from(
+        new Set(
+          Array.from(
+            { length: SAMPLED_THEMES },
+            (_, i) => byGround[Math.round((i * (byGround.length - 1)) / (SAMPLED_THEMES - 1))]!,
+          ),
+        ),
+      );
+  return picked.map((theme) => ({
     name: `theme-${theme.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
     query: { theme: theme.name, accent: "theme" },
-    states: ["rest"],
+    states: ["rest"] as State[],
   }));
+};
 
 /** WCAG 2 minimums: body text, large text and marks (icons, borders), and a disabled control's floor. */
 export const MINIMUM = { text: 4.5, large: 3, icon: 3, disabled: 2.5 } as const;
@@ -112,12 +142,12 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
         .map((line) => line.replace(/\s+#.*$/, "").trim())
         .filter((line) => line && !line.startsWith("#")),
     );
-    const sweep = sweepSchemes();
+    const sweep = sweepSchemes(process.env.CONTROL_CONTRAST_SWEEP === "1");
     const sweepEntries = new Set<string>(SWEEP_ENTRIES);
     const sources = (await loadEntrySources()).filter(({ entry }) => entry.host !== "native");
     const missing = SWEEP_ENTRIES.filter((id) => !sources.some(({ entry }) => entry.id === id));
     if (missing.length) throw new Error(`control contrast: sweep entries are gone: ${missing.join(", ")}`);
-    if (sweep.length < 500) throw new Error(`control contrast: read only ${sweep.length} shipped themes`);
+    if (readShippedThemes().length < 500) throw new Error("control contrast: fewer than 500 shipped themes were read");
     const everyStage: Stage[] = sources
       .flatMap(({ entry, path: source }) =>
         (sweepEntries.has(entry.id) ? [...SCHEMES, ...sweep] : SCHEMES).map((scheme) => ({
@@ -129,18 +159,13 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
         })),
       )
       .sort((a, b) => stageName(a).localeCompare(stageName(b)));
-    // Local red/green runs may pick entries (CONTROL_CONTRAST_ENTRIES=a,b; the theme sweep only with
-    // CONTROL_CONTRAST_SWEEP=1); CI always reads every one.
+    // Local red/green runs may pick entries (CONTROL_CONTRAST_ENTRIES=a,b); CI always reads every one.
     const filter = process.env.CONTROL_CONTRAST_ENTRIES?.split(",").filter(Boolean);
     if (process.env.CI && filter?.length && !process.env.CONTROL_CONTRAST_ALLOW_FILTER)
       throw new Error("CI cannot filter the control contrast audit");
     const stages = filter?.length
       ? part === 1
-        ? everyStage.filter(
-            (stage) =>
-              filter.includes(stage.entry) &&
-              (process.env.CONTROL_CONTRAST_SWEEP === "1" || SCHEMES.includes(stage.scheme)),
-          )
+        ? everyStage.filter((stage) => filter.includes(stage.entry))
         : []
       : everyStage.filter((_, index) => index % parts === part - 1);
     if (stages.length === 0) {
