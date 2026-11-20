@@ -1,6 +1,12 @@
 import { DESKTOP_LEVELS, parseComputedColor, type RGBA } from "./backdrop";
 import { applyDiffTints } from "./diffWeight";
-import { contrastBetween, mixColors, withMinimumContrast } from "./syntax-colors";
+import {
+  contrastBetween,
+  mixColors,
+  SYNTAX_MIN_CONTRAST,
+  withMinimumContrast,
+  withMinimumContrastOn,
+} from "./syntax-colors";
 import { pageSyntaxVariable, syntaxRoleColors, type SyntaxRoleName } from "./syntax-theme";
 
 export type DiffViewerTheme = {
@@ -219,20 +225,24 @@ export function applyDiffViewerAppearance(appearance?: DiffViewerAppearance) {
     ["light", lightTheme],
     ["dark", darkTheme],
   ] as const) {
-    rootStyle.setProperty(
-      `--cmux-diff-addition-fg-${type}`,
-      changeColor(theme, type, ["10", "2"], STANDARD_ADDITION[type]),
-    );
-    rootStyle.setProperty(
-      `--cmux-diff-deletion-fg-${type}`,
-      changeColor(theme, type, ["9", "1"], STANDARD_DELETION[type]),
-    );
+    const addition = changeColor(theme, type, ["10", "2"], STANDARD_ADDITION[type]);
+    const deletion = changeColor(theme, type, ["9", "1"], STANDARD_DELETION[type]);
     // A modified file in the files list: the palette's blue, else the theme's own text color
     // (no fixed blue: the page paints the theme).
-    rootStyle.setProperty(
-      `--cmux-diff-modified-fg-${type}`,
-      semanticPaletteColor(theme, ["12", "4"], colorString(theme.foreground, type === "light" ? "#000000" : "#ffffff")),
+    const modified = semanticPaletteColor(
+      theme,
+      ["12", "4"],
+      colorString(theme.foreground, type === "light" ? "#000000" : "#ffffff"),
     );
+    rootStyle.setProperty(`--cmux-diff-addition-fg-${type}`, addition);
+    rootStyle.setProperty(`--cmux-diff-deletion-fg-${type}`, deletion);
+    rootStyle.setProperty(`--cmux-diff-modified-fg-${type}`, modified);
+    // The same colors as text (the +N -N counts, a modified file's name): measured on what text sits on,
+    // as code is (`syntaxBackdrops`), so over a see-through window they read on the tint over any desktop.
+    // In an opaque window they are the colors above; the row tints and gutter bars keep those.
+    rootStyle.setProperty(`--cmux-diff-addition-text-${type}`, changeText(addition, theme, type));
+    rootStyle.setProperty(`--cmux-diff-deletion-text-${type}`, changeText(deletion, theme, type));
+    rootStyle.setProperty(`--cmux-diff-modified-text-${type}`, changeText(modified, theme, type));
   }
   rootStyle.setProperty("--cmux-diff-selection-bg-light", colorString(lightTheme.selectionBackground, "#abd8ff"));
   rootStyle.setProperty("--cmux-diff-selection-bg-dark", colorString(darkTheme.selectionBackground, "#3f638b"));
@@ -318,6 +328,16 @@ export function readableColor(value: unknown, background: unknown, fallback: str
   const black: RGBColor = { blue: 0, green: 0, red: 0 };
   const white: RGBColor = { blue: 255, green: 255, red: 255 };
   return contrastRatio(black, parsedBackground) >= contrastRatio(white, parsedBackground) ? "#000000" : "#ffffff";
+}
+
+/// A change color as text: unchanged in an opaque window; over a see-through one, blended toward the
+/// text color just enough to read on the window's tint over every desktop (`syntaxBackdrops`, 3:1 as code).
+function changeText(color: string, theme: DiffViewerTheme, type: "light" | "dark"): string {
+  const backdrops = syntaxBackdrops(theme, type);
+  if (backdrops.length === 1) return color;
+  const background = syntaxContrastBackground(theme, type);
+  const foreground = readableColor(theme.foreground, background, type === "light" ? "#000000" : "#ffffff");
+  return withMinimumContrastOn(color, backdrops, foreground, SYNTAX_MIN_CONTRAST);
 }
 
 /// An addition or deletion color in the current Diff Colors mode.
