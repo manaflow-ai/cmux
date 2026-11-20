@@ -110,7 +110,7 @@ The daemon starts on demand, like the tmux server. `acpmux daemon` runs it in th
 
 `acpmux ls` is compact by default: the live lanes someone named, as NAME, HOST (only while
 some row is on a peer), STATE, TURNS, AGE, STUCK and WARN. STUCK says in a few words why a
-lane needs someone (`permission`, `capacity`, `harness down`, `failed turn`, `stalled 12m`);
+lane needs someone (`permission`, `rate-limited until 04:30Z`, `capacity`, `harness down`, `failed turn`, `stalled 12m`);
 WARN is `warn` while the row breaks a usage rule. Closed sessions, reviewer boxes,
 sub-sessions and sessions with only a generated name are hidden and counted on the last line;
 `--all` lists them, and a filter (`--status`, `--tag`, `--since`, ...) hides nothing. `--wide`
@@ -436,8 +436,15 @@ off) the chat gets one prompt telling the agent to check what finished and conti
 id `<promptId>~resume-<n>` and `_meta.provenance.kind` `auto_resume`. Stop, closing the chat, or
 anything else run in it meanwhile cancels it, and a continuation that completes resumes the
 prompts the cut turn held (`hub/auto_resume.rs`). While it waits the session row's `retry` is
-`{attempt, of, reason, nextAt, promptId, turnId}` (`reason` `capacity`, `transport` or
-`agent_exited`), null otherwise. Usage limits and sign-in failures never retry this way.
+`{attempt, of, reason, nextAt, promptId, turnId}` (`reason` `capacity`, `rate_limit`, `transport` or
+`agent_exited`), null otherwise. Sign-in failures never retry this way. An account's usage or
+rate limit (HTTP 429, `rate_limit`) holds the whole chat until its reset (`hub/rate_hold.rs`): no
+turn starts, what comes in queues and goes in as one turn at the reset with the continuation's
+words (a context past 200K tokens compacts first), the row's `rateLimitedUntil` says until when,
+and `acpmux retry` is refused (`retry.rate_limited`) until then. Six such turns in a row, or a
+Stop (or `session stop`) while the limit has the chat, park it (`rateLimitParked`): nothing
+starts by itself until `acpmux retry` or the person's own prompt, which send it on with what
+queued as one turn. A daemon restart keeps the hold, the park and the strikes.
 `acpmux retry NAME` (`_acpmux/retry {sessionId}`, the Retry button; the sub-session tool
 `retry_session`) retries a failed last turn now, under the caller's rules, taking over a waiting
 retry: the failed prompt goes again as its next `~resume-<n>` (a continuation when the turn had
