@@ -41,8 +41,8 @@ import subprocess
 import sys
 import xml.etree.ElementTree as ET
 
-PHASE_MARKS = ("main_start", "main.run", "did_finish_launching_start", "dfl.home_history", "launch_snapshot_shown",
-               "first_window_flushed")
+PHASE_MARKS = ("main_start", "main.run", "did_finish_launching_start", "launch_shell.committed", "dfl.home_history",
+               "launch_snapshot_shown", "first_window_flushed")
 # Two samples further apart than this are a gap in the main thread's work (the profiler samples every 1 ms).
 BUSY_GAP_NS = 3_000_000
 

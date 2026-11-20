@@ -71,6 +71,12 @@ class SavedSamplesTests(unittest.TestCase):
                       "spans (ms): main_start..window_on_screen 2, window_on_screen..first_window_frame_committed 0", lines)
         self.assertIn("LR-PROFILE head self     2.0 ms CGFontGetDescriptor", lines)
 
+    def test_stage_zero_commit_precedes_the_real_window_frame(self):
+        marks = {"main_start": 9.0, "launch_shell.plan_ready": 9.5, "launch_shell.committed": 10.0}
+        self.assertEqual(module.edges_of(marks, 11.5, 12.5),
+                         [("start", 0.0), ("main_start", 9.0), ("launch_shell.committed", 10.0),
+                          ("window_on_screen", 11.5), ("first_window_frame_committed", 12.5)])
+
     def test_names_from_the_dsym_symbol_table(self):
         # 0x10245f24c is the call's return address: 0x10015f24b at the link address, inside the first symbol.
         nm = os.path.join(self.tmp.name, "llvm-nm")

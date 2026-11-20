@@ -5,6 +5,7 @@ LaunchServices `runs` times (a person's Dock click on a second launch on). Each 
 from the app's process start:
   finished_launching   the Dock's bounce ends (NSRunningApplication.isFinishedLaunching)
   window_on_screen     the first on-screen window
+  main_to_window       from main_start to that window, excluding all pre-main work
   active               the app became active
   request_to_start     the open request to the process start (LaunchServices' part, before exec)
 and the app's own launch marks (main_start, main.nsapp, did_finish_launching_start, launch_snapshot_shown,
@@ -168,6 +169,12 @@ class Launch(Bench):
             ctx.row("failed_launches", len(measured) - len(done), "count", labels=labels)
             for key in TOP:
                 ctx.row(key, unit="ms", samples=[r[key] for r in done if r.get(key) is not None], labels=labels)
+            main_to_window = []
+            for run in done:
+                main_start = (run.get("marks") or {}).get("main_start")
+                if main_start is not None:
+                    main_to_window.append(run["window_on_screen"] - main_start)
+            ctx.row("main_to_window", unit="ms", samples=main_to_window, labels=labels)
             if any(r.get("shell_requested") is not None for r in done):  # state=bare: the probe opened a terminal
                 ctx.row("shell_requested", unit="ms", samples=[r.get("shell_requested") for r in done], labels=labels)
             names = dict.fromkeys(n for r in done for n in (r.get("marks") or {}))

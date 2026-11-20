@@ -39,7 +39,7 @@ class LaunchIngest(unittest.TestCase):
         for metric, median in (("finished_launching", 685.6), ("window_on_screen", 1081.5), ("active", 643.2),
                                ("request_to_start", 16.8), ("main_start", 594.4), ("main_nsapp", 652.2),
                                ("first_window_frame_committed", 1224.5), ("home_first_page", 1222.2),
-                               ("launch_snapshot_shown", 1041.3)):
+                               ("launch_snapshot_shown", 1041.3), ("main_to_window", 491.0)):
             row = rows[(metric, "head")]
             self.assertAlmostEqual(row["value"], median, places=1, msg=metric)
             self.assertEqual(row["n"], 5, metric)
