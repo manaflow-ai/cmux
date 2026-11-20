@@ -78,7 +78,8 @@ await requireBrowserLane("apps-catalog-columns.test.ts", async () => {
           after.push(at(document.querySelector(`.apps-catalog-space [data-app="${id}"]`)));
         }
         const rows = Math.ceil(1000 / columns());
-        const rowHeight = document.querySelector<HTMLElement>(".apps-catalog-space > .apps-grid")!.offsetHeight;
+        // A card is stretched to its row's height.
+        const rowHeight = document.querySelector<HTMLElement>(".apps-catalog-space > .apps-card")!.offsetHeight;
         const space = document.querySelector<HTMLElement>(".apps-catalog-space")!;
         const heightError = space.offsetHeight - (rows * rowHeight + (rows - 1) * 14);
         const jumps: number[] = [];
@@ -89,6 +90,44 @@ await requireBrowserLane("apps-catalog-columns.test.ts", async () => {
           jumps.push(scroller.scrollTop - (start - 400));
         }
         return { id, before, after, columnsBefore, columnsAfter: columns(), heightError, jumps };
+      },
+      { from, to },
+    );
+
+  /** The page's width from `from` to `to` px and back, 30,000 px down the catalog, with a listing in
+   *  view focused: per change, the listings mounted before and after whose card is another element,
+   *  how many cards mounted, and whether the focused button still holds focus. */
+  const cardsKept = (page: Page, from: number, to: number) =>
+    page.evaluate(
+      async ({ from, to }) => {
+        const root = document.getElementById("root")!;
+        const scroller = document.querySelector<HTMLElement>(".apps-scroll")!;
+        const cards = () => [...document.querySelectorAll<HTMLElement>(".apps-catalog-space .apps-card")];
+        root.style.width = `${from}px`;
+        await window.cmuxPaintFrame();
+        await window.cmuxPaintFrame(() => (scroller.scrollTop = 30_000));
+        await window.cmuxPaintFrame();
+        const top = scroller.getBoundingClientRect().top;
+        const button = cards()
+          .find((card) => card.getBoundingClientRect().top >= top)!
+          .querySelector<HTMLButtonElement>(".apps-card-open")!;
+        button.focus({ preventScroll: true });
+        await window.cmuxPaintFrame();
+        const changes: { replaced: string[]; kept: number; mounted: number; focused: boolean }[] = [];
+        for (const width of [to, from]) {
+          const before = new Map(cards().map((card) => [card.dataset.app!, card]));
+          await window.cmuxPaintFrame(() => (root.style.width = `${width}px`));
+          const after = cards();
+          const kept = after.filter((card) => before.has(card.dataset.app!));
+          changes.push({
+            replaced: kept.filter((card) => before.get(card.dataset.app!) !== card).map((card) => card.dataset.app!),
+            kept: kept.length,
+            mounted: after.length - kept.length,
+            focused: document.activeElement === button,
+          });
+          await window.cmuxPaintFrame();
+        }
+        return changes;
       },
       { from, to },
     );
@@ -118,4 +157,17 @@ await requireBrowserLane("apps-catalog-columns.test.ts", async () => {
           await page.close();
         }
       });
+  for (const engine of Object.keys(engines) as (keyof typeof engines)[])
+    test(`${engine}: a column change keeps each mounted listing's card element, and focus`, async () => {
+      const page = await open(engine);
+      try {
+        for (const change of await cardsKept(page, 1000, 760)) {
+          expect(change.replaced).toEqual([]);
+          expect(change.kept).toBeGreaterThan(change.mounted);
+          expect(change.focused).toBe(true);
+        }
+      } finally {
+        await page.close();
+      }
+    });
 });
