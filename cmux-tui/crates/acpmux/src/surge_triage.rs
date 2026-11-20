@@ -431,11 +431,23 @@ fn render(head: String, session: &str, lines: &[&Line], read_link: bool) -> Stri
     cut(out.trim_end(), MAX_DIGEST_BYTES)
 }
 
+/// The lines the chat's own digest shows: its `needs_this_session` items.
+pub fn digest_lines(lines: &[Line]) -> Vec<&Line> {
+    lines.iter().filter(|l| l.category == Category::NeedsThisSession).collect()
+}
+
+/// The lines `owner`'s digest shows: the `needs_its_owner` items routed to it.
+pub fn owner_digest_lines<'a>(owner: &str, lines: &'a [Line]) -> Vec<&'a Line> {
+    lines
+        .iter()
+        .filter(|l| l.category == Category::NeedsItsOwner && l.owner.as_deref() == Some(owner))
+        .collect()
+}
+
 /// The chat's one digest: only its `needs_this_session` items, each thread with the command
 /// that reads it whole. None when nothing needs it: no digest is sent.
 pub fn digest(session: &str, lines: &[Line]) -> Option<String> {
-    let need: Vec<&Line> =
-        lines.iter().filter(|l| l.category == Category::NeedsThisSession).collect();
+    let need = digest_lines(lines);
     if need.is_empty() {
         return None;
     }
@@ -450,10 +462,7 @@ pub fn digest(session: &str, lines: &[Line]) -> Option<String> {
 
 /// `owner`'s digest of the items routed to it from `session`'s inbox. None when there are none.
 pub fn owner_digest(session: &str, owner: &str, lines: &[Line]) -> Option<String> {
-    let mine: Vec<&Line> = lines
-        .iter()
-        .filter(|l| l.category == Category::NeedsItsOwner && l.owner.as_deref() == Some(owner))
-        .collect();
+    let mine = owner_digest_lines(owner, lines);
     if mine.is_empty() {
         return None;
     }
