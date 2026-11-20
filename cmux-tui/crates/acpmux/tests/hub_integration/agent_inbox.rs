@@ -584,7 +584,8 @@ async fn threads_are_read_whole_and_answered_into_the_senders_inbox() {
     );
     assert_eq!(rows[0]["from"], json!(["lane-a"]));
     assert_eq!(rows[0]["unread"], 1);
-    assert_eq!(rows[0]["class"], "action");
+    // Classless inbox messages default to FYI and stay digest-only.
+    assert_eq!(rows[0]["class"], "fyi");
     assert_eq!(rows[0]["newestPreview"], "starting the next piece");
 
     // Another session's agent reads no other chat's inbox.
