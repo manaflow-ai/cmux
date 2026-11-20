@@ -1,6 +1,9 @@
 // One launch of a cmux NEXT app the way the Dock launches it (CMUX-629, CMUX-631), timed from outside the app.
 //
-//   launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [shell] [layout]]]
+//   launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [shell] [layout] [guest]]]
+//
+// With `guest` (launch-ready.sh guest=1, a run on a person's own Mac while they work) the app opens without
+// activating: no focus is taken from what they are typing into, and `active` stays null.
 //
 // With `shell` (launch-ready.sh state=bare), once the app marks `window_usable` the probe opens a terminal the way a
 // person's first one opens (`action.run newSurface` on the app's socket) and records `shell_requested`; the app's
@@ -37,7 +40,7 @@ import Darwin
 
 let args = CommandLine.arguments
 guard args.count >= 4 else {
-    FileHandle.standardError.write(Data("usage: launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [shell] [layout]]]\n".utf8)); exit(2)
+    FileHandle.standardError.write(Data("usage: launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [shell] [layout] [guest]]]\n".utf8)); exit(2)
 }
 let appURL = URL(fileURLWithPath: args[1]), homeRoot = URL(fileURLWithPath: args[2]), label = args[3]
 let settle = args.count > 4 ? Double(args[4]) ?? 6 : 6
@@ -46,7 +49,7 @@ guard socketPath.utf8.count <= 103 else { // sun_path less its NUL: the app coul
     FileHandle.standardError.write(Data("launch-ready: socket path \(socketPath.utf8.count) bytes, over 103: \(socketPath)\n".utf8)); exit(2)
 }
 let flags = Set(args.dropFirst(6))
-let opensShell = flags.contains("shell"), samplesLayout = flags.contains("layout")
+let opensShell = flags.contains("shell"), samplesLayout = flags.contains("layout"), activates = !flags.contains("guest")
 var shellRequested: Double?
 let home = homeRoot.appendingPathComponent("h"), tmp = homeRoot.appendingPathComponent("t")
 for sub in ["Library/Preferences", "Library/Application Support", "Library/Caches", "Library/Logs"] {
@@ -127,7 +130,7 @@ if FileManager.default.fileExists(atPath: sideConfig) { environment["CMUX_NEXT_C
 
 let configuration = NSWorkspace.OpenConfiguration()
 configuration.createsNewApplicationInstance = true
-configuration.activates = true
+configuration.activates = activates
 configuration.addsToRecentItems = false
 configuration.environment = environment
 configuration.arguments = ["-ApplePersistenceIgnoreState", "YES"]
