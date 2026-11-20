@@ -19,6 +19,7 @@ export type CmuxCommand = SlashCommand & {
     | "btw"
     | "side"
     | "status"
+    | "rename"
     | "cd"
     | "resume"
     | "login"
@@ -118,6 +119,15 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     descriptionKey: "composer.slashStatus",
     source: "cmux",
     action: "status",
+  },
+  // The header's Rename (⌘R, a double-click on the title), typed: a harness's own /rename needs its
+  // terminal UI, which a GUI chat does not have.
+  {
+    name: "rename",
+    description: "",
+    descriptionKey: "composer.slashRename",
+    source: "cmux",
+    action: "rename",
   },
   {
     name: "cd",
