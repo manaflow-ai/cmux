@@ -258,6 +258,48 @@ async fn subscription_rpc_rejects_unrelated_sessions_and_unverified_peer_probes(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn remote_surge_provenance_requires_peer_proof_and_current_consent() {
+    use crate::rpc::method;
+    use crate::server::{ConnAuth, Origin};
+    let (hub, owner) = chat(None).await;
+    let subscription = json!({"sessionId": owner.id, "threadId": "review"});
+    rpc_as(&hub, &owner.id, method::MUX_INBOX_SUBSCRIPTION_SET, subscription.clone()).await;
+    let digest = json!({"sessionId": owner.id,
+    "prompt": [{"type": "text", "text": "Choose the release base"}],
+    "_meta": {"acpmux": {"promptId": "untrusted-digest", "provenance": {
+        "kind": PROVENANCE_KIND, "digestId": "untrusted-digest",
+        "promptIds": ["m1"], "threadIds": ["review"]
+    }}}});
+    for (origin, auth) in [
+        (Origin::Local, ConnAuth::LocalSocket),
+        (Origin::Peer, ConnAuth::ListenerToken),
+        (Origin::Peer, ConnAuth::Device),
+    ] {
+        let denied =
+            rpc_with(&hub, &owner.id, method::SESSION_PROMPT, digest.clone(), origin, auth).await;
+        assert!(denied.get("error").is_some(), "{origin:?} {auth:?}: {denied}");
+    }
+    let mut web = digest.clone();
+    web["_meta"]["acpmux"]["via"] = json!("web");
+    let denied =
+        rpc_with(&hub, &owner.id, method::SESSION_PROMPT, web, Origin::Peer, ConnAuth::PeerToken)
+            .await;
+    assert!(denied.get("error").is_some(), "forwarded web: {denied}");
+    rpc_as(&hub, &owner.id, method::MUX_INBOX_SUBSCRIPTION_REMOVE, subscription).await;
+    let denied = rpc_with(
+        &hub,
+        &owner.id,
+        method::SESSION_PROMPT,
+        digest,
+        Origin::Peer,
+        ConnAuth::PeerToken,
+    )
+    .await;
+    assert!(denied.get("error").is_some(), "withdrawn subscription: {denied}");
+    assert!(digested(&hub, &owner.id).is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_failure_after_the_journal_write_is_retried_with_no_new_arrival() {
     let (hub, s) = chat(Some("1 this")).await;
     hold(&hub, &s, "m1", "review", "result", "pick a base");
