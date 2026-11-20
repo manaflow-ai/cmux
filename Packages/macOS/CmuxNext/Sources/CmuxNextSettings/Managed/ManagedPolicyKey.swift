@@ -24,14 +24,17 @@ public nonisolated struct ManagedPolicyKey: Sendable, Hashable {
 public nonisolated enum ManagedPreferenceLocation {
     /// DEV builds honor `CMUX_NEXT_MANAGED_PREFS_FILE`; release builds always
     /// read the CFPreferences domain, so an environment variable cannot
-    /// override an administrator's profile.
-    ///
-    /// `keys` limits cmux's own domain to those keys; nil reads every published key
-    /// (``CFManagedPreferenceReader/readKeys``), which builds the whole settings catalog
-    /// (``SettingsSchema/all``, about 50 ms with its localized strings). A reader in `main`,
-    /// before AppKit reports the launch finished (the Dock's bounce), names its keys.
+    /// override an administrator's profile. Reads every published key
+    /// (``CFManagedPreferenceReader/readKeys``), which builds the whole settings catalog.
+    public static func defaultReader(environment: [String: String] = ProcessInfo.processInfo.environment) -> any ManagedPreferenceReader {
+        defaultReader(environment: environment, keys: nil)
+    }
+
+    /// ``defaultReader(environment:)`` with cmux's own domain limited to `keys` (nil: every published key).
+    /// Listing every key builds ``SettingsSchema/all``, about 50 ms with its localized strings, so a reader in
+    /// `main`, before AppKit reports the launch finished (the Dock's bounce), names its keys.
     public static func defaultReader(environment: [String: String] = ProcessInfo.processInfo.environment,
-                                     keys: [String]? = nil) -> any ManagedPreferenceReader {
+                                     keys: [String]?) -> any ManagedPreferenceReader {
         let cfReader = { keys.map { CFManagedPreferenceReader(keys: $0) } ?? CFManagedPreferenceReader() }
         #if DEBUG
         let chromeFile = environment[ChromePolicyDocument.fileOverrideKey].flatMap { $0.isEmpty ? nil : $0 }
