@@ -185,10 +185,11 @@ test("Shared Links: a revoke in flight disables every Revoke and draws no row ag
   renders.mark();
   await click(buttons()[5]!);
   await settle();
-  expect(buttons().every((button) => button.disabled)).toBe(true);
+  // The fieldset around the rows disables them (cardBusy), which `disabled` on a button does not reflect.
+  expect(buttons().every((button) => button.matches(":disabled"))).toBe(true);
   expect(renders.since()).toBe(0);
   await act(async () => answer());
   await settle();
-  expect(buttons().some((button) => button.disabled)).toBe(false);
+  expect(buttons().some((button) => button.matches(":disabled"))).toBe(false);
   expect(renders.since()).toBe(0);
 });

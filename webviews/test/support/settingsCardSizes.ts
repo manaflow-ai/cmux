@@ -22,7 +22,9 @@ export function settingsCardSizes(element: HTMLElement): number {
 export function installCardRects(window: { HTMLElement: { prototype: HTMLElement } }): void {
   const original = window.HTMLElement.prototype.getBoundingClientRect;
   window.HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
-    const listed = this.classList.contains("rows") || this.matches('.rows > [data-index="0"]');
+    const listed =
+      this.classList.contains("rows") ||
+      this.matches('.rows > [data-index="0"], .rows > .card-busy > [data-index="0"]');
     const scroller = listed ? this.closest<HTMLElement>("main.content") : null;
     if (!scroller) return original.call(this);
     const top = -scroller.scrollTop;
