@@ -56,6 +56,15 @@ half of the true numbers, and a frame with no row is not seen. `one_key` alone g
 the row's line and the case's line then say `not known` for the frames with no row. `rows_ms` is each row's time
 after the judged key.
 
+An asked rate that is lower than the display's has the same fault: the frame numbers are too small and a frame
+with no row is not seen. The rows can prove that an asked rate is too LOW, and `rate_fault` does (the reason
+`display`): the smallest time of `RATE_STEPS` steps one after the other in the whole recording (`rate_share`: that
+time over as many asked frame times; each row has it, valid or not) is below `RATE_SHARE`. One step alone is no
+proof: a row's time has a jitter of some ms, and a recording at the right rate has single steps of half a frame
+time, each next to a long one. A recording with too few rows for that sum is INVALID too: a rule that cannot
+judge does not pass. The rows cannot prove that an asked rate is RIGHT: a 120 Hz display whose pictures come each
+second frame gives the rows of a 60 Hz display. The true rate is the display's own, which the entry makes.
+
 A frame with no row. The recorder gives a row for each picture that the window server made and for each time
 that it says that nothing changed, and it does not give one for each frame of the display: in the still part of a
 recording its rows come at its own pace. So the rows' step over the whole recording says nothing about the part
@@ -110,7 +119,11 @@ A Close Tab key (`w`; `close_of`, with the pane's tabs before and after the keys
 close: the picture before is the one at the Close Tab key, the content region's first change is the frame in which
 the closed tab's content is gone (`content_gone`: a blank frame counts), `content_final` is the frame from which
 the content of the tab that shows stays (`content_shown`), and the strip's first change is `strip_first`; `order`
-says which of the two changed first, in frames. Which tab closed and which tab shows come from the app's list of
+says which of the two changed first, in frames. A first change with frames with no row directly before it is the
+LATEST frame of that change, not a proved one (`strip_first_can_be_frames_earlier`,
+`content_gone_can_be_frames_earlier`: the count of those frames): `order` then gives the range of frames, says
+`not proved` when the range does not say which one was first, and the row's line and the case's line say so. A
+row is not INVALID for it: Rule 1 is for `content_first`. Which tab closed and which tab shows come from the app's list of
 the pane's tabs, by the tabs' ids and places, not from the pictures. The key has no opening mark, so its zero is
 only the reply's `before_send_ms`. What a close's row does not see: two tabs with one picture (a New Tab page
 after a New Tab page) leave the content region with no change, and the row then says so and has no
@@ -143,8 +156,70 @@ NO_RATE = ("display: no asked display rate (`--display-hz`; the entry gives it w
            "rows' own median step, so a frame with no row is not seen and a frame's number can be too small")
 
 
+# The asked rate against the rows: the steps one after the other whose time is judged, the share of as many asked
+# frame times under which the display runs faster than the asked rate, and the share under which a take's head
+# says that the margin is small (60 recordings at the right rate: 0.915 and more, each of them).
+RATE_STEPS, RATE_SHARE, RATE_MARGIN = 8, 0.85, 0.88
+# Why the counts of frames with no row are not known, for a row or a case with a `display` reason.
+NO_RATE_SAID, RATE_NOT_PROVED_SAID = "no asked display rate", "the asked display rate is not proved"
+
+
 def _number(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def asked_rate(value):
+    """The asked display rate in Hz, or None when `value` is no rate: only a finite number above 0 is one (`inf` is none:
+    its frame time is 0)."""
+    return value if _number(value) and math.isfinite(value) and value > 0 else None
+
+
+def rate_share(timed, asked):
+    """The smallest time of RATE_STEPS steps one after the other in the rows `timed` (each row of the recording, in
+    the order of their times), over as many frame times `asked` (ms). None: no asked rate, or too few rows."""
+    times = [row["ms"] for row in timed]
+    if not asked or len(times) <= RATE_STEPS:
+        return None
+    return round(min(b - a for a, b in zip(times, times[RATE_STEPS:])) / (RATE_STEPS * asked), 3)
+
+
+def rate_fault(timed, asked, refresh):
+    """The INVALID reason `display` of a recording whose rows do not agree with the asked frame time `asked` (ms),
+    or None (also with no asked rate: the mode gives that reason). `refresh`: the frame time that `refresh_of` took."""
+    if not asked:
+        return None
+    share = rate_share(timed, asked)
+    if share is None:
+        return (f"display: the recording has {len(timed)} rows, fewer than the {RATE_STEPS + 1} that the check of the asked "
+                f"display rate needs ({RATE_STEPS} steps one after the other): the rate is not proved")
+    if share < RATE_SHARE:
+        return (f"display: {RATE_STEPS} steps one after the other of the rows took {share:g} of {RATE_STEPS} asked frame times "
+                f"({asked:.2f} ms each; under {RATE_SHARE:g}): the display runs faster than the asked rate, so a frame with "
+                f"no row is not seen and a frame's number can be too small")
+    if refresh != asked:
+        return (f"display: the rows come faster than the asked rate by more than 15 %, so the frame time is the rows' own "
+                f"median step ({refresh:.2f} ms; asked {asked:.2f} ms): a frame with no row is not seen")
+    return None
+
+
+def rate_not_known(reasons):
+    """Why the counts of frames with no row are not known for a row with the INVALID `reasons`, or None when they
+    are known: a row with a `display` reason has a frame time that does not see such a frame."""
+    if NO_RATE in (reasons or []):
+        return NO_RATE_SAID
+    return RATE_NOT_PROVED_SAID if any(reason.split(":")[0] == "display" for reason in reasons or []) else None
+
+
+def rate_margin_sentence(rows):
+    """One sentence for a report's head when a VALID row of `rows` has a `rate_share` under RATE_MARGIN, or None."""
+    valid = [row for row in rows if not row.get("invalid")]
+    small = [row for row in valid if _number(row.get("rate_share")) and row["rate_share"] < RATE_MARGIN]
+    if not small:
+        return None
+    least = min(small, key=lambda row: row["rate_share"])
+    return (f"THE ASKED DISPLAY RATE HAS A SMALL MARGIN: in {len(small)} of the {len(valid)} valid rows the smallest time of "
+            f"{RATE_STEPS} steps one after the other is below {RATE_MARGIN:g} of {RATE_STEPS} asked frame times (the smallest: "
+            f"{least['rate_share']:g} in {least.get('label')}; below {RATE_SHARE:g} a row is INVALID by `display`)")
 
 
 def pair(row, region):
@@ -173,7 +248,7 @@ def refresh_of(rows, asked_hz=None):
         middle = sorted(steps)[len(steps) // 2]
         near = [s for s in steps if 0.5 * middle <= s <= 1.5 * middle]
         measured = sum(near) / len(near)
-    asked = 1000.0 / asked_hz if _number(asked_hz) and asked_hz > 0 else None
+    asked = 1000.0 / asked_hz if asked_rate(asked_hz) else None
     if asked and (measured is None or measured >= 0.85 * asked):
         return asked, measured
     return measured, measured
@@ -389,7 +464,7 @@ def one_key(reply, key, gap_ms=0, tolerance=TOLERANCE, asked_hz=None, settle_ms=
         return out
     refresh, measured = refresh_of(after, asked_hz)
     refresh = refresh or 1000.0 / 60
-    asked = 1000.0 / asked_hz if _number(asked_hz) and asked_hz > 0 else None
+    asked = 1000.0 / asked_hz if asked_rate(asked_hz) else None
     # The first row's own frame of the display (a frame before it with no row counts), then the rows' steps. The
     # rows before the judged key have their numbers too (0 and less): a span can start at one of them.
     lost = max(0, math.ceil((after[0]["ms"] - 0.5) / refresh) - 1)
@@ -402,6 +477,11 @@ def one_key(reply, key, gap_ms=0, tolerance=TOLERANCE, asked_hz=None, settle_ms=
                 "rows_ms": [round(row["ms"], 1) for row in after]})
     regions = {name: region_of(numbered, name, tolerance) for name in REGIONS}
     known = {name: region for name, region in regions.items() if region}
+    for region in known.values():
+        # The frames of the display with no row directly before the region's first change (from the key, for the
+        # first row after it): the change can have come in one of them, so `first` is the latest frame of it.
+        at = next((i for i, (frame, _) in enumerate(numbered) if region["first"] and frame == region["first"]["frame"]), None)
+        region["first_can_be_frames_earlier"] = None if at is None else numbered[at][0] - (numbered[at - 1][0] if at else 0) - 1
     content = regions["content"]
     first = next((i for i, (_, row) in enumerate(numbered)
                   if pair(row, "content")[0] > tolerance and not row.get("blank")), None)
@@ -423,6 +503,9 @@ def one_key(reply, key, gap_ms=0, tolerance=TOLERANCE, asked_hz=None, settle_ms=
     if asked and moving_step and moving_step > 1.15 * asked:
         out["invalid"].append(f"refresh: the {len(moving)} rows from the key to content_final come each {moving_step:.2f} ms and "
                               f"the display's frame time is {asked:.2f} ms: the rows are not each frame of the display")
+    # The asked rate against the rows of the whole recording (the module doc). Each row has the judged number.
+    out["rate_share"] = rate_share(timed, asked)
+    out["invalid"] += [fault for fault in [rate_fault(timed, asked, refresh)] if fault]
     out["second_first"], out["second_first_source"] = second_first_of(key, gap_ms, every, len(timed) - len(after), reply.get("spans"),
                                                                       shift, refresh, tolerance, regions)
     if out["second_first"]:
@@ -541,6 +624,9 @@ def summarize(rows):
                                  "no_row": _spread([span["no_row"] for span in spans]),
                                  "longest_gap_ms": _spread([span["longest_gap_ms"] for span in spans]),
                                  "early_ms_at_most": _spread([span["early_ms_at_most"] for span in spans])}
+    # A case with a `display` row: why its counts of frames with no row are not known (None: they are known).
+    out["no_row_not_known"] = next((why for why in (NO_RATE_SAID, RATE_NOT_PROVED_SAID)
+                                    if any(rate_not_known(row.get("invalid")) == why for row in rows)), None)
     return out
 
 
@@ -554,12 +640,14 @@ def recorder_lost(rows):
 
 
 def recorder_sentence(cases):
-    """The report's head sentence from each case's `recorder_lost`, in the cases' order."""
+    """The report's head sentence from each case's `recorder_lost`, in the cases' order. A case with a `display`
+    row has no count: its frame time does not see a frame with no row, so `0 of N` would read as `none lost`."""
     said = []
     for name, case in cases.items():
         lost = case.get("recorder_lost") or {}
         kinds = f" (no-row {lost['no_row']}, refresh {lost['refresh']})" if lost.get("rows") else ""
-        said.append(f"{name} {lost.get('rows')} of {lost.get('of')}{kinds}")
+        blind = case.get("no_row_not_known")
+        said.append(f"{name} not known ({blind})" if blind else f"{name} {lost.get('rows')} of {lost.get('of')}{kinds}")
     if not said:
         return "rows lost to the recorder: no case recorded"
     return "rows lost to the recorder (INVALID by `no-row` or `refresh`, a fault of the tool's yield): " + "; ".join(said)
@@ -570,10 +658,10 @@ def cell(summary):
         frames, ms = summary[name]["frame"], summary[name]["ms"]
         return "none" if not frames else f"frame {frames['p50']:g} (max {frames['max']:g}), {ms['p50']:g} ms (max {ms['max']:g})"
     changes, work, zeros = summary["changes_after_content"], summary["key_work_ms"], summary.get("zero") or []
-    holes = summary["first_frame_no_row"]
+    holes, blind = summary["first_frame_no_row"], summary.get("no_row_not_known")
     return (f"valid {summary['valid']}/{summary['n']}" + (f" (INVALID: {', '.join(summary['invalid'])})" if summary["invalid"] else "")
             + ("" if not holes["rows"] else
-               "; frames with no row from the key to content_first: not known (no asked display rate)" if "display" in summary["invalid"] else
+               f"; frames with no row from the key to content_first: not known ({blind})" if blind else
                f"; frames with no row from the key to content_first, over EACH of {holes['rows']} rows (also the INVALID ones): in "
                f"{holes['with_a_frame_with_no_row']} rows ({holes['time_not_proved']} with one directly before content_first: the time is "
                f"not proved; {holes['time_proved_partial_state_not_seen']} with each before a row of the old picture: the time is proved, "
@@ -625,6 +713,7 @@ def close_of(row, spans, before, after, new_tab_keys=0):
     regions = row.get("regions") or {}
     content, strip, work = regions.get("content") or {}, regions.get("strip"), row.get("key_work_ms") or 0.0
     gone, moved = content.get("first"), (strip or {}).get("first")
+    early_strip, early_content = (strip or {}).get("first_can_be_frames_earlier") or 0, content.get("first_can_be_frames_earlier") or 0
     # Each `newTab.open` mark's start, in ms before the time at which the Close Tab key went in (below 0: after it).
     marks = sorted((round(-(span["ms"] + work), 1) for span in spans or [] if span.get("name") == NEW_TAB_MARK and _number(span.get("ms"))), reverse=True)
     earlier = [mark for mark in marks if mark >= 0]
@@ -634,11 +723,20 @@ def close_of(row, spans, before, after, new_tab_keys=0):
         order = "the strip changed and the content area did not (one picture before and after the key)" if moved else "neither the strip nor the content area changed"
     elif not moved:
         order = "the content area changed and the strip did not"
-    elif moved["frame"] == gone["frame"]:
+    elif not early_strip and not early_content and moved["frame"] == gone["frame"]:
         order = "the strip and the content area changed in the same frame"
-    else:
+    elif not early_strip and not early_content:
         order = f"the strip changed {abs(moved['frame'] - gone['frame'])} frames {'before' if moved['frame'] < gone['frame'] else 'after'} the content area"
-    fact = {"new_tab_keys": new_tab_keys, "new_tab_marks_before_ms": earlier, "last_new_tab_key_before_ms": min(earlier, default=None),
+    else:
+        # A first change with frames with no row directly before it is the LATEST frame of that change: the strip's
+        # frame less the content's is then a range, and which one was first is proved only when the range has one sign.
+        low, high = moved["frame"] - early_strip - gone["frame"], moved["frame"] - gone["frame"] + early_content
+        order = (f"the strip changed {low} to {high} frames after the content area" if low > 0 else
+                 f"the strip changed {-high} to {-low} frames before the content area" if high < 0 else
+                 f"not proved: the strip changed from {-low} frames before to {high} frames after the content area")
+        order += f" (frames with no row directly before the first change: the strip's {early_strip}, the content area's {early_content})"
+    fact = {"new_tab_keys": new_tab_keys, "strip_first_can_be_frames_earlier": early_strip if moved else None,
+            "content_gone_can_be_frames_earlier": early_content if gone else None, "new_tab_marks_before_ms": earlier, "last_new_tab_key_before_ms": min(earlier, default=None),
             "close_marks_ms": [round(span["ms"] + work, 1) for span in spans or [] if span.get("name") == CLOSE_MARK and _number(span.get("ms"))],
             "content_gone": gone, "content_shown": row.get("content_final") if gone else None, "strip_first": moved,
             "content_between_frames": content.get("between_frames"), "blank_frames": row.get("blank_frames"), "order": order,
@@ -692,6 +790,8 @@ def close_summary(rows):
     out = {"n": len(rows), "valid": len(facts), "shows": counted((fact.get("shown_after") or {}).get("is") or "not known" for fact in facts),
            "closed": counted(fact.get("closed_is") or "not known" for fact in facts), "order": counted(fact["order"] for fact in facts),
            "content_did_not_change": sum(1 for fact in facts if not fact["content_gone"]),
+           # The rows whose `strip_first` is the latest frame of the strip's change: a frame with no row is before it.
+           "strip_first_not_proved": sum(1 for fact in facts if fact.get("strip_first_can_be_frames_earlier")),
            "blank_frames": _spread([fact.get("blank_frames") for fact in facts]),
            "content_between_frames": _spread([fact.get("content_between_frames") for fact in facts]),
            "last_new_tab_key_before_ms": _spread([fact.get("last_new_tab_key_before_ms") for fact in facts])}
@@ -708,9 +808,13 @@ def close_cell(summary):
     def each(name):
         return ", ".join(f"{what} {count}/{summary['valid']}" for what, count in summary[name].items()) or "no valid row"
     blank, between, gap = summary["blank_frames"], summary["content_between_frames"], summary["last_new_tab_key_before_ms"]
+    latest = summary.get("strip_first_not_proved")
     return (f"; CLOSE TAB, over the {summary['valid']} valid rows: closed: {each('closed')}; shows after the close: {each('shows')}; "
             f"closed tab's content gone {said('content_gone')}; content of the tab that shows final {said('content_shown')}; "
-            f"strip's first change {said('strip_first')}; order: {each('order')}; the content area did not change in "
+            f"strip's first change {said('strip_first')}"
+            + ("" if not latest else f" [in {latest} of the {summary['valid']} rows a frame with no row is directly before it: there it "
+                                     f"is the latest frame]")
+            + f"; order: {each('order')}; the content area did not change in "
             f"{summary['content_did_not_change']} rows; blank frames p50 {blank['p50'] if blank else 'n/a'} max {blank['max'] if blank else 'n/a'}; "
             f"content frames at neither picture p50 {between['p50'] if between else 'n/a'} max {between['max'] if between else 'n/a'}"
             + ("" if not gap else f"; the last New Tab key's mark before the Close Tab key p50 {gap['p50']:g} ms max {gap['max']:g}"))

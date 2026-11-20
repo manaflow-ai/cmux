@@ -84,9 +84,10 @@ for arg in "$@"; do
   esac
 done
 # --screen counts frames of the display: a display that this script was asked for and did not get is no display to
-# count on (below), and a rate that is no number stops the step here, before the build.
-if [[ "$screen" == 1 && -n "$vdisplay_hz" && ! "$vdisplay_hz" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-  echo "instant-new-surfaces: --screen: --vdisplay=$vdisplay_hz is not a rate in Hz" >&2
+# count on (below), and a rate that is no number above 0 stops the step here, before the build (the driver refuses
+# such a --display-hz too, but only after the build).
+if [[ "$screen" == 1 && -n "$vdisplay_hz" ]] && [[ ! "$vdisplay_hz" =~ ^[0-9]+(\.[0-9]+)?$ || "$vdisplay_hz" =~ ^[0.]+$ ]]; then
+  echo "instant-new-surfaces: --screen: --vdisplay=$vdisplay_hz is not a rate in Hz above 0" >&2
   exit 2
 fi
 # --window-look=WORDS (--screen: the launched app's settings, scripts/cmux-next/new_surface_look.py): words that the
