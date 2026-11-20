@@ -25,6 +25,9 @@ pub(super) const TARGET: &str = "aarch64-apple-darwin";
 pub(super) const BASE_ENV: &str = "CMUX_APP_TRY_FILES_BASE";
 /// Overrides `~/Library/Application Support/cmux/app-try`.
 pub(super) const STATE_ENV: &str = "CMUX_APP_TRY_STATE";
+/// Overrides the signed forward-only channel pointer (an isolated fixture can
+/// use `file://`; the default is the public nightly-live channel).
+pub(super) const CHANNEL_ENV: &str = "CMUX_APP_TRY_CHANNEL";
 pub(super) const BIN: &str = "Contents/Resources/bin";
 /// The file `mac-live.json` is: a few kilobytes.
 pub(super) const LIVE_MAX_BYTES: u64 = 256 * 1024;
@@ -57,6 +60,23 @@ pub(super) struct LivePayload {
     pub targets: BTreeMap<String, BTreeMap<String, Binary>>,
 }
 
+/// The forward-only pointer published beside the per-commit files.  It uses
+/// the same signed envelope and binary payload as a per-commit file, but the
+/// channel is what lets an explicit `cmux app try channel` experiment discover
+/// the newest commit without GitHub or a checkout.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub(super) struct ChannelPayload {
+    pub schema: u64,
+    pub purpose: String,
+    pub channel: String,
+    pub commit: String,
+    pub committed_at: u64,
+    pub published_at: u64,
+    pub expires_at: u64,
+    #[serde(default)]
+    pub live_from: Vec<String>,
+}
+
 /// The payload of `body` when a `keys` signature covers it, it is a Mac live
 /// update and it is `commit`'s; else why not. It has no expiry check: the
 /// person names the commit, and `commit` binds the file to it, so no file can
@@ -79,6 +99,44 @@ pub(super) fn verify(
         return Err(format!("the file is {}'s, not {commit}'s", payload.commit));
     }
     Ok(payload)
+}
+
+/// Opens the signed nightly-live pointer.  The purpose and channel are checked
+/// before the commit is used, and its first `live_from` entry must bind the
+/// pointer to the commit whose per-commit file will be fetched next.
+pub(super) fn verify_channel(
+    body: &[u8],
+    keys: &[(String, [u8; 32])],
+    now: u64,
+) -> Result<ChannelPayload, String> {
+    let bytes = channel::open_envelope(body, keys)?;
+    let payload: ChannelPayload = serde_json::from_slice(&bytes)
+        .map_err(|e| format!("the channel payload does not parse: {e}"))?;
+    if payload.schema != SCHEMA {
+        return Err(format!("unknown channel payload schema {}", payload.schema));
+    }
+    if payload.purpose != PURPOSE || payload.channel != "nightly-live" {
+        return Err(format!(
+            "the payload is for {} channel {}, not the nightly-live Mac channel",
+            payload.purpose, payload.channel
+        ));
+    }
+    if !channel::lower_hex(&payload.commit, 40) {
+        return Err("the channel names no commit".to_owned());
+    }
+    if payload.expires_at <= now {
+        return Err(format!("the channel expired at {} (now {now})", payload.expires_at));
+    }
+    if payload.live_from.first().map(String::as_str) != Some(payload.commit.as_str()) {
+        return Err("the channel's live_from does not start at its commit".to_owned());
+    }
+    Ok(payload)
+}
+
+/// Channel timestamps are the ordering authority; a pointer never moves back
+/// to an older (or equal) publication after a successful apply.
+pub(super) fn channel_is_newer(previous: Option<u64>, current: u64) -> bool {
+    previous.is_none_or(|previous| current > previous)
 }
 
 /// Whether an app at `app_commit` (a nightly stamps CMUXCommit short) can take
@@ -107,6 +165,13 @@ pub(super) fn files_base() -> String {
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| channel::FILES_PREFIX.to_owned());
     if base.ends_with('/') { base } else { format!("{base}/") }
+}
+
+pub(super) fn channel_url() -> String {
+    std::env::var(CHANNEL_ENV)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| format!("{}channels/mac-live.json", files_base()))
 }
 
 /// The files the build sets in `bin/`, every binary checked: its url is the
@@ -305,6 +370,32 @@ impl Store {
     pub(super) fn last(&self) -> Option<Value> {
         let body = fs::read(self.root.join("last.json")).ok()?;
         serde_json::from_slice(&body).ok()
+    }
+
+    pub(super) fn channel_last(&self) -> Result<Option<u64>, String> {
+        let path = self.root.join("channel.json");
+        let body = match fs::read(&path) {
+            Ok(body) => body,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(format!("{}: {error}", path.display())),
+        };
+        let value: Value = serde_json::from_slice(&body)
+            .map_err(|error| format!("{}: invalid channel state: {error}", path.display()))?;
+        let committed_at = value
+            .get("committed_at")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| format!("{}: channel state has no committed_at", path.display()))?;
+        Ok(Some(committed_at))
+    }
+
+    pub(super) fn record_channel(&self, committed_at: u64, commit: &str) -> Result<(), String> {
+        fs::create_dir_all(&self.root).map_err(|e| format!("{}: {e}", self.root.display()))?;
+        let part = tempfile::NamedTempFile::new_in(&self.root).map_err(|e| e.to_string())?;
+        let body = serde_json::to_vec(&json!({ "committed_at": committed_at, "commit": commit }))
+            .map_err(|e| e.to_string())?;
+        fs::write(part.path(), body).map_err(|e| e.to_string())?;
+        part.persist(self.root.join("channel.json")).map_err(|e| e.to_string())?;
+        Ok(())
     }
 
     /// Writes `receipt` as `last.json` (renamed into place) and appends it to `history.jsonl`.
