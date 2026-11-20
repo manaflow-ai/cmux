@@ -43,7 +43,7 @@
           },
           "help": {
             "key": "settings.navigation.historyScope.help",
-            "text": "What Go Back and Go Forward walk: places in this workspace, in this window, or the focused page's own history."
+            "text": "What Go Back and Go Forward walk."
           },
           "kind": "choice",
           "choices": [
@@ -88,7 +88,7 @@
           },
           "help": {
             "key": "settings.navigation.historySteps.help",
-            "text": "Workspaces: Go Back and Go Forward move between workspaces and top pages, and return to the tab each one last had focused. Everything: they also step through tabs and panes inside a workspace."
+            "text": "Everything also steps through tabs and panes inside a workspace."
           },
           "summary": {
             "key": "settings.navigation.historySteps.summary",
@@ -165,7 +165,7 @@
           },
           "help": {
             "key": "settings.history.closed.maxGroups.help",
-            "text": "Each machine deletes its oldest closed tabs, screens, workspaces and windows past this many. 0 keeps them all."
+            "text": "Older closed tabs, workspaces and windows are deleted. 0 keeps them all."
           },
           "kind": "number",
           "range": {
@@ -278,7 +278,7 @@
           },
           "help": {
             "key": "settings.window.titlebarButtons.help",
-            "text": "With the sidebar hidden, On Hover hides the sidebar button, Back and Forward until the pointer is over the top row. With the sidebar open, they always show."
+            "text": "With the sidebar hidden, On Hover shows its buttons only over the top row."
           },
           "kind": "choice",
           "choices": [
@@ -356,7 +356,7 @@
           },
           "help": {
             "key": "settings.app.startAgentGlobalHotKey.help",
-            "text": "Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts."
+            "text": "⌃⌥⌘Space starts an agent while another app is in front."
           },
           "kind": "toggle",
           "default": false,
@@ -386,7 +386,7 @@
           },
           "help": {
             "key": "settings.app.hideDockIconWithoutWindows.help",
-            "text": "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens."
+            "text": "cmux stays in the menu bar until a window opens."
           },
           "kind": "toggle",
           "default": true,
@@ -411,10 +411,6 @@
           "title": {
             "key": "settings.app.showMenuBarIcon",
             "text": "Show Menu Bar Icon"
-          },
-          "help": {
-            "key": "settings.app.showMenuBarIcon.help",
-            "text": "A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit."
           },
           "kind": "toggle",
           "default": true,
@@ -507,7 +503,7 @@
           },
           "help": {
             "key": "settings.app.confirmQuit.help",
-            "text": "Cmd-Q asks first when quitting would end working agents or open terminals. A quit that keeps the sessions running never asks."
+            "text": "Ask before Cmd-Q ends agents or terminals."
           },
           "kind": "toggle",
           "default": true,
@@ -987,7 +983,7 @@
           },
           "help": {
             "key": "settings.layout.focusFollowsMouse.help",
-            "text": "Moving the pointer onto a pane or scrolling over it focuses that pane. Off keeps focus where you type until you click. Momentum and the first second after typing never move focus."
+            "text": "Pointing at or scrolling over a pane focuses it."
           },
           "summary": {
             "key": "settings.layout.focusFollowsMouse.summary",
@@ -1019,7 +1015,7 @@
           },
           "help": {
             "key": "settings.layout.scrollAreas.help",
-            "text": "Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns."
+            "text": "Panes that do not fit scroll sideways instead of shrinking."
           },
           "summary": {
             "key": "settings.layout.scrollAreas.summary",
@@ -1050,7 +1046,7 @@
           },
           "help": {
             "key": "settings.layout.scrollModifier.help",
-            "text": "Command + Scroll moves columns and rows from anywhere, and a plain scroll always scrolls the pane under the pointer. Without a modifier, a sideways scroll moves columns unless the pane scrolls sideways itself, and rows scroll only over the gaps between them."
+            "text": "What moves columns and rows: Command + Scroll, or a plain sideways scroll."
           },
           "summary": {
             "key": "settings.layout.scrollModifier.summary",
@@ -1106,7 +1102,7 @@
           },
           "help": {
             "key": "settings.layout.pagesHandleCommandScroll.help",
-            "text": "A web page that uses Command + Scroll itself, such as Figma or Excalidraw zooming, keeps it. Over any other page, Command + Scroll moves columns. Off, Command + Scroll always moves columns."
+            "text": "Pages like Figma keep Command + Scroll. Off, it always moves columns."
           },
           "summary": {
             "key": "settings.layout.pagesHandleCommandScroll.summary",
@@ -1191,7 +1187,7 @@
           },
           "help": {
             "key": "settings.layout.newPanePlacement.help",
-            "text": "Open a Tab adds a tab to the focused pane. Split Automatically splits the largest pane, like New Pane (Auto Layout)."
+            "text": "Split Automatically splits the largest pane."
           },
           "kind": "choice",
           "choices": [
@@ -1261,10 +1257,6 @@
             "key": "settings.layout.linkPlacement",
             "text": "Open Links and Files"
           },
-          "help": {
-            "key": "settings.layout.linkPlacement.help",
-            "text": "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one."
-          },
           "kind": "choice",
           "choices": [
             {
@@ -1316,7 +1308,7 @@
           },
           "help": {
             "key": "settings.layout.mainPane.help",
-            "text": "Agent Chats keeps an agent chat as the main pane: links, files, subagents and side chats it opens appear as tabs in a column on its right, and closing that column gives the chat its full width back."
+            "text": "Keeps a chat as the main pane, with what it opens in a column on its right."
           },
           "kind": "choice",
           "choices": [
@@ -1371,10 +1363,6 @@
             "key": "settings.workspaces.newPlacement",
             "text": "New Workspace Position"
           },
-          "help": {
-            "key": "settings.workspaces.newPlacement.help",
-            "text": "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it."
-          },
           "kind": "choice",
           "choices": [
             {
@@ -1427,10 +1415,6 @@
             "key": "settings.sidebar.groupByComputer",
             "text": "Group Workspaces by Computer"
           },
-          "help": {
-            "key": "settings.sidebar.groupByComputer.help",
-            "text": "Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer."
-          },
           "kind": "toggle",
           "default": false,
           "keywords": [
@@ -1459,7 +1443,7 @@
           },
           "help": {
             "key": "settings.workspaces.autoName.help",
-            "text": "A workspace you have not named shows its front tab's name: a page's title, an agent chat's title, or a terminal's title or folder. Your own name always wins."
+            "text": "An unnamed workspace shows its front tab's name. Your own name always wins."
           },
           "kind": "toggle",
           "default": true,
@@ -1499,7 +1483,7 @@
           },
           "help": {
             "key": "settings.palette.prefix.help",
-            "text": "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."
+            "text": "Typed into an empty query, this character enters the scope."
           },
           "kind": "choice",
           "choices": [
@@ -1658,7 +1642,7 @@
           },
           "help": {
             "key": "settings.palette.prefix.help",
-            "text": "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."
+            "text": "Typed into an empty query, this character enters the scope."
           },
           "kind": "choice",
           "choices": [
@@ -1817,7 +1801,7 @@
           },
           "help": {
             "key": "settings.palette.prefix.help",
-            "text": "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."
+            "text": "Typed into an empty query, this character enters the scope."
           },
           "kind": "choice",
           "choices": [
@@ -1976,7 +1960,7 @@
           },
           "help": {
             "key": "settings.palette.prefix.help",
-            "text": "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."
+            "text": "Typed into an empty query, this character enters the scope."
           },
           "kind": "choice",
           "choices": [
@@ -2135,7 +2119,7 @@
           },
           "help": {
             "key": "settings.palette.prefix.help",
-            "text": "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope."
+            "text": "Typed into an empty query, this character enters the scope."
           },
           "kind": "choice",
           "choices": [
@@ -2293,7 +2277,7 @@
           },
           "help": {
             "key": "settings.palette.aliases.help",
-            "text": "A word that names a command by its action id (\"vs\": \"splitRight\"). Typing the whole word in the command palette puts that command first."
+            "text": "A word for a command, such as \"vs\": \"splitRight\"."
           },
           "kind": "string_map",
           "default": {},
@@ -2342,7 +2326,7 @@
           },
           "help": {
             "key": "settings.palette.searchHistory.help",
-            "text": "The row you pick for what you typed comes first the next time you type it, and rows you use often rank higher. Off, the palette records nothing and ranks by match and sidebar order only."
+            "text": "Rows you pick and use often rank higher. Off records nothing."
           },
           "kind": "toggle",
           "default": true,

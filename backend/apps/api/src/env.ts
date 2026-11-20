@@ -191,6 +191,12 @@ export interface Env {
   readonly PAIR_BEGIN_LIMIT?: RateLimit
   /** Where provider redirects land (the dashboard's /integrations/callback). */
   readonly DASHBOARD_ORIGIN?: string
+  /**
+   * The console that finishes integration connects, when it is not DASHBOARD_ORIGIN: development has no hosted
+   * console, so its connects come back to the staging console, which finishes them on this Worker
+   * (dashboard lib/integration-callback.ts). Pairing and SSO keep DASHBOARD_ORIGIN.
+   */
+  readonly INTEGRATIONS_CALLBACK_ORIGIN?: string
   /** Secret: 32-byte base64 key that wraps credential data keys. Integrations refuse to connect without it. */
   readonly INTEGRATIONS_KEK?: string
   /**
@@ -247,6 +253,11 @@ export interface Env {
   readonly STACK_SECRET_SERVER_KEY?: string
   /** Secret: the Svix endpoint secret (whsec_...) of the Stack team webhook (stack-webhook.ts); unset answers 503. */
   readonly STACK_WEBHOOK_SECRET?: string
+  /**
+   * Secret (development and previews only, never staging or production): the token of the Cloud self-test's
+   * POST /v1/dev/fixtures (dev-fixtures.ts), which makes marked test users, teams and memberships. Unset: 503.
+   */
+  readonly DEV_FIXTURES_TOKEN?: string
   /**
    * GitHub Actions jobs that may sign in as one test account by their OIDC token (ci-session.ts, hq#7076): a JSON
    * array of rows naming the exact repository, ref and workflow file, and the one Stack user. No secret.

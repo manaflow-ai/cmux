@@ -68,8 +68,7 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 #[cfg(target_os = "linux")]
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
-/// The checked-in Seatbelt profile.
-pub(crate) const PROFILE: &str = include_str!("../../sandbox/remote-chain.sb");
+pub(crate) use crate::remote_chain_profile::PROFILE;
 const LINUX_PROFILE_NOTE: &str = ";; Linux enforces this same parsed policy through bwrap, seccomp, the\n;; user-notify supervisor and the proxy, with a canary at every spawn.\n";
 
 /// The identity of what a remote chain runs under: the profile and the env
@@ -114,52 +113,8 @@ fn linux_identity_sources() -> Vec<(&'static str, &'static str)> {
     ]
 }
 
-/// glibc sysdeps/generic/unsecvars.h (including legacy MALLOC_CHECK_) plus
-/// every LD_* control: none may reach an unsandboxed Linux exec.
 #[cfg(target_os = "linux")]
-pub(crate) fn loader_env_key(key: &str) -> bool {
-    key.starts_with("LD_")
-        || matches!(
-            key,
-            "GCONV_PATH"
-                | "GETCONF_DIR"
-                | "GLIBC_TUNABLES"
-                | "HOSTALIASES"
-                | "LOCALDOMAIN"
-                | "LOCPATH"
-                | "MALLOC_ARENA_MAX"
-                | "MALLOC_ARENA_TEST"
-                | "MALLOC_CHECK_"
-                | "MALLOC_TCACHE_COUNT"
-                | "MALLOC_TCACHE_MAX"
-                | "MALLOC_TCACHE_UNSORTED_LIMIT"
-                | "MALLOC_PERTURB_"
-                | "MALLOC_TOP_PAD_"
-                | "MALLOC_TRACE"
-                | "MALLOC_MMAP_MAX_"
-                | "MALLOC_MMAP_THRESHOLD_"
-                | "MALLOC_TRIM_THRESHOLD_"
-                | "NIS_PATH"
-                | "NLSPATH"
-                | "RESOLV_HOST_CONF"
-                | "RES_OPTIONS"
-                | "TMPDIR"
-                | "TZDIR"
-        )
-}
-
-/// Finite scan of inherited and explicitly merged keys; never mutates the daemon env.
-#[cfg(target_os = "linux")]
-pub(crate) fn scrub_loader_env(command: &mut tokio::process::Command) {
-    let keys: Vec<_> = std::env::vars_os()
-        .map(|(k, _)| k)
-        .chain(command.as_std().get_envs().map(|(k, _)| k.to_owned()))
-        .filter(|k| crate::linux_sandbox::keeper::loader_env_key(&k.to_string_lossy()))
-        .collect();
-    for key in keys {
-        command.env_remove(key);
-    }
-}
+pub(crate) use crate::linux_sandbox::{loader_env_key, scrub_loader_env};
 
 /// The system `sandbox-exec`.
 pub(super) const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";

@@ -90,6 +90,10 @@ fn run(script: &str, seconds: u64) -> Option<(bool, String)> {
     use std::time::Duration;
     let mut child = Command::new("sh")
         .args(["-c", script])
+        // Join repair commands may run package-manager helpers. Do not expose the
+        // cloud bearer token (or caller-controlled command lookup) to them.
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
         .process_group(0)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -122,6 +126,20 @@ mod tests {
         let path = dir.join(name);
         std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    #[test]
+    fn sandbox_commands_do_not_inherit_cloud_access_token() {
+        let previous = std::env::var_os("CMUX_CLOUD_ACCESS_TOKEN");
+        // SAFETY: this test restores the process environment before returning.
+        unsafe { std::env::set_var("CMUX_CLOUD_ACCESS_TOKEN", "test-secret"); }
+        let result = run("printf '%s' \"${CMUX_CLOUD_ACCESS_TOKEN-unset}\"", 5).unwrap();
+        match previous {
+            Some(value) => unsafe { std::env::set_var("CMUX_CLOUD_ACCESS_TOKEN", value) },
+            None => unsafe { std::env::remove_var("CMUX_CLOUD_ACCESS_TOKEN") },
+        }
+        assert!(result.0);
+        assert_eq!(result.1, "unset");
     }
 
     #[test]

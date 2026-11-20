@@ -37,6 +37,8 @@ enum RoomHandlers {
             let adoptable = windows.adoptableWorkspaces(in: room.id, for: windowID)
             windows.state(for: windowID).enterProfile(room.id)
             if adoptable.isEmpty {
+                // Its workspaces show in another window: the new window is one more view of them (rule 6), never a new workspace beside them.
+                if windows.openView(id: windowID, of: room.id) != nil { return }
                 Task { await windows.createWorkspace(into: windowID, newTabPage: invocation.origin == .user) }
             } else {
                 windows.openWindow(id: windowID, workspaces: adoptable)

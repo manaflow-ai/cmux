@@ -144,10 +144,10 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
         // binary (cmux-tui `link/machine_update/apply.rs`). Never a toast for it.
         case "machine_update_pending":
             return .busy
-        // The machine's daemon runs someone's own build from another path: not this app's to
-        // replace, and nothing failed. Nothing shows; the log keeps the reason, and the next launch
-        // asks again (the rule for this case, in the code since 2026-11-02: no failure toast).
-        case "machine_update_foreign_daemon":
+        // The machine's daemon runs someone's own build from another path (or a start's own update ran past its bound): not this app's to
+        // replace, and nothing failed. Nothing shows; the log keeps the reason, and the next launch (or start) asks again, so the queue
+        // moves on (the rule for this case, in the code since 2026-11-02: no failure toast).
+        case "machine_update_foreign_daemon", .some(CloudMoveCLI.machineUpdateAbandoned):
             return .held(reason: detail)
         // This app carries no pinned machine build (a dev build), or its download failed: nothing
         // changed; not recorded, so a later connect or launch tries again.

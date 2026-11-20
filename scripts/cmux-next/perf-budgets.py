@@ -14,7 +14,9 @@ bench launches and quits the app itself), and maps their reports to budget rows 
   sidebar-stress-bench.py        400 workspaces, 15 ticking: scroll, ticks (frames, CPU, main ms/s), row drag, and the
                                  workspace switch matrix (click, Cmd-1..4, Ctrl-Cmd-]/[ x terminal, Chromium)
   home-perf.py                   Home: typing key dispatch, chat scroll frames
-  agent-engine-bench.py          ACP chat composer: keydown to next frame (the page's typingStats)
+  agent-engine-bench.py          ACP chat composer: keydown to next frame (the page's typingStats), and its stages:
+                                 to_listener (the key reaches the page) and to_work (its edit and render done),
+                                 stored for the breakdown, never judged (STAGE_ROW_RE)
   bench_idle.py                  idle CPU of the app with terminals open
   tab-churn-bench.py             terminal_burst: 30 Ctrl-` terminals in a row (first and last ten, growth), closing them,
                                  and Cmd-T / Cmd-W in a pane of 1 tab and of 31 (ask-8a0837950b)
@@ -47,6 +49,9 @@ BENCHES = ["new_surfaces", "panes", "tab_switch", "palette", "sidebar", "home", 
 # a bench added here is a perf cron row that warns, never a new gate row (CLAUDE.md: no new CI gates).
 OPT_IN_BENCHES = ["terminal_burst"]
 PERF_BENCH = os.path.join(HERE, "..", "perf-bench")
+# Stage rows: where a judged row's time goes (the chat composer's typing: key to page, key to edit and render done).
+# Stored and shown, never gated, budgeted or written to a baseline: measurement only (no new CI gates).
+STAGE_ROW_RE = re.compile(r"^acp\.[^.@]+\.typing\.(to_listener|to_work)(@|$)")
 
 
 # ---------- pure helpers (tests/test_perf_budgets.py) ----------
@@ -272,6 +277,13 @@ def rows_acp(rep):
         summ = r.get("summary", r) if isinstance(r, dict) else {}
         out[f"acp.{mode}.typing.to_frame"] = p50_p95(summ.get("typing_to_frame"))
         out[f"acp.{mode}.typing.to_paint"] = p50_p95(summ.get("typing_to_paint"))
+        for stage in ("to_listener", "to_work"):
+            stats = summ.get(f"typing_{stage}")
+            # typingSummary gives zeros for a stage with no samples (a build before the stage marks): no row.
+            if isinstance(stats, dict) and stats.get("max_ms") == 0:
+                stats = None
+            if stats is not None:
+                out[f"acp.{mode}.typing.{stage}"] = p50_p95(stats)
     return out
 
 
@@ -568,7 +580,7 @@ def finish(opts, budgets, only, runs, values):
 
     rows = []
     for name, (p50, p95) in sorted(values.items()):
-        spec = budget_for(name, budgets)
+        spec = {} if STAGE_ROW_RE.match(name) else budget_for(name, budgets)
         rows.append({"name": name, "p50": None if p50 is None else round(p50, 2),
                      "p95": None if p95 is None else round(p95, 2), "budget": spec.get("p95"),
                      "unit": spec.get("unit", "ms"), "floor": spec.get("floor", 1.0), "interaction": spec.get("what")})
@@ -576,7 +588,7 @@ def finish(opts, budgets, only, runs, values):
     cls = host_class()
     base_path = opts.baseline or os.path.join(BASELINE_DIR, f"{cls}.json")
     baseline = (load(base_path) or {}).get("p95", {})
-    regressed = compare(rows, baseline)
+    regressed = compare([r for r in rows if not STAGE_ROW_RE.match(r["name"])], baseline)
     over = over_budget(rows)
     incomplete = []
     if opts.gate and not baseline:
@@ -612,7 +624,8 @@ def finish(opts, budgets, only, runs, values):
     if opts.write_baseline and incomplete:
         print("PERF-BUDGETS-BASELINE refused: the run is incomplete; provide measured rows for every expected entry")
     elif opts.write_baseline:
-        json.dump({"host_class": cls, "p95": {r["name"]: r["p95"] for r in rows if r["p95"] is not None}},
+        json.dump({"host_class": cls, "p95": {r["name"]: r["p95"] for r in rows
+                                                if r["p95"] is not None and not STAGE_ROW_RE.match(r["name"])}},
                   open(opts.write_baseline, "w"), indent=1, sort_keys=True)
     if opts.gate and not baseline:
         print(f"PERF-BUDGETS-GATE no baseline at {base_path}: incomplete")

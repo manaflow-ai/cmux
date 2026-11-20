@@ -745,14 +745,16 @@ async fn peer_origin_state_tracks_drop_grace_and_recovery_without_rows() {
     v1.peers.lock().unwrap().insert("empty".into(), peer);
     let state = Arc::new(TeeState::default());
     v1.install_v2_tee(Arc::new(TeeHandle { state: state.clone() }));
-
-    let send = |notice| async {
+    // As a link sends them: its `Connected` follows its `Listed`, which settles nothing.
+    use crate::peer::PeerNotice::{Connected, Disconnected, Listed};
+    let send = |notices: Vec<crate::peer::PeerNotice>| async {
         let mut settled = v1.peer("empty").unwrap().settled();
-        v1.peer_notices.send(("empty".into(), generation, notice)).await.unwrap();
+        for notice in notices {
+            v1.peer_notices.send(("empty".into(), generation, notice)).await.unwrap();
+        }
         settled.changed().await.unwrap();
     };
-
-    send(crate::peer::PeerNotice::Disconnected("reset".into())).await;
+    send(vec![Disconnected("reset".into())]).await;
     let first = state.take_origins(1);
     assert_eq!(first.len(), 1);
     assert_eq!(first[0].0, "empty");
@@ -760,32 +762,30 @@ async fn peer_origin_state_tracks_drop_grace_and_recovery_without_rows() {
     assert!(state.take_remote(1).is_empty(), "a drop with no rows emits no row mark");
 
     // A flap before the deadline gets a connected record and never a stale record.
-    send(crate::peer::PeerNotice::Connected).await;
+    send(vec![Listed, Connected]).await;
     assert_eq!(state.take_origins(1)[0].1, OriginState::Connected);
-    send(crate::peer::PeerNotice::Disconnected("flap".into())).await;
+    send(vec![Disconnected("flap".into())]).await;
     assert_eq!(state.take_origins(1)[0].1, OriginState::Down);
     tokio::time::advance(std::time::Duration::from_secs(9)).await;
     tokio::task::yield_now().await;
     assert!(state.take_origins(1).is_empty(), "a short flap does not become stale");
-    send(crate::peer::PeerNotice::Connected).await;
+    send(vec![Listed, Connected]).await;
     assert_eq!(state.take_origins(1)[0].1, OriginState::Connected);
 
     // The next continuous outage emits stale exactly when its grace ends, even without rows.
-    send(crate::peer::PeerNotice::Disconnected("outage".into())).await;
+    send(vec![Disconnected("outage".into())]).await;
     assert_eq!(state.take_origins(1)[0].1, OriginState::Down);
     tokio::time::advance(std::time::Duration::from_secs(10)).await;
     tokio::task::yield_now().await;
     assert_eq!(state.take_origins(1)[0].1, OriginState::Stale);
     assert!(state.take_remote(1).is_empty());
-
     // Failed retries after stale do not append another origin record.
     for _ in 0..10 {
-        send(crate::peer::PeerNotice::Disconnected("retry".into())).await;
+        send(vec![Disconnected("retry".into())]).await;
     }
     assert!(state.take_origins(1).is_empty());
-    send(crate::peer::PeerNotice::Connected).await;
+    send(vec![Listed, Connected]).await;
     assert_eq!(state.take_origins(1)[0].1, OriginState::Connected);
-
     assert!(!state.has_pending());
 }
 

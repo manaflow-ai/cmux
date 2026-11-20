@@ -45,7 +45,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     static let excludedKeys: Set<String> = [
         ThemeFileSetting.configPath.joined(separator: "."), "appearance.favoriteThemes", "appearance.rotateFavoriteThemes",
         "appearance.machineColors", "appearance.displayBackgrounds", "appearance.displayBackgroundRotations",
-        "appearance.customDensities", "appearance.backgroundLocation",
+        "appearance.customDensities", "appearance.backgroundLocation", ThemeFileExceptionsSetting.configPath.joined(separator: "."),
     ]
     static let lookPrefixes = ["appearance.", "ui.animation", "ui.calm", "ui.paneAnimations", "ui.reducedBackgrounds",
                                "browser.omnibar.glass", "app.uiScale"]

@@ -24,6 +24,12 @@ import Testing
 /// the store names the tab. The strip gives an open that waits the pane's new tab by a guess. The tab of the
 /// selected stand-in is not that open's tab, by the store's record: it stays in its stand-in's place.
 ///
+/// The two tests after it close a new tab and then make one more tab. Decision of 2026-11-16: the open of a new tab
+/// ends when that tab closes, answered or not. Each has two cases: the first tab closes before its creation is
+/// answered, and it closes after the answer while its move to its place has no answer. Before the decision the open
+/// of the closed tab stayed for 2 s at most and held back each new tab of the pane. Limit: on a machine that stalls
+/// for 2 s between two lines of such a test, that open is past its limit and the test passes with and without the mend.
+///
 /// One pane in a window with no daemon. No test has a wait: each step is one call, and the pane's own
 /// observation of the store cannot run before the test's apply.
 @Suite(.closesItsWindows)
@@ -167,5 +173,75 @@ import Testing
         #expect(selected == made.id, "the pane selects \(selected), want the tab of the stand-in \(made.id)")
         let want = listed.map { $0 == key.id ? made.id : $0 }, strip = pane.orderedIDs.map(\.rawValue)
         #expect(strip == want, "the strip lists \(strip), want \(want): the tab of the stand-in is in the slot of the open that waits")
+    }
+
+    /// A New Tab key whose tab goes directly after the pane's first tab, then the close of that tab. Not `answered`:
+    /// the stand-in closes before its creation has a reply. `answered`: the store names the tab on surface 3, the
+    /// strip shows it in its place while the daemon's list has it last (its move has no answer), and that tab closes.
+    /// Returns the strip of the start, which is also the strip after the close.
+    private static func newTabThenItsClose(_ fixture: Shown, answered: Bool) throws -> [String] {
+        let (services, store, model, pane) = (fixture.services, fixture.store, fixture.model, fixture.pane)
+        let start = pane.orderedIDs.map(\.rawValue)
+        try #require(start.count == 2, "setup: the strip of the start is \(start)")
+        try #require(NewTabSuccession.begin(after: start[0], in: model, services: services) != nil, "setup: the open of the first new tab did not start")
+        let first = Self.newTab(in: pane, store: store)
+        var strip = pane.orderedIDs.map(\.rawValue)
+        try #require(strip == [start[0], first.id, start[1]], "setup: the first stand-in is not directly after the first tab: \(strip)")
+        if answered {
+            ProvisionalTab.created(first.transaction, surface: SurfaceID(rawValue: 3), in: store)
+            store.apply(snapshot: Self.tree([1, 2, 3]))
+            let made = try #require(store.tab(surface: SurfaceID(rawValue: 3)), "setup: the store has no tab for the first creation")
+            pane.syncStripFromStore()
+            strip = pane.orderedIDs.map(\.rawValue)
+            try #require(strip == [start[0], made.id, start[1]], "setup: the first new tab is not in its stand-in's place: \(strip)")
+            try #require(model.tabs.map(\.id) == [start[0], start[1], made.id], "setup: the daemon's list does not have the first new tab last: \(model.tabs.map(\.id))")
+            try #require(store.intendClose([SurfaceID(rawValue: 3)]) != nil, "setup: the close of the first new tab did not start")
+        } else {
+            try #require(store.creations.cancel(tab: first.id), "setup: the close of the first stand-in did not cancel its creation")
+        }
+        pane.syncStripFromStore()
+        strip = pane.orderedIDs.map(\.rawValue)
+        try #require(strip == start, "setup: the strip after the close is \(strip), not the strip of the start \(start)")
+        try #require(model.tabs.map(\.id) == start, "setup: the records after the close are \(model.tabs.map(\.id)), not \(start)")
+        return start
+    }
+
+    /// New Tab, the close of that tab, New Tab: the second stand-in shows in the key's own apply, in the place of the
+    /// first, and is selected.
+    @Test(arguments: [false, true])
+    func aNewTabShowsInItsPlaceAfterTheCloseOfAnEarlierNewTab(answered: Bool) throws {
+        let fixture = try Shown()
+        defer { fixture.close() }
+        let (services, store, model, pane) = (fixture.services, fixture.store, fixture.model, fixture.pane)
+        let start = try Self.newTabThenItsClose(fixture, answered: answered)
+
+        try #require(NewTabSuccession.begin(after: start[0], in: model, services: services) != nil, "setup: the open of the second new tab did not start")
+        let second = Self.newTab(in: pane, store: store)
+        let strip = pane.orderedIDs.map(\.rawValue), want = [start[0], second.id, start[1]]
+        #expect(strip == want, "the strip lists \(strip), want \(want): the second stand-in directly after the first tab")
+        let selected = pane.stripModel.selectedID?.rawValue ?? "none"
+        #expect(selected == second.id, "the pane selects \(selected), want the second stand-in \(second.id)")
+    }
+
+    /// New Tab, the close of that tab, then a creation that has no stand-in (a terminal tab, a duplicate): its tab
+    /// shows in its place in the apply after its reply. The daemon's list has that tab last. In the `answered` case
+    /// the daemon still lists the closed tab on surface 3: its close was not sent, and the store hides it.
+    @Test(arguments: [false, true])
+    func aTabWithNoStandInShowsInItsPlaceAfterTheCloseOfANewTab(answered: Bool) throws {
+        let fixture = try Shown()
+        defer { fixture.close() }
+        let (services, store, model, pane) = (fixture.services, fixture.store, fixture.model, fixture.pane)
+        let start = try Self.newTabThenItsClose(fixture, answered: answered)
+
+        let open = try #require(NewTabSuccession.begin(after: start[0], in: model, services: services), "setup: the open of the second new tab did not start")
+        store.apply(snapshot: Self.tree(answered ? [1, 2, 3, 4] : [1, 2, 4]))
+        let made = try #require(store.tab(surface: SurfaceID(rawValue: 4)), "setup: the store has no tab for the second creation")
+        try #require(model.tabs.map(\.id) == [start[0], start[1], made.id], "setup: the records are \(model.tabs.map(\.id)), want the second new tab last after the tabs of the start")
+        try #require(pane.orderedIDs.map(\.rawValue) == start, "setup: the pane applied the change before the test's apply")
+        // The reply of the second creation as its creator hears it, then the pane's ONE apply.
+        NewTabSuccession.made(SurfaceID(rawValue: 4), in: model, by: open)
+        pane.syncStripFromStore()
+        let strip = pane.orderedIDs.map(\.rawValue), want = [start[0], made.id, start[1]]
+        #expect(strip == want, "the strip lists \(strip), want \(want): the second new tab directly after the first tab")
     }
 }

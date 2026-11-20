@@ -31,6 +31,10 @@ public final class MacScreenHubViewer {
     @ObservationIgnored var endSession: @MainActor (DeviceHub, String, String) async -> Void = { hub, id, reason in
         try? await hub.endSession(id, reason: reason)
     }
+    /// Asks the hub again for an approved session's viewer ticket (`/reattach`); tests replace it.
+    @ObservationIgnored var reattachSession: @MainActor (DeviceHub, String) async throws -> SessionTicket = { hub, id in
+        try await hub.reattachSession(id)
+    }
     /// DEV builds (Relay Only): the stream uses only TURN relays.
     @ObservationIgnored var relayOnly = false
     /// The signaling the next `MacScreenSession.connect()` takes (once).
@@ -112,7 +116,9 @@ public final class MacScreenHubViewer {
                 phase = .waitingForApproval(sessionID: session.id, scope: scope)
                 scheduleExpiry(session.id, hub: hub)
             case .ended?: phase = .ended(reason: nil)
-            case .approved?, .live?, nil: phase = .approved(sessionID: session.id, scope: session.scope ?? scope)
+            case .approved?, .live?, nil:
+                phase = .approved(sessionID: session.id, scope: session.scope ?? scope)
+                scheduleTicketWait(session.id, hub: hub)
             }
         case let .failure(error):
             phase = .refused(MacScreenHubRefusal(error), requested: scope)
@@ -211,10 +217,46 @@ public final class MacScreenHubViewer {
         }
     }
 
+    /// How long an approved session waits for its `session.ticket` push before asking the hub for it.
+    @ObservationIgnored var ticketWait: Duration = .seconds(8)
+    /// The running wait for the ticket on screen; tests give it a manual clock.
+    @ObservationIgnored var ticketDeadline = DemandTimer(owner: "mac-screen.hub-ticket-wait")
+
+    /// Approved, and the ticket never came. Pushes have no backlog, so a ticket
+    /// pushed while this Mac's hub socket was down is gone, and the card said
+    /// Connecting forever. Past the wait the ticket is asked for directly
+    /// (`/reattach` re-admits an approved session); if the hub has none either,
+    /// the session ends here with the failed card and its Try Again.
+    private func scheduleTicketWait(_ id: String, hub: DeviceHub?) {
+        guard let hub else { return }
+        // One wait per approved session; a ticket, a cancel, an end or a new request cancels it.
+        ticketDeadline.schedule(after: ticketWait) { @MainActor [weak self] in
+            guard let self, case let .approved(id, scope) = phase else { return }
+            let answer: Result<SessionTicket, DeviceHubError>
+            do { answer = .success(try await reattachSession(hub, id)) } catch {
+                answer = .failure(error as? DeviceHubError ?? .transport("\(error)"))
+            }
+            guard case .approved(id, _) = phase else { return }
+            if case let .success(ticket) = answer, ticket.sessionId == id, ticket.role == .viewer {
+                accept(ticket)
+                return
+            }
+            await endSession(hub, id, MacScreenHubReason.failed.rawValue)
+            guard case .approved(id, _) = phase else { return }
+            // The hub's reason when it gave one (the host went offline, stopped sharing), else the failed card.
+            if case let .failure(error) = answer, case .server = error {
+                phase = .refused(MacScreenHubRefusal(error), requested: scope)
+            } else {
+                phase = .ended(reason: MacScreenHubReason.failed.rawValue)
+            }
+        }
+    }
+
     private func cancelPending(endingSession: Bool) {
         requestTask?.cancel()
         requestTask = nil
         approvalExpiry.cancel()
+        ticketDeadline.cancel()
         pendingSignaling = nil
         if endingSession, phase.isPending, let id = phase.sessionID, let hub = hub() {
             end(id, reason: MacScreenHubReason.viewerDisconnected.rawValue, on: hub)
@@ -242,7 +284,11 @@ public final class MacScreenHubViewer {
     /// The session is approved: its signaling goes to the stream.
     func accept(_ ticket: SessionTicket) {
         // The request's answer may still be out: it finds this session running and changes nothing.
+        // A repeated ticket for the stream already running changes nothing either: `/reattach`
+        // answers with the ticket and also pushes it, and a second connect would replay it.
+        if case let .streaming(id, _) = phase, id == ticket.sessionId { return }
         approvalExpiry.cancel()
+        ticketDeadline.cancel()
         guard let hub = hub() else { return }
         do {
             pendingSignaling = try makeSignaling(ticket, hub)
@@ -267,6 +313,7 @@ public final class MacScreenHubViewer {
         }
         requestTask?.cancel()
         approvalExpiry.cancel()
+        ticketDeadline.cancel()
         pendingSignaling = nil
         phase = .declined(scope)
     }
@@ -277,6 +324,7 @@ public final class MacScreenHubViewer {
         if keepsFailedCard(reason) { return }
         requestTask?.cancel()
         approvalExpiry.cancel()
+        ticketDeadline.cancel()
         pendingSignaling = nil
         stopStream()
         phase = .revoked(reason: reason)
@@ -288,6 +336,7 @@ public final class MacScreenHubViewer {
         if keepsFailedCard(reason) { return }
         requestTask?.cancel()
         approvalExpiry.cancel()
+        ticketDeadline.cancel()
         pendingSignaling = nil
         stopStream()
         if case .revoked = phase { return }
@@ -309,6 +358,7 @@ public final class MacScreenHubViewer {
         guard phase.isPending || phase.streamingScope != nil else { return }
         requestTask?.cancel()
         approvalExpiry.cancel()
+        ticketDeadline.cancel()
         pendingSignaling = nil
         stopStream()
         phase = .ended(reason: reason)

@@ -1050,9 +1050,10 @@ impl Spawner {
         // Its workspace's name, also its name on an approval card it is in.
         let name = crate::workspaces::title(task);
         // A Claude subagent under the goal runs on Opus 5.5 unless the spawn
-        // or the engine named a model (goal.rs).
+        // or the engine named a model (goal.rs); a Codex one keeps its own.
+        let goal = self.goal_for(admitted.family, peer.is_some());
         let model = s.model.clone().or_else(|| {
-            self.goal_for(admitted.family, peer.is_some())
+            (goal && admitted.family == crate::acpmux::Family::Claude)
                 .then(|| crate::goal::MODEL.to_owned())
         });
         let spec = SessionSpec {
@@ -1083,6 +1084,9 @@ impl Spawner {
                 .collect(),
             fast: false,
             peer: peer.clone(),
+            // goal.rs: the goal comes with the session (a prompt Stop hook at every start of its
+            // Claude Code), so its first prompt is its work.
+            stop_condition: goal.then(|| crate::goal::CONDITION.to_owned()),
         };
         // The folder the host made for its subagents is trusted up front, so
         // the user's first message in a subagent's pane is never held behind
@@ -1186,42 +1190,24 @@ impl Spawner {
             policy: Some(spec.policy.clone()),
             harness: Some(s.harness.clone()),
             made: Some(made.clone()),
+            goal,
         })?;
         let (tx, rx) = channel();
         let prompt_id = format!("{PROMPT_PREFIX}sub:{id}:{}", now_ms());
-        // goal.rs: a Claude subagent here gets its task, then `/goal`, the
-        // prompt the Chief follows (its end is the report). `/goal` goes out
-        // only when the task turn ended: sent back to back, acpmux ran the
-        // short `/goal` before the long task (a1141, 2026-11-12).
-        let goal = self.goal_for(admitted.family, peer.is_some());
+        // One prompt, its view and task: the one the Chief follows (its end is
+        // the report). Under the goal (goal.rs) it also names the bar the
+        // session's Stop hook holds it to.
         self.trace.emit(
             "subagent.start",
             json!({"id": id, "spawn": spawn, "session": session, "peer": peer, "prompt_id": prompt_id, "harness": s.harness, "harness_profile": admitted.profile, "harness_kind": admitted.kind, "harness_argv0": admitted.argv0, "goal": goal, "ms": began.elapsed().as_millis() as u64}),
         );
-        let hold_id = goal.then(|| crate::goal::hold_prompt_id(id, now_ms()));
-        if let Some(hold_id) = &hold_id {
-            let mut blocks = crate::prompt::subagent_blocks(view, task);
-            blocks.push(crate::goal::hold_block());
-            let (hold_tx, hold_rx) = channel();
-            self.agents
-                .start_prompt(&session, blocks, hold_id, hold_tx)?;
-            send_goal_after_task(
-                self.agents.clone(),
-                session.clone(),
-                prompt_id.clone(),
-                hold_rx,
-                tx,
-            );
-        } else {
-            self.agents.start_prompt(
-                &session,
-                crate::prompt::subagent_blocks(view, task),
-                &prompt_id,
-                tx,
-            )?;
+        let mut blocks = crate::prompt::subagent_blocks(view, task);
+        if goal {
+            blocks.push(crate::goal::note_block());
         }
+        self.agents.start_prompt(&session, blocks, &prompt_id, tx)?;
         let _ = self.to_brain(Input::SubagentPrompted { id: id.to_owned() });
-        self.forward_answer(id, &session, &prompt_id, hold_id, rx);
+        self.forward_answer(id, &session, &prompt_id, rx);
         // The chat replays its history when the tab attaches, so the
         // workspace can follow the prompt.
         let Some(workspaces) = &self.workspaces else {
@@ -1360,7 +1346,10 @@ impl Spawner {
     fn goal_for(&self, family: crate::acpmux::Family, on_peer: bool) -> bool {
         self.goal
             && !on_peer
-            && family == crate::acpmux::Family::Claude
+            && matches!(
+                family,
+                crate::acpmux::Family::Claude | crate::acpmux::Family::Codex
+            )
             && crate::goal::on(self.user_document().as_ref())
     }
 
@@ -1410,7 +1399,6 @@ impl Spawner {
         id: &str,
         session: &str,
         prompt_id: &str,
-        hold_id: Option<String>,
         rx: std::sync::mpsc::Receiver<TurnSignal>,
     ) {
         let tx = self
@@ -1429,13 +1417,7 @@ impl Spawner {
                         let Some(folder) = start.as_mut() else {
                             continue;
                         };
-                        match first_turn_start(
-                            &*agents,
-                            &session,
-                            &prompt_id,
-                            hold_id.as_deref(),
-                            folder,
-                        ) {
+                        match first_turn_start(&*agents, &session, &prompt_id, folder) {
                             None => {}
                             Some(ours) => {
                                 start = None;
@@ -2467,64 +2449,20 @@ pub fn recover_launch(
     None
 }
 
-/// Sends `/goal` (prompt `prompt_id`, its signals to `tx`) once the task
-/// turn whose signals come on `task` ended. A task turn that was cancelled,
-/// failed or lost its connection gets no `/goal`: its end goes to `tx`, so
-/// the subagent ends as that turn did.
-fn send_goal_after_task(
-    agents: Arc<dyn AgentPort>,
-    session: String,
-    prompt_id: String,
-    task: std::sync::mpsc::Receiver<TurnSignal>,
-    tx: Sender<TurnSignal>,
-) {
-    std::thread::spawn(move || {
-        let end = loop {
-            match task.recv() {
-                Ok(TurnSignal::Done(end)) => break Some(end),
-                Ok(TurnSignal::Lost) | Err(_) => break None,
-                Ok(_) => {}
-            }
-        };
-        let signal = match end {
-            Some(Ok(answer))
-                if answer.get("stopReason").and_then(Value::as_str) != Some("cancelled") =>
-            {
-                let goal = vec![json!({"type": "text", "text": crate::goal::command()})];
-                match agents.start_prompt(&session, goal, &prompt_id, tx.clone()) {
-                    Ok(()) => return,
-                    Err(e) => TurnSignal::Done(Err(e)),
-                }
-            }
-            Some(end) => TurnSignal::Done(end),
-            None => TurnSignal::Lost,
-        };
-        let _ = tx.send(signal);
-    });
-}
-
 /// Reads `session`'s new events into `folder` and says whether its first
 /// turn started: Some(true) when it is the turn of prompt `prompt_id`
 /// (acpmux's `turn_started` after that prompt's `user_message`),
 /// Some(false) when it is another's, None while none has started (or the
 /// events could not be read: the next signal reads them again).
-/// The goal's hold prompt (`hold`, goal.rs) runs first: its turn is
-/// passed over, so the followed prompt's start still counts.
 fn first_turn_start(
     agents: &dyn AgentPort,
     session: &str,
     prompt_id: &str,
-    hold: Option<&str>,
     folder: &mut TurnFolder,
 ) -> Option<bool> {
     let events = agents.events(session, folder.seq()).ok()?;
     events.iter().find_map(|e| {
         folder.apply(e).into_iter().find_map(|out| match out {
-            TurnOutput::Started { turn, .. }
-                if hold.is_some() && turn.prompt_id.as_deref() == hold =>
-            {
-                None
-            }
             TurnOutput::Started { turn, .. } => Some(turn.prompt_id.as_deref() == Some(prompt_id)),
             _ => None,
         })

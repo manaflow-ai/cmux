@@ -12,7 +12,16 @@ fn t(state: &mut State, harness: Harness, bytes: &[u8]) -> Result<Vec<Op>, Error
     translate(state, harness, 0, 1, bytes)
 }
 const SEED: &str = include_str!("fixtures/seed-turn.ndjson");
+const CLAUDE_FOLLOW: &str = include_str!("fixtures/claude-follow.ndjson");
 const ANSWER: &str = "Sorry, that's frustrating. I did answer, but the chat drew the answer above your question, so it looked like I ignored you.\n\nMy answer was **no**, it shouldn't say cmux.";
+
+#[test]
+fn shared_timestamp_handles_leap_year_boundaries() {
+    assert_eq!(timestamp("2024-02-29T00:00:00Z"), Some(1_709_164_800));
+    assert_eq!(timestamp("2024-03-01T00:00:00Z"), Some(1_709_251_200));
+    assert_eq!(timestamp("2024-12-31T00:00:00Z"), Some(1_735_603_200));
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Mirror {
     rows: BTreeMap<u64, OwnedRow>,
@@ -630,6 +639,55 @@ fn malformed_harness_lines_are_counted_and_do_not_block_replay() {
     assert_eq!(state.counters().invalid_records, 2);
 }
 
+#[test]
+fn codex_legacy_events_translate_prompt_answer_and_completion() {
+    let lines = [
+        r#"{"type":"event_msg","id":"p-event","payload":{"type":"user_message","id":"p","turn_id":"t","message":"Question"}}"#,
+        r#"{"type":"event_msg","id":"a-event","payload":{"type":"agent_message","id":"a","message":"Answer"}}"#,
+        r#"{"type":"event_msg","payload":{"type":"task_complete"}}"#,
+    ];
+    let mut state = State::default();
+    let mut mirror = Mirror::default();
+    for line in lines {
+        mirror.line(&mut state, Harness::Codex, line);
+    }
+    assert_eq!(mirror.reply("Answer").kind, RowKind::Text);
+    assert!(!mirror.reply("Answer").open);
+    assert!(mirror.rows.values().any(|row| row.kind == RowKind::User));
+}
+
+#[test]
+fn codex_response_items_filter_context_and_progress() {
+    let lines = [
+        r#"{"type":"response_item","payload":{"type":"message","role":"user","id":"ctx","content":[{"type":"text","text":"<environment_context>cwd=/tmp"}],"internal_chat_message_metadata_passthrough":{"content_item_kinds":["environment_context"]}}}"#,
+        r#"{"type":"response_item","payload":{"type":"message","role":"user","id":"p","turn_id":"t","content":[{"type":"text","text":"Question"}],"internal_chat_message_metadata_passthrough":{"content_item_kinds":["user.text"]}}}"#,
+        r#"{"type":"response_item","payload":{"type":"message","role":"assistant","id":"progress","phase":"commentary","content":[{"type":"text","text":"Working"}]}}"#,
+        r#"{"type":"response_item","payload":{"type":"message","role":"assistant","id":"a","phase":"final_answer","content":[{"type":"text","text":"Final"}]}}"#,
+    ];
+    let mut state = State::default();
+    let mut mirror = Mirror::default();
+    for line in lines {
+        mirror.line(&mut state, Harness::Codex, line);
+    }
+    assert!(mirror.reply("Final").kind == RowKind::Text);
+    assert!(!mirror.text.values().any(|text| text == "Working"));
+    assert_eq!(mirror.rows.values().filter(|row| row.kind == RowKind::User).count(), 1);
+}
+
+#[test]
+fn codex_answer_items_continue_by_native_id() {
+    let prompt = r#"{"type":"event_msg","payload":{"type":"user_message","id":"p","turn_id":"t","message":"Question"}}"#;
+    let first = r#"{"type":"event_msg","id":"a","payload":{"type":"agent_message","id":"a","message":"part one"}}"#;
+    let second = r#"{"type":"event_msg","id":"a","payload":{"type":"agent_message","id":"a","message":"part two"}}"#;
+    let mut state = State::default();
+    let mut mirror = Mirror::default();
+    mirror.line(&mut state, Harness::Codex, prompt);
+    mirror.line(&mut state, Harness::Codex, first);
+    mirror.line(&mut state, Harness::Codex, second);
+    assert!(mirror.text.values().any(|text| text == "part onepart two"));
+    assert_eq!(mirror.rows.values().filter(|row| row.kind == RowKind::Text).count(), 1);
+}
+
 fn json_value_end(bytes: &[u8], start: usize) -> Option<usize> {
     let first = *bytes.get(start)?;
     if first == b'"' {
@@ -1183,6 +1241,62 @@ fn claude_null_stop_reason_keeps_the_reply_open() {
     m.line(&mut s, Harness::Claude, r#"{"type":"assistant","message":{"id":"a","content":[{"type":"text","text":" world"}],"stop_reason":"end_turn"}}"#);
     assert!(!m.reply("hello world").open);
     assert!(m.visible(m.reply("hello world")));
+}
+
+#[test]
+fn claude_follow_fixture_replays_identically_from_every_checkpoint() {
+    let lines: Vec<_> = CLAUDE_FOLLOW.lines().collect();
+    let mut whole_state = State::default();
+    let mut whole_view = Mirror::default();
+    let mut place = 0u64;
+    for line in &lines {
+        whole_view.line_at(&mut whole_state, Harness::Claude, place, line.len() as u64, line);
+        place = place.saturating_add(line.len() as u64 + 1);
+    }
+
+    for cut in 0..=lines.len() {
+        let mut state = State::default();
+        let mut view = Mirror::default();
+        let mut place = 0u64;
+        for line in &lines[..cut] {
+            view.line_at(&mut state, Harness::Claude, place, line.len() as u64, line);
+            place = place.saturating_add(line.len() as u64 + 1);
+        }
+        state = state.checkpoint().unwrap().restore().unwrap();
+        for line in &lines[cut..] {
+            view.line_at(&mut state, Harness::Claude, place, line.len() as u64, line);
+            place = place.saturating_add(line.len() as u64 + 1);
+        }
+        assert_eq!(state, whole_state, "checkpoint split {cut}");
+        assert_eq!(view, whole_view, "view split {cut}");
+    }
+}
+
+#[test]
+fn claude_follow_uses_record_uuid_when_message_id_is_missing() {
+    let mut state = State::default();
+    let mut view = Mirror::default();
+    for line in CLAUDE_FOLLOW.lines() {
+        view.line(&mut state, Harness::Claude, line);
+    }
+    assert_eq!(view.text.values().filter(|text| (**text).as_str() == "Second answer").count(), 1);
+    assert_eq!(view.text.values().filter(|text| (**text).as_str() == "Third answer").count(), 1);
+    assert_ne!(view.reply("Second answer").id, view.reply("Third answer").id);
+}
+
+#[test]
+fn claude_follow_prompt_identity_filters_effects_and_preserves_uuid() {
+    let mut lines = CLAUDE_FOLLOW.lines();
+    let prompt = lines.next().unwrap();
+    assert_eq!(
+        prompt_identity(Harness::Claude, prompt.as_bytes()).unwrap(),
+        Some(PromptIdentity { id: "prompt-1".into(), text: "Inspect the deploy".into() })
+    );
+    let _ = lines.next();
+    let tool_result = lines.next().unwrap();
+    assert_eq!(prompt_identity(Harness::Claude, tool_result.as_bytes()).unwrap(), None);
+    let _ = lines.next();
+    assert_eq!(prompt_identity(Harness::V1, prompt.as_bytes()).unwrap(), None);
 }
 
 fn split_text_rows(parts: &[&str]) -> Vec<(String, Option<String>, Option<String>)> {

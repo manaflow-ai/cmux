@@ -8,8 +8,8 @@
 
 Each file is run_ci_guards.py --results output ({step name: passed}) from one runner: the head's
 checkout run on the head, then on the base (--root). A step red on the head that passed on the
-base, or is new, fails; a step red on both is a warning. Missing base results (an unreadable base)
-make every head red the change's. A step that reports its own checks (run_ci_guards.py) adds one
+base, or is new, fails; a step red on both is a warning. A missing base result is reported as
+unknown until the merge gate compares it with the base branch's own run. A step that reports its own checks (run_ci_guards.py) adds one
 "<step> :: <check>" entry per check, compared like any step: a check red on the base never masks a
 different check red on the change, and a check the base has no entry for (a base from before the
 step reported its checks) counts as the change's, so a step-level red on the base excuses nothing.
@@ -67,7 +67,7 @@ read): there is no base to compare with, so every red step fails. A push judged 
 green while a red persists: the guard profile was red on 18 steps of feat-cmux-next, unseen, until #31366.
 
 Each red step is also printed as one plain line, `<label> red step (<kind>): <step>`, kind `new` (red on this
-change), `base` (red on the base too), `flaky` (flaky on the base) or `tip`. GitHub drops an annotation's title from
+change), `base` (red on the base too), `flaky` (flaky on the base), `unknown` (no replay result) or `tip`. GitHub drops an annotation's title from
 the job log, so scripts/ci/base_red_excuse.py reads these lines to compare a pull request's red steps with a base
 run's, step by step.
 """
@@ -84,7 +84,17 @@ def load(path: str) -> dict[str, bool] | None:
         found = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    return {str(k): bool(v) for k, v in found.items()} if isinstance(found, dict) else None
+    return ({str(k): bool(v) for k, v in found.items() if not str(k).startswith("_cmux_")}
+            if isinstance(found, dict) else None)
+
+
+def result_complete(path: str) -> bool:
+    """Whether RESULTS reached the runner's final write; old plain maps are complete."""
+    try:
+        found = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return bool(found.get("_cmux_complete", True)) if isinstance(found, dict) else False
 
 
 def flaky_names(path: str) -> set[str]:
@@ -225,22 +235,40 @@ def main(argv: list[str]) -> int:
         print(f"{len(red)} {label.lower()} steps red at the tip")
         return 1 if red else 0
     base = load(argv[1])
+    base_complete = result_complete(argv[1])
     if base is None:
         # Not on stdout under --new-files: ci-web.yml reads every stdout line there as a file to re-run.
-        print(f"no base results in {argv[1]}: every red step counts as this change's",
+        print(f"no base results in {argv[1]}: every red step is unresolved until the merge gate reads the base run",
               file=sys.stderr if new_files else sys.stdout)
         base = {}
+        base_complete = False
     explained = explained_files(head, base)
+
+    def has_base_result(step: str) -> bool:
+        """Whether BASE has any result that can speak to STEP."""
+        if step in base:
+            return True
+        if base_complete:
+            # A completed replay that has no matching key means this step is new to the base checkout.
+            return True
+        if CHECK_SEPARATOR in step:
+            return step.split(CHECK_SEPARATOR, 1)[0] in base
+        if " > " in step:
+            return test_file(step) in base
+        return False
+
     red = sorted(step for step, ok in head.items() if not ok and base.get(step, True) and step not in explained)
+    unknown = [step for step in red if not has_base_result(step)]
+    comparable = [step for step in red if has_base_result(step)]
     # Another base replay that fails the step by name: the base passed and failed it, so it flakes there. Only when the
     # first replay passed it (by name, or its whole file): a missing first result, or a file that timed out there,
     # says nothing, and a later red alone would turn "no base result is the change's" into a pass (#41414 review).
     def first_passed(step: str) -> bool:
         return base[step] is True if step in base else base.get(test_file(step)) is True
 
-    flapped = {step for step in red if first_passed(step) and any(found.get(step) is False for found in again)}
-    new = [step for step in red if step not in flaky and step not in flapped]
-    flaked = [step for step in red if step in flaky or step in flapped]
+    flapped = {step for step in comparable if first_passed(step) and any(found.get(step) is False for found in again)}
+    new = [step for step in comparable if step not in flaky and step not in flapped]
+    flaked = [step for step in comparable if step in flaky or step in flapped]
     if new_files:
         for file in sorted({test_file(step) for step in new}):
             print(file)
@@ -283,6 +311,8 @@ def main(argv: list[str]) -> int:
     fixed = sorted(step for step, ok in head.items() if ok and base.get(step) is False)
     for step in old:
         print(f"::warning title={label} red on the base too::{step}")
+    for step in unknown:
+        print(f"::warning title={label} base result unavailable::{step}")
     for step in flaked:
         where = ("passed again alone on the head" if step in passed_again
                  else "passed and failed on the base's replays" if step in flapped and step not in flaky
@@ -294,7 +324,7 @@ def main(argv: list[str]) -> int:
         print(f"{step}: red on the base too, but " + (
             "its head failure names what the base's does not: " + ", ".join(extra[:20])
             if extra else "its failures cannot be compared, so it is not excused"))
-    for kind, steps in (("new", new), ("base", old), ("flaky", flaked)):
+    for kind, steps in (("new", new), ("base", old), ("flaky", flaked), ("unknown", unknown)):
         for step in steps:
             print(red_step_line(label, kind, step))
     if fixed:
@@ -303,7 +333,13 @@ def main(argv: list[str]) -> int:
           f"{len(flaked)} flaky on the base, {len(fixed)} fixed")
     if passed_again:
         print(f"{len(passed_again)} of the flaky passed again when re-run alone on the head")
-    return 1 if new else 0
+    if unknown:
+        print(f"{len(unknown)} {label.lower()} steps have no base result (deferred to the merge gate)")
+    # An unresolved base replay is a failed comparison, even though it is not a
+    # change red.  Keeping the job failed is what makes the merge gate read the
+    # guard job and resolve its `unknown` lines against the base branch's own
+    # run; returning success would let a cut replay pass without that evidence.
+    return 1 if new or unknown else 0
 
 
 if __name__ == "__main__":

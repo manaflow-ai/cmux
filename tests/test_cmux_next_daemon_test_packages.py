@@ -20,6 +20,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/cmux-next-daemon-test-packages.sh"
+# tests/git_fixture_env.py, loaded by path (`python3 -I` puts no script folder on sys.path): the fixture repository
+# gets git's auto maintenance off, so no detached writer is left in it when the temp folder goes.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", Path(__file__).resolve().parent / "git_fixture_env.py")
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 
 def run(repo: Path) -> list[str]:
@@ -49,7 +56,7 @@ class Fixture:
 
     def commit(self) -> None:
         git = ["git", "-C", str(self.root), "-c", "user.name=t", "-c", "user.email=t@example.com"]
-        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        git_fixture_env.init_repo(self.root)
         subprocess.run([*git, "add", "."], check=True)
         subprocess.run([*git, "commit", "-qm", "c"], check=True)
 

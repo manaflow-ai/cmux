@@ -59,6 +59,10 @@ export type AcpmuxDebug = {
   acpLogExport(): string;
   /** Shows `text` as a pane toast, as a refusal or a click's feedback does (captures drive the toasts with it). */
   toast(text: string): Record<string, unknown>;
+  /** Selects characters `from` to `to` of the text in the first element matching `selector` (across its lines and
+   * child elements), then ends it as a drag does (pointerup), so the selection and its Reply chip show as a
+   * person's would: captures of the chat's selection (no drag reaches a Chromium page in a capture slot). */
+  selectText(selector: string, from: number, to: number): Record<string, unknown>;
   /** Automation (automation.ts): the chat state a script reads, and the verbs it drives. */
   chatState(): Record<string, unknown>;
   sendPrompt(text: string): Promise<Record<string, unknown>>;
@@ -81,8 +85,9 @@ export type AcpmuxDebug = {
   idleProbe(options?: IdleProbeOptions): Promise<Record<string, unknown>>;
   /** Streams a scripted reply into a long synthetic transcript and reports the frames (streamDebug.ts). */
   stream(options?: StreamOptions): Promise<Record<string, unknown>>;
-  /** Opens a mock session of `turns` heavy turns (or `light` ones, two rows each, opened whole) through the real client (loadDebug.ts). */
-  loadSeed(turns?: number, options?: { light?: boolean }): Promise<Record<string, unknown>>;
+  /** Opens a mock session of `turns` heavy turns (or `light` ones, two rows each, opened whole), with `queued` prompts
+   * waiting in its queue, through the real client (loadDebug.ts). */
+  loadSeed(turns?: number, options?: { light?: boolean; queued?: number }): Promise<Record<string, unknown>>;
   /** Streams a turn at full speed into it while scrolling, and reports every frame (loadDebug.ts). */
   loadRun(options?: LoadRunOptions): Promise<Record<string, unknown>>;
   /** Scrolls it while a tool call runs and another chat changes, and counts row renders (loadDebug.ts). */
@@ -175,6 +180,7 @@ export function createAcpmuxDebug(
         incomingRows,
         linkRows,
         LINKED_GITHUB_PULL_REQUEST,
+        selectionRows,
         organizationRows,
         toolSummaryRows,
         SUBAGENT_TRAY_STEPS,
@@ -203,17 +209,19 @@ export function createAcpmuxDebug(
               ? incomingRows(Date.now() - 120_000)
               : fixture === "link" || fixture === "github-link"
                 ? linkRows(Date.now() - 30_000, fixture === "link" ? undefined : LINKED_GITHUB_PULL_REQUEST)
-                : fixture === "organization"
-                  ? organizationRows(Date.now() - 120_000)
-                  : fixture === "tool-summary"
-                    ? toolSummaryRows(Date.now() - 60_000)
-                    : fixture === "shared"
-                      ? sharedRows(Date.now() - 1_020_000)
-                      : fixture === "waiting-steers"
-                        ? waitingSteersRows(Date.now() - 90_000)
-                        : fixture === "subagent-report"
-                          ? subagentReportRows(Date.now() - 5_000_000)
-                          : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
+                : fixture === "selection"
+                  ? selectionRows(Date.now() - 60_000)
+                  : fixture === "organization"
+                    ? organizationRows(Date.now() - 120_000)
+                    : fixture === "tool-summary"
+                      ? toolSummaryRows(Date.now() - 60_000)
+                      : fixture === "shared"
+                        ? sharedRows(Date.now() - 1_020_000)
+                        : fixture === "waiting-steers"
+                          ? waitingSteersRows(Date.now() - 90_000)
+                          : fixture === "subagent-report"
+                            ? subagentReportRows(Date.now() - 5_000_000)
+                            : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
       host.replaceRows(rows, fixture === "waiting-steers" ? WAITING_STEERS_SNAPSHOT : undefined);
@@ -376,6 +384,33 @@ export function createAcpmuxDebug(
 
     acpLogExport() {
       return wire.exportJsonl({ sessionId: host.sessionId?.() });
+    },
+
+    selectText(selector, from, to) {
+      const element = document.querySelector(selector);
+      if (!element) return { selected: false, error: `nothing matches ${selector}` };
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      const range = document.createRange();
+      let seen = 0;
+      let started = false;
+      for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null) {
+        const length = node.data.length;
+        if (!started && from <= seen + length) {
+          range.setStart(node, Math.max(0, from - seen));
+          started = true;
+        }
+        if (started && to <= seen + length) {
+          range.setEnd(node, Math.max(0, to - seen));
+          break;
+        }
+        seen += length;
+      }
+      if (!started) return { selected: false, error: "from is past the element's text" };
+      const selection = document.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+      return { selected: true, text: selection?.toString() ?? "" };
     },
 
     toast(text) {

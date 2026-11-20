@@ -8,13 +8,11 @@ extension ShellWindow {
     /// A pane's cursor-rect policy (`cursorRectHold`) sees every event first. An Option-press on a
     /// top-row tab bar's empty space drags its pane instead (`PaneSwapDrag`).
     override func sendEvent(_ event: NSEvent) {
+        if WindowOverlayHost.takeEventFromBelow(event, in: self) { return } // a press or scroll on a toast is the toast's
         cursorRectHold?.windowWillSend(event, in: self)
         if presses.willSend(event, in: self) { return } // a divider press keeps the page's key; others' first click
         // A press in a workspace shown beside the focused one (`sidebar.multiView`) focuses it before it lands there.
-        switch event.type {
-        case .leftMouseDown, .rightMouseDown, .otherMouseDown: (windowController as? WindowController)?.focusOnScreenWorkspace(at: event.locationInWindow)
-        default: break
-        }
+        if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type) { (windowController as? WindowController)?.focusOnScreenWorkspace(at: event.locationInWindow) }
         guard event.type == .leftMouseDown, !event.modifierFlags.contains(.control), // control-press: a right-click
               TitlebarDragPolicy.decide(at: event.locationInWindow, in: self) == .movesWindow, !PaneSwapDrag.claims(event, in: self) else {
             return super.sendEvent(event)
@@ -58,12 +56,12 @@ extension ShellWindow {
         BenchSpans.mark("key.become") // debug.new_tab bench_create's key_changes
         cursorRectHold?.windowKeyStateWillChange(self)
         super.becomeKey()
-        focusLog?.keyChanged(self, becameKey: true)
+        focusLog?.keyChanged(self, becameKey: true, route: routeInFlight)
     }
 
     override func resignKey() {
         BenchSpans.mark("key.resign")
-        focusLog?.keyChanged(self, becameKey: false)
+        focusLog?.keyChanged(self, becameKey: false, route: routeInFlight)
         cursorRectHold?.windowKeyStateWillChange(self)
         super.resignKey()
     }

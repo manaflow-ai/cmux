@@ -151,9 +151,11 @@ class InstallGitHooksTests(unittest.TestCase):
         ):
             command = self.git("config", "--get", key).stdout.strip()
             words = shlex.split(command)
-            self.assertTrue(Path(words[0]).is_absolute())
-            self.assertFalse(Path(words[0]).resolve().is_relative_to(self.repo.resolve()))
-            self.assertEqual(words[1], "-I")
+            # The interpreter is picked on this host each merge (scripts/git-hooks/merge_python.sh), never one
+            # recorded path; the wrapper is the reviewed copy in the clone's hook folder.
+            self.assertEqual(words[0], "/bin/bash")
+            self.assertEqual(Path(words[1]).resolve(),
+                             (self.common_dir() / "cmux-git-hooks" / "merge_python.sh").resolve())
             self.assertEqual(Path(words[2]).resolve(), (installed / name).resolve())
             self.assertEqual(words[3:], expected_args)
             self.assertNotIn(f"scripts/{name}", command)
@@ -1161,14 +1163,45 @@ mkdir -p node_modules/.bin
         kept = [path for path, _, value in zip(attributes[0::3], attributes[1::3], attributes[2::3])
                 if value == "cmux-generated-v1"]
         self.assertTrue(kept)
-        self.assertEqual([path for path in kept if next_batch.classify(path) not in {"web", "swift", "sdk"}], [])
+        self.assertEqual([path for path in kept
+                          if next_batch.classify(path) not in {"web", "swift", "sdk", "generated"}], [])
 
     def test_hand_written_sdk_files_still_merge_normally(self):
         shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
         self.assertEqual(self.install().returncode, 0)
-        for path in ("cmux-tui/bindings/go/raw/client.go", "cmux-tui/bindings/java/src/com/cmux/raw/Client.java"):
+        for path in ("cmux-tui/bindings/go/raw/client.go", "cmux-tui/bindings/java/src/com/cmux/raw/CmuxClient.java"):
             attribute = self.git("check-attr", "merge", "--", path).stdout.strip()
             self.assertTrue(attribute.endswith(": unspecified"), attribute)
+
+    def test_the_merge_driver_section_runs_alone(self):
+        """leo-workspace's wt installs merge drivers into every worktree mirror by running only this
+        section, from its MERGE_DRIVER_DIR= line through its last `git config merge.` or "merge driver
+        installed" line, with GIT_COMMON_DIR and PYTHON3_BIN set and nothing else of the installer. It
+        stopped at an unset TRUSTED_HOOK_DIR (2026-11-16), so those clones merged generated files by line."""
+        lines = (SOURCE / INSTALLER).read_text(encoding="utf-8").splitlines()
+        start = next(i for i, line in enumerate(lines) if line.startswith("MERGE_DRIVER_DIR="))
+        end = max(i for i, line in enumerate(lines) if i >= start and re.match(
+            r'^\s*(git config merge\.|echo "==> .*merge driver installed)', line))
+        section = "\n".join(lines[start:end + 1])
+        mirror = self.root / "mirror.git"
+        git_fixture_env.init_repo(mirror, "--bare", env=self.env)
+        python3 = os.path.realpath(sys.executable)
+        script = f"set -euo pipefail\nGIT_COMMON_DIR={shlex.quote(str(mirror))}\nPYTHON3_BIN={shlex.quote(python3)}\n{section}"
+        env = {key: value for key, value in self.env.items() if key not in ("TRUSTED_HOOK_DIR",)}
+        ran = subprocess.run(["bash", "-c", script], cwd=SOURCE, env={**env, "GIT_DIR": str(mirror)},
+                             text=True, capture_output=True)
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        configured = subprocess.run(["git", "--git-dir", str(mirror), "config", "--get-regexp", r"^merge\..*\.driver$"],
+                                    env=self.env, text=True, capture_output=True, check=True).stdout
+        drivers = dict(line.split(" ", 1) for line in configured.splitlines())
+        attributes = (SOURCE / ".gitattributes").read_text(encoding="utf-8")
+        names = set(re.findall(r"(?:^|\s)merge=([A-Za-z0-9._-]+)", "\n".join(
+            line for line in attributes.splitlines() if not line.lstrip().startswith("#"))))
+        for name in names:
+            self.assertIn(f"merge.{name}.driver", drivers, name)
+            for word in shlex.split(drivers[f"merge.{name}.driver"]):
+                if word.startswith(str(mirror)):
+                    self.assertTrue(Path(word).is_file(), f"merge.{name}.driver runs {word}, which the section did not install")
 
     def test_ratchet_baselines_merge_entry_by_entry(self):
         """Two lanes that each change different baseline entries merge cleanly,
@@ -2505,9 +2538,16 @@ ASSIGNMENT = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)(\[[^]]*\])?\+?=(.*)", re.S)
 RESOLVED = re.compile(r'"\$\(resolve_tool [^()`|;&]+?(?: \|\| true)?\)"')
 COPY = re.compile(r'"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?"')
 VARIABLE_WORD = re.compile(r'"?\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?"?')
-# The resolver's own interpreter: the absolute path the installer wrote beside the
-# hook, read once, then checked by the resolver's boot step.
+# The resolver's own interpreter: the one hook_python_pick (scripts/git-hooks/hook_python.sh, the reviewed copy
+# beside the hook) picked on this host, then checked by the resolver's boot step. The picker never runs a candidate
+# that resolves into the checkout or the git dir (tests/test_hook_python.py).
 RESOLVER_INTERPRETER = "PYTHON3_BIN"
+PICKED_INTERPRETER = '"$HOOK_PYTHON"'
+# The one file the hook may source: the installed picker beside it. Its own commands are held to PICKER_COMMANDS.
+PICKER_SOURCE = '"$HOOK_DIR/hook_python.sh"'
+PICKER = SOURCE / "scripts/git-hooks/hook_python.sh"
+# What the picker runs besides builtins: two system tools by absolute path, and the candidate it probes.
+PICKER_COMMANDS = frozenset(("/bin/realpath", "/usr/bin/xcode-select", '"$real"'))
 # Commands that run their argument as a program; env's comes after its options.
 EXEC_WRAPPERS = {"TOOL_ENV"}
 # Unresolved commands the detector lets through. Keep it empty.
@@ -2765,8 +2805,11 @@ class BashCommands:
     def violations(self):
         """Every command that is neither a builtin, a function here, nor a resolved tool."""
         resolved = self.resolved_variables()
-        if self.assignments.get(RESOLVER_INTERPRETER) == ["<read>"]:
-            resolved.add(RESOLVER_INTERPRETER)
+        functions = set(self.functions)
+        if self.sources_picker():
+            functions |= BashCommands(PICKER.read_text(encoding="utf-8")).functions
+            if self.assignments.get(RESOLVER_INTERPRETER) == [PICKED_INTERPRETER] and "hook_python_pick" in functions:
+                resolved.add(RESOLVER_INTERPRETER)
 
         def is_resolved(variable):
             # TOOL_* variables are written only by the resolver's boot loader:
@@ -2780,8 +2823,10 @@ class BashCommands:
             if not any(c in word for c in "$\"'`\\"):
                 if word in ("command", "builtin") and len(words) > 1 and words[1] not in ("-v", "-V"):
                     check(line, words[1:])
-                elif word in SHELL_BUILTINS or word in self.functions:
+                elif word in SHELL_BUILTINS or word in functions:
                     pass
+                elif words == ["source", PICKER_SOURCE]:
+                    pass  # the reviewed picker beside the hook; its commands: test_the_picker_runs_only_...
                 elif word not in UNRESOLVED_ALLOWLIST:
                     found.append((line, word))
                 return
@@ -2800,6 +2845,9 @@ class BashCommands:
             check(line, words)
         return found
 
+    def sources_picker(self):
+        return any(words == ["source", PICKER_SOURCE] for _, words in self.commands)
+
 
 class PreCommitToolResolutionDetectorTests(unittest.TestCase):
     HOOK = SOURCE / "scripts/git-hooks/pre-commit"
@@ -2815,8 +2863,33 @@ class PreCommitToolResolutionDetectorTests(unittest.TestCase):
         hook = BashCommands(source)
         self.assertEqual(hook.dynamic_assignments, [["printf", "-v", '"$name"', "'%s'", '"$value"']])
         self.assertIn("tool) [[ \"$name\" =~ ^TOOL_[A-Z0-9_]+$ ]] && printf -v", source)
-        self.assertEqual(hook.assignments.get(RESOLVER_INTERPRETER), ["<read>"])
-        self.assertIn('IFS= read -r PYTHON3_BIN < "$PYTHON_PATH_FILE"', source)
+        # The interpreter is the picker's choice, assigned once, never read from the recorded path directly.
+        self.assertEqual(hook.assignments.get(RESOLVER_INTERPRETER), [PICKED_INTERPRETER])
+        self.assertTrue(hook.sources_picker())
+        self.assertIn('hook_python_pick 0 "$RECORDED_PYTHON" "$(pwd -P)" "${HOOK_DIR%/*}"', source)
+        self.assertNotIn("read -r PYTHON3_BIN", source)
+
+    def test_the_picker_runs_only_builtins_two_system_tools_and_the_candidate_it_probes(self):
+        # The hook sources it before any tool is resolved, so it may look nothing up on PATH.
+        picker = BashCommands(PICKER.read_text(encoding="utf-8"))
+        unlisted = [(line, words[0]) for line, words in picker.commands
+                    if words[0] not in SHELL_BUILTINS and words[0] not in picker.functions
+                    and words[0] not in PICKER_COMMANDS]
+        self.assertEqual(unlisted, [])
+        self.assertEqual(picker.functions, {"hook_python_pick"})
+
+    def test_the_detector_refuses_an_interpreter_that_is_not_the_picks(self):
+        # Without the picker sourced, or with PYTHON3_BIN from anywhere else, the interpreter is unresolved.
+        cases = (
+            'PYTHON3_BIN="$HOOK_PYTHON"\n"$PYTHON3_BIN" -I x.py\n',
+            f'source {PICKER_SOURCE}\nhook_python_pick 0 ""\nPYTHON3_BIN=/tmp/python3\n"$PYTHON3_BIN" -I x.py\n',
+            'source ./hook_python.sh\nPYTHON3_BIN="$HOOK_PYTHON"\n"$PYTHON3_BIN" -I x.py\n',
+        )
+        for script in cases:
+            with self.subTest(script=script):
+                self.assertIn('"$PYTHON3_BIN"', self.violations(script))
+        self.assertEqual(self.violations(f'source {PICKER_SOURCE}\nhook_python_pick 0 ""\n'
+                                         'PYTHON3_BIN="$HOOK_PYTHON"\n"$PYTHON3_BIN" -I x.py\n'), [])
 
     # The hook defines resolve_tool; a fixture script gets a stand-in.
     def violations(self, script):

@@ -185,6 +185,7 @@ export function imageShape(size: { width: number; height: number } | undefined):
 
 /// How long a pasted image's tile is held unseen for its header (sizeFromHeader): a few bytes of a file
 /// in memory, read in a frame or two (the page's first read of one can take a few frames).
+// motion-allow: a header read timeout, not a motion
 const HEADER_WAIT_MS = 120;
 
 /// Reads `file`'s pixel size from its header and answers it to `done`: when the header answers, or

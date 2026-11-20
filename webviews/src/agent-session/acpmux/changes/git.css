@@ -18,9 +18,8 @@
 .acpmux-git-scope-option input{position:absolute;opacity:0;pointer-events:none}
 .acpmux-git-scope-option[data-checked=true]{background:var(--agent-page-bg);color:var(--agent-text)}
 .acpmux-git-scope-option:has(input:focus-visible){outline:1.5px solid var(--agent-muted);outline-offset:1px}
-/* Cancel and Commit sit at the scope row's end; the hint and Include new files are the line under it. */
+/* Cancel and Commit sit at the scope row's end; Include new files is the line under it. */
 .acpmux-git-form-row > .acpmux-git-secondary{margin-inline-start:auto}
-.acpmux-git-scope-hint{display:grid;flex:1;min-width:120px;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-git-primary,.acpmux-git-secondary{height:var(--ds-control-row);padding:0 var(--ds-space-3);border:0;border-radius:var(--ds-radius-control);background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;font-size:var(--text-control);transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-git-primary{background:color-mix(in srgb,var(--agent-text) 85%,var(--acpmux-base,var(--cmux-diff-solid-bg)));color:var(--acpmux-base,var(--cmux-diff-solid-bg))}
 .acpmux-git-secondary:hover:not(:disabled){background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
@@ -43,8 +42,6 @@
 .acpmux-git-new-files{display:flex;flex-direction:column;gap:4px}
 .acpmux-git-new-files ul{max-height:120px;overflow:auto;margin:0;padding:0 0 0 16px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--text-detail);color:var(--agent-text)}
 
-/* Reserve scope-dependent text before the first paint: changing All never wraps the action
-   buttons into another row. Both hints share one cell, sized by the longer translation. */
-.acpmux-git-scope-hint > span{grid-area:1/1}
-.acpmux-git-scope-hint > [data-visible=false],.acpmux-git-include-new[data-visible=false]{visibility:hidden}
+/* Include new files keeps its space under Staged, so switching scope never moves the rows below. */
+.acpmux-git-include-new[data-visible=false]{visibility:hidden}
 .acpmux-git-submit-row{flex-wrap:nowrap}

@@ -58,6 +58,15 @@ public final class MacScreenSession {
     /// A transport exists while the session runs.
     public var stream: AnyObject? { transport }
 
+    /// The stage a connect whose deadline passed was in (the failed card names it); nil otherwise.
+    public private(set) var timedOutStage: MacScreenConnectStage?
+    /// What this connect waits for next (`mac_screen.state`'s `connect_stage`).
+    @ObservationIgnored private(set) var connectStage: MacScreenConnectStage = .answer
+    /// How long a connect may take to show its first picture.
+    @ObservationIgnored var connectTimeout: Duration = .seconds(15)
+    /// The pending connect deadline, from `connect()` to the first picture; tests give it a manual clock.
+    @ObservationIgnored var connectDeadline = DemandTimer(owner: "mac-screen.connect-deadline")
+
     /// The display to show in the next session (nil: the host's main display).
     @ObservationIgnored var wantedDisplay: Int?
     /// This session's connect start, first frame and recent round trips (`mac_screen.state`;
@@ -99,6 +108,8 @@ public final class MacScreenSession {
             return
         }
         phase = .connecting
+        timedOutStage = nil
+        connectStage = .answer
         // The first decoder session in a process is the slow one: make it now, in parallel with
         // signaling and the host's capture start, not on the first keyframe.
         RemoteDecoderPrewarm.start()
@@ -113,6 +124,11 @@ public final class MacScreenSession {
             return
         }
         self.process = process
+        // One deadline per connect: a picture cancels it, a disconnect or the next connect replaces it.
+        connectDeadline.schedule(after: connectTimeout) { @MainActor [weak self, weak process] in
+            guard let self, let process, self.process === process else { return }
+            connectTimedOut()
+        }
         signalingOpen = false
         pendingOffer = nil
         let sessionID = (signaling as? TicketSignaling)?.ticket.sessionID ?? UUID().uuidString
@@ -125,6 +141,7 @@ public final class MacScreenSession {
 
     /// Ends the session here (the hub hears it from the tab's viewer).
     public func disconnect(silently: Bool = false) {
+        connectDeadline.cancel()
         for task in tasks { task.cancel() }
         tasks.removeAll()
         transport?.stop()
@@ -168,6 +185,7 @@ public final class MacScreenSession {
                         continue
                     }
                     logger.info("cmux rd: answer received (\(answer.candidates.count, privacy: .public) candidates)")
+                    reach(.link)
                     if !answer.displays.isEmpty { onStreamDisplays?(answer.displays, answer.currentDisplay ?? 0) }
                     answered(answer)
                 case let .candidate(candidate) where candidate.sdpMid == "cmux-rd":
@@ -212,6 +230,8 @@ public final class MacScreenSession {
         var offered = false
         for await line in process.lines {
             guard isCurrent(process) else { return }
+            logger.info("cmux rd: viewer line \(line.kinds, privacy: .public)")
+            if line.connected == true { reach(.frame) }
             if let key = line.key, !offered {
                 offered = true
                 var offer = MacScreenRdDocument(key: key)
@@ -304,6 +324,7 @@ public final class MacScreenSession {
                         askedKeyframe = true
                         transport.requestKeyframe()
                     }
+                    reach(.frame)
                     if phase != .connected { phase = .connected }
                     if let rtt = status.rttMs {
                         stats.latencyMs = Double(rtt)
@@ -336,6 +357,23 @@ public final class MacScreenSession {
         phase = .failed(message: message, needsSignIn: false)
     }
 
+    /// The connect got past a stage (never back: a late answer does not undo a link).
+    func reach(_ stage: MacScreenConnectStage) {
+        guard stage > connectStage else { return }
+        connectStage = stage
+        if stage == .shown { connectDeadline.cancel() }
+    }
+
+    /// The connect deadline passed before a picture showed: fail naming the stage it was in.
+    func connectTimedOut() {
+        let stage = connectStage
+        guard let detail = stage.timeoutDetail(name: title) else { return }
+        logger.error("cmux rd: connect timed out at \(stage.name, privacy: .public) after \(String(describing: self.connectTimeout), privacy: .public)")
+        disconnect()
+        timedOutStage = stage
+        phase = .failed(message: detail, needsSignIn: false)
+    }
+
     /// Whether a `path.kind` of `cmux rd` is a relayed path (the hub's `path` signal says so).
     nonisolated static func isRelayed(_ kind: String) -> Bool {
         ["turn_relay", "do_relay", "via_cloud_region"].contains(kind)
@@ -355,6 +393,7 @@ public final class MacScreenSession {
     /// A frame reached the screen: counts it for the stats (once a second, no timer).
     func framePresented(size: CGSize) {
         if size != frameSize, size.width >= 1 { frameSize = size }
+        if connectStage != .shown { reach(.shown) }
         frameWindow.frames += 1
         stats.framesDecoded += 1
         let elapsed = frameWindow.start.duration(to: .now)

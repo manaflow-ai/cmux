@@ -1,9 +1,11 @@
 import AppKit
 import CmuxNextAccounts
 import CmuxNextActions
+import CmuxNextAgentIntegrations
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextBrowserImport
+import CmuxNextCompat
 import CmuxNextCookieImport
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -63,6 +65,7 @@ final class OnboardingService {
     /// The Agents step's sign-ins: Settings > Agents > Harnesses' reader over this Mac's acpmux.
     private(set) lazy var signInHarnesses = SettingsHarnesses(environment: { [weak services] in services.flatMap(QuitAgents.environment) },
                                                               openTerminal: { [weak self] line in await self?.openSignIn(line) ?? false })
+    private(set) lazy var agentTools = AgentToolsStepModel.cliSource(cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, settings: { [weak services] in services?.settings })
     /// The top page a Sign In left (Bring your history); it shows again once the tool window closes.
     private var pageLeftForSignIn: TopPageRoute?
 
@@ -93,7 +96,7 @@ final class OnboardingService {
             }
         }
         presenter.makeModel = { [weak self] step in
-            self.map { OnboardingModel(services: AppOnboardingServices(owner: $0), step: step) }
+            self.map { OnboardingModel(services: AppOnboardingServices(owner: $0), step: step, agentTools: $0.agentTools) }
         }
         presenter.onWindowClose = { [weak self] in
             guard let self, let page = pageLeftForSignIn else { return }
@@ -101,8 +104,6 @@ final class OnboardingService {
             _ = TopPages.show(page, services: services)
         }
     }
-
-    var isShowing: Bool { controller != nil }
 
     /// Follows `browser.import.enabled` from `settings` (`AppServices.settings`).
     func followImportSetting(_ settings: SettingsController) {
@@ -174,14 +175,15 @@ final class OnboardingService {
         guard !services.environment.skipsOnboarding else { return }
         let route = setup.route(isFirstRun: isFirstRun, replacedKeys: [CLIInstallHandlers.offeredAtLaunchKey], screenReader: NSWorkspace.shared.isVoiceOverEnabled)
         if route == .startCard { DebugTimings.markLaunch("first_run.setup_card_shown") }
-        guard route == .windows else { return }
-        await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses) { self.showHistoryAtFirstRun(isFirstRun: isFirstRun) }
+        // The cmux Tools question comes at launch whatever owns the first run, for an existing
+        // installation too: until it is answered, the person's agents get no cmux server.
+        guard route == .windows else { return await presenter.askAgentToolsOnce(source: agentTools) }
+        await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses, agentTools: agentTools) { self.showHistoryAtFirstRun(isFirstRun: isFirstRun) }
     }
 
     func historyImportFinished() {
         UserDefaults.standard.set(true, forKey: HomeHostView.memoryOfferUsedKey)
     }
-
 }
 
 extension SavingImportDestination {

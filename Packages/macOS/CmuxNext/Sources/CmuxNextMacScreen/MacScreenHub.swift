@@ -128,6 +128,8 @@ public nonisolated enum MacScreenEndReason: Equatable, Sendable {
     case expired
     /// The hub could not set up the session the host approved.
     case approveFailed
+    /// The host's join consent did not allow a device the hub did not admit as the person's own.
+    case consentRequired
     case other
 
     public init(_ reason: String?) {
@@ -144,6 +146,7 @@ public nonisolated enum MacScreenEndReason: Equatable, Sendable {
         case "failed": self = .failed
         case "expired": self = .expired
         case "approve_failed": self = .approveFailed
+        case "consent_required": self = .consentRequired
         default: self = .other
         }
     }
@@ -180,6 +183,7 @@ public nonisolated enum MacScreenEndReason: Equatable, Sendable {
         case .failed: L.t("macScreen.hub.reason.failed", "The screen stream could not start.")
         case .approveFailed: String(format: L.t("macScreen.hub.reason.approveFailed", "%@ allowed the session, but it couldn’t start. Try again."), host)
         case .expired: String(format: L.t("macScreen.hub.reason.expired", "%@ did not answer in time."), host)
+        case .consentRequired: String(format: L.t("macScreen.hub.reason.consentRequired", "%@ hasn’t allowed screen sharing from this device."), host)
         case .other: L.t("macScreen.hub.reason.other", "The session ended.")
         }
     }
@@ -196,6 +200,8 @@ public nonisolated enum MacScreenHubReason: String, Sendable {
     case replaced
     /// The stream could not start.
     case failed
+    /// This Mac's join consent does not allow the session (a device the hub did not admit as the person's own).
+    case consentRequired = "consent_required"
 }
 
 /// The host's answers to a request (the approval prompt's buttons).
@@ -285,7 +291,13 @@ extension SessionScope {
 @MainActor @Observable
 final class MacScreenHubBox {
     var hub: DeviceHub?
-    var configured = false
+    /// The hub address is valid. True until `DeviceHubService` reads an address that is not:
+    /// a launch that has not read it yet, a sign-out or a restore never reads as a bad address.
+    var configured = true
+    /// The saved sign-in is still being restored (``MacScreenPages/hubRestoring``).
+    var restoring = false
+    /// Signed in, and the hub for that account is still starting (``MacScreenPages/hubConnecting``).
+    var connecting = false
     var startupError: String?
     var startupMessage: String? {
         guard startupError != nil else { return nil }

@@ -65,6 +65,17 @@ function load() {
   const material = data.glassMaterial;
   for (const key of ["neutralLight", "neutralDark", "rimLit", "rimShade"])
     assert(material[key] >= 0 && material[key] <= 1, `glassMaterial.${key} is a gray level from 0 to 1`);
+  const transient = data.transientMaterial;
+  const menu = data.glass.find((level) => level.name === "menu");
+  assert(
+    menu.veil === transient.hostVeil * 100 && menu.tint === transient.webTint,
+    "menu and transient material stay in sync",
+  );
+  for (const key of ["darkVeilAlpha", "lightVeilAlpha", "hostVeil"])
+    assert(transient[key] > 0 && transient[key] < 0.9, `transientMaterial.${key} stays translucent`);
+  assert(transient.webTint > 0 && transient.webTint < 90, "transient web tint stays translucent");
+  // Native parity belongs to check-surface-roles.py. Web-only sparse checkouts
+  // generate this scale from schemas without loading platform source files.
   assert(data.elevation.length === 2, "exactly two shadows");
   for (const color of data.colors)
     assert(color.var.startsWith("--cmux-") && !color.var.includes("#"), `colour ${color.name} names a host variable`);
@@ -126,6 +137,12 @@ function cssBlock(data) {
   out.push("  --ds-glass-edge: var(--cmux-hairline);");
   out.push(`  /* glass material: ${data.glassMaterial.for} */`);
   for (const [name, value, note] of materialVars(data.glassMaterial)) out.push(`  ${name}: ${value}; /* ${note} */`);
+  for (const [key, value] of Object.entries(data.transientMaterial)) {
+    if (typeof value !== "number") continue;
+    const name = key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+    const unit = key === "webTint" ? "%" : key === "webBlur" ? "px" : "";
+    out.push(`  --ds-transient-${name}: ${value}${unit};`);
+  }
   for (const entry of data.elevation)
     out.push(`  --elevation-${entry.name}: ${shadow(entry, "light")}; /* ${entry.for} */`);
   for (const color of data.colors) out.push(`  --ds-color-${color.name}: ${colorValue(color)}; /* ${color.for} */`);

@@ -8,6 +8,7 @@ import { handleProviderHook } from "./ingress/provider-hook.ts"
 import { handleGooglePubsub } from "./ingress/google-hooks.ts"
 import { handleSsoDiscover } from "./sso-discover.ts"
 import { handleStackWebhook, STACK_WEBHOOK_PATH } from "./stack-webhook.ts"
+import { DEV_FIXTURES_PATH, handleDevFixtures } from "./dev-fixtures.ts"
 import { principalForOwner, selectTeam, TEAM_SUBPROTOCOL_PREFIX } from "./team-select.ts"
 import { forwardHeaders, handleWireTicket, spendTicketAtEntry, wireCredential, wireUnauthenticated, type SpentTicket, type WireScope } from "./wire-ticket.ts"
 
@@ -35,6 +36,7 @@ export { AccountIndexDO } from "./account-index-do.ts"
 // Named entrypoint for service bindings only (the platform Worker's environment setups); no HTTP route reaches it.
 export { PlatformChief } from "./platform-chief.ts"
 export { AgentGateway } from "./agent-gateway.ts"
+export { ModelKeys } from "./model-keys.ts"
 export { HandoffDO } from "./handoffs/handoff-do.ts"
 export { HandoffIndexDO } from "./handoffs/index-do.ts"
 import { handleHandoffs, HANDOFFS_PATH } from "./handoffs/routes.ts"
@@ -295,6 +297,8 @@ export default {
     if (tvmExport) return handleTeamVmExport(request, env, tvmExport[1]!, tvmExport[2]!)
     // Webhook ingress: no bearer; each route verifies its own signature before any DO call.
     if (url.pathname === STACK_WEBHOOK_PATH) return handleStackWebhook(request, env)
+    // The Cloud self-test's test identities: development, local and test Workers only, behind its own secret (dev-fixtures.ts).
+    if (url.pathname === DEV_FIXTURES_PATH) return handleDevFixtures(request, env)
     const hook = url.pathname.match(/^\/v1\/hooks\/automation\/([^/]+)\/([^/]+)$/)
     if (hook) return handleAutomationHook(request, env, hook[1]!, hook[2]!)
     const chiefHook = url.pathname.match(CHIEF_JOB_HOOK)

@@ -1,0 +1,12 @@
+{
+  "caption": "Living wallpapers are drawn live behind the panes: Currents, Ripples, Aurora and Dot Field.",
+  "frameInterval": 0.1,
+  "steps": [
+    {"title": "Launch", "wait": 3},
+    {"title": "Currents", "cmux": ["settings", "set", "appearance.background", "shader:currents"], "wait": 2.5, "clip": true},
+    {"title": "Ripples", "cmux": ["settings", "set", "appearance.background", "shader:ripples"], "wait": 2.5, "clip": true},
+    {"title": "Aurora", "cmux": ["settings", "set", "appearance.background", "shader:aurora"], "wait": 2.5, "clip": true},
+    {"title": "Dot Field", "cmux": ["settings", "set", "appearance.background", "shader:field"], "wait": 2.5, "clip": true},
+    {"title": "Back to the usual wallpaper", "cmux": ["settings", "reset", "appearance.background"], "wait": 0.5}
+  ]
+}
