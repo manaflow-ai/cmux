@@ -77,6 +77,7 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
             make_room: false,
             until: None,
             allow_large: false,
+            no_focus: false,
         }
     );
     let parsed = request(&[
@@ -2564,6 +2565,7 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
         make_room: false,
         until: None,
         allow_large: false,
+        no_focus: false,
     };
     let Outcome::Done(answer) = send_to(&mut fake, &asked, "vm-1", "sess-1") else {
         panic!("{:?}", fake.ran)
@@ -2604,6 +2606,7 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
         make_room: false,
         until: None,
         allow_large: false,
+        no_focus: false,
     };
     let big = big_prompt(200 * 1024);
     let piece = exec_out(&format!("@@size {}\n", big.len()));
@@ -3414,6 +3417,42 @@ fn an_unread_list_names_the_apps_last_cloud_error() {
             assert!(only_lists(&fake), "{path}: nothing started or made: {:?}", fake.ran);
         }
     }
+}
+
+/// Leo: "you guys kept fighting focus". `--no-focus` is an agent's or a probe's start that leaves the
+/// person's app as it is: every app step it runs (`new-machine`, `start-session`) says `--no-focus`, and
+/// so does the command to ask again. Without it every step is today's, word for word.
+#[test]
+fn no_focus_reaches_every_app_step_and_the_command_again() {
+    let app_steps = |asked: &Request| {
+        let mut fake = Fake::new(vec![
+            signed_in(),
+            made(),
+            started(),
+            exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+        ]);
+        let Outcome::Done(_) = run(&mut fake, asked) else { panic!("{:?}", fake.ran) };
+        let steps: Vec<Vec<String>> = fake
+            .ran
+            .into_iter()
+            .filter(|step| matches!(step[1].as_str(), "new-machine" | "start-session"))
+            .collect();
+        assert_eq!(steps.len(), 2, "{steps:?}");
+        steps
+    };
+    let quiet = request(&["--prompt", "x", "--environment", "python-dev", "--no-focus"]);
+    for step in app_steps(&quiet) {
+        assert!(step.iter().any(|word| word == "--no-focus"), "{step:?}");
+    }
+    assert!(again_command(&quiet, &Machine::Target("vm-1".into())).contains(" --no-focus"));
+
+    let plain = request(&["--prompt", "x", "--environment", "python-dev"]);
+    for step in app_steps(&plain) {
+        assert!(!step.iter().any(|word| word == "--no-focus"), "{step:?}");
+    }
+    assert!(!again_command(&plain, &Machine::Target("vm-1".into())).contains("--no-focus"));
+    // `cmux cloud start-chat --help` lists it: an install that keys on it finds it there.
+    assert!(super::super::cloud_help::START_CHAT_USAGE.contains("[--no-focus]"));
 }
 
 /// cmux#46701: the composer's Cloud start picks the harness, model, effort and mode, and a folder
