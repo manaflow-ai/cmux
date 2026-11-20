@@ -62,6 +62,7 @@ import { PromptFocusProvider } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
 import { MentionMenu } from "./MentionMenu";
 import { markdownOffset, mentionQuery, mentionResults, useMentionSearch } from "./mentionMenuModel";
+import { wantAllSessions } from "./sessionPages";
 import {
   hasOtherChats,
   loadRecentMentionPaths,
@@ -1388,6 +1389,12 @@ function ComposerFrame({
       ? mentionQuery(text, markdownOffset(text, caret))
       : undefined;
   const mentionWord = mentionTyped?.query;
+  // The @ picker finds any chat by name, not only the first page's: the pane reads the rest once
+  // it opens (sessionPages.ts `wantAllSessions`), and follows the list from then on.
+  const mentioning = mentionWord !== undefined;
+  useEffect(() => {
+    if (mentioning) wantAllSessions();
+  }, [mentioning]);
   const mentionSearch = useMentionSearch(searchFiles, mentionWord);
   const mentionFiles = mentionResults(mentionSearch);
   // Recent @ picks belong to this chat's folder on its machine, and only where its files are searched.
