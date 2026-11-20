@@ -57,8 +57,26 @@ fn fake_claude(
     sid: &str,
     transcript: PathBuf,
 ) -> Arc<std::sync::atomic::AtomicUsize> {
+    let pong = |_: usize| {
+        json!({"type": "assistant", "message": {"role": "assistant",
+            "stop_reason": "end_turn", "content": [{"type": "text", "text": "PONG"}]}})
+    };
+    fake_claude_answering(config, sid, transcript, pong).0
+}
+
+/// [`fake_claude`] whose answer to its `n`th message (from 0) is `answer(n)`, keeping each
+/// message's text as its inbox got it.
+#[cfg(unix)]
+fn fake_claude_answering(
+    config: &std::path::Path,
+    sid: &str,
+    transcript: PathBuf,
+    answer: fn(usize) -> Value,
+) -> (Arc<std::sync::atomic::AtomicUsize>, Arc<Mutex<Vec<String>>>) {
     let count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let counted = count.clone();
+    let got = Arc::new(Mutex::new(Vec::new()));
+    let kept = got.clone();
     let pid = std::process::id();
     let sock = config.join("inbox.sock");
     let listener = std::os::unix::net::UnixListener::bind(&sock).unwrap();
@@ -71,7 +89,7 @@ fn fake_claude(
         .unwrap();
     std::thread::spawn(move || {
         for conn in listener.incoming() {
-            counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let n = counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let lines: Vec<Value> = std::io::BufReader::new(conn.unwrap())
                 .lines()
                 .map_while(Result::ok)
@@ -79,16 +97,16 @@ fn fake_claude(
                 .collect();
             assert_eq!(lines[0]["token"], "0123456789abcdef0123456789abcdef");
             let msg = &lines[1];
+            let content = msg["message"]["content"].as_str().unwrap().to_owned();
+            kept.lock().unwrap().push(content.clone());
             let mut f = std::fs::OpenOptions::new().append(true).open(&transcript).unwrap();
             let user = json!({"type": "user", "uuid": msg["uuid"], "isMeta": true,
                 "origin": {"kind": "peer", "from": msg["from"], "verifiedPeerPid": 1},
-                "message": {"role": "user", "content": format!("Another Claude session sent a message:\n{}", msg["message"]["content"].as_str().unwrap())}});
-            let answer = json!({"type": "assistant", "message": {"role": "assistant",
-                "stop_reason": "end_turn", "content": [{"type": "text", "text": "PONG"}]}});
-            writeln!(f, "{user}\n{answer}").unwrap();
+                "message": {"role": "user", "content": format!("Another Claude session sent a message:\n{content}")}});
+            writeln!(f, "{user}\n{}", answer(n)).unwrap();
         }
     });
-    count
+    (count, got)
 }
 
 /// The whole loop: a prompt to a watched Claude chat goes into the app's inbox, the app's
@@ -847,4 +865,138 @@ fn the_reply_goes_to_the_verified_senders_chat_by_name() {
     let agent = Some(label.to_owned());
     let opts = PromptOptions { agent, provenance: Some(unverified), ..Default::default() };
     assert_eq!(reply_name(&opts).as_deref(), Some(label));
+}
+
+/// What Claude Code writes when the provider refuses a turn on the account's rate limit
+/// (a lane's transcript, 2026-11-10).
+#[cfg(unix)]
+fn rate_limited_line() -> Value {
+    json!({"type": "assistant", "isSidechain": false, "isApiErrorMessage": true,
+        "error": "rate_limit", "apiErrorStatus": 429, "apiErrorIsTransient": false,
+        "message": {"model": "<synthetic>", "role": "assistant", "stop_reason": "stop_sequence",
+            "stop_sequence": "", "type": "message", "content": [{"type": "text",
+            "text": "API Error: Request rejected (429) · This request would exceed your account's rate limit. Please try again later."}]}})
+}
+
+/// A Claude desktop chat (the GUI's coordinator chats) under a 429 storm: the app's turn that
+/// failed on the rate limit reads as failed, not as the agent's answer "API Error: ...", and
+/// the chat is held. What is sent meanwhile never goes into the app (where each message started
+/// a turn of its own that failed the same way), and at the reset the app gets it as one
+/// message with the line that its last turn was cut: none lost, none twice.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_desktop_chat_the_rate_limit_stopped_holds_its_messages_and_sends_them_once() {
+    crate::claude_peers::TEST_ENABLED.store(true, std::sync::atomic::Ordering::SeqCst);
+    hold::TEST_MIN_HOLD_MS.store(1_500, std::sync::atomic::Ordering::SeqCst);
+    let config = scratch("rate-hold");
+    let transcript = config.join("sid-429.jsonl");
+    std::fs::write(&transcript, "").unwrap();
+    let answers = |n: usize| match n {
+        0 => rate_limited_line(),
+        _ => json!({"type": "assistant", "message": {"role": "assistant",
+            "stop_reason": "end_turn", "content": [{"type": "text", "text": "DONE"}]}}),
+    };
+    let (inbox, got) = fake_claude_answering(&config, "sid-429", transcript.clone(), answers);
+
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", fake]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.harness_homes.lock().unwrap().claude = config.clone();
+    let session = hub
+        .new_session(crate::hub::NewRequest { cwd: Some(config.clone()), ..Default::default() })
+        .await
+        .unwrap();
+    {
+        let mut meta = session.meta.lock().unwrap();
+        meta.agent_session_id = Some("sid-429".into());
+        meta.tags.insert(
+            "bridge".into(),
+            crate::store::Tag { value: "claude".into(), expires_at: None },
+        );
+        meta.watching = Some(Watching {
+            family: "claude".into(),
+            file: transcript,
+            offset: 0,
+            codex_items: false,
+            open: None,
+        });
+    }
+    hub.save_meta(&session);
+    hub.start_watch(&session);
+
+    let send = |id: &'static str, text: &'static str| {
+        let (hub, session) = (hub.clone(), session.clone());
+        let accepted = Arc::new(Mutex::new(None));
+        let seen = accepted.clone();
+        let task = tokio::spawn(async move {
+            let opts = PromptOptions {
+                prompt_id: Some(id.into()),
+                agent: Some("lane-7".into()),
+                on_accepted: Some(Box::new(move |v| *seen.lock().unwrap() = Some(v))),
+                ..Default::default()
+            };
+            let blocks = vec![json!({"type": "text", "text": text})];
+            tokio::time::timeout(
+                Duration::from_secs(20),
+                hub.prompt_with(&session, blocks, "acpmux-outbox#1", false, opts),
+            )
+            .await
+            .expect("answered within 20 s")
+        });
+        (task, accepted)
+    };
+
+    // The app's turn fails on the rate limit.
+    let (cut, _) = send("p-cut", "first report");
+    cut.await.unwrap().unwrap();
+    let events = hub.store.events(&session.id, 0, usize::MAX).unwrap();
+    let result = events
+        .iter()
+        .find(|e| e.kind == "turn_result" && e.msg["promptId"] == "p-cut")
+        .expect("the cut turn ends");
+    assert_eq!(result.msg["status"], "failed", "a 429 is no answer: {}", result.msg);
+    assert!(result.msg["error"].as_str().unwrap_or("").contains("429"), "{}", result.msg);
+    assert!(
+        !events
+            .iter()
+            .any(|e| e.kind == "agent_message_chunk" && e.msg.to_string().contains("API Error")),
+        "the error never shows as the agent's answer"
+    );
+    assert!(events.iter().any(|e| e.kind == "rate_limit_held"), "the chat is held");
+
+    // Two more messages while it is held: neither reaches the app now.
+    let (second, second_accepted) = send("p-two", "second report");
+    let (third, _) = send("p-three", "third report");
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert_eq!(inbox.load(std::sync::atomic::Ordering::SeqCst), 1, "held, not sent into the app");
+    assert_eq!(second_accepted.lock().unwrap().as_ref().unwrap()["state"], "held");
+
+    // At the reset: one message carries both, after the line that the last turn was cut.
+    let second = second.await.unwrap().unwrap();
+    let third = third.await.unwrap().unwrap();
+    assert_eq!(second["_meta"]["acpmux"]["answered"], true, "{second}");
+    assert_eq!(second["_meta"]["acpmux"]["turnId"], third["_meta"]["acpmux"]["turnId"]);
+    assert_eq!(inbox.load(std::sync::atomic::Ordering::SeqCst), 2, "one message at the reset");
+    let sent = got.lock().unwrap()[1].clone();
+    assert!(sent.starts_with(hold::CONTINUE_LINE), "{sent}");
+    assert_eq!(sent.matches("second report").count(), 1, "{sent}");
+    assert_eq!(sent.matches("third report").count(), 1, "{sent}");
+    assert!(sent.find("second report") < sent.find("third report"), "in the order they came");
+    let events = hub.store.events(&session.id, 0, usize::MAX).unwrap();
+    assert!(events.iter().any(|e| e.kind == "rate_limit_lifted"));
+    let done =
+        events.iter().filter(|e| e.kind == "turn_result" && e.msg["status"] == "completed").count();
+    assert_eq!(done, 1, "one turn after the reset");
+
+    // A resend of a held prompt finds its turn and goes nowhere.
+    let (again, _) = send("p-three", "third report");
+    let again = again.await.unwrap().unwrap();
+    assert_eq!(again["_meta"]["acpmux"]["duplicate"], true, "{again}");
+    assert_eq!(inbox.load(std::sync::atomic::Ordering::SeqCst), 2);
+    hold::TEST_MIN_HOLD_MS.store(0, std::sync::atomic::Ordering::SeqCst);
 }
