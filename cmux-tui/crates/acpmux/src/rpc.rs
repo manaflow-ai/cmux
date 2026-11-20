@@ -607,6 +607,12 @@ pub mod method {
     pub const MUX_INBOX_THREAD: &str = "_acpmux/inbox_thread";
     /// An answer in an inbox thread, to its sender's inbox: `{sessionId, threadId, text}`.
     pub const MUX_INBOX_REPLY: &str = "_acpmux/inbox_reply";
+    /// Bind a surge thread to its resolved recipient session: `{sessionId, threadId}`.
+    pub const MUX_INBOX_SUBSCRIPTION_SET: &str = "_acpmux/inbox_subscription_set";
+    /// Remove a surge thread binding: `{sessionId, threadId}`.
+    pub const MUX_INBOX_SUBSCRIPTION_REMOVE: &str = "_acpmux/inbox_subscription_remove";
+    /// List active surge thread bindings: `{sessionId}`.
+    pub const MUX_INBOX_SUBSCRIPTIONS: &str = "_acpmux/inbox_subscriptions";
     pub const MUX_TAG: &str = "_acpmux/tag";
     /// Ends a session's link to the session that started it (`acpmux session detach`,
     /// `hub/lane_reports.rs`): `{sessionId}` -> `{sessionId, detached}`. Its turns no longer go
