@@ -515,6 +515,31 @@ fn hub_with_chat(id: &str) -> (Arc<Hub>, Arc<Session>) {
 }
 
 #[tokio::test]
+async fn surge_cold_headless_burst_uses_the_last_held_measurement() {
+    let (hub, session) = hub_with_chat("reopening");
+    let blocks = [json!({"type":"text","text":"Runner is still busy"})];
+    let opts = PromptOptions { agent: Some("runner".into()), ..Default::default() };
+    hub.append(
+        &session,
+        "mux",
+        "inbox",
+        json!({
+            "promptId":"before-restart", "threadId":"runner", "from":"runner",
+            "surgeHeld":true, "replyPeriodMs":30_000, "text":"Runner is busy"
+        }),
+    );
+    *session.inbox() = Default::default();
+    hub.restore_inbox(&session);
+    assert!(session.time_breakdown.lock().unwrap().reply_period_ms(now_ms()).is_none());
+    assert!(session.turn().is_none());
+    for id in ["first-after-restart", "second-after-restart"] {
+        let receipt = hub.hold_surge_message(&session, id, "cli", &blocks, &opts).unwrap();
+        assert_eq!(receipt.unwrap()["surgeHeld"], true);
+    }
+    assert_eq!(hub.inbox_threads(&session)["surge"]["held"], 3);
+}
+
+#[tokio::test]
 async fn surge_receipt_restores_the_same_held_message_and_searches_its_original_text() {
     let (hub, session) = hub_with_chat("busy-chat");
     // The receiving chat took 30 seconds to reply before the burst.

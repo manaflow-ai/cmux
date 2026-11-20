@@ -509,7 +509,7 @@ impl Hub {
                 )
                 .map_err(|e| RpcError::invalid_params(e.to_string()))?;
         }
-        if opts.new_inbox_arrival
+        if !opts.skip_surge_admission
             && let Some(receipt) =
                 self.hold_surge_message(session, &prompt_id, client, &blocks, &opts, now_ms())?
         {

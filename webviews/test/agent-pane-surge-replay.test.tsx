@@ -110,7 +110,37 @@ test("a surge keeps one inbox row and the transcript still displays each protect
       kind: "user_message",
       msg: { promptId: text, text },
     });
-  const count = await replay("surge-replay", events, held, visible);
+  const digest = "surge-digest-runner";
+  const digestText = "Check the stalled runner for this pull request.";
+  const protectedIds = visible.slice(1);
+  const source = events.map(({ msg }, index) => ({
+    promptId: msg.promptId,
+    senderId: "vm-" + (index % 86),
+    class: msg.promptId === "Question delivery" ? "question" : msg.promptId === "Block delivery" ? "block" : "fyi",
+    person: msg.promptId === "Person delivery",
+    provenance: msg.promptId === "FIRE delivery" ? { notice: { severity: "fire" } } : null,
+  }));
+  const append = (kind: string, msg: EventRecord["msg"]) => {
+    events.push({ seq: events.length + 1, at: 1000 + events.length, dir: "mux", kind, msg });
+  };
+  for (let start = 0; start < held; start += 16) {
+    const items = source.slice(start, Math.min(start + 16, held)).map(({ promptId }) => ({
+      promptId,
+      category: promptId === "0" ? "needs_this_session" : "noise",
+      threadId: "topic:runner",
+    }));
+    append("inbox_triaged", { digestPromptId: digest, items, surge: { held, needYou: 1 } });
+  }
+  append("user_message", {
+    promptId: digest,
+    text: digestText,
+    _meta: { provenance: { kind: "surge_digest", digestId: digest, promptIds: ["0"] } },
+  });
+  const excerpts = Object.fromEntries(protectedIds.map((id) => [id, id]));
+  expect(() => checkDelivery(source, protectedIds, events, excerpts)).toThrow();
+  append("inbox_triaged", { digestDelivered: digest, items: [], surge: { held, needYou: 1 } });
+  checkDelivery(source, protectedIds, events, excerpts);
+  const count = await replay("surge-replay", events, held, [...visible, digestText]);
   console.log("synthetic pane replay: arrivals=378 held=373 chatRows=" + count);
 }, 30_000);
 

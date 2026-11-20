@@ -674,6 +674,7 @@ impl Hub {
             // Send now is the person's; a digest the drain marked to steer is agents' messages,
             // which a turn past its cap does not take (`turn_cap.rs`): it waits for the next turn.
             send_now: !digest || persons,
+            skip_surge_admission: true,
             // Taken out of the queue to steer: if it waits again, it waited already.
             admitted: true,
             ..Default::default()
@@ -1495,6 +1496,7 @@ impl Hub {
                         agent: q.run.agent.clone(),
                         class: q.run.class,
                         display_parts: q.run.display_parts.clone(),
+                        skip_surge_admission: true,
                         ..PromptOptions::default()
                     };
                     let blocks = q.run.blocks.clone();
