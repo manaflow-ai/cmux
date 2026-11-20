@@ -7,6 +7,7 @@ import {
   cloudSecurityDocsLocales,
   fallbackContentLocales,
   featureWorkflowContentLocales,
+  mainThreadDocsLocales,
   managedPoliciesDocsLocales,
   remoteTmuxDocsLocales,
 } from "../../../i18n/locale-availability";
@@ -164,6 +165,17 @@ export const navItems: NavEntry[] = [
         href: "/docs/managed-policies",
         locales: managedPoliciesDocsLocales,
         contentLocales: managedPoliciesDocsLocales,
+      },
+    ],
+  },
+  {
+    sectionKey: "engineeringSection",
+    children: [
+      {
+        titleKey: "mainThread",
+        href: "/docs/main-thread",
+        locales: mainThreadDocsLocales,
+        contentLocales: mainThreadDocsLocales,
       },
     ],
   },
