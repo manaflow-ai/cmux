@@ -2,7 +2,8 @@
 //! one session that hold every word of `query`, newest first: `{sessionId, hits: [{seq, at, role,
 //! snippet}], entries, tookMs}`. `role` is `user` (a prompt), `assistant` (the agent's reply text,
 //! its chunks joined into one message) or `tool` (a tool call's title); `seq` is the log record the
-//! message starts at.
+//! message starts at. With `withTurnTime: true`, a hit whose turn has a recorded prompt also
+//! carries `turnStartedAt`, the `startedAt` returned by session history.
 //!
 //! Words match as `_acpmux/chats_search`'s do ([`Needle`]): every word, any case and order, within
 //! one message. Raw grep over the log cannot find a sentence: the agent's text is logged a few
@@ -141,6 +142,7 @@ pub struct Query {
     pub role: Option<Role>,
     pub since_ms: Option<u64>,
     pub limit: usize,
+    pub with_turn_time: bool,
 }
 
 impl Query {
@@ -165,7 +167,11 @@ impl Query {
                 usize::try_from(n).unwrap_or(MAX_LIMIT).min(MAX_LIMIT)
             }
         };
-        Ok(Self { needle, role, since_ms, limit })
+        let with_turn_time = match params.get("withTurnTime") {
+            None | Some(Value::Null) => false,
+            Some(value) => value.as_bool().ok_or("withTurnTime must be a boolean")?,
+        };
+        Ok(Self { needle, role, since_ms, limit, with_turn_time })
     }
 }
 
@@ -197,13 +203,42 @@ pub fn search(store: &dyn Store, id: &str, query: &Query) -> anyhow::Result<Valu
             }));
         }
     })?;
-    let hits: Vec<Value> = hits.into_iter().rev().collect();
+    let mut hits: Vec<Value> = hits.into_iter().rev().collect();
+    if query.with_turn_time {
+        attach_turn_times(store, id, &mut hits)?;
+    }
     Ok(json!({
         "sessionId": id,
         "hits": hits,
         "entries": entries,
         "tookMs": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
     }))
+}
+
+/// Match the turn boundary used by Hub::history: an ordinary prompt opens a turn and a
+/// steer belongs to the running turn. Read indexed prompts backwards once, stopping at
+/// the oldest hit's prompt.
+fn attach_turn_times(store: &dyn Store, id: &str, hits: &mut [Value]) -> anyhow::Result<()> {
+    let mut pending = hits.iter_mut().peekable();
+    let Some(newest) = pending.peek().and_then(|hit| hit["seq"].as_u64()) else { return Ok(()) };
+    store.scan_back_indexed(
+        id,
+        0,
+        newest.saturating_add(1),
+        &|_, k| k != b"user_message",
+        &mut |rec| {
+            if rec.kind == "user_message"
+                && rec.msg.get("steer").and_then(Value::as_bool) != Some(true)
+            {
+                while let Some(hit) =
+                    pending.next_if(|hit| hit["seq"].as_u64().is_some_and(|seq| seq >= rec.seq))
+                {
+                    hit["turnStartedAt"] = json!(rec.at);
+                }
+            }
+            pending.peek().is_some()
+        },
+    )
 }
 
 #[cfg(test)]
