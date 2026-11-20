@@ -2889,14 +2889,14 @@ LIMIT_WAIT_SLACK_S = 5
 WAIT_HEARTBEAT_S = 60
 
 
-def sleep_with_heartbeat(seconds, what, every=WAIT_HEARTBEAT_S, sleep=time.sleep, clock=time.monotonic):
-    end = clock() + seconds
-    while True:
-        left = end - clock()
-        if left <= 0:
-            return
-        sleep(min(every, left))
-        left = end - clock()
+def sleep_with_heartbeat(seconds, what, every=WAIT_HEARTBEAT_S, sleep=None):
+    # time.sleep is looked up per call, so a test's patch of it reaches here; the wait counts down by what it slept.
+    sleep = sleep or time.sleep
+    left = seconds
+    while left > 0:
+        step = min(every, left)
+        sleep(step)
+        left -= step
         if left > 0:
             print(f"perf-cron: {what}: {int(left)} s left", flush=True)
 

@@ -180,8 +180,7 @@ class DecideTests(unittest.TestCase):
         now = [0.0]
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            cron.sleep_with_heartbeat(150, "waiting", every=60, sleep=lambda s: now.__setitem__(0, now[0] + s),
-                                      clock=lambda: now[0])
+            cron.sleep_with_heartbeat(150, "waiting", every=60, sleep=lambda s: now.__setitem__(0, now[0] + s))
         self.assertEqual(now[0], 150)
         self.assertEqual(out.getvalue(), "perf-cron: waiting: 90 s left\nperf-cron: waiting: 30 s left\n")
 
@@ -2292,8 +2291,9 @@ class RateLimitTests(unittest.TestCase):
             cron.cmd_fetch_state(argparse.Namespace(repo="o/r", dir=d, wait_limit=2700))
             self.assertEqual(fetch.call_count, 2, "the state is read again after the wait")
             self.assertFalse(os.path.exists(os.path.join(d, cron.RATE_LIMITED)))
-        self.assertEqual(len(slept), 1)
-        self.assertGreaterEqual(slept[0], 240)
+        # One line a minute while it waits (the plan step's watchdog ends a step silent for its limit).
+        self.assertEqual(sum(slept), 240 + cron.LIMIT_WAIT_SLACK_S)
+        self.assertLessEqual(max(slept), cron.WAIT_HEARTBEAT_S)
 
     def test_a_wait_past_the_limit_or_on_a_plain_tick_still_does_nothing(self):
         for wait, limit in ((3000, 2700), (240, 0), (None, 2700)):
