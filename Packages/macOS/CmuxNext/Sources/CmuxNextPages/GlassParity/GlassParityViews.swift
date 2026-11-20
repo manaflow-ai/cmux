@@ -79,6 +79,33 @@ final class GlassParityHostLayer: NSView {
             views[id] = nil
         }
     }
+    /// The App's glass under the web surface `id`, for the measure's diagnostics.
+    func surface(_ id: String) -> NSView? { views[id]?.view }
+}
+
+/// A view's tree as the measure reports it (class, frame, alpha, layer fill, filters, shadow), so two surfaces
+/// that should be the same name where they differ.
+@MainActor
+func glassParityTree(_ view: NSView, depth: Int = 0) -> JSONValue {
+    let layer = view.layer
+    var node: [String: JSONValue] = [
+        "class": .string(String(describing: type(of: view))),
+        "frame": .array([view.frame.minX, view.frame.minY, view.frame.width, view.frame.height].map { .number($0) }),
+        "alpha": .number(view.alphaValue), "hidden": .bool(view.isHidden),
+        "appearance": .string(view.effectiveAppearance.name.rawValue),
+    ]
+    if let layer {
+        node["bg"] = .string(layer.backgroundColor.map { color in NSColor(cgColor: color)?.usingColorSpace(.sRGB).map { String(describing: $0) } ?? String(describing: color) } ?? "nil")
+        node["opacity"] = .number(Double(layer.opacity))
+        node["shadow"] = .number(Double(layer.shadowOpacity))
+        node["filters"] = .number(Double((layer.filters?.count ?? 0) + (layer.backgroundFilters?.count ?? 0)))
+        node["masks"] = .bool(layer.masksToBounds)
+    }
+    if view.responds(to: NSSelectorFromString("tintColor")), let tinted = view.value(forKey: "tintColor") as? NSColor {
+        node["tint"] = .string(String(describing: tinted.usingColorSpace(.sRGB) ?? tinted))
+    }
+    if depth < 4 { node["children"] = .array(view.subviews.map { glassParityTree($0, depth: depth + 1) }) }
+    return .object(node)
 }
 
 final class GlassParityFlippedView: NSView {
@@ -117,6 +144,42 @@ final class GlassParityTextView: NSView {
             let top = Self.origin.y + CGFloat(index) * Self.lineHeight + halfLeading
             NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color])
                 .draw(at: CGPoint(x: Self.origin.x, y: top))
+        }
+    }
+}
+
+/// The native menu row's highlight in the Liquid Glass Parity playground's menu: what ``PopupRowView``
+/// draws for a highlighted row (the theme's hover fill) or a pressed one (its pressed fill), at
+/// `row` (flipped, in the menu's points) in the row's corner radius; nothing at rest.
+final class GlassParityRowFill: NSView {
+    var state: GlassParityPlayground.RowState = .rest {
+        didSet { if state != oldValue { needsDisplay = true } }
+    }
+    private let row: CGRect
+    private let radius: CGFloat
+
+    init(frame: NSRect, row: CGRect, radius: CGFloat) {
+        self.row = row
+        self.radius = radius
+        super.init(frame: frame)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard state != .rest else { return }
+        performWithTheme {
+            (state == .pressed ? Palette.pressedFill : Palette.hoverFill).setFill()
+            NSBezierPath(roundedRect: row, xRadius: radius, yRadius: radius).fill()
         }
     }
 }
