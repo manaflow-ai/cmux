@@ -8,6 +8,7 @@
 import { componentEntry } from "../../../gallery/format";
 import type { AcpmuxPermission } from "../model";
 import { needsYouItems, type WatchedAsk } from "../needsYou/model";
+import type { AgentQuestion } from "../question/model";
 import type { AcpmuxSessionEntry } from "../sessionList";
 import { islandState } from "./model";
 import type { StatusIslandActions } from "./StatusIsland";
@@ -70,6 +71,39 @@ const ask: WatchedAsk = {
     options,
   },
 };
+const choosing = session({
+  sessionId: "s-auth",
+  title: "Settings page sign-in",
+  harness: "codex",
+  indicator: "input",
+  pendingPermissions: 1,
+  updatedAt: ago(1),
+});
+const longChoices: AgentQuestion = {
+  id: "ask-auth",
+  source: { harness: "codex", session: "s-auth", permission: "ask-auth", answerOption: "allow_once" },
+  items: [
+    {
+      id: "q0",
+      header: "Auth",
+      prompt: "Which sign-in should the settings page offer first?",
+      options: [
+        { id: "oauth", label: "OAuth through the existing identity provider, with the current scopes" },
+        { id: "passkeys", label: "Passkeys only, with a recovery code printed once at setup" },
+        { id: "both", label: "Both: passkeys first, OAuth behind a Use another way link" },
+        { id: "later", label: "Neither yet: keep the email link until the security review lands" },
+      ],
+      multiSelect: false,
+      allowsOther: false,
+    },
+  ],
+  state: { kind: "pending" },
+};
+const choiceAsk: WatchedAsk = {
+  sessionId: "s-auth",
+  at: ago(1),
+  permission: { permissionId: "ask-auth", pending: true, options, question: longChoices },
+};
 
 const stateOf = (sessions: AcpmuxSessionEntry[], asks: WatchedAsk[] = []) =>
   islandState({ sessions, items: needsYouItems({ sessions, asks }) });
@@ -87,7 +121,7 @@ export default componentEntry<Props>({
   title: "Agent status island",
   area: "Agent pane",
   experimental: true,
-  height: 260,
+  height: 360,
   keywords: ["island", "pill", "status", "approval", "needs you", "running", "morph"],
   covers: ["agent-session/acpmux/statusIsland/StatusIsland.tsx"],
   load: () =>
@@ -117,6 +151,10 @@ export default componentEntry<Props>({
     "expanded-approval": {
       note: "An agent asks to run a command: the pill morphs into its card with Allow and Deny (Needs you's answer). The chevron folds it back into the pill.",
       props: { sessions: [...running, asking], asks: [ask] },
+    },
+    "expanded-long-choices": {
+      note: "A question with four long choices: one per row across the card, each label wrapping, every choice visible and clickable.",
+      props: { sessions: [...running, choosing], asks: [choiceAsk] },
     },
     "expanded-error": {
       note: "An agent stopped on an error: its card says so, with the error and Open Chat.",

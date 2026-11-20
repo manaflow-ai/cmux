@@ -130,3 +130,59 @@ test("a folded failure that clears and comes back opens again, even under the sa
   await render([failing]);
   expect(q(".acpmux-status-island[data-expanded]")).not.toBeNull();
 });
+
+test("a question's four long choices stack one per row, each a wrapping button", async () => {
+  const labels = [
+    "OAuth through the existing identity provider, with the current scopes",
+    "Passkeys only, with a recovery code printed once at setup",
+    "Both: passkeys first, OAuth behind a Use another way link",
+    "Neither yet: keep the email link until the security review lands",
+  ];
+  const question = {
+    id: "ask-auth",
+    source: { harness: "codex", session: "auth", permission: "ask-auth", answerOption: "allow_once" },
+    items: [
+      {
+        id: "q0",
+        header: "Auth",
+        prompt: "Which sign-in first?",
+        options: labels.map((label, i) => ({ id: `o${i}`, label })),
+        multiSelect: false,
+        allowsOther: false,
+      },
+    ],
+    state: { kind: "pending" },
+  } as const;
+  await render(
+    [chat("auth")],
+    [
+      {
+        sessionId: "auth",
+        at: 2_000,
+        permission: { permissionId: "ask-auth", pending: true, options: ask.permission.options, question },
+      } as unknown as Ask,
+    ],
+  );
+  const row = q(".acpmux-status-island__actions");
+  expect(row?.hasAttribute("data-choices")).toBe(true);
+  expect([...row!.querySelectorAll("button")].map((button) => button.textContent)).toEqual(labels);
+});
+
+test("the island's morph obeys Reduce Motion and the motion gate (Calm Mode and Off)", async () => {
+  const css = await Bun.file(
+    new URL("../src/agent-session/acpmux/statusIsland/statusIsland.css", import.meta.url),
+  ).text();
+  const gate = ':root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"])';
+  expect(css).toContain("@media (prefers-reduced-motion: reduce)");
+  expect(css).toMatch(
+    new RegExp(`${gate.replace(/[[\]()"=:.]/g, "\\$&")} \\.acpmux-status-island \\{\\s*transition: none;`),
+  );
+  expect(css).toMatch(
+    new RegExp(`${gate.replace(/[[\]()"=:.]/g, "\\$&")} \\.acpmux-status-island__content \\{\\s*animation: none;`),
+  );
+  // Choices wrap: the row may wrap, and a choice's label is not held on one line.
+  expect(css).toMatch(/\.acpmux-status-island__actions \{[^}]*flex-wrap: wrap;/);
+  expect(css).toMatch(
+    /\.acpmux-status-island__actions\[data-choices\] \.acpmux-status-island__action \{[^}]*white-space: normal;/,
+  );
+});

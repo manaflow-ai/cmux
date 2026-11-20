@@ -247,7 +247,10 @@ function IslandAsk({
         </p>
       )}
       {failed && <p className="acpmux-status-island__error">{t("needsYou.answerFailed")}</p>}
-      <div className="acpmux-status-island__actions">
+      <div
+        className="acpmux-status-island__actions"
+        data-choices={answers.some((choice) => choice.tone === "choice") ? "" : undefined}
+      >
         {answers.map((choice) => (
           <button
             key={choice.id}
