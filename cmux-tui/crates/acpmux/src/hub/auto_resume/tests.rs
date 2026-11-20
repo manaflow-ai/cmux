@@ -231,6 +231,32 @@ async fn park_retry_keeps_rate_limit_queue_held_after_reset_and_restore() {
     fresh.restore_auto_resume(&restored);
     assert!(restored.rate_hold.parked().is_some());
     assert!(!fresh.continuation_pending(&restored));
+    // Both supported explicit actions release the park, live and after restart. They
+    // can admit a new turn without cancelling the old harness or erasing its failure.
+    for (owner, chat, why) in [(&hub, &session, "retry"), (&fresh, &restored, "prompt")] {
+        assert!(matches!(
+            owner.unpark_rate_hold(chat, why),
+            Some(crate::hub::rate_hold::Unparked::Released)
+        ));
+        assert!(!Hub::rate_held(chat));
+        assert!(chat.rate_hold.parked().is_none());
+        owner
+            .start_turn(
+                chat,
+                None,
+                false,
+                false,
+                TurnInfo::prompted(
+                    "person",
+                    "continue",
+                    "explicit-turn",
+                    "explicit-prompt",
+                    Control::Local,
+                ),
+            )
+            .unwrap();
+        assert_eq!(chat.turn().unwrap().prompt_id, "explicit-prompt");
+    }
 }
 
 #[tokio::test]
