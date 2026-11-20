@@ -304,13 +304,16 @@ else
   say "installed acpmux to $acpmux"
 fi
 
-# Best effort: the cmux CLI to ~/.cmux/bin/cmux, as install-static.sh does.
+# The CLI and acpmux must come from the selected channel. The CLI manifest is
+# indexed by the source commit, not the tree key used for the acpmux binary.
 install_cli() {
-  base="$files/latest"
-  fetch "$base/manifest.json" "$tmp/manifest.json" || return 1
+  [ -n "$want" ] || return 1
+  commit="$(json_hex commit "$tmp/channel.json")"
+  [ "${#commit}" -eq 40 ] || return 1
+  fetch "$files/$commit/manifest.json" "$tmp/manifest.json" || return 1
+  [ "$(json_hex commit "$tmp/manifest.json")" = "$commit" ] || return 1
   sum="$(json_hex "cmux-tui-$cli_target" "$tmp/manifest.json")"
-  commit="$(json_hex commit "$tmp/manifest.json")"
-  [ "${#sum}" -eq 64 ] && [ "${#commit}" -eq 40 ] || return 1
+  [ "${#sum}" -eq 64 ] || return 1
   cli="$HOME/.cmux/bin/cmux"
   if [ -x "$cli" ] && [ "$(sha256 "$cli")" = "$sum" ]; then
     return 0
