@@ -4049,8 +4049,11 @@ def controller_result(raw):
         value = json.loads(raw)
     except (TypeError, ValueError):
         return None
-    if not isinstance(value, dict) or not is_sha(str(value.get("sha") or "")) or value.get("part") not in PART_BY_NAME \
-            or is_linux_part(value.get("part")) or value.get("state") not in RESULT_STATES:
+    # A field of the wrong type (a feed entry's "part": []) is no result, not a TypeError (review of cmux#47673).
+    if not isinstance(value, dict) or not is_sha(str(value.get("sha") or "")) or not isinstance(value.get("part"), str) \
+            or value.get("part") not in PART_BY_NAME or is_linux_part(value.get("part")) \
+            or not isinstance(value.get("state"), str) or value.get("state") not in RESULT_STATES \
+            or not isinstance(value.get("step_id"), (str, int, type(None))):
         return None
     return value
 
@@ -4058,10 +4061,15 @@ def controller_result(raw):
 def result_refusal(state, value):
     """Why the controller's result (controller_result) is not stored into state, or None (pure). A result for another
     measurement, or for a part not to do, is dropped (a late result after an abandon); so is a step stored already
-    (the controller may send a result twice: a lost answer, a restart; replay-results reads it again)."""
+    (the controller may send a result twice: a lost answer, a restart; replay-results reads it again), and so is a step
+    that ended before the measurement started (an older measurement of the same SHA; review of cmux#47673)."""
     cur = state.get("current") or {}
     if value is None:
         return "the controller's perf_result is not a result"
+    ended, started = controller_ended_at(value), parse_started(cur.get("started_at"))
+    if ended and started and ended < started:
+        return (f"the controller's {value['part']} result of step {value.get('step_id') or '?'} ended "
+                f"{iso(ended)}, before the measurement in flight started ({iso(started)}); dropped")
     if value.get("step_id") and value["step_id"] in {(e or {}).get("step_id") for e in (cur.get("parts") or {}).values()}:
         return f"the controller's result of step {value['step_id']} was stored already; dropped"
     if value["sha"] != cur.get("sha") or value["part"] not in (cur.get("parts_todo") or []):
@@ -4126,14 +4134,30 @@ def cmd_fetch_result(o):
 # /perf-cron/results.json, the last 24 h): a result run waits for a runner on the shared Linux queue (each tick took
 # ~16 h on 2026-11-19, and no Mac row was stored for 2 days), so a reader of the state replays them into its copy.
 CONTROLLER_RESULTS_URL = "https://gh-events.cmux.com/perf-cron/results.json"
-GO_TIME_RE = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?Z$")
+GO_TIME_RE = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?Z$")
 
 
 def controller_ended_at(value):
-    """When the controller's step ended (its ended_at, Go's RFC 3339 with nanoseconds), or None (pure)."""
+    """When the controller's step ended (its ended_at, Go's RFC 3339 with nanoseconds), to the second, or None (pure)."""
     m = GO_TIME_RE.match(str(value.get("ended_at") or ""))
     try:
         return parse_iso(m.group(1) + "Z") if m else None
+    except ValueError:
+        return None
+
+
+def controller_ended_key(value):
+    """A sort key for the controller's results in the order their steps ended, fractional seconds included (text
+    puts .11Z before .1Z; review of cmux#47673); a result with no readable end sorts last (pure)."""
+    at = controller_ended_at(value)
+    m = GO_TIME_RE.match(str(value.get("ended_at") or ""))
+    return (0, at, (m.group(2) or "").ljust(9, "0")) if at and m else (1,)
+
+
+def parse_started(s):
+    """A measurement's started_at, or None when it is not a time (pure)."""
+    try:
+        return parse_iso(s) if isinstance(s, str) else None
     except ValueError:
         return None
 
@@ -4156,7 +4180,7 @@ def cmd_replay_results(o):
     values = [v for v in listed if isinstance(v, dict)] if isinstance(listed, list) else []
     stored = 0
     os.makedirs(os.path.join(o.dir, "replay"), exist_ok=True)
-    for value in sorted(values, key=lambda v: str(v.get("ended_at") or "")):
+    for value in sorted(values, key=controller_ended_key):
         value = controller_result(json.dumps(value))
         at = controller_ended_at(value) if value else None
         if value is None or value["state"] != "done" or at is None:
@@ -4169,6 +4193,12 @@ def cmd_replay_results(o):
         # result.json or report.json outside the copy (review of cmux#47673).
         part_dir = tempfile.mkdtemp(prefix="part-", dir=os.path.join(o.dir, "replay"))
         cmd_fetch_result(argparse.Namespace(result=json.dumps(value), out=part_dir))
+        # An artifact not read (expired, a network error) is no verdict on the part: fetch-result writes it as failed,
+        # which report would take out of parts_todo and a later readable result of the part would be dropped.
+        if not os.path.exists(os.path.join(part_dir, "report.json")):
+            print(f"perf-cron replay-results: the artifact of step {value.get('step_id') or '?'} was not read; "
+                  f"part {value['part']} left pending")
+            continue
         report(argparse.Namespace(repo="", dir=o.dir, result=[f"{value['part']}={part_dir}"], run_url="", finish=False,
                                   issues=False, output=os.path.join(o.dir, "replay", "report.out")), t=at)
         stored += 1
