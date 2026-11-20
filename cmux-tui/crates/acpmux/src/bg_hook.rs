@@ -603,8 +603,12 @@ pub fn start_main(args: &[std::ffi::OsString]) -> anyhow::Result<()> {
         match word.as_str() {
             "--home" => home = Some(value()?),
             "--session" => session = Some(value()?),
-            "--cwd" => params.set("cwd", json!(value()?)),
-            "--description" => params.set("description", json!(value()?)),
+            "--cwd" => {
+                params.set("cwd", json!(value()?));
+            }
+            "--description" => {
+                params.set("description", json!(value()?));
+            }
             "--" => {
                 command = words.next().cloned();
                 break;
