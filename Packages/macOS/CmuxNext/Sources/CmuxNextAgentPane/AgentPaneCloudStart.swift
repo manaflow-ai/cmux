@@ -309,8 +309,13 @@ struct AgentPaneHandOff {
         let grantKey = start.signedIn ? start.key : nil
         // The empty chat it replaces: its sign-in and set-up are this start's too (``AgentPaneModel/cloudStartReplaces``).
         if let chat = start.replacesChat, chat == model.sessionId { model.cloudStartReplaces = chat }
+        // A Send needs no key press or click (#45429; Leo, 2026-11-17: "go remove this"), and a new chat's first
+        // Send in Cloud is a Send. The gesture stays only where it is the person's pick of a folder to copy off this
+        // Mac: one under none of the tab's roots. No folder (the App uses the tab's) or a root's is the tab's own.
+        let roots = model.transport.roots().compactMap(AcpmuxPathPolicy.canonical).filter { $0 != "/" }
+        let picksFolder = start.cwd.map { cwd in !roots.contains { AcpmuxPathPolicy.contains(root: $0, path: cwd) } } ?? false
         return await held("cloud.startChat", replacing: start.replacesChat, gestureTicket: start.gestureTicket, gestureParams: ["key": start.key],
-                          signInGrant: grantKey) { [start] replacements in
+                          signInGrant: grantKey, needsGesture: picksFolder) { [start] replacements in
             let reply = await run(start)
             // A chat that started on the machine keeps the hold: this pane never starts one too,
             // also when the App could not close it. Its reservation is spent with it.
@@ -324,8 +329,10 @@ struct AgentPaneHandOff {
     /// showing that chat may start, and the chat it opened does not hold the start back; nil: only a pane with none.
     /// `signInGrant`: the start's key, authorized only by the click its sign-in kept (no gesture);
     /// without that click (withdrawn, spent or stale) the send is `cloud_sign_in_cancelled`.
+    /// `needsGesture` false: the person's gesture is spent if there is one, but its absence refuses nothing, except
+    /// for a prompt an automation seeded (``AgentPaneUserGestures/automationSeedWaits``), which waits for the person's Send.
     private func held(_ method: String, replacing chat: String? = nil, gestureTicket: String? = nil, gestureParams: [String: Any]? = nil,
-                      signInGrant: String? = nil,
+                      signInGrant: String? = nil, needsGesture: Bool = true,
                       _ body: @MainActor (AcpmuxPaneReplacements) async -> [String: Any]) async -> [String: Any] {
         guard model.sessionId == nil || (chat != nil && model.sessionId == chat) else { return AgentPaneModel.unsupported(method) }
         let notNow = AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
@@ -337,6 +344,7 @@ struct AgentPaneHandOff {
         let replacements = transport.replacements
         guard replacements.beginSandbox(replacingOpened: chat != nil) else { return notNow }
         let authorized: Bool
+        let free = !needsGesture && !transport.gestures.automationSeedWaits
         if let signInGrant {
             // No await from here to `body`'s `run`: the check and the start are one turn.
             guard model.takeCloudSignInGrant(signInGrant) else {
@@ -345,9 +353,10 @@ struct AgentPaneHandOff {
             }
             authorized = true
         } else if let gestureTicket, let connection = transport.connection, let gestureParams {
-            authorized = transport.gestures.redeem(gestureTicket, connection: connection, method: method, params: gestureParams)
+            authorized = transport.gestures.redeem(gestureTicket, connection: connection, method: method, params: gestureParams) || free
         } else { // or the credit of the folder pick that spent the click (a too-big card's repository, #40957)
             authorized = transport.gestures.consume() || transport.pickCredit.take(connection: transport.current, now: transport.gestures.uptime, lifetime: AgentPaneUserGestures.lifetime) == true
+                || free
         }
         guard authorized else {
             replacements.endSandbox()
