@@ -17,8 +17,6 @@ use std::sync::OnceLock;
 
 use serde_json::Value;
 
-const ACTIONS_JSON: &str = include_str!("../../../../../plans/cmux-next/action-surfaces.json");
-
 /// Agent-surface exemptions an app may never run.
 const REFUSED: &[&str] = &[
     "credentials",
@@ -44,7 +42,8 @@ pub enum ActionDecision {
 fn catalog() -> &'static HashMap<String, String> {
     static CATALOG: OnceLock<HashMap<String, String>> = OnceLock::new();
     CATALOG.get_or_init(|| {
-        let doc: Value = serde_json::from_str(ACTIONS_JSON).expect("action catalog is JSON");
+        let text = crate::packed_catalogs::ACTION_SURFACES.inflate();
+        let doc: Value = serde_json::from_str(&text).expect("action catalog is JSON");
         doc["actions"]
             .as_array()
             .into_iter()

@@ -947,6 +947,8 @@ class GlaedaKeptLog(unittest.TestCase):
     # nothing (cmux#41244's replay: about 150 reads, stopped at 51 runs).
     UNCACHED_LOG_READERS = {
         "base_red_checks.py": "runs in the push workflow with the Actions token (urllib), where no glaeda-gh is",
+        "ci_receipt.py": "verifies a receipt: it reads the log of a passed job, and glaeda-gh keeps the logs of "
+                         "failed jobs only; GitHub is the signer, so the log must come from the Actions API itself",
         "cmux_next_tree_notify.py": "not switched yet: follow-up to the glaeda job-log cache",
         "cmux_tui_tree_handoff.py": "not switched yet: follow-up to the glaeda job-log cache",
         "nightly_ghostty_helper_reuse.py": "not switched yet: follow-up to the glaeda job-log cache",
@@ -5853,7 +5855,7 @@ class KitFixedOnBaseGitHub(FixedOnBaseGitHub):
     """CmuxMobileKit's job red on the head (cmux#36988 at d286aa2f); the newest base run passes it. Its log is framed
     like the job-log endpoint's: "Set up job", a STEP_START line per step, "Complete job" (step_owners)."""
 
-    def __init__(self, changed=("cmux-tui/crates/cmux-agent-pane-policy/policy.json",
+    def __init__(self, changed=("cmux-tui/crates/cmux-app-ffi/src/lib.rs",
                                 "cmux-next-ios/verify/parity-mac.md", "webviews/src/App.tsx"), files=None):
         super().__init__(changed=changed)
         self.jobs = {1: dict(failed_job(1, 10, HEAD, name=KIT, step=KIT_STEP), steps=framed_steps(KIT_STEPS)),
@@ -6074,7 +6076,8 @@ class PackageFixedOnBase(unittest.TestCase):
         github.blob = tree_blob(tree)
         crates = sorted(excuse.cargo_crates(REPO, HEAD, package["cargo_lock"], github))
         self.assertIn("cmux-tui/crates/cmux-wg", crates)
-        self.assertNotIn("cmux-tui/crates/cmux-agent-pane-policy", crates)
+        # cmux-build-space (the dev build's cloud space) reads its bundle rule from cmux-agent-pane-policy (#43648)
+        self.assertIn("cmux-tui/crates/cmux-agent-pane-policy", crates)
         for crate in crates:
             dirs, files = cargo.crate_inputs(ROOT, crate, tree)
             for path in [f"{d}/Cargo.toml" for d in dirs] + files:
@@ -15515,7 +15518,13 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             # React Doctor (da29cd0a): a ratchet over the React projects' own code.
             "cmux-next-react-doctor.yml",
             # The tab switch check: a display Mac measures the pull request head's tab switches (advisory).
-            "cmux-next-tab-switch.yml"),
+            "cmux-next-tab-switch.yml",
+            # Type-checks the measuring probes (scripts/measure/*.swift) on a Mac when a change touches them.
+            "measure-swift-typecheck.yml",
+            # Calls ci.yml, cmux-next-guards.yml and the other docs-only-filtered workflows when their filter can
+            # be wrong (scripts/ci/docs_only_paths.py FALLBACK); a called guard job's check name carries the
+            # caller's prefix, so no guard job declaration matches it and its red is judged as any job's.
+            "docs-only-fallback.yml"),
         "bots, labels, receipts, comments and policy reads of the pull request or GitHub, not of the tree": (
             "cla-policy-guard.yml", "cla.yml", "classic-frozen-guard.yml", "contributor-welcome.yml", "labels-sync.yml",
             "merge-freeze.yml", "merge-receipt.yml", "namespace-autofix.yml", "pr-body-checks.yml", "risk-tier.yml",
