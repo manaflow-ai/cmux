@@ -11,7 +11,15 @@ enum TerminalPasteboard {
         }
     }
 
+    /// Whether a write carries no text at all. An empty OSC 52 write (a remote
+    /// shell's, e.g. over SSH during a device-code login) would otherwise
+    /// replace the Mac's clipboard with nothing; it is dropped, as in cmux classic.
+    static func isBlank(_ items: [TerminalClipboardItem]) -> Bool {
+        !items.contains { !$0.text.isEmpty }
+    }
+
     static func write(_ items: [TerminalClipboardItem], to location: TerminalPasteboardLocation) {
+        guard !isBlank(items) else { return }
         let pasteboard = pasteboard(location)
         var types: [NSPasteboard.PasteboardType] = []
         for item in items {

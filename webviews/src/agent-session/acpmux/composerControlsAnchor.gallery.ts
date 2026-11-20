@@ -59,14 +59,19 @@ async function pasteLog(ctx: PlayContext) {
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-md-inline-chip[data-preview="text"]'));
 }
 
-/** The controls' bottoms, each to the box's bottom: equal, and the one-line box's. */
+/** The controls' bottoms, each to the box's bottom: equal, and (but in the first-line arm, the
+ * layout before) on the box's bottom edge, not up by the first line. */
 function checkBottom(ctx: PlayContext) {
-  const box = ctx.find({ selector: ".acpmux-composer-box" }).getBoundingClientRect();
+  const boxElement = ctx.find({ selector: ".acpmux-composer-box" });
+  const box = boxElement.getBoundingClientRect();
   const plus = ctx.find({ selector: ".acpmux-composer-inner > .acpmux-composer-plus" }).getBoundingClientRect();
   const actions = ctx.find({ selector: ".acpmux-composer-inner > .acpmux-composer-actions" }).getBoundingClientRect();
   const under = [box.bottom - plus.bottom, box.bottom - actions.bottom];
   if (Math.abs(under[0]! - under[1]!) > 0.5) throw new Error(`+ stands ${under[0]} px over the box's bottom, Send ${under[1]}`);
   if (box.height < 60) throw new Error(`the prompt did not grow (${box.height} px)`);
+  const arm = boxElement.closest("[data-controls-anchor]")?.getAttribute("data-controls-anchor");
+  if (arm !== "first-line" && under[1]! > box.height / 3)
+    throw new Error(`Send stands ${under[1]} px over the bottom of a ${box.height} px box: not on its bottom edge`);
 }
 
 const scene = (

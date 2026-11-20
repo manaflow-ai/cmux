@@ -18,6 +18,7 @@ blob scripts/ci/acpmux-build-features.sh
 blob scripts/ci/tailnet-go.sh
 blob scripts/cmux-next/build-acpmux.sh
 blob scripts/ci/cargo-groups.sh
+blob scripts/ci/cmux-tui-mac-cargo-builds.sh
 blob scripts/ci/cmux-tui-darwin-builder
 blob scripts/ci/macos-cross.sh
 blob scripts/ci/macos_stubs.py
@@ -121,7 +122,7 @@ blob skills/cmux-browser/references/video-recording.md
 blob skills/cmux-browser/templates/authenticated-session.sh
 blob skills/cmux-browser/templates/capture-workflow.sh
 blob skills/cmux-browser/templates/form-automation.sh
-blob skills/cmux-cua/SKILL.md
+blob skills/cmux-computer-use/SKILL.md
 blob skills/cmux-live/SKILL.md
 blob skills/cmux-customization/SKILL.md
 blob skills/cmux-customization/references/examples.md
