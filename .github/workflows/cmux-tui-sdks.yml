@@ -149,6 +149,7 @@ on:
       - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl"
       - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-2.changes.jsonl"
       - "webviews/src/agent-session/acpmux/rows/parity/seed-turn.changes.jsonl"
+      - "webviews/src/apps/scene/extTemplateScenes.json"
       - "workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs"
       - "workers/cmux-vm/cli/crates/cmux-vm-client/Cargo.toml"
       - "workers/cmux-vm/cli/crates/cmux-vm-client/src/**"
@@ -304,6 +305,7 @@ on:
       - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl"
       - "webviews/src/agent-session/acpmux/rows/parity/r1-reply-2.changes.jsonl"
       - "webviews/src/agent-session/acpmux/rows/parity/seed-turn.changes.jsonl"
+      - "webviews/src/apps/scene/extTemplateScenes.json"
       - "workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs"
       - "workers/cmux-vm/cli/crates/cmux-vm-client/Cargo.toml"
       - "workers/cmux-vm/cli/crates/cmux-vm-client/src/**"
@@ -1100,6 +1102,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # Ubuntu 24.04 lets only AppArmor-profiled programs make an unprivileged user
       # namespace; bwrap needs one, so the runner VM lifts that restriction.
