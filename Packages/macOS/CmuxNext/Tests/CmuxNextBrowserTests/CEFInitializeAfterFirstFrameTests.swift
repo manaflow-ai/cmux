@@ -41,6 +41,19 @@ import Testing
         #expect(log.onMain == [false], "one map, after the first frame, off the main thread")
     }
 
+    /// Every launch holds Chromium's start for the first frame, also one that maps nothing early: a restored tab keeps
+    /// its own engine record, so a visible Chromium tab starts Chromium as the window builds with `browser.defaultEngine`
+    /// at WebKit, the agent pane's Chromium off or after a safe restart. Base red: launch set the gate only together with
+    /// its preload, and such a tab ran `CefInitialize` ahead of the first frame.
+    @Test(arguments: [false, true]) func launchHoldsEveryStartForTheFirstFrame(preload: Bool) {
+        let gate = Self.gate()
+        let engine = CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks())
+        let before = CEFRuntime.shared.initializeAfter
+        defer { CEFRuntime.shared.initializeAfter = before }
+        engine.launch(after: gate, preload: preload)
+        #expect(CEFRuntime.shared.initializeAfter === gate)
+    }
+
     @Test func aStartAfterTheFirstFrameOrWithNoGateDoesNotWait() async {
         let gate = Self.gate()
         gate.open()
