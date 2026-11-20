@@ -73,6 +73,7 @@ struct CloudTreeMachineDetailLayoutTests {
         // Ports, Terminals and Displays have nothing current while the link
         // connects (#17139); Resources is fleet telemetry and keeps its tab.
         #expect(tabs.tabs == [.resources])
+        #expect(tabsRow.detailPools.map(\.structureTag) == ["resourcesPool"])
     }
 
     @Test("Opening Terminals shows New Terminal, then every terminal labelled with its workspace")

@@ -192,5 +192,10 @@ final class CloudPortsStatusActionButton: NSButton {
             .font: NSFont.systemFont(ofSize: fontSize, weight: .medium),
             .foregroundColor: isHovered || isHighlighted ? NSColor.labelColor : NSColor.secondaryLabelColor,
         ])
+        // `.momentaryChange` shows the alternate title while pressed.
+        attributedAlternateTitle = NSAttributedString(string: chipTitle, attributes: [
+            .font: NSFont.systemFont(ofSize: fontSize, weight: .medium),
+            .foregroundColor: NSColor.labelColor,
+        ])
     }
 }
