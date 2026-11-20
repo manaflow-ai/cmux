@@ -41,6 +41,9 @@ extension SidebarSectionsSetting {
     /// `sidebar.sessionTree`.
     public nonisolated static let sessionTreePath = ["sidebar", "sessionTree"]
     public nonisolated static let sessionTreeDefault = false
+    /// `sidebar.foldNestedSessions`: With sidebar.sessionTree on, a session that another session started and that starts sessions of its own starts folded (SidebarSessionTree.foldsNested; its count and state chips show). Off by default: every parent starts open, as shipped. A fold or open the person made is kept per parent either way (Leo, via the coordinator: "Claude Code (and the Claude desktop app's Code tab) shows subagents and sub-sessions nested under the parent chat ... children under the parent, foldable, with status"; no default flip without Leo's words).
+    public nonisolated static let foldNestedSessionsPath = ["sidebar", "foldNestedSessions"]
+    public nonisolated static let foldNestedSessionsDefault = false
     /// `sidebar.showProjects`.
     public nonisolated static let showProjectsPath = ["sidebar", "showProjects"]
     public nonisolated static let showProjectsDefault = true

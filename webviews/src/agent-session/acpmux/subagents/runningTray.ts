@@ -10,6 +10,11 @@
 // the running turn's line counts the work (conversation/WorkingFor.tsx). The separate running
 // activity pill above the composer is intentionally not rendered. The host sends the setting with
 // the theme (`subagentTray`); absent means on.
+//
+// Settings > Agent Chat > Subagents (`agentPane.display.subagents`, chatDisplay.ts) set to
+// `transcript` draws them as that card too, as Claude's desktop app nests them under the parent
+// chat: the tray shows only when the tunable is on and the setting is not `transcript`. Both
+// stores notify, so a settings save swaps an open chat live.
 import { useSyncExternalStore } from "react";
 import type { AcpmuxRow } from "../model";
 import type { StartedSession } from "../started/startedSessions";
@@ -22,6 +27,7 @@ import { retrying, retryKey, sessionRetry, type RetryState } from "./retryState"
 import { resumedRun } from "./resumeState";
 import { BACKGROUND_TURN } from "../conversation/backgroundTurns";
 import { keptPrefix, noteKeptPrefix, PrefixFlatCache } from "../conversation/prefixFlatMap";
+import { subagentsDisplay, subscribeChatDisplay } from "../chatDisplay";
 
 let trayOn = true;
 const listeners = new Set<() => void>();
@@ -38,10 +44,22 @@ const subscribe = (listener: () => void) => {
   listeners.add(listener);
   return () => void listeners.delete(listener);
 };
-const snapshot = () => trayOn;
+/// Whether running subagents show in the tray (the default) rather than as a transcript card: the
+/// Debug tunable on and the Subagents setting not `transcript`.
+export const subagentTrayShown = (): boolean => trayOn && subagentsDisplay() !== "transcript";
+/// Calls `listener` when either input of subagentTrayShown may have changed.
+export const subscribeSubagentTray = (listener: () => void): (() => void) => {
+  const offTunable = subscribe(listener);
+  const offDisplay = subscribeChatDisplay(listener);
+  return () => {
+    offTunable();
+    offDisplay();
+  };
+};
 
-/// Whether running subagents show in the tray (the default) rather than as a transcript card.
-export const useSubagentTray = (): boolean => useSyncExternalStore(subscribe, snapshot, snapshot);
+/// subagentTrayShown, live.
+export const useSubagentTray = (): boolean =>
+  useSyncExternalStore(subscribeSubagentTray, subagentTrayShown, subagentTrayShown);
 
 /// One running thing in the tray: a subagent (nested ones moved in under their parent), a
 /// background command, or a chat the agent started.

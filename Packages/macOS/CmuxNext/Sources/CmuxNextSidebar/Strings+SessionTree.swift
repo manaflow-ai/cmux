@@ -34,6 +34,9 @@ extension Strings {
     /// A folded parent's roll-up chips, for VoiceOver: what its hidden sessions are doing.
     static func rollUp(_ rollUp: SidebarTreeRollUp) -> String {
         var parts: [String] = []
+        if rollUp.hidden > 0 {
+            parts.append(String(localized: "sidebar.a11y.rollUp.hidden", defaultValue: "\(rollUp.hidden) hidden", bundle: .module))
+        }
         if rollUp.blocked > 0 {
             parts.append(String(localized: "sidebar.a11y.rollUp.blocked", defaultValue: "\(rollUp.blocked) waiting on you", bundle: .module))
         }

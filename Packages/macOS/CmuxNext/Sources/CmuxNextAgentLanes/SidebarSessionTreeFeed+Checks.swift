@@ -14,6 +14,17 @@ extension SidebarSessionTreeFeed {
         Self.checksFailing(lane, answers: pullRequests.answers, sections: DesignSettings.shared.sidebarSections)
     }
 
+    /// `pass` into `tree`: the badges whenever the feed runs, the tree itself only while it shows, and
+    /// `sidebar.foldNestedSessions` (the nested parents' default fold) before the state it folds.
+    static func publish(_ pass: Pass?, to tree: SidebarSessionTree) {
+        let state = pass?.showsTree == true ? pass?.state : nil
+        let folds = pass?.foldsNested == true
+        if tree.foldsNested != folds { tree.foldsNested = folds }
+        if tree.state != state { tree.state = state }
+        let badges = pass?.state.pullRequests ?? [:]
+        if tree.pullRequests != badges { tree.pullRequests = badges }
+    }
+
     /// The pull request reads run: the session tree or the Priority view is on.
     static func readsPullRequests(_ sections: SidebarSectionsPreferences) -> Bool {
         sections.sessionTree || sections.priorityViewEnabled

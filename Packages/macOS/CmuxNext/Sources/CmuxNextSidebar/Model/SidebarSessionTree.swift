@@ -158,52 +158,101 @@ public nonisolated struct SidebarSessionTreeState: Hashable, Sendable {
 
 /// The session tree's live state; nil while `sidebar.sessionTree` is off, so the list draws as
 /// before. The app's feed (`SidebarSessionTreeFeed`) writes it; the list and Command-number order read it.
+///
+/// Parents start open at every depth, as shipped. With `sidebar.foldNestedSessions` on (off by default,
+/// `foldsNested`), a parent started by another session (depth 1 or deeper) starts folded instead, a
+/// top-level parent still starts open. The person's folds are kept per parent across launches, with the
+/// setting on or off: `collapsed` for a parent they folded, `opened` for a default-folded one they opened
+/// (it has an effect only while the setting is on), both pruned to live parents.
 @Observable @MainActor
 public final class SidebarSessionTree {
     public static let shared = SidebarSessionTree()
 
-    public var state: SidebarSessionTreeState?
+    public var state: SidebarSessionTreeState? {
+        didSet { redraw() }
+    }
+    /// `sidebar.foldNestedSessions`: nested parents start folded. Off by default; the feed writes it.
+    public var foldsNested = false {
+        didSet { if foldsNested != oldValue { redraw() } }
+    }
     /// Every row's pull request badge, with the tree on or off.
     public var pullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:]
     /// The parents the user folded (a chevron on the row), kept across launches.
     public private(set) var collapsed: Set<WorkspaceID>
+    /// The nested parents (depth 1 or deeper) the user opened while `foldsNested` folds them by default.
+    public private(set) var opened: Set<WorkspaceID>
+    /// What the list draws: the live state with its folds (the user's, then each nested parent's
+    /// default while `foldsNested` is on); nil while the tree is off. Kept as the folds or the state
+    /// change, so each row's read is free.
+    public private(set) var drawn: SidebarSessionTreeState?
     @ObservationIgnored private let defaults: UserDefaults
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         collapsed = Set((defaults.stringArray(forKey: Self.collapsedKey) ?? []).map(WorkspaceID.init))
+        opened = Set((defaults.stringArray(forKey: Self.openedKey) ?? []).map(WorkspaceID.init))
     }
 
-    /// What the list draws: the live state with the user's folds; nil while the tree is off.
-    public var drawn: SidebarSessionTreeState? {
-        state.map { live in
+    /// Whether another session started `id`, so a parent of its own is nested (depth 1 or deeper).
+    private func isNested(_ id: WorkspaceID) -> Bool { state?.parents[id] != nil }
+
+    /// Whether `id` starts folded by default: `foldsNested` is on and it is nested.
+    private func foldsByDefault(_ id: WorkspaceID) -> Bool { foldsNested && isNested(id) }
+
+    /// Whether `id` starts sessions of its own in the live tree (its row has a chevron).
+    public func isParent(_ id: WorkspaceID) -> Bool { state?.parents.values.contains(id) ?? false }
+
+    /// Whether the subtree under `id` is folded: the person folded it, or `foldsNested` folds it by default and they never opened it.
+    public func isFolded(_ id: WorkspaceID) -> Bool {
+        collapsed.contains(id) || (foldsByDefault(id) && !opened.contains(id))
+    }
+
+    private func redraw() {
+        let next = state.map { live in
             var drawn = live
             drawn.collapsed = collapsed
+            if foldsNested {
+                for parent in Set(live.parents.values) where live.parents[parent] != nil && !opened.contains(parent) {
+                    drawn.collapsed.insert(parent)
+                }
+            }
             return drawn
         }
+        if drawn != next { drawn = next }
     }
 
-    /// Folds or opens the subtree under `id`.
+    /// Folds or opens the subtree under `id`. Both are recorded whatever `foldsNested` says, so turning the
+    /// setting on or off never loses a choice: a fold is `collapsed`, and an open of a nested parent is `opened`
+    /// (the default fold, when the setting is on, then leaves it open).
     public func toggle(_ id: WorkspaceID) {
-        if collapsed.remove(id) == nil { collapsed.insert(id) }
+        if isFolded(id) {
+            collapsed.remove(id)
+            if isNested(id) { opened.insert(id) }
+        } else {
+            opened.remove(id)
+            collapsed.insert(id)
+        }
         save()
     }
 
     /// Opens every fold above `id` (a selected session, or one the needs-you tray goes to).
     public func reveal(_ id: WorkspaceID) {
         var seen: Set<WorkspaceID> = [id]
-        var current = id, opened = collapsed
+        var current = id, folds = collapsed, opens = opened
         while let parent = state?.parents[current], seen.insert(parent).inserted {
-            opened.remove(parent)
+            if isFolded(parent) {
+                folds.remove(parent)
+                if isNested(parent) { opens.insert(parent) }
+            }
             current = parent
         }
-        guard opened != collapsed else { return }
-        collapsed = opened
+        guard folds != collapsed || opens != opened else { return }
+        (collapsed, opened) = (folds, opens)
         save(pruning: false)
     }
 
     /// Saves the folds, dropping each one that is no longer a parent in the live tree (a closed
-    /// workspace, or one whose sub-sessions ended), so the saved list never outgrows the tree. It
+    /// workspace, or one whose sub-sessions ended), so the saved lists never outgrow the tree. It
     /// prunes only on the user's own fold while the tree has parents: before the first pass every
     /// fold is kept, and `reveal` (which runs for the restored selection at launch, while the lanes
     /// may still be loading) never prunes.
@@ -211,9 +260,13 @@ public final class SidebarSessionTree {
         if pruning, let parents = state?.parents, !parents.isEmpty {
             let live = Set(parents.values)
             collapsed = collapsed.filter(live.contains)
+            opened = opened.filter(live.contains)
         }
         defaults.set(collapsed.map(\.rawValue).sorted(), forKey: Self.collapsedKey)
+        defaults.set(opened.map(\.rawValue).sorted(), forKey: Self.openedKey)
+        redraw()
     }
 
     static let collapsedKey = "sidebar.sessionTree.collapsed"
+    static let openedKey = "sidebar.sessionTree.opened"
 }

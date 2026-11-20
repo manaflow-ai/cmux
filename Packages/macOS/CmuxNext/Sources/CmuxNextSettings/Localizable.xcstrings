@@ -330,11 +330,23 @@
       "localizations": {
         "en": {"stringUnit": {"state": "translated", "value": "Needs You Look"}},
         "ar": {"stringUnit": {"state": "translated", "value": "مظهر «بحاجة إليك»"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Izgled za „Treba vas“"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Udseende for »Kræver dig«"}},
         "de": {"stringUnit": {"state": "translated", "value": "Darstellung von „Braucht dich“"}},
         "es": {"stringUnit": {"state": "translated", "value": "Aspecto de «Te necesita»"}},
         "fr": {"stringUnit": {"state": "translated", "value": "Apparence de « Vous attend »"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Aspetto di «Serve a te»"}},
         "ja": {"stringUnit": {"state": "translated", "value": "「要対応」の見た目"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "រូបរាងនៃ «ត្រូវការអ្នក»"}},
         "ko": {"stringUnit": {"state": "translated", "value": "확인 필요 표시 방식"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Utseende for «Trenger deg»"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Wygląd stanu „Czeka na ciebie”"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Aparência de “Precisa de você”"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Внешний вид «Ждёт вас»"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "รูปลักษณ์ของ “รอคุณอยู่”"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "“Sizi bekliyor” görünümü"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Вигляд «Чекає на вас»"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Giao diện của “Cần bạn”"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "“需要你”的外观"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "「需要你」的外觀"}}
       }
@@ -344,11 +356,23 @@
       "localizations": {
         "en": {"stringUnit": {"state": "translated", "value": "How a tab and a sidebar row that wait for you show it: the badge, or a gentle glow until you look at them."}},
         "ar": {"stringUnit": {"state": "translated", "value": "كيف تُظهر علامة التبويب وصف الشريط الجانبي أنهما بانتظارك: الشارة، أو توهّج هادئ حتى تنظر إليهما."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Kako to prikazuju kartica i red na bočnoj traci koji čekaju na vas: značkom ili blagim sjajem dok ih ne pogledate."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Hvordan en fane og en række i sidepanelet, der venter på dig, viser det: med mærket eller en blid glød, indtil du ser på dem."}},
         "de": {"stringUnit": {"state": "translated", "value": "Wie ein Tab und eine Seitenleistenzeile zeigen, dass sie auf dich warten: mit dem Abzeichen oder einem sanften Leuchten, bis du sie ansiehst."}},
         "es": {"stringUnit": {"state": "translated", "value": "Cómo muestran una pestaña y una fila de la barra lateral que te esperan: con la insignia o con un brillo suave hasta que las mires."}},
         "fr": {"stringUnit": {"state": "translated", "value": "Comment un onglet et une ligne de la barre latérale qui vous attendent le montrent : le badge, ou une douce lueur jusqu’à ce que vous les regardiez."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Come lo mostrano una scheda e una riga della barra laterale che ti aspettano: con il badge o con un lieve bagliore finché non le guardi."}},
         "ja": {"stringUnit": {"state": "translated", "value": "対応待ちのタブとサイドバーの行の示し方：バッジ、または見るまでやさしく光る表示。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "របៀបដែលផ្ទាំង និងជួរនៅរបារចំហៀងដែលកំពុងរង់ចាំអ្នក បង្ហាញវា៖ ដោយផ្លាកសញ្ញា ឬពន្លឺស្រទន់ រហូតដល់អ្នកមើលវា។"}},
         "ko": {"stringUnit": {"state": "translated", "value": "확인이 필요한 탭과 사이드바 행을 표시하는 방식: 배지, 또는 확인할 때까지 은은하게 빛나기."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Hvordan en fane og en rad i sidefeltet som venter på deg, viser det: med merket eller en myk glød til du ser på dem."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Jak karta i wiersz paska bocznego, które na ciebie czekają, to pokazują: plakietką albo delikatną poświatą, dopóki na nie nie spojrzysz."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Como uma aba e uma linha da barra lateral que esperam por você mostram isso: com o selo ou com um brilho suave até você olhar para elas."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Как вкладка и строка боковой панели, которые ждут вас, показывают это: значком или мягким свечением, пока вы на них не посмотрите."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "วิธีที่แท็บและแถวในแถบด้านข้างที่รอคุณอยู่แสดงสถานะนี้: ใช้ป้าย หรือเรืองแสงอ่อน ๆ จนกว่าคุณจะมอง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Sizi bekleyen bir sekmenin ve kenar çubuğu satırının bunu nasıl göstereceği: rozetle ya da siz bakana kadar yumuşak bir parıltıyla."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Як вкладка й рядок бічної панелі, що чекають на вас, це показують: значком або м’яким світінням, доки ви на них не подивитеся."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Cách một tab và một hàng thanh bên đang chờ bạn hiển thị điều đó: bằng huy hiệu, hoặc ánh sáng dịu cho đến khi bạn nhìn vào."}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "等待你的标签页和侧边栏行如何显示：使用标记，或在你查看前柔和地发光。"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "等待你的分頁與側邊欄列如何顯示：使用標記，或在你查看前柔和地發光。"}}
       }
@@ -358,11 +382,23 @@
       "localizations": {
         "en": {"stringUnit": {"state": "translated", "value": "Badge"}},
         "ar": {"stringUnit": {"state": "translated", "value": "شارة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Značka"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Mærke"}},
         "de": {"stringUnit": {"state": "translated", "value": "Abzeichen"}},
         "es": {"stringUnit": {"state": "translated", "value": "Insignia"}},
         "fr": {"stringUnit": {"state": "translated", "value": "Pastille"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Badge"}},
         "ja": {"stringUnit": {"state": "translated", "value": "バッジ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ផ្លាកសញ្ញា"}},
         "ko": {"stringUnit": {"state": "translated", "value": "배지"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Merke"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Plakietka"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Selo"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Значок"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ป้าย"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Rozet"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Значок"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Huy hiệu"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "标记"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "標記"}}
       }
@@ -34441,6 +34477,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "將代理啟動的工作區列在啟動它的工作區下方。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.foldNestedSessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fold Nested Sessions"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "طي الجلسات المتداخلة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sažmi ugniježdene sesije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fold indlejrede sessioner sammen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verschachtelte Sitzungen einklappen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Contraer sesiones anidadas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Replier les sessions imbriquées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Comprimi le sessioni annidate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "入れ子のセッションを折りたたむ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បត់វគ្គដែលនៅក្នុងគ្នា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "중첩된 세션 접기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjul nestede økter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zwijaj zagnieżdżone sesje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recolher sessões aninhadas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сворачивать вложенные сеансы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ย่อเซสชันที่ซ้อนกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İç içe oturumları daralt"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Згортати вкладені сеанси"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thu gọn phiên lồng nhau"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "折叠嵌套会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "摺疊巢狀工作階段"
+          }
+        }
+      }
+    },
+    "settings.sidebar.foldNestedSessions.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starts a session that has sessions of its own folded under its parent. Off keeps every one open."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تبدأ الجلسة التي لها جلسات خاصة بها مطوية تحت الجلسة الأم. عند الإيقاف تبقى كلها مفتوحة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sesija koja ima vlastite sesije počinje sažeta pod svojim roditeljem. Isključeno drži sve otvorenima."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En session med egne sessioner starter foldet sammen under sin overordnede. Slået fra holder alle åbne."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine Sitzung mit eigenen Sitzungen beginnt eingeklappt unter ihrer übergeordneten. Aus lässt alle geöffnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una sesión con sesiones propias empieza contraída bajo su sesión madre. Desactivado mantiene todas abiertas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une session qui a ses propres sessions démarre repliée sous sa session parente. Désactivé les garde toutes ouvertes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una sessione con sessioni proprie parte compressa sotto la sessione madre. Disattivato le tiene tutte aperte."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自身のセッションを持つセッションを、親の下で折りたたんだ状態で開始します。オフにするとすべて開いたままになります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វគ្គដែលមានវគ្គផ្ទាល់ខ្លួនចាប់ផ្តើមដោយបត់នៅក្រោមវគ្គមេរបស់វា។ បិទ រក្សាទាំងអស់ឱ្យបើក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "자체 세션이 있는 세션을 부모 아래에 접은 상태로 시작합니다. 끄면 모두 열린 상태를 유지합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En økt med egne økter starter skjult under den overordnede. Av holder alle åpne."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sesja mająca własne sesje zaczyna zwinięta pod sesją nadrzędną. Wyłączone zostawia wszystkie otwarte."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma sessão que tem sessões próprias começa recolhida sob a sessão pai. Desativado mantém todas abertas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сеанс с собственными сеансами начинается свёрнутым под родительским. Если выключено, все остаются развёрнутыми."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เซสชันที่มีเซสชันของตัวเองจะเริ่มแบบย่อไว้ใต้เซสชันแม่ เมื่อปิดจะเปิดทั้งหมดไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kendi oturumları olan bir oturum, üst oturumunun altında daraltılmış başlar. Kapalıyken hepsi açık kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сеанс із власними сеансами починається згорнутим під батьківським. Якщо вимкнено, усі лишаються розгорнутими."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một phiên có các phiên riêng sẽ bắt đầu ở trạng thái thu gọn dưới phiên cha. Tắt thì giữ tất cả mở."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "有自己子会话的会话在其父会话下默认折叠。关闭则全部保持展开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "有自己子工作階段的工作階段預設摺疊在其父項之下。關閉則全部保持展開。"
           }
         }
       }
@@ -157311,6 +157609,270 @@
         }
       }
     },
+    "settings.agentPane.display.subagents": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagents"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوكلاء الفرعيون"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podagenti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Underagenter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagenten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sous-agents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブエージェント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងាររង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 에이전트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Underagenter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podagenci"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Субагенты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์ย่อย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alt Ajanlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Субагенти"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác tử phụ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "子代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "子代理"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.subagents.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where the agent's subagents show while they run."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مكان ظهور الوكلاء الفرعيين للوكيل أثناء عملهم."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdje se prikazuju podagenti agenta dok rade."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor agentens underagenter vises, mens de kører."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wo die Subagenten des Agenten erscheinen, während sie laufen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dónde se muestran los subagentes del agente mientras trabajan."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Où s'affichent les sous-agents de l'agent pendant qu'ils travaillent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dove compaiono i subagenti dell'agente mentre lavorano."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントのサブエージェントを実行中にどこに表示するか。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងដែលភ្នាក់ងាររងរបស់ភ្នាក់ងារបង្ហាញ ពេលកំពុងដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트의 하위 에이전트가 실행되는 동안 표시되는 위치입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor agentens underagenter vises mens de kjører."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdzie widać podagentów agenta podczas ich pracy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onde os subagentes do agente aparecem enquanto trabalham."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Где показываются субагенты агента, пока они работают."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตำแหน่งที่เอเจนต์ย่อยของเอเจนต์แสดงขณะทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanın alt ajanlarının çalışırken nerede görüneceği."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Де показуються субагенти агента, поки вони працюють."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nơi các tác tử phụ của tác tử hiển thị khi đang chạy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理的子代理在运行时显示的位置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理的子代理在執行時顯示的位置。"
+          }
+        }
+      }
+    },
     "settings.choice.middle": {
       "comment": "Settings: a choice of where a control sits along an edge: its middle",
       "extractionState": "manual",
@@ -157439,6 +158001,270 @@
           "stringUnit": {
             "state": "translated",
             "value": "中間"
+          }
+        }
+      }
+    },
+    "settings.choice.inRunningTray": {
+      "comment": "Settings: a choice of where the agent chat's subagents show: in the running tray over the composer",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In the Running Tray"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "في شريط العمل الجاري"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "U traci rada u toku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I bjælken med igangværende arbejde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In der Leiste mit laufender Arbeit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En la barra de trabajo en curso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dans la barre de travail en cours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nella barra del lavoro in corso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中の作業バー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅក្នុងរបារការងារកំពុងដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 작업 막대"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I linjen med pågående arbeid"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na pasku trwającej pracy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na barra de trabalho em andamento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На панели текущей работы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ในแถบงานที่กำลังทำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Süren iş çubuğunda"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На панелі поточної роботи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trong thanh công việc đang chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在正在进行的工作栏中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在進行中工作列中"
+          }
+        }
+      }
+    },
+    "settings.choice.inTranscript": {
+      "comment": "Settings: a choice of where the agent chat's subagents show: as cards in the transcript",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In the Transcript"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "في النص"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "U transkriptu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I transskriptionen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Transkript"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En la transcripción"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dans la transcription"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nella trascrizione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トランスクリプト内"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅក្នុងប្រតិចារឹក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대화 내용 안"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I transkripsjonen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "W transkrypcji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na transcrição"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В транскрипте"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ในบันทึกการสนทนา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dökümde"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У транскрипті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trong bản ghi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在对话记录中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在對話記錄中"
           }
         }
       }

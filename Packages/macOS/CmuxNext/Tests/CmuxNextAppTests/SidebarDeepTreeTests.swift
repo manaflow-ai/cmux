@@ -82,7 +82,7 @@ import Testing
         #expect(Set(folded.keys) == [a])
         #expect(folded[a]?.treeFold == .collapsed)
         // d is idle by its lane but unread: finished, unread. An idle descendant is not counted.
-        #expect(folded[a]?.rollUp == SidebarTreeRollUp(blocked: 1, failed: 1, running: 1, unread: 1))
+        #expect(folded[a]?.rollUp == SidebarTreeRollUp(blocked: 1, failed: 1, running: 1, unread: 1, hidden: 4))
     }
 
     /// The folded parent uses the same shared working mark as a live agent row. When the last

@@ -37,6 +37,22 @@ pub static ACTIONS: &[Action] = &[
         starts_terminal: true,
         ..Action::DEFAULT
     },
+    // The chat row's "Show nested sessions" (Leo): shows or hides the sessions this workspace
+    // started, under its row in the session tree. The row menu shows it at its top level
+    // (ContextMenuEssentials) on a row that started sessions, checked while they show.
+    Action {
+        id: "workspace.toggleNestedSessions",
+        group: GROUP,
+        title: t("WorkspaceActions", "action.workspace.toggleNestedSessions", "Show Nested Sessions"),
+        keywords: &["nested", "sessions", "subagents", "children", "tree", "fold", "expand", "collapse", "hide"],
+        category: "workspace",
+        symbol: "list.bullet.indent",
+        surfaces: PALETTE | CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("workspaceRow", "identity", 118).folder("options")], ..SurfacePlan::DEFAULT },
+        targets: &["workspace"],
+        cli_name: "workspace show-nested-sessions",
+        ..Action::DEFAULT
+    },
     Action {
         id: "workspace.newAtTop",
         group: GROUP,

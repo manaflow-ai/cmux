@@ -156,7 +156,7 @@
               "sidebar.floatOnHover"
             ]},
             {"title": {"key": "settings.pageGroup.sidebarWorkspaces", "text": "Sidebar Workspaces"}, "keys": [
-              "workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree",
+              "workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree", "sidebar.foldNestedSessions",
               "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps",
               "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
               "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background", "sidebar.priorityView.enabled", "sidebar.priorityView.shown"
@@ -310,6 +310,7 @@
             {"title": {"key": "settings.pageGroup.chatLayout", "text": "Chat Layout"}, "keys": [
               "agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap",
               "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle",
+              "agentPane.display.subagents",
               "agentPane.display.unreadBanner",
               "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner",
               "agentPane.display.rail.side", "agentPane.display.sessionInfo.placement",

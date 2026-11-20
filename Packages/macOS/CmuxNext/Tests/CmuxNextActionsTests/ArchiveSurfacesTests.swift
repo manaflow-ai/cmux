@@ -32,6 +32,9 @@ import Testing
             case .separator: nil
             }
         }
-        #expect(rows.count <= 12, "\(context) has \(rows.count) top-level rows: \(rows)")
+        // A workspace row's menu has the parity test's cap: its Copy ▸, and Show Nested Sessions, which
+        // shows only on a row that started sessions (`everyMenuKeepsAShortTopLevel`).
+        let cap = context == .workspaceRow ? 13 : 12
+        #expect(rows.count <= cap, "\(context) has \(rows.count) top-level rows: \(rows)")
     }
 }

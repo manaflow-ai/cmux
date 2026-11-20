@@ -186,6 +186,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// workspace's agent lists under it on a thin line, rows carry their pull requests, and the
     /// first rows their Command-number keycaps. Off by default: it changes the list's look.
     public var sessionTree = false
+    /// `sidebar.foldNestedSessions`: with the session tree on, a parent started by another session
+    /// (depth 1 or deeper) starts folded. Off by default: every parent starts open, as shipped.
+    public var foldNestedSessions = false
     /// `sidebar.style`: the standard sidebar (default) or the thin rail.
     public var style: SidebarLayoutStyle = .standard
 

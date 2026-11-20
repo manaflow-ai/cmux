@@ -80,6 +80,19 @@ extension AgentPaneDisplaySettingsSchema {
                 keywords: ["agent", "chat", "acp", "display", "reading", "tray", "hat", "tuck", "handle", "grabber", "pull", "tab", "side", "left", "middle", "center", "right", "composer"]
             ),
             SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.subagentsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.subagents", "Subagents"),
+                help: SettingsText.keyed("settings.agentPane.display.subagents.help", "Where the agent's subagents show while they run."),
+                kind: .choice([
+                    SettingChoice("tray", SettingsText.keyed("settings.choice.inRunningTray", "In the Running Tray")),
+                    SettingChoice("transcript", SettingsText.keyed("settings.choice.inTranscript", "In the Transcript")),
+                ]),
+                default: .string(AgentPaneDisplaySettingsSchema.subagentsDefault),
+                keywords: ["agent", "chat", "acp", "display", "reading", "subagent", "subagents", "task", "nested", "tray", "transcript", "card", "running", "background"]
+            ),
+            SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.unreadBannerPath,
                 section: .appearance,
                 group: group,
@@ -370,19 +383,6 @@ extension AgentPaneDisplaySettingsSchema {
                 ]),
                 default: .string(AgentPaneDisplaySettingsSchema.harnessPlacementDefault),
                 keywords: ["agent", "chat", "acp", "display", "reading", "model", "picker", "harness", "placement", "left", "top", "symbols"]
-            ),
-            SettingDescriptor(
-                AgentPaneDisplaySettingsSchema.railSidePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.agentPane.display.rail.side", "Prompt Rail Side"),
-                help: SettingsText.keyed("settings.agentPane.display.rail.side.help", "Right-click the rail to move it."),
-                kind: .choice([
-                    SettingChoice("left", SettingsText.keyed("settings.choice.left", "Left")),
-                    SettingChoice("right", SettingsText.keyed("settings.choice.right", "Right")),
-                ]),
-                default: .string(AgentPaneDisplaySettingsSchema.railSideDefault),
-                keywords: ["agent", "chat", "acp", "display", "reading", "rail", "minimap", "prompts", "ticks", "scroll", "side", "left", "right"]
             ),
         ]
     }
