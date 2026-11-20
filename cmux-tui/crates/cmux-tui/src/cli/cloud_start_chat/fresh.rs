@@ -170,10 +170,15 @@ pub(super) fn keep_retried(earlier: Vec<Value>, mut outcome: Outcome) -> Outcome
             answer["fresh_retry"] = json!(rows);
         }
         Outcome::Failed { error, .. } => {
-            if !error.get("details").is_some_and(Value::is_object) {
-                error["details"] = json!({});
+            if let Some(error) = error.as_object_mut() {
+                let details = error.entry("details").or_insert_with(|| json!({}));
+                if !details.is_object() {
+                    *details = json!({"was": details.clone()});
+                }
+                if let Some(details) = details.as_object_mut() {
+                    details.insert("fresh_retry".into(), json!(rows));
+                }
             }
-            error["details"]["fresh_retry"] = json!(rows);
         }
     }
     outcome
