@@ -17,9 +17,9 @@ import { foldFind } from "./chatFind";
 export type SurgeHold = {
   /// Messages held in the inbox without a turn.
   held: number;
-  /// Of them, the ones that need the person or the agent (blocks and questions).
+  /// Distinct unresolved topics that triage marked for this session.
   needYou: number;
-  /// The event's seq (0 for a listing's snapshot, which any event replaces).
+  /// Sequence of the journal snapshot. Older, unversioned listings start at zero.
   seq: number;
   /// When the snapshot was taken (Unix ms), when known.
   at?: number;
@@ -36,6 +36,15 @@ export function surgeCounts(value: unknown): { held: number; needYou: number } |
   const needYou = count(record.needYou);
   if (held === undefined && needYou === undefined) return undefined;
   return { held: held ?? 0, needYou: needYou ?? 0 };
+}
+
+/// A listing or count-only read names the event its counts came from. Older daemons
+/// omitted that cursor, so their reply can seed an empty row until a journal event arrives.
+export function listedSurge(value: unknown): SurgeHold | undefined {
+  const counts = surgeCounts(value);
+  if (!counts) return undefined;
+  const seq = count((value as Record<string, unknown>).seq) ?? 0;
+  return { ...counts, seq };
 }
 
 /// The snapshot a mux event carries: a held `inbox` event's or an `inbox_triaged` event's.
