@@ -229,8 +229,9 @@ impl FitPolicy {
             // A shell's title or cursor changed: a forced fit of the shell stays.
             return self.decision(false);
         }
-        // A TUI started or ended: a new run, unfitted unless remembered.
+        // A TUI started or ended: a new run, unfitted unless remembered, outside any sequence.
         self.typed = 0;
+        self.escape = Escape::None;
         self.declined = false;
         self.fitted = None;
         if self.fits_on_entry(&self.foreground) {
@@ -243,11 +244,12 @@ impl FitPolicy {
     /// Escape sequences (arrows, function keys, mouse reports) and control
     /// characters are not text and never count.
     pub fn typed(&mut self, bytes: &[u8]) -> FitDecision {
-        // A send that was a lone Esc is the Escape key unless this send goes on with a CSI or
-        // string introducer (a sequence split across sends, `an_escape_sequence_split_...`):
-        // vim's Esc then `O`, `a`, `b` is three characters typed, not an SS3 eating the `a`.
-        let continues = matches!(bytes.first(), Some(b'[' | b']' | b'P' | b'_' | b'^'));
-        if self.escape == Escape::Esc && !continues {
+        // Each send is whole key events or a paste, so an Esc that ends a send is the Escape
+        // key, never the start of a sequence the next send finishes: vim's Esc then `P`, `[`
+        // or `O` is a key typed, not a string, CSI or SS3 that swallows the keys after it. A
+        // sequence whose introducer came with its Esc (CSI parameters, an OSC body) still
+        // carries across sends.
+        if self.escape == Escape::Esc {
             self.escape = Escape::None;
         }
         let printable = self.count_printable(bytes);
@@ -621,7 +623,8 @@ mod tests {
     fn an_escape_sequence_split_across_sends_is_still_not_text() {
         let mut policy = FitPolicy::new([]);
         policy.observe(alt("htop"));
-        for part in [&b"\x1b"[..], b"[", b"1;5", b"A", b"\x1b]52;c;aGVsbG8=", b"\x07"] {
+        // A sequence's introducer comes with its Esc; its parameters and body may come later.
+        for part in [&b"\x1b["[..], b"1;5", b"A", b"\x1b]52;c;aGVsbG8=", b"\x07"] {
             assert!(!policy.typed(part).claims, "{part:?}");
         }
         assert!(!policy.typed(b"q").claims);
