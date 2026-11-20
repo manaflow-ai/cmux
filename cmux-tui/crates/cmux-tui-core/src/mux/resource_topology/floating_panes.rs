@@ -16,7 +16,7 @@
 //! floating pane becomes tiled.
 
 use cmux_layout_reducer::floating_panes::{
-    FloatFrame, FloatMode, FloatRefusal, Floating, normalized, place,
+    FloatFrame, FloatMode, FloatRefusal, Floating, focus_moved, normalized, place,
 };
 
 use super::*;
@@ -40,11 +40,9 @@ pub(crate) fn registry_floating_panes(
     Screen::settled_floating_panes(root, columns, list)
         .into_iter()
         .map(|entry| {
-            let pane =
-                state.resource_indexes.pane_ids.get(&entry.pane).cloned().with_context(|| {
-                    format!("floating pane {} has no public identity", entry.pane)
-                })?;
-            Ok(Floating { pane, frame: entry.frame })
+            entry
+                .renamed(|pane| state.resource_indexes.pane_ids.get(&pane).cloned())
+                .with_context(|| format!("floating pane {} has no public identity", entry.pane))
         })
         .collect()
 }
@@ -54,11 +52,8 @@ pub(crate) fn registry_floating_panes(
 /// the front. A plan that writes the focus into the stored record of a screen
 /// calls this, so the store has the list of the live screen.
 pub(crate) fn focus_registry_pane(screen: &mut RegistryScreen, pane: &PanePublicId) {
-    screen.active_pane = pane.clone();
-    if let Some(index) = screen.floating.iter().position(|entry| entry.pane == *pane) {
-        let entry = screen.floating.remove(index);
-        screen.floating.push(entry);
-    }
+    let previous = std::mem::replace(&mut screen.active_pane, pane.clone());
+    focus_moved(&mut screen.floating, pane, &previous);
 }
 
 /// The list `screen` has after the request, and the pane's frame in it.

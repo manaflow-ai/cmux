@@ -3,12 +3,12 @@ import Observation
 
 /// What this phone keeps of Toggle Terminal and Chat for a relaunch with the Mac out of reach
 /// (Leo, 2026-11-14: the phone should rely less on the Mac and on a smooth network): which acpmux
-/// chat shows a terminal's harness session. With the chat's records kept by
-/// `AgentTranscriptCache`, a terminal running Claude Code or Codex shows its chat's kept turns at
-/// once on its chat face, offline, instead of a spinner and then the terminal.
+/// chat shows a terminal's harness session, and which face the person chose for a tab. With the
+/// chat's records kept by `AgentTranscriptCache`, a terminal running Claude Code or Codex opens on
+/// its chat's kept turns at once, offline, instead of a spinner and then the terminal.
 ///
 /// One small JSON file beside the transcript cache's folder, keyed by account and Mac (tab and
-/// session ids repeat across Macs), at most `limit` entries, newest kept. It is read
+/// session ids repeat across Macs), at most `limit` entries of each kind, newest kept. It is read
 /// once off the main thread (`load()`; the first read of a key starts it) and written on the
 /// transcript cache's queue. Sign-out deletes it with the transcripts (`removeAll()`).
 @MainActor
@@ -22,6 +22,18 @@ public final class KeptTerminalChats {
     struct Contents: Codable, Equatable {
         /// `account|mac|harness|session` -> acpmux chat id.
         var chats: [String: Stamped] = [:]
+        /// `account|mac|tab` -> "chat" or "terminal".
+        var faces: [String: Stamped] = [:]
+
+        init() {}
+
+        /// A file written before faces were kept has no `faces` key: it still reads, with its
+        /// pairings (synthesized decoding would refuse it and drop them).
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            chats = try container.decodeIfPresent([String: Stamped].self, forKey: .chats) ?? [:]
+            faces = try container.decodeIfPresent([String: Stamped].self, forKey: .faces) ?? [:]
+        }
     }
 
     @ObservationIgnored public let file: URL
@@ -78,6 +90,12 @@ public final class KeptTerminalChats {
         return contents.chats[key]?.value
     }
 
+    /// The face kept for `key`: true chat, false terminal; nil when none.
+    public func showsChat(_ key: String) -> Bool? {
+        startLoading()
+        return contents.faces[key].map { $0.value == "chat" }
+    }
+
     public func keepChat(_ chat: String?, for key: String) {
         guard contents.chats[key]?.value != chat else { return }
         contents.chats[key] = chat.map { Stamped(value: $0, at: now().timeIntervalSince1970) }
@@ -85,7 +103,15 @@ public final class KeptTerminalChats {
         scheduleWrite()
     }
 
-    /// Sign-out: every pairing leaves this device.
+    public func keepFace(showsChat: Bool, for key: String) {
+        let value = showsChat ? "chat" : "terminal"
+        guard contents.faces[key]?.value != value else { return }
+        contents.faces[key] = Stamped(value: value, at: now().timeIntervalSince1970)
+        Self.trim(&contents.faces, to: limit)
+        scheduleWrite()
+    }
+
+    /// Sign-out: every pairing and face leaves this device.
     public func removeAll() {
         generation += 1
         contents = Contents()
@@ -108,7 +134,9 @@ public final class KeptTerminalChats {
     private func merge(_ read: Contents) {
         var merged = read
         merged.chats.merge(contents.chats) { _, new in new }
+        merged.faces.merge(contents.faces) { _, new in new }
         Self.trim(&merged.chats, to: limit)
+        Self.trim(&merged.faces, to: limit)
         if merged != contents { contents = merged }
     }
 

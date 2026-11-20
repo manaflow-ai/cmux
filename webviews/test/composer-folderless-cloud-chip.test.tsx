@@ -1,7 +1,7 @@
 // A Cloud chat with no folder is a first-class start (folderlessCloud.ts). Leo, 2026-11-09: "We need
 // to be able to have it so, like, this no folder selected should be, like, good as well."
 //   - Cloud picked and no folder: the folder chip reads No folder, not dimmed, and says where the
-//     chat starts (a fresh folder on the machine) as its description and in the folder menu;
+//     chat starts (a fresh folder on the machine) as its description (the folder menu has no line of it);
 //   - it never reads an empty "Choose folder" while Cloud is the pick;
 //   - This Mac with no folder reads No folder too, with no Cloud detail; a picked folder keeps its
 //     name under Cloud;
@@ -206,4 +206,53 @@ test("what a Cloud start copies is what the folder chip names", async () => {
       expect(label?.textContent, name).toBe("cmux");
     }
   }
+});
+
+// cmux#46023: a Cloud chat started with a folder from a New Tab page read No folder beside Cloud. The page's
+// Cloud send hands its folder to the start (App.tsx `onCloud`), never to the page's folder pick, so the chat
+// composer the page gives way to while the start is out had no folder to name. The composer names the folder
+// the shown start copies (newtab/draftFolder.ts `withCloudStartFolder`), the start's own `cwd`.
+test("a Cloud start sent with a folder names that folder while it is out, never No folder", async () => {
+  const { cloudStartBegun } = await import("../src/agent-session/acpmux/cloudStartProgress");
+  const { withCloudStartFolder, withDraftFolder } = await import("../src/agent-session/acpmux/newtab/draftFolder");
+  const start = cloudStartBegun("k-1", "whats in my folder", "/Users/you/src/myfolder/", "Claude Code");
+  expect(start.cwd).toBe("/Users/you/src/myfolder");
+  const page = {
+    sessionId: undefined,
+    summary: { sessionId: "", harness: "codex", model: "gpt-6", host: "This Mac", hostKind: "local" },
+  } as unknown as Parameters<typeof withCloudStartFolder>[0];
+  // No folder pick on the page (the New Tab send never makes one): the start's folder is the chip's.
+  const shown = withCloudStartFolder(withDraftFolder(page, undefined), start.cwd);
+  // Only the folder changes: the chips still name the agent and model the start sends.
+  expect(shown.summary).toMatchObject({ harness: "codex", model: "gpt-6", cwd: "/Users/you/src/myfolder" });
+  await mount({ ...cloud, cloudStartOut: true, summary: shown.summary });
+  const label = folderLabel();
+  // A start that is out shows its folder as a plain label (folderlessCloud.ts `folderMenu`).
+  expect(label?.textContent).toBe("myfolder");
+  expect(stripText()).not.toContain(t("composer.cloudNoFolder"));
+  // The page without it, as before the fix: the same start read No folder.
+  await mount({ ...cloud, cloudStartOut: true, summary: page.summary });
+  expect(folderLabel()?.textContent).toBe(t("composer.cloudNoFolder"));
+});
+
+test("a folderless Cloud start still reads No folder while it is out", async () => {
+  const { cloudStartBegun } = await import("../src/agent-session/acpmux/cloudStartProgress");
+  const { withCloudStartFolder } = await import("../src/agent-session/acpmux/newtab/draftFolder");
+  const start = cloudStartBegun("k-2", "hello", undefined, "Claude Code", true);
+  expect(start.cwd).toBeUndefined();
+  const page = {
+    summary: { sessionId: "", harness: "claude", host: "This Mac", hostKind: "local" },
+  } as unknown as Parameters<typeof withCloudStartFolder>[0];
+  expect(withCloudStartFolder(page, start.cwd)).toBe(page);
+  await mount({ ...cloud, cloudStartOut: true, summary: page.summary });
+  expect(folderLabel()?.textContent).toBe(t("composer.cloudNoFolder"));
+});
+
+test("a chat that has a session keeps its own folder, never a Cloud start's", async () => {
+  const { withCloudStartFolder } = await import("../src/agent-session/acpmux/newtab/draftFolder");
+  const chat = {
+    sessionId: "s-1",
+    summary: { sessionId: "s-1", harness: "claude", cwd: "/Users/you/src/cmux" },
+  } as unknown as Parameters<typeof withCloudStartFolder>[0];
+  expect(withCloudStartFolder(chat, "/Users/you/src/other")).toBe(chat);
 });
