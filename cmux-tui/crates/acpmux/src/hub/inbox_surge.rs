@@ -34,12 +34,23 @@ impl Counts {
 #[derive(Default)]
 pub(super) struct SurgeRate {
     last_arrival: Option<u64>,
+    excess_ms: u64,
 }
 
 impl SurgeRate {
     pub(super) fn arrival(&mut self, now: u64, reply_period: Option<u64>) -> bool {
-        let previous = self.last_arrival.replace(now);
-        previous.zip(reply_period).is_some_and(|(at, period)| now.saturating_sub(at) < period)
+        let previous = self.last_arrival;
+        self.restore(now);
+        let Some((at, period)) = previous.zip(reply_period) else {
+            self.excess_ms = 0;
+            return false;
+        };
+        // A burst can run at most one reply ahead. Spare time in later gaps pays that
+        // excess down, so one long gap in a busy stream doesn't immediately reopen chat.
+        let elapsed = now.saturating_sub(at);
+        self.excess_ms =
+            self.excess_ms.min(period).saturating_add(period).saturating_sub(elapsed).min(period);
+        self.excess_ms > 0
     }
 
     pub(super) fn restore(&mut self, at: u64) {
@@ -247,9 +258,21 @@ mod tests {
         assert!(!fast.arrival(150, Some(10)));
         assert!(slow.arrival(150, Some(100)));
         assert!(slow.arrival(249, Some(100)));
-        assert!(!slow.arrival(349, Some(100)));
+        assert!(slow.arrival(349, Some(100)));
+        assert!(!slow.arrival(500, Some(100)));
         slow.restore(500);
         assert!(slow.arrival(520, Some(100)));
+    }
+
+    #[test]
+    fn surge_recovers_during_sustained_slower_traffic() {
+        let mut rate = SurgeRate::default();
+        assert!(!rate.arrival(0, Some(100)));
+        for at in [5, 10, 120, 200, 325, 450, 575] {
+            assert!(rate.arrival(at, Some(100)));
+        }
+        assert!(!rate.arrival(700, Some(100)));
+        assert!(!rate.arrival(825, Some(100)));
     }
 
     #[test]
