@@ -299,7 +299,9 @@ impl Supervisor {
                 .map(|(key, _)| key.clone())
                 .collect();
             for key in doomed {
-                inner.mounts.remove(&key);
+                if let Some(gone) = inner.mounts.remove(&key) {
+                    self.cancel_widget_timers(gone.widget.as_ref());
+                }
                 outs.push(Out::Client(
                     key.client,
                     json!({ "event": "apps-mount-failed", "mount_id": key.mount_id, "reason": OFF }),
