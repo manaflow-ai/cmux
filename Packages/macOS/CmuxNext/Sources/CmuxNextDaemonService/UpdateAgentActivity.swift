@@ -12,7 +12,7 @@ public final class UpdateAgentActivity {
     /// The last census (nil until one answered, or after one failed): Update When Idle reads its turns
     /// and drafts. Refreshed, at most once a second, only by ``applying(to:)``.
     public private(set) var census: AcpmuxSessionCensus?
-    private var refreshedAt: Date?
+    private var refreshedAt: ContinuousClock.Instant?
     private var refreshTask: Task<Void, Never>?
 
     /// Creates a census-backed relaunch safety coordinator.
@@ -24,7 +24,7 @@ public final class UpdateAgentActivity {
         // No acpmux environment means this app has no Home Chief to protect.
         self.chiefInTurn = environment == nil ? false : nil
         // No acpmux: no agent works and no chat keeps a draft there.
-        self.census = environment == nil ? AcpmuxSessionCensus() : nil
+        self.census = environment == nil ? Self.noDaemonCensus : nil
     }
 
     /// Adds Home Chief activity to a daemon relaunch snapshot, conservatively holding unknown state.
@@ -44,14 +44,21 @@ public final class UpdateAgentActivity {
         return result
     }
 
+    private static var noDaemonCensus: AcpmuxSessionCensus {
+        var census = AcpmuxSessionCensus()
+        census.idleFactsKnown = true
+        return census
+    }
+
     private func refreshIfNeeded() {
-        let now = Date()
+        // A monotonic clock: a wall-clock step back must not keep an old clear census past its second.
+        let now = ContinuousClock.now
         guard refreshTask == nil,
-              refreshedAt.map({ now.timeIntervalSince($0) >= 1 }) ?? true else { return }
+              refreshedAt.map({ now - $0 >= .seconds(1) }) ?? true else { return }
         refreshedAt = now
         let environment = environment
         refreshTask = Task { [weak self] in
-            let census = await AcpmuxQuit.census(environment, deadline: .seconds(1))
+            let census = await AcpmuxQuit.census(environment, deadline: .seconds(1), idleFacts: true)
             guard !Task.isCancelled else { return }
             self?.chiefInTurn = census?.chiefInTurn
             self?.census = census

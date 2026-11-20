@@ -1,4 +1,6 @@
+import CmuxNextAgentPane
 public import CmuxNextWindowRules
+import CmuxUpdater
 public import Foundation
 
 /// Update When Idle (`updates.installWhenIdle`, off by default; Leo, 2026-11-19: "when it's idle, it's able to ...
@@ -30,13 +32,23 @@ public final class UpdateIdleGate {
         if case .notIdle? = rules.updateIdleHold(facts) { return .notIdle }
         guard let daemon else { return .unknown }
         let blockers = activity.applying(to: daemon.currentRelaunchBlockers(quietInput: nil))
-        if let census = activity.census, !blockers.daemonStateUnavailable, let newChats = newChatDrafts() {
-            // The app's chats (the tab mirror) and every turn of this Mac's acpmux, the Chief's included, and every
-            // session whose background subagents or sub-sessions still work with no turn open: the relaunch's daemon
-            // handover restarts such an agent (`stale_host_respawn.rs`), which would end that work.
-            facts.runningTurns = max(blockers.busyAgentCount, census.inTurn + (census.chiefInTurn ? 1 : 0) + census.workingBelow)
-            facts.unsentDrafts = census.drafts + newChats
+        if let agents = Self.agentFacts(census: activity.census, blockers: blockers, newChatDrafts: newChatDrafts()) {
+            facts.runningTurns = agents.runningTurns
+            facts.unsentDrafts = agents.unsentDrafts
         }
         return rules.updateIdleHold(facts)
+    }
+
+    /// This Mac's agent turns and unsent drafts, nil when any of them is unknown (the rule then holds).
+    /// The app's chats (the tab mirror) and every turn of this Mac's acpmux, the Chief's included, and every
+    /// session whose background subagents or sub-sessions still work with no turn open: the relaunch's daemon
+    /// handover restarts such an agent (`stale_host_respawn.rs`), which would end that work. Drafts and
+    /// background work are facts only from an acpmux that serves them (`idleFactsKnown`): an older one omits
+    /// both, which is unknown, not none.
+    nonisolated static func agentFacts(census: AcpmuxSessionCensus?, blockers: UpdateRelaunchBlockers,
+                                       newChatDrafts: Int?) -> (runningTurns: Int, unsentDrafts: Int)? {
+        guard let census, census.idleFactsKnown, !blockers.daemonStateUnavailable, let newChatDrafts else { return nil }
+        let turns = max(blockers.busyAgentCount, census.inTurn + (census.chiefInTurn ? 1 : 0) + census.workingBelow)
+        return (turns, census.drafts + newChatDrafts)
     }
 }
