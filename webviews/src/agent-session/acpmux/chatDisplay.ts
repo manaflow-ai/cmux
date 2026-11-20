@@ -103,6 +103,9 @@ export const MINIMAL_MODE_KEY = "sidebar.minimal";
 /// Settings > Agent Chat > VS Code Minimap (chatMinimap/ChatMinimap.tsx), off by default. Not part of
 /// ChatDisplay: turning it on or off must not measure the transcript's rows again.
 export const CHAT_MINIMAP_KEY = "agentPane.display.vscodeMinimap";
+/// Settings > Agent Chat > Status Pills in All Chats (newtab/AllChatsList.tsx ChatStatusPill), off by
+/// default: a taste prototype (Taste Board #19). Not part of ChatDisplay: no transcript row is measured again.
+export const CHAT_LIST_STATUS_PILLS_KEY = "agentPane.display.chatListStatusPills";
 /// Settings > Agent Chat > Pin Task List in Chat, off by default: the running turn's todo list pinned
 /// under its latest message (conversation/turns.ts). Off, the composer's hat shows it
 /// (subagents/SubagentTray.tsx `plan`; Leo, 2026-11-03: "we said earlier the composer hat is kinda ok?").
@@ -391,6 +394,7 @@ const quoteFamily = (name: string) => (/[,\s]/.test(name) && !name.includes(",")
 let current = DEFAULT_CHAT_DISPLAY;
 let raw: Values = {};
 let minimapOn = false;
+let statusPillsOn = false;
 let pinnedPlanOn = false;
 let trayTuckedOn = false;
 let trayHandle: TrayHandleSide = "middle";
@@ -420,6 +424,7 @@ export function setChatDisplay(value: unknown): void {
   configureSenderIconLook(raw);
   const next = resolveChatDisplay(raw);
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
+  const statusPills = raw[CHAT_LIST_STATUS_PILLS_KEY] === true;
   const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
   const trayTucked = raw[TRAY_TUCKED_KEY] === true;
   const storedBanner = raw[UNREAD_BANNER_KEY];
@@ -451,6 +456,7 @@ export function setChatDisplay(value: unknown): void {
     same &&
     !facesChanged &&
     minimap === minimapOn &&
+    statusPills === statusPillsOn &&
     pinnedPlan === pinnedPlanOn &&
     trayTucked === trayTuckedOn &&
     handle === trayHandle &&
@@ -466,6 +472,7 @@ export function setChatDisplay(value: unknown): void {
   commandLabels = labels;
   promptCoachOn = coach;
   minimapOn = minimap;
+  statusPillsOn = statusPills;
   pinnedPlanOn = pinnedPlan;
   trayTuckedOn = trayTucked;
   trayHandle = handle;
@@ -600,6 +607,10 @@ const trayHandleSnapshot = () => trayHandle;
 /// Where the hat's tuck chevron and pull tab sit along the composer's top edge (TRAY_HANDLE_KEY).
 export const useTrayHandle = (): TrayHandleSide =>
   useSyncExternalStore(subscribe, trayHandleSnapshot, trayHandleSnapshot);
+const statusPillsSnapshot = () => statusPillsOn;
+/// Whether All Chats draws a status pill on its live chats (CHAT_LIST_STATUS_PILLS_KEY).
+export const useChatListStatusPills = (): boolean =>
+  useSyncExternalStore(subscribe, statusPillsSnapshot, statusPillsSnapshot);
 /// Whether the chat minimap is on (CHAT_MINIMAP_KEY).
 export const useChatMinimap = (): boolean => useSyncExternalStore(subscribe, minimapSnapshot, minimapSnapshot);
 /// The rail's arm, separate from the measured chat look so switching it remeasures no transcript row.
