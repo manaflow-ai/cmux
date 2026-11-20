@@ -190,6 +190,33 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Tài khoản hoặc nhóm Cloud của bạn đã thay đổi trong khi %2$@ đang khởi động trên %1$@, nên việc khởi động đã dừng. Chạy lại `%3$@` trong tài khoản bạn muốn."}}
       }
     },
+    "cloud.startSession.setupRequired": {
+      "comment": "cmux cloud start-session refused because no connection serves the agent in Cloud (the composer shows Set up Cloud). %1$@ is the agent (codex). %2$@ is the command to run again. Keep the command and the Settings button names as the app shows them.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "No Cloud connection serves %1$@ yet. Add one in Settings > Cloud (ChatGPT, Claude or an API key), then run `%2$@` again."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud で %1$@ を使える接続がまだありません。「設定 > Cloud」で接続(ChatGPT、Claude、または API キー)を追加してから、`%2$@` をもう一度実行してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Noch keine Cloud-Verbindung stellt %1$@ bereit. Füge eine in Einstellungen > Cloud hinzu (ChatGPT, Claude oder ein API-Schlüssel) und führe dann `%2$@` erneut aus."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Aucune connexion Cloud ne fournit encore %1$@. Ajoutez-en une dans Réglages > Cloud (ChatGPT, Claude ou une clé API), puis relancez `%2$@`."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Ninguna conexión de Cloud ofrece %1$@ todavía. Añade una en Ajustes > Cloud (ChatGPT, Claude o una clave de API) y vuelve a ejecutar `%2$@`."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "لا يوجد اتصال Cloud يوفّر %1$@ بعد. أضف اتصالًا في الإعدادات > Cloud (ChatGPT أو Claude أو مفتاح API)، ثم شغّل `%2$@` مرة أخرى."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "Cloud에서 %1$@을(를) 제공하는 연결이 아직 없습니다. 설정 > Cloud에서 연결(ChatGPT, Claude 또는 API 키)을 추가한 다음 `%2$@`을(를) 다시 실행하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "还没有可在 Cloud 中提供 %1$@ 的连接。请在“设置 > Cloud”中添加一个（ChatGPT、Claude 或 API 密钥），然后再次运行 `%2$@`。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "還沒有可在 Cloud 中提供 %1$@ 的連線。請在「設定 > Cloud」中新增一個（ChatGPT、Claude 或 API 金鑰），然後再次執行 `%2$@`。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Još nijedna Cloud veza ne pruža %1$@. Dodaj jednu u Postavke > Cloud (ChatGPT, Claude ili API ključ), pa ponovo pokreni `%2$@`."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Ingen Cloud-forbindelse leverer %1$@ endnu. Tilføj en i Indstillinger > Cloud (ChatGPT, Claude eller en API-nøgle), og kør derefter `%2$@` igen."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Nessuna connessione Cloud fornisce ancora %1$@. Aggiungine una in Impostazioni > Cloud (ChatGPT, Claude o una chiave API), poi esegui di nuovo `%2$@`."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "មិនទាន់មានការតភ្ជាប់ Cloud ណាផ្តល់ %1$@ នៅឡើយទេ។ សូមបន្ថែមមួយនៅក្នុង ការកំណត់ > Cloud (ChatGPT, Claude ឬសោ API) រួចដំណើរការ `%2$@` ម្តងទៀត។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Ingen Cloud-tilkobling leverer %1$@ ennå. Legg til én i Innstillinger > Cloud (ChatGPT, Claude eller en API-nøkkel), og kjør deretter `%2$@` på nytt."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Żadne połączenie Cloud nie udostępnia jeszcze %1$@. Dodaj je w Ustawienia > Cloud (ChatGPT, Claude lub klucz API), a potem ponownie uruchom `%2$@`."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Nenhuma conexão do Cloud oferece %1$@ ainda. Adicione uma em Ajustes > Cloud (ChatGPT, Claude ou uma chave de API) e execute `%2$@` novamente."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Пока нет подключения Cloud, которое предоставляет %1$@. Добавьте его в «Настройки > Cloud» (ChatGPT, Claude или ключ API) и снова выполните `%2$@`."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ยังไม่มีการเชื่อมต่อ Cloud ที่ให้บริการ %1$@ เพิ่มการเชื่อมต่อใน การตั้งค่า > Cloud (ChatGPT, Claude หรือคีย์ API) แล้วเรียกใช้ `%2$@` อีกครั้ง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Henüz %1$@ sunan bir Cloud bağlantısı yok. Ayarlar > Cloud'dan bir bağlantı ekleyin (ChatGPT, Claude veya bir API anahtarı), ardından `%2$@` komutunu yeniden çalıştırın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Поки немає підключення Cloud, яке надає %1$@. Додайте його в «Налаштування > Cloud» (ChatGPT, Claude або ключ API) і знову виконайте `%2$@`."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Chưa có kết nối Cloud nào cung cấp %1$@. Hãy thêm một kết nối trong Cài đặt > Cloud (ChatGPT, Claude hoặc khóa API), rồi chạy lại `%2$@`."}}
+      }
+    },
     "cloud.startSession.needsMachine": {
       "comment": "cmux cloud start-session run by a script or agent without a machine. %1$@ is the agent (claude). Keep the commands as written.",
       "extractionState": "manual",

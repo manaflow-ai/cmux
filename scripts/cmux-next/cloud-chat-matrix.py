@@ -161,7 +161,11 @@ GIT_ENV = {**os.environ, "GIT_AUTHOR_NAME": "cmux matrix", "GIT_AUTHOR_EMAIL": "
 
 
 def git(path: Path, *words: str, timeout=1800) -> str:
-    return sh("git", "-c", "init.defaultBranch=main", "-c", "protocol.file.allow=always", *words,
+    # No automatic maintenance: after a commit, git (2.47+) detaches a `maintenance run --auto` that can still be
+    # rewriting a fixture's .git (packs, commit-graph) while its manifest is taken, so a fixture holding repositories
+    # (parent-repos) hashed differently from one read to the next (base red in cmux-next checks).
+    return sh("git", "-c", "init.defaultBranch=main", "-c", "protocol.file.allow=always",
+              "-c", "maintenance.auto=false", "-c", "gc.auto=0", *words,
               cwd=path, env=GIT_ENV, timeout=timeout)
 
 

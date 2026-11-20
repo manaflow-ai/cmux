@@ -96,7 +96,9 @@ public final class TitlebarBandButton: ClickableButton {
         return Self.side + Metrics.space2 + textWidth + Metrics.space2 + badgeClearance
     }
 
-    private func renderSymbol() {
+    /// Draws the glyph at the current density's size, once per size. `layout()` runs it; a container that measures the
+    /// image (the toolbar band's slots) runs it first, since its own layout comes before this button's.
+    public func renderSymbol() {
         let size = symbolPointSize?() ?? Metrics.toolbarSymbolPointSize
         guard size != renderedIconSize else { return }
         renderedIconSize = size
