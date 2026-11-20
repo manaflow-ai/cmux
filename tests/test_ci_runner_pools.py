@@ -15,6 +15,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import yaml
 
@@ -55,6 +56,24 @@ def health(labels, checked=NOW):
                                run="https://github.com/x/y/actions/runs/1", minutes=5)
 
 
+class BlacksmithOnly(unittest.TestCase):
+    """The Blacksmith failover cases (each from an incident before 2026-11-18), with the owned GCP labels taken out of
+    the declared pools: what a pool does once its owned members are dead is exactly what it did before they led it.
+    OwnedLeads covers the owned labels themselves."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        original = runner_pools.load_pools
+
+        def blacksmith_only(path=runner_pools.RUNNERS, env=None):
+            return {name: {**spec, "members": [m for m in spec["members"] if not runner_pools.OWNED_LINUX.match(m)]}
+                    for name, spec in original(path, env=env).items()}
+
+        patcher = mock.patch.object(runner_pools, "load_pools", blacksmith_only)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+
 class Declared(unittest.TestCase):
     def test_the_declared_pools_are_valid(self) -> None:
         self.assertEqual(runner_pools.spec_problems(runner_pools.load_pools()), [])
@@ -62,8 +81,10 @@ class Declared(unittest.TestCase):
     def test_the_linux_pool_is_the_runner_set(self) -> None:
         # Leo, 2026-10-28: "just pin the set of the shit that isn't hilariously slow".
         # Smallest first: Blacksmith caps vCPUs at once, so the live member is the small size (2026-11-01).
-        self.assertEqual(runner_pools.load_pools()["linux"]["members"],
-                         ["blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"])
+        # Owned GCP runners first since Leo, 2026-11-18 ("remove that belt and suspenders, please").
+        self.assertEqual(runner_pools.load_pools(env={})["linux"]["members"],
+                         ["cmux-gcp-lane-build-x64",
+                          "blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"])
 
     def test_every_blacksmith_linux_size_has_its_own_pool(self) -> None:
         # Leo, 2026-10-28: "Where the f***ing are the generalized solution to all these problems that these
@@ -71,31 +92,31 @@ class Declared(unittest.TestCase):
         pools = runner_pools.load_pools()
         for size, name in ((2, "linux_2"), (4, "linux_4"), (8, "linux_8"), (16, "linux_16"), (32, "linux_32")):
             with self.subTest(pool=name):
-                listed = runner_pools.members(pools[name])
+                listed = [m for m in runner_pools.members(pools[name]) if not runner_pools.OWNED_LINUX.match(m)]
                 self.assertEqual(listed[0], f"blacksmith-{size}vcpu-ubuntu-2404")
                 self.assertGreater(len(listed), 1, f"{name} needs a member to fail over to")
 
-    def test_every_bounded_selector_accepts_every_linux_member(self) -> None:
-        # Review of #30340: a member a bounded selector refuses (contains([...], vars.LINUX_RUNNER) && ... || '<4 vCPU>')
-        # sends its readers back to the stalled size when the pool steps onto it.
-        selector = re.compile(r"contains\(fromJSON\('(\[[^']*\])'\), (?:vars\.LINUX_RUNNER|fromJSON\(vars\.RUNNER_POOLS[^)]*\)\.linux)\)"
-                              r" && (?:vars\.LINUX_RUNNER|fromJSON\(vars\.RUNNER_POOLS[^)]*\)\.linux) \|\| '(blacksmith-4vcpu-ubuntu-2404)'")
-        members = runner_pools.load_pools()["linux"]["members"]
-        found = 0
-        for workflow in sorted((ROOT / ".github/workflows").glob("*.y*ml")):
-            for match in selector.finditer(workflow.read_text(encoding="utf-8")):
-                found += 1
-                with self.subTest(workflow=workflow.name):
-                    self.assertLessEqual(set(members), set(json.loads(match.group(1))))
-        self.assertGreater(found, 0)
+    def test_every_x64_linux_pool_leads_with_the_owned_gcp_runners(self) -> None:
+        # Leo, 2026-11-18: "remove that belt and suspenders, please." The GCP lane build runners, which start cmux
+        # jobs (job 135012915150), then Blacksmith. cmux-fleet-linux-x64 boots no runners, so no pool names it.
+        pools = runner_pools.load_pools(env={})
+        for name in ("linux", "linux_2", "linux_4", "linux_8", "linux_16", "linux_32", "promotion"):
+            with self.subTest(pool=name):
+                listed = runner_pools.members(pools[name])
+                self.assertEqual(listed[:1], ["cmux-gcp-lane-build-x64"])
+                self.assertNotIn("cmux-fleet-linux-x64", listed)
+                self.assertTrue(all(runner_pools.EPHEMERAL.match(m) for m in listed[1:]))
+        self.assertEqual(runner_pools.members(pools["linux_arm64"]), ["blacksmith-4vcpu-ubuntu-2404-arm"])
 
-    def test_no_pool_names_a_reused_machine(self) -> None:
-        # A job reading a pool, a fork's pull request included, never lands on an owned Mac:
-        # those come only through a picker.
+    def test_pool_members_are_blacksmith_owned_linux_or_hosted(self) -> None:
+        # Owned Linux runners may lead a pool and take secret-bearing jobs (Leo, 2026-11-18); owned Macs still come
+        # only through a picker, and a GitHub-hosted label only in a pool marked hosted.
         for name, spec in runner_pools.load_pools().items():
             for label in runner_pools.members(spec):
                 with self.subTest(pool=name, label=label):
-                    self.assertRegex(label, runner_pools.HOSTED if spec.get("hosted") else runner_pools.EPHEMERAL)
+                    if spec.get("hosted") and runner_pools.HOSTED.match(label):
+                        continue
+                    self.assertTrue(runner_pools.pool_label(label), label)
 
     def test_spec_problems_refuse_owned_hosted_and_unknown_labels(self) -> None:
         bad = {
@@ -219,7 +240,8 @@ class Evidence(unittest.TestCase):
         import cloud_overflow_switch as switch
         self.assertEqual(runner_pools.HEALTH_VARIABLE, switch.HEALTH_VARIABLE)
         # The switch probes every member of the linux pool, so each one has health of its own.
-        self.assertEqual(set(switch.PROBE_LABELS), set(runner_pools.load_pools()["linux"]["members"]))
+        self.assertEqual(set(switch.PROBE_LABELS), {label for label in runner_pools.load_pools()["linux"]["members"]
+                                                    if not runner_pools.OWNED_LINUX.match(label)})
 
     def test_every_x64_linux_label_a_pool_can_name_is_probed(self) -> None:
         # 2026-11-18: linux_16 and linux_32 sat on blacksmith-32vcpu-ubuntu-2404 while it started nothing
@@ -229,7 +251,7 @@ class Evidence(unittest.TestCase):
         import cloud_overflow_switch as switch
         pools = runner_pools.load_pools()
         reachable = {label for spec in pools.values() for label in runner_pools.allowed(spec, pools)
-                     if runner_pools.X64_UBUNTU.match(label)}
+                     if runner_pools.X64_UBUNTU.match(label) or runner_pools.OWNED_LINUX.match(label)}
         self.assertEqual(set(switch.HEALTH_LABELS), reachable)
         self.assertEqual(switch.HEALTH_LABELS[:len(switch.PROBE_LABELS)], switch.PROBE_LABELS)
 
@@ -487,7 +509,7 @@ class NeverHosted(unittest.TestCase):
         value, _ = runner_pools.reconcile({}, pools, dead_now=every, served_now=(), now=NOW)
         for name, spec in pools.items():
             if not spec.get("hosted"):
-                self.assertRegex(value[name], runner_pools.EPHEMERAL)
+                self.assertTrue(runner_pools.pool_label(value[name]), value[name])
         current, dropped = runner_pools.parse_value(json.dumps({"linux": "ubuntu-24.04"}), pools)
         self.assertNotIn("linux", current)
         self.assertTrue(dropped)
@@ -504,7 +526,7 @@ class NeverHosted(unittest.TestCase):
                     self.assertNotRegex(str(value), r"^(?:ubuntu|macos|windows)-")
 
 
-class HostedOverride(unittest.TestCase):
+class HostedOverride(BlacksmithOnly):
     # Leo, 2026-11-17, asked "Allow GitHub-hosted ubuntu-24.04 for cmux Linux CI until Blacksmith recovers?":
     # "Allow until it recovers". A hand-set RUNNER_POOLS was reset by the next pass (parse_value() drops a label
     # outside a pool), so the override is a variable the writer itself reads.
@@ -568,6 +590,47 @@ class HostedOverride(unittest.TestCase):
                 self.assertEqual(step["env"]["CI_LINUX_HOSTED_RUNNER"], "${{ vars.CI_LINUX_HOSTED_RUNNER }}", path)
 
 
+class OwnedLeads(unittest.TestCase):
+    """Leo, 2026-11-18: "remove that belt and suspenders, please." The owned GCP labels lead the x64 Linux pools and
+    are judged on probe evidence like any member: a start keeps one serving, a stall moves the pool to the next."""
+
+    # LANE leads; FLEET is the label no runner boots for, which a hand-set LINUX_RUNNER may still hold.
+    FLEET, LANE = "cmux-fleet-linux-x64", "cmux-gcp-lane-build-x64"
+    X64 = ("linux", "linux_2", "linux_4", "linux_8", "linux_16", "linux_32", "promotion")
+
+    def test_no_evidence_keeps_every_x64_pool_on_the_lane(self) -> None:
+        value, _ = runner_pools.reconcile({}, runner_pools.load_pools(env={}), dead_now=(), served_now=(), now=NOW)
+        self.assertEqual({k: value[k] for k in self.X64}, dict.fromkeys(self.X64, self.LANE))
+        self.assertEqual(value["linux_arm64"], "blacksmith-4vcpu-ubuntu-2404-arm")
+
+    def test_a_stalled_lane_moves_to_blacksmith_and_back(self) -> None:
+        pools = runner_pools.load_pools(env={})
+        value, _ = runner_pools.reconcile({}, pools, dead_now=(self.LANE,), served_now=(), now=NOW)
+        self.assertEqual(value["linux"], "blacksmith-4vcpu-ubuntu-2404")
+        self.assertEqual(value["linux_16"], "blacksmith-16vcpu-ubuntu-2404")
+        value, _ = runner_pools.reconcile(value, pools, dead_now=(), served_now=(self.LANE,), now=NOW)
+        self.assertEqual(value["linux"], self.LANE)
+
+    def test_probe_health_marks_an_owned_label(self) -> None:
+        dead, started, _ = runner_pools.label_evidence(
+            health({self.LANE: "started"}), None, now=NOW)
+        self.assertEqual((dead, started), (set(), {self.LANE}))
+        # A stall alone marks nothing dead without a fresh janitor snapshot beside it (#46302).
+        dead, started, _ = runner_pools.label_evidence(health({self.LANE: "stalled"}), None, now=NOW)
+        self.assertEqual((dead, started), (set(), set()))
+
+    def test_the_hosted_override_stays_behind_the_owned_labels(self) -> None:
+        pools = runner_pools.load_pools(env={"CI_LINUX_HOSTED_RUNNER": "ubuntu-24.04"})
+        self.assertEqual(runner_pools.spec_problems(pools), [])
+        self.assertEqual(pools["linux"]["members"][:2], [self.LANE, "ubuntu-24.04"])
+
+    def test_the_mirror_moves_linux_runner_off_the_fleet_label(self) -> None:
+        # 2026-11-18 23:47Z LINUX_RUNNER was set by hand to cmux-fleet-linux-x64, which boots no runners; the
+        # pool's member wins, so the next writer pass moves it to the lane label.
+        self.assertEqual(runner_pools.mirror_writes({"linux": self.LANE}, {"LINUX_RUNNER": self.FLEET},
+                                                    record=None), [("LINUX_RUNNER", self.LANE)])
+
+
 class Schema(unittest.TestCase):
     def test_malformed_values_are_repaired_not_crashed_on(self) -> None:
         good, _ = runner_pools.reconcile({}, POOLS, dead_now=(), served_now=(), now=NOW)
@@ -596,7 +659,7 @@ class Schema(unittest.TestCase):
         self.assertTrue(runner_pools.value_problems(missing, POOLS))
 
 
-class Main(unittest.TestCase):
+class Main(BlacksmithOnly):
     class Api:
         def __init__(self, snapshot):
             self._snapshot = snapshot
@@ -1090,7 +1153,7 @@ class TruncatedSnapshot(unittest.TestCase):
         self.assertNotEqual(value["linux_32"], two)
 
 
-class CapBound(unittest.TestCase):
+class CapBound(BlacksmithOnly):
     """Blacksmith caps the org on vCPUs at once. A size that keeps starting jobs is serving however long a probe
     waits there, and a size the cap starves moves its jobs down in size, never up (2026-11-17)."""
 
@@ -1150,7 +1213,7 @@ class CapBound(unittest.TestCase):
 
 
 
-class RefusedRead(unittest.TestCase):
+class RefusedRead(BlacksmithOnly):
     """A refused snapshot read is asked once more with the workflow token (2026-11-18 11:18Z: the cmux-bot read
     token got 403, the writer judged on the probe alone, and every Linux pool went to the 2 vCPU release valve)."""
 
