@@ -246,6 +246,7 @@ pub mod schema;
 pub mod secret_mcp;
 pub mod secret_scan;
 pub mod self_command;
+pub mod send_fanout;
 pub(crate) mod sender_env;
 pub mod sender_harness;
 pub mod sender_program;
