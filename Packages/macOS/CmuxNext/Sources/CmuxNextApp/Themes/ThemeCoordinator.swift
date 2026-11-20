@@ -88,6 +88,7 @@ final class ThemeCoordinator {
         // `applied`: a live preview (a theme picker's highlighted row) shows too.
         chromeTheme = settings.applied.chromeTheme
         _ = (store.setAccent(settings.applied.accent), store.setSelection(settings.applied.selection))
+        store.setContrastFloor(settings.applied.highContrastLook ? 7 : ThemeTokens.minimumTextContrast)
         store.setAccentFollowsArt(AccentSetting.followsArt(settings.applied.root))
         applyChromeTheme()
         artAccentObservation = Task { [weak self] in
@@ -101,6 +102,13 @@ final class ThemeCoordinator {
             for await (accent, selection) in ObservationStream({ (settings.applied.accent, settings.applied.selection) }) {
                 guard let self, (store.setAccent(accent), store.setSelection(selection)) != (false, false) else { continue }
                 self.applyChromeTheme()
+            }
+        }
+        let contrastStore = store
+        Task { [weak self] in
+            for await highContrast in ObservationStream({ settings.applied.highContrastLook }) {
+                guard contrastStore.setContrastFloor(highContrast ? 7 : ThemeTokens.minimumTextContrast) else { continue }
+                self?.applyChromeTheme()
             }
         }
         chromeObservation = Task { [weak self] in
