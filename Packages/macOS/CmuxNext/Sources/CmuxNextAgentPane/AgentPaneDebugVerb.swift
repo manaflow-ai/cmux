@@ -22,6 +22,7 @@ public enum AgentPaneDebugVerb {
     /// How long the page call of one verb may run: the verb's deadline less room for its answer to
     /// go back. A Chromium page's script call is a DevTools `Runtime.evaluate`, cut at 5 s unless its
     /// caller names a timeout, so a long seed or a waited fling timed out at 5 s on every run (hq#15602).
+    // timeout: room for a debug verb's answer to go back inside its own 60 s deadline; only benches and captures call it
     public static let pageDeadline: Duration = deadline - .seconds(5)
 
     /// Runs page verb `function` through `call` (the page's script call: script, arguments, timeout).
