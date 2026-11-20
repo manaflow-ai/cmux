@@ -140,6 +140,37 @@ class RunnerSetTests(unittest.TestCase):
         self.assertEqual(resolve_labels(batch_route, context={**context, "inputs.sha": "other"}),
                          {"blacksmith-6vcpu-macos-26"})
 
+    def test_dispatch_inputs_keep_unverified_revisions_off_persistent_linux(self) -> None:
+        context = {
+            "github.event_name": "workflow_dispatch",
+            "github.repository": "manaflow-ai/cmux",
+            "github.ref": "refs/heads/feat-cmux-next",
+            "github.sha": "abc",
+            "github.event.pull_request.head.repo.full_name": "",
+            "github.event.pull_request.head.sha": "",
+        }
+
+        web = yaml.safe_load((WORKFLOWS / "cmux-next-web-bundle-publish.yml").read_text())["jobs"]["build"]
+        web_route = runs_on_text(web, "cmux-next-web-bundle-publish.yml#build")
+        base_context = {**context, "inputs.pr": "", "inputs.ref": "", "inputs.base": ""}
+        self.assertEqual(resolve_labels(web_route, context=base_context), {"cmux-linux"})
+        for key, value in (("inputs.pr", "47965"), ("inputs.ref", "feature"), ("inputs.base", "deadbeef")):
+            with self.subTest(workflow="web-bundle", input=key):
+                self.assertEqual(resolve_labels(web_route, context={**base_context, key: value}), {"cmux-gcp-pr-control-jit-x64"})
+
+        tui = yaml.safe_load((WORKFLOWS / "cmux-tui-spec.yml").read_text())["jobs"]["clippy"]
+        tui_route = runs_on_text(tui, "cmux-tui-spec.yml#clippy")
+        base_context = {**context, "inputs.commit": "", "inputs.base": ""}
+        self.assertEqual(resolve_labels(tui_route, context=base_context), {"cmux-linux"})
+        for key, value in (("inputs.commit", "deadbeef"), ("inputs.base", "deadbeef")):
+            with self.subTest(workflow="tui-spec", input=key):
+                self.assertEqual(resolve_labels(tui_route, context={**base_context, key: value}), {"cmux-gcp-pr-control-jit-x64"})
+
+        skew = yaml.safe_load((WORKFLOWS / "cmux-next-skew-matrix.yml").read_text())["jobs"]["skew-matrix"]
+        skew_route = runs_on_text(skew, "cmux-next-skew-matrix.yml#skew-matrix")
+        self.assertEqual(resolve_labels(skew_route, context={**context, "inputs.commit": "abc", "inputs.old_commit": ""}), {"cmux-linux"})
+        self.assertEqual(resolve_labels(skew_route, context={**context, "inputs.commit": "abc", "inputs.old_commit": "deadbeef"}), {"cmux-gcp-pr-control-jit-x64"})
+
     def test_gallery_health_uses_the_pool_for_owned_work(self) -> None:
         job = workflow_jobs.jobs(WORKFLOWS / "gallery-health.yml")["health"]
         route = runs_on_text(job, "gallery-health.yml#health")
