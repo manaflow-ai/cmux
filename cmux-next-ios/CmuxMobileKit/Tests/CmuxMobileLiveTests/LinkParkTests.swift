@@ -176,6 +176,31 @@ private final class ParkingDialer: MacLinkDialer, @unchecked Sendable {
         }
     }
 
+    /// A notification action in the background: the parked link resumes for the request
+    /// (no redial, no foreground) and parks again when it is done.
+    @Test func aHoldResumesTheParkedLinkAndItsReleaseParksItAgain() async throws {
+        let dialer = ParkingDialer(accepts: true)
+        let clock = LinkTestClock()
+        let controller = controller(dialer, clock: clock)
+        defer { controller.send(.target(nil)); clock.stop() }
+        try await eventually { dialer.first.probeCount == 1 && controller.phase.isConnected }
+        controller.send(.background)
+        try await eventually { controller.isParked }
+
+        let hold = controller.holdAwake()
+        #expect(!controller.isParked)
+        #expect(dialer.first.resumeCount == 1)
+        try await eventually { dialer.first.probeCount == 2 }
+        #expect(controller.isBeating, "a link resumed in the background is left unwatched")
+
+        hold.release()
+        try await eventually { controller.isParked }
+        #expect(dialer.first.parkCount == 2)
+        #expect(dialer.dials == 1, "the parked link was redialed")
+        hold.release()
+        #expect(controller.isParked, "a second release counted twice")
+    }
+
     /// An older Mac refuses the park: the link closes on silence there, so
     /// the return redials at once, as before parking existed.
     @Test func aRefusedParkRedialsOnReturn() async throws {
@@ -232,6 +257,41 @@ private final class ParkingDialer: MacLinkDialer, @unchecked Sendable {
         _ = machine.handle(.dialSucceeded(generation: machine.generation, path: .direct))
         #expect(machine.handle(.parked(generation: machine.generation - 1)).isEmpty)
         #expect(!machine.isParked)
+    }
+
+    /// A call on the link: the phone locks and the link stays up; the call ends and it parks.
+    @Test func aLinkHeldAwakeParksOnlyOnceTheHoldEnds() {
+        var machine = connected()
+        let generation = machine.generation
+        #expect(machine.handle(.holdAwake).isEmpty)
+        #expect(machine.handle(.background).isEmpty, "a link held awake was parked")
+        #expect(machine.handle(.releaseAwake) == [.park(generation: generation)])
+        #expect(machine.handle(.parked(generation: generation)).isEmpty)
+        #expect(machine.isParked)
+    }
+
+    /// A call or a notification action in the background resumes a parked link at once;
+    /// back in front with the hold still out, the link is probed, never redialed.
+    @Test func aHoldResumesAParkedLinkAndTheReturnProbesIt() {
+        var machine = connected()
+        let generation = machine.generation
+        _ = machine.handle(.background)
+        _ = machine.handle(.parked(generation: generation))
+        #expect(machine.handle(.holdAwake) == [.resumeParked(generation: generation)])
+        #expect(!machine.isParked)
+        #expect(machine.handle(.resume) == [.probe(generation: generation)])
+        #expect(machine.generation == generation)
+    }
+
+    /// A hold taken while the park is being asked for takes the park back when it comes.
+    @Test func aHoldDuringTheParkRequestTakesTheParkBack() {
+        var machine = connected()
+        let generation = machine.generation
+        _ = machine.handle(.background)
+        #expect(machine.handle(.holdAwake).isEmpty)
+        #expect(machine.handle(.parked(generation: generation)) == [.resumeParked(generation: generation)])
+        #expect(!machine.isParked)
+        #expect(machine.handle(.releaseAwake) == [.park(generation: generation)])
     }
 }
 

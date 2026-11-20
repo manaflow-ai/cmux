@@ -70,6 +70,12 @@ public struct LinkMachine: Sendable {
         case parked(generation: Int)
         /// The park's hold ran out while the app was away: `resume` redials.
         case parkLapsed
+        /// Something needs the link awake (a call on it, a notification
+        /// action's request): no park while any hold is out, and a parked
+        /// link resumes at once. Each is paired with one `releaseAwake`.
+        case holdAwake
+        /// One hold ended; with none left, a link in the background parks.
+        case releaseAwake
         case probeFailed(generation: Int, reason: String)
         /// A presence frame says the target Mac's signaling socket is up
         /// (again): its host may have restarted under a live link, whose
@@ -117,6 +123,8 @@ public struct LinkMachine: Sendable {
     /// The current link is parked: nothing may probe it (a ping ends the
     /// Mac's park while the phone is about to be suspended).
     public var isParked: Bool { parkedGeneration == generation }
+    /// Holds that keep the link out of the park (`holdAwake`).
+    public private(set) var awakeHolds = 0
     /// The current link's WebRTC media session (browser video), `off` between links.
     public private(set) var media: VideoMediaState = .off
     /// Retry delays in seconds after the silent retries; the last one repeats.
@@ -154,6 +162,8 @@ public struct LinkMachine: Sendable {
             return []
         case .parkLapsed:
             parkedGeneration = nil
+            return []
+        case .holdAwake, .releaseAwake:
             return []
         case .resume:
             let wasBackgrounded = isBackgrounded

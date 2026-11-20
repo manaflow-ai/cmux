@@ -369,6 +369,14 @@ public final class LinkController {
         }
     }
 
+    /// Keeps the link out of the park until the hold is released: a parked
+    /// link resumes now, and with no hold left a link in the background
+    /// parks again (PROTOCOL.md "Parked link").
+    public func holdAwake() -> LinkAwakeHold {
+        send(.holdAwake)
+        return LinkAwakeHold(self)
+    }
+
     /// Keeps the process running for a short piece of work after the app
     /// leaves the screen; returns the release. UIKit's background task in
     /// the app's process, nothing in tests (no `UIApplication` there).
@@ -616,6 +624,23 @@ public final class LinkController {
         if error is LiveAPI.Failure { return "the cmux service refused the request" }
         return String(UserFacingError.message(error, fallback: "the connection to the Mac failed").prefix(80))
     }
+}
+
+/// One ``LinkController/holdAwake()``: released once, by `release()` or when
+/// the hold is dropped, whichever is first.
+@MainActor
+public final class LinkAwakeHold {
+    private weak var controller: LinkController?
+
+    init(_ controller: LinkController) { self.controller = controller }
+
+    public func release() {
+        guard let controller else { return }
+        self.controller = nil
+        controller.send(.releaseAwake)
+    }
+
+    isolated deinit { release() }
 }
 
 /// One winner for ``LinkController/race(timeout:clock:_:)``.
