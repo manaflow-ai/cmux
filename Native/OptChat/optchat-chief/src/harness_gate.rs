@@ -178,11 +178,32 @@ fn admitted(requested: &str, a: cmux_chief::policy::harness::Admission) -> Admit
     }
 }
 
-/// The text the Chief posts for a refused turn.
+/// The text the Chief posts for a refused turn: one plain sentence a person can act on, never the
+/// parts it is built from (first-run findings row 1: a fresh Mac's first reply named acpmux,
+/// claude-stdio, the CodeRouter CLI and `sr claude proxy`). `reason` stays in the host log and the
+/// trace's `harness.refused` (``trace_refusal``), where the person debugging it reads it. It starts
+/// with `refused: ` (the chat shows `(turn refused: …)`, which the apps recognize).
 pub fn refusal(reason: &str) -> String {
-    format!(
-        "refused: {reason}. Fix the acpmux harness (`acpmux daemon harnesses` lists them; the CodeRouter CLI must have the configured route for claude-cr, `sr claude proxy --version` must succeed for claude-sr) and send the message again."
-    )
+    let lower = reason.to_ascii_lowercase();
+    // The agent the refused harness runs: Codex, else Claude Code for the Claude routes.
+    let agent = if lower.contains("codex") {
+        Some("Codex")
+    } else if lower.contains("claude") {
+        Some("Claude Code")
+    } else {
+        None
+    };
+    let missing = lower.contains("has no harness named") || lower.contains("acpmux has none");
+    let text = match (agent, missing) {
+        (Some(agent), true) => format!(
+            "Chief answers through {agent}, and this Mac doesn't have it yet. Install {agent} from the Set Up card above (or Set Up cmux… in the command palette), then send your message again."
+        ),
+        (Some(agent), false) => format!(
+            "Chief can't run {agent} on this Mac right now. Check it in Set Up cmux… (command palette), then send your message again."
+        ),
+        (None, _) => "Chief couldn't start this reply. Send your message again; if it keeps happening, check your agents in Set Up cmux… (command palette).".to_owned(),
+    };
+    format!("refused: {text}")
 }
 
 /// Admits `requested` against the daemon's current harnesses (asked at each
