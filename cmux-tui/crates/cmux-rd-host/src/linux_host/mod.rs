@@ -401,22 +401,17 @@ fn set_up_for_join(args: &Args) -> Res<()> {
     // down now, not left running when a later step fails.
     let joined = machine::current()?;
     let from_join = joined.is_some();
-    // Read before the sign-in: whether this exact join was already the one signed in here.
-    let same_join = match (&joined, machine::Joined::load(&dir)?) {
-        (Some((home, credential)), Some(recorded)) => recorded.is(home, credential),
-        _ => false,
-    };
+    let mark = joined.as_ref().map(|(home, credential)| machine::Joined::of(home, credential));
     let Some(device) = join_device(&dir, args.get("hub"), joined, &serving::HostUnit)? else {
         println!("{NOT_INSTALLED}");
         return Ok(());
     };
-    let (consent, wrote) = join_consent(&dir, same_join && from_join, args)?;
     let desktop = setup::detect_desktop();
     // The portal's grant is asked for only with consent this run wrote: a join's kept (or
     // withdrawn) choice is never asked again on someone's screen.
-    if let (true, Ok(consent)) = (wrote, &consent) {
-        grant_capture_now(consent.full, &desktop, Some(JOIN_GRANT_WAIT));
-    }
+    let consent = join_consent(&dir, mark.as_ref(), args, &mut |control| {
+        grant_capture_now(control, &desktop, Some(JOIN_GRANT_WAIT))
+    })?;
     let virtual_display = desktop == setup::Desktop::None;
     if virtual_display {
         let display = setup::set_up_virtual_display()?;
@@ -611,30 +606,34 @@ fn enable_consent(args: &Args) -> LocalConsent {
     LocalConsent { view: true, full: !args.flag("view-only") }
 }
 
-/// The consent `enable --non-interactive` leaves in `dir` for a join, and whether it wrote it.
-/// `same_join`: this exact join (machine id and generation) was already signed in here before
-/// this run, as when the acpmux daemon runs the enable again for a new cmux-rd build.
+/// The consent `enable --non-interactive` leaves in `dir` for the join `mark` (None: not a
+/// join), asking `grant` for the portal's grant (with control or not) only when it wrote it.
 fn join_consent(
     dir: &std::path::Path,
-    same_join: bool,
+    mark: Option<&machine::Joined>,
     args: &Args,
-) -> Res<(Res<LocalConsent>, bool)> {
+    grant: &mut dyn FnMut(bool),
+) -> Res<Res<LocalConsent>> {
+    let same_join = match (mark, machine::Joined::load(dir)?) {
+        (Some(mark), Some(recorded)) => !mark.machine_id.is_empty() && recorded == *mark,
+        _ => false,
+    };
     if same_join {
         // Review F1 of #45480: the person's choice stays, including a withdrawn one (no file).
         // Only a narrower one is taken: `--view-only` turns control off, never on.
-        let kept = LocalConsent::load(dir);
-        return match kept {
+        return match LocalConsent::load(dir) {
             Ok(kept) if kept.full && args.flag("view-only") => {
                 let narrowed = LocalConsent { full: false, ..kept };
                 narrowed.save(dir)?;
-                Ok((Ok(narrowed), true))
+                Ok(Ok(narrowed))
             }
-            kept => Ok((kept, false)),
+            kept => Ok(kept),
         };
     }
     let consent = enable_consent(args);
     consent.save(dir)?;
-    Ok((Ok(consent), true))
+    grant(consent.full);
+    Ok(Ok(consent))
 }
 
 /// On a Wayland desktop, asks the portal for its grant now, while the person who ran `enable` is
@@ -1852,42 +1851,92 @@ mod join_consent_tests {
         Args::parse(&words).unwrap()
     }
 
-    /// Review F1 of #45480: the daemon runs the enable again when cmux-rd is replaced. The same
-    /// join keeps the consent its person chose: a view-only desktop stays view-only, and a
-    /// withdrawn one (no consent.json) stays withdrawn, so no viewer regains control after an
-    /// update.
+    fn mark(machine_id: &str) -> machine::Joined {
+        machine::Joined {
+            acpmux_home: "/acpmux-home".into(),
+            machine_id: machine_id.into(),
+            credential_generation: 1,
+        }
+    }
+
+    /// `dir` as a run for the join m-a left it once it finished: signed in, and its consent
+    /// written (`consent`, or deleted afterwards by its person when None).
+    fn finished(tag: &str, consent: Option<LocalConsent>) -> std::path::PathBuf {
+        let d = dir(tag);
+        let mut asked = |_| {};
+        join_consent(&d, Some(&mark("m-a")), &args(&[]), &mut asked).unwrap().unwrap();
+        mark("m-a").save(&d).unwrap();
+        match consent {
+            Some(consent) => consent.save(&d).unwrap(),
+            None => std::fs::remove_file(d.join("consent.json")).unwrap(),
+        }
+        d
+    }
+
+    /// Runs the enable's consent step for `join` in `d`: the consent left, and each grant asked.
+    fn rerun(d: &std::path::Path, join: &str, extra: &[&str]) -> (Res<LocalConsent>, Vec<bool>) {
+        let mut grants = Vec::new();
+        let got = join_consent(d, Some(&mark(join)), &args(extra), &mut |c| grants.push(c));
+        (got.unwrap(), grants)
+    }
+
+    /// Review F1 of #45480: replacing cmux-rd reruns the enable for the same join, and its
+    /// person's view-only choice stays, with no portal dialog.
     #[test]
-    fn a_rerun_for_the_same_join_keeps_its_consent() {
-        let d = dir("view-only");
-        LocalConsent { view: true, full: false }.save(&d).unwrap();
-        let (kept, wrote) = join_consent(&d, true, &args(&[])).unwrap();
-        assert!(!wrote, "the same join's consent is not written again");
-        assert!(!LocalConsent::load(&d).unwrap().full, "a view-only desktop stays view-only");
+    fn a_rerun_for_the_same_join_keeps_view_only() {
+        let d = finished("view-only", Some(LocalConsent { view: true, full: false }));
+        let (kept, grants) = rerun(&d, "m-a", &[]);
         assert!(!kept.unwrap().full);
+        assert!(!LocalConsent::load(&d).unwrap().full, "a view-only desktop stays view-only");
+        assert!(grants.is_empty(), "no portal grant is asked again: {grants:?}");
+    }
 
-        let d = dir("withdrawn");
-        let (kept, wrote) = join_consent(&d, true, &args(&[])).unwrap();
-        assert!(!wrote && kept.is_err());
-        assert!(LocalConsent::load(&d).is_err(), "a withdrawn desktop stays withdrawn");
+    /// Review F1 of #45480: a withdrawn grant (consent.json deleted) stays withdrawn when
+    /// cmux-rd is replaced, and the rerun asks for no portal grant.
+    #[test]
+    fn a_rerun_for_the_same_join_keeps_a_withdrawn_grant_withdrawn() {
+        let d = finished("withdrawn", None);
+        let (kept, grants) = rerun(&d, "m-a", &[]);
+        assert!(kept.is_err(), "nothing is shared");
+        assert!(LocalConsent::load(&d).is_err(), "no consent.json is written again");
+        assert!(grants.is_empty(), "no portal grant is asked: {grants:?}");
+    }
 
-        // Only a narrower choice is taken: --view-only on a full desktop.
-        let d = dir("narrowed");
-        LocalConsent { view: true, full: true }.save(&d).unwrap();
-        join_consent(&d, true, &args(&["--view-only"])).unwrap();
-        assert!(!LocalConsent::load(&d).unwrap().full);
+    /// Only a narrower choice is taken on a rerun: --view-only turns control off.
+    #[test]
+    fn a_rerun_may_narrow_but_never_widen() {
+        let d = finished("narrowed", Some(LocalConsent { view: true, full: true }));
+        let (now, grants) = rerun(&d, "m-a", &["--view-only"]);
+        assert!(!now.unwrap().full && !LocalConsent::load(&d).unwrap().full);
+        assert!(grants.is_empty());
+    }
+
+    /// The architect's case: a first run signed the join in (joined.json written) and stopped
+    /// before it wrote the consent. The next run writes it and asks for the grant, so the
+    /// machine is never left joined and silently unshared.
+    #[test]
+    fn a_join_whose_first_run_stopped_before_its_consent_writes_it_next_run() {
+        let d = dir("stopped-first-run");
+        mark("m-a").save(&d).unwrap();
+        let (now, grants) = rerun(&d, "m-a", &[]);
+        assert!(now.unwrap().full);
+        assert!(LocalConsent::load(&d).unwrap().full, "the join's consent is written");
+        assert_eq!(grants, [true], "the grant is asked once, with control");
     }
 
     /// A new join is the consent (hq docs/design/remote-screen-share-zero-touch.md, L3): it
-    /// writes its own, whatever an earlier join left.
+    /// writes its own, whatever an earlier join or its person left, and asks for the grant.
     #[test]
     fn a_new_join_writes_its_own_consent() {
-        let d = dir("new-join");
-        LocalConsent { view: true, full: false }.save(&d).unwrap();
-        let (now, wrote) = join_consent(&d, false, &args(&[])).unwrap();
-        assert!(wrote && now.unwrap().full);
-        assert!(LocalConsent::load(&d).unwrap().full);
-        let d = dir("new-join-view-only");
-        join_consent(&d, false, &args(&["--view-only"])).unwrap();
+        let d = finished("new-join", Some(LocalConsent { view: true, full: false }));
+        mark("m-b").save(&d).unwrap();
+        let (now, grants) = rerun(&d, "m-b", &[]);
+        assert!(now.unwrap().full && LocalConsent::load(&d).unwrap().full);
+        assert_eq!(grants, [true]);
+        let d = finished("new-join-withdrawn", None);
+        mark("m-b").save(&d).unwrap();
+        let (_, grants) = rerun(&d, "m-b", &["--view-only"]);
         assert!(!LocalConsent::load(&d).unwrap().full);
+        assert_eq!(grants, [false]);
     }
 }
