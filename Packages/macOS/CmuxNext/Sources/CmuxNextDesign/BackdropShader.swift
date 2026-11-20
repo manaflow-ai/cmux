@@ -18,6 +18,8 @@ public nonisolated enum BackdropShader: String, CaseIterable, Sendable {
     case aurora
     /// A grid of dots the pointer pushes aside, like iron filings near a magnet.
     case field
+    /// Frutiger Aero: glass bubbles rising through a glossy sky; they drift aside from the pointer.
+    case aero
 
     /// The prefix of a persisted id (`shader:currents`).
     public static let idPrefix = "shader:"
@@ -38,6 +40,7 @@ public nonisolated enum BackdropShader: String, CaseIterable, Sendable {
         case .ripples: String(localized: "backdrop.shader.ripples", defaultValue: "Ripples", bundle: .module)
         case .aurora: String(localized: "backdrop.shader.aurora", defaultValue: "Aurora", bundle: .module)
         case .field: String(localized: "backdrop.shader.field", defaultValue: "Dot Field", bundle: .module)
+        case .aero: String(localized: "backdrop.shader.aero", defaultValue: "Aero", bundle: .module)
         }
     }
 
@@ -52,6 +55,8 @@ public nonisolated enum BackdropShader: String, CaseIterable, Sendable {
             String(localized: "backdrop.shader.aurora.attribution", defaultValue: "Live · the light leans toward the pointer", bundle: .module)
         case .field:
             String(localized: "backdrop.shader.field.attribution", defaultValue: "Live · the pointer pushes the dots aside", bundle: .module)
+        case .aero:
+            String(localized: "backdrop.shader.aero.attribution", defaultValue: "Live · bubbles drift aside from the pointer", bundle: .module)
         }
     }
 
@@ -74,6 +79,7 @@ public nonisolated enum BackdropShader: String, CaseIterable, Sendable {
         case .ripples: 17
         case .aurora: 63
         case .field: 9
+        case .aero: 63
         }
     }
 
