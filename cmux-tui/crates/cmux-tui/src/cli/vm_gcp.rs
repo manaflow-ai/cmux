@@ -763,8 +763,14 @@ impl Gcp {
         body: Option<&Value>,
         query: &[(&str, &str)],
     ) -> Result<Value, Failure> {
-        let url = format!("{}/{path}", self.base.trim_end_matches('/'));
-        let mut request = self.http.request(method, &url).bearer_auth(&self.token).query(query);
+        let mut url = format!("{}/{path}", self.base.trim_end_matches('/'));
+        if !query.is_empty() {
+            url.push('?');
+            url.push_str(
+                &url::form_urlencoded::Serializer::new(String::new()).extend_pairs(query).finish(),
+            );
+        }
+        let mut request = self.http.request(method, &url).bearer_auth(&self.token);
         if let Some(body) = body {
             request = request.json(body);
         }
