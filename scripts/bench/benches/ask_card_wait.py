@@ -42,7 +42,7 @@ class AskCardWait(Bench):
     floors = {"wait": 16.0}
 
     def run(self, ctx: Context) -> None:
-        cmd = ["bun", HARNESS]
+        cmd = ["bun", str(REPO_ROOT / HARNESS)]
         if ctx.arg("sessions"):
             cmd.append(str(ctx.arg("sessions")))
         got = subprocess.run(cmd, cwd=REPO_ROOT / "webviews", text=True, capture_output=True, timeout=1800)

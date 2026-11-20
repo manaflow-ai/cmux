@@ -4,7 +4,7 @@ import { useT } from "../i18n";
 import { askTagText } from "../question/askTag";
 import { inlineText } from "../question/inlineText";
 import { answerPrompt, type NextStepAsk } from "./nextStepAsk";
-import { WRAP_UP } from "./wrapUp";
+import { shownQuestion, WRAP_UP } from "./wrapUp";
 import { answerState, claimAnswer, setAnswerState, subscribeAnswers, type AnswerState } from "./waitingAskStore";
 import "./NextStepCard.css";
 
@@ -72,6 +72,7 @@ export const NextStepCard = memo(function NextStepCard({
   // Leo, 2026-11-19, on a pinned "[trust] Trust ~/fun/cmux ...?": "odd looking".
   const tag = ask.label ?? (ask.tag === WRAP_UP ? undefined : ask.tag);
   const chip = tag ? <span className="acpmux-next-step__tag">{askTagText(tag, t)}</span> : null;
+  const shown = shownQuestion(ask);
   const recap = ask.recap ? <p className="acpmux-next-step__recap">{inlineText(ask.recap)}</p> : null;
   // A wrap-up with nothing to decide (wrapUp.ts): the recap alone, in the same box.
   if (!ask.question) return recap ? <div className="acpmux-next-step acpmux-next-step--recap">{recap}</div> : null;
@@ -85,7 +86,7 @@ export const NextStepCard = memo(function NextStepCard({
         <div className="acpmux-question-answered-item">
           <span className="acpmux-question-answered-prompt">
             {chip}
-            {inlineText(ask.question)}
+            {inlineText(shown)}
           </span>
           {answer !== undefined && (
             <span className="acpmux-question-answered-answer">{made ? t(made) : inlineText(answer)}</span>
@@ -106,11 +107,11 @@ export const NextStepCard = memo(function NextStepCard({
     );
   };
   return (
-    <fieldset className={`acpmux-next-step${className ? ` ${className}` : ""}`} aria-label={ask.question}>
+    <fieldset className={`acpmux-next-step${className ? ` ${className}` : ""}`} aria-label={shown}>
       {recap}
       <p className="acpmux-next-step__question">
         {chip}
-        {inlineText(ask.question)}
+        {inlineText(shown)}
       </p>
       {ask.detail && <p className="acpmux-next-step__detail">{inlineText(ask.detail)}</p>}
       {onAnswer && (

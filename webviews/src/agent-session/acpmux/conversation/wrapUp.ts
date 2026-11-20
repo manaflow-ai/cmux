@@ -86,10 +86,17 @@ export function splitLeadingTag(question: string): { question: string; label?: s
   return { question: rest.charAt(0).toUpperCase() + rest.slice(1), label };
 }
 
+/// The question as the card draws it: without the leading bracket word its label chips.
+export function shownQuestion(ask: NextStepAsk): string {
+  return ask.label ? splitLeadingTag(ask.question).question : ask.question;
+}
+
 function askOf(args: Record<string, unknown>): NextStepAsk | undefined {
   const recap = words(args.recap);
-  const asked = words(args.ask);
-  const { question, label } = asked ? splitLeadingTag(asked) : { question: undefined, label: undefined };
+  // The question stays as asked: an answer quotes it (`answerPrompt`), and `answerOf` and `askKey`
+  // match it whole. The card draws it without its tag (`shownQuestion`).
+  const question = words(args.ask);
+  const label = question ? splitLeadingTag(question).label : undefined;
   if (!recap && !question) return undefined;
   let options: NextStepOption[] = [];
   if (question) {

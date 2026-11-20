@@ -2749,12 +2749,14 @@ function shapeLiveTurn(
   // (Leo, 2026-11-19, on the Needs your input cards: "plus it's not instant yet"). Same id as the
   // ended turn's card (`card` in shapedTurn), so the row stays when the turn ends.
   const wrapUp = liveWrapUp(kept);
-  const drawn = wrapUp ? withoutWrapUp(kept) : kept;
+  const drawn = wrapUp ? withoutLiveWrapUp(kept, wrapUp) : kept;
   const shaped = shapeLiveRows(user, drawn, clockOffset, sessionStatus, trayAgents, turnStartedAtMs);
   if (!wrapUp) return shaped;
   const card: AcpmuxRow = {
     id: `${NEXT_STEP}-${user.id}`,
-    version: 1,
+    // Another wrap-up, or the same call updated, is another version: the row's memo compares id
+    // and version, and would keep the first card's question.
+    version: wrapUp.version * SETTLED_STATES,
     at: wrapUp.at,
     kind: NEXT_STEP,
     nextStep: { ask: wrapUp.ask },
@@ -2770,7 +2772,7 @@ function shapeLiveTurn(
 /// returned. The wrap-up is the turn's last step, so only the newest call is read: a record into a long
 /// running turn reads none of its earlier calls again. A call after it takes the card back to the
 /// turn's end, where the ended turn reads every call (`lastWrapUp`).
-function liveWrapUp(rows: readonly AcpmuxRow[]): { ask: NextStepAsk; at: number } | undefined {
+function liveWrapUp(rows: readonly AcpmuxRow[]): LiveWrapUp | undefined {
   for (let at = rows.length - 1; at >= 0; at -= 1) {
     const row = rows[at]!;
     if (row.kind !== "activity") continue;
@@ -2780,11 +2782,38 @@ function liveWrapUp(rows: readonly AcpmuxRow[]): { ask: NextStepAsk; at: number 
     while (index >= 0 && !items[index]!.tool) index -= 1;
     if (index < 0) continue;
     const tool = items[index]!.tool;
-    if (tool?.status !== "completed" || !(isWrapUp(tool) || execWrapUp(tool))) return undefined;
+    if (tool?.status !== "completed") return undefined;
+    const exec = isWrapUp(tool) ? undefined : execWrapUp(tool);
+    if (!exec && !isWrapUp(tool)) return undefined;
     const ask = wrapUpAsk(tool);
-    return ask ? { ask, at: row.at } : undefined;
+    if (!ask) return undefined;
+    // A script that did more than the wrap-up keeps its row, as `withoutWrapUp` keeps it.
+    const drop = exec?.only === false ? undefined : { row: at, item: index };
+    return { ask, at: row.at, version: callVersion(tool.id, row.version), drop };
   }
   return undefined;
+}
+
+type LiveWrapUp = { ask: NextStepAsk; at: number; version: number; drop?: { row: number; item: number } };
+
+/// The live turn's rows without the one call its card draws: that call's row loses the item, and
+/// goes when it held nothing else. No other call is read again, so a record into a long turn parses
+/// one call however long the turn; an earlier wrap-up in the same turn keeps its row until the turn
+/// ends (`withoutWrapUp`).
+function withoutLiveWrapUp(rows: AcpmuxRow[], wrapUp: LiveWrapUp): AcpmuxRow[] {
+  if (!wrapUp.drop) return rows;
+  const { row: at, item } = wrapUp.drop;
+  const row = rows[at]!;
+  const items = row.items!.filter((_, index) => index !== item);
+  return [...rows.slice(0, at), ...(items.length ? [{ ...row, items }] : []), ...rows.slice(at + 1)];
+}
+
+/// A version for the live card of call `id` in a row at `rowVersion`: FNV-1a of the id (32 bits)
+/// plus the row's version, so another call or an update to this one changes it.
+function callVersion(id: string, rowVersion: number): number {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < id.length; index++) hash = Math.imul(hash ^ id.charCodeAt(index), 0x01000193);
+  return (hash >>> 0) + rowVersion;
 }
 
 function shapeLiveRows(
