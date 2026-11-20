@@ -1,6 +1,6 @@
 import { SignInContext, useSignIn } from "../signIn";
 import type { ExtraFolderControl } from "../extraFolders";
-import { authBlocksSend, authText, useSessionAuth } from "../sessionAuth";
+import { authBlocksSend, authText, useSessionAuth, authLoginText, authParty } from "../sessionAuth";
 import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
 import React, {
@@ -421,6 +421,9 @@ export function NewTabScreen(props: Props) {
   // at the foot, the environment and suggestions cards over it.
   const stage = sections.stage;
   const [carried] = useState(() => props.takeDraft?.());
+  /// Return or Send was refused because the agent is signed out (first-run findings row 5: they did
+  /// nothing, with no word why). The note over the field then leads with what to do first.
+  const [signInAsked, setSignInAsked] = useState(false);
   // A host-provided location is literal text, not Markdown (paths can contain `_`, `*`, or `[`);
   // a carried composer draft is already serialized Markdown, including attachment tokens.
   const [untouchedText, setUntouchedText] = useState(() =>
@@ -851,7 +854,10 @@ export function NewTabScreen(props: Props) {
     // still running never does (Leo 2026-10-30: "I SHOULD BE ALWAYS ABLE TO SATRT NEW FUCKGN
     // CHATS"): it has no deadline and can take many seconds on a busy daemon, and the turn itself
     // reports a sign-in that turns out missing.
-    if (authBlocksSend(targetAuth)) return false;
+    if (authBlocksSend(targetAuth)) {
+      setSignInAsked(true);
+      return false;
+    }
     if (command.intercept(prompt, agent, attachments.length)) return false;
     if (props.runMode?.mode === "cloud" && props.onCloud) {
       // No project picked: no folder goes (`envFolder` is none), so the start copies nothing and the
@@ -1103,6 +1109,31 @@ export function NewTabScreen(props: Props) {
   // A send held while acpmux starts or reconnects stays in the prompt, and this says so (sendWhenReady.ts).
   const heldForHost = useSyncExternalStore(sendsHeldForHost.subscribe, sendsHeldForHost.get);
   const targetAuthText = authText(targetAuth, t);
+  const signedOut = authBlocksSend(targetAuth);
+  /// The signed-out note's fix: the agent's own login in a terminal tab on this Mac (the same login the
+  /// model chip's Sign In runs), else the account sign-in the host offers; none for a chat elsewhere.
+  const signedOutAgent = targetAuth?.harness ?? harness;
+  const signedOutLogin =
+    targetAuth?.login?.kind === "terminal" && !targetAuth.login.host && !targetAuth.host
+      ? targetAuth.login.command
+      : signedOutAgent
+        ? parentSignIn?.signedOut[signedOutAgent] || undefined
+        : undefined;
+  const signInNow =
+    signedOutLogin && signedOutAgent
+      ? () => parentSignIn?.logIn(signedOutAgent, signedOutLogin)
+      : targetAuth?.credential === "cmux" && parentSignIn?.loginSession
+        ? () => parentSignIn.loginSession?.(targetAuth)
+        : undefined;
+  const signInFirst = (() => {
+    if (!targetAuth) return undefined;
+    const party = authParty(targetAuth, t);
+    return party.kind === "cmux"
+      ? t("auth.signInFirst", { name: "cmux" })
+      : party.kind === "login" && party.agent
+        ? t("auth.signInFirst", { name: party.agent })
+        : authLoginText(targetAuth, t);
+  })();
   const chrome = useComposerChrome();
   // The chat composer's footer look (composerSettings.ts plainFooter): the New Tab row draws the
   // same plain chips, so the two composers never disagree (composerLocation.css).
@@ -1501,6 +1532,7 @@ export function NewTabScreen(props: Props) {
     // files stay in the field.
     if (authBlocksSend(targetAuth)) {
       created.current = false;
+      setSignInAsked(true);
       return;
     }
     requestChat(agent, "", folder, agent === harness ? chipModel : undefined);
@@ -2232,10 +2264,26 @@ export function NewTabScreen(props: Props) {
         data-icon-column={iconColumn}
         data-attachment-view={attachmentView}
       >
-        {authBlocksSend(targetAuth) ? (
-          <p className="acpmux-composer-remote-note" role="alert">
-            {targetAuthText}
-          </p>
+        {signedOut ? (
+          // Signed out: say so before the person sends, say what to do first once they tried, and
+          // offer the two fixes in place (first-run findings row 5).
+          <div className="acpmux-composer-remote-note nt-signed-out" role="alert">
+            <span className="nt-signed-out-text">
+              {signInAsked && signInFirst ? <strong>{signInFirst}</strong> : null}
+              {signInAsked && signInFirst ? " " : null}
+              {targetAuthText}
+            </span>
+            <span className="nt-signed-out-actions">
+              {signInNow && (
+                <button type="button" className="acpmux-trust-ask-action" onClick={signInNow}>
+                  {authLoginText(targetAuth, t)}
+                </button>
+              )}
+              <button type="button" className="acpmux-trust-ask-action" onClick={() => openSetup()}>
+                {t("auth.useAnotherAgent")}
+              </button>
+            </span>
+          </div>
         ) : (
           starting !== undefined && (
             // Read out, not drawn: a line here pushed the card while the chat started (Leo,

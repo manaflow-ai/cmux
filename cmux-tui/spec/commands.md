@@ -10470,11 +10470,13 @@ see `agent-session-proxy-bind`).
 
 ### agent-session-attach
 
-`{id, cmd:"agent-session-attach", surface, after_seq?, before_seq?, limit?, kinds?}`
+`{id, cmd:"agent-session-attach", surface, after_seq?, before_seq?, limit?, kinds?, max_bytes?}`
 subscribes the connection to the tab's session and answers acpmux's attach
 page `{session, events, hasMore, lastSeq}` (`limit` 1 to 500, default 200;
 `kinds` at most 32 acpmux record kinds or categories; at most 8 MiB of
-records, the rest left for the next page with `hasMore`). On an attached tab
+records, the rest left for the next page with `hasMore`; `max_bytes`, under
+`agent-session-page-bytes-v1`, passes acpmux a page budget as `maxBytes`, at
+least 1 and held to 8 MiB, else acpmux's own 1 MiB default). On an attached tab
 it only pages. Live records then arrive as
 `{event:"agent-session-record", surface, record}` (one acpmux record in its
 `eventStream` form), permission requests as
@@ -10506,7 +10508,7 @@ existing attachment unchanged; the same mode again only pages.
 
 ### agent-session-events
 
-`{id, cmd:"agent-session-events", surface, after_seq?, before_seq?, limit?, kinds?}`
+`{id, cmd:"agent-session-events", surface, after_seq?, before_seq?, limit?, kinds?, max_bytes?}`
 pages the log of an attached tab, as acpmux's `_acpmux/events`
 (`{events, hasMore, lastSeq}`), with the same bounds.
 

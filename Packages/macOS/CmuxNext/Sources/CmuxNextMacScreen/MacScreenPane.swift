@@ -1,6 +1,6 @@
 public import AppKit
 public import CmuxScreenKit
-import CmuxNextDevices
+public import CmuxNextDevices
 import CmuxNextRemoteView
 import CmuxNextWakeups
 public import Observation
@@ -17,6 +17,8 @@ public final class MacScreenPaneModel {
 
     public let session: MacScreenSession?
     public internal(set) var name: String
+    /// The device's platform, when the hub lists it: a Linux desktop's cards say how to reach a Linux machine.
+    public internal(set) var platform: DevicePlatform?
     public var gate: Gate
     /// The streamed Mac's displays (pixel sizes) and the one shown.
     public internal(set) var displays: [CGSize] = []
@@ -34,9 +36,10 @@ public final class MacScreenPaneModel {
     /// The device hub tab's session: its request, approval and ticket; nil for an unsupported record.
     public let hub: MacScreenHubViewer?
 
-    init(session: MacScreenSession?, name: String, gate: Gate, hub: MacScreenHubViewer? = nil) {
+    init(session: MacScreenSession?, name: String, platform: DevicePlatform? = nil, gate: Gate, hub: MacScreenHubViewer? = nil) {
         self.session = session
         self.name = name
+        self.platform = platform
         self.gate = gate
         self.hub = hub
     }
@@ -89,9 +92,9 @@ public final class MacScreenPane {
     /// approved session: `viewer` asks for it and hands its ticket's
     /// signaling to the session once; a dropped stream does not reconnect on
     /// its own (Try Again asks again).
-    public init(hubDevice viewer: MacScreenHubViewer, name: String, preferences: ScreenPreferences) {
+    public init(hubDevice viewer: MacScreenHubViewer, name: String, platform: DevicePlatform? = nil, preferences: ScreenPreferences) {
         let session = MacScreenSession(title: name, preferences: preferences, signaling: { [weak viewer] in viewer?.takeSignaling() })
-        model = MacScreenPaneModel(session: session, name: name, gate: .open, hub: viewer)
+        model = MacScreenPaneModel(session: session, name: name, platform: platform, gate: .open, hub: viewer)
         // A quality or display change: the ticket admits once, so the hub gives a new session.
         session.restart = { [weak viewer] in
             guard let viewer, let scope = viewer.phase.streamingScope else { return }
