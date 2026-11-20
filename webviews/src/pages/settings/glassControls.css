@@ -69,12 +69,12 @@
 @media (prefers-reduced-motion: no-preference) {
   /* pressed-state: allow a switch knob, not a button; the opt-in glass knob grows while held (Taste Board #164) */
   :root[data-settings-look="refined"]:not([data-reduce-motion], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .settings[data-glass-controls] .ui-switch:active:not([data-disabled]) .ui-switch-thumb {
-    scale: var(--glass-knob-grow);
+    scale: var(--glass-knob-grow); /* pressed-state: allow a switch knob, not a button */
   }
 
   /* pressed-state: allow a slider knob, not a button; the opt-in glass knob grows while dragged (Taste Board #164) */
   :root[data-settings-look="refined"]:not([data-reduce-motion], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .settings[data-glass-controls] input[type="range"]:active:not(:disabled)::-webkit-slider-thumb {
-    transform: scale(var(--glass-knob-grow));
+    transform: scale(var(--glass-knob-grow)); /* pressed-state: allow a slider knob, not a button */
   }
 }
 
