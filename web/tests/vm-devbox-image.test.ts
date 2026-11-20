@@ -1759,7 +1759,9 @@ test "$daemon_pid" = fixture
       expect(source).not.toContain("managed-settings.d");
     }
     expect(dockerfile).toContain("claude-onboarding.py --settings-default /root/.claude/settings.json");
+    expect(dockerfile).toContain("claude-onboarding.py --settings-default /root/.config/cmux/claude-team/settings.json");
     expect(dockerfile).toContain("sudo -n -u cmux python3 -I /etc/cmux/claude-onboarding.py --settings-default /home/cmux/.claude/settings.json");
+    expect(dockerfile).toContain("sudo -n -u cmux python3 -I /etc/cmux/claude-onboarding.py --settings-default /home/cmux/.config/cmux/claude-team/settings.json");
     expect(readScript("build-devbox-freestyle.ts")).toContain('step("claude-settings-defaults", devboxClaudeSettingsDefaultsCommand())');
     expect(readScript("cmux-vm-image/bake.ts")).toContain('L.step(vm, "claude-settings-defaults", devboxClaudeSettingsDefaultsCommand())');
     expect(readScript("verify-devbox-image.ts")).toContain("devboxClaudeSettingsDefaultsCheckCommand()");
@@ -1826,6 +1828,12 @@ test "$daemon_pid" = fixture
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  test("shared-machine Claude settings are seeded in the config directory the launcher selects", () => {
+    const command = devboxClaudeSettingsDefaultsCommand();
+    expect(command).toContain(`${DEVBOX_WORK_HOME}/.config/cmux/claude-team/settings.json`);
+    expect(command).toContain("/root/.config/cmux/claude-team/settings.json");
   });
 
   test("never installs docker (deliberate image-scope choice)", () => {
