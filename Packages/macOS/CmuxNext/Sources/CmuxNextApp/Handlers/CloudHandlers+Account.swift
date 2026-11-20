@@ -161,8 +161,8 @@ extension CloudHandlers {
 
     /// The New Cloud Workspace flow over this app's services (cx-lu8f).
     /// `startedByPerson`: true only for an action invoked with origin user; any other create (a Retry or Dismiss
-    /// button of the progress view, which carries no gesture origin) asks the person first. `capCard`: a refusal at
-    /// the plan's cap shows its card; false for a CLI's or agent's run, which hears the refusal at once (cmux#32725).
+    /// button of the progress view, which carries no gesture origin) asks the person first. `capCard`: a refusal at the plan's cap
+    /// shows its card; false for a CLI's, socket's or agent's run, which hears the refusal at once (cmux#32725); with it, a person's own create goes as them.
     /// `reveals`: the run may change the view (a person's, or one with `--focus`): a machine made with no
     /// window showing its creation still opens its workspace in one. Without it the workspace waits,
     /// out of the sidebar, until the person opens the machine (`unopenedCloudWorkspaces`).
@@ -173,7 +173,7 @@ extension CloudHandlers {
         return CloudCreationFlow(
             creations: cloud.creations,
             create: { creation in
-                try await cloud.createMachine(name: nil, creation: creation, startedByPerson: startedByPerson, capCard: capCard, askedBy: askedBy,
+                try await cloud.createMachine(name: nil, creation: creation, startedByPerson: startedByPerson, ownCreate: capCard && ActionRunScope.isPersonsAction(), capCard: capCard, askedBy: askedBy,
                                                request: creation.request, proceed: { try proceed(creation) })
             },
             open: { session in try await firstWorkspace(on: session, context) },
@@ -389,7 +389,7 @@ extension CloudHandlers {
                 }
             }
             try checkScope(session)
-            try await WorkspaceCreation.create(key, name: folder.map { URL(fileURLWithPath: $0.root).lastPathComponent }, on: connection, repair: session.emptyWorkspaces) { _ = try await WorkspaceCreation.firstTerminal(in: $0, cwd: cwd, on: connection) }
+            try await WorkspaceCreation.create(key, name: folder.map { ($0.root as NSString).lastPathComponent }, on: connection, repair: session.emptyWorkspaces) { _ = try await WorkspaceCreation.firstTerminal(in: $0, cwd: cwd, on: connection) }
             return key.rawValue
         }
         return .started

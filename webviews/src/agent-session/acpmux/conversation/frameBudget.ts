@@ -41,6 +41,7 @@ export const FULL_MOTION = "full";
 const FRAME = 1000 / 60;
 /// What the frames may miss over WINDOW (ms, each gap's time past two frames, summed) before the
 /// chat goes minimal: about seven dropped frames in a second.
+// motion-allow: a dropped-frame budget, not a motion
 export const MISSED_ENTER_MS = 120;
 /// The misses must spread over at least this much of the window (ms, first to last): load the chat
 /// keeps meeting, not one burst. A single long task (a long chat's first draw, a page of history)

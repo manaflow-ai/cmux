@@ -2,6 +2,7 @@
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { HoverDemo, type HoverDemoProps } from "./MotionDemos";
+import { MOTION_MS } from "../../motion/scale.generated";
 
 const openMenu: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "More for Session Info tabs" });
@@ -21,12 +22,12 @@ export default componentEntry<HoverDemoProps>({
   styles: () => Promise.all([import("./motion.css"), import("./motion.gallery.css")]),
   variants: {
     scale: {
-      note: "Picked: fill 80 ms; reveal on the dwell ramp; no press.",
+      note: `Picked: fill ${MOTION_MS.quick} ms; reveal on the dwell ramp; no press.`,
       props: { timing: "scale" },
       play: openMenu,
     },
     blink: { note: "Before: appears and disappears in one frame.", props: { timing: "blink" }, play: openMenu },
-    slow: { note: "Everything at 180 ms.", props: { timing: "slow" }, play: openMenu },
+    slow: { note: `Everything at ${MOTION_MS.standard} ms.`, props: { timing: "slow" }, play: openMenu },
     "press-dip": { note: "Rejected: a dip and shrink on the press.", props: { timing: "press-dip" }, play: openMenu },
   },
 });

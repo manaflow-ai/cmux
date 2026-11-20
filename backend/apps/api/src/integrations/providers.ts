@@ -96,6 +96,10 @@ const commentToken = async (env: Env, http: Http, installation: number, repo: st
   return token
 }
 
+/** A GitHub App installation's `permissions` as a connection's scopes_granted (`contents:write`, sorted), at link time and on webhooks. */
+export const githubScopesOf = (permissions: Readonly<Record<string, unknown>>): Array<string> =>
+  Object.entries(permissions).filter((e): e is [string, string] => typeof e[1] === "string").map(([k, v]) => `${k}:${v}`).sort()
+
 export const github: ProviderImpl = {
   configured: (env) => Boolean(env.GITHUB_APP_SLUG && env.GITHUB_APP_CLIENT_ID && env.GITHUB_APP_CLIENT_SECRET && env.GITHUB_APP_PRIVATE_KEY),
   defaultScopes: [],
@@ -104,6 +108,11 @@ export const github: ProviderImpl = {
   authorizeUrl: (env, state) => `https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new?state=${encodeURIComponent(state)}`,
   complete: async (env, http, p) => {
     const installation = Number(p.installation_id)
+    // An organization member's install is a request until an owner approves it: GitHub comes back with
+    // `setup_action=request` and no installation yet. Nothing to link; say what happens next.
+    if (p.setup_action === "request" && !Number.isSafeInteger(installation)) {
+      throw new ProviderError("integration.state_invalid", "GitHub sent your request to install the cmux GitHub App to the organization's owners. When an owner approves it, choose Connect GitHub in cmux again")
+    }
     if (!p.code || !Number.isSafeInteger(installation)) {
       throw new ProviderError("integration.state_invalid", "GitHub returned no installation_id or code (enable 'Request user authorization during installation')")
     }
@@ -154,7 +163,7 @@ export const github: ProviderImpl = {
     }
     return {
       account: { key: `github:installation:${installation}`, name: login || String(installation), ...(inst.account?.html_url ? { url: inst.account.html_url } : {}) },
-      scopes_granted: Object.entries(inst.permissions ?? {}).map(([k, v]) => `${k}:${v}`).sort(),
+      scopes_granted: githubScopesOf(inst.permissions ?? {}),
       credential: { kind: "github_installation", installation_id: installation },
       resources: { repos }
     }

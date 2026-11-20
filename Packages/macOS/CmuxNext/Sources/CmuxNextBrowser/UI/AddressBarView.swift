@@ -205,7 +205,7 @@ public final class AddressBarView: NSView {
         addSubview(badges)
         let fieldCenter = field.centerYAnchor.constraint(equalTo: centerYAnchor)
         NSLayoutConstraint.activate([
-            density.bind(heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.barHeight },
+            density.bind(heightAnchor.constraint(equalToConstant: 0)) { [weak self] in OmnibarStyle.barHeight(scale: OmnibarStyle.scale(of: self)) },
             pill.leadingAnchor.constraint(equalTo: leadingAnchor),
             pill.trailingAnchor.constraint(equalTo: trailingAnchor),
             pill.topAnchor.constraint(equalTo: topAnchor),
@@ -226,7 +226,8 @@ public final class AddressBarView: NSView {
             },
             fieldToEdge,
             fieldCenter,
-            badges.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.edgeInset - 2),
+            // The star's plate sits as far from the bar's end as from its top, as Helium's does (2 pt at Compact).
+            density.bind(badges.trailingAnchor.constraint(equalTo: trailingAnchor)) { -OmnibarStyle.badgesTrailingInset },
             badges.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         panel.onPick = { [weak self] row, flags in
