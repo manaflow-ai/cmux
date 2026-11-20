@@ -534,7 +534,7 @@ impl Injector {
             InputEvent::Button { button, down } => {
                 let b = (*button).clamp(1, 9);
                 if let (true, Some(m)) = (*down, person) {
-                    let _ = m;
+                    self.note_core_focus_at_click(m)?;
                 }
                 self.fake(if *down { BUTTON_PRESS_EVENT } else { BUTTON_RELEASE_EVENT }, b, 0, 0)?;
                 if *down {
