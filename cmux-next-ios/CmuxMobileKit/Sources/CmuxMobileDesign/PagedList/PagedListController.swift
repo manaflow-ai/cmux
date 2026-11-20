@@ -828,11 +828,15 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     /// the correction and slides on).
     private func willLayout() {
         passHold = nil
+        // The cells as drawn sit against the offset before UIKit's corrections that this pass lays
+        // out (rows above that sized outside a pass): holding them against the corrected offset
+        // would correct a second time.
+        let drawnOffset = ledger.takeDrawnOffset(collectionView.contentOffset.y)
         let scrolling = collectionView.isTracking || collectionView.isDecelerating
         let sliding = direction == .down && spring.isRunning
         guard loaded, !updating, !keeping, !laying,
               sliding || (scrolling && !followsNewest && !spring.isRunning) else { return }
-        let top = readerTop
+        let top = drawnOffset + collectionView.adjustedContentInset.top
         var best: (id: CellID, minY: CGFloat)?
         // The cells as drawn: their frames are the last pass's (the layout may already hold the next).
         for cell in collectionView.visibleCells where cell.frame.maxY > top + 0.5 {
@@ -841,7 +845,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
                   let id = dataSource.itemIdentifier(for: indexPath), case .row = id else { continue }
             best = (id, cell.frame.minY)
         }
-        if let best { passHold = (best.id, best.minY - collectionView.contentOffset.y) }
+        if let best { passHold = (best.id, best.minY - drawnOffset) }
     }
 
     private func holdAcrossPass() {

@@ -12,6 +12,9 @@ struct PagedListShiftLedger {
     /// The corrections owed for rows that sized above the reader, by row: the layout may ask for
     /// the same one again (`corrected`), which is owed once.
     private var owed: [Int: CGFloat] = [:]
+    /// The corrections paid since the last layout pass: the offset moved, the visible cells move
+    /// in the next pass. Not an interval's: a sample does not clear it.
+    private var unlaid: CGFloat = 0
 
     /// An offset move the scroll explains: the finger, a fling, the list's own deliberate move.
     mutating func explain(_ delta: CGFloat) {
@@ -44,13 +47,15 @@ struct PagedListShiftLedger {
     mutating func pays(_ delta: CGFloat) -> Bool {
         guard pending != 0, delta * pending > 0, abs(delta) <= abs(pending) + 0.5 else { return false }
         pending = abs(pending - delta) < 0.5 ? 0 : pending - delta
+        unlaid += delta
         return true
     }
 
     /// The offset the visible cells were last laid out against, from the offset now: a layout pass
     /// that keeps the reader in place holds them against it. Each pass takes it once.
     mutating func takeDrawnOffset(_ offset: CGFloat) -> CGFloat {
-        offset
+        defer { unlaid = 0 }
+        return offset - unlaid
     }
 
     /// A sample was taken: the next interval starts empty.
