@@ -1234,6 +1234,13 @@ fn run_passive(opts: &Opts, v: &mut Viewer, addr: SocketAddr, carrier: &str) -> 
         }
     }
     eprintln!("passive: first frame");
+    // `--type TEXT`: send TEXT as one text event (the viewer's text route) once the
+    // picture is up, to check a host types it as its characters (CMUX-572).
+    if let Some(text) = opts.get("type") {
+        v.sender.push(InputEvent::Text(text.to_owned()));
+        v.send_input()?;
+        eprintln!("passive: typed {} characters as text", text.chars().count());
+    }
     let first_frame_ms = (now_ns().saturating_sub(start)) as f64 / 1e6;
     let unix_ms = || {
         std::time::SystemTime::now()
