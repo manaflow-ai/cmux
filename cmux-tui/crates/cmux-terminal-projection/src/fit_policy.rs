@@ -244,14 +244,6 @@ impl FitPolicy {
     /// Escape sequences (arrows, function keys, mouse reports) and control
     /// characters are not text and never count.
     pub fn typed(&mut self, bytes: &[u8]) -> FitDecision {
-        // Each send is whole key events or a paste, so an Esc that ends a send is the Escape
-        // key, never the start of a sequence the next send finishes: vim's Esc then `P`, `[`
-        // or `O` is a key typed, not a string, CSI or SS3 that swallows the keys after it. A
-        // sequence whose introducer came with its Esc (CSI parameters, an OSC body) still
-        // carries across sends.
-        if self.escape == Escape::Esc {
-            self.escape = Escape::None;
-        }
         let printable = self.count_printable(bytes);
         if !self.foreground.is_tui() || self.fitted.is_some() || self.declined || printable == 0 {
             return self.decision(false);
@@ -319,7 +311,10 @@ impl FitPolicy {
 
     fn count_printable(&mut self, bytes: &[u8]) -> u32 {
         let mut count = 0u32;
+        // The last byte followed an Esc: it was an introducer or an Alt chord's key.
+        let mut after_esc = false;
         for &byte in bytes {
+            after_esc = self.escape == Escape::Esc;
             self.escape = match (self.escape, byte) {
                 (Escape::None, 0x1b) => Escape::Esc,
                 (Escape::None, b) => {
@@ -343,6 +338,14 @@ impl FitPolicy {
                 (Escape::StringEsc, b'\\') => Escape::None,
                 (Escape::StringEsc, _) => Escape::String,
             };
+        }
+        // Each send is whole key events or a paste. One that ends on its Esc, or right after
+        // the byte that follows it, is the Escape key or an Alt chord (Alt-x is `ESC x`; emacs's
+        // M-} is `ESC ]`), never a CSI, SS3 or string the next send finishes: vim's Esc then `P`
+        // is two keys, not a string swallowing what is typed after it. A sequence with more of
+        // it in this send (CSI parameters, an OSC body) still carries across sends.
+        if self.escape == Escape::Esc || after_esc {
+            self.escape = Escape::None;
         }
         count
     }
@@ -642,8 +645,8 @@ mod tests {
     fn an_escape_sequence_split_across_sends_is_still_not_text() {
         let mut policy = FitPolicy::new([]);
         policy.observe(alt("htop"));
-        // A sequence's introducer comes with its Esc; its parameters and body may come later.
-        for part in [&b"\x1b["[..], b"1;5", b"A", b"\x1b]52;c;aGVsbG8=", b"\x07"] {
+        // A sequence begun in one send (Esc, introducer and more) may end in later sends.
+        for part in [&b"\x1b[1"[..], b";5", b"A", b"\x1b]52;c;aGVsbG8=", b"\x07"] {
             assert!(!policy.typed(part).claims, "{part:?}");
         }
         assert!(!policy.typed(b"q").claims);
