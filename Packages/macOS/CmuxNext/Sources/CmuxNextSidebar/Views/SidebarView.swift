@@ -110,7 +110,7 @@ public final class SidebarView: NSView {
     }
     /// App health's dot and line (design/app-health.md), over the sidebar just above the footer row, never in
     /// its flow (``SidebarFooterBand/placeHealthIndicator(above:)``); it shows and hides itself and asks for a
-    /// layout. It never fades with the footer.
+    /// layout. It never fades with the footer; Minimal Mode fades it with the cards (``minimalChromeViews``).
     public var healthIndicator: NSView? {
         didSet {
             oldValue?.removeFromSuperview()
@@ -142,6 +142,8 @@ public final class SidebarView: NSView {
     let topCardMotion = SidebarCardSlotMotion()
     /// The hidden footer's height the list takes in Minimal Mode with the pointer away (``SidebarFooterCollapseMotion``).
     let footerCollapseMotion = SidebarFooterCollapseMotion()
+    /// The share of the card slot's room the list takes on the same curve (``cardCollapseFraction()``).
+    let cardCollapseMotion = SidebarFooterCollapseMotion()
     /// Where the spaces dots sit (`sidebar.spacesPosition`, R109).
     public var spacesPosition: SpacesPosition = .bottom {
         didSet { if spacesPosition != oldValue { needsLayout = true } }
@@ -484,7 +486,11 @@ public final class SidebarView: NSView {
         let collapse = footerCollapseMotion.height(toward: footerCollapseTarget(footerRowHeight: footerHeight,
                                                                                 hasAccessories: !visibleSlots.isEmpty), in: self)
         let pinnedCollapse = min(collapse, footerRegion.layoutResult.height), rowCollapse = collapse - pinnedCollapse
-        let listFrame = layoutBands(top: listTop + topCardHeight, footerHeight: footerHeight - rowCollapse + updateHeight + cardsHeight,
+        // The faded cards' room goes to the list too; the cards keep their place and show over it only revealed.
+        let cardFraction = cardCollapseFraction()
+        let cardCollapse = ((updateHeight + cardsHeight) * cardFraction).rounded()
+        let listFrame = layoutBands(top: listTop + (topCardHeight * (1 - cardFraction)).rounded(),
+                                   footerHeight: footerHeight - rowCollapse + updateHeight + cardsHeight - cardCollapse,
                                    collapse: pinnedCollapse)
         if !isChromeRevealed { belowFade.alphaValue = belowRegion.restAlpha(hiddenByMode: minimalHiddenBands.bottom) }
         footer.frame = NSRect(x: 0, y: belowFade.frame.minY - footerHeight + rowCollapse, width: b.width, height: footerHeight)
@@ -499,6 +505,7 @@ public final class SidebarView: NSView {
         clipBandsUnderTrafficLights()
         layoutEditBar(over: listFrame)
         layoutNeedsYou(over: listFrame)
+        applyRestReveal()
         scrollView.tile()
         syncListSize()
         // Everything above may have moved under a still pointer (cx-3wu5).
