@@ -560,7 +560,7 @@ extension AgentPaneRequest {
                 self = .toast(message: message, isError: params?["tone"] as? String == "error", group: params?["group"] as? String)
             } else { self = .unsupported(method) }
         case "pane.glass":
-            if let surfaces = AgentPaneHostGlassSurface.decode(params?["surfaces"]) { self = .hostGlass(surfaces) }
+            if let surfaces = AgentPaneHostGlassSurface.decode(params?["surfaces"], zoom: params?["zoom"]) { self = .hostGlass(surfaces) }
             else { self = .unsupported(method) }
         case "pane.copyText":
             if let text = params?["text"] as? String { self = .copyText(text) }
