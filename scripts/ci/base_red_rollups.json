@@ -94,12 +94,6 @@
           ],
           "prefixes": []
         },
-        "portable-placement": {
-          "exact": [
-            "portable light placement"
-          ],
-          "prefixes": []
-        },
         "remote-daemon": {
           "exact": [],
           "prefixes": [
