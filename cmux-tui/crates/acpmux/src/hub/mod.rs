@@ -22,6 +22,7 @@ pub(crate) mod agent_vm;
 mod away_recap;
 mod memory_inbox;
 mod prompt_coach;
+pub(crate) mod stop_condition;
 pub use prompt_coach::CoachRewriter;
 mod message_events;
 pub use agent_pairs::PairGuard;
@@ -150,6 +151,7 @@ mod peer_row;
 pub(crate) mod v1_source;
 pub use peer_row::PeerRow;
 pub(crate) mod native_history;
+pub(crate) mod page_replies;
 pub(crate) mod row_log;
 pub(crate) mod subagent_transcript;
 mod team_information;
@@ -362,6 +364,7 @@ pub(crate) use peers::{
 mod permission_groups;
 mod permissions;
 pub(crate) use permissions::drop_display_lines;
+pub mod cmux_tools_answer;
 mod hunk_summary;
 pub mod person;
 pub mod presence;
@@ -1274,6 +1277,9 @@ pub struct Hub {
     /// Which predicted next prompts reach the person (`suggestion_gate.rs`): this daemon's own
     /// chats and the peers' chats it relays to its person.
     pub(crate) suggestion_gate: StdMutex<crate::suggestion_gate::Gate>,
+    /// The last few `_acpmux/events` replies, kept while their chat's log is unchanged
+    /// (`page_replies.rs`).
+    pub(crate) page_replies: page_replies::PageReplies,
 }
 
 /// What a cached closed row was built after: every row's changes (`Events::summary_generation`),
@@ -1565,6 +1571,7 @@ impl Hub {
             presence: Default::default(),
             workflow_index: Default::default(),
             suggestion_gate,
+            page_replies: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             watched_moves: Default::default(),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
@@ -1911,7 +1918,9 @@ impl Hub {
         // again (review of #37284 at b7496c3f, F1). Until that list reads, the chat is not
         // caught up: the next append or read tries again, and its log is not read, so no queue
         // is rebuilt without the edits and removals it holds (review of #37284 at 23e76b07, F2).
-        if !self.take_back_kept(session) {
+        // Then the tool output bodies a killed run held back and wrote beside the log are stored,
+        // before any record of this run and before its log is read (`store/deferred.rs`).
+        if !self.take_back_kept(session) || !self.take_back_held(session) {
             if rebuilt {
                 self.save_meta(session);
             }
@@ -1997,6 +2006,7 @@ impl Hub {
             unparked: StdMutex::new(Vec::new()),
             unflushed: StdMutex::new(Vec::new()),
             kept_read: AtomicBool::new(false),
+            held_read: AtomicBool::new(false),
             restore_token: AtomicU64::new(0),
             restore_lease: StdMutex::new(None),
             input_handoff: std::sync::Arc::new(Mutex::new(())),
@@ -2040,6 +2050,8 @@ impl Hub {
             forum_retold: std::sync::Mutex::default(),
             forum_telling: std::sync::Mutex::default(),
             launched_with_tools: std::sync::atomic::AtomicU8::new(0),
+            codex_answer: StdMutex::default(),
+            codex_answer_asked: StdMutex::default(),
             launch_env: StdMutex::new(None),
             credential: StdMutex::new(None),
             route_switch: AtomicBool::new(false),
@@ -3253,3 +3265,8 @@ impl Drop for LogsReady<'_> {
 #[cfg(test)]
 #[path = "update_cost_bench.rs"]
 mod update_cost_bench;
+
+// What appending a held tool output snapshot costs, small chat and god chat (manual, `--ignored`).
+#[cfg(test)]
+#[path = "held_append_bench.rs"]
+mod held_append_bench;
