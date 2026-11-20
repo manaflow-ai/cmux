@@ -205,7 +205,8 @@ import { jumpUpButton } from "./jumpUp.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import { jumpPairLook } from "./jumpPair.experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
-import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
+import { SHOWN_INK_PROPERTIES, SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
+import { thumbMotion } from "./conversation/thumbMotion.experiment";
 import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
 import { OlderAhead } from "./conversation/olderAhead";
 import { type OlderReserve, olderReserve } from "./conversation/olderReserve";
@@ -2213,6 +2214,16 @@ function TranscriptView({
     sent = false,
   ) => {
     const chase = followChase.current!;
+    // An at-once pass cannot shift a chase: the rows have already landed and the next
+    // animated pass must establish a fresh anchor. Avoid reading row geometry here; on
+    // every streamed update the old path paid two getBoundingClientRect() calls even
+    // though `moveAtOnce` skipped the only branch that used their result.
+    if (moveAtOnce) {
+      chaseAnchor.current = undefined;
+      resumeFollowMotion();
+      chase.fit(below);
+      return;
+    }
     const rowTop = (id: string) => {
       const name = typeof CSS === "undefined" ? id.replace(/["\\]/g, "\\$&") : CSS.escape(id);
       const row = thread.current?.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${name}"]`);
@@ -3398,8 +3409,13 @@ function TranscriptView({
     setSteered(working);
   }
   // Under the scrollbar fade (the host theme sets it, applyPaneTheme), the scrollbar fades in and
-  // out with the scrolling marks (scrollers.ts).
-  useEffect(() => (ref.current ? followShownScrollerFade(ref.current) : undefined), []);
+  // out with the scrolling marks, and to its near look and back as the pointer reaches its bar and
+  // leaves (scrollers.ts; thumbMotion.experiment.ts).
+  useEffect(
+    () =>
+      ref.current ? followShownScrollerFade(ref.current, SHOWN_INK_PROPERTIES, experimentArm(thumbMotion)) : undefined,
+    [],
+  );
   // Read aloud speaks one of this chat's answers: moving to another session (or closing the
   // transcript) stops it, so it neither talks over the next chat nor says Stop reading on return.
   useEffect(() => () => stopReadingAloud(), [sessionId]);

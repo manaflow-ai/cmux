@@ -3,7 +3,7 @@ import { Exit, Schema } from "effect"
 import { reject } from "./common.ts"
 import { HostNetworkBoundParams } from "./host-network-params.ts"
 import { appendAudit } from "./team-audit.ts"
-import { can, hostOf, hostUpsert } from "./team-members.ts"
+import { can, hostOf, hostPayload, hostSpaceOf, hostUpsert } from "./team-members.ts"
 import type { TeamState } from "./team.ts"
 
 export const reduceHostNetworkBound = (state: TeamState, params: unknown, ctx: ReduceContext) => {
@@ -23,6 +23,6 @@ export const reduceHostNetworkBound = (state: TeamState, params: unknown, ctx: R
   const audit = appendAudit(state, state.team.id, actor, "host.network.bind", `host ${host.name} network identity verified`, { host: host.id, install: v.install, owner_user: v.owner_user, network })
   return {
     ok: true as const, state: audit.state, value: { host: host.id, network }, writes: hostUpsert(next),
-    outbox: [{ kind: "host.upsert", entity: host.id, payload: { ...next, team: state.team.id } }, audit.outbox]
+    outbox: [{ kind: "host.upsert", entity: host.id, payload: hostPayload(next, state.team.id, hostSpaceOf(ctx.rows, host.id)) }, audit.outbox]
   }
 }

@@ -20,6 +20,7 @@ import { composerAttachmentsState } from "./composerAttachmentsState";
 import { cloudSignedInForDebug } from "./cloudMachines";
 import type { SeedSnapshotFields } from "./waitingSteersFixture";
 import type { PasteProbeOptions } from "./pasteProbe";
+import type { TypingLoadOptions } from "./typingLoadDebug";
 
 // `window.cmuxAcpmuxDebug`, called by the DEBUG `debug.agent_pane` socket
 // method. The first measurement call turns on measurement (acpmuxPerf.enabled);
@@ -94,6 +95,7 @@ export type AcpmuxDebug = {
   loadSeed(turns?: number, options?: { light?: boolean; queued?: number }): Promise<Record<string, unknown>>;
   /** Streams a turn at full speed into it while scrolling, and reports every frame (loadDebug.ts). */
   loadRun(options?: LoadRunOptions): Promise<Record<string, unknown>>;
+  typingLoad(options?: TypingLoadOptions): Promise<Record<string, unknown>>;
   /** Scrolls it while a tool call runs and another chat changes, and counts row renders (loadDebug.ts). */
   loadTick(options?: LoadTickOptions): Promise<Record<string, unknown>>;
   /** Committed renders per component since the last call (perf.ts `renders`: `row:<id>`, `content:<id>`,
@@ -339,7 +341,15 @@ export function createAcpmuxDebug(
     typingStats() {
       acpmuxPerf.enable();
       // With what the keys asked of the app since the reset (native.ts).
-      return { ...typingSummary(acpmuxPerf.typing), native_posts: takeNativePosts() };
+      const prompt = document.querySelector<HTMLElement>(
+        '.acpmux-composer-prompt[contenteditable="true"], .acpmux-composer-prompt [contenteditable="true"]',
+      );
+      return {
+        ...typingSummary(acpmuxPerf.typing),
+        composer_text: prompt?.textContent ?? null,
+        epoch_clock_error_ms: Date.now() - (performance.timeOrigin + performance.now()),
+        native_posts: takeNativePosts(),
+      };
     },
 
     resetTyping() {
@@ -377,7 +387,11 @@ export function createAcpmuxDebug(
       // The menu may hand its rows to the window's host a frame after it shows (popupHost.ts).
       await nextFrame();
       await nextFrame();
-      return { opened: label, open: button?.getAttribute("aria-expanded") === "true", menu: openMenuRows() };
+      return {
+        opened: label,
+        open: button?.getAttribute("aria-expanded") === "true",
+        menu: openMenuRows(),
+      };
     },
 
     acpLog(options = {}) {
@@ -506,11 +520,19 @@ export function createAcpmuxDebug(
       const automationHost = host.automation;
       if (!automationHost) return NO_AUTOMATION;
       const { loadSeed } = await import("./loadDebug");
-      return loadSeed({ selectSession: automationHost.selectSession, rowCount: host.rowCount }, turns, options);
+      return loadSeed(
+        { selectSession: automationHost.selectSession, rowCount: host.rowCount, rowIds: host.rowIds },
+        turns,
+        options,
+      );
     },
     async loadRun(options = {}) {
       const { loadRun } = await import("./loadDebug");
       return loadRun({ sessionId: () => host.sessionId?.(), rowCount: host.rowCount }, options);
+    },
+    async typingLoad(options = {}) {
+      const { typingLoad } = await import("./typingLoadDebug");
+      return typingLoad(host.sessionId?.(), options);
     },
     async loadTick(options = {}) {
       const { loadTick } = await import("./loadDebug");
