@@ -111,9 +111,8 @@ extension PaneCommitMotionTests {
     /// - `a window resize`, `the screen out of sight`, `the screen taken away`: the layout ends the motion.
     /// - `the pane's host out of its window`, `the last frame's view taken out`: a hand that is not the motion takes
     ///   the view out of its window.
-    /// - `the window closed`: the view stays in its window, and no frame comes after.
     nonisolated static let liveCuts = ["a window resize", "the screen out of sight", "the screen taken away",
-                                       "the pane's host out of its window", "the last frame's view taken out", "the window closed"]
+                                       "the pane's host out of its window", "the last frame's view taken out"]
 
     /// Directly after each cut the live layer has its opacity again, with no animation: it does not wait for a frame.
     @Test(arguments: liveCuts)

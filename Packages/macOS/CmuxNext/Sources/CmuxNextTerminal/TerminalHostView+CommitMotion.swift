@@ -7,10 +7,14 @@ extension TerminalHostView: PaneCommitMotionRiding {}
 
 /// An unzoom shows the terminal's last frame at its old size while the pane's clip closes: the frame that the
 /// surface's layer shows now, by reference. No pixel is copied, and nothing is asked on a frame.
+///
+/// The surface draws its text at the pane's new size from the frame that shows the unzoom, on that same layer, under
+/// the last frame. A see-through window's surface draws no ground, so both would show: the last frame names the
+/// layer as its live one, and the motion keeps it clear for its time.
 extension TerminalHostView: PaneCommitMotionLastFrameGiving {
     public var paneCommitMotionLastFrame: PaneCommitMotionLastFrame? {
         guard let surface = current, let layer = surface.layer, let frame = surface.presentedFrame else { return nil }
         return PaneCommitMotionLastFrame(contents: frame, gravity: layer.contentsGravity, scale: layer.contentsScale,
-                                         rect: convert(surface.bounds, from: surface))
+                                         rect: convert(surface.bounds, from: surface), live: layer)
     }
 }
