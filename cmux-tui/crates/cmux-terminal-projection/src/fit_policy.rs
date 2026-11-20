@@ -430,6 +430,20 @@ mod tests {
     }
 
     #[test]
+    fn a_lone_escape_key_does_not_eat_the_keys_after_it() {
+        // vim: Esc (one key event) leaves insert mode, then `O` opens a line and the person types.
+        // Each key event is whole: an Esc on its own is the Escape key, not the start of a
+        // sequence the next event finishes.
+        let mut policy = FitPolicy::new([]);
+        policy.observe(alt("vim notes.md"));
+        assert!(!policy.typed(b"\x1b").claims);
+        assert!(!policy.typed(b"O").claims);
+        assert!(!policy.typed(b"a").claims);
+        let fit = policy.typed(b"b");
+        assert!(fit.claims && fit.changed, "O, a and b are three typed characters");
+    }
+
+    #[test]
     fn a_paste_or_a_word_at_once_claims() {
         let mut policy = FitPolicy::new([]);
         policy.observe(alt("codex"));
