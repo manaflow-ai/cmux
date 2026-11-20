@@ -1498,7 +1498,7 @@ export default agentPaneEntry({
       },
     },
     "omnibar-sections": {
-      note: "Matches keep their ranking with no section headings. Chat details show only the agent name, even for a long folder path.",
+      note: "Matches keep their ranking with no section headings. Chats named like the text list no row: the field starts things.",
       native: { "chats.page": { ready: true, design: "age", chats: [] } },
       ready: newTab({
         omnibar: {
@@ -1523,15 +1523,9 @@ export default agentPaneEntry({
       ]),
       play: async (ctx) => {
         await typedSuggestions(ctx, "cmux", (rows) =>
-          rows.some((row) => row.type === "chat") && rows.some((row) => row.type === "launch")
-            ? undefined
-            : "no chat or start rows",
+          rows.some((row) => row.type === "launch") ? undefined : "no start rows",
         );
-        const details = [...ctx.document.querySelectorAll('.nt-row[data-type="chat"] .nt-row-detail')].map(
-          (detail) => detail.textContent,
-        );
-        if (details.length !== 2 || !details.includes("Claude Code") || !details.includes("Codex"))
-          throw new Error("chat details must show only the agent name");
+        if (ctx.document.querySelector('.nt-row[data-type="chat"]')) throw new Error("a chat still lists as a row");
         if (ctx.document.querySelector(".nt-popover .nt-section")) throw new Error("section headings still show");
       },
     },

@@ -4,9 +4,17 @@ Keep repo-wide decisions here; procedures belong in [CONTRIBUTING.md](CONTRIBUTI
 [area instructions](#area-instructions) and [task skills](skills/README.md).
 Read the matching skill before changing an area, then only the references needed.
 
-**Manaflow AI team members and their agents:** read the private [cmuxterm-hq CLAUDE.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/CLAUDE.md) and [AGENTS.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/AGENTS.md) before fleet or CI work. They are the entry point for fleet builds, CI routing, agent coordination, and landing rules. Start fleet work at [Fleet and CI: start here](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/FLEET-AND-CI.md). External contributors can ignore this block; those links return 404 for them.
+**Manaflow AI team members and their agents:** read the private [cmuxterm-hq CLAUDE.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/CLAUDE.md) and [AGENTS.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/AGENTS.md) before fleet or CI work. They are the entry point for fleet builds, CI routing, agent coordination, and landing rules. Start fleet work at [Fleet and CI: start here](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/FLEET-AND-CI.md). Before building a tool or calling yourself blocked, find the team's existing one in the [team-tools catalog](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/skills/agents/team-tools/SKILL.md) (exact commands, proven runs); with an hq checkout beside this one it is `../cmuxterm-hq/skills/agents/team-tools/SKILL.md`, and `scripts/install-team-tools.sh` there puts it in every session. External contributors can ignore this block; those links return 404 for them.
 
 ## The loop: use it first, then test
+
+**Before asking for a dev build, copy your nightly and swap your code in: `cmux app try .`** (on a Mac, in
+your checkout). It clones `/Applications/cmux NIGHTLY.app` (`--from APP` for another), runs the clone beside
+the person's cmux without touching it, puts your working tree's web UI (live on save) and daemon Rust in, and
+prints the clone's socket (`cmux --app-socket SOCKET ...`). `cmux app try . --extract` keeps what went in (a
+branch and a patch); `cmux app try . --stop` deletes the clone. When it says the change needs a build (Swift,
+FFI), the dev build is still the way, and it prints the fleet command. Off a Mac (a Linux host, a lane VM) it
+prints the fleet route: push, then `cmux-ci hot-verify N --look`.
 
 Write the code, put it into your running cmux, use it (screenshot, video, click through it), and only then run
 the slow checks: compile, CI, gallery, suites. 70% of recent Mac-app PRs go into a running app with no build (cmuxterm-hq hot-swap layers doc).
@@ -48,6 +56,18 @@ Known limit: a tree build is not Team-signed, so Rust hot-apply from it into a D
   say so. Any other class is refused with `runs as class X` and no step is made.
   Several agents' local SwiftPM test runs pegged the Mac at 100% CPU (2026-10-20). The PATH
   guards (`~/.local/lib/cmux-local-build-guards`) queue or refuse these; never bypass them.
+- **Wait on GitHub with one shared waiter, never a poll.** Team hosts: one background
+  `glaeda-gh wait pr OWNER/REPO#N --sha FULL_SHA` (or `wait run OWNER/REPO/RUN_ID`) per PR or run,
+  or the acpmux `run_wait` tool, which uses it. Its daemon waits on GitHub's PR events
+  (`gh event listen`, gh 2.105.0+, where the account has Event Streams access) and polls otherwise.
+  Never `gh pr checks --watch`, `gh run watch`, a sleep loop, or a `gh event listen` of your own
+  (each listener holds one of the account's few subscriptions), and no `gh api` / `gh run view` /
+  `gh pr view` re-read on a timer: on 2026-11-19 nine such loops in agents' background tasks made
+  most of this host's ~800 gh calls an hour. A fleet test's Actions run: `glaeda-gh wait run`; a
+  reply comment: `glaeda-gh wait comment OWNER/REPO#N --match RE --since URL`; a fleet job:
+  `cmux-ci wait ID`; a file or a process: `glaeda-gh wait file PATH` / `glaeda-gh wait pid PID`.
+  The Chief's `watch` tool routes such waits to glaeda-gh itself and refuses GitHub poll loops. Rules:
+  [github-ci-wait](https://github.com/teamleaderleo/glaeda/blob/main/skills/github-ci-wait/SKILL.md).
 - **Scope every search.** `rg`/`find`/`fd` only inside your worktree or a named subfolder, never
   `..`, `~`, `~/fun`, `/`, `$TMPDIR` or `/var/folders` (worktrees and caches there hold millions of
   files). Prefer `git grep` or `rg` with a path; prefix long scans with `nice -n 10`.
@@ -60,7 +80,7 @@ Known limit: a tree build is not Team-signed, so Rust hot-apply from it into a D
   user may. Reproduce in a tagged build and attach profiling to its PID.
 - Dogfood through `CMUX_TAG=<tag> scripts/cmux-debug-cli.sh`, never `/tmp/cmux-cli`.
   Never report raw `.app` paths or `file://` URLs.
-- The app package needs Swift tools 6.2 and deploys to macOS 14; the classic Swift 6.0 rule
+- The app package needs Swift tools 6.2 and deploys to macOS 14; the old Swift 6.0 rule
   does not apply here. Check Release compiles and macOS 14 limits with
   [toolchain compatibility](skills/cmux-architecture/references/swift-6-0-compatibility.md).
 - No fleet Mac runs macOS 14 or 15 (aws-m4pro-1..4 run 27, aws-m4pro-5..9 run 26). Check an
@@ -73,6 +93,9 @@ A change to the Mac or iOS app is not done until the person can open it. Every a
 such a change ends with the dev build link, the fleet simulator evidence and the iPhone install result.
 Use one task tag, `<task-slug>` (for example `sidebar-star-align-v1`), for the Mac and iOS builds.
 A documentation-only change needs no build; give the file path instead.
+A change to the cmux-next API (`backend/apps/api`, `backend/db`) is tried on its own per-tag stack,
+`scripts/cmux-next/cloud-dev-stack.sh up --tag <task-slug> --journey`, and stopped with `down` when done
+([cmux-backend](skills/cmux-backend/SKILL.md#run-your-unmerged-cmux-next-api-a-per-tag-stack-on-the-dev-vm)).
 The report also names, for the person to run, the command that puts the change into their running cmux now, from
 [the loop](#the-loop-use-it-first-then-test) (`cmux app try <PR>`, `cmux customize use pr:N`), so they
 use it before the build is done. The agent itself runs it there only when asked; otherwise it uses a side copy (`hot-verify.py look`).
@@ -90,30 +113,26 @@ use it before the build is done. The agent itself runs it there only when asked;
   `--workspace` is required (queued builds with the same workspace and tag supersede each other).
   `--backend-mode local` because cmux-next reads no web API origin; the default `auto` provisions
   hq's shared backend and stops with "Shared backend helper missing" outside an hq checkout.
-  When you run `ios/scripts/reload.sh --review` below, skip this step: it builds and publishes the
+  When you run `cmux-next-ios/scripts/review.sh` below, skip this step: it builds and publishes the
   same-tag Mac app itself, and a second Mac build replaces the first.
   Report the Tag Opener link `http://127.0.0.1:17320/<task-slug>`. Never `open` it (macOS sends it
   to the default browser); team members add it to their workspace with hq's `scripts/open-dev-build.sh <task-slug>`.
-- **iOS:** first check which app you changed. `ios/` is the classic iPhone app; `cmux-next-ios/` is
-  the cmux-next iPhone app, and `ios/scripts/reload.sh` does not build it. Its one-command hand-off
-  (`cmux-next-ios/scripts/review.sh`, PR #43379) has not landed yet; until it does, do the Mac step
-  above, report the `cmux-next-ios/` change as not installed on a phone, and name that as the
-  blocker. For the classic app, run
-  `ios/scripts/reload.sh --review --tag <task-slug>`. In one command it builds on the
-  fleet (the Mac build above included, same tag, published to HQ), installs on every connected
-  iPhone, not only the configured one, through the authenticated install
-  (`scripts/verify-iphone-auth.sh` must pass; never raw `devicectl`), then checks the build in a
-  fleet simulator (hq's `verify-remote.sh`, signed in, with a screenshot and recording). Nothing
-  boots in a simulator on the person's Mac. If it fails with "Development
-  backend is unreachable or returned an HTTP error" (hq probes the dev backend once, unretried),
-  rerun the same command: it reuses the saved fleet jobs instead of resubmitting.
-  Details: [ios/AGENTS.md](ios/AGENTS.md#finishing-a-task).
+- **iOS:** the iPhone app is `cmux-next-ios/`. Run `cmux-next-ios/scripts/review.sh --tag <task-slug>`.
+  In one command it builds the same-tag Mac app and the iPhone app on the fleet, publishes the Mac
+  app to HQ, and leaves the build on every connected iPhone signed in and paired with that Mac
+  (`--manual-pairing` to pair by hand, `--approve-first` to test the Mac's Allow prompt, `--no-auth`
+  for a signed-out install; a tagged dev Mac otherwise pairs its own tag's iPhone app with no prompt). It proves both
+  survive a relaunch, and checks the build in a fleet simulator signed in with the agent account,
+  whose session comes from this Mac (`cmux-ci run --sign-in agent`; no credential lives on a
+  worker). Never install with raw `devicectl`, and nothing boots in a simulator on the person's
+  Mac. Rerunning the same command resumes the saved fleet jobs. Its phone leg passed end to end on
+  2026-11-18 (real iPhone, tag `phone-e2e-1118`, #46718, all three modes); report a failure as the
+  phone's blocker. Details:
+  [cmux-next-ios/CLAUDE.md](cmux-next-ios/CLAUDE.md).
+  The Tag Opener link opens the Mac app and, on every connected phone, the same-tag iPhone app it
+  has installed (hq `tools/cmux-hq/Sources/CmuxHQ/TagOpener.swift`, `iosLauncher.launch`).
 - **Install on every connected phone.** A phone that is connected gets the build, including one
-  you have not seen before: `--review` registers a new phone and installs on it too. The cmux-next
-  iOS app does not need Tailscale, but a fleet-built dev app talks to hq's tagged dev backend, a
-  tailnet-only `*.ts.net` host. A phone off the tailnet then installs the app but fails the auth
-  gate with "never published a signed-in app receipt"; report that as the phone's blocker and name
-  the cause. Locally built dev apps use the public staging API and have no such requirement.
+  you have not seen before: `review.sh` registers a new phone and installs on it too.
 - **A phone is always connected.** No connected phone, a locked phone, a queued install or a
   failed auth gate is a blocker to report with its error and retry command, never a step to skip
   or replace with a simulator-only result.
@@ -122,7 +141,7 @@ use it before the build is done. The agent itself runs it there only when asked;
   ```text
   Dev build:  http://127.0.0.1:17320/<task-slug>   (fleet job <JOB_ID>, head <sha>)
   Simulator:  fleet simulator, signed in: <evidence dir> (screenshot.png and the recording)
-  iPhone:     <name> (<model>, <udid>): installed, verify-iphone-auth PASS
+  iPhone:     <name> (<model>, <udid>): installed, signed in, paired and linked with <Mac>
               <name> (<model>, <udid>): BLOCKED: <reason>; retry: <command>   (one line per connected phone)
   ```
 
@@ -272,7 +291,8 @@ https://github.com/manaflow-ai/cmux/issues/13742 with a recommendation first.
 
 Read these before working in their scope; nested files may not load automatically:
 
-- `ios/` or `Packages/iOS/`: [ios/AGENTS.md](ios/AGENTS.md).
+- `ios/`: the classic iPhone app, retired. Don't change it or install it; cmux-next's iPhone app is `cmux-next-ios/`.
+- `Packages/iOS/`: [Packages/iOS/AGENTS.md](Packages/iOS/AGENTS.md) (the Apple HIG rule for iPhone UI).
 - Cloud backend code (control plane, VM API routes, provider drivers, billing,
   entitlements, the NEXT Worker): new code goes to the private
   manaflow-ai/cmux-platform repository, not here. Read
@@ -371,6 +391,9 @@ Leo and every agent:
   `cmux-ci capture <head sha> --state scene:NAME|tour:NAME --pr N [--video]` builds that commit, drives the
   real app on a capture mini, takes light and dark stills, refuses any that show private text, and prints
   the Markdown to paste. Or add the `media-tour` label, or write `No capture: <why>`. Never mock stills.
+- On a shared GUI Mac (`cmux-lawrence-2`, a capture mini), start what you run by hand over `ssh` (`open -n`,
+  `xctrace`, `sample`, `workspace new`, `nohup` helpers) as `~/.local/bin/gui-run -- CMD`. It closes what the
+  run opened when the run exits, fails or is cut off, and its sweep closes what a killed run left, by run tag.
 - Every `feat-cmux-next` PR gets a `risk:low|normal|high` label ([risk tiers](docs/ci/risk-tiers.md)).
   Low (docs, copy, generated, tests) and normal (most UI and logic) never wait for a person:
   agent review and the relevant checks, then merge. High (auth, socket and relay policy,
@@ -430,6 +453,41 @@ Leo and every agent:
   `gh-merge-green` and main's rulesets. `gh-merge-green` refuses a PR
   that touches a path an open `merge-freeze` issue freezes, or when the freeze state can't be read;
   only the freeze owner's `freeze-ok` label lets that PR through ([merge freezes](docs/ci/merge-freeze.md)).
+
+## Dev builds are separate
+
+A tagged dev build (Mac and iPhone) never sees or changes another build's backend data, nor nightly's or stable's,
+even when the same person is signed in to all of them. Every dev build sends `X-Cmux-Build-Space: dev:<slug>` (its
+tag's slug) to the cloud API and to cmux-mobile-api; nightly and stable send nothing. So anything a dev build stores
+in a backend is keyed by its build space: a per-build Durable Object is named `dev:<slug>|<name>` (only through
+`spacedEnv` and `envForObject` in `backend/apps/api/src/build-space.ts`), and a per-build Postgres or MySQL row
+carries the space and is read filtered by it. Production ignores the header (cloud API) or refuses it (cmux-mobile-api).
+Every new Durable Object binding goes in exactly one of `PER_BUILD_BINDINGS` or `ACCOUNT_WIDE_BINDINGS` with the
+reason; account-wide is only for what one person shares across builds (team membership, billing, cloud machines).
+The pre-push gate's "Build spaces" check (`scripts/cmux-next/check-build-spaces.py`) refuses an unlisted binding and an
+object or entry point that reaches objects outside its space. Why: agents dogfood several dev builds at once under the
+person's own account, and a build under test must not change what another build, or the person's own nightly, shows.
+What does not reach a dev build yet (each lands in nightly's space, because nothing on the request names a build):
+provider webhooks (GitHub, Slack, Linear, Google), OAuth completions from the web, invite links and their landing
+pages, and inbound texts and email. A dev build's Postgres projection rows go to Postgres only (as the primary, or as
+the shadow beside MySQL), never to MySQL; with no Postgres target a dev build's `home.search` finds nothing.
+On the Mac a dev build's settings and local state are its own too: `BuildStatePaths` (CmuxNextCompat) keeps its
+`cmux-next.json` (with the themes, keybindings, customize, automations and skills beside it), Cloud secrets index and
+Keychain service, keys audit, host budget, recovery drafts, agent home, chat uploads and caches under
+`~/Library/Application Support/cmux-next/builds/<key>` (caches: `~/Library/Caches/cmux-next/builds/<key>`), starts them
+empty (schema defaults plus `SettingsBuildDefaults`, never a copy of nightly's) and names them to its Rust children
+through its environment (also its `cmux vm` config, MCP tool lists, mux plugins and classic import folder, which
+starts empty: a DEV build never imports the person's classic data); nightly, stable and the other shipped builds keep
+`~/.config/cmux`. Its `SettingsBuildDefaults` reach the Rust settings owner as `CMUX_NEXT_SETTINGS_BUILD_DEFAULTS`, and
+state named after the bundle id (Chief home, mobile host, Chromium profiles) uses `BuildIdentity.stateFolderName`. The gate's "Dev build state
+is its own" check (`scripts/cmux-next/check-dev-build-state.py`) refuses a new shared path without a reviewed row. The dev
+sign-in inputs `~/.config/cmux/dev-account` and `~/.secrets/cmuxterm-dev.env` stay shared on purpose.
+Sign-in on a Mac dev build (signed NEXT DEV `com.cmuxterm.app.debug.next` included): a dev build never reuses
+NIGHTLY's session, in any form. The production cloud-api ignores `X-Cmux-Build-Space`, so a dev build on NIGHTLY's
+session would read and write NIGHTLY's real data. With a dev account configured (`scripts/setup-team-dev.sh`), the
+launch hand-off signs that account in automatically, as the build's own session; otherwise you sign each dev build in
+once, in the browser. No build's control socket hands out its session, and `CloudAuthNeverNightlySessionTests` fails
+if a dev build's store takes another build's.
 
 ## Settings on every surface
 

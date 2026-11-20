@@ -20,7 +20,7 @@ struct CmuxMobileApp: App {
         // settings here: they are deleted once, before anything reads either, so this app
         // starts signed out instead of half-reading a classic session.
         ClassicLeftovers.cleanUpIfDue()
-        // Settings, account and outboxes saved under the pre-rename (cnx) names move first.
+        // Settings and account saved under the pre-rename (cnx) names move first.
         LegacyStorage.migrate()
         #if !DEBUG
         // Release and Production have no Developer page: remove any developer
@@ -28,9 +28,20 @@ struct CmuxMobileApp: App {
         // or Demo install left in this container, before anything reads them.
         DeveloperOptions.removeStoredValues()
         #endif
+        // The build's dev tag (Info.plist CmuxMobileDevTag, Debug configuration only): its cloud
+        // requests carry `X-Cmux-Build-Space: dev:<slug>` so dev builds never share cloud data. A
+        // Debug build (not Demo, which pairs with nightly Macs) without a usable tag refuses every
+        // cloud call rather than reach nightly's data.
+        #if DEBUG && !CMUX_MOBILE_DEMO
+        let devBuild = true
+        #else
+        let devBuild = false
+        #endif
         let auth = CmuxMobileAuthModel.live(
             environment: ProcessInfo.processInfo.environment,
-            bundleIdentifier: Bundle.main.bundleIdentifier
+            bundleIdentifier: Bundle.main.bundleIdentifier,
+            devTag: Bundle.main.object(forInfoDictionaryKey: "CmuxMobileDevTag") as? String,
+            devBuild: devBuild
         )
         _auth = State(initialValue: auth)
         // A notification reply on a cold background launch signs in with it (no scene runs then).
@@ -53,6 +64,8 @@ struct CmuxMobileApp: App {
                 ShellScreenSharingDemo()
             } else if TerminalFloodBenchRoot.isRequested {
                 TerminalFloodBenchRoot()
+            } else if TerminalResizeDemoRoot.isRequested {
+                TerminalResizeDemoRoot()
             } else if AgentCLIHybridBenchRoot.isRequested {
                 AgentCLIHybridBenchRoot()
             } else if TerminalDemoRoot.isRequested || DeveloperOptions.launchDemo == "terminal" {
@@ -108,5 +121,5 @@ private struct ChiefCallCover: ViewModifier {
 import CmuxMobileTransport
 
 /// Keeps the Rust link linked into debug builds so FFI breakage shows at build time.
-private let linkDialerProbe: any MacLinkDialer = FFIMacLinkDialer()
+private let linkDialerProbe: any MacLinkDialer = FFIMacLinkDialer(buildSpace: .success(nil))
 #endif

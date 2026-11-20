@@ -81,7 +81,7 @@ struct AgentPaneCloudPlanTests {
 
     @Test func theRefusalsCarryWhatTheCardOffers() throws {
         let required = AgentPaneCloudMachines.Plan.requiredDetails(["teams": [[String: String]](), "canSwitch": false])
-        #expect(required["plans"] as? [String] == ["next_pro", "next_max"] && required["canSwitch"] as? Bool == false)
+        #expect(required["plans"] as? [String] == ["next_plus", "next_pro", "next_max"] && required["canSwitch"] as? Bool == false)
 
         let reply = CloudSizeLocked(upgradePlan: "max", upgradeNamed: true, needed: .xl, folderBytes: 123).reply(planMax: nil)
         let error = try #require(reply["error"] as? [String: Any])
@@ -95,7 +95,7 @@ struct AgentPaneCloudPlanTests {
 
     @Test func subscribeTakesProOrMaxOnAClick() async {
         // cmux NEXT's own plans, and the classic ones a server may still name.
-        for plan in ["next_pro", "next_max", "pro", "max"] {
+        for plan in ["next_plus", "next_pro", "next_max", "pro", "max"] {
             #expect(AgentPaneRequest(body: ["method": "cloud.plan.subscribe", "params": ["plan": plan]]) == .cloudPlanSubscribe(plan: plan))
         }
         for refused: [String: Any] in [["plan": "team"], ["plan": "Pro"], ["plan": 1], [:]] {
