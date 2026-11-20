@@ -490,12 +490,7 @@ final class SettingsPageProvider: PageProvider {
         // page's next read is current without a second full load and apply.
     }
 
-    static func managedInfo(_ source: ManagedSource) -> JSONValue {
-        switch source {
-        case .device: ["source": "device", "reason": "device", "team": .null]
-        case .team(let name): ["source": "team", "reason": "team", "team": name.isEmpty ? .null : .string(name)]
-        }
-    }
+    static func managedInfo(_ source: ManagedSource) -> JSONValue { source.pageInfo }
 }
 
 /// The value domains the Settings page offers in menus, listed once per launch.

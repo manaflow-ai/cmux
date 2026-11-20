@@ -54,6 +54,7 @@ import {
   type ListRow,
   type ManagedInfo,
   type MuseumArtResult,
+  type HistoryMutationResult,
   type MutationResult,
   type SettingsClient,
   type SnapshotResult,
@@ -2151,7 +2152,7 @@ export class MockSettingsProvider {
     return this.commit(reset, "app");
   }
 
-  private commit(keys: string[], origin: string): MutationResult {
+  private commit(keys: string[], origin: string): HistoryMutationResult {
     this.revision += 1;
     const revision = this.revision;
     const before = this.pendingBefore;
@@ -2163,7 +2164,7 @@ export class MockSettingsProvider {
     queueMicrotask(() => {
       for (const ctx of this.changed) ctx.emit({ revision, keys, origin });
     });
-    return { value: { keys }, revision: String(revision), replayed: false };
+    return { value: { keys }, revision: String(revision), history_revision: String(revision), replayed: false };
   }
 }
 

@@ -84,3 +84,13 @@ public nonisolated struct ManagedPreferences: Sendable, Equatable {
 public protocol ManagedPreferenceReader: Sendable {
     func read() -> ManagedPreferences
 }
+
+extension ManagedSource {
+    /// The lock a Settings page row shows (webviews ops.ts `ManagedInfo`): who manages the key.
+    public var pageInfo: JSONValue {
+        switch self {
+        case .device: ["source": "device", "reason": "device", "team": .null]
+        case .team(let name): ["source": "team", "reason": "team", "team": name.isEmpty ? .null : .string(name)]
+        }
+    }
+}
