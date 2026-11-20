@@ -107,11 +107,13 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
         // The wheel goes to the transcript under the held pointer, so it needs the pointer's element.
         Some(_) if target.is_none() => return Err(UsageError::new(messages.wheel_needs_hover)),
         Some(ticks) => {
-            let mut wheel = json!({ "ticks": ticks, "delta": delta.unwrap_or(DEFAULT_DELTA) });
+            let mut wheel = Map::new();
+            wheel.insert("ticks".into(), json!(ticks));
+            wheel.insert("delta".into(), json!(delta.unwrap_or(DEFAULT_DELTA)));
             if let Some(tick_ms) = tick_ms {
-                wheel["tick_ms"] = json!(tick_ms);
+                wheel.insert("tick_ms".into(), json!(tick_ms));
             }
-            params.insert("wheel".into(), wheel);
+            params.insert("wheel".into(), Value::Object(wheel));
         }
         None if delta.is_some() || tick_ms.is_some() => {
             return Err(UsageError::new(messages.wheel));
