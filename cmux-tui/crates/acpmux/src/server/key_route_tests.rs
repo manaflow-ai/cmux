@@ -151,9 +151,12 @@ async fn spoken_handles_resolve_rename_and_send_through_the_socket() {
     assert_eq!(renamed["result"]["name"], "ci-fleet", "{renamed}");
     let found = call(&hub, method::MUX_RESOLVE, json!({"query": "local/mango"})).await;
     assert_eq!(found["result"]["session"]["sessionId"], "lane-a", "{found}");
-    let link = "https://cmux.com/deeplink/agent?harness=fake&session=Mango";
+    let link = "https://cmux.com/deeplink/agent?harness=fake&session=handle%3AMango";
     let found = call(&hub, method::MUX_RESOLVE, json!({"query": link})).await;
     assert_eq!(found["result"]["session"]["sessionId"], "lane-a", "{found}");
+    let id_link = "https://cmux.com/deeplink/agent?harness=fake&session=Mango";
+    let missing = call(&hub, method::MUX_RESOLVE, json!({"query": id_link})).await;
+    assert!(missing.get("error").is_some(), "{missing}");
 
     let collision =
         call(&hub, method::MUX_RENAME, json!({"sessionId": "lane-b", "newHandle": "mango"})).await;
