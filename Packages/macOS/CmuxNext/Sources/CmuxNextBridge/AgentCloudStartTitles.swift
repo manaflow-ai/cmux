@@ -16,6 +16,10 @@ public final class AgentCloudStartTitles {
     private struct Entry {
         weak var tab: TabModel?
         let title: String
+        /// The start failed (``fail(_:machine:)``): the page still reads as the Cloud chat it tried to start.
+        var failed = false
+        /// The Cloud machine a failed start took, as its list names it; nil when it failed before it had one.
+        var machine: String?
     }
 
     private var titles: [ObjectIdentifier: Entry] = [:]
@@ -24,14 +28,28 @@ public final class AgentCloudStartTitles {
 
     public init() {}
 
-    /// The title `tab` reads while it starts a Cloud chat, or shows the chat one started; nil for any other tab.
+    /// The title `tab` reads while it starts a Cloud chat, shows the chat one started, or reads after its start failed;
+    /// nil for any other tab.
     public func title(of tab: TabModel) -> String? {
-        guard let entry = titles[ObjectIdentifier(tab)], entry.tab === tab else { return nil }
-        return entry.title
+        entry(of: tab)?.title
     }
 
-    /// Whether `tab` is a New Tab page whose Send is starting a Cloud chat (or a chat one started).
-    public func startsInCloud(_ tab: TabModel) -> Bool { title(of: tab) != nil }
+    /// Whether `tab` is a New Tab page whose Send is starting a Cloud chat (or a chat one started, or one whose start
+    /// failed: cmux#47678, a failed Cloud start read as a plain local page and nothing said it was Cloud's).
+    public func startsInCloud(_ tab: TabModel) -> Bool { entry(of: tab) != nil }
+
+    /// What a failed start of `tab` says of its machine: nil while its start runs, after it opened, or for any other
+    /// tab; `.some(nil)` for a start that failed before it had a machine.
+    public func failedStart(of tab: TabModel) -> String?? {
+        guard let entry = entry(of: tab), entry.failed else { return nil }
+        return .some(entry.machine)
+    }
+
+    /// The entry of `tab`; a failed start's only while its page has no chat session of its own (a local one sent after it).
+    private func entry(of tab: TabModel) -> Entry? {
+        guard let entry = titles[ObjectIdentifier(tab)], entry.tab === tab else { return nil }
+        return entry.failed && tab.agentSession?.session != nil ? nil : entry
+    }
 
     /// Whether workspace `id` is one New Cloud Chat opened for its chat (``beginWorkspace(_:)``), until its start ends.
     public func startsInCloud(workspace id: String) -> Bool { cloudWorkspaces.contains(id) }
@@ -48,9 +66,25 @@ public final class AgentCloudStartTitles {
         titles[ObjectIdentifier(tab)] = Entry(tab: tab, title: Self.title(task: task) ?? untitled)
     }
 
-    /// The start of `tab` ended (refused, failed or handed over): it reads as its page again.
+    /// The start of `tab` ended (refused or handed over): it reads as its page again.
     public func end(_ tab: TabModel) {
         if titles[ObjectIdentifier(tab)] != nil { titles[ObjectIdentifier(tab)] = nil }
+    }
+
+    /// The start of `tab` failed on `machine` (its list's name; nil before it had one): the page keeps the start's title
+    /// and the cloud mark, and its row names the machine, until a Retry begins it again or the page starts a chat of its
+    /// own (cmux#47678).
+    public func fail(_ tab: TabModel, machine: String?) {
+        guard var entry = titles[ObjectIdentifier(tab)], entry.tab === tab else { return }
+        entry.failed = true
+        entry.machine = machine.flatMap { $0.isEmpty ? nil : $0 }
+        titles[ObjectIdentifier(tab)] = entry
+    }
+
+    /// The start of `tab` ended: one that `opened` (or ran on this Mac instead) reads as its page again; one that failed
+    /// keeps reading as a Cloud chat on `machine` (``fail(_:machine:)``, cmux#47678).
+    public func ended(_ tab: TabModel, opened: Bool, machine: String?) {
+        if opened { end(tab) } else { fail(tab, machine: machine) }
     }
 
     /// The chat opened as `opened` on its machine: it takes the title `origin` read, and `origin` ends.

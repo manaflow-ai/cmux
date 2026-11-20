@@ -27,7 +27,7 @@ struct CloudStartChat {
     /// Where the start's questions show: the sending pane's card for a composer start; nil asks in a
     /// dialog on the active window.
     var asker: AgentPaneCloudAsker?
-    var timeline: CloudSendTimeline? // to the chat's first token (cmux#45953); its tab marks the rest (CloudSendTimelines)
+    var timeline: CloudSendTimeline?, gateHold: CloudStartGateHold? // to the chat's first token (cmux#45953), its tab marks the rest (CloudSendTimelines); the hold keeps the automatic update off its machine from its pick until the chat opens (cmux#47678)
 
     /// The page's runner for every pane (``AgentPageChats/seed(_:)``): `view` is the pane that sent.
     static func runner(_ tabs: AgentTabStore, services: AppServices) -> @MainActor (AgentPaneView?, AgentPaneCloudStart) async -> [String: Any] {
@@ -40,10 +40,10 @@ struct CloudStartChat {
                 return AgentPaneReply.failure(code: "unavailable", message: CloudMoveStrings.notAChat)
             }
             let timeline = CloudSendTimeline() // from the Send's arrival here (cmux#45953)
-            let titles = services.cloudStartTitles, workspace = services.workspaceID(ofTab: tab.id); titles.begin(tab, task: start.task, untitled: AgentPaneModel.tabTitle); defer { titles.end(tab); titles.endWorkspace(workspace) } // the page reads as its chat from the Send
-            return await CloudStartChat(services: services, asker: .card(view, start: start.key), timeline: timeline).reply(start, tab: tab) { [weak view] step in
-                if let view { start.progress(step, to: view) }
-            }
+            let titles = services.cloudStartTitles, workspace = services.workspaceID(ofTab: tab.id), hold = CloudStartGateHold(services.cloud.startGate); titles.begin(tab, task: start.task, untitled: AgentPaneModel.tabTitle); defer { titles.endWorkspace(workspace); hold.release() } // the page reads as its chat from the Send
+            let reply = await CloudStartChat(services: services, asker: .card(view, start: start.key), timeline: timeline, gateHold: hold).reply(start, tab: tab) { [weak view] step in if let view { start.progress(step, to: view) } }
+            // A failed start still reads as a Cloud chat on the machine it took (cmux#47678); Run on This Mac and an opened chat end it.
+            titles.ended(tab, opened: reply["ok"] as? Bool == true || (reply["error"] as? [String: Any])?["code"] as? String == CloudMachineCap.runHereCode, machine: hold.machines.last.map { services.machines.session($0)?.machine.title ?? $0 }); return reply
         }
     }
 

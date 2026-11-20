@@ -1,6 +1,60 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cloud.start.failedRow": {
+      "comment": "A sidebar row's line under a Cloud chat whose start failed before it had a machine.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Cloud · Couldn't start"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud · 開始できませんでした"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "Cloud · تعذّر البدء"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Cloud · Nije pokrenuto"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Cloud · Kunne ikke starte"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Cloud · Start fehlgeschlagen"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cloud · No se pudo iniciar"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Cloud · Démarrage impossible"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Cloud · Avvio non riuscito"}},
+        "km": {"stringUnit": {"state": "translated", "value": "Cloud · មិនអាចចាប់ផ្ដើមបានទេ"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Cloud · 시작하지 못함"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Cloud · Kunne ikke starte"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Cloud · Nie udało się uruchomić"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Cloud · Não foi possível iniciar"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Cloud · Не удалось запустить"}},
+        "th": {"stringUnit": {"state": "translated", "value": "Cloud · เริ่มไม่สำเร็จ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Cloud · Başlatılamadı"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Cloud · Не вдалося запустити"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Cloud · Không thể bắt đầu"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Cloud · 无法启动"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Cloud · 無法啟動"}}
+      }
+    },
+    "cloud.start.failedRowOn": {
+      "comment": "A sidebar row's line under a Cloud chat whose start failed; %@ is the Cloud machine's name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Cloud · %@ · Couldn't start"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud · %@ · 開始できませんでした"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "Cloud · %@ · تعذّر البدء"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Cloud · %@ · Nije pokrenuto"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Cloud · %@ · Kunne ikke starte"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Cloud · %@ · Start fehlgeschlagen"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cloud · %@ · No se pudo iniciar"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Cloud · %@ · Démarrage impossible"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Cloud · %@ · Avvio non riuscito"}},
+        "km": {"stringUnit": {"state": "translated", "value": "Cloud · %@ · មិនអាចចាប់ផ្ដើមបានទេ"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Cloud · %@ · 시작하지 못함"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Cloud · %@ · Kunne ikke starte"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Cloud · %@ · Nie udało się uruchomić"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Cloud · %@ · Não foi possível iniciar"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Cloud · %@ · Не удалось запустить"}},
+        "th": {"stringUnit": {"state": "translated", "value": "Cloud · %@ · เริ่มไม่สำเร็จ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Cloud · %@ · Başlatılamadı"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Cloud · %@ · Не вдалося запустити"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Cloud · %@ · Không thể bắt đầu"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Cloud · %@ · 无法启动"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Cloud · %@ · 無法啟動"}}
+      }
+    },
     "cloud.machineRoute.outdated": {
       "extractionState": "manual",
       "localizations": {

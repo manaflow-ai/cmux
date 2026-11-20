@@ -111,6 +111,67 @@ struct CloudStartChatMachineTests {
         }
     }
 
+    /// cmux#47678: the app's automatic update restarted a new machine's daemon 79 s into its folder copy and the start
+    /// failed "Couldn't copy the folder to cloud-chats-12: the machine daemon closed the connection". A copy whose
+    /// daemon restarted under it (thrown or answered) copies once more on the new link; one that failed with its link
+    /// unchanged keeps its failure and copies nothing more.
+    @Test func aCopyWhoseDaemonRestartedUnderItCopiesAgainOnTheNewLink() async throws {
+        struct Closed: Error {}
+        let thrown = Link()
+        var sockets: [String] = []
+        let again = try await CloudOutdatedMachine.copy(socket: { thrown.socket }, link: { thrown.key }, notConnected: CancellationError(),
+                                                        relink: .seconds(30)) { (socket: String) async throws -> CloudMoveCLI.Answer in
+            sockets.append(socket)
+            guard sockets.count == 1 else { return CloudMoveCLI.Answer(ok: true) }
+            thrown.drop()
+            Task { @MainActor in thrown.restart() }
+            throw Closed()
+        } answer: { ($0.ok, $0.errorCode, $0.side) } update: { Issue.record("updated"); return false }
+        #expect(sockets == ["link-1.sock", "link-2.sock"])
+        #expect(again == CloudMoveCLI.Answer(ok: true))
+
+        let answered = Link()
+        sockets = []
+        let failed = CloudMoveCLI.Answer(ok: false, errorCode: "sync_failed")
+        let second = try await CloudOutdatedMachine.copy(socket: { answered.socket }, link: { answered.key }, notConnected: CancellationError(),
+                                                         relink: .seconds(30)) { (socket: String) async throws -> CloudMoveCLI.Answer in
+            sockets.append(socket)
+            guard sockets.count == 1 else { return CloudMoveCLI.Answer(ok: true) }
+            answered.restart()
+            return failed
+        } answer: { ($0.ok, $0.errorCode, $0.side) } update: { Issue.record("updated"); return false }
+        #expect(sockets == ["link-1.sock", "link-2.sock"])
+        #expect(second == CloudMoveCLI.Answer(ok: true))
+
+        let steady = Link()
+        sockets = []
+        await #expect(throws: Closed.self) {
+            _ = try await CloudOutdatedMachine.copy(socket: { steady.socket }, link: { steady.key }, notConnected: CancellationError()) { (socket: String) async throws -> CloudMoveCLI.Answer in
+                sockets.append(socket)
+                throw Closed()
+            } answer: { ($0.ok, $0.errorCode, $0.side) } update: { false }
+        }
+        #expect(sockets == ["link-1.sock"])
+    }
+
+    /// cmux#47678: the composer's start holds its machine against the automatic update from the moment it knows it,
+    /// once per machine, and lets every one go when it ends; another start's hold on the same machine stays.
+    @Test func aStartHoldsItsMachineUntilItEnds() {
+        let gate = CloudStartGate()
+        let hold = CloudStartGateHold(gate), other = CloudStartGateHold(gate)
+        hold.hold("vm_a")
+        hold.hold("vm_a")
+        hold.hold("")
+        other.hold("vm_a")
+        #expect(gate.contains("vm_a"))
+        hold.release()
+        #expect(gate.contains("vm_a"))
+        other.release()
+        #expect(!gate.contains("vm_a"))
+        hold.release()
+        #expect(!gate.contains("vm_a"))
+    }
+
     /// A machine's daemon link as the copy sees it: its socket and handshake key, observable, both
     /// gone while the daemon restarts.
     @MainActor @Observable fileprivate final class Link {

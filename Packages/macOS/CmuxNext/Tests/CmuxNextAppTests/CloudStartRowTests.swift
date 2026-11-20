@@ -45,6 +45,37 @@ struct CloudStartRowTests {
         #expect(strip.title(chat) == "Cloud row names")
     }
 
+    /// cmux#47678: a Cloud start that failed ("Couldn't copy the folder to cloud-chats-12: …") read as a plain local page,
+    /// with nothing saying it was a Cloud chat. It keeps the start's title and the cloud mark, and its row's line names
+    /// the machine it took, until a Retry begins it again or the page starts a chat of its own; an opened start (or Run on
+    /// This Mac) ends it as before.
+    @Test func aFailedStartStillReadsAsACloudChatOnItsMachine() throws {
+        let titles = AgentCloudStartTitles(), store = DaemonStore(), page = try Self.page(store, surface: 64)
+        titles.begin(page, task: "1+1", untitled: AgentPaneModel.tabTitle)
+        #expect(titles.failedStart(of: page) == nil, "a running start is no failure")
+        titles.ended(page, opened: false, machine: "cloud-chats-12")
+        #expect(titles.startsInCloud(page) && titles.title(of: page) == "1+1")
+        #expect(titles.failedStart(of: page) == .some("cloud-chats-12"))
+        #expect(CloudMoveStrings.startFailedRow(machine: "cloud-chats-12") == "Cloud · cloud-chats-12 · Couldn't start")
+        #expect(CloudMoveStrings.startFailedRow(machine: nil) == "Cloud · Couldn't start")
+        titles.begin(page, task: "1+1", untitled: AgentPaneModel.tabTitle)
+        #expect(titles.failedStart(of: page) == nil && titles.startsInCloud(page), "Retry runs the start again")
+        titles.ended(page, opened: false, machine: nil)
+        #expect(titles.failedStart(of: page) == .some(nil), "failed before it had a machine")
+        titles.ended(page, opened: true, machine: nil)
+        #expect(!titles.startsInCloud(page), "an opened start's page reads as its page again")
+
+        let local = try Self.page(store, surface: 65)
+        titles.begin(local, task: "1+1", untitled: AgentPaneModel.tabTitle)
+        titles.ended(local, opened: false, machine: "cloud-chats-12")
+        var tab = TabSnapshot(surface: SurfaceID(rawValue: 65), kind: .conversation, title: "1+1", url: "about:blank")
+        tab.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "install:this-mac", session: "chat-local", harness: "claude"))
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [tab])])
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 6, key: nil, name: "workspace-6", screens: [screen])]))
+        let sent = try #require(store.tab(surface: SurfaceID(rawValue: 65)))
+        #expect(!titles.startsInCloud(sent) && titles.failedStart(of: sent) == nil, "a local chat sent after the failure read as Cloud")
+    }
+
     /// cmux#45947: New Cloud Chat opens a workspace of its own whose row reads as Cloud from the click, before any Send,
     /// and reads as this Mac's again once its start ended (refused or failed: the chat stays here).
     @Test func newCloudChatsWorkspaceReadsAsCloudFromTheClickUntilItsStartEnds() {

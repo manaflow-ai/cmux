@@ -22,6 +22,35 @@ public final class CloudStartGate {
     public func contains(_ machineID: String) -> Bool { starts[machineID] != nil }
 }
 
+/// One start's hold on ``CloudStartGate``: the start names its machine as soon as it knows it (a pick, or the create's
+/// answer, before the connect whose handshake offers the machine to the automatic update) and releases every machine it
+/// held once, when it ends. The composer's New Cloud chat took no hold, so the app's automatic update restarted a new
+/// machine's daemon 79 s into its folder copy and the start failed "Couldn't copy the folder to cloud-chats-12: the
+/// machine daemon closed the connection" (cmux#47678).
+@MainActor
+public final class CloudStartGateHold {
+    private let gate: CloudStartGate
+    private var held: [String] = []
+
+    public init(_ gate: CloudStartGate) { self.gate = gate }
+
+    /// The machines held now, in the order the start named them (a repick's last).
+    public var machines: [String] { held }
+
+    /// Holds `machineID` until ``release()``; a machine already held is not entered twice.
+    public func hold(_ machineID: String) {
+        guard !machineID.isEmpty, !held.contains(machineID) else { return }
+        held.append(machineID)
+        gate.enter(machineID)
+    }
+
+    /// Leaves every machine this start held.
+    public func release() {
+        for machineID in held { gate.leave(machineID) }
+        held.removeAll()
+    }
+}
+
 /// A Cloud move or bring-back failure, with the action its retry can safely take.
 public nonisolated struct CloudMoveFailure: Error {
     /// The failure as the toast and CLI show it.
