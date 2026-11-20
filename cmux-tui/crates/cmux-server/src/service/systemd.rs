@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 use cmux_server_core::layout::{SYSTEMD_UNIT, ServiceKind};
 use cmux_server_core::pg::SOCKET_GROUP;
 use cmux_server_core::units::{
-    SERVICE_USER, UnitError, systemd_app_server_template, systemd_system_unit,
-    systemd_update_path_unit, systemd_update_service_unit, systemd_user_unit,
+    SERVICE_USER, UnitError, systemd_app_server_template, systemd_session_unit,
+    systemd_system_unit, systemd_update_path_unit, systemd_update_service_unit, systemd_user_unit,
 };
 
 use super::{ServiceReport, ServiceState, Services};
@@ -40,6 +40,13 @@ fn unit_dir(s: &Services<'_>) -> Result<PathBuf> {
 pub fn files(s: &Services<'_>) -> Result<Vec<(PathBuf, String)>> {
     let dir = unit_dir(s)?;
     let layout = s.layout;
+    if let Some(host) = &s.session {
+        if system(s) {
+            return Err(Error::rejected("the session service runs as your own user, not --system"));
+        }
+        let unit = systemd_session_unit(layout, &host.binary, &host.session).map_err(unit_error)?;
+        return Ok(vec![(dir.join(SYSTEMD_UNIT), unit)]);
+    }
     if !system(s) {
         return Ok(vec![(dir.join(SYSTEMD_UNIT), systemd_user_unit(layout).map_err(unit_error)?)]);
     }
