@@ -1177,6 +1177,9 @@ impl Hub {
             "listen": cfg.web_listener().map(|w| w.listen.clone()),
             "ready": self.startup_complete(),
             "loading": self.loading_status(),
+            // Staged restore after a restart: stages, what waits and what is parked past the
+            // lane cap, with why (`restore_gate.rs`).
+            "restore": self.restore_gate.status(),
             "loginEnv": crate::login_env::state(self.login_env_requested.load(Ordering::SeqCst)),
             // The Chief home the built-in Chief presets use (`config/chief_builtins.rs`),
             // from this daemon's own environment; the app hands off a Chief-home

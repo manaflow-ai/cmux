@@ -352,6 +352,13 @@ impl Hub {
                 // queues and is accepted at once instead of waiting unanswered for the lock
                 // (fuzz row g, g1). Nothing is awaited under it.
                 let awaiting_owner = crate::author::awaits_owner(p.provenance);
+                // A person's prompt to a chat whose restored prompt waits for its stage: that one
+                // goes now, first in the queue as before, so this one never waits on the stage
+                // (`restore_gate.rs`). Another agent's message waits with it, as any prompt
+                // queued behind a turn does.
+                if p.agent.is_none() {
+                    self.expedite_restored(&session.id);
+                }
                 let waiting = loop {
                     // A journal restore holds the chat (`journal_restore.rs`): it is admitted
                     // once the restore settled, never between its check and its settle.
@@ -1438,13 +1445,19 @@ impl Hub {
             }
             // Agent messages a failed turn held before the restart go in again by themselves.
             self.retry_held_agent_messages(session);
-            self.start_restored(session);
+            // Staged unless the person asked for these chats now (`restore_gate.rs`).
+            self.start_restored_with(session, !asked);
         }
     }
 
     /// Runs the chat's restored prompts not started yet (each once: its `resume` mark), and
     /// nothing else `resume_restored` does.
     pub(super) fn start_restored(self: &Arc<Self>, session: &Arc<Session>) {
+        self.start_restored_with(session, false);
+    }
+
+    /// [`Self::start_restored`]; `staged`: each prompt waits for its stage first.
+    fn start_restored_with(self: &Arc<Self>, session: &Arc<Session>, staged: bool) {
         {
             let restored: Vec<QueuedPrompt> = session
                 .queue
@@ -1456,9 +1469,17 @@ impl Hub {
             for q in restored {
                 let hub = self.clone();
                 let session = session.clone();
+                if staged {
+                    self.restore_gate.count_restored();
+                }
                 tokio::spawn(async move {
                     // After the login env and the catalog reload: its harness may need them.
                     hub.wait_startup().await;
+                    // Then its stage: a restart never starts every chat's agent at once
+                    // (`restore_gate.rs`). A copy's first start is no restart.
+                    if staged {
+                        hub.admit_restored(&session).await;
+                    }
                     let opts = PromptOptions {
                         prompt_id: Some(q.prompt_id.clone()),
                         message_id: q.run.message_id.clone(),

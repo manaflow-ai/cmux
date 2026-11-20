@@ -263,7 +263,7 @@ fn read_registry_in(
 /// holds the id of the session it made once that is inserted (`claim`), so a
 /// create whose session already runs is counted once, as that session.
 #[derive(Default)]
-pub(crate) struct Admitting(StdMutex<Vec<Arc<Making>>>);
+pub(crate) struct Admitting(pub(super) StdMutex<Vec<Arc<Making>>>);
 
 /// One admitted create: the name it asked for, and the id of the session it made.
 #[derive(Default)]
@@ -302,7 +302,7 @@ pub(super) fn claim(id: &str) {
 
 /// A session counts as live when its harness runs: a live status, or (any
 /// status but Closed) an agent host still running for it.
-fn is_live(status: SessionStatus, hosted: bool) -> bool {
+pub(super) fn is_live(status: SessionStatus, hosted: bool) -> bool {
     match status {
         SessionStatus::Ready | SessionStatus::Running | SessionStatus::Waiting => true,
         SessionStatus::Closed => false,
@@ -312,7 +312,7 @@ fn is_live(status: SessionStatus, hosted: bool) -> bool {
 
 /// The live sessions `live` plus the admitted creates whose session is not one of
 /// them: a create is counted once, as its session once that runs.
-fn counted(live: &std::collections::HashSet<&str>, open: &[Arc<Making>]) -> usize {
+pub(super) fn counted(live: &std::collections::HashSet<&str>, open: &[Arc<Making>]) -> usize {
     live.len()
         + open.iter().filter(|m| m.made.get().is_none_or(|id| !live.contains(id.as_str()))).count()
 }
