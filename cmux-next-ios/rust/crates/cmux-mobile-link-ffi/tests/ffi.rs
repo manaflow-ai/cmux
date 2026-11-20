@@ -509,10 +509,11 @@ async fn pump(
 }
 
 /// After a network change the old network's signaling socket goes silent
-/// without closing. `network_changed` must replace it within a round trip or
-/// two, not after a long probe: a roamed phone's new endpoints reach a Mac
-/// behind an address-filtering NAT only through signaling, so this wait is
-/// the link's recovery time (the lab's Wi-Fi to cell row: 1.0 s of 1.5 s).
+/// without closing. `network_changed` opens a new one at once, with no wait on
+/// the old one, and moves the link onto it: a roamed phone's new endpoints
+/// reach a Mac behind an address-filtering NAT only through signaling, so any
+/// wait here is the link's recovery time (the lab's Wi-Fi to cell row: a 1 s
+/// probe was 1.0 s of a 1.5 s recovery).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn network_change_replaces_a_silent_signaling_socket_quickly() {
     let server = FakeSignaling::start(FakeOptions::default()).await;
@@ -532,7 +533,7 @@ async fn network_change_replaces_a_silent_signaling_socket_quickly() {
     let marks =
         pool.network_changed(relay.base_url.clone(), "user:alice".into(), "team".into(), device).await;
     let names = names(&marks);
-    assert!(names.contains(&"signaling:stale"), "{marks:?}");
+    assert!(!names.contains(&"signaling:stale"), "the roam waited on the old socket: {marks:?}");
     assert!(names.contains(&"signaling:rehomed"), "the link moves onto the new socket: {marks:?}");
     let opened = marks.iter().find(|m| m.name == "signaling:signaling_open").expect("a new socket opened");
     assert!(opened.millis < 700.0, "the new socket waited out a long probe: {marks:?}");
