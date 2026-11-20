@@ -115,7 +115,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         })
         .cloned()
         .collect();
-    if rest.is_empty() || matches!(rest[0].as_str(), "-h" | "--help" | "help") {
+    if rest.first().is_none_or(|first| matches!(first.as_str(), "-h" | "--help" | "help")) {
         println!("{USAGE}");
         return Some(if rest.is_empty() { 2 } else { 0 });
     }
@@ -535,11 +535,8 @@ fn reload(
 
 /// The nearest-rank `percent` percentile of sorted `samples`.
 fn percentile(samples: &[f64], percent: usize) -> f64 {
-    if samples.is_empty() {
-        return 0.0;
-    }
-    let rank = (samples.len() * percent).div_ceil(100).max(1);
-    samples[rank.min(samples.len()) - 1]
+    let rank = samples.len().saturating_mul(percent).div_ceil(100).clamp(1, samples.len().max(1));
+    samples.get(rank.saturating_sub(1)).copied().unwrap_or(0.0)
 }
 
 /// Times `Store::apply` (load, check, compile, write) `runs` times,
@@ -561,8 +558,7 @@ fn bench(global: &GlobalArgs, store: &Store, dirs: &[String], runs: usize, base:
     let context = Context { schema, domains: &domains, base };
     let mut samples = Vec::with_capacity(runs);
     let mut failure = None;
-    for run in 0..runs {
-        let dir = &dirs[run % dirs.len()];
+    for dir in dirs.iter().cycle().take(runs) {
         let started = Instant::now();
         match bench_store.apply(dir, None, false, &context) {
             Ok(_) => samples.push(milliseconds(started.elapsed())),

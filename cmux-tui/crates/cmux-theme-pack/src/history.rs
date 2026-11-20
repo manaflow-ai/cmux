@@ -103,13 +103,15 @@ impl History {
     /// files while it is being worked on), so saving twenty times is not
     /// twenty undo steps. With nothing applied it is a push.
     pub fn replace(&mut self, generation: Generation, in_use: Option<String>) -> Step {
-        match self.cursor.checked_sub(1) {
-            Some(index) if self.generations[index].pack == generation.pack => {
+        let cursor = self.cursor;
+        let current = cursor.checked_sub(1).and_then(|index| self.generations.get_mut(index));
+        match current {
+            Some(current) if current.pack == generation.pack => {
                 // A live edit keeps the file name it replaces: the app is
                 // already reading that file and repaints on the rewrite.
-                let theme = std::mem::take(&mut self.generations[index].theme);
-                self.generations[index] = Generation { theme, ..generation };
-                self.generations.truncate(self.cursor);
+                let theme = std::mem::take(&mut current.theme);
+                *current = Generation { theme, ..generation };
+                self.generations.truncate(cursor);
                 self.step()
             }
             _ => self.push(generation, in_use),
