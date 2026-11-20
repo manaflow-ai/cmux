@@ -35,8 +35,18 @@ function observeVisibility(element: HTMLElement, onVisible: (visible: boolean) =
   };
 }
 
-/** Each visible label gets a one-second CSS sweep, then rests for three seconds. */
-export function startShimmerCadence(element: HTMLElement): () => void {
+/** When a label's sweeps run: the first `firstMs` after it shows, then one every `everyMs`, each `sweepMs` long. */
+export type ShimmerCadence = { firstMs: number; sweepMs: number; everyMs: number };
+
+/** The shipped cadence: a one-second sweep every four seconds (`--cv-shimmer-sweep-duration`, 1s). */
+export const DEFAULT_SHIMMER_CADENCE: ShimmerCadence = { firstMs: 600, sweepMs: 1000, everyMs: 4000 };
+
+/** Each visible label gets a one-second CSS sweep, then rests for three seconds. A `cadence` other than
+ * the default (the pacing gallery's candidates, ShimmerPacing.gallery.tsx) also sets the sweep's CSS
+ * duration on the label, so the class and the animation end together. */
+export function startShimmerCadence(element: HTMLElement, cadence = DEFAULT_SHIMMER_CADENCE): () => void {
+  const { firstMs, sweepMs, everyMs } = cadence;
+  if (cadence !== DEFAULT_SHIMMER_CADENCE) element.style.setProperty("--cv-shimmer-sweep-duration", `${sweepMs}ms`);
   const document = element.ownerDocument;
   const window = document.defaultView;
   if (!window) return () => {};
@@ -61,7 +71,7 @@ export function startShimmerCadence(element: HTMLElement): () => void {
     active = window.setTimeout(() => {
       element.classList.remove(ACTIVE_CLASS);
       active = undefined;
-    }, 1000);
+    }, sweepMs);
   };
   const update = () => {
     const blocked =
@@ -78,8 +88,8 @@ export function startShimmerCadence(element: HTMLElement): () => void {
     initial = window.setTimeout(() => {
       initial = undefined;
       sweep();
-      interval = window.setInterval(sweep, 4000);
-    }, 600);
+      interval = window.setInterval(sweep, everyMs);
+    }, firstMs);
   };
   const unobserve = observeVisibility(element, (intersecting) => {
     visible = intersecting;
