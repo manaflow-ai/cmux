@@ -113,7 +113,8 @@ impl Hub {
     /// (the machine `key` names, the name on it, that machine's live session names): a peer's
     /// rows for `PEER/NAME`, this machine's sessions for a bare key or this machine's own name.
     fn names_on_host_of<'k>(&self, key: &'k str) -> (String, &'k str, Vec<String>) {
-        let id_query = key.bytes().any(|b| b.is_ascii_digit());
+        let id_query = (key.len() >= 6 && key.bytes().all(|b| b.is_ascii_hexdigit()))
+            || key.bytes().any(|b| b.is_ascii_digit());
         if let Some((host, rest)) = key.split_once('/')
             && !rest.is_empty()
             && self.peer(host).is_some()
@@ -277,5 +278,30 @@ mod tests {
         assert_eq!(distance("kitten", "sitting"), 3);
         assert_eq!(distance("", "abc"), 3);
         assert_eq!(distance("same", "same"), 0);
+    }
+
+    #[test]
+    fn all_letter_hex_prefixes_include_agent_ids_in_diagnostics() {
+        let hub = Hub::new(
+            crate::config::Config::default(),
+            Box::new(crate::store::MemoryStore::default()),
+        );
+        let meta: crate::store::SessionMeta = serde_json::from_value(serde_json::json!({
+            "schema": crate::store::META_SCHEMA,
+            "id": "mux-session",
+            "name": "lane",
+            "harness": "claude",
+            "cwd": "/tmp",
+            "status": "idle",
+            "agentSessionId": "abcdef0123456789",
+            "createdAt": 1,
+            "updatedAt": 1,
+        }))
+        .unwrap();
+        let session = hub.make_session(meta);
+        hub.sessions.lock().unwrap().insert(session.id.clone(), session);
+
+        let (_, data) = hub.no_session_text("abcdef0");
+        assert_eq!(data["candidates"], serde_json::json!(["abcdef0123456789"]));
     }
 }
