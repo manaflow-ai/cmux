@@ -9,7 +9,7 @@
 //! part: [`settings`] (each agent's effective settings and the curated keys cmux edits) and
 //! [`hooks`] (every hook in Claude Code's settings files and Codex's hooks.json, by event, turned
 //! off and on). Writes keep what cmux does not know (key order, comments, unknown keys), are
-//! atomic, and back up the prior file ([`write`]; hooks through [`hooks_paths`] for now).
+//! atomic, and back up the prior file ([`write`]); both parts lock and back up a file the same way.
 
 pub mod cli;
 pub mod hooks;

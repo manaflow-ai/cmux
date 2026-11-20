@@ -32,7 +32,7 @@ use indexmap::IndexMap;
 use serde::Serialize;
 use sha2::Digest as _;
 
-use crate::hooks_paths::{self as paths, AgentPaths};
+use crate::hooks_paths::AgentPaths;
 use crate::ojson::OJson;
 
 /// Which coding agent a hook belongs to.
@@ -1103,6 +1103,8 @@ fn claude_event_order(store: &[OJson], root: &OJson, file: &str) -> OJson {
 fn claude_disable(paths: &AgentPaths, hook: &HookEntry) -> anyhow::Result<()> {
     // The store gets the handler first; when the settings write then fails,
     // the store entry is taken back, so a failure never loses the handler.
+    // The settings file's lock is held from this read to the write below.
+    let _lock = lock(paths, &hook.file)?;
     let original = read_json(&hook.file)?.context("the settings file is gone")?;
     let mut edited = original.clone();
     let (handler, _) = take_handler(&mut edited, hook, false)?;
@@ -1332,6 +1334,7 @@ fn edit_disabled_store(
     edit: impl FnOnce(&mut Vec<OJson>) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
     let path = disabled_store_path(paths);
+    let _lock = lock(paths, &path)?;
     let mut store = read_disabled_store(&path)?;
     edit(&mut store)?;
     let mut root = IndexMap::new();
@@ -1357,13 +1360,32 @@ fn edit_json(
     path: &Path,
     edit: impl FnOnce(&mut OJson) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
+    let _lock = lock(paths, path)?;
     let mut root = read_json(path)?.unwrap_or_else(OJson::object);
     edit(&mut root)?;
     write_json(paths, path, &root)
 }
 
+/// Holds `path`'s edit lock until it drops: the lock a settings edit of the same file takes
+/// ([`crate::write::Store::lock`]), so a hooks edit and a settings edit never both start from
+/// the same file and drop each other's change. Each edit takes it once, around its own read and
+/// write, never nested for one file (a second lock of a held file waits out its deadline).
+fn lock(paths: &AgentPaths, path: &Path) -> anyhow::Result<fs::File> {
+    paths.edits.lock(path).with_context(|| format!("waiting to edit {}", path.display()))
+}
+
+/// Writes `root` to `path` (the caller holds `path`'s [`lock`]).
 fn write_json(paths: &AgentPaths, path: &Path, root: &OJson) -> anyhow::Result<()> {
-    paths::write_with_backup(&paths.store_dir, path, root.to_pretty().as_bytes())
+    write_text(paths, path, &root.to_pretty())
+}
+
+/// Replaces `path` with `text` through the shared store: backups of the prior file, then an
+/// atomic rename. A file already holding `text` is left alone (no backup churn).
+fn write_text(paths: &AgentPaths, path: &Path, text: &str) -> anyhow::Result<()> {
+    if fs::read(path).ok().as_deref() == Some(text.as_bytes()) {
+        return Ok(());
+    }
+    paths.edits.replace(path, text).with_context(|| format!("writing {}", path.display()))
 }
 
 fn edit_codex_config(
@@ -1371,6 +1393,12 @@ fn edit_codex_config(
     edit: impl FnOnce(&mut toml_edit::DocumentMut) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
     let path = paths.codex_home.join("config.toml");
+    let _lock = lock(paths, &path)?;
+    // The lock every cmux writer of a codex home's config takes (the hook installer, acpmux,
+    // the settings part).
+    let _codex_lock = cmux_tui_platform::codex_config_lock::lock(
+        &paths.codex_home.join(cmux_tui_platform::codex_config_lock::LOCK_FILE),
+    );
     let text = match fs::read_to_string(&path) {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
@@ -1379,7 +1407,7 @@ fn edit_codex_config(
     let mut document: toml_edit::DocumentMut =
         text.parse().with_context(|| format!("parsing {}", path.display()))?;
     edit(&mut document)?;
-    paths::write_with_backup(&paths.store_dir, &path, document.to_string().as_bytes())
+    write_text(paths, &path, &document.to_string())
 }
 
 /// Takes out what `codex_state_entry` made for KEY once it holds nothing:

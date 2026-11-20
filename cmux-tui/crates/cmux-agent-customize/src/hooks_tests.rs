@@ -98,6 +98,7 @@ fn fixture() -> Fixture {
         project: Some(project),
         claude_plugin_dirs: Vec::new(),
         store_dir: base.join("store"),
+        edits: crate::write::Store::new(base.join("state")),
     };
     // Trust every Codex hook as it stands, the way codex's /hooks review does.
     let listing = list(&paths);
@@ -192,8 +193,28 @@ fn claude_disable_parks_the_handler_and_enable_restores_the_file_byte_for_byte()
     set_enabled(&fixture.paths, &id, true, false).unwrap();
     assert_eq!(read(&settings), CLAUDE_SETTINGS);
     assert!(!read(&disabled_store_path(&fixture.paths)).contains("guard-one"));
-    // The prior file is backed up.
-    assert!(fs::read_dir(fixture.paths.store_dir.join("backups")).unwrap().count() >= 2);
+    // The prior file is backed up in the shared store, as a settings edit backs it up: the
+    // original before cmux's first edit, and the file before its latest one.
+    assert_eq!(read(&fixture.paths.edits.backup_path(&settings)), CLAUDE_SETTINGS);
+    assert!(fixture.paths.edits.last_backup_path(&settings).exists());
+}
+
+#[test]
+fn a_hooks_edit_waits_for_a_settings_edit_of_the_same_file() {
+    let fixture = fixture();
+    let settings = fixture.paths.claude_dir.join("settings.json");
+    let id = by_command(&list(&fixture.paths), "guard-one").id.clone();
+    // A settings edit holds the file's lock (crate::settings takes Store::lock the same way).
+    let held = fixture.paths.edits.lock(&settings).unwrap();
+    let paths = fixture.paths.clone();
+    let waiting = std::thread::spawn(move || set_enabled(&paths, &id, false, false));
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    // The hooks edit has not written while the lock is held.
+    assert_eq!(read(&settings), CLAUDE_SETTINGS);
+    drop(held);
+    let hook = waiting.join().unwrap().unwrap();
+    assert!(!hook.enabled);
+    assert!(!read(&settings).contains("guard-one"));
 }
 
 #[test]

@@ -1,18 +1,18 @@
 //! Where Claude Code and Codex keep their hooks, resolved the way each CLI
-//! resolves it, and the atomic, backed-up write every hooks edit goes through.
-//! (The settings part resolves its own files in [`crate::paths`] and writes
-//! through [`crate::write`]; this moves onto those in a follow-up.)
+//! resolves it. Every edit of an agent's file goes through [`crate::write::Store`],
+//! the one the settings part uses, so a hooks edit and a settings edit of the same
+//! file take the same lock and leave the same backups.
 
 use std::ffi::OsString;
-use std::fs;
-use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context as _;
 
-/// cmux's own folder for agent-customization state (the Claude disabled-hook
-/// store, backups). Overridable for tests and side copies.
+use crate::paths::Homes;
+use crate::write::Store;
+
+/// cmux's own folder for the Claude Code hooks it turned off (the disabled-hook
+/// store). Overridable for tests and side copies.
 pub const STORE_ENV: &str = "CMUX_AGENT_CUSTOMIZE_HOME";
 
 /// The config roots for one listing or edit.
@@ -32,13 +32,20 @@ pub struct AgentPaths {
     pub claude_plugin_dirs: Vec<PathBuf>,
     /// cmux's store (`$CMUX_AGENT_CUSTOMIZE_HOME`, else `~/.cmux/agent-customize`).
     pub store_dir: PathBuf,
+    /// The edit locks and backups of every file a hooks edit writes: the settings part's
+    /// [`Homes::store`], so both parts lock one file the same way.
+    pub edits: Store,
 }
 
 impl AgentPaths {
     /// Roots from this process's environment.
     pub fn from_env(project: Option<PathBuf>) -> anyhow::Result<Self> {
         let home = std::env::var_os("HOME").map(PathBuf::from).context("HOME is not set")?;
-        Ok(Self::from_vars(&home, project, |name| std::env::var_os(name)))
+        let mut paths = Self::from_vars(&home, project, |name| std::env::var_os(name));
+        if let Some(homes) = Homes::from_env() {
+            paths.edits = homes.store();
+        }
+        Ok(paths)
     }
 
     /// Roots from `home` and a variable lookup (tests pass their own).
@@ -60,6 +67,7 @@ impl AgentPaths {
                 })
                 .unwrap_or_default(),
             store_dir: set(STORE_ENV).unwrap_or_else(|| home.join(".cmux/agent-customize")),
+            edits: Homes::under(home).store(),
         }
     }
 
@@ -72,86 +80,3 @@ impl AgentPaths {
         }
     }
 }
-
-/// Writes `bytes` to `path` through a temp file and rename, keeping the
-/// file's mode, after copying the prior file to `<store>/backups/`.
-pub fn write_with_backup(store: &Path, path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
-    let previous = fs::read(path).ok();
-    if previous.as_deref() == Some(bytes) {
-        return Ok(());
-    }
-    if let Some(previous) = &previous {
-        let backups = store.join("backups");
-        fs::create_dir_all(&backups).with_context(|| format!("creating {}", backups.display()))?;
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|since| since.as_millis())
-            .unwrap_or(0);
-        let flat: String = path
-            .to_string_lossy()
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' })
-            .collect();
-        let backup = backups.join(format!("{stamp}-{}", flat.trim_start_matches('_')));
-        fs::write(&backup, previous)
-            .with_context(|| format!("backing up to {}", backup.display()))?;
-        prune_backups(&backups, 50);
-    }
-    let parent = path.parent().context("the file has no folder")?;
-    fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
-    let mode = file_mode(path);
-    let temp = parent.join(format!(
-        ".{}.cmux-{}.tmp",
-        path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default(),
-        std::process::id()
-    ));
-    let write = || -> anyhow::Result<()> {
-        let mut file =
-            fs::File::create(&temp).with_context(|| format!("creating {}", temp.display()))?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        set_mode(&temp, mode);
-        fs::rename(&temp, path).with_context(|| format!("replacing {}", path.display()))?;
-        Ok(())
-    };
-    let result = write();
-    if result.is_err() {
-        let _ = fs::remove_file(&temp);
-    }
-    result
-}
-
-/// Keeps the newest `keep` backups.
-fn prune_backups(backups: &Path, keep: usize) {
-    let Ok(entries) = fs::read_dir(backups) else { return };
-    let mut names: Vec<_> = entries.filter_map(Result::ok).map(|entry| entry.path()).collect();
-    if names.len() <= keep {
-        return;
-    }
-    names.sort();
-    for old in &names[..names.len() - keep] {
-        let _ = fs::remove_file(old);
-    }
-}
-
-#[cfg(unix)]
-fn file_mode(path: &Path) -> Option<u32> {
-    use std::os::unix::fs::PermissionsExt as _;
-    fs::metadata(path).ok().map(|meta| meta.permissions().mode() & 0o7777)
-}
-
-#[cfg(not(unix))]
-fn file_mode(_: &Path) -> Option<u32> {
-    None
-}
-
-#[cfg(unix)]
-fn set_mode(path: &Path, mode: Option<u32>) {
-    use std::os::unix::fs::PermissionsExt as _;
-    if let Some(mode) = mode {
-        let _ = fs::set_permissions(path, fs::Permissions::from_mode(mode));
-    }
-}
-
-#[cfg(not(unix))]
-fn set_mode(_: &Path, _: Option<u32>) {}
