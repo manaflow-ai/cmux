@@ -172,7 +172,13 @@ extension CloudWait {
                                     resume: @MainActor () async throws -> Void) async throws {
         await read(true)
         await outwaitPause(of: status, within: limit) { await read(false) }
-        if status() == .paused { try await resume() }
+        if status() == .paused {
+            do { try await resume() } catch {
+                // A resume from elsewhere (the link's own connect, another Mac) went first: the record runs or starts now.
+                await read(true)
+                guard status() == .starting || status() == .running else { throw error }
+            }
+        }
         await outwaitResume(of: status, within: limit) { await read(false) }
     }
 

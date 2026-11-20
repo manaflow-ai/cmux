@@ -52,17 +52,32 @@ public struct CloudMachineRoute: Sendable {
     /// routes run only on a machine whose record reads running) runs `start` and sends the command once more. The start's
     /// link can be up on a machine whose record does not run: a click's link connect starts a paused machine and answers
     /// before its record does, and an idle pause can land as the link comes up. The start's route check was the first
-    /// exec there, and its refusal ended the start with "the machine is not running; start it first" (cmux#47638). A
-    /// second refusal, or any other one, is thrown as it came.
+    /// exec there, and its refusal ended the start with "the machine is not running; start it first" (cmux#47638). The
+    /// start runs at most once for every command this exec sends (a later refusal reuses its outcome, never starts again);
+    /// a second refusal, or any other one, is thrown as it came.
     public static func startingWhenStopped(_ exec: @escaping Exec, start: (@Sendable () async throws -> Void)?) -> Exec {
         guard let start else { return exec }
+        let once = StartOnce(start)
         return { command, timeoutMs in
             do {
                 return try await exec(command, timeoutMs)
             } catch let refusal as CloudAPIError where refusal.isMachineNotRunning {
-                try await start()
+                try await once.run()
                 return try await exec(command, timeoutMs)
             }
+        }
+    }
+
+    /// One start, shared by every caller: the first runs it, the others await its outcome.
+    private actor StartOnce {
+        private let start: @Sendable () async throws -> Void
+        private var started: Task<Void, any Error>?
+        init(_ start: @escaping @Sendable () async throws -> Void) { self.start = start }
+        func run() async throws {
+            // task-owner: started; the one start of a route check, awaited by each refusal that needs it
+            let task = started ?? Task { [start] in try await start() }
+            started = task
+            try await task.value
         }
     }
 
