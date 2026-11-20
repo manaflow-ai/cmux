@@ -349,9 +349,10 @@ fn net_client_list(conn: &impl x11rb::connection::Connection, root: u32) -> Opti
     if reply.type_ == 0 {
         return None;
     }
-    // Bound first: the iterator borrows `reply`, which a tail expression's temporary would outlive.
-    let windows = reply.value32()?.collect();
-    Some(windows)
+    // Collected into a local first: as the tail expression, the iterator's temporary outlives
+    // `reply` and the release build fails to compile (E0597).
+    let clients: Vec<u32> = reply.value32()?.collect();
+    Some(clients)
 }
 
 /// Whether `window`'s `WM_CLASS` names the session's terminal ([`SESSION_TERMINAL_CLASS`]).

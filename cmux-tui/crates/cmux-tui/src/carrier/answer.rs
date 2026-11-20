@@ -489,10 +489,12 @@ impl HttpSource {
         team: Option<String>,
     ) -> Result<Self, String> {
         let _ = rustls::crypto::ring::default_provider().install_default();
+        let space = cmux_build_space::headers().map_err(|e| e.to_string())?;
         // A black-holed SYN costs 1 s per address, then a new socket (`connect_retry`); the last
-        // try connects with no connect timeout.
+        // try connects with no connect timeout. Both clients carry the space.
         let clients = cmux_cloud_client::connect_retry::Clients::build(|| {
             reqwest::Client::builder()
+                .default_headers(space.clone())
                 .redirect(reqwest::redirect::Policy::none())
                 .timeout(FETCH_TIMEOUT)
                 .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
