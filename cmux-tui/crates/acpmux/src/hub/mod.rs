@@ -329,6 +329,7 @@ pub use paging::{
 };
 pub use spawn::expand_env_value;
 pub mod approvers;
+mod former_names;
 pub(crate) mod key_route;
 pub mod mac_approvers;
 pub mod no_session;
@@ -345,6 +346,7 @@ mod peer_grace_tests;
 mod peer_lease;
 pub(crate) mod peer_snapshot;
 mod spoken_handles;
+mod task_names;
 pub use peer_lease::PeerLease;
 /// Debug builds only: the next `n` reads of whether a copy of `peer` is ahead fail, as a timed
 /// out or dead store would (`peer_snapshot/restore.rs`).
