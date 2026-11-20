@@ -29,10 +29,19 @@ final class ChatJumpTopSettleUITests: XCTestCase {
             let frame = app.windows.firstMatch.frame
             // Texts drawn inside the window's middle band (below the navigation bar, above the composer).
             let band = frame.insetBy(dx: 0, dy: frame.height * 0.18)
-            let visible = app.staticTexts.allElementsBoundByIndex.filter { element in
-                let f = element.frame
-                return !f.isEmpty && band.intersects(f) && !(element.label.isEmpty)
-            }.count
+            // One snapshot of the tree: rows come and go while pages are read in, so live
+            // element queries can name a row that is gone by the time it is read.
+            var visible = -1
+            if let root = try? app.snapshot() {
+                var stack: [XCUIElementSnapshot] = [root]
+                visible = 0
+                while let node = stack.popLast() {
+                    if node.elementType == .staticText, !node.frame.isEmpty, band.intersects(node.frame), !node.label.isEmpty {
+                        visible += 1
+                    }
+                    stack.append(contentsOf: node.children)
+                }
+            }
             counts.append("t\(Int(mark))s=\(visible)")
             let shot = XCTAttachment(screenshot: app.screenshot())
             shot.name = "f8-t\(Int(mark))s"
