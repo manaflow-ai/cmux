@@ -43,6 +43,7 @@ struct DriveRun {
             return try await hold(until: stop, watching: person, since: started, release: release)
         }
         await input.settle()
+        // timeout: only how long the run waits for a stalled page to say whether the hover took; it then holds without one
         guard !view.pageIsFrozen, let state = try await AgentChatDriveControl.call(view, AgentChatDriveControl.stateScript, [:], timeout: .seconds(5)),
               state["hovered"] == true else {
             hover["reason"] = "not_hovered"
