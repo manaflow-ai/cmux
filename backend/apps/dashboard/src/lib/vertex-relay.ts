@@ -26,6 +26,13 @@ const MAX_BODY_BYTES = 32 * 1024 * 1024
 const RELAY_MODEL_PREFIXES = ["google/"]
 /** Refresh this long before the Google token expires, so an in-flight stream never starts on a dying token. */
 const REFRESH_MARGIN_MS = 5 * 60_000
+/**
+ * Give up on a Google call that sent no headers by then. console.cmux.dev sits behind Cloudflare's proxy,
+ * which cuts an origin silent for 100 s (a 524 the Worker can only see after 100 s); under load Vertex
+ * sometimes holds a request that long (2026-11-19, two of three Gemini 4 Neon calls). A 504 at 85 s is
+ * a clean, retryable answer. Streams send headers within seconds; the cap covers only the wait for them.
+ */
+export const HEADER_TIMEOUT_MS = 85_000
 
 export interface VertexRelayDeps {
   /** The shared key the Worker sends as `Authorization: Bearer`. Unset: the relay is off (404). */
@@ -34,6 +41,8 @@ export interface VertexRelayDeps {
   readonly oidcToken: string | undefined
   readonly fetch: typeof fetch
   readonly now?: () => number
+  /** HEADER_TIMEOUT_MS unless a test sets it. */
+  readonly headerTimeoutMs?: number
 }
 
 interface CachedToken {
@@ -106,17 +115,35 @@ export const relayVertexChat = async (request: Request, deps: VertexRelayDeps): 
     return json(400, "validation.invalid", "body must be JSON")
   }
   if (typeof model !== "string" || !RELAY_MODEL_PREFIXES.some((p) => model.startsWith(p))) return json(403, "model.not_allowed", "the Vertex relay serves only Google models")
-  let token: string
+  const now = deps.now ?? Date.now
+  const started = now()
+  // One deadline for the token exchange and Vertex's headers together; the body streams on after it.
+  const abort = new AbortController()
+  const timer = setTimeout(() => abort.abort(), deps.headerTimeoutMs ?? HEADER_TIMEOUT_MS)
+  const timed: typeof fetch = ((input: RequestInfo | URL, init?: RequestInit) => deps.fetch(input, { ...init, signal: abort.signal })) as typeof fetch
+  let phase: "token" | "vertex" = "token"
   try {
-    token = await googleAccessToken(deps.oidcToken, deps)
+    let token: string
+    try {
+      token = await googleAccessToken(deps.oidcToken, { fetch: timed, now })
+    } catch (e) {
+      if (abort.signal.aborted) throw e
+      // A 502 is retryable for the Worker (it tries the next route); the cause stays in our logs only.
+      console.warn(JSON.stringify({ msg: "vertex_relay.token_failed", error: String(e).slice(0, 200) }))
+      return json(502, "upstream.auth_failed", "could not get a Google access token")
+    }
+    phase = "vertex"
+    const upstream = await timed(VERTEX_URL, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: bytes })
+    clearTimeout(timer)
+    // A rejected token (revoked, clock skew) must not stick for the instance's lifetime.
+    if (upstream.status === 401) resetVertexTokenCache()
+    if (upstream.status !== 200) console.warn(JSON.stringify({ msg: "vertex_relay.upstream_status", status: upstream.status, ms: now() - started }))
+    const headers = new Headers({ "content-type": upstream.headers.get("content-type") ?? "application/json", "cache-control": "no-cache" })
+    return new Response(upstream.body, { status: upstream.status, headers })
   } catch (e) {
-    // A 502 is retryable for the Worker (it tries the next route); the cause stays in our logs only.
-    console.warn(JSON.stringify({ msg: "vertex_relay.token_failed", error: String(e).slice(0, 200) }))
-    return json(502, "upstream.auth_failed", "could not get a Google access token")
+    clearTimeout(timer)
+    if (!abort.signal.aborted) throw e
+    console.warn(JSON.stringify({ msg: "vertex_relay.timeout", phase, ms: now() - started }))
+    return json(504, "upstream.timeout", `Google sent no answer in ${Math.round((deps.headerTimeoutMs ?? HEADER_TIMEOUT_MS) / 1000)} s; retry`)
   }
-  const upstream = await deps.fetch(VERTEX_URL, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: bytes })
-  // A rejected token (revoked, clock skew) must not stick for the instance's lifetime.
-  if (upstream.status === 401) resetVertexTokenCache()
-  const headers = new Headers({ "content-type": upstream.headers.get("content-type") ?? "application/json", "cache-control": "no-cache" })
-  return new Response(upstream.body, { status: upstream.status, headers })
 }

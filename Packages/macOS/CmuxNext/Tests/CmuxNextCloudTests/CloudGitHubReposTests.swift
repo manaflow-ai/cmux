@@ -238,9 +238,11 @@ struct CloudGitHubReposTests {
     @Test func anOwnerRequestReadsAsPendingApproval() throws {
         let state = "h.\(Self.statePayload).s"
         let link = CloudGitHubCompletion.link(scheme: "cmux-dev-x")
-        let request = try #require(CloudGitHubCompletion(url: try #require(URL(string: "\(link)?state=\(state)&setup_action=request")), scheme: "cmux-dev-x"))
+        let requestURL = try #require(URL(string: "\(link)?state=\(state)&setup_action=request"))
+        let request = try #require(CloudGitHubCompletion(url: requestURL, scheme: "cmux-dev-x"))
         #expect(request.isOwnerRequest)
-        let installed = try #require(CloudGitHubCompletion(url: try #require(URL(string: "\(link)?state=\(state)&installation_id=7&setup_action=request")), scheme: "cmux-dev-x"))
+        let installedURL = try #require(URL(string: "\(link)?state=\(state)&installation_id=7&setup_action=request"))
+        let installed = try #require(CloudGitHubCompletion(url: installedURL, scheme: "cmux-dev-x"))
         #expect(!installed.isOwnerRequest)
         let said = "GitHub sent your request to install the cmux GitHub App to the organization's owners. When an owner approves it, choose Connect GitHub in cmux again"
         let refused = Self.body(#"{"ok":false,"error":{"code":"integration.state_invalid","message":"\#(said)"}}"#)
