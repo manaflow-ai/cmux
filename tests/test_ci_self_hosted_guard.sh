@@ -1405,6 +1405,10 @@ PY_LIGHT
     "coderouter-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a GitHub-hosted runner"
     # PyPI trusted publishing accepts only GitHub-hosted runners too.
     "coderouter-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
+    # Reads untrusted pull request source (pull_request_target) and requires an ephemeral runner; the
+    # persistent Linux pool registers every blacksmith-*-ubuntu-2404 label, so only hosted Ubuntu is
+    # ephemeral (run 44801662760 landed on cmux-runner-pool-n4c-0027). Not a required check on main.
+    "web-complexity-trusted.yml:    runs-on: ubuntu-24.04 # github-hosted-required: reads untrusted pull request source; the persistent pool carries every Blacksmith Linux label"
     # The packages' attestations are verified with --deny-self-hosted-runners,
     # so they must be signed on a GitHub-hosted runner.
     "cmux-tui-build-package.yml:    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC"
