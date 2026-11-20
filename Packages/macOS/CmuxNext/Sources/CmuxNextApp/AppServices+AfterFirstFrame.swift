@@ -19,6 +19,7 @@ extension AppServices {
         if let feed = chatsFeed { AgentPageChats.wire(agentTabs, to: feed, opener: chatsOpener) }
         NewTabPlacesFeed.wire(agentTabs, services: self)
         dockMenu.start()
+        WorkspaceAutoNameWiring(services: self).start(settings: settings) // Current-state observers; persisted labels already draw.
         DebugTimings.markLaunch("launch.post_frame_feeds")
     }
 
