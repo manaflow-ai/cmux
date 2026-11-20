@@ -44,6 +44,9 @@ public final class DesignSettings {
     public var densityTokens: DensityTokens = .compact
     /// `appearance.customDensities`: the user's own densities, in file order.
     public var customDensities: [DensityTokens] = []
+    /// Whether `densityTokens` is the active theme file's own density (its `"density"` block): then a change to it
+    /// shows but is not saved, since the file would put it back.
+    public var densityFromThemeFile = false
     /// Every density the user can pick: the built-ins, densest first, then the custom ones.
     public var availableDensities: [DensityTokens] { DensityPreset.allCases.map(\.tokens) + customDensities }
     /// The density with `id` among `availableDensities`.
@@ -137,6 +140,12 @@ public final class DesignSettings {
             NotificationCenter.default.post(name: WindowMaterialView.inactiveDimDidChange, object: nil)
         }
     }
+    /// `appearance.agentGlow`: the backdrop answers the agents (``BackdropAgentGlow``). Off by
+    /// default: it changes the default look. The App's ``agentGlow`` reader starts and stops with it.
+    public var agentGlowEnabled = false
+    /// What every window's backdrop shows of the agents now; ``BackdropAgentGlow/calm`` while
+    /// ``agentGlowEnabled`` is off. Each window backdrop observes it (``BackdropAgentGlowView``).
+    public var agentGlow = BackdropAgentGlow.calm
     /// `appearance.wallpaperTint`: where the desktop shows through the window, its tint takes the
     /// desktop picture's hue (``WallpaperTint``), as macOS tints its own windows. Off until the
     /// setting reaches it (``SettingsApplier``).

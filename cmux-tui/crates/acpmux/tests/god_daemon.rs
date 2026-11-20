@@ -656,6 +656,14 @@ impl Daemon {
     }
 }
 
+/// A run that panics does not leave its daemon writing into a scratch folder being removed.
+impl Drop for Daemon {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
 /// How long the client waits for the marker's notice after the attaches.
 const MARKER_WAIT: Duration = Duration::from_secs(120);
 
@@ -786,11 +794,14 @@ fn attach_rounds(rpc: &mut Rpc, god: &str) -> Attaches {
     a
 }
 
-/// One home's run: its numbers, and its heap profile's path when one was asked for.
+/// One home's run: its numbers, and its heap profile's path when one was asked for. Its scratch
+/// (2 GB for the god shape, a 1 GB daemon log of it) is removed when it returns or panics, so runs
+/// do not pile up one per pid (they filled pool VMs, 2026-11-17); `"scratch"` names it, and
+/// `ACPMUX_KEEP_SCRATCH=1` keeps it.
 async fn run(shape: Shape, dhat: bool) -> Value {
-    let scratch = std::env::temp_dir().join(format!("god-{}-{}", shape.name, std::process::id()));
-    let _ = std::fs::remove_dir_all(&scratch);
-    std::fs::create_dir_all(&scratch).unwrap();
+    // Declared first, so dropped last: after the daemon, the peers' hubs and their proxies.
+    let scratch_dir = daemon_env::Scratch::new(&format!("god-{}", shape.name));
+    let scratch = scratch_dir.to_path_buf();
     let home = scratch.join("acpmux");
     let claude = daemon_env::home(&scratch).join(".claude");
     let written = Instant::now();
@@ -1079,6 +1090,8 @@ async fn run(shape: Shape, dhat: bool) -> Value {
     for proxy in proxies.iter() {
         proxy.cut();
     }
+    let mut result = result;
+    result["scratch"] = json!(scratch_dir.display().to_string());
     result
 }
 
@@ -1339,6 +1352,13 @@ async fn restart_to_chat_attach_is_under_two_seconds() {
     assert!(elapsed <= 2_000, "Daemon restart -> chat attach took {elapsed} ms: {result}");
     let shutdown = result["shutdownMs"].as_u64().unwrap_or(u64::MAX);
     assert!(shutdown <= 1_000, "Daemon shutdown took {shutdown} ms: {result}");
+    // The run's scratch went with it (a run that panics: `tests/scratch_guard.rs`).
+    let scratch = Path::new(result["scratch"].as_str().expect("run names its scratch"));
+    assert!(
+        std::env::var(daemon_env::KEEP_SCRATCH).is_ok() || !scratch.exists(),
+        "run() left its scratch {}",
+        scratch.display()
+    );
 }
 
 /// One peer's hub, restartable: each start is a new daemon run (a new list epoch) over the same
@@ -1428,9 +1448,8 @@ async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
     let busy: usize = env_or("ACPMUX_CHURN_BUSY", 8);
     let follow = std::env::var("ACPMUX_CHURN_FOLLOW").is_ok_and(|v| v == "1");
 
-    let scratch = std::env::temp_dir().join(format!("god-churn-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&scratch);
-    std::fs::create_dir_all(&scratch).unwrap();
+    // Removed when the lab ends, passing or not (`ACPMUX_KEEP_SCRATCH=1` keeps it).
+    let scratch = daemon_env::Scratch::new("god-churn");
     let home = scratch.join("acpmux");
     let claude = daemon_env::home(&scratch).join(".claude");
     let shape = Shape { peers: 0, ..Shape::small() };
@@ -1570,5 +1589,4 @@ async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
             );
         }
     }
-    let _ = std::fs::remove_dir_all(&scratch);
 }
