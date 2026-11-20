@@ -355,14 +355,15 @@ a {
   -webkit-user-select: text;
   user-select: text;
 }
-:where(.selectable) {
+/* Everything in it too, not only the box: inherited, a box inside that shows its own cursor (a
+   Markdown diagram's or raw HTML preview's `cursor: text`) would hand it on to its shapes, images and
+   empty space, which show the arrow. `:where(.selectable) *`, not `:where(.selectable, .selectable *)`:
+   Chromium and WebKit put a one-argument `:where()` ancestor's class in their ancestor filter, so an
+   element outside selectable text drops this rule at once; a list gives the filter nothing, and every
+   element styled walked all its ancestors trying it (descendant-universal-rules.test.ts). */
+:where(.selectable),
+:where(.selectable) * {
   cursor: auto;
-}
-/* Its descendants take that by inheritance, except a label: the user agent sheet gives every label
-   the arrow (`label { cursor: default }`), so a field's label in selectable text inherits instead
-   (a choice's label keeps the arrow from the clickable rule below, which comes later). */
-:where(.selectable label) {
-  cursor: inherit;
 }
 
 /* Fields always select and show the text cursor. Two rules, not one list: jsdom scores a rule by
@@ -389,39 +390,33 @@ input[type="range"] {
    hand). Zero specificity (:where), so a surface's own meaningful cursor still wins: text in a
    field, a resize or drag cursor, zoom-in on an image. No sheet sets `cursor: pointer`
    (clickable-cursor.test.ts, scripts/cmux-next/check-default-cursor.py).
-   What is inside a clickable thing takes its cursor by inheritance (`cursor` inherits): the arrow
-   over its label inside selectable text, since only `.selectable` itself sets the I-beam's `auto`
-   (above), not its descendants, and a surface's own cursor on the clickable thing too, so a sent or
-   queued image's thumbnail keeps the button's zoom-in. A selectable box inside a clickable thing
-   inherits its cursor as well (the rule below). What is inside any label takes the label's cursor
-   the same way: a choice's arrow, a locked choice's arrow, a field label's I-beam in selectable
-   text. A field inside keeps the text cursor (its own rule outranks this one).
+   What is inside a clickable thing takes its cursor (`inherit`): the arrow over its label inside
+   selectable text, whose `auto` (above) would give it the I-beam, and a surface's own cursor on the
+   clickable thing too, so a sent or queued image's thumbnail keeps the button's zoom-in. What is
+   inside any label takes the label's cursor too: a choice's arrow, a locked choice's arrow, a field
+   label's I-beam in selectable text. A field inside keeps the text cursor (its own rule outranks
+   this one). This rule comes first so a clickable thing nested in another still gets the arrow.
+   One selector per clickable kind, each `:where()` holding one compound with a tag or attribute,
+   so the ancestor filter drops the rule for an element under no such thing. A clickable role is
+   only an attribute name to the filter, and the transcript sits under `role="feed"`, so a role's
+   selectors also name `.selectable`: outside selectable text nothing resets the cursor, so
+   inheritance alone gives what `inherit` would, apart from the user agent's arrow on a label.
    Never a rule whose subject is `*` under ancestors Chromium cannot look up by class, id, tag or
-   attribute (`:where(button, a[href], ...) *`, `:disabled *`): every element styled anywhere then
+   attribute (`:where(button, a[href], ...) *`, a list, or `:disabled *`): every element styled anywhere then
    walks all its ancestors trying each one, about 230 ms of style recalc for 24 older pages of a long
    chat (transcript-scroll-up.bench.ts TRACE=3; descendant-universal-rules.test.ts). Nor
    `label:has(...) *`, nor any `:has()` before a combinator whose last compound has no class or
    attribute (`*`, `:not(...)`): Chromium then restyles the whole page on every node inserted
    anywhere under the elements it tracks for `:has()`, about 850 elements per streamed row or rail
    tick in the agent pane (pane-has-restyle.browser.test.ts). */
-:where(
-    button,
-    a[href],
-    [role="button"],
-    [role="link"],
-    [role="menuitem"],
-    [role="menuitemcheckbox"],
-    [role="menuitemradio"],
-    [role="tab"],
-    [role="option"],
-    [role="treeitem"],
-    [role="switch"],
-    [role="checkbox"],
-    [role="radio"],
-    summary,
-    label
-  )
-  :where(.selectable) {
+:where(button) *,
+:where(a[href]) *,
+:where(summary) *,
+:where(label) *,
+:where(.selectable) :where([role]:is([role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"])) *,
+:where([role]:is([role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"])) :where(.selectable),
+:where([role]:is([role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"])) :where(.selectable) *,
+:where([role]:is([role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="tab"], [role="option"], [role="treeitem"], [role="switch"], [role="checkbox"], [role="radio"])) label {
   cursor: inherit;
 }
 :where(

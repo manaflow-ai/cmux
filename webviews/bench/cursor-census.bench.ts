@@ -1,9 +1,9 @@
 // l10n-allow-file: bench output labels and fixture text, not shipped UI.
 // Whether desktop.css's clickable-cursor rules give every element of the agent pane the same computed cursor as
 // the rules they replaced (descendant-universal-rules.test.ts): `:where(button, a[href], ...) * { cursor: inherit }`
-// became inheritance plus `:where(button, ...) :where(.selectable)`, `:where(.selectable, .selectable *)` became
-// `:where(.selectable)` plus `:where(.selectable label) { cursor: inherit }`, and `:disabled:not(fieldset) *`
-// became `button:disabled *, select:disabled *, ...`.
+// became one selector per clickable kind (`:where(button) *`, ..., a role's anchored on `.selectable` too),
+// `:where(.selectable, .selectable *)` became `:where(.selectable), :where(.selectable) *`, and
+// `:disabled:not(fieldset) *` became `button:disabled *, select:disabled *, ...`.
 // The real pane (test/support/papercutChat.ts) opens the generated ordinary chat (bench/godFixture.ts `small`:
 // tool runs, edit and shell turns, a subagent chain, screenshots, code and lists), plus a fixture of the cases the
 // rules decide (a field, a selectable box and a disabled control inside clickable things, a drag handle, a
@@ -112,7 +112,7 @@ for (const running of [false, true]) {
         const norm = (text: string) => text.replace(/\s+/g, " ").trim();
         type Swap = { rule: CSSStyleRule; from: string; to: string };
         const swaps: Swap[] = [];
-        const found = { inherit: 0, selectable: 0, label: 0, disabled: 0 };
+        const found = { inherit: 0, selectable: 0, disabled: 0 };
         for (const sheet of Array.from(document.styleSheets)) {
           let rules: CSSRuleList;
           try {
@@ -124,19 +124,12 @@ for (const running of [false, true]) {
             for (const rule of Array.from(list)) {
               if (rule instanceof CSSStyleRule) {
                 const text = norm(rule.selectorText);
-                if (
-                  /^:where\(button, a\[href\].*label\) :where\(\.selectable\)$/.test(text) &&
-                  rule.style.cursor === "inherit"
-                ) {
-                  swaps.push({ rule, from: rule.selectorText, to: text.replace(/ :where\(\.selectable\)$/, " *") });
+                if (text.startsWith(":where(button) *, :where(a[href]) *,") && rule.style.cursor === "inherit") {
+                  swaps.push({ rule, from: rule.selectorText, to: `:where(${clickable}) *` });
                   found.inherit += 1;
-                } else if (text === ":where(.selectable)" && rule.style.cursor === "auto") {
+                } else if (text === ":where(.selectable), :where(.selectable) *" && rule.style.cursor === "auto") {
                   swaps.push({ rule, from: rule.selectorText, to: ":where(.selectable, .selectable *)" });
                   found.selectable += 1;
-                } else if (text === ":where(.selectable label)" && rule.style.cursor === "inherit") {
-                  // The old sheet had no such rule: matching nothing, it drops out.
-                  swaps.push({ rule, from: rule.selectorText, to: ":where(.cursor-census-none)" });
-                  found.label += 1;
                 } else if (
                   text.includes("button:disabled *, select:disabled *, optgroup:disabled *, option:disabled *")
                 ) {

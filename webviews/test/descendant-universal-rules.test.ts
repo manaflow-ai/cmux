@@ -45,8 +45,17 @@ function outside(compound: string): string {
 }
 
 /// Whether Chromium can reject this ancestor compound from its Bloom filter: it names a class, an id, a
-/// tag or an attribute at its top level (not only inside `:is()`, `:where()` or `:not()`).
-const lookedUp = (compound: string) => /[.#[]|^[a-zA-Z]/.test(outside(compound).replace(/::?[\w-]+/g, ""));
+/// tag or an attribute at its top level (not only inside `:not()` or a list), or it is a one-argument
+/// `:is()` or `:where()` whose argument does: Chromium (selector_filter.cc) and WebKit (SelectorFilter.cpp)
+/// collect a single argument's identifiers as if it were written out, and nothing from a list.
+function lookedUp(compound: string): boolean {
+  if (/[.#[]|^[a-zA-Z]/.test(outside(compound).replace(/::?[\w-]+/g, ""))) return true;
+  const only = /^:(?:is|where)\((.*)\)$/.exec(compound.trim());
+  if (!only || splitTop(only[1]!, ",").length !== 1) return false;
+  return splitTop(only[1]!.trim().replace(/\s*([>+~])\s*/g, " "), " ")
+    .filter(Boolean)
+    .some(lookedUp);
+}
 
 /// Whether a subject compound is `*` or only pseudo-classes, so it lands in Chromium's universal bucket.
 const universal = (compound: string) =>
@@ -81,6 +90,12 @@ test("the detector finds a descendant-universal rule and passes ones Chromium ca
       "[inert] *, button:disabled *, .selectable *, fieldset:disabled > :not(legend) span, :where(button) :where(.selectable) { x: y; }",
     ),
   ).toEqual([]);
+  // A one-argument `:where()` ancestor is looked up by what it holds; a list, or only pseudo-classes, is not.
+  expect(
+    descendantUniversalRules(
+      ':where(.selectable) *, :where(a[href]) *, :where([role]:is([role="tab"], [role="option"])) :where(.selectable) *, :where(.a, .b) *, :where(:hover) * { x: y; }',
+    ),
+  ).toEqual([":where(.a, .b) *", ":where(:hover) *"]);
 });
 
 test("no webview stylesheet has a rule whose subject is `*` under ancestors Chromium cannot look up", () => {
