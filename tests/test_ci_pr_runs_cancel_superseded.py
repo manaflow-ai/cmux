@@ -687,8 +687,11 @@ def self_check() -> list[str]:
         verdict = problem(concurrency, on, "pull_request") is None
         if verdict != ok:
             failures.append(f"self-check {name!r}: expected {'pass' if ok else 'fail'}")
+    # A pull request into feat-cmux-next and a push to it both get `w-feat-cmux-next` (#47604's first fixture,
+    # `number || 'deploy'`, gave w-101 and w-deploy: no shared group, so it never failed).
     shared = {"on": {"pull_request": None, "push": None},
-              "concurrency": {"group": "w-${{ github.event.pull_request.number || 'deploy' }}", "cancel-in-progress": True}}
+              "concurrency": {"group": "w-${{ github.event.pull_request.base.ref || github.ref_name }}",
+                              "cancel-in-progress": True}}
     if workflow_problem(shared) is None:
         failures.append("self-check: a pull request group that equals the push group must fail")
     split = {**shared, "concurrency": {"group": "w-${{ github.event.pull_request.number || github.ref }}",
