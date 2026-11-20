@@ -4,10 +4,14 @@ import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
 
-/// The notifications page's three versions. `list` ships; `preview` and
-/// `actions` are the alternatives to compare (Aziz 2026-11-18), switched on the
-/// page in DEBUG builds or at launch with `-cmux-mobile-notifications-primer NAME`.
+/// The notifications page's versions. `real` ships: real cmux notifications,
+/// captured on a simulator (Aziz 2026-11-19). `list`, `preview` and `actions` are
+/// the earlier ones to compare (Aziz 2026-11-18), switched on the page in DEBUG
+/// builds or at launch with `-cmux-mobile-notifications-primer NAME`.
 public enum NotificationsPrimer: String, CaseIterable, Sendable {
+    /// "See what needs you": a screenshot of real cmux notifications in
+    /// Notification Center (`OnboardingPushShotUITests`), rounded and clipped.
+    case real
     /// "Know when an agent needs you": a bell and three kinds of alerts.
     case list
     /// "Your agents tap you on the shoulder": a stack of real-looking alerts.
@@ -18,6 +22,7 @@ public enum NotificationsPrimer: String, CaseIterable, Sendable {
     /// The switcher's label.
     public var label: String {
         switch self {
+        case .real: "Real"
         case .list: "A · List"
         case .preview: "B · Preview"
         case .actions: "C · Actions"
@@ -32,6 +37,26 @@ public enum NotificationsPrimer: String, CaseIterable, Sendable {
     }
 
     static var launchChoice: NotificationsPrimer? { choice(in: ProcessInfo.processInfo.arguments) }
+}
+
+/// Real cmux notifications as Notification Center draws them: a screenshot from a
+/// simulator that received three pushes through the app's own service extension
+/// (`OnboardingPushShotUITests`), light and dark, cropped to the notifications and
+/// shown with rounded corners. Not a drawing: what the person will get.
+struct RealNotificationsShot: View {
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 28, style: .continuous)
+        Image("OnboardingPushes", bundle: .module)
+            .resizable()
+            .scaledToFit()
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(theme.colors.separator.color, lineWidth: 0.5))
+            .shadow(color: .black.opacity(0.18), radius: 18, y: 8)
+            .frame(maxWidth: 340)
+            .accessibilityElement()
+            .accessibilityLabel(Text("cmux notifications: Claude Code asks to run git push origin feat-onboarding, Codex finished fixing the failing auth tests, and Chief says the nightly is green again"))
+            .accessibilityIdentifier("setup.notifications.shot")
+    }
 }
 
 /// What a cmux alert looks like on the lock screen, drawn in the app (not a real

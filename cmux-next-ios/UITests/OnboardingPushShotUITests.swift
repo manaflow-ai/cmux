@@ -2,57 +2,43 @@ import XCTest
 
 /// Real cmux notifications on a simulator, for the onboarding's notifications page
 /// (Aziz 2026-11-19: "use push notifications there then present a real example").
-/// Three pushes in the Worker's APNs format (a finished task, a Chief message, a
-/// permission request) go through the app's own service-extension code
-/// (`SimulatedServiceExtension`), so iOS draws them exactly as on a phone. The test
-/// attaches Notification Center with all three and the permission's long look, in
-/// light and dark (`push~~…` attachments); the page's images are cropped from them.
+/// Three pushes (a Chief message, a finished task, a permission request) go through
+/// the app's own simulated service extension (`SimulatedServiceExtension`) and iOS
+/// draws them as on a phone. Each carries the Worker's own banner text in `aps.alert`
+/// (`PushBanner(payload:)`: "Claude Code wants to act on <Mac>", "Codex finished",
+/// "Chief") and no routable `cmuxMobile` payload: a mock sign-in publishes no push
+/// account, so the service chain would withhold a routable one as another account's
+/// (`ServicePush.withheld`), which is right and stays as it is. The test attaches
+/// Notification Center in dark and light (`push~~…` attachments); the page's images
+/// are cropped from them.
 final class OnboardingPushShotUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = true
     }
 
-    private static let mac = "0f1e2d3c4b5a69788796a5b4c3d2e1f0"
-
-    static func push(_ kind: String, agent: String, workspace: String, extra: [String: Any], category: String) -> String {
-        var payload: [String: Any] = [
-            "v": 2, "mac": mac, "macName": "Aziz's MacBook Pro", "kind": kind,
-            "eventId": "onboarding-\(kind)", "agent": agent, "workspace": workspace,
-            "postedAt": Int(Date().timeIntervalSince1970),
-        ]
-        payload.merge(extra) { $1 }
-        let body: [String: Any] = ["aps": ["category": category, "mutable-content": 1, "thread-id": "onboarding-\(kind)"], "cmuxMobile": payload]
-        guard let data = try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys]) else { return "{}" }
+    static func push(thread: String, category: String, title: String, subtitle: String?, body: String) -> String {
+        var alert: [String: Any] = ["title": title, "body": body]
+        if let subtitle { alert["subtitle"] = subtitle }
+        let payload: [String: Any] = ["aps": ["alert": alert, "category": category, "thread-id": thread]]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else { return "{}" }
         return String(decoding: data, as: UTF8.self)
     }
 
     /// Oldest first: Notification Center shows the last one on top.
     static let pushes: [String] = [
-        push("chief", agent: "Chief", workspace: "Home",
-             extra: ["conversationId": "home", "title": "Chief",
-                     "body": "The nightly is green again. Two PRs are ready for you to try."],
-             category: "CMUX_MOBILE_CHIEF"),
-        push("completed", agent: "Codex", workspace: "api-server",
-             extra: ["sessionId": "onboarding-codex", "title": "Finished: fix the failing auth tests",
-                     "body": "2 tests fixed. The diff is ready to review."],
-             category: "CMUX_MOBILE_COMPLETED"),
-        push("permission", agent: "Claude Code", workspace: "cmux",
-             extra: ["sessionId": "onboarding-claude", "permissionId": "onboarding-perm",
-                     "title": "git push origin feat-onboarding",
-                     "options": [["id": "allow-once", "label": "Allow once", "kind": "allow_once"],
-                                 ["id": "allow-always", "label": "Always allow", "kind": "allow_always"],
-                                 ["id": "deny", "label": "Deny", "kind": "reject_once"]]],
-             category: "CMUX_MOBILE_PERMISSION"),
+        push(thread: "onboarding-chief", category: "CMUX_MOBILE_CHIEF", title: "Chief", subtitle: nil,
+             body: "The nightly is green again. Two PRs are ready for you to try."),
+        push(thread: "onboarding-codex", category: "CMUX_MOBILE_COMPLETED", title: "Codex finished",
+             subtitle: "api-server · Aziz's MacBook Pro", body: "Fixed the 2 failing auth tests. The diff is ready to review."),
+        push(thread: "onboarding-claude", category: "CMUX_MOBILE_PERMISSION", title: "Claude Code wants to act on Aziz's MacBook Pro",
+             subtitle: "cmux", body: "git push origin feat-onboarding"),
     ]
 
-    @MainActor func testRealPushesDark() { capture(.dark) }
-    @MainActor func testRealPushesLight() { capture(.light) }
-
-    @MainActor
-    private func capture(_ appearance: XCUIDevice.Appearance) {
-        let look = appearance == .dark ? "dark" : "light"
+    /// One run posts the three pushes once, then captures Notification Center in
+    /// dark and in light, so neither appearance shows the other's copies.
+    @MainActor func testRealPushes() {
         XCUIDevice.shared.orientation = .portrait
-        XCUIDevice.shared.appearance = appearance
+        XCUIDevice.shared.appearance = .dark
         sleep(2)
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let app = XCUIApplication()
@@ -69,36 +55,28 @@ final class OnboardingPushShotUITests: XCTestCase {
             XCUIDevice.shared.press(.home)
             sleep(1)
             app.terminate()
-            sleep(1)
-        }
-        XCUIDevice.shared.press(.home)
-        sleep(1)
-        // Notification Center from the top edge; a stack of cmux notices is expanded.
-        springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.005))
-            .press(forDuration: 0.1, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.6)))
-        sleep(2)
-        attach("push~~center-collapsed~~\(look)")
-        let platter = springboard.descendants(matching: .any).matching(identifier: "NotificationShortLookView")
-            .matching(NSPredicate(format: "label CONTAINS[c] %@", "Claude Code")).firstMatch
-        if platter.waitForExistence(timeout: 6) {
-            platter.tap()   // a collapsed stack opens; an open list ignores a tap on the top platter's header
             sleep(2)
         }
-        attach("push~~center~~\(look)")
-        note(springboard, "center-\(look)")
-        // The permission's long look: Allow once, Always allow, Deny.
-        let top = springboard.descendants(matching: .any).matching(identifier: "NotificationShortLookView")
-            .matching(NSPredicate(format: "label CONTAINS[c] %@", "Claude Code")).firstMatch
-        if top.waitForExistence(timeout: 6) {
-            top.press(forDuration: 1.2)
-            sleep(3)
-            attach("push~~long-look~~\(look)")
-            note(springboard, "long-look-\(look)")
-        } else {
-            XCTFail("no Claude Code notification in Notification Center\n\(springboard.debugDescription)")
+        for appearance in [XCUIDevice.Appearance.dark, .light] {
+            let look = appearance == .dark ? "dark" : "light"
+            XCUIDevice.shared.appearance = appearance
+            XCUIDevice.shared.press(.home)
+            sleep(2)
+            // Notification Center from the top edge.
+            springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.005))
+                .press(forDuration: 0.1, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.6)))
+            sleep(2)
+            attach("push~~center~~\(look)")
+            note(springboard, "center-\(look)")
+            let claude = springboard.descendants(matching: .any).matching(identifier: "NotificationShortLookView")
+                .matching(NSPredicate(format: "label CONTAINS[c] %@", "Claude Code")).firstMatch
+            XCTAssertTrue(claude.waitForExistence(timeout: 6), "the permission notification is in Notification Center\n\(springboard.debugDescription)")
+            let finished = springboard.descendants(matching: .any).matching(identifier: "NotificationShortLookView")
+                .matching(NSPredicate(format: "label CONTAINS[c] %@", "Codex finished")).firstMatch
+            XCTAssertTrue(finished.exists, "the finished-task notification is in Notification Center")
+            XCUIDevice.shared.press(.home)
+            sleep(2)
         }
-        XCUIDevice.shared.press(.home)
-        sleep(1)
     }
 
     @MainActor

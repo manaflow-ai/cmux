@@ -742,15 +742,15 @@ private struct PairMacCTAStyle: ButtonStyle {
 }
 
 /// Notification priming before the system prompt. Planned only for builds
-/// that can receive pushes, while the system has not asked yet. Three versions
-/// (`NotificationsPrimer`); DEBUG builds switch between them on the page.
+/// that can receive pushes, while the system has not asked yet. `real` ships;
+/// DEBUG builds switch between the versions (`NotificationsPrimer`) on the page.
 private struct NotificationsStep: View {
     let next: () -> Void
     #if DEBUG
-    @AppStorage("cmuxMobile.debug.notificationsPrimer") private var stored = NotificationsPrimer.list.rawValue
-    private var primer: NotificationsPrimer { NotificationsPrimer(rawValue: stored) ?? .list }
+    @AppStorage("cmuxMobile.debug.notificationsPrimer2") private var stored = NotificationsPrimer.real.rawValue
+    private var primer: NotificationsPrimer { NotificationsPrimer(rawValue: stored) ?? .real }
     #else
-    private let primer = NotificationsPrimer.list
+    private let primer = NotificationsPrimer.real
     #endif
 
     var body: some View {
@@ -773,6 +773,17 @@ private struct NotificationsStep: View {
 
     @ViewBuilder private var page: some View {
         switch primer {
+        case .real:
+            SetupPage(title: "See what needs you, as it happens") {
+                RealNotificationsShot()
+            } content: {
+                Text("A request to approve, a finished task, a word from Chief. Press and hold one to answer it without opening cmux.")
+                    .font(theme.type.rowSubtitle)
+                    .foregroundStyle(theme.colors.label2)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 340)
+            } actions: { actions }
         case .list:
             SetupPage(symbol: "bell.badge", title: "Know when an agent needs you") {
                 VStack(alignment: .leading, spacing: 4) {

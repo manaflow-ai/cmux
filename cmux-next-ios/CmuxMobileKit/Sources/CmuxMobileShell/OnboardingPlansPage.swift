@@ -76,7 +76,8 @@ struct OnboardingPlansPage: View {
             if account.setupSkipsPlans, !billing.purchase.isPurchasing { leave() }
         }
         .onChange(of: tiers, initial: true) { _, tiers in
-            if tier.map(tiers.contains) != true { tier = tiers.contains(.pro) ? .pro : tiers.first }
+            if let tier, tiers.contains(tier) { return }
+            tier = tiers.contains(.pro) ? .pro : tiers.first
         }
     }
 

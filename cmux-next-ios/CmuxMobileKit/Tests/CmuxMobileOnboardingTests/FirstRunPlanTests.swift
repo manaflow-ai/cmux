@@ -31,7 +31,8 @@ import Testing
         #expect(NotificationsPrimer.choice(in: ["app", "-cmux-mobile-notifications-primer", "actions"]) == .actions)
         #expect(NotificationsPrimer.choice(in: ["app", "-cmux-mobile-notifications-primer", "nope"]) == nil)
         #expect(NotificationsPrimer.choice(in: ["app", "-cmux-mobile-notifications-primer"]) == nil)
-        #expect(NotificationsPrimer.allCases.count == 3)
+        #expect(NotificationsPrimer.allCases.count == 4)
+        #expect(NotificationsPrimer.choice(in: ["app", "-cmux-mobile-notifications-primer", "real"]) == .real)
     }
 
     @Test func nothingToAskMeansNoSetup() {
