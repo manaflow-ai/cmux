@@ -31,6 +31,15 @@ export interface SetupState {
   tools?: { agents: readonly string[]; choice: "ask" | "on" | "off"; applying: boolean } | null;
   /** Classic's saved session, when one was found and not answered yet; null: none (the row does not show). */
   classic: { workspaces: number; saved: string; answered?: "imported" | "declined" } | null;
+  /** The card's Chief form (first-run findings rows 1 and 4): shown in Chief's chat because the agent Chief
+   * answers through (Claude Code) is missing or signed out. Only the agents row, under a title that says why. */
+  forChief?: boolean;
+}
+
+/** The card's title: what Chief needs in its Chief form, else Set Up cmux. */
+export function setupTitle(state: SetupState, { t, format }: Strings): string {
+  const agent = state.forChief ? state.agents[0] : undefined;
+  return agent ? format("home.setup.chiefNeeds", agent.name) : t("home.setup.title");
 }
 
 export type SetupStepID = "agents" | "tools" | "history" | "account" | "cli" | "classic";
@@ -143,6 +152,8 @@ export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
         }
       : other !== undefined && { secondary: { ...agentAction(other, strings), ...(waits && { disabled: true }) } }),
   });
+  // Chief's form: the agents row is the whole card.
+  if (state.forChief) return steps;
   if (state.tools) {
     const { agents, choice, applying } = state.tools;
     const done = choice !== "ask" && !applying;

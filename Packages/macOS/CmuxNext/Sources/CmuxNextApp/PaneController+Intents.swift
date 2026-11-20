@@ -442,17 +442,25 @@ extension PaneController {
         }
     }
 
-    /// The right-clicked tab's own first rows: Toggle Terminal and Chat on half of a terminal and chat pair (the
-    /// pane toolbar's toggle is gone, user 2026-11-13), and on the selected tab the shown content's own rows (the
+    /// The right-clicked tab's own first rows: Switch to Chat or Switch to Terminal on half of a terminal and chat pair
+    /// (the pane toolbar's toggle is gone, user 2026-11-13), and on the selected tab the shown content's own rows (the
     /// docked Home's Chief Actions), which the pane's "…" listed first.
     private func prependOwnRows(to menu: NSMenu, tab id: String, model: TabModel?) {
-        let pair = model.map { TerminalChatHandler.offersToggle(on: $0, services: services) } ?? false
-        let toggle = pair ? Self.terminalChatRows(tab: id, registry: services.registry, machineID: daemon.machineID) : []
+        let toggle = model.map { terminalChatSwitchRows(tab: id, model: $0) } ?? []
         let content = stripModel.selectedID?.rawValue == id ? view.toolbar?.contentRows() ?? [] : []
         Self.prepend(toggle + content, to: menu)
     }
 
-    /// Toggle Terminal and Chat's row for tab `id`, running the action on that tab as its key does on the focused one.
+    /// Switch to Chat or Switch to Terminal for tab `id` (`model`) on half of a terminal and chat pair, else none:
+    /// the tab's right-click and the pane's ⋮ lead with it (user 2026-11-20: the switch back "inside the 3 dots
+    /// thing"). One walk of the machines' agents per menu, as the key's own.
+    func terminalChatSwitchRows(tab id: String, model: TabModel) -> [NSMenuItem] {
+        guard TerminalChatHandler.offersToggle(on: model, services: services) else { return [] }
+        return Self.terminalChatRows(tab: id, registry: services.registry, machineID: daemon.machineID)
+    }
+
+    /// Toggle Terminal and Chat's row for tab `id`, running the action on that tab as its key does on the focused one;
+    /// titled by the way it goes (the action's target title: Switch to Chat, Switch to Terminal).
     static func terminalChatRows(tab id: String, registry: ActionRegistry, machineID: String?) -> [NSMenuItem] {
         let menu = registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: id), entries: [.action(terminalChatToggle)],
                                             machineID: machineID)
