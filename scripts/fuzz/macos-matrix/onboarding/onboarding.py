@@ -214,7 +214,7 @@ def read_app_from_dmg() -> None:
     """The app's name and bundle id, read from the DMG in the guest (attached hidden, read, detached)
     before the person opens it. Keeps the module's defaults when it cannot be read."""
     global APP, BUNDLE_ID
-    res = guest(f'd=$(mktemp -d /tmp/onb-dmg.XXXXXX) && hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$d" '
+    res = guest(f'd=$(mktemp -d /tmp/onb-dmg.XXXXXX) && hdiutil attach -nobrowse -readonly -noautoopen -noautofsck -mountpoint "$d" '
                 f'{shlex.quote(GUEST_DMG)} >/dev/null && a=$(ls -d "$d"/*.app | head -1) && basename "$a" .app && '
                 f'/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$a/Contents/Info.plist"; '
                 f'hdiutil detach "$d" >/dev/null 2>&1; rmdir "$d" 2>/dev/null; true', timeout=180)
