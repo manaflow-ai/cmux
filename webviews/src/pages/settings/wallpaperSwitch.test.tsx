@@ -53,6 +53,11 @@ const mode = (title: string) =>
     (input) => input.getAttribute("aria-label") === title,
   )!;
 const value = (key: string) => page!.store.getSnapshot().rows.get(key)?.value ?? null;
+// The settings file as it stands: every row a write customized, which is all a fresh load reads.
+const storedSettings = () =>
+  Object.fromEntries(
+    [...page!.store.getSnapshot().rows].filter(([, row]) => row.customized).map(([key, row]) => [key, row.stored]),
+  );
 const sets = () => ops(page!.provider, "cmux.settings.set") as Array<{ key: string; value: unknown }>;
 
 describe("the model", () => {
@@ -154,6 +159,34 @@ describe("switching modes never loses a mode's folder or picture", () => {
     page!.unmount();
     page = null;
     await card({ "appearance.background": "daily", "appearance.backgroundLight": HARBOR });
+    await click(mode("Off"));
+    expect(value("appearance.background")).toBe("none");
+  });
+
+  // A new Settings web view, or cmux after a restart, starts with nothing but the stored settings:
+  // the page's own memory and its web view's storage are empty. What the modes showed must come
+  // back from the settings file.
+  test("the folder comes back after a fresh load that keeps only the stored settings", async () => {
+    await card({ "appearance.background": ART });
+    await click(mode("Light & Dark"));
+    const stored = storedSettings();
+    page!.unmount();
+    page = null;
+    forgetWallpaperMemory();
+    const backdrop = await card(stored);
+    expect(backdrop.querySelector('.backdrop-grid [aria-label="Shuffling Art"]')).not.toBeNull();
+    await click(mode("Rotate"));
+    expect(value("appearance.background")).toBe(ART);
+  });
+
+  test("Off's picture comes back after a fresh load that keeps only the stored settings", async () => {
+    await card({ "appearance.background": "none", "appearance.backgroundLight": HARBOR });
+    await click(mode("Rotate"));
+    const stored = storedSettings();
+    page!.unmount();
+    page = null;
+    forgetWallpaperMemory();
+    await card(stored);
     await click(mode("Off"));
     expect(value("appearance.background")).toBe("none");
   });
