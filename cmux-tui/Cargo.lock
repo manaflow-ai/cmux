@@ -2552,6 +2552,7 @@ dependencies = [
  "cmux-unix-socket",
  "cmux-usage-patterns",
  "cmux-vm",
+ "cmux-vm-pool",
  "cmux-vnc",
  "cmux-wg",
  "core-foundation 0.10.1",
@@ -2897,6 +2898,18 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-vm-pool"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "reqwest",
+ "rustls",
+ "serde_json",
+ "tokio",
+ "url",
 ]
 
 [[package]]
