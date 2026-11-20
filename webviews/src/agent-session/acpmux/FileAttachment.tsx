@@ -21,10 +21,14 @@ export function FileAttachment({
   file,
   remove,
   note,
+  statusIcon,
+  failure,
 }: {
   file: FileAttachmentInfo;
   remove?: ReactNode;
   note?: string;
+  statusIcon?: ReactNode;
+  failure?: string;
 }) {
   const language = usePaneLanguage();
   const folder = file.name.endsWith("/");
@@ -43,9 +47,11 @@ export function FileAttachment({
       className={`acpmux-file-chip${remove ? " acpmux-file-chip--removable" : ""}`}
       data-file-type={folder ? "folder" : type}
       /* tooltip-allow: the filename may be middle-truncated; the full path is secondary detail */
-      title={withSourceLabel(file.path ?? file.name, from)}
+      title={failure ?? withSourceLabel(file.path ?? file.name, from)}
     >
-      {folder ? (
+      {statusIcon ? (
+        <span className="acpmux-file-chip__status">{statusIcon}</span>
+      ) : folder ? (
         <Folder size={16} />
       ) : key || archive ? (
         <svg
