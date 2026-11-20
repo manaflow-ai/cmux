@@ -248,3 +248,9 @@ success-output = "final"
 [[profile.ci.overrides]]
 filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::disk_usage_read_cost::/)'
 success-output = "final"
+
+# Scratch control only, never merged: tests/executable_marks.rs prints its `executable marks`
+# lines; a fleet step shows them only when a passing test's output is kept.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui::executable_marks)'
+success-output = "final"
