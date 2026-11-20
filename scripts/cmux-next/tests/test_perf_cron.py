@@ -2304,7 +2304,8 @@ class RateLimitTests(unittest.TestCase):
         source = open(os.path.join(HERE, "..", "perf-cron.py")).read()
         known = set(re.findall(r'add_parser\("([a-z-]+)"', source))
         workflow = open(os.path.join(root, ".github", "workflows", "cmux-next-perf-budgets.yml")).read()
-        called = re.findall(r"python3 -I scripts/cmux-next/perf-cron\.py (\S+)", workflow)
+        # Interpreter flags may sit between (the plan runs `python3 -I -u -X faulthandler`).
+        called = re.findall(r"python3 -I(?: -[A-Za-z](?: \w+)?)* scripts/cmux-next/perf-cron\.py (\S+)", workflow)
         self.assertIn("plan", called)
         self.assertEqual([c for c in called if c not in known], [])
 
