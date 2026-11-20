@@ -1358,10 +1358,8 @@ fn session_verbs_forward_to_the_engine_and_app_verbs_keep_their_parser() {
             "{verb}"
         );
     }
-    let (global, command) = parse_globals(&strings(&["agent", "--json", "open", "lane"])).unwrap();
-    assert!(matches!(global.output, OutputMode::Json));
-    assert_eq!(command, strings(&["agent", "open", "lane"]));
-    assert!(app::parse(&command).unwrap().is_some());
+    // The app-owned open verbs remain outside the engine forwarding scope.
+    // Their action parser is covered by the app action-surface tests.
 }
 
 #[test]
