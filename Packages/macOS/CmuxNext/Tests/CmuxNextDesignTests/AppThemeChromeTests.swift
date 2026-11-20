@@ -93,7 +93,7 @@ import Testing
     }
 
     @Test func anOverrideUpdatesEvenWhenTheRootAlreadyMeetsTheFloor() throws {
-        let store = ThemeStore(input: ThemeInput(background: .black, foreground: .white))
+        let store = ThemeStore(input: ThemeInput(background: .white, foreground: .black, backgroundOpacity: 0.1))
         let app = ThemeScope(root: store)
         let room = ThemeScope(level: .room, parent: app)
         room.setOverride(try #require(ThemeSpec("Dracula")), input: lowContrast, animated: false)
