@@ -197,7 +197,8 @@ fn main() -> std::process::ExitCode {
             }
         }
         Some(
-            tool @ ("zoom" | "date" | "recall" | "memory_read" | "memory_write" | "memory_forget"
+            tool @ ("zoom" | "date" | "recall" | "follow_up" | "follow_ups" | "check_ins"
+            | "nothing" | "ask" | "memory_read" | "memory_write" | "memory_forget"
             | "spawn" | "tell" | "peers" | "react" | "reply" | "send" | "stop" | "sleep"
             | "watch" | "remember" | "transcript" | "control" | "profile" | "chiefs"
             | "escalate-auth" | "escalate_auth" | "cloud-workspace" | "cloud_workspace"),
