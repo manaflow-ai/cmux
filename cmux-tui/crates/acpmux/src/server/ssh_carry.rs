@@ -20,7 +20,6 @@
 //! never by the mesh relay, whose message has its own id). Each carry is one info line in the
 //! daemon log: its host, session, delivery and outcome.
 
-use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -192,21 +191,23 @@ pub(super) async fn carry(hub: &Arc<Hub>, delivery: &Delivery) -> Option<Carry> 
 
 /// The ssh login itself, bounded by [`CARRY_DEADLINE`], and what it did.
 fn run(argv: Vec<String>, text: Vec<u8>) -> Carry {
-    let mut cmd = Command::new("ssh");
-    cmd.args(argv).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    #[cfg(unix)]
-    std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
-    let child = match cmd.spawn() {
-        Ok(child) => child,
-        Err(e) => return Carry::NotTaken(format!("ssh did not start: {e}")),
-    };
-    let deadline = tokio::time::Instant::now() + CARRY_DEADLINE;
-    match crate::bounded_child::wait(child, Some(text), Some(deadline), "the ssh carry") {
+    let mut cmd = cmux_process::Command::new("ssh");
+    cmd.args(argv);
+    match crate::bounded_child::owned(&mut cmd, Some(text), CARRY_DEADLINE, "the ssh carry") {
         Ok(done) => outcome(
             done.status.code(),
             &String::from_utf8_lossy(&done.stdout),
             &String::from_utf8_lossy(&done.stderr),
         ),
+        // ssh never started: nothing went anywhere.
+        Err(e)
+            if matches!(
+                e.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied
+            ) =>
+        {
+            Carry::NotTaken(format!("ssh did not start: {e}"))
+        }
         Err(e) => Carry::Maybe(e.to_string()),
     }
 }

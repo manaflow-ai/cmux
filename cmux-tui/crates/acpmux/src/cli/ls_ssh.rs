@@ -11,7 +11,6 @@
 //! acpmux's fixed text. The far `acpmux` may be off a non-login PATH: `$HOME/.local/bin/acpmux`
 //! is tried first, then `acpmux`.
 
-use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -87,12 +86,10 @@ pub(crate) async fn rows(peers: &[Value], quiet: bool) -> (Vec<String>, Vec<Valu
 /// One peer's listing over ssh, by `deadline`.
 fn read(destination: &str, deadline: Instant) -> Result<Vec<Value>, String> {
     let argv = crate::cli::hosts::ssh_argv(destination, SCRIPT).map_err(|e| e.to_string())?;
-    let mut cmd = Command::new("ssh");
-    cmd.args(argv).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    #[cfg(unix)]
-    std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
-    let child = cmd.spawn().map_err(|e| format!("ssh did not start: {e}"))?;
-    let done = crate::bounded_child::wait(child, None, Some(deadline), "the ssh listing")
+    let mut cmd = cmux_process::Command::new("ssh");
+    cmd.args(argv);
+    let limit = deadline.saturating_duration_since(Instant::now());
+    let done = crate::bounded_child::owned(&mut cmd, None, limit, "the ssh listing")
         .map_err(|e| e.to_string())?;
     if !done.status.success() {
         let stderr = String::from_utf8_lossy(&done.stderr);
