@@ -191,7 +191,7 @@ fn store_for(app: Option<&Path>) -> Option<Store> {
 enum Live {
     Missing,
     Refused(String),
-    Found(LivePayload),
+    Found(Box<LivePayload>),
 }
 
 /// The path a try takes.
@@ -405,7 +405,7 @@ fn read_live(commit: &str, base: &str) -> Live {
         Err(error) => Live::Refused(error),
         Ok(Some(body)) => {
             match live::verify(&body, &cmux_host::updater::channel::trusted_keys(), commit) {
-                Ok(payload) => Live::Found(payload),
+                Ok(payload) => Live::Found(Box::new(payload)),
                 Err(error) => Live::Refused(error),
             }
         }

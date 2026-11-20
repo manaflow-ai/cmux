@@ -109,9 +109,9 @@ fn good_targets() -> Value {
 }
 
 fn found(targets: Value) -> Live {
-    Live::Found(
+    Live::Found(Box::new(
         live::verify(&envelope(&payload(live::PURPOSE, COMMIT, targets)), &keys(), COMMIT).unwrap(),
-    )
+    ))
 }
 
 /// `server status` of an app's daemon: it runs `exe`; SIGTERM makes the app start the next
@@ -767,7 +767,7 @@ fn payload_with_helper(helper: Value) -> Value {
 }
 
 fn found_value(value: &Value) -> Live {
-    Live::Found(live::verify(&envelope(value), &keys(), COMMIT).unwrap())
+    Live::Found(Box::new(live::verify(&envelope(value), &keys(), COMMIT).unwrap()))
 }
 
 /// The real tools stood in for: the zip unpacks to `from`; the installed helper's requirement
