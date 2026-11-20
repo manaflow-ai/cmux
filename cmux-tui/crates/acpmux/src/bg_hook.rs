@@ -189,6 +189,12 @@ pub fn slow_reason(command: &str) -> Option<&'static str> {
             {
                 continue;
             }
+            // `tail -f --pid=N` ends with process N: a bounded wait, not a follow that never
+            // ends. 418 of the 479 tail refusals on one lane host in 24 h (2026-11-20) were this
+            // form, and 463 of the 479 were sent again unchanged (from #47746).
+            if program == "tail" && rest.iter().any(|w| w.starts_with("--pid")) {
+                continue;
+            }
             if !rest.iter().any(|w| QUICK.contains(w)) {
                 found = Some(*why);
                 return;
@@ -721,6 +727,13 @@ mod tests {
         assert!(out.status.success(), "{out:?}");
         let text = String::from_utf8(out.stdout).unwrap();
         text.strip_suffix('\n').unwrap().split('\n').map(str::to_owned).collect()
+    }
+
+    #[test]
+    fn a_tail_bounded_by_a_process_is_not_a_follow_that_never_ends() {
+        assert_eq!(slow_reason("tail -f --pid=1234 /dev/null"), None);
+        assert_eq!(slow_reason("timeout 200 tail -f --pid 99 log"), None);
+        assert!(slow_reason("tail -f log").is_some());
     }
 
     /// The top refusal of every guard on one agent host (245 in 24 h): a background shell

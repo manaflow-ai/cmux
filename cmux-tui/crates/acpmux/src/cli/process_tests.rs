@@ -381,9 +381,14 @@ fn process_start_forgets_the_hooks_key_only_once_started() {
     let denied = dir.path().join("mcp.json.bg-denied");
     std::fs::write(&denied, "k1\nk2\n").unwrap();
     let hook = || Some((denied.clone(), "k1".to_owned()));
-    let err = finish_start(&start(None), Err(anyhow!("no daemon")), hook(), true).unwrap_err();
+    let failed = |sent| Err(StartFailed { sent, error: anyhow!("no daemon") });
+    let err = finish_start(&start(None), failed(false), hook(), true).unwrap_err();
     assert!(err.to_string().contains("Send the same Bash call again"), "{err}");
     assert_eq!(std::fs::read_to_string(&denied).unwrap(), "k1\nk2\n");
+    // Sent but unanswered: the task may run, so never "send it again and it runs".
+    let err = finish_start(&start(None), failed(true), hook(), true).unwrap_err();
+    assert!(err.to_string().contains("look in bg_list"), "{err}");
+    assert!(!err.to_string().contains("Send the same Bash call again"), "{err}");
     finish_start(&start(None), Ok(json!({"id": "t7", "state": "running"})), hook(), true).unwrap();
     assert_eq!(std::fs::read_to_string(&denied).unwrap(), "k2\n");
 }

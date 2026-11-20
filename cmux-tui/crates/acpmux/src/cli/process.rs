@@ -796,33 +796,52 @@ fn start_params(start: &Start, env: Env<'_>, here: Option<std::path::PathBuf>) -
 
 /// Starts the task on the daemon that issued the chat's caller token, which owns the chat's
 /// tasks (else this home's daemon), and answers its view.
-async fn start_task(start: &Start, env: Env<'_>) -> Result<Value> {
-    let params = start_params(start, env, std::env::current_dir().ok())?;
+async fn start_task(start: &Start, env: Env<'_>) -> Result<Value, StartFailed> {
+    let unsent = |e: anyhow::Error| StartFailed { sent: false, error: e };
+    let params = start_params(start, env, std::env::current_dir().ok()).map_err(unsent)?;
     let client = match env(crate::person_tokens::CALLER_SOCKET_ENV) {
-        Some(socket) => Client::connect(std::path::Path::new(&socket)).await?,
-        None => crate::daemon::connect(false).await?,
+        Some(socket) => Client::connect(std::path::Path::new(&socket)).await.map_err(unsent)?,
+        None => crate::daemon::connect(false).await.map_err(unsent)?,
     };
-    client.request(method::MUX_BG_START, params).await
+    client
+        .request(method::MUX_BG_START, params)
+        .await
+        .map_err(|e| StartFailed { sent: true, error: e })
+}
+
+/// Why `process start` has no task: `sent` once the request reached the daemon, which may have
+/// started the task although its answer was lost, so the same call again could run it twice.
+struct StartFailed {
+    sent: bool,
+    error: anyhow::Error,
 }
 
 /// Prints what started, or fails with why not. A task that started takes the hook's key out of
 /// the chat's denied calls (`bg_hook::forget`), so the same call later is rewritten again; one
-/// that did not leaves it, so the same call again runs as asked.
+/// that did not leaves it, so the same call again runs as asked. A start whose request was sent
+/// but not answered says to look in `bg_list` first: the task may be running already (from
+/// #47746's review: a lost reply must never run a command twice).
 fn finish_start(
     start: &Start,
-    outcome: Result<Value>,
+    outcome: Result<Value, StartFailed>,
     hook: Option<(std::path::PathBuf, String)>,
     json_out: bool,
 ) -> Result<()> {
     let view = match outcome {
         Ok(view) => view,
-        Err(e) => {
+        Err(StartFailed { sent: true, error }) => {
+            return Err(anyhow!(
+                "the background task's start was sent but not answered: {error:#}. It may be \
+running already: look in bg_list (or `acpmux process list`) before sending this call again."
+            ));
+        }
+        Err(StartFailed { sent: false, error }) => {
             let again = if hook.is_some() {
                 " Send the same Bash call again and it runs as asked."
             } else {
                 ""
             };
-            return Err(anyhow!("not started as a background task: {e:#}.{again}"));
+            return Err(anyhow!("not started as a background task: {error:#}.{again}"));
         }
     };
     if let Some((denied, key)) = &hook {
