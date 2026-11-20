@@ -228,11 +228,13 @@ pub(crate) fn prompt_attribution_mark(
 }
 mod prompt_sender;
 mod protected_hold;
+// The account's rate limit holds every turn of a chat until its reset.
 mod queue;
 mod queue_admission;
 mod queue_edit;
+pub(crate) mod rate_hold;
 pub(crate) mod reply_fit;
-pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
+pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender, on_peer_host};
 pub(crate) use queue::approved_prompts_error;
 pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_key};
 mod credentials;
@@ -569,7 +571,12 @@ fn message_key(id: &str, target: Option<&str>, peer: Option<&str>) -> String {
 #[derive(Debug, Clone)]
 pub struct RemoteRef {
     pub peer: String,
-    pub summary: Value,
+    /// The peer's row, packed (`peer_row.rs`), sharing its text with the table's row. The hub's
+    /// event ring holds up to 8,192 events, and an outage of a peer announces every row of it:
+    /// as a parsed `Value` each held a tree several times the row's text, and a host with ~100
+    /// sessions and peers that came and went grew about 55 MB a minute. A connection parses it
+    /// as it sends it, and frees it then.
+    pub summary: PeerRow,
 }
 
 impl RemoteRef {
@@ -2002,6 +2009,8 @@ impl Hub {
             auto_resume_restored: AtomicBool::new(false),
             protected_hold: AtomicBool::new(false),
             auto_resume: Default::default(),
+            rate_hold: Default::default(),
+            rate_note: Default::default(),
             turn_lock: Mutex::new(()),
             releasing: AtomicBool::new(false),
             turn_claimed: AtomicBool::new(false),

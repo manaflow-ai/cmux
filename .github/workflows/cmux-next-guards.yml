@@ -5,8 +5,10 @@ name: cmux-next guards
 # tests there: tests/test_nightly_cmux_tui_resolve.py stayed red on the branch
 # unseen. nightly-next ships from feat-cmux-next, so run the release-notary
 # group (nightly, notarization, nightly-next guard and publication tests) for
-# its pull requests and pushes. There is no workflow path filter, so a base red
-# shows on the push that caused it.
+# its pull requests and pushes. Pushes have no path filter, so a base red shows
+# on the push that caused it; pull requests carry only the docs-only block
+# (scripts/ci/docs_only_paths.py): a pull request of prose nothing reads starts
+# no run (none of these jobs is a required check; tests/test_ci_docs_only_prs.py).
 #
 # A push runs the group in its release-notary job, judged at its tip, so a base red
 # still fails the push that caused it, and in the CI guard group, so the merge
@@ -26,6 +28,56 @@ name: cmux-next guards
 on:
   pull_request:
     branches: [feat-cmux-next]
+    # docs-only paths: BEGIN (scripts/ci/docs_only_paths.py --sync writes this block; edit DOCS_ONLY_PATHS there)
+    paths:
+      - "**"
+      - "!**/*.md"
+      - "!docs/**/*.png"
+      - "!docs/**/*.jpg"
+      - "!docs/**/*.gif"
+      - "!docs/**/*.webp"
+      - "!plans/**/*.png"
+      - "!plans/**/*.jpg"
+      - "!plans/**/*.gif"
+      - "!plans/**/*.webp"
+      - "**/AGENTS.md"
+      - "**/CLAUDE.md"
+      - "**/SKILL.md"
+      - ".github/**"
+      - "**/skills/**"
+      - "**/references/**"
+      - "**/templates/**"
+      - "**/Resources/**"
+      - "**/fixtures/**"
+      - "**/testdata/**"
+      - "**/test/**"
+      - "**/tests/**"
+      - "CHANGELOG.md"
+      - "THIRD_PARTY_LICENSES.md"
+      - "release-notes/**"
+      - "docs/agent-hooks.md"
+      - "docs/chief-setup-prompts.md"
+      - "docs/configuration.md"
+      - "docs/ci/node-product-cache-maintenance.md"
+      - "plans/cmux-next/actions.md"
+      - "docs/mdm/managed-preferences.md"
+      - "docs/ci/health-report.md"
+      - "docs/privacy.md"
+      - "**/notices/**"
+      - "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md"
+      - "cmux-tui/README.md"
+      - "docs/remote-agents-and-cloud.md"
+      - "docs/cmux-next/customize-recipes.md"
+      - "cmux-tui/crates/acpmux/README.md"
+      - "cmux-tui/crates/acpmux/docs/**"
+      - "cmux-tui/crates/cmux-browser-host/js/guide.md"
+      - "cmux-tui/crates/cmux-extension-sdk/README.md"
+      - "cmux-tui/vendor/terminput-crossterm/README.md"
+      - "mux/packages/brain/conformance/README.md"
+    # docs-only paths: END
+  # docs-only-fallback.yml calls this in a pull request's own context when the docs-only `paths:` above could
+  # have skipped it wrongly (over 300 changed files, or a full-ci/dev-build label): scripts/ci/docs_only_paths.py.
+  workflow_call:
   push:
     branches: [feat-cmux-next]
 
@@ -60,6 +112,30 @@ jobs:
     permissions:
       contents: read
     steps:
+      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
+      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -129,6 +205,30 @@ jobs:
     permissions:
       contents: read
     steps:
+      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
+      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -195,6 +295,30 @@ jobs:
       # only in the attempt that placed it, so a stale reading never sends it to a busy mini.
       placed_attempt: ${{ github.run_attempt }}
     steps:
+      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
+      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Check out the trusted placement
         timeout-minutes: 1
         continue-on-error: true
@@ -278,6 +402,30 @@ jobs:
     permissions:
       contents: read
     steps:
+      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
+      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -376,7 +524,16 @@ jobs:
             echo "::warning::no Python 3.9 on this runner; the nightly prune compatibility step reds on the head and the base alike"
             exit 0
           fi
-          ln -sf "$PYTHON39" "$RUNNER_TEMP/python39/python3.9"
+          # A wrapper, not a symlink: setup-python's 3.9 is a shared-library build that finds libpython3.9.so through
+          # LD_LIBRARY_PATH, which update-environment: false leaves unset (a persistent pool runner: "libpython3.9.so.1.0:
+          # cannot open shared object file", guards run 44762407859).
+          lib="$(cd "$(dirname "$PYTHON39")/../lib" 2>/dev/null && pwd || true)"
+          # shellcheck disable=SC2016 # $LD_LIBRARY_PATH and $@ are the wrapper's own, expanded when it runs
+          printf '#!/bin/sh\nLD_LIBRARY_PATH="%s${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" exec "%s" "$@"\n' "$lib" "$PYTHON39" \
+            > "$RUNNER_TEMP/python39/python3.9"
+          chmod 755 "$RUNNER_TEMP/python39/python3.9"
+          "$RUNNER_TEMP/python39/python3.9" -c 'import sys; assert sys.version_info[:2] == (3, 9)' \
+            || { echo "::warning::$PYTHON39 does not start as Python 3.9"; rm -f "$RUNNER_TEMP/python39/python3.9"; exit 0; }
           echo "$RUNNER_TEMP/python39" >> "$GITHUB_PATH"
 
       # The branch had 24 of the group's 134 steps red before this job ran there (2026-10-21), so the job fails
@@ -414,9 +571,7 @@ jobs:
           head_status=0
           timeout --kill-after=10 "$head_budget" \
             scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --results "$RUNNER_TEMP/guards-head.json" || head_status=$?
-          head_cut=false
           if [ "$head_status" -eq 124 ] || [ "$head_status" -eq 137 ]; then
-            head_cut=true
             echo "::error title=ci guard group head pass cut::the head pass hit its ${head_budget}s bound (exit ${head_status}); its unfinished steps have no head result"
             scripts/ci/guards-local.sh --list --feat-routes "$RUNNER_TEMP/changed-files.txt" 2>/dev/null \
               | sed -n 's/^  - //p; s/  (Linux only; skipped here)$//' | sort -u > "$RUNNER_TEMP/guards-plan.txt" || true
@@ -484,6 +639,30 @@ jobs:
     # 25 and no step's stall can use up another's time. A step that times out fails and the next step still runs.
     timeout-minutes: 25
     steps:
+      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
+      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout
         timeout-minutes: 5
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -568,6 +747,30 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 25
     steps:
+      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
+      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -638,6 +841,30 @@ jobs:
     # busy runner makes the guard slower, never red, and it always ends before the step's limit to print why.
     timeout-minutes: 38
     steps:
+      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
+      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout
         timeout-minutes: 5
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -792,6 +1019,30 @@ jobs:
     outputs:
       hot_only: ${{ steps.route.outputs.hot_only }}
     steps:
+      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
+      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout the merge commit and its base
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -826,6 +1077,30 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' tooling-tests ') && needs.portable-placement.outputs.linux_runner || needs.hot-route.outputs.hot_only != 'true' && needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' tooling-tests ') && needs.portable-placement.outputs.mini_runner || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     steps:
+      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
+      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
