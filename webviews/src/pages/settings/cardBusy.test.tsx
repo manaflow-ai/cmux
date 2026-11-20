@@ -135,6 +135,66 @@ test("a harness's accounts: a routing change in flight disables every gesture co
   expect(rows().flatMap(controls).some(marked)).toBe(false);
 });
 
+test("a harness's accounts: a rename cancelled while a change is in flight brings back a Rename that waits and says so, then gives it back on answer, with no row drawn by the change", async () => {
+  page = await renderPage({ path: "/settings/agents" });
+  await settle();
+  const accounts = [
+    account("codex-login", "ChatGPT", { home: null, builtin: true }),
+    account("codex-2", "ChatGPT 2", { shadowOf: "codex-login" }),
+    account("codex-3", "ChatGPT 3", { signedIn: false }),
+  ];
+  await act(async () => page!.provider.setHarnesses({ ...page!.provider.harnesses, accounts }));
+  await settle();
+  const selector = '[data-card="harnesses"] [data-harness="codex"] [data-account]';
+  const rows = () => [...page!.container.querySelectorAll<HTMLElement>(selector)];
+  const renameOf = (row: number) => rows()[row]!.querySelector<HTMLButtonElement>('[data-account-action="rename"]');
+  const renameForm = () => rows()[1]!.querySelector<HTMLFormElement>("[data-account-rename]");
+  // The second account's rename is open (its Rename unmounted) before the change starts.
+  await click(renameOf(1)!);
+  expect(renameOf(1)).toBeNull();
+
+  const change = held(undefined);
+  page.store.runHarnesses = change.run;
+  const renders = rowRenders();
+  renders.begin(page.container, selector);
+  // Another account's routing switch starts the change.
+  await click(rows()[2]!.querySelector('[role="switch"]')!);
+  expect(renders.end()).toMatchObject({ rerendered: 0, added: 0 });
+  expect(change.calls()).toBe(1);
+
+  // Cancel while it waits: the row's Rename mounts again, into a change it never saw.
+  const cancel = [...renameForm()!.querySelectorAll("button")].find((button) => button.type === "button")!;
+  await click(cancel);
+  expect(renameForm()).toBeNull();
+  const rename = renameOf(1)!;
+  expect(rename).not.toBeNull();
+  expect(disabled(rename)).toBe(true);
+  expect(marked(rename)).toBe(true);
+  // Every gesture control of every row waits and says so, the remounted one included.
+  const waits = () =>
+    rows().flatMap((row) => [
+      ...row.querySelectorAll<HTMLElement>("[data-account-action]"),
+      ...row.querySelectorAll<HTMLElement>('[role="switch"]'),
+    ]);
+  expect(waits().every(disabled)).toBe(true);
+  expect(waits().filter((one) => !marked(one))).toEqual([]);
+  await click(rename);
+  expect(renameForm()).toBeNull();
+  expect(change.calls()).toBe(1);
+
+  // The change answers with the same accounts: no row draws, and the mark comes off the remounted
+  // Rename as off every other control.
+  renders.begin(page.container, selector);
+  await act(async () => change.answer());
+  await settle();
+  expect(renders.end()).toMatchObject({ rerendered: 0, added: 0 });
+  expect(renameOf(1)).toBe(rename);
+  expect(disabled(rename)).toBe(false);
+  expect(marked(rename)).toBe(false);
+  expect(rows().flatMap(controls).some(disabled)).toBe(false);
+  expect(rows().flatMap(controls).some(marked)).toBe(false);
+});
+
 test("Customization Library: a switch's change in flight disables every row control and draws no row, on and off", async () => {
   page = await renderPage({
     path: "/settings/personalization",
