@@ -279,10 +279,27 @@ fn costs(bytes: u64) -> Costs {
         let (anon_before, file_before) = rss_split();
         let (read, wall) = (process_read(), Instant::now());
         let cfg = config();
-        let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, home.path()).unwrap());
+        let store = crate::store::open(&cfg.store, home.path()).unwrap();
+        let store_open_read = (process_read() - read) as f64;
+        let hub = Hub::new(cfg.clone(), store);
         let restart_read = (process_read() - read) as f64;
         let restart_ms = wall.elapsed().as_secs_f64() * 1e3;
         let restart_after_read = settle().await as f64;
+        // A second restart over the same home, once the first one's load settled: whether the
+        // read repeats on every start or only on the first one after the log was written.
+        let second_restart_read = {
+            let read = process_read();
+            let cfg = config();
+            let again = Hub::new(cfg.clone(), crate::store::open(&cfg.store, home.path()).unwrap());
+            let r = (process_read() - read) as f64;
+            drop(again);
+            r
+        };
+        eprintln!(
+            "STRESS god chat split: store open read={store_open_read:.0} B; hub read={:.0} B; \
+             second restart read={second_restart_read:.0} B",
+            restart_read - store_open_read
+        );
         let session =
             hub.sessions().into_iter().find(|s| s.id == GOD).expect("the god chat is listed");
         assert_eq!(session.meta().last_seq, last_seq, "the restart sees the whole log");
