@@ -15,6 +15,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 const PHONE: &str = "192.0.2.100:51820";
 const MAC: &str = "192.0.2.101:51820";
+/// Where the Mac moves to after a network change.
+const MAC_MOVED: &str = "192.0.2.102:51820";
 /// Not the link port: these connections have the 60 s user timeout.
 const PORT: u16 = 7420;
 
@@ -285,6 +287,59 @@ async fn an_idle_connection_survives_the_release() {
     assert!(
         alive(&mut lane, &mut lane_accepted).await,
         "the idle connection ended after the grace"
+    );
+    pair.phone.shutdown().await;
+    pair.mac.shutdown().await;
+}
+
+/// The Mac's network changes while its phone is parked: a wake that may have
+/// changed the network (`refresh`) and a move to a new socket (`rebind`).
+/// Held, neither reasserts the session toward the suspended phone: the
+/// reassertion waits for the release, then goes out from the new socket and
+/// the phone follows it there. The counts are printed for the PR's cost
+/// table (`--nocapture`).
+#[tokio::test(start_paused = true)]
+async fn a_held_tunnel_does_not_reassert_to_its_parked_peer_across_a_rebind() {
+    let mut pair = pair().await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    pair.mac.hold(Some(Duration::from_secs(10 * 60))).await.unwrap();
+    pair.phone.hold(Some(Duration::from_secs(10 * 60))).await.unwrap();
+    pair.sim.set_link(addr(PHONE), addr(MAC), link(true));
+    pair.sim.set_link(addr(PHONE), addr(MAC_MOVED), link(true));
+    let sent = |sim: &SimNet| {
+        let (old, new) = (addr(MAC), addr(MAC_MOVED));
+        (
+            sim.sent_from(old) + sim.sent_from(new),
+            sim.sent_bytes_from(old) + sim.sent_bytes_from(new),
+        )
+    };
+    let before = sent(&pair.sim);
+    tokio::time::sleep(Duration::from_secs(60)).await;
+    pair.mac.refresh().await.unwrap();
+    tokio::time::sleep(Duration::from_secs(60)).await;
+    let moved = SocketPath::new(pair.sim.bind(addr(MAC_MOVED)).unwrap(), Some(addr(PHONE)));
+    pair.mac.rebind(moved).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(3 * 60)).await;
+    let after = sent(&pair.sim);
+    let (held, held_bytes) = (after.0 - before.0, after.1 - before.1);
+    println!(
+        "mac rebind: held 5 min, a refresh and a rebind: {held} datagrams, {held_bytes} bytes"
+    );
+    assert_eq!(held, 0, "a held Mac reasserted to its suspended phone: {held} datagrams");
+
+    // The phone is back, and the Mac is on its new address: the release
+    // reasserts from there, the phone follows, and the connection carries a
+    // round trip.
+    pair.sim.set_link(addr(PHONE), addr(MAC_MOVED), link(false));
+    pair.mac.hold(None).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let released = pair.sim.sent_from(addr(MAC_MOVED));
+    println!("mac rebind: released: {released} datagrams from the new address");
+    assert!(released > 0, "the release did not reassert from the new address");
+    pair.phone.hold(None).await.unwrap();
+    assert!(
+        alive(&mut pair.dialed, &mut pair.accepted).await,
+        "the connection did not follow the Mac to its new address"
     );
     pair.phone.shutdown().await;
     pair.mac.shutdown().await;
