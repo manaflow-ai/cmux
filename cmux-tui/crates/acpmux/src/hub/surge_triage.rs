@@ -187,7 +187,7 @@ impl Hub {
         let harness = session.meta().harness;
         let mut decided: Vec<(Batch, Vec<Decision>)> = Vec::with_capacity(batches.len());
         for batch in batches {
-            let d = self.surge_triage_batch(Some(&harness), &batch, &journal.owners).await;
+            let d = self.surge_triage_batch(Some(harness.as_str()), &batch, &journal.owners).await;
             decided.push((batch, d));
         }
         // The pass's one digest is named by every item it carries, before any is journaled.
