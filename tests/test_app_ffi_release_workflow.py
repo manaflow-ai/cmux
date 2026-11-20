@@ -816,7 +816,7 @@ class RePinPublication(unittest.TestCase):
         release = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["repin"]
         self.assertNotIn("needs", job)
         self.assertEqual(workflow_jobs.resolve(job).environment, {"name": "ffi-release"})
-        self.assertEqual(job["concurrency"], {"group": "app-ffi-repin", "cancel-in-progress": False})
+        self.assertEqual(job["concurrency"], {"group": "app-ffi-repin-v2", "cancel-in-progress": False})
         self.assertEqual(job["permissions"], {"actions": "write", "contents": "read", "checks": "read", "statuses": "read"})
         self.assertEqual(release["permissions"], job["permissions"])
         self.assertEqual(pin_step(job)["env"]["READ_TOKEN"], "${{ github.token }}")
@@ -1331,7 +1331,7 @@ class BuildSpeedAndSupersede(unittest.TestCase):
         self.assertEqual(publish["group"], "app-ffi-release-publish-${{ github.sha }}")
         self.assertIs(publish["cancel-in-progress"], False)
         repin = self.jobs["repin"]["concurrency"]
-        self.assertEqual(repin["group"], "app-ffi-repin")
+        self.assertEqual(repin["group"], "app-ffi-repin-v2")
         self.assertIs(repin["cancel-in-progress"], False)
 
     def test_the_re_pin_hold_ends_inside_the_pin_grace(self):

@@ -1,0 +1,86 @@
+{
+  "//": [
+    "The pull-request jobs scripts/ci/affected_jobs.py routes by the cmux-tui crate graph: a job runs when the change",
+    "touches an input of one of its crates (the crate, every crate it reaches by path dependency with the features",
+    "its build turns on, the files their sources name outside them) or one of its own inputs (a path; one ending in",
+    "/ is a directory). A workflow's `inputs` are inputs of each of its jobs. `features` are the job's --features;",
+    "a `compile_only` job runs no test, so the fixtures its crates' tests read at run time are not its inputs.",
+    "A change to this file or the router runs every job; so do pushes, dispatches and the full-ci label."
+  ],
+  "workspace_inputs": [
+    "cmux-tui/Cargo.toml",
+    "cmux-tui/Cargo.lock",
+    "cmux-tui/rust-toolchain.toml",
+    "cmux-tui/rust-toolchain",
+    "cmux-tui/.cargo/",
+    "cmux-tui/clippy.toml",
+    "cmux-tui/rustfmt.toml",
+    ".github/actions/setup-cmux-tui-rust/",
+    ".github/actions/runner-cargo-home/"
+  ],
+  "workflows": {
+    ".github/workflows/cmux-tui-spec.yml": {
+      "inputs": [".github/workflows/cmux-tui-spec.yml"],
+      "jobs": {
+        "acpmux-tests": {
+          "name": "acpmux tests (lib, hub_integration)",
+          "crates": [
+            "cmux-tui/crates/acpmux", "cmux-tui/crates/acpmux-book", "cmux-tui/crates/acpmux-build-id",
+            "cmux-tui/crates/acpmux-client", "cmux-tui/crates/acpmux-core", "cmux-tui/crates/acpmux-list-types"
+          ],
+          "inputs": [
+            "scripts/cmux-next/run-v2-gates.sh", "scripts/cmux-next/v2-gates.d/",
+            "scripts/ci/cargo_test_verdict.py", "scripts/ci/git_tree.py", "scripts/ci/test_reds.py",
+            "tests/test_cargo_test_verdict.py"
+          ]
+        },
+        "acpmux-sim": {
+          "name": "acpmux simulation (seeds)",
+          "crates": ["cmux-tui/crates/acpmux"],
+          "features": ["sim"]
+        },
+        "carrier-sim": {
+          "name": "carrier simulation (seeds)",
+          "crates": ["cmux-tui/crates/cmux-remote", "cmux-tui/crates/cmux-link", "cmux-tui/crates/cmux-relay"],
+          "inputs": [
+            "cmux-tui/crates/cmux-tui/src/carrier/", "ghostty-next", "scripts/install-zig-ci.sh",
+            "scripts/ci/init-submodule.sh"
+          ]
+        },
+        "acpmux-protocol-ir": {
+          "name": "acpmux protocol IR is current",
+          "crates": ["cmux-tui/crates/acpmux"],
+          "inputs": ["scripts/cmux-next/cargo-locks.py"]
+        }
+      }
+    },
+    ".github/workflows/cmux-tui-windows-check.yml": {
+      "inputs": [".github/workflows/cmux-tui-windows-check.yml"],
+      "jobs": {
+        "windows-gnu-check": {
+          "name": "cargo check (x86_64-pc-windows-gnu)",
+          "compile_only": true,
+          "crates": ["cmux-tui/crates/cmux-tui-core", "cmux-tui/crates/cmux-tui", "cmux-tui/crates/acpmux"],
+          "inputs": [
+            "ghostty-next", "scripts/install-zig-ci.sh", ".github/actions/ghostty-zig-packages/",
+            "scripts/cmux-next/cargo-locks.py"
+          ]
+        }
+      }
+    },
+    ".github/workflows/cmux-tui-sdks.yml": {
+      "inputs": [".github/workflows/cmux-tui-sdks.yml"],
+      "jobs": {
+        "conformance": {
+          "name": "seven-language live conformance",
+          "crates": ["cmux-tui/crates/cmux-tui", "cmux-tui/bindings/rust", "cmux-tui/bindings/rust-daemon-client"],
+          "inputs": [
+            "cmux-tui/bindings/", "cmux-tui/spec/", "ghostty", "ghostty-next", "scripts/install-zig-ci.sh",
+            ".github/actions/ghostty-zig-packages/", ".github/actions/zig-global-cache/",
+            "scripts/ghostty-zig-version.sh", "scripts/ci/init-submodule.sh"
+          ]
+        }
+      }
+    }
+  }
+}

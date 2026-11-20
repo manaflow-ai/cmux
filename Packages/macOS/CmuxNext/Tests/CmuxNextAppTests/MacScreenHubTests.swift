@@ -545,6 +545,72 @@ struct MacScreenHubViewerTests {
         #expect(ends.items == ["s1 expired"])
     }
 
+    /// One Mac to another sat on Connecting forever (ask-a85f219369): an own-device session is
+    /// approved at once, and its ticket comes only as a push, which has no backlog. Past the wait the
+    /// viewer asks the hub for the ticket itself and streams.
+    @Test func anApprovedSessionWithNoTicketPushAsksTheHubForIt() async throws {
+        let hub = testHub()
+        let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
+        let asked = CallLog()
+        viewer.reattachSession = { _, id in
+            asked.items.append(id)
+            return ticket(id, scope: .full)
+        }
+        viewer.makeSignaling = { _, _ in IdleSignaling() }
+        let clock = ManualClock()
+        viewer.ticketDeadline = DemandTimer(owner: "test.mac-screen.hub-ticket-wait", clock: clock)
+        viewer.phase = .requesting(.full)
+        viewer.requestAnswered(.success(HubSession(id: "s1", state: .approved, scope: .full)), scope: .full, hub: hub)
+        #expect(viewer.phase == .approved(sessionID: "s1", scope: .full))
+        try await clock.waitForSleeper()
+        clock.advance(by: viewer.ticketWait)
+        for _ in 0..<500 where viewer.phase != .streaming(sessionID: "s1", scope: .full) { await Task.yield() }
+        #expect(viewer.phase == .streaming(sessionID: "s1", scope: .full))
+        #expect(asked.items == ["s1"])
+    }
+
+    /// The hub has no ticket either (the host went offline): the tab says so instead of Connecting.
+    @Test func anApprovedSessionTheHubCannotAdmitEndsWithItsReason() async throws {
+        let hub = testHub()
+        let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
+        let ends = CallLog()
+        viewer.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
+        viewer.reattachSession = { _, _ in
+            throw DeviceHubError.server(status: 409, code: .hostOffline, message: "the host is not connected")
+        }
+        let clock = ManualClock()
+        viewer.ticketDeadline = DemandTimer(owner: "test.mac-screen.hub-ticket-wait", clock: clock)
+        viewer.phase = .requesting(.view)
+        viewer.requestAnswered(.success(HubSession(id: "s1", state: .approved, scope: .view)), scope: .view, hub: hub)
+        try await clock.waitForSleeper()
+        clock.advance(by: viewer.ticketWait)
+        for _ in 0..<500 where viewer.phase.isPending { await Task.yield() }
+        #expect(viewer.phase == .refused(.hostOffline, requested: .view))
+        #expect(ends.items == ["s1 failed"])
+    }
+
+    /// `/reattach` answers with the viewer ticket and also pushes it: the second copy of the ticket
+    /// for the stream already running starts nothing (a second connect would replay the ticket).
+    @Test func theReattachedTicketsPushStartsNoSecondStream() async throws {
+        let hub = testHub()
+        let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
+        viewer.reattachSession = { _, id in ticket(id) }
+        viewer.makeSignaling = { _, _ in IdleSignaling() }
+        var started = 0
+        viewer.startStream = { started += 1 }
+        let clock = ManualClock()
+        viewer.ticketDeadline = DemandTimer(owner: "test.mac-screen.hub-ticket-wait", clock: clock)
+        viewer.phase = .requesting(.full)
+        viewer.requestAnswered(.success(HubSession(id: "s1", state: .approved, scope: .full)), scope: .full, hub: hub)
+        try await clock.waitForSleeper()
+        clock.advance(by: viewer.ticketWait)
+        for _ in 0..<500 where started == 0 { await Task.yield() }
+        // The push of the same ticket comes after the HTTP answer.
+        viewer.accept(ticket("s1"))
+        #expect(viewer.phase == .streaming(sessionID: "s1", scope: .full))
+        #expect(started == 1)
+    }
+
     /// Full lowered to View: the card says the access changed and offers View Only.
     @Test func accessLoweredToViewIsNotRemoved() {
         #expect(MacScreenPaneModel.hubCard(.revoked(reason: "permission_revoked"), access: .view) == .hubAccessLowered)
@@ -691,6 +757,146 @@ struct MacScreenHubPushTests {
         viewer.phase = .streaming(sessionID: "s1", scope: .full)
         pages.hub = nil
         #expect(viewer.phase == .ended(reason: MacScreenHubReason.signedOut.rawValue))
+        pages.tabClosed("a")
+    }
+
+    // MARK: Pushed and moved shares (P7)
+
+    private static let otherHostID = "5d1e2f3a-4b5c-4d6e-8f70-112233445566"
+
+    private func pushedTicket(_ id: String, peer: String = hostID, movedFrom: String? = nil, pushed: Bool = true) -> SessionTicket {
+        var made = ticket(id, peer: peer)
+        made.pushed = pushed
+        made.movedFrom = movedFrom
+        return made
+    }
+
+    /// Pages whose new tabs open the way the app opens them (made at once, named `p<n>`, logged), and whose
+    /// tab replacements fall back to the tab showing the record itself (logged as `replace <key>`).
+    private func pagesOpeningPushedTabs(_ opened: CallLog) -> MacScreenPages {
+        let pages = makePages()
+        pages.hub = testHub()
+        pages.makeSignaling = { _, _ in IdleSignaling() }
+        pages.events.openInNewTab = { [unowned pages] record, beside in
+            let key = "p\(opened.items.count)"
+            opened.items.append(key + (beside.isEmpty ? "" : " beside \(beside)"))
+            pages.prepare(key, record: record, byPerson: true)
+            _ = pages.makeView(for: key)
+        }
+        pages.events.replaceTab = { _, key in
+            opened.items.append("replace \(key)")
+            return false
+        }
+        return pages
+    }
+
+    /// A viewer ticket the hub pushed (a share moved here, a host pushed its screen here) opens that host's tab and
+    /// streams it with no click.
+    @Test func aPushedTicketOpensItsHostsTabAndStreams() throws {
+        let opened = CallLog()
+        let pages = pagesOpeningPushedTabs(opened)
+        pages.handle(.sessionTicket(pushedTicket("s5")))
+        #expect(opened.items == ["p0"])
+        let viewer = try #require(pages.tab("p0")?.pane?.model.hub)
+        #expect(viewer.deviceID == hostID)
+        #expect(viewer.phase == .streaming(sessionID: "s5", scope: .full))
+        #expect(pages.pushedTickets.isEmpty)
+        pages.hub = nil
+        pages.tabClosed("p0")
+    }
+
+    /// A tab of that host that is not busy gives its place to the pushed screen (selected): no second tab.
+    @Test func aPushedTicketReusesAnIdleTabOfItsHost() throws {
+        let opened = CallLog()
+        let pages = pagesOpeningPushedTabs(opened)
+        pages.prepare("a", record: MacScreenRecord(deviceID: hostID), byPerson: false)
+        _ = pages.makeView(for: "a")
+        let old = try #require(pages.tab("a")?.pane?.model.hub)
+        old.phase = .ended(reason: "host_stopped")
+        pages.handle(.sessionTicket(pushedTicket("s6")))
+        #expect(opened.items == ["replace a"])
+        let viewer = try #require(pages.tab("a")?.pane?.model.hub)
+        #expect(viewer.phase == .streaming(sessionID: "s6", scope: .full))
+        #expect(pages.pushedTickets.isEmpty)
+        pages.hub = nil
+        pages.tabClosed("a")
+    }
+
+    /// A ticket that is not pushed and names no tab's session or request does nothing: no tab opens, an idle tab stays idle.
+    @Test func aTicketNoTabAskedForAndNotPushedDoesNothing() throws {
+        let opened = CallLog()
+        let pages = pagesOpeningPushedTabs(opened)
+        pages.prepare("a", record: MacScreenRecord(deviceID: hostID), byPerson: false)
+        _ = pages.makeView(for: "a")
+        let viewer = try #require(pages.tab("a")?.pane?.model.hub)
+        pages.handle(.sessionTicket(pushedTicket("s7", pushed: false)))
+        #expect(opened.items.isEmpty)
+        #expect(viewer.phase == .idle)
+        #expect(pages.pushedTickets.isEmpty)
+        pages.hub = nil
+        pages.tabClosed("a")
+    }
+
+    /// A session that ended because the share moved shows no failed card, also after its stream failed first,
+    /// and its replacement from the same host streams in the same tab.
+    @Test func aMovedEndShowsNoFailureAndItsReplacementTakesTheTab() throws {
+        let opened = CallLog()
+        let pages = pagesOpeningPushedTabs(opened)
+        pages.prepare("a", record: MacScreenRecord(deviceID: hostID), byPerson: false)
+        _ = pages.makeView(for: "a")
+        let viewer = try #require(pages.tab("a")?.pane?.model.hub)
+        viewer.phase = .streamFailed(sessionID: "s1", scope: .full)
+        pages.handle(.sessionEnded(sessionID: "s1", reason: "moved", movedTo: "s2"))
+        #expect(viewer.phase == .ended(reason: "moved"))
+        #expect(MacScreenPaneModel.hubCard(viewer.phase) == .hubEnded(.moved))
+        #expect(MacScreenEndReason.moved.canReconnect && !MacScreenEndReason.moved.removesAccess)
+        #expect(viewer.movedSession == "s1")
+        pages.handle(.sessionTicket(pushedTicket("s2", movedFrom: "s1")))
+        #expect(opened.items.isEmpty)
+        #expect(viewer.phase == .streaming(sessionID: "s2", scope: .full))
+        #expect(viewer.movedSession == nil)
+        pages.hub = nil
+        pages.tabClosed("a")
+    }
+
+    /// The replacement may come before the old session's end: the streaming tab switches to it, and the late end changes nothing.
+    @Test func aMovedTicketBeforeTheEndSwitchesTheStreamingTab() throws {
+        let opened = CallLog()
+        let pages = pagesOpeningPushedTabs(opened)
+        pages.prepare("a", record: MacScreenRecord(deviceID: hostID), byPerson: false)
+        _ = pages.makeView(for: "a")
+        let viewer = try #require(pages.tab("a")?.pane?.model.hub)
+        viewer.phase = .streaming(sessionID: "s1", scope: .full)
+        pages.handle(.sessionTicket(pushedTicket("s2", movedFrom: "s1")))
+        #expect(viewer.phase == .streaming(sessionID: "s2", scope: .full))
+        pages.handle(.sessionEnded(sessionID: "s1", reason: "moved", movedTo: "s2"))
+        #expect(viewer.phase == .streaming(sessionID: "s2", scope: .full))
+        #expect(opened.items.isEmpty)
+        pages.hub = nil
+        pages.tabClosed("a")
+    }
+
+    /// A share that moved to another host: the old tab gives its place to the new host's tab, which streams.
+    @Test func aShareMovedToAnotherHostReplacesTheOldTab() throws {
+        let opened = CallLog()
+        let pages = pagesOpeningPushedTabs(opened)
+        let replaced = CallLog()
+        pages.events.replaceTab = { record, key in
+            replaced.items.append("\(key)->\(record.deviceID ?? "")")
+            return false // no pane lists it: the tab shows the record itself
+        }
+        pages.prepare("a", record: MacScreenRecord(deviceID: hostID), byPerson: false)
+        _ = pages.makeView(for: "a")
+        let old = try #require(pages.tab("a")?.pane?.model.hub)
+        old.phase = .streaming(sessionID: "s1", scope: .full)
+        pages.handle(.sessionEnded(sessionID: "s1", reason: "moved", movedTo: "s2"))
+        pages.handle(.sessionTicket(pushedTicket("s2", peer: Self.otherHostID, movedFrom: "s1")))
+        #expect(replaced.items == ["a->\(Self.otherHostID)"])
+        #expect(opened.items.isEmpty)
+        let viewer = try #require(pages.tab("a")?.pane?.model.hub)
+        #expect(viewer.deviceID == Self.otherHostID)
+        #expect(viewer.phase == .streaming(sessionID: "s2", scope: .full))
+        pages.hub = nil
         pages.tabClosed("a")
     }
 }

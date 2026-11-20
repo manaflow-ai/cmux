@@ -74,9 +74,7 @@ function drawnRun(rows: readonly AcpmuxRow[]) {
 for (const agentFamily of ["claude", "codex", undefined])
   test(`${agentFamily ?? "default"}: an ended background turn's run draws the same whether a later turn runs or not`, () => {
     const idle = drawnRun(turnView(transcript("none"), new Set(), { now: 60_000, agentFamily }));
-    const running = drawnRun(
-      turnView(transcript("running"), new Set(), { now: 90_000, agentFamily, working: true }),
-    );
+    const running = drawnRun(turnView(transcript("running"), new Set(), { now: 90_000, agentFamily, working: true }));
     const endedAgain = drawnRun(turnView(transcript("ended"), new Set(), { now: 120_000, agentFamily }));
     // Folded into its summary line, as the running turn's shape draws it, at every step.
     expect(idle).toEqual({ foldRun: true, settled: true, calls: 3 });
