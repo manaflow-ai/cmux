@@ -10,6 +10,12 @@ A save is a minimal-change write (`sourceMap.ts`). The editor keeps each top-lev
 
 `host.ts` lists the ops and streams the native host (diff-host.md S6) implements: `cmux.markdown.config`, `cmux.markdown.save {path, text, baseHash}` (refused with `cmux.markdown.conflict` on a hash mismatch), `cmux.markdown.open` (also for followed links), `cmux.markdown.openLink`, `cmux.markdown.resolveLinks`, `cmux.markdown.listFiles`, the page commands `save`, `back`, `forward`, `link` and `goToTop` (scrolls to the top), the streams `cmux.markdown.changes` and `cmux.markdown.look`, the `save` page command (Cmd-S), and same-origin resources for images (`assetBase`, the file's folder only) and the diagram libraries (`libBase`: `ondine.js`, `mermaid.js`, `vega.js`; Mermaid source always draws with Ondine; Mermaid only as the automatic fallback for a source Ondine refuses, no flag or setting). The page runs under the strict PageCSP plus `'wasm-unsafe-eval'` for Ondine: Vega uses `vega-interpreter`, code highlighting the Shiki JavaScript engine.
 
+## Replies using this page
+
+A file opened from a chat may carry `sourceUses: true` and an opaque `sourceContext` in its host config. The quiet disclosure below the document queries `cmux.markdown.sourceUses {path, cursor?}` only when opened. An empty scan page with a cursor keeps Load more available; the list retains at most 1,000 entries. A click sends only `{path, replyId, turnId}` to `cmux.markdown.revealSourceUse`: the host owns the originating chat and validates the returned edge, then reveals its exact stamped assistant segment.
+
+When an already-open viewer gains a different originating chat, the host's `sourceContext` page command carries `{path, sourceUses, sourceContext}` at the top level. The store updates that capability without reloading or saving the document, preserving dirty edits. Context or file changes discard pending query/reveal results. A file without the capability has no disclosure, and navigation never inherits another file's context.
+
 ## Editable everywhere
 
 Every markdown file opens editable, whoever opened it (Open File..., `cmux open`, an agent, a link) and in any workspace, Home included. The host sends `readOnly` with a `readOnlyReason` only for a real reason, and the page names it: `encoding` (not UTF-8), `binary`, `permission` (the file is not writable) or `transcript` (a chat transcript the host opens read only). A change on disk reloads the page when it has no unsaved edits and raises the conflict banner when it has.

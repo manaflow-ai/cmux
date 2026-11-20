@@ -43,11 +43,17 @@ export type PageCommandName =
   | "reload"
   | "open"
   // The markdown page's viewer comments changed: `text` is the new list (pages/markdown/comments.ts).
-  | "comments";
+  | "comments"
+  // Refresh only the Markdown viewer's captured chat context; never reload its edited text.
+  | "sourceContext";
 
 export interface PageCommand {
   command: PageCommandName;
   text?: string;
+  /** Markdown sourceContext command fields, merged into the command by the native router. */
+  path?: string;
+  sourceUses?: boolean;
+  sourceContext?: string;
 }
 
 export interface PageStreamHandlers {
