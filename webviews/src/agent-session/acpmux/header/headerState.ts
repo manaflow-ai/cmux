@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { readHeaderControls, type HeaderControls } from "./headerTrio";
 import { headerMotionOf, type HeaderMotionStyle } from "./headerMotion";
+import { guessProjectRepo } from "../projectRepos";
 
 /// What the chat header shows from the chat's tab (CmuxNextAgentPane AgentPaneHeaderState): the pin the
 /// "..." menu's labels read, whether the panes beside the chat show ([+] New tab reads Hide tabs), and
@@ -231,3 +232,17 @@ const subscribe = (listener: () => void) => {
 
 /// The live header state.
 export const useHeaderState = (): HeaderState => useSyncExternalStore(subscribe, headerState, headerState);
+
+/// The folder part of the header's slash path (Settings > Agent Chat > Header Path,
+/// `agentPane.display.headerBreadcrumb`; Taste Board #20): the chat's repository, then its branch, each
+/// only when the chat knows it. A worktree's path names its repository (projectRepos.ts
+/// `guessProjectRepo`), else the folder's own name stands in; the chat's own branch wins over one read
+/// from the path. Empty for a chat with no folder, so the header draws the plain title.
+export function headerBreadcrumb(chat: { cwd?: string; worktree?: string; branch?: string }): string[] {
+  const folder = (chat.worktree || chat.cwd || "").replace(/(.)\/+$/, "$1");
+  if (!folder) return [];
+  const repo = guessProjectRepo(folder);
+  const name = repo?.name ?? folder.split("/").pop() ?? "";
+  const branch = chat.branch?.trim() || repo?.branch;
+  return [name, branch].filter((part): part is string => Boolean(part && part !== "/"));
+}

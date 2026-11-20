@@ -557,7 +557,7 @@ import { HEADER_ACTIONS, guardedChatMenu, menuGroups, type ChatMenuItem } from "
 import { ThreadTitle } from "./header/ThreadTitle";
 import { deleteChatRow, moveMachineRow } from "./header/chatRows";
 import { moveToTerminal, terminalMoveRow, TERMINAL_SWITCH_ACTION, terminalSwitchRow } from "./header/terminalMoveRow";
-import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
+import { headerState, setHeaderState, useHeaderState, headerBreadcrumb } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowRoot, useTabRowTools } from "./header/tabRow";
 import { SubagentComposer } from "./subagents/SubagentComposer";
 import {
@@ -633,6 +633,7 @@ import {
   useFeatureTipsOn,
   useTrayHandle,
   useTrayTucked,
+  useHeaderBreadcrumb,
 } from "./chatDisplay";
 import { ChatDisplaySettings } from "./ChatDisplaySettings";
 import { wrapOutputRow } from "./header/transcriptViewRow";
@@ -2818,6 +2819,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A subagent's "Subagent of" pill names the chat as the chat list does: never acpmux's generated
   // name (`claude-2`), and "New chat" before it has a title, never nothing.
   const chatName = snapshot.summary ? sessionTitle(snapshot.summary, t) : t("sidebar.newChat");
+  // Header Path (Settings > Agent Chat, agentPane.display.headerBreadcrumb; off by default): the header's
+  // title leads with the chat's repository and branch as one slash path (header/ThreadTitle.tsx).
+  const headerBreadcrumbOn = useHeaderBreadcrumb();
+  const titleCwd = snapshot.summary?.cwd;
+  const titleWorktree = snapshot.summary?.worktree;
+  const titleBranch = snapshot.summary?.branch;
+  const titleTrail = useMemo(
+    () =>
+      headerBreadcrumbOn
+        ? headerBreadcrumb({ cwd: titleCwd, worktree: titleWorktree, branch: titleBranch })
+        : undefined,
+    [headerBreadcrumbOn, titleCwd, titleWorktree, titleBranch],
+  );
   // Running subagents sit in the tray above the composer, and one that ended leaves a line where it
   // ended (subagents/runningTray.ts); Debug Settings agentPane.debug.subagentTray off keeps the
   // transcript's group cards and the agents pill.
@@ -14167,7 +14181,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 >
                   <ChatHeaderStatus status={header.status} detail={header.detail}>
                     {!inTabRow && !showNewTab && snapshot.sessionId && (
-                      <ThreadTitle key={snapshot.sessionId} title={chatName} onRename={renameFromTitle} />
+                      <ThreadTitle
+                        key={snapshot.sessionId}
+                        title={chatName}
+                        onRename={renameFromTitle}
+                        trail={titleTrail}
+                      />
                     )}
                   </ChatHeaderStatus>
                   <div className="acpmux-handoff-header-tools" ref={tabRowTools}>

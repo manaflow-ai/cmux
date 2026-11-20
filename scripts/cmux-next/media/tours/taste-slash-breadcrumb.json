@@ -1,0 +1,27 @@
+{
+  "title": "Header Path (taste prototype): the chat header's title as one monospace slash path, repo / branch / title, opt-in with agentPane.display.headerBreadcrumb",
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {
+      "title": "A chat",
+      "cmux": [
+        "agents", "chat", "new", "--harness", "fake", "--name", "header-path-demo", "--",
+        "Title: Fix the login redirect\nFind where the login redirect drops the return path and outline the fix."
+      ],
+      "wait": 4,
+      "optional": "agent backend unavailable on this runner"
+    },
+    {"title": "Off (the default): the header shows the plain title", "wait": 2},
+    {
+      "title": "Header Path on",
+      "cmux": ["settings", "set", "agentPane.display.headerBreadcrumb", "true"],
+      "wait": 2
+    },
+    {"title": "On: repo / branch / title as one monospace path, the slashes fainter", "wait": 3},
+    {
+      "title": "Off again: today's header exactly",
+      "cmux": ["settings", "set", "agentPane.display.headerBreadcrumb", "false"],
+      "wait": 2
+    }
+  ]
+}
