@@ -1125,9 +1125,16 @@ export function ComposerPickers({
         })),
       namedStart?.modeId,
     );
-    if (!namedStart || known.some((choice) => choice.id === namedStart.modeId)) return known;
+    const missing = (id: string) => !known.some((choice) => choice.id === id);
+    // A Cloud start can always be picked into its asking mode, also one its harness's menu hides
+    // (the Codex bridge's Ask) while the start names its full-access mode.
+    const asking: ModeChoice[] =
+      cloudAsking && missing(cloudAsking.id) && cloudAsking.id !== namedStart?.modeId
+        ? [{ id: cloudAsking.id, name: cloudAsking.name }]
+        : [];
+    if (!namedStart || !missing(namedStart.modeId)) return [...asking, ...known];
     const description = unrestricted(namedStart.modeId) ? t(PICKER_LABELS.fullAccessWarning) : undefined;
-    return [{ id: namedStart.modeId, name: startModeName ?? namedStart.modeId, description }, ...known];
+    return [{ id: namedStart.modeId, name: startModeName ?? namedStart.modeId, description }, ...asking, ...known];
   })();
   useEffect(() => {
     if (!awaiting && chipHarness && summary?.sessionId && effortShown)
