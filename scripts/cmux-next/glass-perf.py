@@ -262,8 +262,35 @@ class Run:
         row = self.app.call("debug.tunables", {"action": "get", "key": "glass.lens"}) or {}
         return None if row.get("error") else row.get("value")
 
+    SCROLL_EXTENT = """(() => { let best = 0;
+  for (const e of document.querySelectorAll('*')) { if (/(auto|scroll)/.test(getComputedStyle(e).overflowY) &&
+    e.scrollHeight > e.clientHeight + 200) best = Math.max(best, e.scrollHeight); }
+  return best; })()"""
+
+    def pick_chat_page(self, wait: float = 90.0) -> dict:
+        """Points self.browser at the shown chat page with the tallest scroller: the bench chat's transcript.
+
+        renderers.list's order differs by host: on cmux20 (step 972b27e7, 2026-11-20) the first shown page had no
+        scroller at all and both composer rows measured nothing. Waits up to `wait` s for a transcript to render."""
+        deadline, seen = time.monotonic() + wait, []
+        while True:
+            seen = []
+            for page in chat_pages(self.app):
+                if page.get("hidden"):
+                    continue
+                extent, _error = evaluate(self.app, page["browser"], self.SCROLL_EXTENT)
+                seen.append((extent if isinstance(extent, (int, float)) else 0, page["browser"]))
+            seen.sort(key=lambda s: s[0], reverse=True)
+            if (seen and seen[0][0] > 0) or time.monotonic() >= deadline:
+                break
+            time.sleep(2)  # test script: the transcript is still rendering
+        if seen and seen[0][0] > 0:
+            self.browser = seen[0][1]
+        return {"pages": len(seen), "extent": seen[0][0] if seen else None}
+
     def composer(self, mode: str) -> dict:
         """The composer over the chat scrolled fast for --load seconds: page frames, CPU, GPU, RSS, energy."""
+        picked = self.pick_chat_page()
         probe = self.js("""(() => {
   const all = [...document.querySelectorAll('*')].filter((e) => /(auto|scroll)/.test(getComputedStyle(e).overflowY) &&
     e.scrollHeight > e.clientHeight + 200);
@@ -281,6 +308,7 @@ class Run:
             info = json.loads(probe or "{}")
         except ValueError:
             info = {"error": "unreadable probe"}
+        info["page"] = picked
         time.sleep(self.opts.settle)  # test script: the page rests before the window
         self.js("""(() => { const sc = window.__gpScroller; if (!sc) return 'none';
   const a = window.__gpRaf = {t: [], on: true}; let dir = 1;
@@ -290,6 +318,8 @@ class Run:
   requestAnimationFrame(f); return 'ok'; })()""")
         moving = window(self.pid, self.bundle, self.opts.load)
         page = self.page_intervals()
+        # The lens attaches after the mode switch; read its marker once the window is over.
+        info["composer_lens"] = bool(self.js("!!document.querySelector('[data-composer-lens]')"))
         util = moving["gpu"].get("device_utilization_pct")
         return {"state": "composer-scroll", "mode": mode, "surfaces": info.get("glass"), "probe": info, **moving,
                 "lens_source": (("live-content" if info.get("composer_lens") else "wallpaper-still")
