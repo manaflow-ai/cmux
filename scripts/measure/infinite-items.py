@@ -403,7 +403,10 @@ class Run:
                                     "--socket", self.tui_sock, "--state", os.path.join(self.tui_root, "state"),
                                     # The app's owner reaps a closed tab's terminal after its grace (30 s,
                                     # local_owner.rs); a bare --headless reaps nothing. Fast-forwarded here.
-                                    "--terminal-reap-grace-seconds", str(self.args.reap_grace_secs)],
+                                    "--terminal-reap-grace-seconds", str(self.args.reap_grace_secs)]
+                                   # --free-idle-seconds: the daemon's own freeing timer (workspaces.freeing.*), shortened.
+                                   + (["--freeing-idle-seconds", str(self.args.free_idle_seconds)]
+                                      if self.args.free_idle_seconds else []),
                                    stdout=log_file, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                    env=self.env(), start_new_session=True)
         self.procs.append(tui)
@@ -610,6 +613,25 @@ class Run:
         finally:
             tui.close()
 
+    def report_freed(self):
+        """--free-idle-seconds: how many of the run's terminal tabs the daemon's freeing timer parked (dead tabs
+        that start again on show), logged after each settle; no request parks anything here."""
+        if not self.args.free_idle_seconds or not self.workspaces:
+            return
+        tui = Tui(self.tui_sock, timeout=300)
+        try:
+            ours = set(self.workspaces)
+            tabs = [tab for w in tui.call("list-workspaces").get("workspaces", []) if w.get("id") in ours
+                    for screen in w.get("screens", []) for pane in screen.get("panes", [])
+                    for tab in pane.get("tabs", []) if tab.get("kind", "pty") == "pty"]
+            freed = sum(1 for tab in tabs if tab.get("dead"))
+            self.parked = freed
+            log(f"N={self.count} freeing timer: {freed} of {len(tabs)} terminal tabs parked")
+        except (OSError, RuntimeError, ValueError) as exc:
+            self.error("list-workspaces", exc)
+        finally:
+            tui.close()
+
     def work(self, sid, index):
         """A working chat: turns back to back while the day runs."""
         acp = Acp(self.acp_sock, timeout=120)
@@ -715,7 +737,10 @@ CPU_FLOOR_PCT, WAKEUPS_FLOOR = 0.1, 1.0
 
 def settle(args):
     # Past the (fast-forwarded) idle and reap timers, so idle agents have hibernated and closed terminals ended.
-    time.sleep(max(args.idle_child_secs, args.reap_grace_secs) + args.settle)  # bench: waiting out the timers
+    # --free-idle-seconds: past two freeing periods too (the daemon judges a terminal first seen at a pass one
+    # period after it started tracking), so the timer has parked every idle shell before the sample.
+    freeing = 2 * args.free_idle_seconds + 1 if args.free_idle_seconds else 0
+    time.sleep(max(args.idle_child_secs, args.reap_grace_secs, freeing) + args.settle)  # bench: waiting out the timers
 
 
 def run_count(args, count):
@@ -735,6 +760,7 @@ def run_count(args, count):
                          "chat_tabs": len(run.chat_tabs), "browser_tabs": len(run.browser_tabs),
                          "workspaces": len(run.workspaces)}
         settle(args)
+        run.report_freed()
         day0 = idle_window(run.top, args.window, run.disks)
         day0["day"] = 0
         result["samples"].append(day0)
@@ -744,6 +770,7 @@ def run_count(args, count):
             turns = run.day(number)
             spent = round(time.monotonic() - t0, 1)
             settle(args)
+            run.report_freed()
             s = idle_window(run.top, args.window, run.disks)
             s.update(day=number, turns=turns, seconds=spent)
             result["samples"].append(s)
@@ -860,6 +887,10 @@ def main():
     p.add_argument("--park-idle", action="store_true",
                    help="park every tab of the run's workspaces after the open and each day (park-tabs), as the app's "
                         "freeing tier does to hibernated workspaces when workspaces.freeing is on (off by default)")
+    p.add_argument("--free-idle-seconds", type=int, default=0,
+                   help="start cmux-tui with --freeing-idle-seconds N: the daemon's own freeing timer parks every "
+                        "terminal idle at its prompt with no client for N seconds (workspaces.freeing.*, off by "
+                        "default), with no park-tabs request; 0 (default) leaves it off")
     p.add_argument("--out")
     args = p.parse_args()
     global ARGS
@@ -872,7 +903,8 @@ def main():
         raise SystemExit(f"infinite-items: no stand-in agent at {FAKE_AGENT}; run this script from its checkout")
     print(f"INFINITE-MACHINE host={platform.node()} platform={platform.platform()} cpus={os.cpu_count()} "
           f"counts={args.counts} days={args.days} terminal_host_model={args.terminal_host_model} agent_holder={args.agent_holder} "
-          f"browser_tabs={int(args.browser_tabs)} park_idle={int(args.park_idle)}", flush=True)
+          f"browser_tabs={int(args.browser_tabs)} park_idle={int(args.park_idle)} "
+          f"free_idle_seconds={args.free_idle_seconds}", flush=True)
     results = []
     for count in (int(c) for c in args.counts.split(",")):
         try:

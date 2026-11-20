@@ -37,7 +37,7 @@ extension PinCommands {
             if let item = doc.item(workspace: id) {
                 pinned ? store.pin([item], title: PinStrings.pinWorkspace) : store.unpin([item], title: PinStrings.unpinWorkspace)
                 // The document is the home daemon's: the workspace's own daemon (any session) gets the flag too.
-                return WorkspacePinFlags.live(context.services.machines).mirror([id], pinned: pinned)
+                return WorkspacePinFlags.live(owner: context.services.machines.workspace(id:)).mirror([id], pinned: pinned)
             }
             // A workspace the document does not place yet (a new one) is not pinned in it. The sidebar adopts
             // and pins it in one change; before its adopt ref is known (no resource id yet), the daemon's pin flag
@@ -78,7 +78,7 @@ extension PinCommands {
             let items = ids.compactMap { doc.item(workspace: $0) }
             if items.count == ids.count {
                 pinned ? store.pin(items, title: title) : store.unpin(items, title: title)
-                return WorkspacePinFlags.live(context.services.machines).mirror(ids, pinned: pinned)
+                return WorkspacePinFlags.live(owner: context.services.machines.workspace(id:)).mirror(ids, pinned: pinned)
             }
         }
         if pinsAreTiles {
