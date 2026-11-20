@@ -53,28 +53,23 @@ extension Workspace {
     /// With `navigation` set, a zoomed split stays zoomed on the pane the step
     /// reaches; otherwise the zoom ends so the reached pane is visible. A step
     /// that does not move keeps the zoom where it was.
-    private func navigateSplitFocusHonoringPreserveZoom(
-        preserveZoom: Bool = GhosttyApp.shared.splitPreserveZoom.contains(.navigation),
-        _ navigate: () -> Bool
-    ) -> Bool {
+    private func navigateSplitFocusHonoringPreserveZoom(_ navigate: () -> Bool) -> Bool {
         guard let zoomedPaneId = bonsplitController.zoomedPaneId else { return navigate() }
+        let preserveZoom = GhosttyApp.shared.splitPreserveZoom.contains(.navigation)
         // Unzoom before moving so focus lands on a pane that is rendered.
         if !preserveZoom {
             clearSplitZoom()
         }
-        guard navigate() else {
-            if !preserveZoom {
-                _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
-            }
-            return false
-        }
-        if preserveZoom,
-           bonsplitController.focusedPaneId != zoomedPaneId,
-           let focusedPanelId {
+        let moved = navigate()
+        let leftZoomedPane = moved && bonsplitController.focusedPaneId != zoomedPaneId
+        if !leftZoomedPane, !preserveZoom {
+            // Focus stayed in the zoomed pane: keep its zoom.
+            _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
+        } else if leftZoomedPane, preserveZoom, let focusedPanelId {
             // Zooming the reached pane also refocuses it and reconciles portals.
             _ = toggleSplitZoom(panelId: focusedPanelId)
         }
-        return true
+        return moved
     }
 
     /// Moves the focused surface into another pane, optionally creating a
