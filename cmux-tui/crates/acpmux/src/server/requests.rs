@@ -220,6 +220,7 @@ pub(super) async fn handle_notification(
     m: &str,
     mut params: Value,
 ) {
+    super::remote_guard::note_vouched_phone(hub, conn, &params);
     match m {
         method::SESSION_CANCEL => {
             // Notifications have no response channel, but they still cross

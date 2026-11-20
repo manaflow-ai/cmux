@@ -128,26 +128,16 @@ pub struct DeviceAuth {
     pub role: Role,
 }
 
-/// The device id a request carries when the owner's own peer daemon forwards it for the owner's
-/// own phone (`server/remote_guard.rs` `sending_device`, `_meta.acpmux.ownerPhone`): the phone is
-/// paired with that daemon's Mac, not this one, so no record here names it. The forwarding daemon
-/// read its own store for the request and says whether the phone's Full-access setting is on;
-/// [`Pairing::own_phone`] and [`Pairing::full_access`] read that word back from the id. A store
-/// id is `dv-…` (`store::new_id`), so no record's id starts with this prefix.
-pub const PEER_PHONE_PREFIX: &str = "peer-phone:";
+/// The start of the id of a phone the owner's own peer daemon vouches for: a phone paired with
+/// that daemon's Mac, not this one, so no record here names it (`server/remote_guard.rs`
+/// `sending_device`, `_meta.acpmux.ownerPhone`). A store id is `dv-…` (`store::new_id`), so no
+/// record's id starts with this prefix.
+pub const VOUCHED_PHONE_PREFIX: &str = "vouched-phone:";
 
-/// The id of a phone the owner's peer daemon vouched for ([`PEER_PHONE_PREFIX`]).
-pub fn peer_phone_id(full_access: bool) -> String {
-    format!("{PEER_PHONE_PREFIX}{}", if full_access { "full-access" } else { "asks" })
-}
-
-/// Whether `id` is a vouched-for phone ([`peer_phone_id`]), and if so its Full-access setting.
-fn peer_phone_full_access(id: &str) -> Option<bool> {
-    match id.strip_prefix(PEER_PHONE_PREFIX)? {
-        "full-access" => Some(true),
-        "asks" => Some(false),
-        _ => None,
-    }
+/// The id of the phone `device` (its id on the vouching daemon) that the owner's peer daemon
+/// vouches for on connection `conn` ([`VOUCHED_PHONE_PREFIX`]).
+pub fn vouched_phone_id(conn: &str, device: &str) -> String {
+    format!("{VOUCHED_PHONE_PREFIX}{conn}/{device}")
 }
 
 /// What the Full-access setting lets a machine do, shown where it is turned on.
@@ -194,6 +184,13 @@ pub struct Pairing {
     /// Revoked device ids, read by the `revoked` futures of open connections.
     revoked_ids: Arc<StdMutex<HashSet<String>>>,
     revoked: tokio::sync::watch::Sender<u64>,
+    /// The phones the owner's peer daemons vouch for ([`vouched_phone_id`] to their Full-access
+    /// setting there), in memory only. Each forwarded request carrying the vouching daemon's
+    /// word sets its entry (`Pairing::vouch`); the vouching daemon's notice that the phone's
+    /// setting went off or the phone was removed (`_acpmux/owner_phone_changed`), and the end of
+    /// its connection, end it (`Pairing::unvouch`), so a turn the phone started is held at its
+    /// next tool as one of this daemon's own phones is.
+    vouched: StdMutex<HashMap<String, bool>>,
 }
 
 struct Inner {
@@ -213,6 +210,7 @@ impl Default for Pairing {
             }),
             revoked_ids: Arc::default(),
             revoked: tokio::sync::watch::channel(0).0,
+            vouched: StdMutex::default(),
         }
     }
 }
@@ -220,6 +218,68 @@ impl Default for Pairing {
 impl Pairing {
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The phones peer daemons vouch for now, with their Full-access setting, sorted (tests).
+    #[doc(hidden)]
+    pub fn vouched_for_tests(&self) -> Vec<(String, bool)> {
+        let mut all: Vec<_> = self.vouched().iter().map(|(k, v)| (k.clone(), *v)).collect();
+        all.sort();
+        all
+    }
+
+    /// The id of the live phone record named `name`, if any: the one [`Self::issue_phone`] replaces.
+    pub fn live_phone_id(&self, name: &str) -> Option<String> {
+        self.lock()
+            .store
+            .devices
+            .iter()
+            .find(|d| d.revoked_ms.is_none() && d.name == name && d.role == Role::Phone)
+            .map(|d| d.id.clone())
+    }
+
+    fn vouched(&self) -> std::sync::MutexGuard<'_, HashMap<String, bool>> {
+        self.vouched.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The owner's peer daemon on connection `conn` vouches, for this request, that `device` is
+    /// the owner's own phone there, with its Full-access setting `full` (its id: [`vouched_phone_id`]).
+    pub fn vouch(&self, conn: &str, device: &str, full: bool) -> String {
+        let id = vouched_phone_id(conn, device);
+        self.vouched().insert(id.clone(), full);
+        id
+    }
+
+    /// A vouching daemon says `device` is no longer the owner's phone with Full access (`full`
+    /// its setting now, None when the phone was removed): on every link, since a daemon may
+    /// forward on one link and tell on another. Or connection `conn` ended (`device` None: every
+    /// phone vouched for on it). Whether an entry with Full access changed: the caller then holds
+    /// every chat out of its policy again (`Hub::hold_policies_again`).
+    pub fn unvouch(&self, conn: &str, device: Option<&str>, full: Option<bool>) -> bool {
+        let mut vouched = self.vouched();
+        let on_conn = format!("{VOUCHED_PHONE_PREFIX}{conn}/");
+        let mut narrowed = false;
+        vouched.retain(|id, on| {
+            let matched = match device {
+                Some(d) => id
+                    .strip_prefix(VOUCHED_PHONE_PREFIX)
+                    .and_then(|r| r.rsplit_once('/'))
+                    .is_some_and(|(_, dev)| dev == d),
+                None => id.starts_with(&on_conn),
+            };
+            if !matched {
+                return true;
+            }
+            narrowed |= *on && full != Some(true);
+            match full {
+                Some(f) => {
+                    *on = f;
+                    true
+                }
+                None => false,
+            }
+        });
+        narrowed
     }
 
     /// Keep the store in `path` (the daemon's `pairing.json`), loading what
@@ -345,8 +405,8 @@ impl Pairing {
     /// from the store on every call, so turning it off or revoking the
     /// machine counts for its very next request.
     pub fn full_access(&self, id: &str) -> bool {
-        if let Some(full) = peer_phone_full_access(id) {
-            return full;
+        if id.starts_with(VOUCHED_PHONE_PREFIX) {
+            return self.vouched().get(id).copied().unwrap_or(false);
         }
         self.lock().store.devices.iter().any(|d| d.id == id && d.grants_full_access())
     }
@@ -357,8 +417,8 @@ impl Pairing {
     /// (cmux-mobile-host `host.rs` `admitted`); removing the phone there revokes it. Read from the
     /// store on every call, as `full_access` is, so a removed phone's very next request is not.
     pub fn own_phone(&self, id: &str) -> bool {
-        if peer_phone_full_access(id).is_some() {
-            return true;
+        if id.starts_with(VOUCHED_PHONE_PREFIX) {
+            return self.vouched().contains_key(id);
         }
         self.lock()
             .store

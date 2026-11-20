@@ -178,11 +178,13 @@ pub(super) fn full_access_device(
 ///
 /// The owner's own peer daemon (`ConnAuth::peer_daemon`), forwarding for a Web client of its own,
 /// says when that client is the owner's own phone paired with it (`_meta.acpmux.ownerPhone`,
-/// [`attest_owner_phone`]): the phone is then named [`crate::pairing::peer_phone_id`], with the
-/// Full-access setting the forwarding daemon read. That link already controls every chat here as
-/// the owner's daemon (`Control::Peer` when it asks for itself), so its word gives the phone
-/// nothing the link lacks, as its `personVerified` does not (`requests::person_admitted`). The
-/// claim from any other connection (a Web client, a paired machine, the unix socket) is ignored.
+/// [`attest_owner_phone`]): the phone is then named [`crate::pairing::vouched_phone_id`] of this
+/// connection, which [`note_vouched_phone`] recorded with the Full-access setting the forwarding
+/// daemon read, and which that daemon's change notice or this link's end takes back
+/// ([`owner_phone_changed`]). That link already controls every chat here as the owner's daemon
+/// (`Control::Peer` when it asks for itself), so its word gives the phone nothing the link
+/// lacks, as its `personVerified` does not (`requests::person_admitted`). The claim from any
+/// other connection (a Web client, a paired machine, the unix socket) is ignored.
 pub(super) fn sending_device(conn: &super::Conn, params: &Value) -> Option<String> {
     if control_of(conn.origin, conn.auth, params) != crate::hub::Control::Web {
         return None;
@@ -190,15 +192,83 @@ pub(super) fn sending_device(conn: &super::Conn, params: &Value) -> Option<Strin
     if conn.auth == super::ConnAuth::Device {
         return conn.device.clone();
     }
-    if conn.origin == super::Origin::Peer && conn.auth.peer_daemon() {
-        let full = params.pointer("/_meta/acpmux/ownerPhone/fullAccess")?.as_bool()?;
-        return Some(crate::pairing::peer_phone_id(full));
-    }
-    None
+    let (device, _) = vouched_claim(conn, params)?;
+    Some(crate::pairing::vouched_phone_id(&conn.id, device))
 }
 
-/// `_meta.acpmux.ownerPhone` on a request a daemon forwards to its peer: `{fullAccess}`, saying
-/// the Web client it forwards for is the owner's own phone ([`attest_owner_phone`]).
+/// The owner's peer daemon's claim on this request (`ownerPhone {device, fullAccess}`), read only
+/// from a link that presented this daemon's peer token, forwarding for its Web client.
+fn vouched_claim<'a>(conn: &super::Conn, params: &'a Value) -> Option<(&'a str, bool)> {
+    if conn.origin != super::Origin::Peer || !conn.auth.peer_daemon() {
+        return None;
+    }
+    if control_of(conn.origin, conn.auth, params) != crate::hub::Control::Web {
+        return None;
+    }
+    let claim = params.pointer("/_meta/acpmux/ownerPhone")?;
+    let device = claim.get("device")?.as_str().filter(|d| !d.is_empty() && d.len() <= 128)?;
+    Some((device, claim.get("fullAccess")?.as_bool()?))
+}
+
+/// Records, before any rule reads it, the phone the owner's peer daemon vouches for on this
+/// request ([`sending_device`]), with the Full-access setting it read for this very request.
+pub(super) fn note_vouched_phone(hub: &crate::hub::Hub, conn: &super::Conn, params: &Value) {
+    if let Some((device, full)) = vouched_claim(conn, params) {
+        hub.pairing.vouch(&conn.id, device, full);
+    }
+}
+
+/// `_acpmux/owner_phone_changed {device, fullAccess}` from the owner's peer daemon: the phone
+/// it vouched for had its Full-access setting turned off (`fullAccess: false`) or was removed
+/// (`fullAccess: null`). Every chat out of its policy is held again, as on that daemon itself.
+/// From anything but a peer-token link it changes nothing.
+pub(super) async fn owner_phone_changed(
+    hub: &std::sync::Arc<crate::hub::Hub>,
+    conn: &super::Conn,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    if conn.origin != super::Origin::Peer || !conn.auth.peer_daemon() {
+        return Err(RpcError::method_not_found(&format!(
+            "{} (the owner's peer daemon only)",
+            crate::rpc::method::MUX_OWNER_PHONE_CHANGED
+        )));
+    }
+    let device = params
+        .get("device")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("device is required"))?;
+    let full = params.get("fullAccess").and_then(Value::as_bool);
+    let narrowed = hub.pairing.unvouch(&conn.id, Some(device), full);
+    let held_again = if narrowed { hub.hold_policies_again().await } else { 0 };
+    Ok(serde_json::json!({"held_again": held_again}))
+}
+
+/// Tells every peer this daemon reaches that its phone `device` had its Full-access setting
+/// turned off or was removed (`full` None), so a turn the phone started there through this
+/// daemon is held at its next tool ([`owner_phone_changed`]). A peer it cannot reach now drops
+/// the phone with this link (`Pairing::unvouch` at the connection's end).
+pub(crate) async fn tell_peers_owner_phone_changed(
+    hub: &std::sync::Arc<crate::hub::Hub>,
+    device: &str,
+    full: Option<bool>,
+) {
+    let params = serde_json::json!({"device": device, "fullAccess": full});
+    let peers = hub.connected_peers();
+    let sent = futures::future::join_all(
+        peers
+            .iter()
+            .map(|peer| peer.request(crate::rpc::method::MUX_OWNER_PHONE_CHANGED, params.clone())),
+    )
+    .await;
+    for (peer, result) in peers.iter().zip(sent) {
+        if let Err(e) = result {
+            tracing::info!(peer = %peer.name, device, "owner phone change not delivered: {}", e.message);
+        }
+    }
+}
+
+/// `_meta.acpmux.ownerPhone` on a request a daemon forwards to its peer: `{device, fullAccess}`,
+/// saying the Web client it forwards for is the owner's own phone ([`attest_owner_phone`]).
 pub(super) const OWNER_PHONE: &str = "ownerPhone";
 
 /// Says on a request forwarded to a peer ([`mark_forwarded`] first, which drops any client's
@@ -218,7 +288,10 @@ pub(super) fn attest_owner_phone(
         return;
     };
     let full = hub.pairing.full_access(&device);
-    crate::hub::merge_mux_meta(forwarded, serde_json::json!({OWNER_PHONE: {"fullAccess": full}}));
+    crate::hub::merge_mux_meta(
+        forwarded,
+        serde_json::json!({OWNER_PHONE: {"device": device, "fullAccess": full}}),
+    );
 }
 
 /// A request forwarded to a peer, which serves this daemon as Peer: one

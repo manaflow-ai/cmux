@@ -192,7 +192,7 @@ async fn the_phones_full_access_off_on_its_mac_puts_the_asking_rule_back_on_the_
 #[tokio::test]
 async fn others_through_the_mac_and_forged_phone_claims_stay_refused() {
     let (a, b, _id, dirs) = two_daemons("others").await;
-    let forged = json!({"ownerPhone": {"fullAccess": true}});
+    let forged = json!({"ownerPhone": {"device": "dv_forged", "fullAccess": true}});
     let laptop = a.pairing.issue("laptop", Role::Client).unwrap().1;
     for (who, mut c, meta) in [
         ("dashboard", Client::new(&a, Origin::Web, ConnAuth::ListenerToken), json!({})),
@@ -200,7 +200,7 @@ async fn others_through_the_mac_and_forged_phone_claims_stay_refused() {
         (
             "client machine",
             Client::device(&a, &laptop),
-            json!({"via": "web", "ownerPhone": {"fullAccess": true}}),
+            json!({"via": "web", "ownerPhone": {"device": "dv_forged", "fullAccess": true}}),
         ),
     ] {
         let r = c.prompt("b/coord", "hi", meta).await;
@@ -223,7 +223,7 @@ async fn a_peer_daemons_claim_counts_only_on_its_own_link() {
     let p =
         json!({"cwd": d.join("work"), "mcpServers": [], "_meta": {"acpmux": {"name": "coord"}}});
     let id = local.call("session/new", p).await["result"]["sessionId"].as_str().unwrap().to_owned();
-    let claim = json!({"via": "web", "ownerPhone": {"fullAccess": true}});
+    let claim = json!({"via": "web", "ownerPhone": {"device": "dv_forged", "fullAccess": true}});
     let mut peer = Client::new(&b, Origin::Peer, ConnAuth::PeerToken);
     let r = peer.prompt(&id, "from the owner's phone", claim.clone()).await;
     assert_eq!(r["result"]["stopReason"], "end_turn", "{r}");
@@ -233,6 +233,70 @@ async fn a_peer_daemons_claim_counts_only_on_its_own_link() {
     let laptop = b.pairing.issue("laptop", Role::Client).unwrap().1;
     let r = Client::device(&b, &laptop).prompt(&id, "a paired machine", claim).await;
     assert_eq!(reason(&r), "remote.local_claude_session", "{r}");
+    b.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// Review F1: what B was told about the phone is taken back with the phone's own setting. A's
+/// person turns its Full access off, then removes it: B hears it from A
+/// (`_acpmux/owner_phone_changed`) and holds a turn the phone started there at its next tool,
+/// as A does for its own chats (`Hub::hold_policies_again`, the remote floor).
+#[tokio::test]
+async fn turning_the_phone_off_or_removing_it_on_its_mac_takes_it_back_on_the_peer() {
+    let (a, b, _id, dirs) = two_daemons("revoke").await;
+    let (device, token) = a.pairing.issue_phone("phone-iphone").unwrap();
+    let mut phone = Client::device(&a, &token);
+    let r = phone.prompt("b/coord", "hello", json!({})).await;
+    assert_eq!(r["result"]["stopReason"], "end_turn", "{r}");
+    let vouched = b.pairing.vouched_for_tests();
+    assert_eq!(vouched.len(), 1, "{vouched:?}");
+    assert!(vouched[0].0.ends_with(&format!("/{}", device.id)) && vouched[0].1, "{vouched:?}");
+    let mut mac = Client::new(&a, Origin::Local, ConnAuth::LocalSocket);
+    let r = mac.call("_acpmux/pair_set", json!({"id": device.id, "fullAccess": false})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let vouched = b.pairing.vouched_for_tests();
+    assert!(vouched.len() == 1 && !vouched[0].1, "Full access off on A is off on B: {vouched:?}");
+    assert!(!b.pairing.full_access(&vouched[0].0) && b.pairing.own_phone(&vouched[0].0));
+    let r = mac.call("_acpmux/pair_revoke", json!({"id": device.id})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert!(b.pairing.vouched_for_tests().is_empty(), "the removed phone is gone on B too");
+    assert!(!b.pairing.own_phone(&vouched[0].0));
+    end(a, b, dirs).await;
+}
+
+/// A notice from anything but a peer-token link changes nothing; the end of the link takes back
+/// every phone vouched for on it (fail closed).
+#[tokio::test]
+async fn only_the_peer_daemon_takes_a_phone_back_and_its_link_end_takes_back_all() {
+    let d = dir("unvouch");
+    let b = hub(&d);
+    let mut local = Client::new(&b, Origin::Local, ConnAuth::LocalSocket);
+    let p =
+        json!({"cwd": d.join("work"), "mcpServers": [], "_meta": {"acpmux": {"name": "coord"}}});
+    let id = local.call("session/new", p).await["result"]["sessionId"].as_str().unwrap().to_owned();
+    let claim = json!({"via": "web", "ownerPhone": {"device": "dv_phone", "fullAccess": true}});
+    let mut peer = Client::new(&b, Origin::Peer, ConnAuth::PeerToken);
+    let r = peer.prompt(&id, "from the owner's phone", claim).await;
+    assert_eq!(r["result"]["stopReason"], "end_turn", "{r}");
+    let changed = json!({"device": "dv_phone", "fullAccess": null});
+    let mut web = Client::new(&b, Origin::Web, ConnAuth::ListenerToken);
+    let r = web.call("_acpmux/owner_phone_changed", changed.clone()).await;
+    assert!(r.get("error").is_some(), "{r}");
+    assert_eq!(b.pairing.vouched_for_tests().len(), 1);
+    let r = peer
+        .call("_acpmux/owner_phone_changed", json!({"device": "dv_phone", "fullAccess": false}))
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert!(!b.pairing.vouched_for_tests()[0].1);
+    drop(peer);
+    let gone = async {
+        while !b.pairing.vouched_for_tests().is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(10), gone)
+        .await
+        .expect("the link's end kept the phone");
     b.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&d);
 }
