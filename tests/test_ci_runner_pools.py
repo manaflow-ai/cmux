@@ -994,6 +994,8 @@ class RawLabelVars(unittest.TestCase):
             "LINUX_RUNNER_DARWIN_CROSS": {"home": self.DEAD32, "to": self.LIVE16}})
         self.assertIn(f"::warning title=Runner pools::LINUX_BUILD_RUNNER: {self.DEAD32} -> {self.LIVE16}", out)
         self.assertIn(f"::warning title=Runner pools::LINUX_RUNNER_DARWIN_CROSS: {self.DEAD32} -> {self.LIVE16}", out)
+        self.assertNotRegex(out, r"\b(?:dead|stalled)\b")
+        self.assertIn(runner_pools.DEAD_KEY, value)
         # The next pass, still dead, moves nothing and keeps the homes.
         again, kept, _ = self.run_pass(switch, runner_pools.render(value), self.NOW + dt.timedelta(minutes=10))
         self.assertEqual(set(again) - {"RUNNER_POOLS"}, set())
@@ -1087,7 +1089,7 @@ class RawLabelVars(unittest.TestCase):
                  runner_pools.RAW_HOME_KEY: homes}
         self.assertEqual(runner_pools.raw_writes(value, live, owned=frozenset()),
                          [("LINUX_BUILD_RUNNER", "blacksmith-16vcpu-ubuntu-2404", "blacksmith-2vcpu-ubuntu-2404",
-                           "blacksmith-16vcpu-ubuntu-2404 is dead")])
+                           "blacksmith-16vcpu-ubuntu-2404 is taking a breather")])
         # 8 vCPU live again: it takes that, not 2.
         homes, _ = runner_pools.raw_homes(previous, live, dead - {"blacksmith-8vcpu-ubuntu-2404"}, pools,
                                           owned=frozenset())
