@@ -21,7 +21,11 @@ from __future__ import annotations
 
 import re
 
-EPHEMERAL_RUNNER_VARIABLES = ("LINUX_RUNNER", "MACOS_RUNNER_26")
+# LINUX_RUNNER left this list on 2026-11-19: it names our own Linux runners for the jobs that hold no signing
+# secret, and the Linux signing jobs (the nightly notarization polls and publish, the iOS nightly's
+# previous-build, the nightly-next train) take GitHub-hosted Ubuntu directly, since nightlies never run on
+# Blacksmith. Rule 7 now refuses a signing job that reads it.
+EPHEMERAL_RUNNER_VARIABLES = ("MACOS_RUNNER_26",)
 EPHEMERAL_LABEL = re.compile(r"^(blacksmith-|ubuntu-|macos-)[a-z0-9.-]+$")
 
 
