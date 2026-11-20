@@ -59,7 +59,8 @@ function covers(declaration: JudgeDeclaration, sample: JudgeSample, dx: number, 
   if (declaration.scope === "all") return true;
   if (sample.targeted) return true;
   const straight = Math.abs(dx) <= SLACK_PX;
-  if (sample.after && dy > 0 && straight) return true; // pushed down by what opened above it
+  // Pushed down by what opened above it, or pulled up by what closed there (a fold, Wrap lines).
+  if (sample.after && straight) return true;
   return !!sample.before && dy < 0 && straight; // the text above a fold at the very bottom rises with it
 }
 

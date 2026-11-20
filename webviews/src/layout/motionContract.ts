@@ -38,8 +38,8 @@ export function surfaceOf(element: Element): Surface {
 /**
  * A move a piece of code means, while it runs. `scope: "all"` covers every box whose surface allows the
  * event (a resize, a scroll, a stream following the end); `targets` covers the targets, what they hold,
- * what follows them pushed straight down, and while one is a fold at the very bottom of a followed
- * transcript, what precedes it rising straight up (an expand). `once`: each box may move once under
+ * what follows them moving straight down or up (pushed by an open, pulled by a close), and while one is a
+ * fold at the very bottom of a followed transcript, what precedes it rising straight up (an expand). `once`: each box may move once under
  * this declaration (a resize lays a box out once; a second move is a bounce).
  */
 export type Declaration = {
