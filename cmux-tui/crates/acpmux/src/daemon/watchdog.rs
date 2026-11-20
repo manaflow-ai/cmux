@@ -13,6 +13,7 @@
 //!   ends the daemon after `WatchdogSec` and starts a new one, agents kept (`KillMode=process`).
 //! - Its resident memory over [`rss_bound`] for [`RSS_STRIKES`] checks in a row sends the daemon
 //!   SIGTERM, the restart handoff a supervisor uses (`daemon.rs`), so it stops as an update does.
+//!
 //! It runs on its own OS thread, off the daemon's runtime: a runtime that stops scheduling stops
 //! the pings too. Every decision is one log line; the stop is a counted self-stop
 //! (`supervision.rs`). Linux only; without systemd's watchdog (a daemon a client started) it
