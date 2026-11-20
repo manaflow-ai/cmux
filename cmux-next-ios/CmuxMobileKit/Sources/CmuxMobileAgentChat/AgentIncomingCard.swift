@@ -250,11 +250,21 @@ struct AgentIncomingCard: View {
         .padding(.vertical, 8)
     }
 
-    /// The message's first line of text, its Markdown marks left out.
+    /// The message's first line of text, its Markdown marks left out: a code fence's marker line
+    /// (```` ```swift ````), a thematic break and a line with nothing left once its marks are gone are skipped, and a
+    /// link shows its text, so a closed message never previews as `swift` or `[docs](https://…)`.
     static func firstLine(_ text: String) -> String {
-        let line = text.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
-        return line.replacingOccurrences(of: #"^\s*(?:#{1,6}\s+|>\s?|[-*+]\s+)"#, with: "", options: .regularExpression)
-            .replacingOccurrences(of: #"[*_`]"#, with: "", options: .regularExpression)
+        for line in text.split(whereSeparator: \.isNewline) {
+            // A fence's marker line and a thematic break (`---`, `***`) are syntax, not text.
+            if line.range(of: #"^\s*(?:```|~~~|(?:[-*_]\s*){3,}$)"#, options: .regularExpression) != nil { continue }
+            let plain = String(line)
+                .replacingOccurrences(of: #"^\s*(?:#{1,6}\s+|>\s?|[-*+]\s+|\d+[.)]\s+)"#, with: "", options: .regularExpression)
+                .replacingOccurrences(of: #"!?\[([^\]]*)\]\([^)]*\)"#, with: "$1", options: .regularExpression)
+                .replacingOccurrences(of: #"[*_`]"#, with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespaces)
+            if !plain.isEmpty { return plain }
+        }
+        return ""
     }
 }
 
