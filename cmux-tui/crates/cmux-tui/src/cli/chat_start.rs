@@ -983,7 +983,7 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
         },
         Route::Cloud(machine) => match cloud_words(&start, &machine) {
             Ok(words) => {
-                let parsed = cloud_start_chat::parse(&words, read_stdin);
+                let parsed = cloud_start_chat::parse(&words, || read_prompt(deadline));
                 match parsed {
                     Ok(cloud_start_chat::Parsed::Run(mut request)) => {
                         if let Some(end) = deadline {
@@ -1322,6 +1322,14 @@ pub(super) fn cloud_words(start: &Start, machine: &Machine) -> Result<Vec<String
         words.extend(["--".to_owned(), prompt.clone()]);
     }
     Ok(words)
+}
+
+fn read_prompt(deadline: Option<std::time::Instant>) -> Result<String, String> {
+    match deadline {
+        Some(end) => cloud_start_chat::read_prompt_by(std::io::stdin(), end)
+            .map_err(|error| format!("{error}. No chat was started.")),
+        None => read_stdin(),
+    }
 }
 
 pub(super) fn read_stdin() -> Result<String, String> {

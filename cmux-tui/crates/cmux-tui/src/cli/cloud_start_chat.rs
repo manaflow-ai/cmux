@@ -3144,6 +3144,7 @@ mod folder;
 mod fresh;
 mod internal;
 use folder::local_folder;
+pub(super) use internal::bounded::read_by as read_prompt_by;
 use internal::link_wait;
 mod support;
 use support::{Turn, at, folder_kind, last_turn, reply, session_cwd, words};

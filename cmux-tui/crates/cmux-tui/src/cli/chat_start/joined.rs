@@ -429,7 +429,7 @@ pub(in crate::cli) fn run(
         Err(error) => return super::usage_failure(&error, global.output),
     };
     let prompt = match start.prompt.as_deref() {
-        Some("-") if !start.prompt_from_file => match super::read_stdin() {
+        Some("-") if !start.prompt_from_file => match super::read_prompt(deadline) {
             Ok(text) => Some(text),
             Err(error) => return super::usage_failure(&UsageError::new(error), global.output),
         },
