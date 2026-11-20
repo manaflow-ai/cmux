@@ -38,6 +38,30 @@ import Testing
         #expect(AgentIncomingCard.firstLine("") == "")
     }
 
+    @Test func aTableShowsItsHeaderCells() {
+        #expect(AgentIncomingCard.firstLine("| Area | Result |\n|---|---|\n| dialer | ok |") == "Area · Result")
+        #expect(AgentIncomingCard.firstLine("| **Area** | `Result` |\n| :-- | --: |") == "Area · Result")
+    }
+
+    @Test func aTaskListShowsItsFirstItemWithoutTheBox() {
+        #expect(AgentIncomingCard.firstLine("- [ ] todo item\n- [x] done") == "todo item")
+        #expect(AgentIncomingCard.firstLine("- [x] shipped it") == "shipped it")
+    }
+
+    @Test func displayMathIsSkippedForTheTextAfterIt() {
+        #expect(AgentIncomingCard.firstLine("$$\nE = mc^2\n$$\nThe energy") == "The energy")
+        #expect(AgentIncomingCard.firstLine("$$x^2$$\nSquared") == "Squared")
+    }
+
+    @Test func strikethroughLosesItsTildes() {
+        #expect(AgentIncomingCard.firstLine("~~struck~~ text") == "struck text")
+    }
+
+    @Test func underscoresInsideANameStay() {
+        #expect(AgentIncomingCard.firstLine("Renamed fetch_with_retry to fetch") == "Renamed fetch_with_retry to fetch")
+        #expect(AgentIncomingCard.firstLine("_Done_ with `max_rows`") == "Done with max_rows")
+    }
+
     @Test func plainTextIsUnchanged() {
         #expect(AgentIncomingCard.firstLine("Reviewed #45282, two nits\nmore") == "Reviewed #45282, two nits")
     }
