@@ -786,7 +786,7 @@ class Variables:
         try:
             return str(self.client.request("GET", f"/actions/variables/{name}").get("value"))
         except RuntimeError as error:
-            if "(404)" in str(error):
+            if getattr(error, "status", None) == 404:
                 return None
             raise
 
@@ -846,7 +846,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                 # The cmux-bot read budget is org-wide and runs out: on 2026-11-18 from 11:18Z every read was
                 # refused (403), every probe but 2 vCPU waited out its minutes under the vCPU cap, and with no
                 # snapshot every Linux pool went to the 2 vCPU release valve. Ask once more with the workflow
-                # token, as cloud_overflow_switch.GitHub does for a refused read.
+                # token (a run read, which that token can do; it can never read a variable).
                 try:
                     snapshot = fallback.snapshot(now=now)
                     if snapshot is None:
