@@ -136,7 +136,7 @@ const WRITE_TIMED_OUT = new Error("chat.writeDraft timed out");
 
 /** How long one draft write may go unanswered before it counts as failed, and how long after that
  * a web swap still waits in case it lands late (tests change them). */
-export const draftWriteLimits = { timeoutMs: Number.POSITIVE_INFINITY, lateHoldMs: 30_000, throttleMs: 250 };
+export const draftWriteLimits = { timeoutMs: Number.POSITIVE_INFINITY, lateHoldMs: 30_000 };
 
 // A write that timed out may still land later. Nothing newer goes through the same connection
 // until it answers, so it can never land over a newer draft or a clear, and nothing is replayed.
@@ -270,9 +270,6 @@ async function flushDraftWrites(): Promise<void> {
 // each answer, and `flushingDraftWrites` clears in the same turn the loop sees it empty. So a write
 // either joins the running drain or starts a new one; none waits for a drain that already finished.
 function drainDraftWrites(): Promise<void> {
-  if (draftFlushTimer !== undefined) clearTimeout(draftFlushTimer);
-  draftFlushTimer = undefined;
-  lastDraftFlushAt = Date.now();
   if (!flushingDraftWrites) draftDrain = flushDraftWrites();
   return draftDrain ?? Promise.resolve();
 }
@@ -280,29 +277,6 @@ function drainDraftWrites(): Promise<void> {
 /** Flushes writes after the composer has completed its durable restore. */
 export function flushPendingDraftWrites(): void {
   void drainDraftWrites();
-}
-
-// Typing wrote the whole draft to acpmux on every key (`_acpmux/draft_set`, built, serialized and
-// posted on the key's own task). Now a burst of keys sends its first text at once and its newest
-// after `draftWriteLimits.throttleMs` (leading and trailing edge). The queue entry is set at once
-// either way, so hasPendingDraftWrite, settlePendingDraftWrites and the web-swap hold see it, and
-// each of them drains it without waiting for the timer.
-let draftFlushTimer: ReturnType<typeof setTimeout> | undefined;
-let lastDraftFlushAt = Number.NEGATIVE_INFINITY;
-
-function throttledDraftFlush(): void {
-  if (draftFlushTimer !== undefined) return;
-  const wait = lastDraftFlushAt + draftWriteLimits.throttleMs - Date.now();
-  if (wait <= 0) flushPendingDraftWrites();
-  else draftFlushTimer = setTimeout(flushPendingDraftWrites, wait);
-}
-
-// The page going away (a quit, a reload, the tab hidden) sends what is queued at once.
-if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
-  window.addEventListener("pagehide", flushPendingDraftWrites);
-  globalThis.document?.addEventListener?.("visibilitychange", () => {
-    if (globalThis.document.visibilityState === "hidden") flushPendingDraftWrites();
-  });
 }
 
 /**
@@ -382,9 +356,7 @@ export function writePersistedDraft(sessionId: string | undefined, text: string)
   // A cleared draft is nothing to compare with: its entry goes, so the map holds only live drafts.
   if (text) lastQueuedDraft.set(sessionId, text);
   else lastQueuedDraft.delete(sessionId);
-  // A clear goes at once (a send's clear must land before anything reads the draft back).
-  if (text) throttledDraftFlush();
-  else flushPendingDraftWrites();
+  flushPendingDraftWrites();
 }
 
 /// Reads the daemon draft; a missing page action is expected in browser-only and test hosts.

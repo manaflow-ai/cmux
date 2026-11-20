@@ -147,7 +147,11 @@ function longTaskProbe() {
 }
 
 type CpuProfile = {
-  nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number }; children?: number[] }[];
+  nodes: {
+    id: number;
+    callFrame: { functionName: string; url: string; lineNumber: number; columnNumber: number };
+    children?: number[];
+  }[];
   samples: number[];
   timeDeltas: number[];
 };
@@ -157,10 +161,17 @@ function printProfile(length: number, profile: CpuProfile) {
   const byId = new Map(profile.nodes.map((node) => [node.id, node]));
   const parent = new Map<number, number>();
   for (const node of profile.nodes) for (const child of node.children ?? []) parent.set(child, node.id);
+  // Each node's name once: the source line the build's map gives (a bundle line says nothing once it is rebuilt).
+  const names = new Map<number, string>();
   const name = (id: number) => {
-    const frame = byId.get(id)!.callFrame;
-    const file = frame.url.split("/").pop()?.split("?")[0] ?? "";
-    return `${frame.functionName || "(anon)"} ${file}:${frame.lineNumber + 1}`;
+    let known = names.get(id);
+    if (known === undefined) {
+      const frame = byId.get(id)!.callFrame;
+      const file = frame.url.split("/").pop()?.split("?")[0] ?? "";
+      known = `${frame.functionName || "(anon)"} ${file ? mapUrl(file, frame.lineNumber, frame.columnNumber) : ":0"}`;
+      names.set(id, known);
+    }
+    return known;
   };
   const inclusive = new Map<string, number>();
   const self = new Map<string, number>();
@@ -183,21 +194,21 @@ function printProfile(length: number, profile: CpuProfile) {
       .slice(0, count)
       .map(([key, ms]) => `  ${(ms / KEYS).toFixed(3)} ms/key  ${key}`)
       .join("\n");
-  console.log(`PROFILE ${length} rows, inclusive:\n${top(inclusive, 90)}`);
-  console.log(`PROFILE ${length} rows, self:\n${top(self, 40)}`);
+  console.log(`PROFILE ${length} rows, inclusive:\n${top(inclusive, 150)}`);
+  console.log(`PROFILE ${length} rows, self:\n${top(self, 60)}`);
 }
 
 // The pane as it ships (a vite build: production React, the React Compiler pass), served as files; --dev serves the
 // dev server's pane instead (development React, several times the script time per render). With --profile the build
 // is unminified, so the profile names functions.
 const releases: (() => unknown)[] = [];
-// --trace builds unminified with source maps, so the trace names source lines (a second arm's build maps over the
-// first's).
+// --trace and --profile build unminified with source maps, so the trace and the profile name source lines (a second
+// arm's build maps over the first's: profile one tree at a time).
 const serveOptions = {
   dev: DEV,
   unminified: PROFILE || TRACE,
-  sourcemap: TRACE,
-  built: TRACE ? (out: string) => void (mapUrl = sourceMapper(out)) : undefined,
+  sourcemap: PROFILE || TRACE,
+  built: PROFILE || TRACE ? (out: string) => void (mapUrl = sourceMapper(out)) : undefined,
 };
 
 /// One length in one mode on the pane served at `port`: a fresh browser process and page, the keys typed, its row.
