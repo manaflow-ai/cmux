@@ -2081,6 +2081,7 @@ impl Hub {
     /// the log says. Run again, it adds only what it does not hold.
     pub(super) fn restore_inbox(&self, session: &Session) {
         let mut counts = surge::Counts::default();
+        let mut last_held = None;
         let mut recent_held = std::collections::VecDeque::new();
         let mut items: Vec<Item> = Vec::new();
         let mut noticed: std::collections::HashMap<String, String> = Default::default();
@@ -2140,6 +2141,8 @@ impl Hub {
                         reader: None,
                     };
                     if item.surge_held {
+                        last_held =
+                            Some((e.at, e.msg.get("replyPeriodMs").and_then(Value::as_u64)));
                         if recent_held.len() == KEEP {
                             recent_held.pop_front();
                         }
@@ -2179,6 +2182,9 @@ impl Hub {
         }
         // The state itself: `Session::inbox` calls this to fill it.
         let mut inbox = session.inbox_state.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((at, period)) = last_held {
+            inbox.surge_rate.restore_held(at, period);
+        }
         {
             let mut live = inbox.surge_counts.lock().unwrap_or_else(|e| e.into_inner());
             if counts.seq > live.seq {
@@ -2204,7 +2210,6 @@ impl Hub {
             item.noticed |= noticed.contains_key(&item.prompt_id);
             if item.surge_held {
                 item.noticed = true;
-                inbox.surge_rate.restore(item.at);
             }
             item.read |= read.contains(&item.prompt_id);
             inbox.items.push(item);
