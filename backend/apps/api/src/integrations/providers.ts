@@ -9,7 +9,7 @@ import type { Env } from "../env.ts"
  * Tokens are returned to the ConnectionDO only, which seals them.
  */
 
-import { effectCall, failed, form, json, MAX_LINKED_REPOS, ProviderError, rateLimitMessage, rateLimitWait, type Credential, type Http, type ProviderImpl } from "./provider-core.ts"
+import { effectCall, failed, failedRead, form, json, MAX_LINKED_REPOS, ProviderError, rateLimitMessage, rateLimitWait, type Credential, type Http, type ProviderImpl } from "./provider-core.ts"
 
 import { gmail } from "./gmail.ts"
 import { googleCalendar } from "./google-calendar.ts"
@@ -146,7 +146,7 @@ const commentToken = async (env: Env, http: Http, installation: number, repo: st
   if (running) return running
   const mint = (async () => {
     const res = await requestInstallationToken(env, http, installation, { repositories: [repo.split("/")[1]!], permissions: { issues: "write" } })
-    if (!res.ok) throw failed("github", res, "installation token")
+    if (!res.ok) throw await failedRead("github", res, "installation token")
     const body = await json(res)
     const token = String(body.token ?? "")
     commentTokens.set(key, { token, expires_at: Date.parse(String(body.expires_at ?? "")) || Date.now() + 50 * 60_000 })
@@ -186,12 +186,12 @@ export const github: ProviderImpl = {
     )
     const t = await json(tok)
     // A rate-limited exchange is a wait, not an invalid link.
-    const limited = tok.ok ? null : rateLimitWait(tok, Date.now())
+    const limited = tok.ok ? null : rateLimitWait(tok, Date.now(), String(t.message ?? ""))
     if (limited !== null) throw new ProviderError("provider.error", rateLimitMessage("github", limited), true, tok.status)
     if (!tok.ok || typeof t.access_token !== "string") throw new ProviderError("integration.state_invalid", "GitHub code exchange failed")
     const userToken = t.access_token
     const res = await http(new Request(`${GH_API}/user/installations?per_page=100`, { headers: ghHeaders(userToken) }))
-    if (!res.ok) throw failed("github", res, "installation check")
+    if (!res.ok) throw await failedRead("github", res, "installation check")
     const list = ((await json(res)).installations ?? []) as Array<{ id: number; account?: { login?: string; type?: string; html_url?: string }; permissions?: Record<string, string> }>
     const inst = list.find((i) => i.id === installation)
     if (!inst) throw new ProviderError("integration.state_invalid", "this GitHub user cannot access that installation")
@@ -215,7 +215,7 @@ export const github: ProviderImpl = {
       repos = []
       for (let page = 1; page <= MAX_LINKED_REPOS / 100; page++) {
         const r = await http(new Request(`${GH_API}/user/installations/${installation}/repositories?per_page=100&page=${page}`, { headers: ghHeaders(userToken) }))
-        if (!r.ok) throw failed("github", r, "repository list")
+        if (!r.ok) throw await failedRead("github", r, "repository list")
         const batch = ((await json(r)).repositories ?? []) as Array<{ full_name?: string }>
         for (const x of batch) if (typeof x.full_name === "string") repos.push(x.full_name)
         if (batch.length < 100) break
@@ -247,7 +247,7 @@ export const github: ProviderImpl = {
       })
     )
     if (!res.ok) {
-      const error = failed("github", res, "comment", true)
+      const error = await failedRead("github", res, "comment", true)
       // Reconnect must not reuse a revoked token. A late 401 must not evict a newer token,
       // and the failed effect is still returned to the ledger, never retried here.
       const key = commentTokenKey(credential.installation_id, String(params.repo))

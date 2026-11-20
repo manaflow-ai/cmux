@@ -116,15 +116,22 @@ export const rateLimitMessage = (provider: string, seconds: number) =>
  * come after the provider acted, so it is indeterminate, not retryable; only a
  * 429 (refused before acting) releases the key for a retry.
  */
-export const failed = (provider: string, res: Response, what: string, effect = false) => {
+export const failed = (provider: string, res: Response, what: string, effect = false, message = "") => {
   if (res.status === 401) return new ProviderError("needs_reauth", `${provider} ${what} failed: HTTP 401`)
-  // A rate limit (a 429, or a 403 with an exhausted limit or a wait) was refused before acting: retryable, and it
-  // says nothing about the connection, so it names the wait and never asks for a reconnect.
-  const limited = rateLimitWait(res, Date.now())
+  // A rate limit (a 429, or a 403 with an exhausted limit, a wait, or a message naming one) was refused before
+  // acting: retryable, and it says nothing about the connection, so it names the wait and never asks for a reconnect.
+  const limited = rateLimitWait(res, Date.now(), message)
   if (limited !== null) return new ProviderError("provider.error", rateLimitMessage(provider, limited), true, res.status)
   if (effect && res.status >= 500) return new ProviderError("mutation.indeterminate", `${provider} ${what}: HTTP ${res.status}; the provider may have acted`)
   return new ProviderError("provider.error", `${provider} ${what} failed: HTTP ${res.status}`, res.status === 429 || (!effect && res.status >= 500))
 }
+
+/**
+ * `failed` that reads a 403's message (from a clone, never echoed): GitHub sends some secondary rate limits and
+ * abuse detections with no headers, and those must stay a retryable wait, not a refusal.
+ */
+export const failedRead = async (provider: string, res: Response, what: string, effect = false) =>
+  failed(provider, res, what, effect, res.status === 403 ? String(((await res.clone().json().catch(() => ({}))) as { message?: unknown }).message ?? "") : "")
 
 /** The effect request: a network failure after sending is indeterminate too. */
 export const effectCall = async (http: Http, provider: string, req: Request): Promise<Response> => {

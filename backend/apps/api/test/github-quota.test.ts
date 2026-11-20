@@ -161,5 +161,13 @@ describe("GitHub API quota", { timeout: 60_000 }, () => {
     const cred = { kind: "github_installation" as const, installation_id: 99 }
     const posted = await Promise.all([1, 2, 3].map((issue) => github.call(testEnv as any, commentHttp, cred, "github.issue.comment", { repo, issue, body: "hi" }).then(() => "ok", (e: unknown) => String(e))))
     expect([posted, mints]).toEqual([["ok", "ok", "ok"], 1])
+
+    // A secondary rate limit GitHub sends with no headers (only the message names it): a comment and Connect's
+    // code exchange are still a retryable wait, never a final refusal or an invalid link.
+    const secondary = JSON.stringify({ message: "You have exceeded a secondary rate limit. Please wait a few minutes before you try again." })
+    const headerless = await github.call(testEnv as any, async (req: Request) => (req.url.endsWith("/access_tokens") ? commentHttp(req) : new Response(secondary, { status: 403 })), cred, "github.issue.comment", { repo, issue: 9, body: "hi" }).catch((e: unknown) => e)
+    expect([(headerless as ProviderError).code, (headerless as ProviderError).retryable, (headerless as ProviderError).message]).toEqual(["provider.error", true, "GitHub is rate limiting cmux; try again in 60 s"])
+    const exchange = await github.complete(testEnv as any, async (req: Request) => (req.url.startsWith("https://github.com/login/oauth/access_token") ? new Response(secondary, { status: 403 }) : new Response("not found", { status: 404 })), { code: "c", installation_id: "99", setup_action: "install", redirectUri: "https://api.test/cb", policy: { githubScope: "linking_user_repos", requireOrgAdmin: false }, connection: "conn_x", state: "s", scopes_requested: [] }).catch((e: unknown) => e)
+    expect([(exchange as ProviderError).code, (exchange as ProviderError).retryable]).toEqual(["provider.error", true])
   })
 })
