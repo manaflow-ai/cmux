@@ -99,6 +99,14 @@ pub trait Daemon: Send + Sync {
     fn workspace_name(&self, _id: &str) -> Option<String> {
         None
     }
+    /// After the daemon refused `computer-use-endpoint`: swap a daemon older
+    /// than the installed build for that build, keeping its terminals
+    /// (`outdated_daemon.rs`). Ok(true) once swapped, so the endpoint is
+    /// worth asking again; Ok(false) when the refusal is the daemon's own
+    /// answer; Err with the reason no swap could fix it.
+    fn update_outdated(&self) -> Result<bool, String> {
+        Ok(false)
+    }
 }
 
 /// Where a workspace named `id` sits in a `list-workspaces` answer: its `name`.
@@ -255,6 +263,25 @@ impl Daemon for SocketDaemon {
 
     fn workspace_name(&self, id: &str) -> Option<String> {
         workspace_name_in(&self.request("list-workspaces", json!({})).ok()?, id)
+    }
+
+    fn update_outdated(&self) -> Result<bool, String> {
+        use super::outdated_daemon::{self as outdated, Verdict};
+        let identity =
+            self.request("identify", json!({"revisions": true})).map_err(|e| e.to_string())?;
+        let installed = identity["cli_path"]
+            .as_str()
+            .and_then(|cli| outdated::installed_build(std::path::Path::new(cli)));
+        match outdated::verdict(&identity, installed.as_ref()) {
+            Verdict::Current => Ok(false),
+            Verdict::NoNewerBuild(why) => Err(why),
+            Verdict::Restart { cli } => {
+                if !outdated::first_restart(identity["pid"].as_u64()) {
+                    return Err("the cmux daemon still lacks Computer Use after a restart".into());
+                }
+                outdated::restart_in_place(&cli, &self.path).map(|()| true)
+            }
+        }
     }
 }
 
@@ -458,6 +485,9 @@ pub struct Caller<D: Daemon> {
     /// ends and its cursor never lingers. None until the first call, and
     /// again once the worker it was open to went away.
     attached: std::sync::Arc<Mutex<Option<Endpoint>>>,
+    /// Set once this caller asked the daemon to update an outdated build
+    /// (`Daemon::update_outdated`): a second refusal is final.
+    updated_daemon: std::sync::atomic::AtomicBool,
 }
 
 /// Where the agent cursor's tag comes from.
@@ -484,6 +514,7 @@ impl<D: Daemon> Caller<D> {
             next_id: std::sync::atomic::AtomicU64::new(1),
             tag: Mutex::new(CursorTag::default()),
             attached: std::sync::Arc::new(Mutex::new(None)),
+            updated_daemon: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -679,7 +710,7 @@ impl<D: Daemon> Caller<D> {
     }
 
     fn send(&self, request: &Value) -> Result<Value, Outcome> {
-        let deadline = Instant::now() + self.budget;
+        let mut deadline = Instant::now() + self.budget;
         let mut backoff = FIRST_BACKOFF;
         let mut last = String::new();
         loop {
@@ -709,11 +740,24 @@ impl<D: Daemon> Caller<D> {
                         }
                     },
                     Err(DaemonError::Refused { code, message }) => {
-                        // A daemon without the command never gets it by waiting.
+                        // A daemon without the command never gets it by waiting, but an
+                        // older daemon an update left running is swapped for the installed
+                        // build once (cmux#48044); then the endpoint is asked again.
+                        let first =
+                            !self.updated_daemon.swap(true, std::sync::atomic::Ordering::SeqCst);
+                        let why = match first.then(|| self.daemon.update_outdated()) {
+                            Some(Ok(true)) => {
+                                deadline = Instant::now() + self.budget;
+                                last = "the cmux daemon restarted with the installed build".into();
+                                continue;
+                            }
+                            Some(Err(why)) => format!(" {why}."),
+                            Some(Ok(false)) | None => String::new(),
+                        };
                         return Err(Outcome::Failed {
                             code: "computer_use_unavailable".into(),
                             message: format!(
-                                "cmux could not start Computer Use: {message} ({code})"
+                                "cmux could not start Computer Use: {message} ({code}).{why}"
                             ),
                         });
                     }
