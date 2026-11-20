@@ -251,16 +251,20 @@ CLA_SIGNATURES_PATH_PATTERN = %r{\Asignatures/version[0-9]+(?:\.[0-9]+)?/cla\.js
 # The privileged workflow is an explicit reviewed policy, not an extensible
 # script. Its candidate structure is checked as data, and every policy change
 # requires trusted review without a fragile follow-up hash bump.
-# The App-token guard (the GUARD_APP_TOKEN_STEP layout below). The previous
-# pin, 9ffdce443e15c05f7771cd548686f913e2f3b78a59491da4d5004805c53f0a41, was
-# the #13871 guard; any other bytes, earlier ones included, need a trusted
+# The App-token guard (the GUARD_APP_TOKEN_STEP layout below) on the gate
+# selector (CLA_GATE_RUNNER_EXPRESSION) with the CLA_GATE_RUNNER_GUARD_*
+# triple. The previous pins were
+# 0aeffcf9241fbc59bd9aa744a882ddbd8c7555ca87985502b4f9545c59a31b26, the same
+# guard on CLA_TRUSTED_RUNNER_EXPRESSION, and
+# 9ffdce443e15c05f7771cd548686f913e2f3b78a59491da4d5004805c53f0a41, the
+# #13871 guard; any other bytes, earlier ones included, need a trusted
 # review. tests/test_cla_guard_metadata_routing.py keeps this equal to the
 # workflow's digest.
-EXPECTED_GUARD_WORKFLOW_DIGEST = "0aeffcf9241fbc59bd9aa744a882ddbd8c7555ca87985502b4f9545c59a31b26"
+EXPECTED_GUARD_WORKFLOW_DIGEST = "1089255a5c218932b10538a168d390125c1d923bf6f96cbf380f8acd693a0e9e"
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "d64e8033eaf144531902718534ff02be4e0042eb8b8908e18a46e405724753af"
+EXPECTED_GUARD_SCRIPT_DIGEST = "ed14680008927ce326d41722de92070dd2e11c8d2410ff40819ac8aa64aae234"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
