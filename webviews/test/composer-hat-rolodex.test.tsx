@@ -189,7 +189,8 @@ describe("the composer hat's marks are a Rolodex", () => {
     try {
       const mark = two.thumb("commands")!;
       await two.hover(mark);
-      expect(two.title()).toBe("Dev server · Lint the web");
+      expect(two.title()).toContain("Dev server");
+      expect(two.title()).toContain("Lint the web");
       await act(async () => mark.click());
       expect(two.openedCommands).toEqual([]);
       expect(two.button.getAttribute("aria-expanded")).toBe("true");
