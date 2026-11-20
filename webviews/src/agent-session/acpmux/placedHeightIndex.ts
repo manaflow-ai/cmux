@@ -203,9 +203,14 @@ type LeafPlaces = { readonly tops: Float64Array; readonly gaps: Float64Array };
 type Cursor = { top: number; drawn: boolean; lastMark: number };
 
 /**
- * Immutable gap-aware row placement. `update`, `splice` and `append` share
+ * Immutable gap-aware row placement. `update`, `splice`, `append` and `replaceHead` share
  * untouched tree nodes with their input; they never retain a reference to an
  * entire previous snapshot or mutate a shared leaf.
+ *
+ * Rows sit in slots: row `i` in slot `start + i`. The slots before `start` are empty (height 0,
+ * no mark: they draw nothing, so they take and give no gap), which lets rows come and go at the
+ * head (`replaceHead`: a page of older history above the first row) without moving every other
+ * row to another leaf. The tree grows to the left when the head outgrows its empty slots.
  */
 export class PlacedHeightIndex {
   readonly count: number;
@@ -221,6 +226,8 @@ export class PlacedHeightIndex {
     private readonly capacity: number,
     private readonly root: Node | undefined,
     private readonly rules: GapRules,
+    /// The slot of row 0.
+    private readonly start = 0,
   ) {
     this.count = count;
     this.totalHeight = summaryOf(root).sum;
@@ -260,17 +267,23 @@ export class PlacedHeightIndex {
   }
 
   private leafAt(index: number): Leaf | undefined {
-    return readLeaf(this.root, 0, this.capacity, Math.floor(index / BLOCK_SIZE));
+    return readLeaf(this.root, 0, this.capacity, Math.floor((this.start + index) / BLOCK_SIZE));
   }
 
   heightAt(index: number): number {
     if (!Number.isInteger(index) || index < 0 || index >= this.count) return 0;
-    return this.leafAt(index)?.heights[index % BLOCK_SIZE] ?? 0;
+    return this.leafAt(index)?.heights[(this.start + index) % BLOCK_SIZE] ?? 0;
   }
 
   markAt(index: number): number {
     if (!Number.isInteger(index) || index < 0 || index >= this.count) return 0;
-    return this.leafAt(index)?.marks?.[index % BLOCK_SIZE] ?? 0;
+    return this.leafAt(index)?.marks?.[(this.start + index) % BLOCK_SIZE] ?? 0;
+  }
+
+  /// A row's own gap (a layout placed without marks), 0 where it has none.
+  ownGapAt(index: number): number {
+    if (!Number.isInteger(index) || index < 0 || index >= this.count) return 0;
+    return this.leafAt(index)?.gaps?.[(this.start + index) % BLOCK_SIZE] ?? 0;
   }
 
   private gapOf(cursor: Cursor, leaf: Leaf, offset: number): number {
@@ -327,16 +340,18 @@ export class PlacedHeightIndex {
   topAt(index: number): number {
     if (!Number.isInteger(index) || index <= 0) return 0;
     if (index >= this.count) return this.totalHeight;
-    const leafIndex = Math.floor(index / BLOCK_SIZE);
+    const slot = this.start + index;
+    const leafIndex = Math.floor(slot / BLOCK_SIZE);
     const places = this.placesOf(leafIndex);
     if (!places) return this.cursorAtLeaf(leafIndex).top;
-    return places.tops[index % BLOCK_SIZE]!;
+    return places.tops[slot % BLOCK_SIZE]!;
   }
 
   /// The gap the row takes above itself (0 for a row that draws nothing or the first drawn row).
   gapAt(index: number): number {
     if (!Number.isInteger(index) || index < 0 || index >= this.count) return 0;
-    return this.placesOf(Math.floor(index / BLOCK_SIZE))?.gaps[index % BLOCK_SIZE] ?? 0;
+    const slot = this.start + index;
+    return this.placesOf(Math.floor(slot / BLOCK_SIZE))?.gaps[slot % BLOCK_SIZE] ?? 0;
   }
 
   /**
@@ -344,18 +359,18 @@ export class PlacedHeightIndex {
    * O(log rows + visited). Stops early when `visit` returns false.
    */
   scan(from: number, to: number, visit: (index: number, top: number, height: number) => boolean | void): void {
-    const start = Math.max(0, Math.floor(from));
-    const end = Math.min(this.count, Math.ceil(to));
-    if (start >= end) return;
-    let leafIndex = Math.floor(start / BLOCK_SIZE);
+    const first = this.start + Math.max(0, Math.floor(from));
+    const end = this.start + Math.min(this.count, Math.ceil(to));
+    if (first >= end) return;
+    let leafIndex = Math.floor(first / BLOCK_SIZE);
     const cursor = this.cursorAtLeaf(leafIndex);
-    let index = leafIndex * BLOCK_SIZE;
-    while (index < end) {
+    let slot = leafIndex * BLOCK_SIZE;
+    while (slot < end) {
       const leaf = readLeaf(this.root, 0, this.capacity, leafIndex);
       if (!leaf) return;
-      for (let offset = 0; offset < leaf.heights.length && index < end; offset += 1, index += 1) {
+      for (let offset = 0; offset < leaf.heights.length && slot < end; offset += 1, slot += 1) {
         const top = this.step(cursor, leaf, offset);
-        if (index >= start && visit(index, top, leaf.heights[offset]!) === false) return;
+        if (slot >= first && visit(slot - this.start, top, leaf.heights[offset]!) === false) return;
       }
       leafIndex += 1;
     }
@@ -365,8 +380,9 @@ export class PlacedHeightIndex {
   update(index: number, value: number, mark?: number, gap?: number): PlacedHeightIndex {
     if (!Number.isInteger(index) || index < 0 || index >= this.count || !Number.isFinite(value) || value < 0)
       return this;
-    const offset = index % BLOCK_SIZE;
-    const leafIndex = Math.floor(index / BLOCK_SIZE);
+    const slot = this.start + index;
+    const offset = slot % BLOCK_SIZE;
+    const leafIndex = Math.floor(slot / BLOCK_SIZE);
     const previous = readLeaf(this.root, 0, this.capacity, leafIndex);
     if (!previous) return this;
     const sameMark = mark === undefined || (previous.marks?.[offset] ?? 0) === mark;
@@ -404,7 +420,13 @@ export class PlacedHeightIndex {
         summary: join(summaryOf(left), summaryOf(right), between),
       };
     };
-    return new PlacedHeightIndex(this.count, this.capacity, replace(this.root, 0, this.capacity), this.rules);
+    return new PlacedHeightIndex(
+      this.count,
+      this.capacity,
+      replace(this.root, 0, this.capacity),
+      this.rules,
+      this.start,
+    );
   }
 
   /**
@@ -418,9 +440,59 @@ export class PlacedHeightIndex {
     marks?: ArrayLike<number>,
     gaps?: ArrayLike<number>,
   ): PlacedHeightIndex {
-    const start = Math.max(0, Math.min(this.count, Math.floor(from)));
-    const count = start + heights.length;
-    const leafCount = Math.max(1, Math.ceil(count / BLOCK_SIZE));
+    const at = Math.max(0, Math.min(this.count, Math.floor(from)));
+    const count = at + heights.length;
+    const head = this.start;
+    return this.rebuilt(count, head, head + at, head + count, (slot) => slot - head - at, heights, marks, gaps);
+  }
+
+  /**
+   * Returns a new index whose first `removed` rows are `heights` (with `marks` and `gaps`) instead:
+   * a page of rows above the first, or rows taken from the head. The rows after them keep their
+   * leaves (they only move to other slot numbers' rows, not to other leaves); the cost is
+   * O(log rows + BLOCK_SIZE + rows replaced).
+   */
+  replaceHead(
+    removed: number,
+    heights: ArrayLike<number>,
+    marks?: ArrayLike<number>,
+    gaps?: ArrayLike<number>,
+  ): PlacedHeightIndex {
+    const cut = Math.max(0, Math.min(this.count, Math.floor(removed)));
+    const count = this.count - cut + heights.length;
+    let capacity = this.capacity;
+    let root = this.root;
+    let head = this.start;
+    // Grow to the left: the tree so far becomes the right half, its slots that many further on.
+    while (head + cut < heights.length) {
+      root = root ? { right: root, summary: root.summary } : undefined;
+      head += capacity * BLOCK_SIZE;
+      capacity <<= 1;
+    }
+    const start = head + cut - heights.length;
+    const moved = new PlacedHeightIndex(this.count, capacity, root, this.rules, head);
+    // Slots from the first of the old and new heads to the end of the rows replaced: the new rows,
+    // and empty slots before them.
+    return moved.rebuilt(count, start, Math.min(head, start), head + cut, (slot) => slot - start, heights, marks, gaps);
+  }
+
+  /**
+   * This index with the slots `[from, to)` written again: row `rowAt(slot)` of `heights` where that
+   * is in range, an empty slot before `start` (the new row 0), and the slots past `to` kept. The
+   * rows end at slot `start + count`.
+   */
+  private rebuilt(
+    count: number,
+    start: number,
+    from: number,
+    to: number,
+    rowAt: (slot: number) => number,
+    heights: ArrayLike<number>,
+    marks: ArrayLike<number> | undefined,
+    gaps: ArrayLike<number> | undefined,
+  ): PlacedHeightIndex {
+    const end = start + count;
+    const leafCount = Math.max(1, Math.ceil(end / BLOCK_SIZE));
     let capacity = this.capacity;
     let root = this.root;
     while (capacity < leafCount) {
@@ -428,28 +500,34 @@ export class PlacedHeightIndex {
       capacity <<= 1;
     }
     const between = this.rules.between;
-    const fromLeaf = Math.floor(start / BLOCK_SIZE);
+    const fromLeaf = Math.floor(from / BLOCK_SIZE);
+    // A slot past `to` keeps its row: only a splice writes up to the end, and it rebuilds that far.
+    const toLeaf = to >= end ? Number.POSITIVE_INFINITY : Math.floor((to - 1) / BLOCK_SIZE);
     const withMarks = marks !== undefined || between !== undefined;
     const build = (node: Node | undefined, low: number, high: number): Node | undefined => {
-      if (high <= fromLeaf) return node;
-      if (low * BLOCK_SIZE >= count) return undefined;
+      if (high <= fromLeaf || low > toLeaf) return node;
+      if (low * BLOCK_SIZE >= end) return undefined;
+      // Wholly before the first row: empty slots hold nothing.
+      if (high * BLOCK_SIZE <= start) return undefined;
       if (high - low === 1) {
         const first = low * BLOCK_SIZE;
-        const length = Math.min(BLOCK_SIZE, count - first);
+        const length = Math.min(BLOCK_SIZE, end - first);
         const old = node?.leaf;
         const leafHeights = new Float64Array(length);
         const leafMarks = withMarks ? new Uint8Array(length) : undefined;
         const leafGaps = gaps || old?.gaps ? new Float64Array(length) : undefined;
         for (let offset = 0; offset < length; offset += 1) {
-          const row = first + offset;
-          if (row < start) {
+          const slot = first + offset;
+          if (slot < start) continue;
+          if (slot < from || slot >= to) {
             leafHeights[offset] = old?.heights[offset] ?? 0;
             if (leafMarks) leafMarks[offset] = old?.marks?.[offset] ?? 0;
             if (leafGaps) leafGaps[offset] = old?.gaps?.[offset] ?? 0;
           } else {
-            leafHeights[offset] = normalizeHeight(heights[row - start] ?? 0);
-            if (leafMarks) leafMarks[offset] = marks?.[row - start] ?? 0;
-            if (leafGaps) leafGaps[offset] = gaps?.[row - start] ?? 0;
+            const row = rowAt(slot);
+            leafHeights[offset] = normalizeHeight(heights[row] ?? 0);
+            if (leafMarks) leafMarks[offset] = marks?.[row] ?? 0;
+            if (leafGaps) leafGaps[offset] = gaps?.[row] ?? 0;
           }
         }
         const leaf: Leaf = {
@@ -470,7 +548,7 @@ export class PlacedHeightIndex {
         summary: join(summaryOf(left), summaryOf(right), between),
       };
     };
-    return new PlacedHeightIndex(count, capacity, build(root, 0, capacity), this.rules);
+    return new PlacedHeightIndex(count, capacity, build(root, 0, capacity), this.rules, start);
   }
 
   /** Returns a new index with the supplied rows appended. */
@@ -512,13 +590,17 @@ export class PlacedHeightIndex {
         low = middle;
       }
     }
-    let leafIndex = Math.max(0, low - 1);
-    // Scan from the leaf before the descent's, in case rounding put the answer there.
-    while (leafIndex * BLOCK_SIZE < this.count) {
+    const end = this.start + this.count;
+    // Scan from the leaf before the descent's, in case rounding put the answer there; never before
+    // the leaf of row 0 (the slots before it are empty).
+    let leafIndex = Math.max(Math.floor(this.start / BLOCK_SIZE), low - 1);
+    while (leafIndex * BLOCK_SIZE < end) {
       const places = this.placesOf(leafIndex);
       if (!places) break;
-      for (let offset = 0; offset < places.tops.length; offset += 1)
-        if (places.tops[offset]! > target) return leafIndex * BLOCK_SIZE + offset;
+      for (let offset = 0; offset < places.tops.length; offset += 1) {
+        const slot = leafIndex * BLOCK_SIZE + offset;
+        if (slot >= this.start && slot < end && places.tops[offset]! > target) return slot - this.start;
+      }
       leafIndex += 1;
     }
     return this.count;

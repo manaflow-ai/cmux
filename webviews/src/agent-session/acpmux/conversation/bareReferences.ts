@@ -20,6 +20,8 @@
 import { createContext } from "react";
 import { githubReferences, isGithubOwner } from "../../../githubReferences";
 import type { AcpmuxRow } from "../model";
+import { LayeredMap } from "./layeredMap";
+import { rowsDelta } from "./rowsDelta";
 
 type Mention = { at: number; repo: string };
 
@@ -94,7 +96,8 @@ type Reading = {
   mentions: Map<number, readonly Mention[]>;
   repos: Map<string, Mention>;
   smallest: Map<string, number>;
-  turns: Map<string, { at: number; named: Map<number, string> }>;
+  /// Persistent (layeredMap.ts), so a copy of a reading costs the open turn, not every turn.
+  turns: LayeredMap<{ at: number; named: Map<number, string> }>;
   turn: string;
 };
 
@@ -107,6 +110,10 @@ export type ReferenceScopeCache = {
   source?: readonly object[];
   prefix?: Reading;
   prefixLength: number;
+  /// The reading of the rows before the last prompt the prefix read (`at`): a row of the last turn
+  /// that changes (a streamed reply above the live line) reads again from there, not from row 0.
+  /// Its maps are its own: the prefix is read on over a copy of it.
+  turnStart?: { at: number; reading: Reading };
   generation: number;
   rowTurn: Map<string, string>;
   evidence?: { key: string; value: ReferenceEvidence };
@@ -124,14 +131,15 @@ const empty = (): Reading => ({
   mentions: new Map(),
   repos: new Map(),
   smallest: new Map(),
-  turns: new Map(),
+  turns: LayeredMap.empty(),
   turn: "",
 });
 
 const copy = (reading: Reading): Reading => {
-  const turns = new Map(reading.turns);
-  const open = turns.get(reading.turn);
-  if (open) turns.set(reading.turn, { at: open.at, named: new Map(open.named) });
+  const open = reading.turns.get(reading.turn);
+  const turns = open
+    ? reading.turns.with(new Map([[reading.turn, { at: open.at, named: new Map(open.named) }]]))
+    : reading.turns;
   return {
     mentions: new Map(reading.mentions),
     repos: new Map(reading.repos),
@@ -144,7 +152,7 @@ const copy = (reading: Reading): Reading => {
 function read(reading: Reading, row: Pick<AcpmuxRow, "id" | "kind" | "text" | "items">, at: number) {
   if (row.kind === "user") {
     reading.turn = row.id;
-    reading.turns.set(row.id, { at, named: new Map() });
+    reading.turns = reading.turns.with(new Map([[row.id, { at, named: new Map() }]]));
   }
   for (const { number, repo } of rowNamed(row)) {
     const key = repo.toLowerCase();
@@ -155,7 +163,8 @@ function read(reading: Reading, row: Pick<AcpmuxRow, "id" | "kind" | "text" | "i
     if (number === undefined) continue;
     if (!(number >= (reading.smallest.get(key) ?? Infinity))) reading.smallest.set(key, number);
     reading.mentions.set(number, [...(reading.mentions.get(number) ?? []), { at, repo: spelled }]);
-    if (!reading.turns.has(reading.turn)) reading.turns.set(reading.turn, { at: 0, named: new Map() });
+    if (!reading.turns.has(reading.turn))
+      reading.turns = reading.turns.with(new Map([[reading.turn, { at: 0, named: new Map() }]]));
     reading.turns.get(reading.turn)!.named.set(number, spelled);
   }
 }
@@ -167,18 +176,43 @@ export function referenceScopes(
   source: readonly Pick<AcpmuxRow, "id" | "kind" | "text" | "items">[],
   cache: ReferenceScopeCache = newReferenceScopeCache(),
 ): (opener: string) => ReferenceScope {
-  // The kept reading stands when every row it read is still the same object at the same place.
-  let kept = Boolean(cache.prefix && cache.source && source.length > cache.prefixLength);
-  for (let index = 0; kept && index < cache.prefixLength; index++) kept = source[index] === cache.source![index];
+  // The kept reading stands when every row it read is still the same object at the same place
+  // (rowsDelta.ts: found once for the transcript's passes, and told by the rows' maker).
+  const same = cache.prefix && cache.source ? rowsDelta(cache.source, source).from : -1;
+  let kept = source.length > cache.prefixLength && same >= cache.prefixLength;
+  // A changed row of the last turn the prefix read (a streamed reply with the live line under it)
+  // reads again from that turn's prompt, over a copy of the reading before it: the same reading as
+  // one from row 0, as a new generation, for the rows of one turn.
+  const restart =
+    !kept && cache.turnStart && same >= cache.turnStart.at && source.length > cache.turnStart.at
+      ? cache.turnStart
+      : undefined;
   if (!kept) {
     cache.generation += 1;
-    cache.rowTurn.clear();
+    if (!restart) {
+      cache.rowTurn.clear();
+      cache.turnStart = undefined;
+    }
   }
   const last = source.length - 1;
   // The kept reading is only read from when no row before the last is new: copied only when the
-  // loop below reads more into it (a copy is O(turns), once per snapshot).
-  const reading = kept ? (cache.prefixLength < last ? copy(cache.prefix!) : cache.prefix!) : empty();
-  for (let index = kept ? cache.prefixLength : 0; index < last; index++) {
+  // loop below reads more into it (a copy is O(numbers named), once per snapshot).
+  const reading = kept
+    ? cache.prefixLength < last
+      ? copy(cache.prefix!)
+      : cache.prefix!
+    : restart
+      ? copy(restart.reading)
+      : empty();
+  if (restart) kept = true;
+  const start = restart ? restart.at : kept ? cache.prefixLength : 0;
+  // The last prompt this pass reads, whose reading before it is kept (`turnStart`): found from the
+  // end, over the last turn's rows.
+  let lastPrompt = last - 1;
+  while (lastPrompt >= start && source[lastPrompt]!.kind !== "user") lastPrompt -= 1;
+  for (let index = start; index < last; index++) {
+    // A restart from that prompt keeps the reading it started from.
+    if (index === lastPrompt && index !== restart?.at) cache.turnStart = { at: index, reading: copy(reading) };
     read(reading, source[index]!, index);
     cache.rowTurn.set(source[index]!.id, reading.turn);
   }
@@ -186,7 +220,7 @@ export function referenceScopes(
   cache.prefix = reading;
   cache.prefixLength = Math.max(0, last);
   // The last row read over a copy, unless reading it changes nothing (no prompt, nothing named: a
-  // running call's output that names no pull request), so a snapshot copies no O(turns) reading.
+  // running call's output that names no pull request), so a snapshot copies no reading.
   const lastRow = last >= 0 ? source[last]! : undefined;
   const changes = lastRow !== undefined && (lastRow.kind === "user" || rowNamed(lastRow).length > 0);
   const whole = changes ? copy(reading) : reading;
