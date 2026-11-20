@@ -15,6 +15,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { focusByKey } from "./support/focusByKey";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -150,7 +151,8 @@ await requireBrowserLane("composer-one-edge.test.ts", async () => {
         expect(resting.drift, `resting edge ${resting.color}`).toEqual([]);
 
         // Focus lifts the whole stack's edge, the banner's too, not the card's alone.
-        await page.focus("#goal-field");
+        // A key moved focus: code focus shows no :focus-visible (support/focusByKey.ts).
+        await focusByKey(page, "#goal-field");
         const focused = oneColor(await edgesOf(page, ["goal", "goal-card", "attachment"]));
         expect(focused.drift, `focused edge ${focused.color}`).toEqual([]);
         expect(focused.color, "focus lifts the edge a step").not.toBe(resting.color);
