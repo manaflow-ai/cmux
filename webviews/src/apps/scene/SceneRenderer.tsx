@@ -13,7 +13,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { useVirtualizer, type Range, type Virtualizer } from "@tanstack/react-virtual";
+import { useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { Spinner } from "../../agent-session/acpmux/conversation/icons";
 import { Switch } from "../../ui/Switch";
 import { offsetRange, sliceBand, type VisibleSlice } from "../../ui/visibleSlice";
@@ -620,21 +620,16 @@ function LazyStackChildren({
   // A row a render just added enters (scene motion); one that only scrolled into the window does not. The rows
   // drawn before: null until the stack first draws rows, which may enter only if the stack itself came after the
   // scene's first frame (as a new stack's children do; a page scroller's stack draws its rows a pass late).
+  // Written only once a draw commits, so a row mounting in the render that added it is not known yet (it
+  // enters), and one mounting in any later render is (it only scrolled in).
   const [cameLate] = useState(() => store.hasDrawn());
   const known = useRef<ReadonlySet<string> | null>(null);
-  const added = useMemo(() => {
-    const before = known.current;
-    return before ? new Set(items.filter((id) => !before.has(id))) : null;
-  }, [items]);
-  const addedNow = useRef(added);
-  addedNow.current = added;
   useEffect(() => {
     if (mode === "pending") return;
     known.current = new Set(items);
-    addedNow.current = new Set();
   }, [items, mode]);
   const scrolledIn = useCallback(
-    (id: string) => (addedNow.current === null ? !cameLate : !addedNow.current.has(id)),
+    (id: string) => (known.current === null ? !cameLate : known.current.has(id)),
     [cameLate],
   );
   const focused = useRef<string | undefined>(undefined);
@@ -662,7 +657,7 @@ function LazyStackChildren({
   }, [windowed, stack]);
 
   const itemKey = useCallback((index: number) => items[index]!, [items]);
-  const instance = useRef<Virtualizer<HTMLElement, HTMLElement> | null>(null);
+  // react-doctor-disable-next-line react-hooks-js/incompatible-library -- TanStack Virtual returns functions the React Compiler cannot memoize safely, so this stack stays uncompiled on purpose; its range comes from the host slice and it measures each child itself, so ui/VirtualList does not fit.
   const virtualizer = useVirtualizer<HTMLElement, HTMLElement>({
     count,
     enabled: windowed,
@@ -677,13 +672,15 @@ function LazyStackChildren({
     overscan: 0,
     ...(scroll.host && { observeElementRect: hostRect, observeElementOffset: hostOffset, scrollToFn: noScroll }),
     rangeExtractor: (range: Range) => {
-      const self = instance.current;
-      const measured = self?.measurementsCache;
+      // Called only from the virtualizer's own reads (it draws and scrolls after the hook returns), never
+      // from inside the hook, so `virtualizer` is always set here: the hook keeps one for the stack's life.
+      const self = virtualizer;
+      const measured = self.measurementsCache;
       let band: { low: number; high: number } | null;
       if (scroll.host) band = slice ? sliceBand(slice) : null;
       else {
-        const height = self?.scrollRect?.height ?? 0;
-        const offset = self?.scrollOffset ?? 0;
+        const height = self.scrollRect?.height ?? 0;
+        const offset = self.scrollOffset ?? 0;
         band = height > 0 ? { low: offset - height, high: offset + 2 * height } : null;
       }
       const indexes: number[] = [];
@@ -704,7 +701,6 @@ function LazyStackChildren({
       return indexes;
     },
   });
-  instance.current = virtualizer;
   const measure = useCallback(
     (element: HTMLElement | null) => {
       const type = element?.dataset.appType;
