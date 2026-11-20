@@ -172,7 +172,7 @@ async fn spoken_handles_refuse_a_duplicate_peer_handle() {
     let hub = setup_with(&[("lane-a", "ci-fleet")]);
     call(&hub, method::MUX_RENAME, json!({"sessionId": "lane-a", "newHandle": "Mango"})).await;
     let mut rows = hub.remote_sessions.write();
-    let mut row = rows.get("hb/peer-review-1").unwrap().clone();
+    let mut row = rows.get("hb/peer-review-1").unwrap().as_ref().clone();
     let mut summary = row.summary.value();
     summary["handle"] = json!("mango");
     row.summary = summary.into();

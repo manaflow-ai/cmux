@@ -175,28 +175,29 @@ impl Hub {
         // (`short_step`): an exact short name beats a sibling's in another case, and the loose
         // short steps apply only when no short name matches exactly (review of #36919, F1).
         let mut found = Vec::new();
-        let mut take = |host: &str, name: &str, id: &str, handle, route: &str, closed: bool| {
-            let legacy_exact = name == rest || id.starts_with(rest);
-            let at = if legacy_exact || crate::session_handle::matches(handle, id, rest) {
-                Some((false, Step::Exact))
-            } else {
-                crate::name_match::step(name, rest)
-                    .map(|at| (false, at))
-                    .or_else(|| crate::name_match::short_step(name, rest).map(|at| (true, at)))
+        let mut take =
+            |host: &str, name: &str, id: &str, handle: Option<&str>, route: &str, closed: bool| {
+                let legacy_exact = name == rest || id.starts_with(rest);
+                let at = if legacy_exact || crate::session_handle::matches(handle, id, rest) {
+                    Some((false, Step::Exact))
+                } else {
+                    crate::name_match::step(name, rest)
+                        .map(|at| (false, at))
+                        .or_else(|| crate::name_match::short_step(name, rest).map(|at| (true, at)))
+                };
+                if let Some(at) = at {
+                    found.push((
+                        at,
+                        legacy_exact,
+                        Candidate {
+                            host: host.to_owned(),
+                            name: name.to_owned(),
+                            route: route.to_owned(),
+                            closed,
+                        },
+                    ));
+                }
             };
-            if let Some(at) = at {
-                found.push((
-                    at,
-                    legacy_exact,
-                    Candidate {
-                        host: host.to_owned(),
-                        name: name.to_owned(),
-                        route: route.to_owned(),
-                        closed,
-                    },
-                ));
-            }
-        };
         match machine {
             Machine::Here(own) => {
                 for s in
@@ -251,7 +252,7 @@ impl Hub {
     fn key_candidates(&self, key: &str, own: &str) -> [Vec<Candidate>; 6] {
         use crate::name_match::Step;
         let mut tiers: [Vec<Candidate>; 6] = Default::default();
-        let tier_of = |name: &str, id: &str, handle, here: bool| {
+        let tier_of = |name: &str, id: &str, handle: Option<&str>, here: bool| {
             if name == key || id.starts_with(key) || crate::session_handle::matches(handle, id, key)
             {
                 return Some(0);
