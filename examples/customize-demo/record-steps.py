@@ -25,7 +25,15 @@ def main() -> int:
     parser.add_argument("--hold", type=float, default=5.0)
     args = parser.parse_args()
     files = subprocess.run([str(HERE / "demo.sh"), "--list"], capture_output=True, text=True, check=True)
-    steps = [{"action": "newTab.default", "name": "New Tab"}, {"wait": 2}, {"shot": "00-before"}]
+    # The status calls are deliberate: a NIGHTLY can have a stale pr-N or web-dev
+    # layer left by another experiment.  Capture logs name what was on before the
+    # first profile and confirm the library is clean after discard.
+    steps = [
+        {"cmux": ["customize", "library", "status"]},
+        {"action": "newTab.default", "name": "New Tab"},
+        {"wait": 2},
+        {"shot": "00-before"},
+    ]
     for index, file in enumerate(files.stdout.split(), start=1):
         name = re.sub(r"[^a-z0-9]+", "-", Path(file).with_suffix("").as_posix().lower()).strip("-")
         steps += [
@@ -33,7 +41,12 @@ def main() -> int:
             {"wait": args.hold},
             {"shot": f"{index:02d}-{name}"[:48]},
         ]
-    steps += [{"cmux": ["customize", "discard"]}, {"wait": 2}, {"shot": "99-after-reset"}]
+    steps += [
+        {"cmux": ["customize", "discard"]},
+        {"cmux": ["customize", "library", "status"]},
+        {"wait": 2},
+        {"shot": "99-after-reset"},
+    ]
     if len(steps) > MAX_STEPS:
         print(f"record-steps: {len(steps)} steps, hot-verify takes {MAX_STEPS}; record in two runs", file=sys.stderr)
         return 1
