@@ -35,6 +35,9 @@ pub enum Command {
     /// Send a local brief to another harness on a machine (or the least-loaded
     /// allowed machine with `--machine auto`) and record its identity.
     Dispatch(DispatchArgs),
+    /// Search every session's indexed prompts, replies and tool titles, here and on peers.
+    #[command(name = "search", alias = "grep")]
+    Search(crate::cli::search_all::SearchArgs),
     /// Task briefs: list, steer and report work tracked by the daemon.
     #[command(subcommand)]
     Briefs(BriefsCmd),

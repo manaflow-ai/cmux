@@ -41,15 +41,19 @@ use std::time::Duration;
 pub(crate) mod parts;
 
 /// The methods a read may run: each answers a page of a session and changes nothing.
-const READ_METHODS: &[&str] =
-    &[method::MUX_INFO, method::MUX_EVENTS, method::MUX_ATTACH, method::MUX_HISTORY];
+const READ_METHODS: &[&str] = &[
+    method::MUX_INFO,
+    method::MUX_EVENTS,
+    method::MUX_ATTACH,
+    method::MUX_HISTORY,
+    method::MUX_SESSION_SEARCH,
+];
 
 /// The other reads of one session a client may ask of `HOST/KEY` (`pairing/read_only.rs`): no
 /// read carries them, so a session only the hub reaches answers that, never `no session` from
 /// this daemon's own handlers (2026-11-19: `acpmux history` of one answered no_session while
 /// `acpmux last` of it worked).
-const NOT_CARRIED: &[&str] =
-    &[method::MUX_ATTACHMENT, method::MUX_QUEUE_TEXT, method::MUX_SESSION_SEARCH, method::MUX_WAIT];
+const NOT_CARRIED: &[&str] = &[method::MUX_ATTACHMENT, method::MUX_QUEUE_TEXT, method::MUX_WAIT];
 
 /// Whether `m` reads a page of events, so its params cross and its budget halves.
 fn pages(m: &str) -> bool {
@@ -66,6 +70,7 @@ fn crossing(m: &str) -> &'static [&'static str] {
     match m {
         _ if pages(m) => EVENT_PARAMS,
         method::MUX_HISTORY => &["limit"],
+        method::MUX_SESSION_SEARCH => &["query", "role", "sinceMs", "limit"],
         _ => &[],
     }
 }

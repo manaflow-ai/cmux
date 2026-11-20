@@ -9,6 +9,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
     matches!(
         cmd,
         Command::Dispatch(..)
+            | Command::Search(..)
             | Command::Briefs(..)
             | Command::Wait { .. }
             | Command::Ensure { .. }
@@ -51,6 +52,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
     })?;
     match cmd {
         Command::Dispatch(args) => dispatch(connect(true).await?, args, json_out).await,
+        Command::Search(args) => {
+            crate::cli::search_all::run(connect(true).await?, args, json_out).await
+        }
         Command::Briefs(cmd) => briefs(connect(true).await?, cmd, json_out).await,
         Command::Wait {
             sessions,
