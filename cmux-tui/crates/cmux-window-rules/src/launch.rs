@@ -16,6 +16,11 @@
 //! loaded: the workspace and tab the person was last on, Home when Home was
 //! last or on a true first launch, and Home for a saved workspace the daemon
 //! does not have (the one exception).
+//!
+//! [`fresh_landing`]: what a launch opens before the saved windows decide:
+//! nothing until Home is ensured, then Home or a New Tab workspace for a tree
+//! with no workspace of the person's own, and a New Tab workspace when no saved
+//! window is open.
 
 use serde::{Deserialize, Serialize};
 
@@ -161,6 +166,57 @@ pub fn landing(facts: &LandingFacts) -> Landing {
             pane: pane.clone(),
             tab: tab.clone().filter(|_| facts.tab != TabStanding::Gone),
         },
+    }
+}
+
+/// What the app knows when the launch decides whether it opens something fresh: before the restore places the saved
+/// windows, and again once it found none of them open (`no_saved_window_open`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct FreshFacts {
+    /// The tree has no workspace of the person's own (Home, incognito leftovers and recovered terminals do not
+    /// count). Read with the Home workspace `ensure_home` named, so it means nothing while Home is not ensured yet.
+    pub empty_tree: bool,
+    /// Saved windows exist and none of them is open (#31514: a relaunch restores only what was open at quit).
+    pub no_saved_window_open: bool,
+    /// Home is classic Home, which has no Home workspace to land on.
+    pub classic_home: bool,
+    /// `ensure_home` named a Home workspace.
+    pub home_ensured: bool,
+    /// Home is not ensured yet: an `ensure_home` is in flight, or this launch ensures Home and none answered yet
+    /// (its Home can start after the first frame).
+    pub home_not_ensured_yet: bool,
+}
+
+/// What a launch opens before, or instead of, the saved windows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum FreshLanding {
+    /// Home, the Chief's workspace.
+    Home,
+    /// A new workspace on its New Tab page.
+    NewTab,
+    /// Open nothing yet: ask again once Home is ensured or the launch can no longer ensure it.
+    WaitForHome,
+    /// Nothing fresh: the saved windows reopen, and [`landing`] picks where.
+    Saved,
+}
+
+/// What a launch opens fresh (Leo 2026-11-18: "fresh startup opening home is obv fine but if it's not first time and
+/// the user was on a workspace and a tab, obv just take them there"). It waits while Home is not ensured yet: until
+/// then the tree cannot tell Home from a workspace of the person's own, so a relaunch would make a workspace over its
+/// saved front and a fresh install would miss Home. Then an empty tree lands on Home, or on a New Tab workspace under
+/// classic Home or when `ensure_home` named none; a tree with workspaces of the person's own reopens the saved
+/// windows, or opens a New Tab workspace when none of them is open.
+pub fn fresh_landing(facts: &FreshFacts) -> FreshLanding {
+    if facts.home_not_ensured_yet {
+        FreshLanding::WaitForHome
+    } else if !facts.empty_tree {
+        if facts.no_saved_window_open { FreshLanding::NewTab } else { FreshLanding::Saved }
+    } else if facts.classic_home || !facts.home_ensured {
+        FreshLanding::NewTab
+    } else {
+        FreshLanding::Home
     }
 }
 

@@ -67,6 +67,8 @@ pub struct Remote<'a> {
     pub added_ms: u64,
     pub state: &'a str,
     pub scope: Option<&'a str>,
+    /// Whose `scope` it is: the chat's session id (`chat`), the Chief's home id (`chief`).
+    pub owner: Option<&'a str>,
     /// The names (never the values) of its secret headers.
     pub secret_names: &'a [String],
 }
@@ -86,12 +88,65 @@ impl Remote<'_> {
             if let Some(scope) = self.scope {
                 obj.insert("scope".into(), json!(scope));
             }
+            if let Some(owner) = self.owner {
+                obj.insert("owner".into(), json!(owner));
+            }
             if !self.secret_names.is_empty() {
                 obj.insert("secret_names".into(), json!(self.secret_names));
             }
         }
         v
     }
+}
+
+/// Who looks at the store.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Viewer {
+    /// The person (Settings, the CLI): every server.
+    Person,
+    /// A Chief home (its turns and subagents), by home id.
+    Chief(String),
+    /// An agent chat, by acpmux session id, with the Chief it works for, if any.
+    Agent { session: String, chief: Option<String> },
+}
+
+/// Whether `viewer` may see and use a server kept with `scope` for `owner` (the person's
+/// choice on the connect card, design section 2b):
+///
+/// - `chat`: only that chat (owner = its session id);
+/// - `chief`: only that Chief (owner = its home id) and its agents; with no owner, every Chief;
+/// - `allChiefs`: every Chief, no other agent;
+/// - `agents`, `everywhere`, or none (a server a Chief added): every Chief and agent.
+///
+/// An unknown scope is seen by the person only (fail closed).
+pub fn visible(scope: Option<&str>, owner: Option<&str>, viewer: &Viewer) -> bool {
+    let chief_of = |v: &Viewer| match v {
+        Viewer::Chief(home) => Some(home.clone()),
+        Viewer::Agent { chief, .. } => chief.clone(),
+        Viewer::Person => None,
+    };
+    match (scope, viewer) {
+        (_, Viewer::Person) => true,
+        (None | Some("agents" | "everywhere"), _) => true,
+        (Some("allChiefs"), v) => matches!(v, Viewer::Chief(_)),
+        (Some("chief"), v) => match owner {
+            None => matches!(v, Viewer::Chief(_)),
+            Some(home) => chief_of(v).as_deref() == Some(home),
+        },
+        (Some("chat"), Viewer::Agent { session, .. }) => owner == Some(session.as_str()),
+        _ => false,
+    }
+}
+
+/// The Chief home id an acpmux session works for, from its name: a Chief turn is
+/// `optchat-<home id>...`, its subagent `optchat-sub-<home id>-<id>` (8 hex digits).
+pub fn chief_of_session(name: &str) -> Option<&str> {
+    let rest = name.strip_prefix("optchat-")?;
+    let rest = rest.strip_prefix("sub-").unwrap_or(rest);
+    let id = rest.get(..8)?;
+    let ok = id.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+        && rest.get(8..9).is_none_or(|c| c == "-");
+    ok.then_some(id)
 }
 
 /// The secrets file for a key the person typed into a card.
