@@ -7,11 +7,13 @@
 use crate::cli::output::print_json;
 pub use crate::cli::session_search::HistoryQuery as SearchArgs;
 use crate::client::Client;
+use crate::no_panic::LockExt as _;
 use crate::rpc::method;
 use anyhow::Result;
 use futures_util::stream::{self, StreamExt};
 use serde_json::{Value, json};
-use std::sync::Arc;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 
 /// A search asks the daemon for one session's already-indexed text. Keep the
 /// fanout bounded because peer reads hold a mesh receipt while the remote
@@ -26,6 +28,7 @@ pub async fn run(client: Arc<Client>, args: SearchArgs, json_out: bool) -> Resul
     let rows = listed.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
     let session_count = rows.len();
     let local_host = crate::pairing::machine_name();
+    let offline_peers = Mutex::new(HashSet::<String>::new());
     let searches = rows.into_iter().filter_map(|row| {
         let session = crate::session_identity::routed_id(&row).ok()?;
         let name = row["name"].as_str().unwrap_or(&session).to_owned();
@@ -36,10 +39,28 @@ pub async fn run(client: Arc<Client>, args: SearchArgs, json_out: bool) -> Resul
             .map(str::to_owned)
             .unwrap_or_else(|| local_host.clone());
         let client = client.clone();
+        let is_peer = row["peer"].is_string();
+        let offline_peers = &offline_peers;
         let mut params = params.clone();
         params["sessionId"] = json!(session);
         Some(async move {
-            let result = client.request(method::MUX_SESSION_SEARCH, params).await;
+            let result = if is_peer && offline_peers.lock_or_recover().contains(&host) {
+                Err("peer_unreachable".to_owned())
+            } else {
+                client.request(method::MUX_SESSION_SEARCH, params).await.map_err(|error| {
+                    // Retain only a stable reason. A refusal on one session, or a slow
+                    // index, says nothing about another session on the same host.
+                    let reason = error
+                        .downcast_ref::<crate::client::DaemonError>()
+                        .and_then(|daemon| daemon.0.data.as_ref())
+                        .and_then(|data| data["reason"].as_str())
+                        .unwrap_or("search_unavailable");
+                    if is_peer && reason == "peer_unreachable" {
+                        offline_peers.lock_or_recover().insert(host.clone());
+                    }
+                    reason.to_owned()
+                })
+            };
             (session, name, host, result)
         })
     });
@@ -63,13 +84,7 @@ pub async fn run(client: Arc<Client>, args: SearchArgs, json_out: bool) -> Resul
             Err(error) => unreached.push(json!({
                 "session": session,
                 "host": host,
-                // Remote error messages can contain paths or prompt text.
-                // Return only the stable reason to the caller.
-                "error": error.downcast_ref::<crate::client::DaemonError>()
-                    .and_then(|daemon| daemon.0.data.as_ref())
-                    .and_then(|data| data.get("reason"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("search_unavailable"),
+                "error": error,
             })),
         }
     }
