@@ -305,7 +305,7 @@ const KINDS: Record<string, (ctx: Ctx, step: FlowStep) => Promise<Result>> = {
       } else if (at === "sudo") {
         await type(ctx, "#sudo_password", ctx.env.CMUX_GITHUB_TEST_PASSWORD!);
         await clickNamed(ctx, /^confirm/i, ["button"]);
-      } else if (at === "left" || (pressed && at === "other") || ctx.vars.completion) {
+      } else if (at === "left" || (pressed && (at === "other" || at === "permissions")) || ctx.vars.completion) {
         if (!pressed && !ctx.vars.completion) throw new Error(`the page left GitHub before Install (${new URL(p.url()).host})`);
         return done(`installed ${ctx.vars.app_slug || ctx.vars.slug} on ${org} for ${repo} only; GitHub returned ${ctx.vars.completion ? "the app's completion link" : `to ${new URL(p.url()).host}`}`);
       }
@@ -322,7 +322,16 @@ const KINDS: Record<string, (ctx: Ctx, step: FlowStep) => Promise<Result>> = {
     const params: Record<string, string> = {};
     for (const k of ["state", "code", "installation_id", "setup_action"]) if (q.get(k)) params[k] = q.get(k)!;
     if (q.get("error")) throw new Error(`GitHub returned error ${q.get("error")}`);
-    await ctx.api.op("integration.complete", params, `complete:${params.state.slice(-40)}`);
+    // In the team the signed state names (x-cmux-team), as the app sends it; the API checks it against the session.
+    let team: string | undefined;
+    try {
+      team = JSON.parse(Buffer.from(params.state.split(".")[1] ?? "", "base64url").toString("utf8"))?.team;
+    } catch {
+      team = undefined;
+    }
+    const api = new Api(ctx.backend.api, typeof team === "string" && /^team_[0-9a-f]{20}$/.test(team) ? team : ctx.api.team);
+    api.bearer = ctx.api.bearer;
+    await api.op("integration.complete", params, `complete:${params.state.slice(-40)}`);
     return done(`integration.complete answered ok (setup_action ${params.setup_action ?? "none"})`);
   },
 
@@ -437,7 +446,7 @@ export async function runFlow(flow: Flow, backend: Backend, out: string, env: Re
       });
     } catch {
       await shot(ctx, step);
-      if (!step.cleanup) failed = true;
+      failed = true; // a cleanup that failed leaves the next run no new user: a red too
     }
   }
   await ctx.browserClose?.().catch(() => undefined);
