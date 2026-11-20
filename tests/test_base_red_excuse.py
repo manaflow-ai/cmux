@@ -947,6 +947,8 @@ class GlaedaKeptLog(unittest.TestCase):
     # nothing (cmux#41244's replay: about 150 reads, stopped at 51 runs).
     UNCACHED_LOG_READERS = {
         "base_red_checks.py": "runs in the push workflow with the Actions token (urllib), where no glaeda-gh is",
+        "ci_receipt.py": "verifies a receipt: it reads the log of a passed job, and glaeda-gh keeps the logs of "
+                         "failed jobs only; GitHub is the signer, so the log must come from the Actions API itself",
         "cmux_next_tree_notify.py": "not switched yet: follow-up to the glaeda job-log cache",
         "cmux_tui_tree_handoff.py": "not switched yet: follow-up to the glaeda job-log cache",
         "nightly_ghostty_helper_reuse.py": "not switched yet: follow-up to the glaeda job-log cache",
@@ -1348,11 +1350,30 @@ class Excusing(unittest.TestCase):
 
     def test_base_job_reads_are_bounded(self):
         self.gh.base_runs = self.dev_daily_runs(excuse.BASE_JOB_READS + 5) + self.gh.base_runs
-        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next run of its workflow"):
+        with self.assertRaisesRegex(excuse.Refused, f"{excuse.INCOMPLETE} {excuse.BASE_JOB_READS} job lists"):
             self.judge()
         reads = [route for route in self.gh.routes if route.endswith("/jobs?filter=latest&per_page=100")
                  and "/runs/10/" not in route]
         self.assertEqual(len(reads), excuse.BASE_JOB_READS)
+
+    def test_a_base_search_the_cap_cut_short_is_incomplete_and_a_retry_reads_past_it(self):
+        # cmuxterm-hq#14126, 2026-11-19: the search stopped at BASE_JOB_READS with runs still unread and said "no
+        # feat-cmux-next run of its workflow has a verdict", the words of a window read whole, so the red stopped as
+        # the PR's own; a retry counted the kept lists again and said the same. A cut search is a timed retry, and a
+        # kept list costs no read, so the next judgement reads past the first ones to the run with the verdict.
+        runs = self.dev_daily_runs(excuse.BASE_JOB_READS + 5)
+        for run in runs:
+            run.update(run_attempt=1, updated_at="2026-11-19T20:00:00Z")
+        self.gh.base_runs = runs + self.gh.base_runs
+        with tempfile.TemporaryDirectory() as kept, unittest.mock.patch.dict(os.environ, {excuse.JOBS_CACHE_ENV: kept}):
+            with self.assertRaises(excuse.Refused) as cut:
+                self.judge()
+            said = str(cut.exception)
+            self.assertRegex(said, rf"{excuse.INCOMPLETE} {excuse.BASE_JOB_READS} job lists .*not a verdict: retry "
+                                   r"after \d\d:\d\dZ")
+            self.assertNotIn("has a verdict for it to compare with", said)
+            text = "\n".join(self.judge())
+        self.assertIn("run 20", text)
 
     def tip_daemon_setup(self, *, verdict="failure"):
         # 2026-10-30 (#27692): a feat-cmux-next push never runs daemon-test, base pushes land every
@@ -5853,7 +5874,7 @@ class KitFixedOnBaseGitHub(FixedOnBaseGitHub):
     """CmuxMobileKit's job red on the head (cmux#36988 at d286aa2f); the newest base run passes it. Its log is framed
     like the job-log endpoint's: "Set up job", a STEP_START line per step, "Complete job" (step_owners)."""
 
-    def __init__(self, changed=("cmux-tui/crates/cmux-agent-pane-policy/policy.json",
+    def __init__(self, changed=("cmux-tui/crates/cmux-app-ffi/src/lib.rs",
                                 "cmux-next-ios/verify/parity-mac.md", "webviews/src/App.tsx"), files=None):
         super().__init__(changed=changed)
         self.jobs = {1: dict(failed_job(1, 10, HEAD, name=KIT, step=KIT_STEP), steps=framed_steps(KIT_STEPS)),
@@ -6074,7 +6095,8 @@ class PackageFixedOnBase(unittest.TestCase):
         github.blob = tree_blob(tree)
         crates = sorted(excuse.cargo_crates(REPO, HEAD, package["cargo_lock"], github))
         self.assertIn("cmux-tui/crates/cmux-wg", crates)
-        self.assertNotIn("cmux-tui/crates/cmux-agent-pane-policy", crates)
+        # cmux-build-space (the dev build's cloud space) reads its bundle rule from cmux-agent-pane-policy (#43648)
+        self.assertIn("cmux-tui/crates/cmux-agent-pane-policy", crates)
         for crate in crates:
             dirs, files = cargo.crate_inputs(ROOT, crate, tree)
             for path in [f"{d}/Cargo.toml" for d in dirs] + files:
@@ -6742,6 +6764,39 @@ class JourneyPerStep(unittest.TestCase):
         head = [*journey_run(2416, "vm_86ee22a3fd8aa45b272e", "c451a71dc5fc"), RETRIED,
                 *journey_run(1299, "vm_2647ba2efdd3d5eeac97", "0c736f4c5b32", summary=False)]
         with self.assertRaisesRegex(excuse.Refused, "cut short|no closing summary"):
+            self.judge(JourneyGitHub(head, JOURNEY_BASE))
+
+    # cmux#45546's review F1: a later run (PRODUCT_TEAM's, cloud-journey-ci.sh's second `run`) that dies before
+    # its first step line printed no step line and no summary, so an earlier run's red stood for the whole job.
+    PRODUCT_RETRIED = "##[warning]staging product-team failed once; running it again (first run's steps in the job summary)"
+    TAIL = ["##[notice]target=staging result=red", "##[error]Process completed with exit code 1."]
+
+    def test_the_real_tail_after_the_last_summary_is_still_excused(self):
+        text = self.judge(JourneyGitHub([*JOURNEY_HEAD[:-1], *self.TAIL], JOURNEY_BASE))
+        self.assertIn(f"excused '{JOURNEY}'", text)
+
+    def test_a_second_team_run_that_dies_before_any_step_line_is_refused(self):
+        # The product team's first run fails another step and is retried; the retry dies before its first step line.
+        # Read before this fix, only the test team's run was judged, and it matches the base's: excused.
+        first = journey_run(1500, "vm_5bbf16fdc988904ba609", "8dfc00220e55",
+                            fail=[("connect (carrier dial)", "carrier dial refused: 403 ticket expired")])
+        head = [*JOURNEY_HEAD[:-1], *first, self.PRODUCT_RETRIED, "error: sign in failed: fetch failed",
+                "    at signIn (scripts/cmux-next/cloud-journey.ts:3640:11)", *self.TAIL]
+        with self.assertRaisesRegex(excuse.Refused, "outside any journey run"):
+            self.judge(JourneyGitHub(head, JOURNEY_BASE))
+
+    def test_a_silent_second_team_run_cannot_take_the_first_teams_retry(self):
+        # The product team's first run dies printing nothing; its retry line follows the test team's judged run.
+        passed = [line for line in journey_run(1299, "vm_2647ba2efdd3d5eeac97", "0c736f4c5b32")
+                  if not line.startswith(("FAIL stub", "FAIL staging"))]
+        head = [*JOURNEY_HEAD[:-1], self.PRODUCT_RETRIED, *passed,
+                "PASS staging: 7 passed, 0 failed, 2 skipped, 31.0 s", *self.TAIL]
+        with self.assertRaisesRegex(excuse.Refused, "retry line"):
+            self.judge(JourneyGitHub(head, JOURNEY_BASE))
+
+    def test_a_line_after_the_last_summary_is_refused(self):
+        head = [*JOURNEY_HEAD[:-1], "error: sign in failed: fetch failed", *self.TAIL]
+        with self.assertRaisesRegex(excuse.Refused, "outside any journey run"):
             self.judge(JourneyGitHub(head, JOURNEY_BASE))
 
     def test_a_retry_after_a_run_cut_short_hides_no_judged_run(self):
@@ -8285,7 +8340,7 @@ class BaseRunsThatNeverBuildTheJob(unittest.TestCase):
     def test_runs_whose_suites_cannot_be_read_are_still_bounded(self):
         gh = TreeReuseGitHub(nodes=True)
         gh.run = lambda args: json.dumps({"errors": [{"message": "Something went wrong"}]})
-        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next run of its workflow has a verdict"):
+        with self.assertRaisesRegex(excuse.Refused, f"{excuse.INCOMPLETE} {excuse.BASE_JOB_READS} job lists"):
             self.judge(gh)
         self.assertEqual(len([run for run in gh.job_reads() if run != 10]), excuse.BASE_JOB_READS)
 
@@ -15482,7 +15537,17 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             # React Doctor (da29cd0a): a ratchet over the React projects' own code.
             "cmux-next-react-doctor.yml",
             # The tab switch check: a display Mac measures the pull request head's tab switches (advisory).
-            "cmux-next-tab-switch.yml"),
+            "cmux-next-tab-switch.yml",
+            # Type-checks the measuring probes (scripts/measure/*.swift) on a Mac when a change touches them.
+            "measure-swift-typecheck.yml",
+            # Push-only checks that also run, advisory and path-gated, on PRs into feat-cmux-next (#47445): the
+            # acpmux simulator sweep, Chief's evals, the mobile FFI, the cmux-next terminal and the Windows RD host.
+            "acpmux-sim-sweep.yml", "chief-evals.yml", "cmux-mobile-ffi.yml", "cmux-next-terminal.yml",
+            "cmux-rd-windows.yml",
+            # Calls ci.yml, cmux-next-guards.yml and the other docs-only-filtered workflows when their filter can
+            # be wrong (scripts/ci/docs_only_paths.py FALLBACK); a called guard job's check name carries the
+            # caller's prefix, so no guard job declaration matches it and its red is judged as any job's.
+            "docs-only-fallback.yml"),
         "bots, labels, receipts, comments and policy reads of the pull request or GitHub, not of the tree": (
             "cla-policy-guard.yml", "cla.yml", "classic-frozen-guard.yml", "contributor-welcome.yml", "labels-sync.yml",
             "merge-freeze.yml", "merge-receipt.yml", "namespace-autofix.yml", "pr-body-checks.yml", "risk-tier.yml",

@@ -438,7 +438,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "eye.slash",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarSection", "view", 100)], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarSection", "view", 320).folder("options")], ..SurfacePlan::DEFAULT },
         palette_target: Some("sidebar-section"),
         targets: &["sidebar-section"],
         cli_name: "action sidebar-section-hide",
@@ -464,7 +464,7 @@ pub static ACTIONS: &[Action] = &[
         category: "sidebar",
         symbol: "eye",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 110)], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("sidebarBackground", "view", 142).folder("options")], ..SurfacePlan::DEFAULT },
         cli_name: "action sidebar-sections-show-hidden",
         ..Action::DEFAULT
     },
