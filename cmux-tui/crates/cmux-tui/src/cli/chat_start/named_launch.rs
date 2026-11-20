@@ -1,5 +1,5 @@
 use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use super::{GlobalArgs, Reads, Route, Start, joined};
 use serde_json::{Value, json};
@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 pub(super) fn deadline(start: &Start) -> Option<Instant> {
     let target = start.on.as_deref()?;
     (start.named_machine && !start.wait && target != "here")
-        .then(|| Instant::now() + Duration::from_secs(9))
+        .then(|| Instant::now() + acpmux::launch_contract::NAMED_START_LIMIT)
 }
 
 fn lookup(global: &GlobalArgs, start: &Start, deadline: Option<Instant>) -> Result<Route, Value> {

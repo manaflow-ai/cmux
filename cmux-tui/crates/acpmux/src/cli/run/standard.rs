@@ -220,9 +220,17 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::New(args) => {
             let args = *args;
+            // A detached named launch shares the public chat launch budget. Preserve an explicit
+            // caller deadline and never apply the implicit startup limit to a model's reply.
+            let reply_deadline = deadline;
+            let deadline = deadline.or_else(|| {
+                (args.detach && args.host.is_some()).then(|| {
+                    tokio::time::Instant::now() + crate::launch_contract::NAMED_START_LIMIT
+                })
+            });
             // Checked before connecting, so the error needs no daemon. Preparing first preserves
             // launch-file semantics and rejects whitespace-only prompt words like `new "  "`.
-            let launch = launch::Launch::prepare(&args)?;
+            let (args, launch) = launch::Launch::before_create(args, deadline).await?;
             // A promptless `new` opens the full-screen TUI. In a pipe (the
             // common agent/scripting case), refuse before connecting so the
             // caller gets an immediate, stable usage error.
@@ -418,6 +426,18 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .and_then(Value::as_str)
                 .unwrap_or(session_id)
                 .to_owned();
+            let print_detached_link = |record: &Value| {
+                if args.detach
+                    && !json_out
+                    && let Some(link) = crate::agent_link::AgentLink::from_start_record(
+                        record,
+                        host.as_deref(),
+                        &name,
+                    )
+                {
+                    println!("{link}");
+                }
+            };
             // A failed sidebar step is an error after the session has been
             // created, so scripts can retry only the exact open command.
             let daemon_cli_path = client.daemon_cli_path();
@@ -484,6 +504,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         session_id.get(..8).unwrap_or(session_id)
                     );
                 }
+                print_detached_link(info);
                 return Ok(());
             }
             let first = launch.first_prompt(&args, &v);
@@ -555,6 +576,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     folder,
                 );
                 println!("{line}");
+                print_detached_link(&v);
                 if let Some(w) = v.pointer("/_meta/acpmux/worktree") {
                     let g = |k: &str| w.get(k).and_then(Value::as_str).unwrap_or_default();
                     println!("  worktree {} on {} from {}", g("root"), g("branch"), g("base"));
@@ -570,6 +592,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     eprintln!("{note}");
                 }
             }
+            let deadline = reply_deadline;
             if let Some(text) = first {
                 let prompt = first_prompt_id(&args);
                 if one_shot {
@@ -1220,6 +1243,20 @@ async fn find_or_create(
     };
     match created {
         Ok(v) => Ok((v, None, false)),
+        Err(e)
+            if e.downcast_ref::<errors::AppError>()
+                .is_some_and(|e| e.code == errors::Code::Timeout) =>
+        {
+            let mut error = errors::AppError::new(
+                errors::Code::Timeout,
+                "start_unconfirmed",
+                "The machine did not confirm the create request before its deadline. Check `acpmux ls` before starting another chat.",
+            );
+            if setup_name != "new" {
+                error = error.with_session(setup_name);
+            }
+            Err(error.into())
+        }
         Err(e) => {
             let found = match reuse_key {
                 Some(key) if launch::name_taken(&e) => {

@@ -423,6 +423,15 @@ pub(crate) const HELD_LINE: &str = "held in its inbox: the receiver is idle and 
 /// reads once (`availableCommands`, `tools`, `configOptions`, about 23 of its 27 KB on a Claude
 /// session), unless `full`. `acpmux --json session info NAME` has them all.
 pub(crate) fn session_record(mut v: Value, full: bool) -> Value {
+    if v.get("link").is_none()
+        && let Some(link) = crate::agent_link::AgentLink::from_start_record(
+            &v,
+            v["peer"].as_str(),
+            v["name"].as_str().unwrap_or_default(),
+        )
+    {
+        v.set("link", json!(link));
+    }
     if !full && let Some(map) = v.as_object_mut() {
         for key in ["availableCommands", "tools", "configOptions"] {
             map.remove(key);
@@ -1367,6 +1376,17 @@ mod prompt_tests {
     use super::*;
     use crate::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
     use std::collections::BTreeMap;
+
+    #[test]
+    fn detached_start_record_links_the_harness_session_on_its_owning_peer() {
+        let mut record = json!({"peer":"test-vm", "name":"worker", "family":"codex", "sessionId":"mux-id", "agentSessionId":"native-id"});
+        let out = session_record(record.clone(), false);
+        let link = crate::agent_link::find(out["link"].as_str().unwrap()).unwrap().unwrap();
+        assert_eq!(link.session, "native-id");
+        assert_eq!(link.host.as_deref(), Some("test-vm"));
+        record["agentSessionId"] = Value::Null;
+        assert!(session_record(record, false).get("link").is_none());
+    }
 
     /// A hub with the fake agent behind a real Unix socket, and a client.
     async fn daemon() -> (Arc<crate::hub::Hub>, Arc<Client>, cmux_unix_socket::TestDir) {

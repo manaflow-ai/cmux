@@ -945,6 +945,21 @@ pub(in crate::cli) fn run_acp(
     });
     if let Err(err_bytes) = err_bytes {
         let stderr = String::from_utf8_lossy(&err_bytes).trim().to_owned();
+        // The legacy create can hit its own deadline just before its parent does. Treat an
+        // uncertain create the same whichever clock fires first; never encourage a duplicate.
+        if words.first() == Some(&"new")
+            && let Ok(envelope) = serde_json::from_str::<Value>(&stderr)
+            && matches!(
+                envelope.pointer("/error/detail").and_then(Value::as_str),
+                Some("start_unconfirmed" | "peer_start_timeout")
+            )
+        {
+            return Err(error(
+                "acpmux.timeout",
+                "The machine has not confirmed the chat start.",
+                false,
+            ));
+        }
         let message = if stderr.is_empty() { stdout.trim().to_owned() } else { stderr };
         let mut failure =
             error("acpmux.failed", &format!("cmux acp {}: {message}", words.join(" ")), false);
