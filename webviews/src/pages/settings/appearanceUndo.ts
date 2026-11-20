@@ -174,3 +174,29 @@ export function targetTitle(target: TargetState): string {
 export function changeLabel(state: SettingsState, after: TargetState): string {
   return t("settingsPage.history.change", targetTitle(after), stateText(state, after));
 }
+
+/** Who made a change in the durable history, as the Undo button names it ("an agent"). */
+function originText(origin: string): string {
+  switch (origin) {
+    case "mcp":
+      return t("settingsPage.history.byAgent");
+    case "cli":
+    case "script":
+      return t("settingsPage.history.byCli");
+    case "file":
+      return t("settingsPage.history.byFileEdit");
+    case "remote":
+      return t("settingsPage.history.byOtherDevice");
+    default:
+      return t("settingsPage.history.byYou");
+  }
+}
+
+/** "Opacity (by an agent)": a durable history change the page did not make, by its first row's
+ * title and who made it. */
+export function durableLabel(entry: { keys: readonly string[]; origin: string }): string {
+  const key = entry.keys.find((item) => rowsByKey.has(item)) ?? entry.keys[0];
+  const row = key ? rowsByKey.get(key) : undefined;
+  const title = row ? text(row.title) : (key ?? t("settingsPage.history.settingsChange"));
+  return t("settingsPage.history.changeBy", title, originText(entry.origin));
+}

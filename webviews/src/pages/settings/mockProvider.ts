@@ -98,6 +98,7 @@ import {
   type ArchivedState,
   type ChecklistFact,
   type PreviousBuild,
+  type HistoryMutationResult,
 } from "./ops";
 import { mockLooks, previewLook, runLooks } from "./mockLooks";
 import { rowsByKey, schema, hostRowsByKey } from "./schema";
@@ -2935,7 +2936,7 @@ export class MockSettingsProvider {
     return this.commit(reset, "app");
   }
 
-  private commit(keys: string[], origin: string): MutationResult {
+  private commit(keys: string[], origin: string): HistoryMutationResult {
     this.revision += 1;
     const revision = this.revision;
     const before = this.pendingBefore;
@@ -2947,7 +2948,7 @@ export class MockSettingsProvider {
     queueMicrotask(() => {
       for (const ctx of this.changed) ctx.emit({ revision, keys, origin });
     });
-    return { value: { keys }, revision: String(revision), replayed: false };
+    return { value: { keys }, revision: String(revision), history_revision: String(revision), replayed: false };
   }
 }
 

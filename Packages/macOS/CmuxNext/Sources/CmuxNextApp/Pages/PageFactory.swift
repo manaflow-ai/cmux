@@ -307,6 +307,8 @@ struct PageFactory {
                 value: { [weak services] id in services?.themes.workspaceOpacity(id) },
                 set: { [weak services] value, id in services?.themes.setWorkspaceOpacity(value, for: id) },
                 preview: { [weak services] value, id in services?.themes.previewWorkspaceOpacity(value, for: id) }))
+        let history = SettingsHistoryPage(daemon: services.daemon, settings: settings, writer: SettingsPageProvider.writer, personOnly: SettingsPageProvider.personOnly)
+        for op in SettingsHistoryPage.ops { provider.parts[op] = history } // Undo, Redo and Reset on the daemon's settings history
         // Your own backgrounds from a link, removed or revealed (BackdropImagesPageProvider).
         let images = provider.backdropImages.map { images in
             BackdropImagesPageProvider(images: images.images, use: { [weak provider] in try await provider?.useBackdropImage($0) ?? "" },
