@@ -97,7 +97,7 @@ struct AgentPaneDictationUpload {
             let at = offset, count = min(chunk, size - offset)
             let answer: [String: Any]
             if let bytes = await Task.detached(priority: .userInitiated, operation: { opened.read(at: at, count: count) }).value, bytes.count == count {
-                answer = await stager(.chunk(token: token, offset: at, data: bytes), session)
+                answer = await stager(.chunk(token: token, offset: at, data: AgentPaneUploadChunk(bytes)), session)
             } else {
                 answer = failed
             }

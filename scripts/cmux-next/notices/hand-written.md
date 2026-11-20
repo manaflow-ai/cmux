@@ -245,11 +245,14 @@ This software is based in part on the work of the FreeType Team (FreeType 2.13.2
 
 ---
 
-## cmux-cua engine
+## Agent cursor (CmuxAgentCursor)
+
+The app's agent cursor package (`Packages/Shared/CmuxAgentCursor`) was taken from
+manaflow-ai/cmux-cua, a fork of trycua/cua, under the MIT License.
 
 - **License:** MIT License
 - **Copyright:** Copyright (c) 2025 Cua AI, Inc.
-- **Source:** https://github.com/manaflow-ai/cmux-cua
+- **Source:** https://github.com/manaflow-ai/cmux-cua (libs/cmux-cua/swift/CmuxAgentCursor)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

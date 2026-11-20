@@ -20,6 +20,7 @@ import { commandLikeness, isMultiline } from "./commandIntent";
 import { type Translate, translate } from "../i18n";
 import type { DeviceChat } from "./deviceChats";
 import { DEFAULT_SUGGESTION_ORDER, type SuggestionOrder } from "./suggestionOrder";
+import type { ScreenSections } from "./templates";
 import { TOP_SITES } from "./topSites";
 import { translateNewTab, type NewTabTranslate } from "./strings";
 import { type FolderListing, launchRows, type LaunchAgent, type LaunchRow } from "./launchRows";
@@ -724,9 +725,27 @@ export function recentChatCards(
     }));
   const cards = [...live, ...fill];
   if (!fold) return cards;
-  const children = indexChildren(sessions, device, now, t);
+  const parents = new Set(cards.flatMap((card) => [card.sessionId, card.chatKey].filter((id): id is string => !!id)));
+  const children = indexChildren(sessions, device, now, t, parents);
   return cards.map((card) => withChildren(card, children));
 }
+
+/// The cards a template's page draws (`sections`): none, with no pass over the chats, on a page
+/// that lists none (Minimal, the default, and Composer). Leo 2026-11-18, on New Tab sorting every
+/// chat and carding about 2,500 child chats behind Minimal: "We literally don't even have that as
+/// a visible option at all anymore".
+export function pageChatCards(
+  sections: ScreenSections,
+  sessions: AcpmuxSnapshot["sessions"],
+  now: number,
+  t: Translate,
+  device: DeviceChat[],
+): ChatCard[] {
+  if (sections.chats === "none") return NO_CHAT_CARDS;
+  return recentChatCards(sessions, now, t, device, sections.recent, sections.chats === "list");
+}
+
+const NO_CHAT_CARDS: ChatCard[] = [];
 
 /// The stage layout's needs-you rows (NewTabScreen's suggestions card).
 export const MAX_NEEDS_YOU = 3;
@@ -780,21 +799,25 @@ function sessionCard(session: AcpmuxSessionEntry, now: number, t: Translate): Ch
 /// Child rows indexed once per snapshot, so each visible card does not rescan every session.
 type ChildCard = { parent: string; at: number; card: ChatCard };
 
+/// Only the shown cards' children (`parents`) get a card: thousands of child chats under parents
+/// past the cut cost one pass, not a card each.
 function indexChildren(
   sessions: AcpmuxSnapshot["sessions"],
   device: DeviceChat[],
   now: number,
   t: Translate,
+  parents: ReadonlySet<string>,
 ): Map<string, ChildCard[]> {
   const indexed = new Map<string, ChildCard[]>();
   for (const raw of sessions) {
     const session = normalizedSessionEntry(raw as Parameters<typeof normalizedSessionEntry>[0]);
-    if (!session.spawnedBy || !listed(session) || sessionMark(session, false) === "input") continue;
+    if (!session.spawnedBy || !parents.has(session.spawnedBy)) continue;
+    if (!listed(session) || sessionMark(session, false) === "input") continue;
     const child = { parent: session.spawnedBy, at: activityTime(session) ?? 0, card: sessionCard(session, now, t) };
     indexed.set(session.spawnedBy, [...(indexed.get(session.spawnedBy) ?? []), child]);
   }
   for (const chat of device) {
-    if (!chat.parent) continue;
+    if (!chat.parent || !parents.has(chat.parent)) continue;
     const child = {
       parent: chat.parent,
       at: chat.updatedAt,
