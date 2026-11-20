@@ -68,7 +68,7 @@ window.benchRowRenders = {
     return [...rows()].filter((row) => !seen.has(hostProps(row))).length;
   },
 };
-window.benchChangeOne = async (index) => {
+window.benchChangeOne = async (index = 0) => {
   const logins = data.passwords.default!;
   logins[index] = { ...logins[index]!, username: `person${index}.changed${Date.now()}@example.com` };
   await store.reload();

@@ -67,12 +67,15 @@ mountSidebarChats(document.getElementById("root")!, client as never, FIXTURE_STR
 window.addEventListener("scroll", sliceNextFrame, { passive: true });
 window.addEventListener("resize", sliceNextFrame);
 window.benchRowRenders = mountedRowRenders(() => document.querySelectorAll(".sc-row[data-chat]"));
-window.benchChangeOne = (index) =>
+// The page harnesses share one global Window, so their benchChangeOne declarations merge into overloads (the
+// cloud and feed pages take no index): a default index and a promise satisfy every one of them.
+window.benchChangeOne = async (index = 0) => {
   push({
     ...block,
     revision: block.revision + 1,
     rows: block.rows.map((row, at) => (at === index ? { ...row, title: `Changed ${block.revision}` } : row)),
   });
+};
 window.benchTick = () => push({ ...block, revision: block.revision + 1 });
 const settle = () =>
   document.querySelector(".sc-row[data-chat]") ? (window.benchReady = true) : requestAnimationFrame(settle);

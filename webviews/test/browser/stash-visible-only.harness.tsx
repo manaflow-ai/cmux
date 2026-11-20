@@ -64,7 +64,7 @@ window.benchRowRenders = {
     return [...document.querySelectorAll(".stash-row")].filter((row) => !seen.has(hostProps(row))).length;
   },
 };
-window.benchChangeOne = async (index) => {
+window.benchChangeOne = async (index = 0) => {
   const group = provider.stashes[Math.floor(index / PER_GROUP)]!;
   const at = index % PER_GROUP;
   group.members[at] = { ...group.members[at]!, title: `Changed ${Date.now()}` };
