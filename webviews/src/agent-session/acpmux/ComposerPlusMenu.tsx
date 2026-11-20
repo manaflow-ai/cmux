@@ -17,7 +17,7 @@ import { composerPlusCommands } from "./composerPlusCommands.experiment";
 import { composerPlusMenuSections } from "./composerPlusMenuModel";
 import { acpmuxPerf } from "./perf";
 import { useStableHandlers } from "./stableHandlers";
-import { memo, useEffect, useEffectEvent } from "react";
+import { memo, useEffect } from "react";
 import { PLAN_TOGGLE_OPENER } from "./composerControls";
 import { registerPicker } from "./pickerOpeners";
 
@@ -60,13 +60,20 @@ const MemoPlusMenu = memo(function PlusMenu({
   const addShortcut = useShortcut(SHORTCUT_ACTIONS.composerAddMenu);
   const planShortcut = useShortcut(SHORTCUT_ACTIONS.composerTogglePlan);
   // Toggle Plan Mode (composerControls.ts) runs the Plan/Build row's own action, the path a click
-  // on the row takes: the app draws no Plan toggle chip, so this row owns the key.
+  // on the row takes: the app draws no Plan toggle chip, so this row owns the key. The opener is
+  // registered again with each row and handler, never through useEffectEvent: React 19.2.3 updates
+  // an effect event only in a plain function component, and this memo component kept its first
+  // render's, drawn before a new chat's agent reported its modes (test/composer-plan-key.test.tsx).
   const planEntry = entries.find((entry) => entry.id.startsWith("add.mode."));
-  const runPlan = useEffectEvent(() => {
-    if (planEntry) runComposerPlusAction(planEntry.action, { command: onCommand, slash: onSlash });
-  });
-  const hasPlan = planEntry !== undefined;
-  useEffect(() => (hasPlan ? registerPicker(PLAN_TOGGLE_OPENER, () => runPlan()) : undefined), [hasPlan]);
+  useEffect(
+    () =>
+      planEntry
+        ? registerPicker(PLAN_TOGGLE_OPENER, () =>
+            runComposerPlusAction(planEntry.action, { command: onCommand, slash: onSlash }),
+          )
+        : undefined,
+    [planEntry, onCommand, onSlash],
+  );
   // Untitled groups: a hairline splits them (styles.css), with no header band between.
   const sections: Section[] = composerPlusMenuSections(
     entries,

@@ -231,10 +231,10 @@ async function measure(
     }
     await page.addInitScript(longTaskProbe);
     const rows = await openChat(page, port, Math.max(1, Math.round(length / 3)));
-    const cdp = engine === "webkit" ? undefined : await page.context().newCDPSession(page);
-    await cdp?.send("Performance.enable");
+    // WebKit returned above (runComposerLoad): this run is Chromium's, with its DevTools session.
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Performance.enable");
     const metrics = async (): Promise<Record<string, number>> => {
-      if (!cdp) return {};
       const { metrics: list } = (await cdp.send("Performance.getMetrics")) as {
         metrics: { name: string; value: number }[];
       };
@@ -256,7 +256,7 @@ async function measure(
       debug.resetTyping();
       debug.renders();
     });
-    if (PROFILE && cdp) {
+    if (PROFILE) {
       await cdp.send("Profiler.enable");
       await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
       await cdp.send("Profiler.start");
@@ -298,7 +298,7 @@ async function measure(
         () => (window as unknown as { __longTasks?: { at: number; ms: number }[] }).__longTasks ?? [],
       )) as { at: number; ms: number }[]
     ).filter((task) => task.at + task.ms >= since && task.at <= until);
-    if (PROFILE && cdp) {
+    if (PROFILE) {
       const { profile } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile };
       printProfile(length, profile);
     }
@@ -307,14 +307,14 @@ async function measure(
       return { renders: debug.renders(), typing: debug.typingStats() };
     })) as { renders: Record<string, number>; typing: Record<string, any> };
     await streaming;
-    if (typedEvents && cdp) {
+    if (typedEvents) {
       await cdp.send("DOM.getDocument", { depth: 0 });
       await reportTrace(`${mode}-typing ${rows}rows`, typedEvents, { keys: KEYS }, mapUrl, cdp);
       console.log(
         `STYLE-TRACE ${mode}-typing ${rows}rows WINDOW ${JSON.stringify({ keys: KEYS, window_ms: Math.round(typedMs) })}`,
       );
     }
-    if (TRACE && cdp && mode === "stream") {
+    if (TRACE && mode === "stream") {
       let run: Record<string, any> = {};
       const events = await traceWindow(browser, page, async () => {
         run = (await page.evaluate(() =>

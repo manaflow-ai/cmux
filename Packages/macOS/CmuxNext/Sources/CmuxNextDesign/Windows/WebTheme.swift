@@ -47,10 +47,11 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// `glass` while `appearance.liquidGlass` is off: every web glass surface draws solid, with a
     /// hairline rim and no blur (webviews ui/glass/glass.css, `GLASS_OFF` in glassState.ts).
     public static let glassOff = "off"
-    /// `auto`, `antialiased` or `subpixel` (`appearance.fontSmoothing`, ``FontSmoothing``):
-    /// `data-cmux-font-smoothing` on `<html>`. Under `antialiased` and `subpixel` the bootstrap
-    /// stylesheet sets `-webkit-font-smoothing` on every element over the page's own; `auto` leaves
-    /// the page's own.
+    /// `antialiased` or `subpixel` (`appearance.fontSmoothing`, ``FontSmoothing``, with `auto`
+    /// resolved to native text's smoothing by ``pageSmoothing(_:native:)``):
+    /// `data-cmux-font-smoothing` on `<html>`. The bootstrap stylesheet sets
+    /// `-webkit-font-smoothing` on every element over the page's own; the page script still takes
+    /// `auto` (no rule, the page's own).
     public let fontSmoothing: String
     /// The filled personality slots (``ThemeDecorations/payload``): `data-cmux-decoration-<slot>` on
     /// `<html>`, which the page draws. Empty sends no `decorations` key at all.
@@ -217,7 +218,16 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         motion = Self.motionValue(Motion.web.policy)
         self.glass = DesignSettings.shared.liquidGlass ? (glass ?? .current).rawValue : Self.glassOff
         decorations = ThemeDecorations.current.payload
-        fontSmoothing = DesignSettings.shared.fontSmoothing.rawValue
+        fontSmoothing = Self.pageSmoothing(DesignSettings.shared.fontSmoothing, native: .chrome)
+    }
+
+    /// `data-cmux-font-smoothing` for `setting`: an explicit choice as it is; ``FontSmoothing/auto``
+    /// the smoothing native text draws with now (`native`, ``ProcessFontSmoothing/chrome``), so text
+    /// on a page and native text beside it draw the same pixels (the Liquid Glass Parity matrix:
+    /// WebKit text on glass is exact only with the same smoothing on both sides).
+    public static func pageSmoothing(_ setting: FontSmoothing, native: ProcessFontSmoothing) -> String {
+        guard setting == .auto else { return setting.rawValue }
+        return native.smoothsStems ? FontSmoothing.subpixel.rawValue : FontSmoothing.antialiased.rawValue
     }
 
     /// `data-cmux-motion` for `policy`: `off` when the web category, the master switch or speed
