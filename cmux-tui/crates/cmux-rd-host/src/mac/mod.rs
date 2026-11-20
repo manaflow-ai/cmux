@@ -73,7 +73,8 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
 /// on another thread.
 /// One `open_steps` line in CMUX_RD_TIMING_LOG (when set): how long each step of opening the
 /// desktop took, in µs. `content` is the shareable-content request, `stream` the stream's
-/// start up to its answer, `encoder` the encoder session, `first_frame` the wait after it.
+/// start up to its answer, `encoder` what is left of the encoder session after that (it is made
+/// beside them), `first_frame` the wait after it.
 fn log_open_steps(begin_ns: u64, content_ns: u64, started_ns: u64, encoder_ns: u64, ready_ns: u64) {
     use std::io::Write;
     let Some(path) = std::env::var_os("CMUX_RD_TIMING_LOG") else { return };
@@ -99,19 +100,35 @@ pub fn open_halves(cfg: &SessionCfg, cursor_metadata: bool) -> Res<(MacDesktop, 
     }
     let cursor_metadata = cursor_metadata && cursor::available();
     let begin_ns = crate::clock::now_ns();
-    let capture =
-        Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, !cursor_metadata)?;
+    let make_encoder = move |(width, height): (u32, u32)| {
+        VideoToolbox::new(
+            width,
+            height,
+            encoder_fps(width, height, cfg.max_fps),
+            cfg.start_kbps,
+            cfg.profile == "baseline",
+        )
+    };
+    // The encoder session (about 100 ms on a fleet Mac) needs only the size, which CoreGraphics
+    // knows before ScreenCaptureKit answers, so it is made beside the shareable-content request
+    // and the stream start (about 80 ms), not after them.
+    let (capture, early) = std::thread::scope(|scope| {
+        let early = capture::expected_size(&cfg.display, cfg.max_width)
+            .map(|size| (size, scope.spawn(move || make_encoder(size))));
+        let capture =
+            Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, !cursor_metadata);
+        let early = early.map(|(size, thread)| (size, thread.join()));
+        (capture, early)
+    });
+    let capture = capture?;
     let started_ns = crate::clock::now_ns();
-    // The size is set when the stream starts: the encoder session (about 100 ms) is made
-    // while ScreenCaptureKit delivers its first frame, not after it.
     let (width, height) = capture.size();
-    let encoder = VideoToolbox::new(
-        width,
-        height,
-        encoder_fps(width, height, cfg.max_fps),
-        cfg.start_kbps,
-        cfg.profile == "baseline",
-    )?;
+    let encoder = match early {
+        Some((size, Ok(encoder))) if size == (width, height) => encoder?,
+        // A guess that missed (a display change between the two reads) or a panicked thread:
+        // make it again at the stream's size.
+        _ => make_encoder((width, height))?,
+    };
     let encoder_ns = crate::clock::now_ns();
     capture.wait_first_frame(FIRST_FRAME_TIMEOUT_NS)?;
     log_open_steps(begin_ns, capture.content_ns(), started_ns, encoder_ns, crate::clock::now_ns());
