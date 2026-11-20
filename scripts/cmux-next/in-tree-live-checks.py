@@ -203,12 +203,18 @@ env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR":
        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
        "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": config, "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1300,860",
        "CMUX_IN_TREE_PAGES": "1" if opts.in_tree == "on" else "0"}
-log = open(os.path.join(opts.out, "app.log"), "a")
-app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-RAW["pid"] = app.pid
+# Through bench_launch (fresh saved state, a refusal when another app of the tag runs, and a refusal when the app comes
+# up in the other in-tree mode): a bare Popen answered by a leftover app of the tag reported in_tree off with
+# CMUX_IN_TREE_PAGES=1 (step verify-live-e67776ff-cmux19).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bench_launch import launch_app  # noqa: E402
+app = None
 try:
-    if not wait(lambda: os.path.exists(SOCKET) and "error" not in (rpc("debug.windows") or {"error": 1}), 120, 0.5):
-        row(False, "launch", "the debug socket never answered")
+    try:
+        app, SOCKET = launch_app(opts.app, env, os.path.join(opts.out, "app.log"), timeout=120,
+                                 on_start=lambda p: RAW.__setitem__("pid", p.pid))
+    except SystemExit as error:  # bench_launch's LaunchError (it printed its report)
+        row(False, "launch", str(error)[:300])
         raise SystemExit
     time.sleep(2)  # test harness: the first terminal attaches
     terminal_tab = (rpc("debug.focus") or {})
@@ -338,8 +344,9 @@ except SystemExit:
     pass
 finally:
     try:
-        rpc("debug.quit", timeout=10)
-        app.wait(timeout=15)
+        if app is not None:
+            rpc("debug.quit", timeout=10)
+            app.wait(timeout=15)
     except Exception:
         app.send_signal(signal.SIGKILL)
     server.shutdown()
