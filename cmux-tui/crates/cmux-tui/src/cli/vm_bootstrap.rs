@@ -353,9 +353,12 @@ pub(super) fn set_up(guest: &mut dyn Guest, setup: &Setup) -> (Value, bool) {
                 bootstrap.insert("run".into(), run);
             }
         }
-        if setup.machine_config.is_some()
-            && answer.pointer("/machine_config/status").and_then(Value::as_str) != Some("failed")
-        {
+        let config_failed = answer
+            .get("machine_config")
+            .and_then(|config| config.get("status"))
+            .and_then(Value::as_str)
+            == Some("failed");
+        if setup.machine_config.is_some() && !config_failed {
             let (state, done) = match wait_config(guest, deadline) {
                 Ok(status) => (status, true),
                 Err(status) => (status, false),
