@@ -478,12 +478,20 @@ def open_agent_chat():
     pane = engine.get("pane")
     if pane and opts.chat_agent == "real":
         made = rpc("debug.agent_pane", {"action": "new_chat", "pane": pane, "harness": "fake", "cwd": WORK}, timeout=90)
+        # WORK is a new folder: the start waits on the pane's trust ask until someone answers it (every chat of
+        # 8372af35's L0-L5 run stayed pending). Answer it as a person does, with a click on Trust; once trusted, the
+        # folder asks no later chat.
+        trust = None
+        if (made or {}).get("pending"):
+            trust = wait(lambda: (lambda r: r if r.get("clicked") else None)(
+                rpc("debug.agent_pane", {"action": "click", "pane": pane, "selector": ".acpmux-trust-ask-action"},
+                    timeout=10) or {}), 10, step=0.5)
         attached = wait(lambda: (lambda state: state if state.get("connection") == "attached" and state.get("sessionId") else None)(
             rpc("debug.agent_pane", {"action": "chat_state", "pane": pane}, timeout=10) or {}), 40, step=0.5)
         # The chat's state when it never attached (connection, error, pending ask): the report says why its stream
         # could not run, and stream_load_missing names it beside the number.
         last = None if attached else rpc("debug.agent_pane", {"action": "chat_state", "pane": pane}, timeout=10) or {}
-        LOAD.setdefault("attach", {})[pane] = {"attached": bool(attached), "new_chat": made,
+        LOAD.setdefault("attach", {})[pane] = {"attached": bool(attached), "new_chat": made, "trust_clicked": bool(trust),
                                                "state": None if attached else json.dumps(last)[:400]}
         note(f"chat {pane}: new_chat {json.dumps(made)[:160]} attached={bool(attached)}"
              + ("" if attached else f" state {json.dumps(last)[:240]}"))
