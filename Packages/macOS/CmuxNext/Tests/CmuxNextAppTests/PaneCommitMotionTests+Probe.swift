@@ -88,10 +88,11 @@ extension PaneCommitMotionTests {
                 "an act with a pane that does not ride did not write one note with the kind: \(traced.notes)")
     }
 
-    /// A second close in a close's move over a window's picture, then a new picture, and the screen settles its
-    /// motion before the next frame tick (it goes out of sight): the pass that shows the second close finds that the
-    /// window's picture did not stay, so that close shows in one frame. The record has one note of it, and the note
-    /// names that cause.
+    /// The window shows a new picture in a close's move over its picture, and a second close comes before the next
+    /// frame tick: the pass that shows the second close finds that the window's picture did not stay, so that close
+    /// shows in one frame. The pass comes with no frame tick before it: in the turn that shows the close, or, for a
+    /// close that waits for its panes' content, when the screen settles its motion (it goes out of sight). The record
+    /// has one note of it, and the note names that cause.
     @Test func aProbeSaysThatTheWindowsPictureDidNotStay() throws {
         defer { MotionTrace.stop() }
         let over = try Self.overPicture("close", panes: 6)
@@ -101,9 +102,9 @@ extension PaneCommitMotionTests {
                      "SETUP: three frames into the close's move no pane moves over a copy of the window's picture")
         let pane = try #require(over.harness.model.focusedPane, "SETUP: no pane has the focus")
         MotionTrace.start()
+        Self.showAnotherPicture(over)
         _ = try #require(over.harness.model.showPaneClose(pane), "SETUP: the model does not show the close of \(pane)")
         over.harness.root.syncWithModel()
-        over.backdrop.showArt(NSImage(size: NSSize(width: 320, height: 200)))
         over.screen.settleMotion()
         let traced = Self.traced()
         #expect(traced.notes.count == 1 && traced.notes[0].contains("in one frame") && traced.notes[0].contains("the window's picture stays: false"),
