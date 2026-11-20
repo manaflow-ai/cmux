@@ -151,7 +151,7 @@ public final class GlassParityPlayground {
     var pages: [Column: PageWebView] = [:]
     var hosts: [Column: GlassParityHostLayer] = [:]
     private var backdropView: GlassParityBackdropView?
-    private var nativeLayer: NSView?
+    private(set) var nativeLayer: NSView?
     /// The native menu's row highlight (``Scenario/row``).
     private var menuRowView: GlassParityRowFill?
     private var ready: Set<Column> = []

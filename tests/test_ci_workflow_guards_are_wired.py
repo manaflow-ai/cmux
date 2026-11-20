@@ -195,6 +195,10 @@ UNWIRED: set[str] = {
     # artifacts.yml, cmux-tui-build-package.yml and cmux-tui-tree-request.yml as data. Run it by hand after changing
     # apt-ensure.sh or those install steps. Exit: as above.
     "tests/test_ci_apt_ensure.py",
+    # lane = "manual" (tests/test-execution.d/ci.toml; no new CI tests, CLAUDE.md). It names .github/workflows/ paths
+    # only as data in its fixture runs: scripts/ci/ci_receipt.py accepts a same-tree cmux-ci test run as the fast gates
+    # only from fast-checks.yml (fe0f9593). Run it by hand after changing ci_receipt.py. Exit: as above.
+    "tests/test_ci_receipt.py",
     # lane = "manual" (tests/test-execution.d/ci.toml; no new CI tests, CLAUDE.md). It runs the Mac build steps of cmux-
     # tui-build-package.yml with a fake cargo and sysctl and checks their cargo builds run at once at 40 GiB or more
     # (#46073). Run it by hand after changing those steps, cmux-tui-mac-cargo-builds.sh or cargo-groups.sh. Exit: as
