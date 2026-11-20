@@ -61,6 +61,8 @@ struct SidebarResizerOcclusionResolver {
 
     /// Whether the resizer's pointer monitor swallows an event of `eventType`
     /// so the views under the divider cannot put their own cursor back.
+    /// AppKit-defined and system-defined events always pass: app activation
+    /// is one, and swallowing it leaves the app unable to become active.
     func consumesPointerMonitorEvent(
         ofType eventType: NSEvent.EventType,
         isBandActive: Bool,
@@ -68,7 +70,7 @@ struct SidebarResizerOcclusionResolver {
     ) -> Bool {
         guard isBandActive || isDragging else { return false }
         switch eventType {
-        case .cursorUpdate, .mouseMoved, .mouseEntered, .mouseExited, .appKitDefined, .systemDefined:
+        case .cursorUpdate, .mouseMoved, .mouseEntered, .mouseExited:
             return true
         default:
             return false
