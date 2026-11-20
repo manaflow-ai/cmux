@@ -1,20 +1,6 @@
 import CmuxNextActions
 import CmuxNextAgentLanes
-import CmuxNextAgentPane
-import CmuxNextPalette
 import CmuxNextSidebar
-
-extension AgentPriorityChats {
-    /// The app's Priority chats: this Mac's acpmux and the Chief home's, archived over their sockets.
-    @MainActor static let app = makeApp()
-
-    // A function, not the property's initial value: the archive closure is nonisolated, the stores main-actor.
-    private static func makeApp() -> AgentPriorityChats {
-        AgentPriorityChats(marks: .shared, stores: [.shared, .chief],
-                           restore: { try await AcpmuxChatArchive(socketPath: $0).unarchive(sessionId: $1) },
-                           archive: { try await AcpmuxChatArchive(socketPath: $0).archive(sessionId: $1) })
-    }
-}
 
 /// A Priority row's actions on its chat (an `agent-chat:` target): Mark Chat as Read…, Pin/Unpin Chat in Priority…,
 /// Snooze Chat for 1 Hour…, Move Chat Earlier/Later in Priority… (the palette asks which chat), and Archive Chat. The
@@ -122,34 +108,5 @@ struct SidebarPriorityRowActions {
 
     private static func run(_ change: (String) -> Bool, _ invocation: ActionInvocation) throws {
         guard let id = chat(invocation), change(id) else { throw ActionFailure.invalidTarget(SidebarSectionStrings.noSuchPriorityChat) }
-    }
-}
-
-/// The palette's list of Priority chats for a row action's `chat` argument, in rank order. Other
-/// kinds fall through to `next`.
-final class PriorityChatTargetSource: PaletteTargetSource {
-    private let chats: AgentPriorityChats
-    private let next: any PaletteTargetSource
-
-    init(chats: AgentPriorityChats, next: any PaletteTargetSource) {
-        self.chats = chats
-        self.next = next
-    }
-
-    func targets(of kind: ActionTargetKind) -> [PaletteTargetOption] {
-        guard kind == .agentChat else { return next.targets(of: kind) }
-        return chats.entries().map { entry in
-            let place = [entry.project, entry.machine].compactMap(\.self).joined(separator: " · ")
-            return PaletteTargetOption(id: entry.id, title: entry.title, subtitle: place.isEmpty ? nil : place, symbol: "bubble.left")
-        }
-    }
-
-    func title(of target: ActionTargetRef) -> String? {
-        guard target.kind == .agentChat else { return next.title(of: target) }
-        return chats.entry(target.id)?.title
-    }
-
-    func currentDescription(of target: ActionTargetRef) -> String? {
-        next.currentDescription(of: target)
     }
 }
