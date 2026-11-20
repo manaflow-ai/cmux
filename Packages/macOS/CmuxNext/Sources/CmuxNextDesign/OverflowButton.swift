@@ -10,6 +10,34 @@ public final class OverflowButton: ClickableButton {
     public static let glyph: IconName = .actionMoreVertical
     /// The glyph's point size, read at layout time so density changes apply live.
     public static var glyphSize: CGFloat { .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space1) }
+    /// A pane's ⋮, on its tab bar and its browser toolbar alike (Lawrence msg 19627: one ⋮ in the pane): Chrome's and
+    /// Helium's 3 dots (`browser.toolbar.more`), 12 pt tall at Compact and Default (Lucas 2026-11-18).
+    public static let paneGlyph: IconName = .browserToolbarMore
+    /// ``paneGlyph``'s side: the density's `omnibarMoreGlyphSize` (Compact's and Default's 20 pt), else ``glyphSize``.
+    public static var paneGlyphSize: CGFloat { Metrics.densityToken("omnibarMoreGlyphSize") ?? glyphSize }
+    /// Draws ``paneGlyph`` at ``paneGlyphSize`` instead of the app's ⋮ (a pane's tab bar). Its side may pass a small
+    /// button, but its dots fit inside, so it draws at full size in ``paneGlyphView``, its ink centered on whole pixels:
+    /// the button's cell would shrink an image larger than its image area.
+    public var drawsPaneGlyph = false {
+        didSet {
+            guard drawsPaneGlyph != oldValue else { return }
+            renderedSize = 0
+            renderGlyph()
+            needsLayout = true
+        }
+    }
+    /// The ⋮ image the button draws: its own, or ``paneGlyphView``'s for the pane glyph.
+    public var drawnGlyph: NSImage? { drawsPaneGlyph ? paneGlyphViewIfMade?.glyph : image }
+    /// Made on first use, so the sidebar's and the cards' ⋮ get no extra view.
+    private var paneGlyphViewIfMade: InkCenteredGlyphView?
+    private var paneGlyphView: InkCenteredGlyphView {
+        if let paneGlyphViewIfMade { return paneGlyphViewIfMade }
+        let view = InkCenteredGlyphView(frame: bounds)
+        view.autoresizingMask = [.width, .height]
+        addSubview(view)
+        paneGlyphViewIfMade = view
+        return view
+    }
 
     public private(set) lazy var hover = ChromeHover(self, behindContent: true)
     /// What a click or VoiceOver's press does (the sidebar row's menu, the group editor).
@@ -105,17 +133,25 @@ public final class OverflowButton: ClickableButton {
     }
 
     private func renderGlyph() {
-        let size = Self.glyphSize
+        let size = drawsPaneGlyph ? Self.paneGlyphSize : Self.glyphSize
         guard size != renderedSize else { return }
         renderedSize = size
-        let image = NSImage.icon(Self.glyph, size: size)
+        let image = NSImage.icon(drawsPaneGlyph ? Self.paneGlyph : Self.glyph, size: size)
         image.accessibilityDescription = label
-        self.image = image
+        if drawsPaneGlyph {
+            self.image = nil
+            paneGlyphView.glyph = image
+            paneGlyphView.isHidden = false
+        } else {
+            self.image = image
+            paneGlyphViewIfMade?.isHidden = true
+        }
     }
 
     override public func layout() {
         super.layout()
         renderGlyph()
+        if drawsPaneGlyph { paneGlyphView.frame = bounds }
     }
 
     nonisolated override public var wantsUpdateLayer: Bool { true }
@@ -130,6 +166,7 @@ public final class OverflowButton: ClickableButton {
             // Without a fill, a press or an open menu shows in the glyph's own ink, as the tab bar's + does.
             let pressedInk = hoverStyle == .glyph ? Palette.litGlyph : Palette.textPrimary
             contentTintColor = tintOverride ?? (hover.state.pressed ? pressedInk : hover.state.hovering ? Palette.textPrimary : Palette.textSecondary)
+            if drawsPaneGlyph { paneGlyphView.contentTintColor = contentTintColor }
         }
         hover.refresh(animated: false)
     }

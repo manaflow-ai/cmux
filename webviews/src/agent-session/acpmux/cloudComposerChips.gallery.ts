@@ -2,8 +2,8 @@
 // A new chat's composer with Cloud picked, the prompt empty: every chip of the location strip and
 // the Mode chip shows its whole label, the Mode chip names a mode (never the bare "Mode" placeholder),
 // the Cloud chip says only Cloud (Austin, 2026-11-16: "get rid of the austin wang's team part just
-// have cloud and that's it"; the team is named on the Environment menu's Cloud row), and a team the
-// account no longer has is never named in the team tag. This is the gallery half of
+// have cloud and that's it"), and the Environment menu's Cloud row says only Cloud too, never the
+// active team (https://github.com/manaflow-ai/cmux/issues/45695). This is the gallery half of
 // scripts/cmux-next/cloud-composer-journey.py's matrix. Leo, 2026-11-10, of the nightly's Cloud
 // composer ("Cl…", "Mode", a removed team still named): "how did NONE of these work/get tested?",
 // "i already told you to test these", "did you guys not test these". Each play throws, naming the
@@ -116,15 +116,20 @@ async function assertChips(ctx: PlayContext, before: string[] = []) {
   if (problems.length) throw new Error(problems.join("; "));
 }
 
-/// The Environment menu's Cloud row's team tag, the menu opened, then closed.
-async function cloudRowTeam(ctx: PlayContext): Promise<string | undefined> {
+/// The Environment menu's Cloud row, the menu opened, then closed: what is wrong if it names a team
+/// or its label reads anything but Cloud (https://github.com/manaflow-ai/cmux/issues/45695).
+async function cloudRowProblems(ctx: PlayContext): Promise<string[]> {
   await ctx.click({ role: "button", name: /^Environment/ });
-  const row = () => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"] .acpmux-team-tag');
+  const row = () => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"]');
   await ctx.waitFor(row, { capMs: 5_000 });
-  const team = textOf(row()!);
+  const problems: string[] = [];
+  const tag = row()!.querySelector(".acpmux-team-tag");
+  if (tag) problems.push(`the Environment menu's Cloud row names the team (“${textOf(tag)}”)`);
+  const label = textOf(row()!.querySelector(".acpmux-menu-label") ?? row()!);
+  if (label !== "Cloud") problems.push(`the Environment menu's Cloud row reads “${label}”, not Cloud`);
   await ctx.press("Escape");
   await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-env-popover"), { capMs: 5_000 });
-  return team;
+  return problems;
 }
 
 /// Bypass permissions picked from the Mode menu, as a click picks it.
@@ -164,7 +169,7 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "agent-session/acpmux/ComposerPickers.tsx",
-    "agent-session/acpmux/TeamTag.tsx#TeamTag",
+    "agent-session/acpmux/EnvironmentPicker.tsx",
     "agent-session/acpmux/cloudMachines.ts",
   ],
   keywords: ["cloud", "composer", "chips", "truncation", "mode", "team", "bypass", "removed team"],
@@ -179,7 +184,7 @@ export default agentPaneEntry({
       },
     ),
     "team-bypass": variant(
-      `Cloud picked in a shared team with a long name (“${LONG_TEAM}”), Bypass permissions picked from the Mode menu: the Cloud chip says only Cloud and every chip shows whole.`,
+      `Cloud picked in a shared team with a long name (“${LONG_TEAM}”), Bypass permissions picked from the Mode menu: the Cloud chip and the Environment menu's Cloud row say only Cloud and every chip shows whole.`,
       { name: LONG_TEAM, personal: false },
       [
         { id: PERSONAL_ID, name: "Personal", personal: true },
@@ -191,11 +196,11 @@ export default agentPaneEntry({
           () => [],
           (error: unknown) => [(error as Error).message],
         );
-        await assertChips(ctx, refused);
+        await assertChips(ctx, [...refused, ...(await cloudRowProblems(ctx))]);
       },
     ),
     "removed-team": variant(
-      `The app's reply names an active team (“${LONG_TEAM}”) the account's team list no longer has, as a removal leaves it: the Environment menu's Cloud row never names it and falls back to Personal.`,
+      `The app's reply names an active team (“${LONG_TEAM}”) the account's team list no longer has, as a removal leaves it: nothing names it, and the Environment menu's Cloud row says only Cloud.`,
       { name: LONG_TEAM, personal: false },
       [{ id: PERSONAL_ID, name: "Personal", personal: true }],
       async (ctx) => {
@@ -208,11 +213,7 @@ export default agentPaneEntry({
               `the team tag names the removed team “${LONG_TEAM}” (${named.length} tag${named.length > 1 ? "s" : ""}); it is not in the account's team list`,
             ]
           : [];
-        // It falls back to the person's own team, as the start does (the app re-reads the account's teams).
-        const row = await cloudRowTeam(ctx).catch(() => undefined);
-        if (row !== "Personal")
-          removed.push(`the Cloud row's team tag reads “${row ?? "nothing"}” instead of falling back to Personal`);
-        await assertChips(ctx, removed);
+        await assertChips(ctx, [...removed, ...(await cloudRowProblems(ctx))]);
       },
     ),
   },

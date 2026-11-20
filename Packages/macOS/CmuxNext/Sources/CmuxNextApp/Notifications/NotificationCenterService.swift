@@ -293,10 +293,8 @@ final class NotificationCenterService {
         return (tab, onStrip)
     }
 
-    /// A window's settled focus changed (window key, app active, workspace or
-    /// keyboard target): the viewed tab counts as focused while the window is
-    /// key and cmux is active. The viewed-tab rules read it (one path for a
-    /// focus and for an unread mark that lands on a viewed tab).
+    /// A window's settled focus or key holder changed: the viewed-tab rules read it (one path for a focus and for an
+    /// unread mark that lands on a viewed tab); a tab is viewed while its window holds the keys and cmux is active.
     func focusDidSettle(_ state: FocusState, in controller: WindowController) {
         viewedRevision &+= 1
     }
@@ -419,13 +417,13 @@ final class NotificationCenterService {
         acknowledge(tab, owner: owner)
     }
 
-    /// The person went into a tab an agent marked (a click, a key or opening it): its ring has done its job,
+    /// The person went into a tab an agent marked (a click, a key, opening it, or focus under the `focus` dismissal): its ring has done its job,
     /// the mark stays until the agent clears it or the page changes.
     func dismissAttention(_ trigger: NotificationTrigger, tab: TabModel) {
         // Hiding the ring is this client's view state, so a mark without a request id (an older
         // daemon's) hides it too, by its generation; only the owner's clear needs the id.
         // Opening it (jump to unread, a banner) goes into the tab as a click does.
-        guard tab.attention != nil, [.click, .keystroke, .open].contains(trigger) else { return }
+        guard tab.attention != nil, [.click, .keystroke, .open].contains(trigger) || trigger == .focus && NotificationPolicy(prefs: preferences).clears(.focus, for: .agent) else { return }
         hideAttentionRing(of: tab)
     }
 
@@ -720,9 +718,6 @@ extension NotificationCenterService: AttentionBannerHost {
     /// active (``isViewed(_:)`` on that machine only).
     func isViewed(_ tabID: String, onMachine machine: String) -> Bool {
         guard let services, NSApp.isActive else { return false }
-        return services.windows.controllers.contains { controller in
-            (controller.focus.state.windowKey || controller.window?.holdsKeyboard(key: services.keyWindowSource()) == true) && Self.contentTab(controller.focus.state.resolved) == tabID
-                && controller.content?.daemon.machineID == machine
-        }
+        return services.windows.controllers.contains { ownsKey($0) && viewedTab($0) == tabID && $0.content?.daemon.machineID == machine }
     }
 }

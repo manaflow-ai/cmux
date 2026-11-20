@@ -246,8 +246,24 @@ public final class DeviceHubService {
         self.hub = hub
         running = (url, user)
         pages.hub = hub
-        // task-owner: one registration and socket start; stop() cancels the socket
-        trackHubStart(Task { await hub.start() })
+        // task-owner: the registration and socket start, tried again after each failed registration (the page
+        // says "cmux keeps trying"); stopHub cancels it with the hub's other starts.
+        let clock = retryClock
+        trackHubStart(Task { [weak self] in
+            // Rust owns the spacing and jitter, as for the identity above; no network-ready event exists.
+            var retry = cmux_retry_pacer_new(cmux_retry_policy_new(1_000_000_000, 30_000_000_000, 10, 0, true))
+            // wakeup-allow: each failed registration suspends for Rust backoff (capped at 30s); success, cancellation or a replaced hub ends it.
+            while !Task.isCancelled {
+                await hub.start()
+                guard case let .failed(detail) = hub.status, hub.connection != .removed, !Task.isCancelled, self?.hub === hub else { return }
+                // DeviceHubError's words: a code, an HTTP status or a transport error, never a token.
+                self?.logger.error("device hub registration failed: \(detail, privacy: .public); trying again")
+                let delay = cmux_retry_pacer_failed(&retry, Double.random(in: 0..<1))
+                guard delay >= 0 else { return }
+                // wakeup-allow: cancellable backoff after a failed registration, paced by Rust and capped at 30s.
+                do { try await clock.sleep(for: .nanoseconds(delay)) } catch { return }
+            }
+        })
         // task-owner: DeviceHubService.removalWatch: lives with this hub; stopHub cancels it
         removalWatch = Task { [weak self] in
             for await removed in ObservationStream({ hub.connection == .removed }) where removed {

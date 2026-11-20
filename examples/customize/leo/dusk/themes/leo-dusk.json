@@ -56,5 +56,11 @@
   "appearance.statusIndicator.color": "#a78bfa",
 
   "appearance.titleAreaTone": "subtleTone",
-  "appearance.density": "comfortable"
+  "appearance.density": "comfortable",
+
+  // Soft dusk: rounded tabs and rows, glass group headers, a wide sidebar.
+  "density": {
+    "tokens": { "tabCornerRadius": 10, "verticalTabCornerRadius": 10, "sidebarCornerRadius": 10, "sidebarRowGap": 3, "sidebarWidth": 300 }
+  },
+  "sidebar.groupHeader.background": "glass"
 }
