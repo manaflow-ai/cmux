@@ -142,7 +142,7 @@ class FakeAcpmux {
   }
 }
 
-async function openPane(): Promise<{
+async function openPane(hiddenTurnListener?: Parameters<typeof AcpmuxDirectClient.connect>[7]): Promise<{
   socket: FakeAcpmux;
   client: AcpmuxDirectClient;
   snapshots: () => number;
@@ -167,6 +167,10 @@ async function openPane(): Promise<{
     },
     undefined,
     () => socket as unknown as WebSocket,
+    undefined,
+    undefined,
+    undefined,
+    hiddenTurnListener,
   );
   await client.select(SELECTED);
   for (let i = 0; i < 5; i++) {
@@ -405,7 +409,8 @@ test("a hidden pane draws its chat's turns and new replies, not its reply's text
 });
 
 test("an entirely hidden turn preserves completion when both visible snapshots are idle", async () => {
-  const { socket, client, snapshots, latest } = await openPane();
+  const states: { isWorking: boolean; completedSeq?: number }[] = [];
+  const { socket, client, snapshots, latest } = await openPane((state) => states.push(state));
   try {
     record(socket, 401, "turn_end");
     flushFrames();
@@ -415,8 +420,11 @@ test("an entirely hidden turn preserves completion when both visible snapshots a
     setVisibility("hidden");
     record(socket, 402, "turn_started");
     record(socket, 403, "turn_end");
+    record(socket, 404, "turn_result");
     flushFrames();
     expect(snapshots()).toBe(before);
+    expect(states.map((state) => state.isWorking)).toEqual([true, false, false]);
+    expect(states.at(-1)?.completedSeq).toBe(404);
     setVisibility("visible");
     flushFrames();
     expect(latest().isWorking).toBe(false);

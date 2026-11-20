@@ -403,6 +403,12 @@ type Reply = {
 };
 type Notification = { method: string; params?: any };
 type Listener = (snapshot: AcpmuxSnapshot) => void;
+type HiddenTurnListener = (state: {
+  sessionId?: string;
+  isWorking: boolean;
+  turnsEnded: number;
+  completedSeq?: number;
+}) => void;
 /// The snapshot's catalog: one empty array, so equal snapshots compare by identity.
 const NO_CATALOG: AcpmuxSnapshot["catalog"] = Object.freeze([]) as unknown as AcpmuxSnapshot["catalog"];
 
@@ -3726,6 +3732,7 @@ export class AcpmuxDirectClient {
   /// The plan build cards' rows and which build each of their chats is (planBuild/planBuildRows.ts).
   private planBuilds = new PlanBuildRows();
   private readonly listener: Listener;
+  private hiddenTurnListener?: HiddenTurnListener;
   private host: AcpmuxHostConfig;
   /// A purge in flight owns the selected session's disappearance; do not replace it with another
   /// chat before the page's caller closes the tab.
@@ -4157,8 +4164,10 @@ export class AcpmuxDirectClient {
     gitRoute?: GitRoute,
     wire?: AcpWireLog,
     carried?: CarriedChat,
+    hiddenTurnListener?: HiddenTurnListener,
   ): Promise<AcpmuxDirectClient> {
     const client = new AcpmuxDirectClient(host, listener, onLost, openSocket, gitRoute, wire);
+    client.hiddenTurnListener = hiddenTurnListener;
     if (carried) client.resumeCarried(carried);
     try {
       await client.open();
@@ -8148,11 +8157,22 @@ export class AcpmuxDirectClient {
     this.lastSeq = event.seq;
     this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
     this.streamGrew = false;
+    const wasWorking = this.hiddenTurnListener && !pageShown() ? this.workingNow() : undefined;
     this.reduce(event);
     // A record that opened the turn arms the watch; one that ended it stops it (`followQuietWatch`).
     this.followQuietWatch();
     this.noticeRefusal(event);
     this.emitInFrame(event.kind, this.streamGrew);
+    if (wasWorking !== undefined) {
+      const working = this.workingNow();
+      if (working !== wasWorking || event.kind === "turn_result")
+        this.hiddenTurnListener?.({
+          sessionId: this.selectedSessionId,
+          isWorking: working,
+          turnsEnded: this.turnsEnded,
+          ...(event.kind === "turn_result" ? { completedSeq: event.seq } : {}),
+        });
+    }
     if (event.dir === "mux" && event.kind === "turn_result" && event.sessionId) {
       this.checkFinishedTurn(event.sessionId, event.seq);
       this.shedOlderHeld();
