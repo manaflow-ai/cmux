@@ -1350,11 +1350,30 @@ class Excusing(unittest.TestCase):
 
     def test_base_job_reads_are_bounded(self):
         self.gh.base_runs = self.dev_daily_runs(excuse.BASE_JOB_READS + 5) + self.gh.base_runs
-        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next run of its workflow"):
+        with self.assertRaisesRegex(excuse.Refused, f"{excuse.INCOMPLETE} {excuse.BASE_JOB_READS} job lists"):
             self.judge()
         reads = [route for route in self.gh.routes if route.endswith("/jobs?filter=latest&per_page=100")
                  and "/runs/10/" not in route]
         self.assertEqual(len(reads), excuse.BASE_JOB_READS)
+
+    def test_a_base_search_the_cap_cut_short_is_incomplete_and_a_retry_reads_past_it(self):
+        # cmuxterm-hq#14126, 2026-11-19: the search stopped at BASE_JOB_READS with runs still unread and said "no
+        # feat-cmux-next run of its workflow has a verdict", the words of a window read whole, so the red stopped as
+        # the PR's own; a retry counted the kept lists again and said the same. A cut search is a timed retry, and a
+        # kept list costs no read, so the next judgement reads past the first ones to the run with the verdict.
+        runs = self.dev_daily_runs(excuse.BASE_JOB_READS + 5)
+        for run in runs:
+            run.update(run_attempt=1, updated_at="2026-11-19T20:00:00Z")
+        self.gh.base_runs = runs + self.gh.base_runs
+        with tempfile.TemporaryDirectory() as kept, unittest.mock.patch.dict(os.environ, {excuse.JOBS_CACHE_ENV: kept}):
+            with self.assertRaises(excuse.Refused) as cut:
+                self.judge()
+            said = str(cut.exception)
+            self.assertRegex(said, rf"{excuse.INCOMPLETE} {excuse.BASE_JOB_READS} job lists .*not a verdict: retry "
+                                   r"after \d\d:\d\dZ")
+            self.assertNotIn("has a verdict for it to compare with", said)
+            text = "\n".join(self.judge())
+        self.assertIn("run 20", text)
 
     def tip_daemon_setup(self, *, verdict="failure"):
         # 2026-10-30 (#27692): a feat-cmux-next push never runs daemon-test, base pushes land every
@@ -3086,6 +3105,16 @@ class WebShardBaseVerdict(unittest.TestCase):
         gh = self.red_web_status(WebShardBaseGitHub(name=SWIFT))
         with self.assertRaisesRegex(excuse.Refused, "no failed job under its needs"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [], gh, checks=[WEB_STATUS])
+
+    def test_a_web_status_refused_at_setup_says_re_run_not_no_failed_job(self):
+        # Run 44690650796: Web status failed in "Set up runner" on a pool runner whose job hook exited 5, with no web
+        # job red under it. "no failed job under its needs" sent a reader looking for a missing child; say re-run.
+        for checks, runs in (([WEB_STATUS], []), ([], [10])):
+            with self.subTest(checks=checks, runs=runs):
+                gh = self.red_web_status(WebShardBaseGitHub(name=SWIFT))
+                gh.jobs[5]["steps"] = [{"name": "Set up runner", "status": "completed", "conclusion": "failure"}]
+                with self.assertRaisesRegex(excuse.Refused, "refused at setup: re-run"):
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, runs, gh, checks=checks)
 
     def test_a_web_shard_green_on_the_pushed_base_is_the_prs_own_red(self):
         gh = WebShardBaseGitHub()
@@ -8321,7 +8350,7 @@ class BaseRunsThatNeverBuildTheJob(unittest.TestCase):
     def test_runs_whose_suites_cannot_be_read_are_still_bounded(self):
         gh = TreeReuseGitHub(nodes=True)
         gh.run = lambda args: json.dumps({"errors": [{"message": "Something went wrong"}]})
-        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next run of its workflow has a verdict"):
+        with self.assertRaisesRegex(excuse.Refused, f"{excuse.INCOMPLETE} {excuse.BASE_JOB_READS} job lists"):
             self.judge(gh)
         self.assertEqual(len([run for run in gh.job_reads() if run != 10]), excuse.BASE_JOB_READS)
 
@@ -15521,6 +15550,10 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-next-tab-switch.yml",
             # Type-checks the measuring probes (scripts/measure/*.swift) on a Mac when a change touches them.
             "measure-swift-typecheck.yml",
+            # Push-only checks that also run, advisory and path-gated, on PRs into feat-cmux-next (#47445): the
+            # acpmux simulator sweep, Chief's evals, the mobile FFI, the cmux-next terminal and the Windows RD host.
+            "acpmux-sim-sweep.yml", "chief-evals.yml", "cmux-mobile-ffi.yml", "cmux-next-terminal.yml",
+            "cmux-rd-windows.yml",
             # Calls ci.yml, cmux-next-guards.yml and the other docs-only-filtered workflows when their filter can
             # be wrong (scripts/ci/docs_only_paths.py FALLBACK); a called guard job's check name carries the
             # caller's prefix, so no guard job declaration matches it and its red is judged as any job's.
