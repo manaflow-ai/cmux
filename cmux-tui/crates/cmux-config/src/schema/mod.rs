@@ -26,8 +26,10 @@ pub use url::{is_http_origin, new_tab_page_url_is_valid};
 
 use crate::value::canonical;
 
-/// A `static`, not a `const`: one copy, whose bytes the embedded rows borrow.
-static EMBEDDED: &str = include_str!("../../../../../schemas/settings/settings-schema.json");
+/// Compiled in compressed (cmux-embed): 2.4 MB of JSON, about 85 KB packed. Inflated once
+/// into the one text whose bytes the embedded rows borrow (`EMBEDDED.get()`).
+static EMBEDDED: cmux_embed::PackedStr =
+    cmux_embed::packed_str!(include_str!("../../../../../schemas/settings/settings-schema.json"));
 
 /// A text with the string catalog key it came from (nil for a product name).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -315,7 +317,8 @@ impl Schema {
     pub fn embedded() -> &'static Schema {
         static SCHEMA: OnceLock<Schema> = OnceLock::new();
         SCHEMA.get_or_init(|| {
-            let parsed = Schema::parse_keeping(EMBEDDED, |embedded, _| RowText::Embedded(embedded));
+            let parsed =
+                Schema::parse_keeping(EMBEDDED.get(), |embedded, _| RowText::Embedded(embedded));
             // crash-allow: the schema is compiled in; the behavior tests parse it on every run.
             let schema = parsed.expect("the embedded settings schema parses");
             // The build's defaults the app named (`CMUX_NEXT_SETTINGS_BUILD_DEFAULTS`, build_defaults.rs).
@@ -463,14 +466,14 @@ mod row_text_tests {
 
     #[test]
     fn the_schema_hash_equals_the_whole_array_hash() {
-        assert_eq!(Schema::embedded().schema_hash, rows_hash_reference(EMBEDDED));
+        assert_eq!(Schema::embedded().schema_hash, rows_hash_reference(EMBEDDED.get()));
         let empty = r#"{"version":1,"sections":[],"rows":[]}"#;
         assert_eq!(Schema::parse(empty).expect("parses").schema_hash, rows_hash_reference(empty));
     }
 
     #[test]
     fn embedded_rows_keep_slices_of_the_compiled_text_not_heap_copies() {
-        let range = EMBEDDED.as_bytes().as_ptr_range();
+        let range = EMBEDDED.get().as_bytes().as_ptr_range();
         let rows = &Schema::embedded().rows;
         assert!(!rows.is_empty());
         for row in rows {
@@ -481,7 +484,7 @@ mod row_text_tests {
             assert!(range.contains(&start), "{}: not a slice of the embedded text", row.key);
         }
         // Another text keeps owned compact rows that give back the same values.
-        let parsed = Schema::parse(EMBEDDED).expect("parses");
+        let parsed = Schema::parse(EMBEDDED.get()).expect("parses");
         assert_eq!(parsed.schema_hash, Schema::embedded().schema_hash);
         for (owned, embedded) in parsed.rows.iter().zip(rows) {
             assert!(matches!(owned.raw, RowText::Owned(_)));
