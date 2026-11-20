@@ -6,6 +6,19 @@ extension AgentPaneDisplaySettingsSchema {
         let group = SettingsText.keyed("settings.group.agentChat", "Agent Chat")
         return [
             SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.railSidePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.rail.side", "Prompt Rail Side"),
+                help: SettingsText.keyed("settings.agentPane.display.rail.side.help", "Right-click the rail to move it."),
+                kind: .choice([
+                    SettingChoice("left", SettingsText.keyed("settings.choice.left", "Left")),
+                    SettingChoice("right", SettingsText.keyed("settings.choice.right", "Right")),
+                ]),
+                default: .string(AgentPaneDisplaySettingsSchema.railSideDefault),
+                keywords: ["agent", "chat", "acp", "display", "reading", "rail", "minimap", "prompts", "ticks", "scroll", "side", "left", "right"]
+            ),
+            SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.commandLabelsPath,
                 section: .appearance,
                 group: group,
