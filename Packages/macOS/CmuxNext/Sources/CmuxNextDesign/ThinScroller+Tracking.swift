@@ -119,7 +119,8 @@ extension ThinScroller {
                 wait = Self.pageRepeatPeriod
             }
         } while NSEvent.pressedMouseButtons & 1 != 0
-        return nil
+        // The button came up before its release was read: take the release, so it never reaches the content.
+        return nextEvent([.leftMouseUp], .distantPast)
     }
 
     /// One page, as AppKit's page part: the visible length less the scroll view's page overlap.
