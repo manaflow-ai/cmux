@@ -51,6 +51,18 @@
    "shot": false
   },
   {
+   "title": "An agent tab in the workspace",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "palette.newAgentChat",
+     "focus": true
+    }
+   },
+   "wait": 3,
+   "shot": false
+  },
+  {
    "title": "A chat on the fake harness",
    "rpc": {
     "method": "debug.agent_pane",
