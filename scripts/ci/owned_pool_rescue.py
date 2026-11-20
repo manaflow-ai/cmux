@@ -629,6 +629,10 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/main-compile-probe.yml":
         "one optional compile data point for main's compile attribution; its dispatcher already sends a probe "
         "that has not started to Blacksmith, and nothing waits on it",
+    ".github/workflows/fast-checks.yml":
+        "feat-cmux-next's checks-mac job (setup=kernel-free, cmux#46651) names a literal glaeda-side-light label on "
+        "every attempt, so a re-run would not move it; a run no mini starts stays queued until the cmux-ci "
+        "client's fallback moves it to the build fleet",
     ".github/workflows/seed-derived-data.yml":
         "a cache seed on the trusted pool that nothing waits on; the next main push seeds again from the newest "
         "earlier seed",
@@ -1018,10 +1022,10 @@ def signing_stall(jobs: Sequence[Mapping[str, Any]], now: dt.datetime,
                   if job.get("status") != "completed" and not any(job is other for other in stalled))
     if busy:
         return Look("watch", f"{names} queued on {label} with no runner past the {SIGN_STALL_SECONDS}s Blacksmith "
-                             f"stall time, but {', '.join(busy)} not finished; cancelling the run would lose that "
+                             f"wait time, but {', '.join(busy)} not finished; cancelling the run would lose that "
                              "work, so it is not rescued on this look", waiting=True)
     return Look("stalled", f"{names} queued on {label} with no runner past the {SIGN_STALL_SECONDS}s Blacksmith "
-                           "stall time, and every other job of the run has finished")
+                           "wait time, and every other job of the run has finished")
 
 
 def gated_signing_stall(jobs: Sequence[Mapping[str, Any]], now: dt.datetime, first_seen: Mapping[Any, dt.datetime],

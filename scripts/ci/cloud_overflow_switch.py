@@ -586,14 +586,52 @@ def stuck_job(jobs: Iterable[Mapping[str, Any]], now: dt.datetime, minutes: int,
     return min(stuck, key=lambda item: item[0])[1] if stuck else None
 
 
-REFUSED_CODES = frozenset({401, 403, 429})
+class GitHubError(RuntimeError):
+    """A refused call, with GitHub's own words: `status` is the HTTP code (None for a network error)."""
+
+    def __init__(self, message: str, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+def http_error_text(error: urllib.error.HTTPError) -> str:
+    """`403: <GitHub's message>; rate limit 0 left (resource core), resets 03:12:00Z` from a refused call:
+    a bare 403 says nothing of whether the token lacks a permission or its pool is spent."""
+    parts = [str(error.code)]
+    try:
+        raw = error.read() or b""
+    except (OSError, ValueError, http.client.HTTPException):
+        raw = b""
+    message = ""
+    try:
+        body = json.loads(raw) if raw else {}
+        message = str(body.get("message") or "") if isinstance(body, dict) else ""
+    except ValueError:
+        message = raw.decode("utf-8", "replace")
+    message = " ".join(message.split())[:300]
+    if message:
+        parts[0] += f": {message}"
+    headers = error.headers
+    get = headers.get if headers is not None else (lambda _name: None)
+    remaining, resource, reset = get("x-ratelimit-remaining"), get("x-ratelimit-resource"), get("x-ratelimit-reset")
+    if remaining is not None:
+        limit = f"rate limit {remaining} left" + (f" (resource {resource})" if resource else "")
+        if reset and str(reset).isdigit():
+            limit += ", resets " + dt.datetime.fromtimestamp(int(reset), dt.timezone.utc).strftime(
+                "%H:%M:%SZ")
+        parts.append(limit)
+    if get("retry-after"):
+        parts.append(f"retry after {get('retry-after')} s")
+    if get("x-accepted-github-permissions"):
+        parts.append(f"needs {get('x-accepted-github-permissions')}")
+    return "; ".join(parts)
 
 
 class GitHub:
     """REST client. With `fallback_token`, reads go out on `token` (the watch's cmux-bot installation token,
-    whose pool is its own) and a refused read is asked once more on the fallback (the workflow token, which
-    shares the repository's 1,000/h pool with every workflow); writes always use the fallback, so who
-    cancels and re-runs a run is unchanged. Without it, everything uses `token`, as before."""
+    whose pool is its own) and writes on the fallback (the workflow token), so who cancels and re-runs a run
+    is unchanged. A refused read is not asked again on the workflow token: that token can never read a
+    variable, and its 403 hid the first refusal's cause. Without it, everything uses `token`."""
 
     def __init__(self, token: str, repo: str, fallback_token: str | None = None) -> None:
         self.repo = repo
@@ -622,23 +660,17 @@ class GitHub:
         data = json.dumps(body).encode() if body is not None else None
         read = method == "GET"
         token = self.token if read or self.fallback_token is None else self.fallback_token
+        where = f"{method} {path.split('?')[0]}"
         try:
-            try:
-                return self._send(method, path, data, token)
-            except urllib.error.HTTPError as error:
-                if not (read and self.fallback_token and token != self.fallback_token
-                        and error.code in REFUSED_CODES):
-                    raise
-                # A refused GET did nothing: ask the workflow token once.
-                return self._send(method, path, data, self.fallback_token)
+            return self._send(method, path, data, token)
         except urllib.error.HTTPError as error:
-            raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.code})") from error
+            raise GitHubError(f"{where} failed ({http_error_text(error)})", error.code) from error
         except urllib.error.URLError as error:
-            raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.reason})") from error
+            raise GitHubError(f"{where} failed ({error.reason})") from error
         except (OSError, ValueError, http.client.HTTPException) as error:
             # A read timeout (TimeoutError) or a body that is not JSON: a failed call like any other, so a
             # rescue that already force-cancelled runs still re-runs the rest.
-            raise RuntimeError(f"{method} {path.split('?')[0]} failed ({type(error).__name__})") from error
+            raise GitHubError(f"{where} failed ({type(error).__name__})") from error
 
     def jobs(self, run_id: int, attempt: int | None = None) -> list[dict[str, Any]]:
         where = f"/actions/runs/{run_id}/attempts/{attempt}/jobs" if attempt else f"/actions/runs/{run_id}/jobs"
@@ -664,7 +696,7 @@ class GitHub:
         try:
             return self.request("GET", f"/actions/variables/{name}").get("value")
         except RuntimeError as error:
-            if "(404)" in str(error):
+            if getattr(error, "status", None) == 404:
                 return None
             raise
 
@@ -672,7 +704,7 @@ class GitHub:
         try:
             self.request("PATCH", f"/actions/variables/{name}", {"name": name, "value": value})
         except RuntimeError as error:
-            if "(404)" not in str(error):
+            if getattr(error, "status", None) != 404:
                 raise
             self.request("POST", "/actions/variables", {"name": name, "value": value})
 
@@ -680,7 +712,7 @@ class GitHub:
         try:
             self.request("DELETE", f"/actions/variables/{name}")
         except RuntimeError as error:
-            if "(404)" not in str(error):
+            if getattr(error, "status", None) != 404:
                 raise
 
 

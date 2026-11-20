@@ -25,8 +25,13 @@ on:
         required: false
         default: false
         type: boolean
+      dead_queued:
+        description: "Instead, cancel queued pull_request runs nobody will read: superseded, closed or merged PR, older same-SHA duplicates, draft heads unstarted 24 h"
+        required: false
+        default: false
+        type: boolean
       max_superseded:
-        description: "Maximum superseded-head runs to cancel (1-500)"
+        description: "Maximum superseded-head (or dead_queued) runs to cancel (1-500)"
         required: false
         default: "200"
         type: string
@@ -46,7 +51,7 @@ jobs:
       actions: write
       contents: read
       pull-requests: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted Actions control-plane token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-fleet-linux-x64' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted Actions control-plane token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 15
     steps:
       - name: Check out trusted workflow code
@@ -61,5 +66,6 @@ jobs:
           MIN_AGE_MINUTES: ${{ inputs.min_age_minutes || '1440' }}
           MAX_ACTIONS: ${{ inputs.max_actions || '25' }}
           SUPERSEDED: ${{ inputs.superseded || 'false' }}
+          DEAD_QUEUED: ${{ inputs.dead_queued || 'false' }}
           MAX_SUPERSEDED: ${{ inputs.max_superseded || '200' }}
         run: python3 scripts/ci/cleanup-stale-runs.py

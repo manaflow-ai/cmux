@@ -209,7 +209,7 @@ def load_pools(path: Path = RUNNERS, env: Mapping[str, str] | None = None) -> di
         if HOSTED_OVERRIDE_POOL.match(name) and isinstance(listed, list) and listed \
                 and all(isinstance(m, str) and X64_UBUNTU.match(m) for m in listed):
             declared[name] = {**spec, "members": [label, *listed], "hosted": True,
-                              "hosted_why": f"{HOSTED_OVERRIDE} is set: Blacksmith Linux outage override"}
+                              "hosted_why": f"{HOSTED_OVERRIDE} is set: Blacksmith Linux pause override"}
     return declared
 
 
@@ -786,7 +786,7 @@ class Variables:
         try:
             return str(self.client.request("GET", f"/actions/variables/{name}").get("value"))
         except RuntimeError as error:
-            if "(404)" in str(error):
+            if getattr(error, "status", None) == 404:
                 return None
             raise
 
@@ -806,7 +806,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     pools = load_pools(env=env)
     if hosted_override(env):
         print(f"::notice title=Runner pools::{HOSTED_OVERRIDE}={hosted_override(env)}: the x64 Linux pools lead with it "
-              f"(Blacksmith outage override); delete the variable to return them to Blacksmith")
+              f"(Blacksmith pause override); delete the variable to welcome them back to Blacksmith")
     elif (env.get(HOSTED_OVERRIDE) or "").strip():
         print(f"::warning title=Runner pools::{HOSTED_OVERRIDE}={env.get(HOSTED_OVERRIDE)!r} is not a hosted Ubuntu "
               "label (ubuntu-NN.NN); ignored")
@@ -846,7 +846,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                 # The cmux-bot read budget is org-wide and runs out: on 2026-11-18 from 11:18Z every read was
                 # refused (403), every probe but 2 vCPU waited out its minutes under the vCPU cap, and with no
                 # snapshot every Linux pool went to the 2 vCPU release valve. Ask once more with the workflow
-                # token, as cloud_overflow_switch.GitHub does for a refused read.
+                # token (a run read, which that token can do; it can never read a variable).
                 try:
                     snapshot = fallback.snapshot(now=now)
                     if snapshot is None:
