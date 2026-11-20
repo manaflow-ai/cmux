@@ -26,11 +26,13 @@ import sys
 SOURCES = "Packages/macOS/CmuxNext/Sources"
 BASELINE = "scripts/cmux-next/check-menu-actions-baseline.txt"
 # The registry builds every action row; the demo app and the Debug menu's Tab Bar Playground run
-# fixture strips (TabStripDemo models), not the app's tabs, so they have no registry.
+# fixture strips (TabStripDemo models), not the app's tabs, so they have no registry. The Debug menu's
+# Density Overlay Playground's reference pull-down picks a capture image for the playground, not an app action.
 EXEMPT = (
     "Packages/macOS/CmuxNext/Sources/CmuxNextActions/",
     "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/Demo/",
     "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/Playground/",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityOverlay/",
 )
 ROW = re.compile(r"(NSMenuItem\s*\(|addItem\s*\(\s*withTitle\s*:)[^;{}]*?action\s*:\s*#selector", re.S)
 
