@@ -111,6 +111,10 @@ fn is_media_datagram(datagram: &[u8]) -> bool {
         .is_ok_and(|(header, _)| matches!(header.kind, DatagramKind::Video | DatagramKind::Fec))
 }
 
+fn is_probe_datagram(datagram: &[u8]) -> bool {
+    DatagramHeader::decode(datagram).is_ok_and(|(header, _)| header.kind == DatagramKind::Probe)
+}
+
 /// Where each encoded frame's time went, one JSON line a frame (measurement only; the eval's
 /// `scripts/measure/screen-stream-eval` reads it): `input_us`, the last viewer input injected before
 /// this frame, once; `shown_us`, when the display showed the frame (ScreenCaptureKit's display time);
@@ -679,14 +683,20 @@ impl MediaSession {
     fn send_output(&mut self, carrier: &mut dyn Carrier, datagrams: Vec<Vec<u8>>) {
         let Some(pacer) = self.pacer.as_mut() else {
             for datagram in &datagrams {
-                let _ = carrier.send_datagram(datagram);
+                if carrier.send_datagram(datagram).is_ok() && is_probe_datagram(datagram) {
+                    self.engine.datagram_sent(datagram, now_us());
+                }
             }
             return;
         };
         let (repairs, direct): (Vec<_>, Vec<_>) =
             datagrams.into_iter().partition(|d| is_media_datagram(d));
         for datagram in &direct {
-            let _ = carrier.send_datagram(datagram);
+            // Ultra's capacity probes keep their own spacing (the engine's probe planner);
+            // the planner validates a train by when each probe really left.
+            if carrier.send_datagram(datagram).is_ok() && is_probe_datagram(datagram) {
+                self.engine.datagram_sent(datagram, now_us());
+            }
         }
         if !repairs.is_empty() {
             pacer.set_rate_bps(self.engine.target_bps());
