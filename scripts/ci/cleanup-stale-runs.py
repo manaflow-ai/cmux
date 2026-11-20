@@ -13,6 +13,15 @@ stalled, many of them at heads a later push had replaced. A run whose head is
 any open pull request's head, a run that has started, a push or schedule run,
 and every nightly, dev, promote or release workflow are always kept; each
 cancel re-reads the run and its pull request first.
+
+DEAD_QUEUED=true (dispatch only) runs one wider pass over the same queued
+pull_request runs (classify_dead): superseded heads as above, runs of closed or
+merged pull requests, older duplicates of one workflow at one head and pull
+request (the newest is kept, and only once it has waited DUPLICATE_KEEPER_SECONDS
+unstarted), and runs at a draft pull request's head unstarted over
+DRAFT_STALE_HOURS. The same runs are always kept, plus any pull request labelled
+`no-janitor`; each cancel re-reads the run, its pull request and, for a
+duplicate, the kept run. The log and step summary count each kind.
 """
 
 from __future__ import annotations
@@ -37,6 +46,11 @@ SUPERSEDED_LIMIT_MAX = 500
 LIST_CAP = 1000
 # The superseded pass reads queued runs created this recently; older ones are the stale pass's.
 QUEUED_WINDOW_HOURS = 72
+# The kept run of a duplicate group must have waited this long unstarted: ci.yml's run for a plain label change on a
+# feat-cmux-next PR skips every job and ends in seconds, and kept over a real run its ci-status would stand for it.
+DUPLICATE_KEEPER_SECONDS = 600
+DRAFT_STALE_HOURS = 24
+JANITOR_OPT_OUT_LABEL = "no-janitor"
 
 
 def parse_time(value: str) -> dt.datetime:
@@ -101,6 +115,82 @@ def classify_superseded(run: dict[str, Any], open_heads: dict[int, str], *, now:
     if numbers and all(n in open_heads and open_heads[n] != sha for n in numbers):
         return "superseded head"
     return None
+
+
+def run_age_seconds(run: dict[str, Any], now: dt.datetime) -> float | None:
+    try:
+        return (now - parse_time(str(run.get("created_at") or ""))).total_seconds()
+    except (TypeError, ValueError):
+        return None
+
+
+def _pr_numbers(run: dict[str, Any]) -> list[Any]:
+    return [pr.get("number") for pr in run.get("pull_requests") or [] if isinstance(pr, dict)]
+
+
+def dead_base(run: dict[str, Any], now: dt.datetime) -> bool:
+    """The facts every dead-queued kind needs: a queued pull_request run with a head, past
+    SUPERSEDED_MIN_AGE_SECONDS, of no PROTECTED_WORKFLOW."""
+    if run.get("event") != "pull_request" or run.get("status") != "queued" or not run.get("head_sha"):
+        return False
+    if PROTECTED_WORKFLOW.search(str(run.get("path") or "")) or PROTECTED_WORKFLOW.search(str(run.get("name") or "")):
+        return False
+    age = run_age_seconds(run, now)
+    return age is not None and age >= SUPERSEDED_MIN_AGE_SECONDS
+
+
+def duplicate_key(run: dict[str, Any]) -> tuple[Any, ...]:
+    return (run.get("workflow_id") or run.get("path"), run.get("head_branch"), run.get("head_sha"),
+            tuple(sorted(str(n) for n in _pr_numbers(run))))
+
+
+def duplicate_keepers(runs: list[dict[str, Any]], now: dt.datetime) -> dict[Any, dict[str, Any]]:
+    """Run id -> the newer run kept in its place, for every older queued first attempt of a duplicate group whose
+    newest run has waited DUPLICATE_KEEPER_SECONDS unstarted."""
+    groups: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+    for run in runs:
+        if dead_base(run, now) or (run.get("event") == "pull_request" and run.get("status") == "queued"):
+            groups.setdefault(duplicate_key(run), []).append(run)
+    out: dict[Any, dict[str, Any]] = {}
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        members.sort(key=lambda r: (str(r.get("created_at") or ""), r.get("id") or 0))
+        keeper = members[-1]
+        age = run_age_seconds(keeper, now)
+        if age is None or age < DUPLICATE_KEEPER_SECONDS:
+            continue
+        for run in members[:-1]:
+            if int(run.get("run_attempt") or 1) == 1:
+                out[run.get("id")] = keeper
+    return out
+
+
+def classify_dead(run: dict[str, Any], open_prs: dict[int, dict[str, Any]], keepers: dict[Any, dict[str, Any]],
+                  *, now: dt.datetime) -> str | None:
+    """'superseded head', 'closed PR', 'duplicate' or 'stale draft' for a queued pull_request run nobody will read,
+    else None. OPEN_PRS maps every open pull request's number to {"sha", "draft", "labels"}; KEEPERS is
+    duplicate_keepers(). A run at a non-draft open pull request's head is kept, as is one naming no pull request or
+    one whose pull request carries JANITOR_OPT_OUT_LABEL."""
+    if not dead_base(run, now):
+        return None
+    sha = str(run.get("head_sha"))
+    numbers = _pr_numbers(run)
+    if not numbers or any(JANITOR_OPT_OUT_LABEL in open_prs.get(n, {}).get("labels", ()) for n in numbers):
+        return None
+    at_head = [pr for pr in open_prs.values() if pr.get("sha") == sha]
+    if not at_head:
+        if all(n not in open_prs for n in numbers):
+            return "closed PR"
+        if all(n in open_prs for n in numbers):
+            return "superseded head"
+        return None
+    if any(not pr.get("draft") or JANITOR_OPT_OUT_LABEL in pr.get("labels", ()) for pr in at_head):
+        return "duplicate" if run.get("id") in keepers else None
+    age = run_age_seconds(run, now)
+    if age is not None and age >= DRAFT_STALE_HOURS * 3600:
+        return "stale draft"
+    return "duplicate" if run.get("id") in keepers else None
 
 
 class GitHub:
@@ -177,9 +267,96 @@ class GitHub:
                 heads[int(pr["number"])] = str(pr["head"]["sha"])
         raise RuntimeError("more than 6,000 open pull requests: the superseded pass would not see them all")
 
+    def open_prs(self) -> dict[int, dict[str, Any]]:
+        """Every open pull request's number -> {"sha", "draft", "labels"}, paged until an empty page."""
+        prs: dict[int, dict[str, Any]] = {}
+        for page in range(1, 61):
+            query = urllib.parse.urlencode({"state": "open", "per_page": 100, "page": page})
+            payload = self.request("GET", f"/repos/{self.repo}/pulls?{query}")
+            if not payload:
+                return prs
+            for pr in payload:
+                prs[int(pr["number"])] = pr_facts(pr)
+        raise RuntimeError("more than 6,000 open pull requests: the dead-queued pass would not see them all")
+
     def pull_requests_for_commit(self, sha: str) -> list[dict[str, Any]]:
         path = f"/repos/{self.repo}/commits/{urllib.parse.quote(sha, safe='')}/pulls"
         return self.request("GET", path, missing_is_empty=True)
+
+
+def pr_facts(pr: dict[str, Any]) -> dict[str, Any]:
+    return {"sha": str(pr["head"]["sha"]), "draft": pr.get("draft") is True,
+            "labels": tuple(str(label.get("name")) for label in pr.get("labels") or [] if isinstance(label, dict))}
+
+
+def dead_queued_pass(janitor: GitHub, repo: str, *, cleanup: bool, limit: int) -> int:
+    """Cancel (or, without CLEANUP, list) up to LIMIT queued runs classify_dead() names; 1 on any failure."""
+    try:
+        open_prs = janitor.open_prs()
+        now = dt.datetime.now(dt.timezone.utc)
+        queued = janitor.queued_pull_request_runs(now=now)
+        keepers = duplicate_keepers(queued, now)
+        eligible = [(run, kind) for run in sorted(queued, key=lambda r: str(r.get("created_at") or ""))
+                    if (kind := classify_dead(run, open_prs, keepers, now=now))]
+    except RuntimeError as error:
+        print(f"stale-run-janitor: dead-queued: {error}", file=sys.stderr)
+        return 1
+    found: dict[str, int] = {}
+    for _, kind in eligible:
+        found[kind] = found.get(kind, 0) + 1
+    print(f"stale-run-janitor: dead-queued {'CLEANUP' if cleanup else 'DRY-RUN'}; open_prs={len(open_prs)}; "
+          f"queued={len(queued)}; eligible={len(eligible)} {json.dumps(found, sort_keys=True)}; limit={limit}")
+    done: dict[str, int] = {}
+    failures = 0
+    for run, kind in eligible[:limit]:
+        run_id = run.get("id")
+        if not cleanup:
+            done[kind] = done.get(kind, 0) + 1
+            print(f"would cancel run {run_id} ({run.get('path')}, {str(run.get('head_sha'))[:12]}, {kind})")
+            continue
+        endpoint = f"/repos/{repo}/actions/runs/{run_id}"
+        try:
+            # The run can start, its pull request can move, close, reopen or leave draft, and a kept run can start.
+            current = janitor.request("GET", endpoint)
+            live = dict(open_prs)
+            for number in set(_pr_numbers(current)):
+                pr = janitor.request("GET", f"/repos/{repo}/pulls/{number}", missing_is_empty=True)
+                if isinstance(pr, dict) and pr.get("state") == "open":
+                    live[number] = pr_facts(pr)
+                elif isinstance(pr, dict) and pr.get("state") == "closed":
+                    live.pop(number, None)
+                else:
+                    raise RuntimeError(f"pull request {number} unread")
+            for pr in janitor.pull_requests_for_commit(str(current.get("head_sha") or "")):
+                if isinstance(pr, dict) and pr.get("state") == "open" and isinstance(pr.get("number"), int):
+                    live[pr["number"]] = pr_facts(pr)
+            kept = {}
+            if run_id in keepers:
+                fresh = janitor.request("GET", f"/repos/{repo}/actions/runs/{keepers[run_id].get('id')}")
+                if fresh.get("status") == "queued" and fresh.get("head_sha") == current.get("head_sha"):
+                    kept = {run_id: fresh}
+            again = classify_dead(current, live, kept, now=dt.datetime.now(dt.timezone.utc))
+            if again != kind:
+                print(f"preserved run {run_id}: no longer {kind} ({again or 'kept'})")
+                continue
+            janitor.request("POST", endpoint + "/cancel")
+            done[kind] = done.get(kind, 0) + 1
+            print(f"cancelled run {run_id} ({current.get('path')}, {str(current.get('head_sha'))[:12]}, {kind})")
+        except (RuntimeError, KeyError, TypeError) as error:
+            failures += 1
+            print(f"failed run {run_id}: {error}", file=sys.stderr)
+    verb = "cancelled" if cleanup else "would_cancel"
+    print(f"stale-run-janitor: dead-queued {verb}={sum(done.values())} {json.dumps(done, sort_keys=True)}; "
+          f"failures={failures}")
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as handle:
+            handle.write(f"## Dead queued runs ({'cleanup' if cleanup else 'dry run'})\n\n"
+                         f"Queued pull_request runs read: {len(queued)}; open PRs: {len(open_prs)}; limit {limit}.\n\n"
+                         "| kind | eligible | " + verb.replace("_", " ") + " |\n| --- | --- | --- |\n"
+                         + "".join(f"| {k} | {found[k]} | {done.get(k, 0)} |\n" for k in sorted(found))
+                         + f"\nFailures: {failures}.\n")
+    return 1 if failures else 0
 
 
 def env_bool(name: str, default: bool = False) -> bool:
@@ -256,6 +433,15 @@ def main() -> int:
 
     cleanup_requested = env_bool("CLEANUP") and os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
     janitor = GitHub(token, repo)
+    if env_bool("DEAD_QUEUED") and os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
+        try:
+            limit = int(os.environ.get("MAX_SUPERSEDED", "200"))
+        except ValueError:
+            limit = 0
+        if not 1 <= limit <= SUPERSEDED_LIMIT_MAX:
+            print(f"stale-run-janitor: MAX_SUPERSEDED must be 1..{SUPERSEDED_LIMIT_MAX}", file=sys.stderr)
+            return 2
+        return dead_queued_pass(janitor, repo, cleanup=cleanup_requested, limit=limit)
     if env_bool("SUPERSEDED") and os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
         try:
             limit = int(os.environ.get("MAX_SUPERSEDED", "200"))
