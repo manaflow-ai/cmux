@@ -33,6 +33,9 @@ final class NewTabInputCoordinator {
     /// The same for a page that does not exist yet (Cmd-N): the daemon makes the workspace and its
     /// first tab first, so the field comes later than in a pane that already shows.
     var incomingHoldLimit: Duration = .seconds(4)
+    /// Whether a key typed in `window` now reaches no view: the shell is key with no responder, and a shown Chromium page,
+    /// whose focus the hold asked for, does not have its window's keys yet (its grant waits for a frame). Injected for tests.
+    var keysReachNoView: (NSWindow) -> Bool = { NSApp.keyWindow === $0 && NewTabInputCoordinator.chromiumPageWindow(in: $0) != nil }
     /// Injected for tests; the hold limit is the only time this coordinator reads.
     var now: () -> ContinuousClock.Instant = { ContinuousClock.now }
     /// Runs `fire` once `limit` from now (injected for tests), detached: never inside the opening run's `ActionRunScope`.
@@ -152,7 +155,7 @@ final class NewTabInputCoordinator {
             return FocusRoute(.person, "the new tab the person opened: its page").moveKeyboard(in: window, to: view.webView)
         }, deliver: { [weak router, weak window] event in
             guard let router, let window else { return }
-            Self.replay(Self.retarget(event, to: window), held: event, in: window, router: router, keyboard: keyboard)
+            Self.replay(event.retargeted(to: window), held: event, in: window, router: router, keyboard: keyboard)
         })
         let entry = Entry(buffer: buffer, keyboard: keyboard, limit: holdLimit, opened: pane.currentTabKey, pane: pane, window: window)
         install(entry, in: window)
@@ -190,7 +193,7 @@ final class NewTabInputCoordinator {
         }, deliver: { [weak router, weak window] event in
             // Ready: the page's window. Not ready (the limit, a failed creation): the key window.
             guard let router, let to = target.pageWindow ?? (target.followsNewWindow ? NSApp.keyWindow : nil) ?? window else { return }
-            Self.replay(Self.retarget(event, to: to), held: event, in: to, router: router, keyboard: keyboard)
+            Self.replay(event.retargeted(to: to), held: event, in: to, router: router, keyboard: keyboard)
         })
         let entry = Entry(buffer: buffer, keyboard: keyboard, limit: incomingHoldLimit, opened: nil, pane: nil, window: window, incoming: target)
         install(entry, in: window)
@@ -226,16 +229,6 @@ final class NewTabInputCoordinator {
         note("ready incoming \(key)", entry)
         entry.buffer.acknowledge(token)
         flush(in: window)
-    }
-
-    /// `event` as typed into `window` (a key held in one window and replayed in another).
-    private static func retarget(_ event: NSEvent, to window: NSWindow) -> NSEvent {
-        guard event.windowNumber != window.windowNumber,
-              let moved = NSEvent.keyEvent(with: event.type, location: .zero, modifierFlags: event.modifierFlags,
-                                           timestamp: event.timestamp, windowNumber: window.windowNumber, context: nil,
-                                           characters: event.characters ?? "", charactersIgnoringModifiers: event.charactersIgnoringModifiers ?? "",
-                                           isARepeat: event.isARepeat, keyCode: event.keyCode) else { return event }
-        return moved
     }
 
     /// `window`'s hold, else a New Window hold, which takes every window's keys until its page shows.
