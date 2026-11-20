@@ -65,8 +65,12 @@ fn eligible(opts: &PromptOptions, blocks: &[Value]) -> Option<String> {
         || !blocks.iter().all(|b| b.get("type").and_then(Value::as_str) == Some("text"))
         || crate::prompt_uploads::any(blocks)
         || super::super::forum::slash_command(blocks).is_some()
-        // The receiver's own batch must reach it. External tool notices have kind "notice".
-        || provenance.and_then(|p| p["kind"].as_str()) == Some(super::NOTICE_KIND)
+        // Daemon batches must reach their receiver even when a peer digest retains its
+        // agent attribution. Clients cannot assert either internal provenance kind.
+        || matches!(
+            provenance.and_then(|p| p["kind"].as_str()),
+            Some(super::NOTICE_KIND | crate::hub::surge_triage::PROVENANCE_KIND)
+        )
     {
         return None;
     }
@@ -250,6 +254,19 @@ mod tests {
         assert!(!slow.arrival(349, Some(100)));
         slow.restore(500);
         assert!(slow.arrival(520, Some(100)));
+    }
+
+    #[test]
+    fn surge_digests_with_peer_attribution_are_not_held_again() {
+        let blocks = [json!({"type":"text","text":"Choose the release base"})];
+        let mut opts =
+            PromptOptions { agent: Some("remote/recipient".into()), ..Default::default() };
+        assert!(eligible(&opts, &blocks).is_some());
+        opts.provenance = Some(json!({
+            "kind": crate::hub::surge_triage::PROVENANCE_KIND,
+            "digestId": "digest-1", "promptIds": ["m1"], "threadIds": ["review"]
+        }));
+        assert!(eligible(&opts, &blocks).is_none());
     }
 
     #[test]

@@ -19,3 +19,7 @@ and a real WebSocket authenticated with listener and peer tokens; it covers dupl
 revocation and owner withdrawal. `subscription_rpc_rejects_unrelated_sessions_and_unverified_peer_probes`
 checks method access, and `subscription_and_grant_survive_disk_restart_and_revocation` reopens
 the journal twice. A sender cannot retract bytes already accepted by the remote daemon.
+
+Authenticated digests retain peer attribution but bypass surge holding, just as local digests
+do. `surge_digests_with_peer_attribution_are_not_held_again` detects recursive holding of the
+receiver's actionable summary.
