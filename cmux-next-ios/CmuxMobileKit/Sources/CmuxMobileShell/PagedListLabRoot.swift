@@ -36,7 +36,7 @@ public struct PagedListLabRoot: View {
     /// `-cmux-mobile-paged-lab-stress LOAD`: the stress bench's source instead.
     @State private var stress: PagedStressSource?
     @State private var hud = PagedLabHUD()
-    @State private var probe = PagedListProbe()
+    @State private var probe: PagedListProbe
     @State private var draft = ""
     /// The top banner (`lab.op.banner`): a top inset that comes and goes mid-list, like "Updating…".
     @State private var banner = false
@@ -58,8 +58,11 @@ public struct PagedListLabRoot: View {
         let memory = value("-cmux-mobile-paged-lab-window").flatMap(Int.init).map(PagedListMemory.window) ?? .unbounded
         let source = PagedLabSource(scenario: scenario)
         _source = State(initialValue: source)
+        let probe = PagedListProbe()
+        _probe = State(initialValue: probe)
         if let name = value("-cmux-mobile-paged-lab-stress"), let load = PagedStressLoad.named[name] {
             let stress = PagedStressSource(load: load)
+            stress.reading = { [weak probe] in probe?.readingID as? Int }
             _stress = State(initialValue: stress)
             _model = State(initialValue: PagedListModel(direction: direction, source: stress, memory: memory))
         } else {
@@ -275,9 +278,12 @@ struct PagedLabItem: Identifiable, Equatable, Sendable, Codable {
     let id: Int
     let mine: Bool
     let text: String
+    /// The row's text stands aside for a typing bubble (the stress bench's `typing` load).
+    var typing = false
 
-    init(id: Int, mine: Bool? = nil, text: String? = nil) {
+    init(id: Int, mine: Bool? = nil, text: String? = nil, typing: Bool = false) {
         self.id = id
+        self.typing = typing
         self.mine = mine ?? (abs(id) % 3 == 0)
         let words = ["the", "list", "keeps", "what", "you", "read", "in", "place", "while", "older", "pages", "land",
                      "above", "and", "below", "with", "no", "jump", "flicker", "or", "hitch"]
@@ -493,9 +499,13 @@ struct PagedLabRow: View {
             Text("Item \(item.id)")
                 .font(theme.type.rowTitle)
                 .foregroundStyle(theme.colors.label.color)
-            Text(item.text)
-                .font(theme.type.rowSubtitle)
-                .foregroundStyle(theme.colors.label2.color)
+            if item.typing {
+                PagedLabTypingBubble()
+            } else {
+                Text(item.text)
+                    .font(theme.type.rowSubtitle)
+                    .foregroundStyle(theme.colors.label2.color)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)
@@ -506,6 +516,30 @@ struct PagedLabRow: View {
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("lab.row.\(item.id)")
     }
+}
+
+/// A short typing bubble in place of a row's text: a fixed-height capsule around a UIKit view, as
+/// Home's typing bubble is (a row's height changes on reconfigure, and part of it is a UIKit view).
+struct PagedLabTypingBubble: View {
+    var body: some View {
+        PagedLabTypingDots()
+            .frame(width: 34, height: 8)
+            .padding(.horizontal, 10)
+            .frame(height: 28)
+            .background(theme.colors.surfaceRaised.color, in: .capsule)
+            .accessibilityLabel("Typing")
+    }
+}
+
+private struct PagedLabTypingDots: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .secondaryLabel
+        view.layer.cornerRadius = 4
+        return view
+    }
+
+    func updateUIView(_ view: UIView, context: Context) {}
 }
 
 struct PagedLabBubble: View {

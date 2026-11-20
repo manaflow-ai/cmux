@@ -35,6 +35,11 @@ final class PagedListStressUITests: XCTestCase {
     @MainActor func testUpMediumFlood() { stress("up", .medium, "flood") }
     @MainActor func testUpFastFlood() { stress("up", .fast, "flood") }
     @MainActor func testUpSlowEdits() { stress("up", .slow, "edits") }
+    /// Rows just above the reader start and stop typing while someone scrolls slowly: each swaps its
+    /// text for a short bubble in place (Home's Chiefs; a one-frame jump of the rows below at
+    /// HomeStressUITests homelive, step 87db292d frame 1476).
+    @MainActor func testDownSlowTyping() { stress("down", .slow, "typing") }
+    @MainActor func testUpSlowTyping() { stress("up", .slow, "typing") }
     @MainActor func testUpMediumEdits() { stress("up", .medium, "edits") }
     @MainActor func testUpFastEdits() { stress("up", .fast, "edits") }
     @MainActor func testUpSlowInserts() { stress("up", .slow, "inserts") }
