@@ -275,7 +275,11 @@ fn capped_peer_turn_keeps_its_opener_across_disk_reload() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-psr");
     let hub = hub_at(dir.path());
     let peer = add_idle_peer(&hub, "huge-blue");
-    hub.apply_peer_notice("huge-blue", peer.generation, PeerNotice::Sessions(vec![row(42)]));
+    hub.apply_peer_notice(
+        "huge-blue",
+        peer.generation,
+        PeerNotice::sessions_from_values(vec![row(42)]),
+    );
     let mut tail = page(20..=25);
     tail["hasMore"] = json!(true);
     tail["turnOpener"] = prompt(2);
@@ -298,7 +302,11 @@ fn capped_peer_turn_keeps_its_opener_across_disk_reload() {
     assert_eq!(got["turnOpener"], prompt(2));
     assert_eq!(seqs(&got), vec![24, 25]);
     let peer = add_idle_peer(&again, "huge-blue");
-    again.apply_peer_notice("huge-blue", peer.generation, PeerNotice::Sessions(vec![row(43)]));
+    again.apply_peer_notice(
+        "huge-blue",
+        peer.generation,
+        PeerNotice::sessions_from_values(vec![row(43)]),
+    );
     let got = again.peer_snapshot(&request).unwrap();
     assert!(got["turnOpener"].is_null());
     assert!(seqs(&got).is_empty());
@@ -309,7 +317,11 @@ fn peer_opener_tracks_read_caps_and_store_eviction_without_steers() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-psr");
     let hub = hub_at(dir.path());
     let peer = add_idle_peer(&hub, "huge-blue");
-    hub.apply_peer_notice("huge-blue", peer.generation, PeerNotice::Sessions(vec![row(42)]));
+    hub.apply_peer_notice(
+        "huge-blue",
+        peer.generation,
+        PeerNotice::sessions_from_values(vec![row(42)]),
+    );
     let mut tail = page(1..=10);
     tail["events"][0] = prompt(1);
     tail["events"][4] = prompt(5);
@@ -341,7 +353,11 @@ fn peer_opener_rejects_other_sessions_and_does_not_discard_the_tail_when_oversiz
     let dir = cmux_unix_socket::short_test_dir("acpmux-psr");
     let hub = hub_at(dir.path());
     let peer = add_idle_peer(&hub, "huge-blue");
-    hub.apply_peer_notice("huge-blue", peer.generation, PeerNotice::Sessions(vec![row(42)]));
+    hub.apply_peer_notice(
+        "huge-blue",
+        peer.generation,
+        PeerNotice::sessions_from_values(vec![row(42)]),
+    );
     let request = json!({"host": "huge-blue", "sessionId": "m1"});
     for opener in [
         json!({"sessionId": "other", "seq": 2, "dir": "mux", "kind": "user_message", "msg": {}}),
