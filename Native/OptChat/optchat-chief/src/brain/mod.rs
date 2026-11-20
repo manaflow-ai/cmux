@@ -133,6 +133,13 @@ pub enum Input {
         id: u64,
         result: Result<(), String>,
     },
+    /// The steers of turn `key` that the deadline found unread were asked
+    /// back (`steer.rs` `on_steer_deadline`): whether every one was dropped
+    /// unread, so the turn's session holds none of them.
+    SteersWithdrawn {
+        key: String,
+        all: bool,
+    },
     TurnEnded {
         key: String,
         /// Boxed: the outcome and its stats are the largest input.
@@ -900,6 +907,12 @@ pub struct Brain {
     /// The steer on its way into the running turn (`steer.rs`), and the
     /// last steer's number.
     steering: Vec<steer::Steering>,
+    /// The turn (its key) a written but unread steer was taken back from
+    /// (`steer.rs`): its session is not kept (turns.rs `keep_turn_session`).
+    steer_left: Option<String>,
+    /// The turn (its key) whose unread steers are being taken back now:
+    /// no new steer goes into it (`steer.rs`).
+    withdrawing: Option<String>,
     steer_seq: u64,
     /// A draft could not be published (logged once).
     draft_failed: bool,
@@ -1200,6 +1213,8 @@ impl Brain {
             owner_stopped: false,
             interrupt: Arc::new(crate::turn::Interrupt::new()),
             steering: Vec::new(),
+            steer_left: None,
+            withdrawing: None,
             steer_seq: 0,
             draft_failed: false,
             run_failed: false,
@@ -1641,6 +1656,7 @@ impl Brain {
             Input::Draft(draft) => self.turn_draft(&draft),
             Input::Run(update) => self.turn_run(*update),
             Input::Steered { id, result } => self.steered(id, result),
+            Input::SteersWithdrawn { key, all } => self.steers_withdrawn(&key, all),
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, *outcome),
             Input::Notice { key, text } => self.notice(key, text),
             Input::CompactorStatus(status) => self.compactor_status(status),
