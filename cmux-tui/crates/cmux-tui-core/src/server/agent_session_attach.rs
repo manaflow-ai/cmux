@@ -2169,9 +2169,10 @@ fn refuse_with_data(
 /// and a bad request `data.field` (the param, [`bad_field`]), so a reader of the error alone sees
 /// why; every other refusal's text is its own.
 fn refusal_text(refusal: Refusal, data: &Value) -> String {
-    match (refusal, data.get("reason").or(data.get("field")).and_then(Value::as_str)) {
-        (Refusal::Refused, Some(reason)) => format!("{} ({reason})", refusal.message()),
-        (Refusal::BadRequest, Some(field)) => format!("{} (field: {field})", refusal.message()),
+    let text = |key: &str| data.get(key).and_then(Value::as_str);
+    match (refusal, text("reason"), text("field")) {
+        (Refusal::Refused, Some(reason), _) => format!("{} ({reason})", refusal.message()),
+        (Refusal::BadRequest, _, Some(field)) => format!("{} (field: {field})", refusal.message()),
         _ => refusal.message().to_string(),
     }
 }
