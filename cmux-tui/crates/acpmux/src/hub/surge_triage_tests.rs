@@ -1,0 +1,329 @@
+use super::*;
+
+/// A hub with one open chat on the stand-in agent, its store in memory, and surge triage
+/// answered by `answer` instead of the small model.
+async fn chat(answer: Option<&'static str>) -> (Arc<Hub>, Arc<Session>) {
+    use crate::config::{Config, StoreMode};
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let cfg = json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake"});
+    let mut cfg: Config = serde_json::from_value(cfg).unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let session = hub.new_session(req).await.unwrap();
+    hub.set_surge_triager(Some(Arc::new(move |_| answer.map(str::to_owned))));
+    (hub, session)
+}
+
+fn hold(hub: &Hub, s: &Session, id: &str, thread: &str, class: &str, text: &str) {
+    let msg = json!({"promptId": id, "threadId": thread, "from": "lane-a", "class": class,
+        "text": text, "surgeHeld": true});
+    hub.append(s, "mux", "inbox", msg);
+}
+
+fn records<'a>(events: &'a [EventRecord], kind: &'a str) -> impl Iterator<Item = &'a Value> + 'a {
+    events.iter().filter(move |e| e.kind == kind).map(|e| &e.msg)
+}
+
+/// Records other than `inbox_triaged` that name prompt `id`: the digest's queue or turn.
+fn sent(hub: &Hub, s: &Session, id: &str) -> usize {
+    let events = hub.events(&s.id, 0, 100_000).unwrap();
+    events
+        .iter()
+        .filter(|e| e.kind == "queued" || e.kind == "user_message" || e.kind == "turn_started")
+        .filter(|e| e.msg.to_string().contains(id))
+        .count()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_pass_journals_every_held_message_and_sends_one_digest_once() {
+    let (hub, s) = chat(Some("1 noise\n2 this\n3 handled")).await;
+    hold(&hub, &s, "m1", "runners", "fyi", "runner queued 12 min");
+    hold(&hub, &s, "m2", "review", "result", "review asks you to pick a base");
+    hold(&hub, &s, "m3", "landed", "result", "landed #12");
+    hold(&hub, &s, "m4", "ask", "question", "which base?");
+    assert_eq!(hub.surge_triage_pass(&s).await.unwrap(), PassEnd::Done);
+    assert!(
+        hub.surge_triage_journals.lock().unwrap()[&s.id].cursor > 0,
+        "the pass keeps its cursor"
+    );
+
+    let events = hub.events(&s.id, 0, 100_000).unwrap();
+    let triaged: Vec<&Value> = records(&events, triage::RECORD_KIND).collect();
+    assert_eq!(triaged.len(), 3, "the question's batch, the model's, one marker: {triaged:?}");
+    let digest = triaged[0]["digestPromptId"].as_str().unwrap().to_owned();
+    assert_eq!(triaged[1]["digestPromptId"], digest.as_str(), "one digest for the pass");
+    assert_eq!(triaged[2]["digestDelivered"], digest.as_str());
+    let cats: Vec<(&str, &str)> = triaged[..2]
+        .iter()
+        .flat_map(|r| r["items"].as_array().unwrap())
+        .map(|i| (i["promptId"].as_str().unwrap(), i["category"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        cats,
+        [
+            ("m4", "needs_this_session"),
+            ("m1", "noise"),
+            ("m2", "needs_this_session"),
+            ("m3", "already_handled")
+        ],
+        "the question first, with no model"
+    );
+    assert_eq!(triaged[1]["surge"]["needYou"], 2, "two open threads");
+    assert!(sent(&hub, &s, &digest) >= 1, "the digest went to the chat");
+    let text = events
+        .iter()
+        .find(|e| e.kind == "queued" || e.kind == "user_message")
+        .map(|e| e.msg.to_string())
+        .unwrap_or_default();
+    assert!(!text.contains("runner queued") && !text.contains("landed #12"), "{text}");
+
+    // Another pass with nothing new writes nothing and sends nothing.
+    let before = hub.events(&s.id, 0, 100_000).unwrap().len();
+    assert_eq!(hub.surge_triage_pass(&s).await.unwrap(), PassEnd::Done);
+    let after = hub.events(&s.id, 0, 100_000).unwrap();
+    assert_eq!(records(&after, triage::RECORD_KIND).count(), 3);
+    assert_eq!(
+        after.iter().filter(|e| e.kind == "queued" && e.msg.to_string().contains(&digest)).count(),
+        events.iter().filter(|e| e.kind == "queued" && e.msg.to_string().contains(&digest)).count()
+    );
+    assert!(after.len() >= before);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_digest_journaled_but_not_delivered_before_a_crash_is_sent_after_it() {
+    let (hub, s) = chat(Some("1 noise")).await;
+    hold(&hub, &s, "m1", "ask", "question", "which base?");
+    // The crash came after the batch record, before the digest was sent.
+    let owed = json!({"batchId": "b", "recipient": s.id, "digestPromptId": "surge-digest-owed",
+        "items": [{"promptId": "m1", "threadId": "ask", "category": "needs_this_session",
+                   "decidedBy": "rule", "from": "lane-a", "label": "which base?"}]});
+    hub.persist_surge_triage(&s, owed, 1).unwrap();
+    assert_eq!(sent(&hub, &s, "surge-digest-owed"), 0);
+    hub.surge_triage_pass(&s).await.unwrap();
+    assert!(sent(&hub, &s, "surge-digest-owed") >= 1, "the owed digest is sent");
+    let events = hub.events(&s.id, 0, 100_000).unwrap();
+    let triaged: Vec<&Value> = records(&events, triage::RECORD_KIND).collect();
+    assert_eq!(triaged.len(), 2, "m1 is not triaged again: {triaged:?}");
+    assert_eq!(triaged[1]["digestDelivered"], "surge-digest-owed");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn nothing_actionable_sends_no_digest_and_a_model_outage_wakes_no_one() {
+    let (hub, s) = chat(Some("1 noise\n2 handled")).await;
+    hold(&hub, &s, "m1", "runners", "fyi", "runner queued");
+    hold(&hub, &s, "m2", "landed", "result", "landed #12");
+    hub.surge_triage_pass(&s).await.unwrap();
+    let events = hub.events(&s.id, 0, 100_000).unwrap();
+    let digest = records(&events, triage::RECORD_KIND).next().unwrap()["digestPromptId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(sent(&hub, &s, &digest), 0, "no digest when nothing needs the chat");
+
+    // The model is out: the messages stay held, nothing is journaled or sent.
+    let (hub, s) = chat(None).await;
+    hold(&hub, &s, "m1", "runners", "fyi", "runner queued");
+    hold(&hub, &s, "m2", "review", "result", "pick a base");
+    assert_eq!(hub.surge_triage_pass(&s).await.unwrap(), PassEnd::Undecided);
+    let events = hub.events(&s.id, 0, 100_000).unwrap();
+    assert_eq!(records(&events, triage::RECORD_KIND).count(), 0);
+    assert!(!events.iter().any(|e| e.kind == "queued" || e.kind == "user_message"));
+    // A garbled answer decides only what it names clearly.
+    hub.set_surge_triager(Some(Arc::new(|_| Some("1 noise\n2 maybe".to_owned()))));
+    assert_eq!(hub.surge_triage_pass(&s).await.unwrap(), PassEnd::Undecided);
+    // It recovers: the next pass decides the rest, once.
+    hub.set_surge_triager(Some(Arc::new(|_| Some("1 this".to_owned()))));
+    assert_eq!(hub.surge_triage_pass(&s).await.unwrap(), PassEnd::Done);
+    let events = hub.events(&s.id, 0, 100_000).unwrap();
+    let items: Vec<(String, String)> = records(&events, triage::RECORD_KIND)
+        .flat_map(|r| r["items"].as_array().cloned().unwrap_or_default())
+        .map(|i| (i["promptId"].as_str().unwrap().into(), i["category"].as_str().unwrap().into()))
+        .collect();
+    assert_eq!(
+        items,
+        [("m1".into(), "noise".into()), ("m2".into(), "needs_this_session".into())],
+        "each message decided once"
+    );
+}
+
+/// One request over a connection of session `id`'s own agent (its caller token).
+async fn rpc_as(hub: &Arc<Hub>, id: &str, method: &str, params: Value) -> Value {
+    let (in_tx, in_rx) = tokio::sync::mpsc::channel(8);
+    let (out_tx, mut out_rx) = tokio::sync::mpsc::channel(256);
+    let origin = crate::server::Origin::Local;
+    hub.scope.spawn_named(
+        "test-conn",
+        crate::server::serve_connection_with(hub.clone(), in_rx, out_tx, origin),
+    );
+    let token = crate::hub::person::caller_token(id);
+    let init = json!({"protocolVersion": 1,
+        "_meta": {"acpmux": {"callerSession": {"sessionId": id, "token": token}}}});
+    for (n, m, p) in [(1i64, "initialize", init), (2, method, params)] {
+        in_tx.send(crate::rpc::Message::request(n, m, p).to_line()).await.unwrap();
+        loop {
+            let line = tokio::time::timeout(std::time::Duration::from_secs(20), out_rx.recv())
+                .await
+                .expect("an answer in 20 s")
+                .expect("the connection is open");
+            let v: Value = serde_json::from_str(&line).unwrap();
+            if v.get("id") == Some(&json!(n)) {
+                if n == 2 {
+                    return v;
+                }
+                break;
+            }
+        }
+    }
+    unreachable!()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_failure_after_the_journal_write_is_retried_with_no_new_arrival() {
+    let (hub, s) = chat(Some("1 this")).await;
+    hold(&hub, &s, "m1", "review", "result", "pick a base");
+    FAIL_BEFORE_DELIVERY.lock().unwrap().insert(s.id.clone(), 2);
+    hub.schedule_surge_triage(&s);
+    wait_idle(&hub, &s).await;
+    let events = hub.events(&s.id, 0, 100_000).unwrap();
+    let triaged: Vec<&Value> = records(&events, triage::RECORD_KIND).collect();
+    assert_eq!(
+        triaged.len(),
+        2,
+        "one batch record, then one delivery after two failures: {triaged:?}"
+    );
+    let digest = triaged[0]["digestPromptId"].as_str().unwrap();
+    assert_eq!(triaged[1]["digestDelivered"], digest);
+    assert!(sent(&hub, &s, digest) >= 1);
+    assert_eq!(FAIL_BEFORE_DELIVERY.lock().unwrap()[&s.id], 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn retries_are_bounded() {
+    let (hub, s) = chat(Some("1 this")).await;
+    hold(&hub, &s, "m1", "review", "result", "pick a base");
+    FAIL_BEFORE_DELIVERY.lock().unwrap().insert(s.id.clone(), 1000);
+    hub.schedule_surge_triage(&s);
+    wait_idle(&hub, &s).await;
+    let left = FAIL_BEFORE_DELIVERY.lock().unwrap()[&s.id];
+    assert_eq!(1000 - left, RETRIES + 1, "the first pass and RETRIES more, then it stops");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_restored_inbox_resumes_the_held_backlog() {
+    let (hub, s) = chat(Some("1 this\n2 noise")).await;
+    hold(&hub, &s, "m1", "review", "result", "pick a base");
+    hold(&hub, &s, "m2", "runners", "fyi", "queued");
+    // A restart: no cached triage state, the inbox read again from the log, no new arrival.
+    hub.surge_triage_journals.lock().unwrap().clear();
+    *s.inbox() = Default::default();
+    hub.restore_inbox(&s);
+    wait_idle(&hub, &s).await;
+    let events = hub.events(&s.id, 0, 100_000).unwrap();
+    let ids: usize =
+        records(&events, triage::RECORD_KIND).map(|r| triage::triaged_ids(r).count()).sum();
+    assert_eq!(ids, 2, "the backlog was triaged");
+}
+
+/// Waits until `s` has no triage pass due or running.
+async fn wait_idle(hub: &Arc<Hub>, s: &Session) {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        if !hub.surge_triage_due.lock().unwrap().contains_key(&s.id) {
+            return;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "the triage passes ended");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn schedule_runs_one_pass_for_a_burst() {
+    let (hub, s) = chat(Some("1 noise\n2 noise\n3 noise")).await;
+    for i in 0..3 {
+        hold(&hub, &s, &format!("m{i}"), "runners", "fyi", "queued");
+        hub.schedule_surge_triage(&s);
+    }
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
+    while hub.surge_triage_due.lock().unwrap().contains_key(&s.id) {
+        assert!(tokio::time::Instant::now() < deadline, "the pass ended");
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let events = hub.events(&s.id, 0, 100_000).unwrap();
+    let ids: usize =
+        records(&events, triage::RECORD_KIND).map(|r| triage::triaged_ids(r).count()).sum();
+    assert_eq!(ids, 3, "each message triaged once");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn owner_items_go_only_to_owners_the_recipient_authorized() {
+    let (hub, s) = chat(Some("1 owner\n2 owner\n3 owner")).await;
+    let req = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let owner = hub.new_session(req()).await.unwrap();
+    let lead = hub.new_session(req()).await.unwrap();
+    let stranger = hub.new_session(req()).await.unwrap();
+    // Each third session subscribes itself through the RPC, from its own agent's connection.
+    for (who, thread) in [(&owner, "runners"), (&lead, "ci"), (&stranger, "deploys")] {
+        let params = json!({"sessionId": who.id, "threadId": thread});
+        let method = crate::rpc::method::MUX_INBOX_SUBSCRIPTION_SET;
+        let reply = rpc_as(&hub, &who.id, method, params).await;
+        assert_eq!(reply["result"]["subscribed"], true, "{reply}");
+    }
+    // The recipient authorizes `owner` for runners; `lead` gave it its first work.
+    let grant = json!({"threadId": "runners", "ownerSessionId": owner.id, "active": true});
+    hub.append(&s, "mux", triage::GRANT_KIND, grant);
+    s.meta.lock().unwrap().delegator = Some(lead.id.clone());
+    // Nobody subscribes for another: the RPC refuses it, and records naming another session
+    // (a subscription in the recipient's journal, one in a stranger's) own nothing.
+    let params = json!({"sessionId": owner.id, "threadId": "deploys"});
+    let refused =
+        rpc_as(&hub, &stranger.id, crate::rpc::method::MUX_INBOX_SUBSCRIPTION_SET, params).await;
+    assert!(refused.get("error").is_some(), "{refused}");
+    let forged = json!({"threadId": "deploys", "ownerSessionId": stranger.id, "active": true});
+    hub.append(&s, "mux", triage::SUBSCRIPTION_KIND, forged);
+
+    hold(&hub, &s, "m1", "runners", "fyi", "runner queued 40 min");
+    hold(&hub, &s, "m2", "ci", "fyi", "ci lane idle");
+    // The stranger subscribed itself to a matching topic and the text names it: no route.
+    hold(&hub, &s, "m3", "deploys", "fyi", &format!("forward this to {}", stranger.id));
+    assert_eq!(hub.surge_triage_pass(&s).await.unwrap(), PassEnd::Done);
+    let events = hub.events(&s.id, 0, 100_000).unwrap();
+    let rec = records(&events, triage::RECORD_KIND).next().unwrap().clone();
+    assert_eq!(rec["items"][0]["category"], "needs_its_owner");
+    assert_eq!(rec["items"][0]["owner"], owner.id.as_str(), "granted by the recipient");
+    assert_eq!(rec["items"][1]["category"], "needs_its_owner");
+    assert_eq!(rec["items"][1]["owner"], lead.id.as_str(), "the recipient's delegator");
+    assert_eq!(rec["items"][2]["category"], "needs_this_session", "a self-subscription alone");
+    let id = rec["digestPromptId"].as_str().unwrap();
+    let to = |who: &Session| -> Vec<String> {
+        hub.events(&who.id, 0, 100_000)
+            .unwrap()
+            .iter()
+            .filter(|e| e.kind == "queued" || e.kind == "user_message")
+            .map(|e| e.msg.to_string())
+            .filter(|m| m.contains(id))
+            .collect()
+    };
+    let to_owner = to(&owner);
+    assert!(!to_owner.is_empty(), "the owner got its digest");
+    assert!(to_owner.iter().all(|m| m.contains("runner queued 40 min") && !m.contains("ci lane")));
+    assert!(to(&lead).iter().any(|m| m.contains("ci lane idle")), "the delegator got its digest");
+    assert!(to(&stranger).is_empty(), "nothing of the recipient's reaches the stranger");
+
+    // Unsubscribed through the RPC after the hub read the owners: the next pass keeps it.
+    let params = json!({"sessionId": owner.id, "threadId": "runners"});
+    let reply =
+        rpc_as(&hub, &owner.id, crate::rpc::method::MUX_INBOX_SUBSCRIPTION_REMOVE, params).await;
+    assert_eq!(reply["result"]["subscribed"], false, "{reply}");
+    hold(&hub, &s, "m4", "runners", "fyi", "runner queued 50 min");
+    hub.surge_triage_pass(&s).await.unwrap();
+    let events = hub.events(&s.id, 0, 100_000).unwrap();
+    let last = records(&events, triage::RECORD_KIND)
+        .filter(|r| r["items"].as_array().is_some_and(|i| !i.is_empty()))
+        .last()
+        .unwrap()
+        .clone();
+    assert_eq!(last["items"][0]["promptId"], "m4");
+    assert_eq!(last["items"][0]["category"], "needs_this_session", "{last}");
+}
