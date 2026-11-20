@@ -51,7 +51,7 @@ jobs:
             exit 0
           fi
           title="Runner label starved: $LABEL"
-          body="No queue janitor sweep has published a macos-pool-load snapshot for ${age}s (newest: ${newest:-none}). The sweep runs on \`$LABEL\`, so that label is likely booting no runners. Set the repository variable \`CI_REPAIR_SKIP_FLEET=1\` to move the janitors back to their previous selector, cancel the stalled ci-queue-janitor run that holds its concurrency group, and dispatch a fresh sweep (docs/ci-runners.md). The next sweep that runs closes this issue."
+          body="No queue janitor sweep has published a macos-pool-load snapshot for ${age}s (newest: ${newest:-none}). The sweep runs on \`$LABEL\`, so that label is likely booting no runners. Set the repository variable \`CI_REPAIR_SKIP_FLEET=1\` to move the janitors back to their previous selector, cancel the stalled ci-queue-janitor run that holds its concurrency group (or, if GitHub refuses that cancel, move the group key in ci-queue-janitor.yml), and dispatch a fresh sweep (docs/ci-runners.md). The next sweep that runs closes this issue."
           echo "::error::$title: no janitor snapshot for ${age}s"
           echo "- $title: no janitor snapshot for ${age}s" >> "$GITHUB_STEP_SUMMARY"
           existing="$(gh issue list --state open --search "\"$title\" in:title" --json number,title 2>/dev/null |

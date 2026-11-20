@@ -110,8 +110,12 @@ env:
 # no sweep (a CI run of a pull request into feat-cmux-next) gets a group of its
 # own: in the shared group those runs cancelled the waiting sweep, often within
 # seconds, and on 2026-10-30 left the pool snapshot 50 minutes old.
+# The shared group is `-v2`: about 14 runs from 2026-11-11 (43096179539 to
+# 43098697917) sit in the old group's queue, and GitHub refuses to cancel or
+# force-cancel them (HTTP 409 "not been queued yet"), so every sweep since was
+# cancelled with no job.
 concurrency:
-  group: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next') && format('ci-queue-janitor-noop-{0}', github.run_id) || 'ci-queue-janitor' }}
+  group: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next') && format('ci-queue-janitor-noop-{0}', github.run_id) || 'ci-queue-janitor-v2' }}
   cancel-in-progress: false
 
 jobs:
