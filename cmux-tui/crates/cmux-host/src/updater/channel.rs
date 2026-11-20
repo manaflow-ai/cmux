@@ -309,19 +309,28 @@ impl Cache {
         keys: &[(String, [u8; 32])],
         now: u64,
     ) -> Result<Payload, String> {
+        self.take_verified(answer, |body| verify(body, keys, now))
+    }
+
+    /// Apply the caller's channel policy to both fresh and cached signed bytes.
+    pub fn take_verified<T>(
+        &mut self,
+        answer: Answer,
+        verify_body: impl FnOnce(&[u8]) -> Result<T, String>,
+    ) -> Result<T, String> {
         match answer {
             Answer::NotModified => {
                 let Some(kept) = &self.kept else {
                     return Err("304 Not Modified, but no verified file is kept".to_owned());
                 };
-                let verified = verify(&kept.body, keys, now);
+                let verified = verify_body(&kept.body);
                 if verified.is_err() {
                     self.kept = None;
                 }
                 verified
             }
             Answer::Full { body, etag, last_modified } => {
-                let verified = verify(&body, keys, now);
+                let verified = verify_body(&body);
                 self.kept = match (&verified, etag.is_some() || last_modified.is_some()) {
                     (Ok(_), true) => Some(Kept { body, etag, last_modified }),
                     _ => None,
