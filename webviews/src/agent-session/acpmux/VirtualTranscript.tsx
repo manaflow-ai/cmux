@@ -1222,8 +1222,7 @@ function sendHoldPx(
       const row = rows[index]!;
       if (row.kind === "user" && row.id !== placedRows[index]?.id) promptCame = true;
     }
-  const heldBefore =
-    sessionSwitched || !following || promptCame ? 0 : Math.max(0, before.held - Math.max(0, rowsGrew));
+  const heldBefore = sessionSwitched || !following || promptCame ? 0 : Math.max(0, before.held - Math.max(0, rowsGrew));
   const drawnDownBy =
     following && !sessionSwitched && sendWindow ? Math.max(0, unheldLift - (before.lift + before.held)) : 0;
   return Math.max(0, Math.min(unheldLift, heldBefore + drawnDownBy));
