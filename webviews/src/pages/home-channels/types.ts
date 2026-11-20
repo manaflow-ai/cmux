@@ -362,6 +362,9 @@ export interface HomeInbox {
   /** The owner keeps my pins and marks (conversation-inbox-state-v1): the page offers Pin and
    * Mark as Unread only then. */
   inboxState?: boolean;
+  /** Why the Cloud inbox read failed (absent: it answered, or there is no Cloud). The Cloud rows are
+   * the last good list; the page says so and reads again. Never a sign-out. */
+  cloudError?: string;
 }
 
 /** `cmux.home.pin`: pin or unpin a conversation in my list (pinned last, by pin time). */
