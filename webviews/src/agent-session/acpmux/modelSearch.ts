@@ -51,8 +51,17 @@ export class ModelSearchIndex<M extends QueryModel, E> {
     this.rows = rows;
   }
 
-  /** The rows `query` finds, in catalog order. The same query gives the same array. */
+  /** The rows `query` finds, in catalog order. The same query gives the same array. When none fits
+   * and the query ends with an effort or fast word still being typed ("opus 5.5 m" on the way to
+   * "medium"), those words wait, as matchingModels does: the rows the rest of the query finds stay. */
   find(query: ParsedQuery): readonly SearchRow<M, E>[] {
+    const rows = this.findExact(query);
+    if (rows.length > 0 || !query.typing) return rows;
+    const { typing, ...rest } = query;
+    return this.findExact({ ...rest, words: query.words.slice(0, query.words.length - typing.length) });
+  }
+
+  private findExact(query: ParsedQuery): readonly SearchRow<M, E>[] {
     const key = queryKey(query);
     const kept = this.history.get(key);
     if (kept) {
