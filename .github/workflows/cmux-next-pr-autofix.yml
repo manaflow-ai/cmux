@@ -279,7 +279,7 @@ jobs:
     needs: action-areas
     if: (needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true') && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }}
-    timeout-minutes: 135
+    timeout-minutes: 60
     permissions:
       contents: read
     outputs:
@@ -318,6 +318,8 @@ jobs:
 
       # The wait reads through the route App's own budget, never the GITHUB_TOKEN budget every
       # workflow shares (tests/test_ci_no_github_token_polling.py). No token: a miss.
+      # Installation tokens expire after an hour. Leave time for downloads and fall back
+      # to action-exports before expiry instead of spending a second hour on 401s.
       - name: Mint the read token
         id: read-token
         if: steps.checkout.outcome == 'success' && vars.GLAEDA_ROUTE_APP_ID != ''
@@ -333,7 +335,7 @@ jobs:
         id: lookup
         if: steps.checkout.outcome == 'success'
         continue-on-error: true
-        timeout-minutes: 125
+        timeout-minutes: 50
         env:
           GH_TOKEN: ${{ steps.read-token.outputs.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -348,7 +350,7 @@ jobs:
           lookup=base/scripts/cmux-next/base_autofix_pushed_exports.py
           grep -q 'pr-lookup' "$lookup" 2>/dev/null || lookup=scripts/cmux-next/base_autofix_pushed_exports.py
           python3 -I "$lookup" pr-lookup --out "$RUNNER_TEMP/action-exports" --head-sha "$HEAD_SHA" --pr "$PR" \
-            --actions "${ACTIONS:-false}" --settings "${SETTINGS:-false}" --wait 7200 --skip "$SKIP_REASON" | tee -a "$GITHUB_OUTPUT"
+            --actions "${ACTIONS:-false}" --settings "${SETTINGS:-false}" --wait 2700 --skip "$SKIP_REASON" | tee -a "$GITHUB_OUTPUT"
           if (( $(date +%s) - started >= 120 )); then echo "stale_pick=true" >> "$GITHUB_OUTPUT"; fi
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
