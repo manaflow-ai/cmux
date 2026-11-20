@@ -38,7 +38,7 @@ fn place(frame: &str) -> String {
 
 /// `0x1234: acpmux::watch_delta::Known::patched (src/watch_delta.rs:107:9)` without the address
 /// and the hash.
-fn short_frame(frame: &str) -> String {
+pub fn short_frame(frame: &str) -> String {
     let frame = frame.split_once(": ").map_or(frame, |(_, f)| f);
     let frame = frame.replace("/home/runner/", "").replace("cmux-tui/crates/acpmux/", "");
     let hashless: String = frame.split("::h").next().unwrap_or(&frame).to_owned();
