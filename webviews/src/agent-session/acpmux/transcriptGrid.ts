@@ -30,7 +30,10 @@ export const TRANSCRIPT_LINE_ROW = 22;
 ///   `line`  one more one-line row of the run, TRANSCRIPT_LINE_ROW tall (#29965)
 ///   `slot`  the footer's TRANSCRIPT_FOOTER_CONTROL slot it has under a reply, so what lands over it moves nothing
 ///           (cmux#24569)
-export const TRANSCRIPT_LIVE_STEP_BOX = "line" as "line" | "slot";
+/// `slot`, as Leo chose on #43627 (2026-11-16: "Use 32px size with Lucas's 16px gap and notify Lucas"): since #41213
+/// made live-turn-work `runs` the default, the row over the line keeps switching between a run and a reply, and with
+/// `line` each switch moved the line 10 px in layout (transcript_replay.live.cls about 1.1, cmux#47098).
+export const TRANSCRIPT_LIVE_STEP_BOX = "slot" as "line" | "slot";
 /// The grid token of the gap over it: the run gap Codex leaves between transcript items (#42247).
 export const TRANSCRIPT_LIVE_STEP_GAP_TOKEN = "gap-run";
 export const TRANSCRIPT_LIVE_STEP_GAP = gridLength(TRANSCRIPT_LIVE_STEP_GAP_TOKEN);
