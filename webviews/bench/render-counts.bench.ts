@@ -4,6 +4,7 @@
 // for some reason." An event should render what it changed and nothing else:
 //   key      one composer keystroke (real key events, 80 ms apart): the composer only;
 //   token    one streamed reply delta (`loadRun`, no tool calls, no scrolling): the streaming row only;
+//   tool     one tool call added to a running turn, its call then its result (`loadTools`, no text): its row only;
 //   switch   selecting the other open chat (`selectSession`), until the page has been still for 1 s;
 //   show     the page hidden, then shown again (`visibilitychange`): nothing changed, so ideally 0;
 //   resize   one 20 px width step of the pane, 12 steps: the rows whose wrap changed;
@@ -12,7 +13,7 @@
 // The real pane (`?mock`: the real direct client against the in-page mock daemon), an unminified production build
 // (React Compiler on, as it ships), so component names are real. Two light chats of TURNS turns each.
 // Each row prints `RENDERS <scenario> ...` with the top components, then one summary table.
-//   bun bench/render-counts.bench.ts [turns=300] [--list 10789] [--keys 20] [--only key,token,...]
+//   bun bench/render-counts.bench.ts [turns=300] [--list 10789] [--keys 20] [--tools 20] [--only key,token,...]
 /// <reference types="bun" />
 import path from "node:path";
 import type { Page } from "playwright";
@@ -37,6 +38,7 @@ const flag = (name: string) => {
 const TURNS = Number(benchPositionals(argv.filter((arg, i) => !argv[i - 1]?.startsWith("--")))[0] ?? 300);
 const LIST = Number(flag("--list") ?? 10_789);
 const KEYS = Number(flag("--keys") ?? 20);
+const TOOLS = Number(flag("--tools") ?? 20);
 const ONLY = flag("--only")?.split(",");
 const want = (name: string) => !ONLY || ONLY.includes(name);
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
@@ -139,6 +141,28 @@ try {
       const counts = await renderCountsTake(page);
       const deltas = Number(run.deltas ?? run.events ?? run.frames ?? 1);
       record("token", "delta", perEvent(counts, deltas), Number(run.work_ms?.p50 ?? 0));
+      await settle(page, 1000);
+    }
+
+    if (want("tool")) {
+      // The turn starts and its first calls land outside the window, so it counts only calls added to a running
+      // turn: each a new row (its call, then 60 ms later its result), as a coordinator's chat gets them.
+      const loadTools = (count: number, keepOpen: boolean) =>
+        page.evaluate(
+          ([n, open]) => (window as any).cmuxAcpmuxDebug.loadTools({ count: n, gap_ms: 60, keep_open: open }),
+          [count, keepOpen] as const,
+        ) as Promise<Record<string, any>>;
+      const warm = await loadTools(2, true);
+      if (warm.error) throw new Error(`loadTools: ${warm.error}`);
+      await settle(page, 500);
+      await renderCountsReset(page);
+      const t0 = await now(page);
+      const added = await loadTools(TOOLS, true);
+      await settle(page, 300);
+      const ms = ((await now(page)) - t0 - 300) / TOOLS;
+      record("tool", "tool call", perEvent(await renderCountsTake(page), TOOLS), ms);
+      await loadTools(0, false);
+      if (added.tools !== TOOLS) throw new Error(`loadTools added ${added.tools} of ${TOOLS}`);
       await settle(page, 1000);
     }
 
