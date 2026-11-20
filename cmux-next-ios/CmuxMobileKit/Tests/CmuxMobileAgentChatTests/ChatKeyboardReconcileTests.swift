@@ -43,10 +43,17 @@ import CmuxMobileSupport
         let dock = try #require(controller.view.subviews.compactMap { $0 as? PassthroughView }.first)
         #expect(dock.frame.maxY < controller.view.bounds.maxY - 100, "the shown keyboard lifts the stale dock")
         #expect(tracker.isShown)
-
+        // The controller is detached when the tracker learns the hide. Its
+        // own keyboard observer cannot consume a notification it never got.
+        window.rootViewController = nil
+        window.isHidden = true
+        #expect(controller.view.window == nil)
         #expect(tracker.reconcileWithFocus(), "the tracker emits the detached hide")
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
         controller.view.layoutIfNeeded()
-        #expect(abs(dock.frame.maxY - (controller.view.bounds.maxY - ChatTranscriptController.dockGap)) < 1,
+        let restingBottom = controller.view.safeAreaLayoutGuide.layoutFrame.maxY - ChatTranscriptController.dockGap
+        #expect(abs(dock.frame.maxY - restingBottom) < 1,
                 "the reconciled hide returns the dock to the resting bottom")
     }
 }

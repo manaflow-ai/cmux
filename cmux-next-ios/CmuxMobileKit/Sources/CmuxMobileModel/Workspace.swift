@@ -277,8 +277,15 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
     /// Runs an agent (an agent tab, or a terminal with a known harness).
     public var isAgent: Bool { kind == .agent || harness != nil }
 
-    /// "Claude", "Codex", else the harness capitalized, else "Agent" (`AgentHarnessName`).
-    public var agentName: String { AgentHarnessName.of(harness) }
+    /// "Claude", "Codex", else the harness capitalized, else "Agent".
+    public var agentName: String {
+        switch harness {
+        case "claude": "Claude"
+        case "codex": "Codex"
+        case let other? where !other.isEmpty: other.prefix(1).uppercased() + other.dropFirst()
+        default: "Agent"
+        }
+    }
 
     /// What the agent works on, for a status line: the tab's title unless it
     /// is only the agent's name, then its subtitle. Nil when neither says more.
@@ -299,7 +306,7 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
     }
 }
 
-/// The agent as people name it in a sentence ("Claude is rate limited", "Reply to Claude"),
+/// The agent as people name it in a failure sentence ("Claude is rate limited"),
 /// never a tab's title or a raw profile id. A tab's title is its session's name (an acpmux
 /// session such as "Reviving claude-sr2-coord after rate-limit loop"), which read as the subject
 /// of the chat's sentences when it stood in for the agent (Leo, 2026-11-17: the error card said

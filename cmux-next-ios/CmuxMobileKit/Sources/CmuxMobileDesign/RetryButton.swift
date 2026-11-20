@@ -23,14 +23,20 @@ public struct RetryButton: View {
     let title: Text?
     let style: Style
     let action: @MainActor () async -> Void
+    /// Inline rows can opt into a compact height matching an existing control
+    /// row. The shared glass-button target remains the default everywhere else.
+    let inlineMinimumHeight: CGFloat?
     @State private var isRetrying = false
     @State private var taps = 0
 
     /// `title` defaults to "Retry"; pass the surface's own wording ("Try Again").
-    public init(_ title: LocalizedStringKey? = nil, style: Style = .capsule, action: @escaping @MainActor () async -> Void) {
+    public init(_ title: LocalizedStringKey? = nil, style: Style = .capsule,
+                inlineMinimumHeight: CGFloat? = nil,
+                action: @escaping @MainActor () async -> Void) {
         self.title = title.map { Text($0) }
         self.style = style
         self.action = action
+        self.inlineMinimumHeight = inlineMinimumHeight
     }
 
     private var titleText: Text { title ?? Text(verbatim: Self.defaultTitle) }
@@ -97,7 +103,7 @@ public struct RetryButton: View {
                 .buttonStyle(.cmuxPressFill)
                 .font(CmuxMobileTheme.standard.type.meta.weight(.semibold))
                 .foregroundStyle(CmuxMobileTheme.standard.colors.label)
-                .frame(minHeight: CmuxMobileTheme.standard.metrics.glassButton)
+                .frame(minHeight: inlineMinimumHeight ?? CmuxMobileTheme.standard.metrics.glassButton)
                 .contentShape(.rect)
         }
     }

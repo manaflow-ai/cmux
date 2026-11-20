@@ -9,7 +9,10 @@ public import UIKit
 /// handler misses every transition that happens while its view is detached
 /// (for example across a workspace switch). A host that reads this tracker on
 /// window attach can seat its dock at the real keyboard edge instead of the
-/// stale pre-detach state. The composition root owns the app-wide instance
+/// stale pre-detach state. The tracker also reconciles itself whenever its
+/// notification center activates the app or one of its scenes, so a surface
+/// with its own tracker (for example a conversation sheet) does not depend on
+/// the composition root calling it. The composition root owns the app-wide instance
 /// and injects it through ``EnvironmentValues/mobileKeyboardFrameTracker`` so
 /// its record spans host view lifetimes.
 ///
@@ -90,6 +93,21 @@ public final class MobileKeyboardFrameTracker {
                 }
             }
         }
+        // A keyboard hide can happen while a surface is detached and UIKit
+        // posts no frame notification when that surface returns. Reconcile at
+        // both app and scene activation boundaries so every tracker fixes its
+        // own stale record, including trackers owned by sheets or extensions.
+        let activationNames: [Notification.Name] = [
+            UIApplication.didBecomeActiveNotification,
+            UIScene.didActivateNotification,
+        ]
+        tokens.append(contentsOf: activationNames.map { name in
+            notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { // main-proof: observer on queue: .main
+                    _ = self?.reconcileWithFocus()
+                }
+            }
+        })
     }
 
     /// Calls `handler` with the end frame of every keyboard notification after
@@ -154,8 +172,9 @@ public final class MobileKeyboardFrameTracker {
     /// no hide for it (the app went to the background with the keyboard up and
     /// came back with nothing focused, or a page lost its focus while it was
     /// out of its window). Subscribers hear ``Change/reconciledHidden``.
-    /// The tracker's owner calls it when the app comes back to the foreground
-    /// and as it shows a page (Leo, 2026-11-17: "the freaking built in keyboard
+    /// The tracker calls this when its notification center reports an app or
+    /// scene activation; owners may also call it when they show a page (Leo,
+    /// 2026-11-17: "the freaking built in keyboard
     /// accounting is there when I'm loading back in even when there's no
     /// keyboard!": a composer docked to a keyboard that was gone sat a
     /// keyboard's height above the bottom edge, over empty space).

@@ -165,7 +165,7 @@ struct TerminalComposer: View {
                 // The connection's quiet line is the empty field's placeholder
                 // (`TerminalModel.composerPlaceholder`); its Retry sits where
                 // Send does, which an empty field can't use anyway.
-                RetryButton(style: .inline, action: retry)
+                RetryButton(style: .inline, inlineMinimumHeight: TerminalDockMetrics.sendDiameter, action: retry)
                     .font(.subheadline)
                     .frame(minHeight: TerminalDockMetrics.sendDiameter)
                     .padding(.vertical, TerminalDockMetrics.fieldPadding)
@@ -176,7 +176,7 @@ struct TerminalComposer: View {
                 // are held, and put Retry beside it so either action is
                 // available without clearing the person's work.
                 if let retry = retryInField {
-                    RetryButton(style: .inline, action: retry)
+                    RetryButton(style: .inline, inlineMinimumHeight: TerminalDockMetrics.sendDiameter, action: retry)
                         .font(.subheadline)
                         .frame(minHeight: TerminalDockMetrics.sendDiameter)
                         .padding(.vertical, TerminalDockMetrics.fieldPadding)
