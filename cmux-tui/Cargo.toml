@@ -594,6 +594,7 @@ opt-level = 3
 opt-level = 3
 
 [profile.release.package.acpmux]
+opt-level = 3
 codegen-units = 1
 
 # The agent service v2 gates (god against small, 1.2x) in `acpmux`'s own tests
