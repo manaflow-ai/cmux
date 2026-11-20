@@ -2187,3 +2187,30 @@ test("Return runs a typed shell command in a terminal; Cmd-Return still asks the
   expect(shells).toEqual(["git status"]);
   expect(asks.map((ask) => ask[1])).toEqual(["git status"]);
 });
+
+// Lawrence 2026-11-19 (New Tab typing lag): a key in the New Tab field renders what the key changed, never the
+// composer chips (the agent and model pickers, the folder and machine chips, each with its own menus): on cmux21
+// they rendered again on every key, about 2 ms of page work a key, because the screen handed them new props each render.
+test("a key in the New Tab field renders the chips no more", async () => {
+  const renders: Record<string, unknown>[] = [];
+  const Counted = (chipProps: Record<string, unknown>) => {
+    renders.push(chipProps);
+    return <span className="counted-chips" />;
+  };
+  await act(async () => root!.render(<NewTabScreen {...firstRunProps} snapshot={noChat()} chips={Counted} />));
+  const field = await typePrompt("a");
+  const before = renders.length;
+  for (const text of ["ab", "abc", "abcd", "abcde"]) {
+    field.acpmuxMarkdownField!.writeText(text, text.length, text.length);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  }
+  const changed = renders.slice(before).map((now, index) => {
+    const last = renders[before + index - 1] ?? {};
+    return Object.keys({ ...last, ...now }).filter((key) => last[key] !== now[key]);
+  });
+  expect(promptValue()).toBe("abcde");
+  expect(
+    renders.length - before,
+    `chips rendered again for 4 keys, props that changed: ${JSON.stringify(changed)}`,
+  ).toBe(0);
+});
