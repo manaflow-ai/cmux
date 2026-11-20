@@ -121,6 +121,11 @@ fn calls() -> Vec<(&'static str, Value, Kind)> {
             Kind::Hid,
         ),
         ("launch_app", json!({"app_id": "com.apple.TextEdit"}), Kind::Activates),
+        (
+            "batch",
+            json!({"window_id": "1", "actions": [{"action": "type_text", "text": "a"}]}),
+            Kind::WindowInput,
+        ),
     ]
 }
 
