@@ -142,6 +142,81 @@ class SelectTest(unittest.TestCase):
     def test_strings_naming_file_reads_in_app_code_do_not_mark_a_test(self) -> None:
         self.assertEqual(self.change("webviews/src/tools.ts"), with_always("webviews/test/tools.test.ts"))
 
+    def test_package_names_and_empty_import_examples_are_not_dynamic_inputs(self) -> None:
+        (self.root / "webviews/src/tools.ts").write_text(
+            'export const tools = ["vite", "playwright", "child_process"];\n'
+            '// A static import is synchronous; import() yields.\n'
+            '// Generated from\n// schemas/motion.json; do not edit.\n')
+        # Fixture setup is the base; only the subsequent leaf edit is the PR.
+        git(self.root, "add", "webviews/src/tools.ts")
+        git(self.root, "commit", "-qm", "fixture package-name prose")
+        self.assertEqual(self.change("webviews/src/leaf.ts"), with_always("webviews/test/leaf.test.ts"))
+
+    def test_spaced_static_imports_stay_in_the_import_graph(self) -> None:
+        (self.root / "webviews/src/tools.ts").write_text('export const load = () => import( "./other" );\n')
+        git(self.root, "add", "webviews/src/tools.ts")
+        git(self.root, "commit", "-qm", "fixture static import")
+        self.assertEqual(self.change("webviews/src/leaf.ts"), with_always("webviews/test/leaf.test.ts"))
+        self.assertEqual(self.change("webviews/src/other.ts"),
+                         with_always("webviews/test/other.test.ts", "webviews/test/tools.test.ts"))
+
+    def test_plain_static_require_stays_in_the_import_graph(self) -> None:
+        (self.root / "webviews/src/tools.ts").write_text('const other = require("./other");\n')
+        git(self.root, "add", "webviews/src/tools.ts")
+        git(self.root, "commit", "-qm", "fixture static require")
+        self.assertEqual(self.change("webviews/src/leaf.ts"), with_always("webviews/test/leaf.test.ts"))
+        self.assertEqual(self.change("webviews/src/other.ts"),
+                         with_always("webviews/test/other.test.ts", "webviews/test/tools.test.ts"))
+
+    def test_computed_imports_and_package_loads_still_run(self) -> None:
+        for expression in ('import(name)', 'import( name )', 'import(/* runtime */ name)',
+                           'import /* runtime */ (name)', 'import /* runtime */ ( name )',
+                           'import /* static */ ("./other")', 'import(/* static */ "./other")',
+                           'import("vite")', 'require("child_process")',
+                           'import /* package */ ( "vite" )', 'require ( "child_process" )',
+                           'require /* package */ (/* load */ "child_process")'):
+            with self.subTest(expression=expression):
+                (self.root / "webviews/src/tools.ts").write_text(f'export const load = () => {expression};\n')
+                selected, _ = wa.Selector(self.root).select(["webviews/src/leaf.ts"])
+                self.assertIn("webviews/test/tools.test.ts", selected)
+
+    def test_commented_from_and_require_edges_remain_unresolved(self) -> None:
+        for source in ('import { other } from /* static */ "./other";',
+                       'export { other } from // static\n "./other";',
+                       'const other = require /* static */ ("./other");',
+                       'const other = require(/* static */ "./other");',
+                       'const other = require ("./other");',
+                       'const other = require(runtimePath);'):
+            with self.subTest(source=source):
+                (self.root / "webviews/src/tools.ts").write_text(source + "\n")
+                selected, _ = wa.Selector(self.root).select(["webviews/src/other.ts"])
+                self.assertIn("webviews/test/tools.test.ts", selected)
+
+    def test_generated_table_reader_is_not_an_input_of_an_isolated_test(self) -> None:
+        reader = "webviews/src/agent-session/acpmux/frameOwners.ts"
+        destination = self.root / reader
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes((ROOT / reader).read_bytes())
+        (self.root / "webviews/test/frames.test.ts").write_text(
+            'import { browserOwnersEnv } from "../src/agent-session/acpmux/frameOwners";\n')
+        git(self.root, "add", "-A")
+        selector = wa.Selector(self.root)
+        self.assertTrue(selector.generated, "review the generated reader after its content changes")
+        selected, _ = selector.select(["webviews/test/leaf.test.ts"])
+        self.assertNotIn("webviews/test/frames.test.ts", selected)
+        for changed in ("webviews/src/leaf.ts", "unrelated/tool.py", reader):
+            with self.subTest(changed=changed):
+                selected, _ = selector.select([changed])
+                self.assertIn("webviews/test/frames.test.ts", selected)
+        # A production import of the test makes it a possible bundle input.
+        (self.root / "webviews/src/leaf.ts").write_text('import "../test/leaf.test";\n')
+        selected, _ = wa.Selector(self.root).select(["webviews/test/leaf.test.ts"])
+        self.assertIn("webviews/test/frames.test.ts", selected)
+        # An unreviewed reader edit fails open, even for test-only changes.
+        destination.write_text(destination.read_text() + '\nimport(runtimePath);\n')
+        selected, _ = wa.Selector(self.root).select(["webviews/test/other.test.ts"])
+        self.assertIn("webviews/test/frames.test.ts", selected)
+
     def test_a_deleted_source_and_the_preloads_imports_run_everything(self) -> None:
         self.assertIsNone(self.change("webviews/src/dead.ts", delete=True))
         self.assertIsNone(self.change("webviews/src/preloaded.ts"))
