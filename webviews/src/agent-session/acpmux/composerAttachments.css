@@ -269,9 +269,6 @@
   justify-content: center;
   width: 104px;
 }
-.acpmux-attachment-file.acpmux-attachment-pending {
-  gap: 4px;
-}
 /* A loading image whose header gave its size (composer/attachmentIntakeModel.ts imageShape): the
    width its thumbnail will have (`.acpmux-attachment-image img`: its height, its shape, 48 to
    128px wide), so a wide or tall screenshot's picture arriving moves nothing (Leo, 2026-11-07: "they
@@ -349,17 +346,6 @@
   width: 100%;
   min-width: 0;
   max-width: none;
-}
-.acpmux-attachment-file.acpmux-attachment-failed {
-  max-width: min(260px, 70vw);
-  /* Room for its x on the right, as a file chip has. */
-  padding: 0 32px 0 8px;
-}
-.acpmux-attachment-failed-name {
-  overflow: hidden;
-  color: var(--agent-text);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 /* The one retry control of a failed attachment, in the strip and in the text: a small round glyph
    button on the composer's own surface, like the tile's × beside it. */
@@ -618,6 +604,10 @@
 }
 .acpmux-attachment:hover .acpmux-attachment-remove,
 .acpmux-attachment:focus-within .acpmux-attachment-remove {
+  opacity: 1;
+}
+/* A failed chip in the prompt keeps its remove control visible. */
+.acpmux-md-inline-chip > .acpmux-attachment-failed .acpmux-attachment-remove {
   opacity: 1;
 }
 :is(.acpmux-composer, .nt-box) .acpmux-attachment-remove:hover {
@@ -1144,6 +1134,15 @@ button.acpmux-attachment-pasted-open:hover {
 }
 .acpmux-file-chip--removable { padding-right: 32px; }
 .acpmux-file-chip > svg { flex: none; color: var(--agent-muted); }
+.acpmux-file-chip > .acpmux-file-chip__status {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: var(--ds-icon-16);
+  height: var(--ds-icon-16);
+  overflow: visible;
+  color: var(--agent-muted);
+}
 .acpmux-file-chip .acpmux-file-chip__name { display: flex; min-width: 0; }
 .acpmux-file-chip .acpmux-file-chip__head {
   min-width: 0;

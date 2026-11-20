@@ -1533,6 +1533,12 @@ export type AcpmuxSnapshot = {
     icon?: string;
     /** `_acpmux/harnesses` `iconSpec`: the one icon acpmux resolved for the harness. */
     iconSpec?: HarnessIconSpec;
+    /** Its chats report no permission modes (`_acpmux/harnesses` `reported`, permissionModes.ts):
+     * Pi's ACP modes only copy its thinking levels. Absent while unknown. */
+    modeless?: true;
+    /** Its chats, or its startup probe, report permission modes (`_acpmux/harnesses` `reported`,
+     * permissionModes.ts). Absent while unknown or none. */
+    reportsModes?: true;
     /** `_acpmux/harnesses` `start`: the model and effort acpmux starts a new chat here on (the
      * person's saved pick, else the catalog's default; acpmux start_defaults.rs). */
     start?: {
