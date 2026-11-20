@@ -16,6 +16,11 @@ pub struct Homes {
     pub claude: PathBuf,
     /// Codex's home (`$CODEX_HOME` or `~/.codex`).
     pub codex: PathBuf,
+    /// cmux's private folder for the backups and edit locks of the files it edits, outside every
+    /// project ([`crate::write::Store`]): `~/Library/Application Support/cmux-tui/agent-config` on
+    /// macOS, `$XDG_STATE_HOME/cmux-tui/agent-config` (`~/.local/state/...`) elsewhere,
+    /// `%LOCALAPPDATA%\cmux-tui\agent-config` on Windows.
+    pub state: PathBuf,
 }
 
 impl Homes {
@@ -23,17 +28,38 @@ impl Homes {
     pub fn from_env() -> Option<Self> {
         let var = |name: &str| std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from);
         let home = var("HOME")?;
+        let state = if cfg!(target_os = "macos") {
+            home.join("Library/Application Support")
+        } else if cfg!(windows) {
+            var("LOCALAPPDATA").unwrap_or_else(|| home.join("AppData/Local"))
+        } else {
+            var("XDG_STATE_HOME")
+                .filter(|dir| dir.is_absolute())
+                .unwrap_or_else(|| home.join(".local/state"))
+        };
         Some(Self {
             claude: var("CLAUDE_CONFIG_DIR").unwrap_or_else(|| home.join(".claude")),
             codex: var("CODEX_HOME").unwrap_or_else(|| home.join(".codex")),
+            state: state.join("cmux-tui").join("agent-config"),
             home,
         })
     }
 
-    /// Homes under one folder, as both CLIs default them (`<home>/.claude`, `<home>/.codex`).
+    /// Homes under one folder, as both CLIs default them (`<home>/.claude`, `<home>/.codex`),
+    /// with cmux's private folder at `<home>/.local/state/cmux-tui/agent-config`.
     pub fn under(home: impl Into<PathBuf>) -> Self {
         let home = home.into();
-        Self { claude: home.join(".claude"), codex: home.join(".codex"), home }
+        Self {
+            claude: home.join(".claude"),
+            codex: home.join(".codex"),
+            state: home.join(".local/state/cmux-tui/agent-config"),
+            home,
+        }
+    }
+
+    /// The backups and edit locks of the files cmux edits.
+    pub fn store(&self) -> crate::write::Store {
+        crate::write::Store::new(&self.state)
     }
 
     /// `~/.claude/settings.json`.

@@ -19,11 +19,12 @@
 //!   `profile = "..."` selector or `[profiles.*]` tables, which this module reports.
 //!
 //! Reads never fail as a whole: an unreadable file is a layer with an `error`. Env values and
-//! values whose key names a secret are masked; nothing here prints a secret. Writes edit the file
-//! in place (cmux-config `jsonc` for settings.json, `toml_edit` for config.toml), so comments, key
-//! order and keys cmux does not know survive byte for byte, then replace it atomically after a
-//! backup ([`crate::write`]). acpmux never edits these files; this is the person's own edit from
-//! Settings or `cmux agent-config settings`.
+//! values whose key names a secret are masked, and so are a URL's userinfo, query values and
+//! fragment; nothing here prints a secret. Writes edit the file in place (cmux-config `jsonc` for
+//! settings.json, `toml_edit` for config.toml), so comments, key order and keys cmux does not know
+//! survive byte for byte, then replace it atomically after a backup kept in cmux's private folder,
+//! all under one lock per file ([`crate::write::Store`]). acpmux never edits these files; this is
+//! the person's own edit from Settings or `cmux agent-config settings`.
 
 use std::fmt;
 use std::fs;
@@ -470,6 +471,10 @@ fn json_leaves(value: &Value, parts: &mut Vec<String>, out: &mut Vec<Leaf>) {
         return;
     }
     let masked = secret(parts) && !matches!(value, Value::Bool(_) | Value::Null);
+    if !masked && let Some(redacted) = value.as_str().and_then(redact_url) {
+        out.push(redacted_leaf(parts, redacted));
+        return;
+    }
     let text = value.as_str().map(str::to_owned);
     let display = if masked {
         MASK.to_owned()
@@ -631,6 +636,8 @@ fn toml_leaves(table: &dyn toml_edit::TableLike, parts: &mut Vec<String>, out: &
                         text: None,
                         masked: true,
                     }
+                } else if let Some(redacted) = text.as_deref().and_then(redact_url) {
+                    redacted_leaf(parts, redacted)
                 } else {
                     leaf(parts, display, text)
                 });
@@ -642,6 +649,65 @@ fn toml_leaves(table: &dyn toml_edit::TableLike, parts: &mut Vec<String>, out: &
 
 fn leaf(parts: &[String], display: String, text: Option<String>) -> Leaf {
     Leaf { parts: parts.to_vec(), display, text, masked: false }
+}
+
+/// A URL whose credentials [`redact_url`] hid: shown with the rest readable, flagged masked.
+fn redacted_leaf(parts: &[String], redacted: String) -> Leaf {
+    Leaf { parts: parts.to_vec(), display: short(&redacted), text: Some(redacted), masked: true }
+}
+
+/// `text` with the credentials a URL can carry hidden, whatever its key is called (an MCP
+/// server's `url` with `?token=...`, a `postgres://user:pw@host` string): the userinfo before
+/// `@`, every query value (names stay) and the fragment become [`MASK`]; the scheme, host, port
+/// and path stay. `None` when `text` is not a URL or has none of these.
+fn redact_url(text: &str) -> Option<String> {
+    let (scheme, rest) = text.split_once("://")?;
+    let mut chars = scheme.chars();
+    if !chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+        || !chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+    {
+        return None;
+    }
+    let (before_fragment, fragment) = match rest.split_once('#') {
+        Some((before, fragment)) => (before, Some(fragment)),
+        None => (rest, None),
+    };
+    let (before_query, query) = match before_fragment.split_once('?') {
+        Some((before, query)) => (before, Some(query)),
+        None => (before_fragment, None),
+    };
+    let authority_end = before_query.find('/').unwrap_or(before_query.len());
+    let (authority, path) = before_query.split_at(authority_end);
+    let host = authority.rsplit_once('@').map(|(_, host)| host);
+    if host.is_none() && query.is_none() && fragment.is_none() {
+        return None;
+    }
+    let mut out = format!("{scheme}://");
+    if let Some(host) = host {
+        out.push_str(MASK);
+        out.push('@');
+        out.push_str(host);
+    } else {
+        out.push_str(authority);
+    }
+    out.push_str(path);
+    if let Some(query) = query {
+        out.push('?');
+        let pairs: Vec<String> = query
+            .split('&')
+            .map(|pair| match pair.split_once('=') {
+                Some((name, _)) => format!("{name}={MASK}"),
+                None if pair.is_empty() => String::new(),
+                None => MASK.to_owned(),
+            })
+            .collect();
+        out.push_str(&pairs.join("&"));
+    }
+    if fragment.is_some() {
+        out.push('#');
+        out.push_str(MASK);
+    }
+    Some(out)
 }
 
 // MARK: Shared
@@ -779,16 +845,25 @@ pub fn apply(
         }
     }
     let path = scope_path(ctx, agent, scope)?;
+    let store = ctx.homes.store();
+    // Held across the read, edit, backup and rename, so a Settings save and a CLI edit of the
+    // same file never both start from the same original and drop each other's change.
+    let _lock = store.lock(&path).map_err(|e| io_error(&path, e))?;
     let backup_target = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
     let existed = path.exists();
     match agent {
-        Agent::Claude => write_json(&path, key, value)?,
+        Agent::Claude => write_json(&store, &path, key, value)?,
         Agent::Codex => {
+            // The lock every cmux writer of a codex home's config takes (the hook installer,
+            // acpmux, the Cloud devbox). Only in the codex home: a project's `.codex` gets no lock
+            // file a commit could pick up.
             let lock_dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
-            let _lock = cmux_tui_platform::codex_config_lock::lock(
-                &lock_dir.join(cmux_tui_platform::codex_config_lock::LOCK_FILE),
-            );
-            write_toml(&path, key, value)?;
+            let _codex_lock = (lock_dir == ctx.homes.codex).then(|| {
+                cmux_tui_platform::codex_config_lock::lock(
+                    &lock_dir.join(cmux_tui_platform::codex_config_lock::LOCK_FILE),
+                )
+            });
+            write_toml(&store, &path, key, value)?;
         }
     }
     Ok(Written {
@@ -796,7 +871,7 @@ pub fn apply(
         key: key.to_owned(),
         scope: scope.to_owned(),
         path,
-        backup: existed.then(|| write::backup_path(&backup_target)),
+        backup: existed.then(|| store.backup_path(&backup_target)),
     })
 }
 
@@ -893,7 +968,12 @@ fn io_error(path: &Path, error: std::io::Error) -> SettingsError {
     SettingsError::new("agent_config.io", format!("cannot write {}: {error}", path.display()))
 }
 
-fn write_json(path: &Path, key: &str, value: Option<&str>) -> Result<(), SettingsError> {
+fn write_json(
+    store: &write::Store,
+    path: &Path,
+    key: &str,
+    value: Option<&str>,
+) -> Result<(), SettingsError> {
     let source = read_existing(path)?;
     let unchanged_missing = source.trim().is_empty() && value.is_none();
     if unchanged_missing {
@@ -924,7 +1004,11 @@ fn write_json(path: &Path, key: &str, value: Option<&str>) -> Result<(), Setting
         SettingsError::new("agent_config.parse", format!("cannot edit {}: {error}", path.display()))
     };
     let mut text = if key == "statusLine.command" && value.is_none() {
-        // The status line is one object (`type` and `command`): unset takes all of it.
+        // The status line is one object: Claude Code's schema requires `type` and `command`, and
+        // it skips a settings file with a schema error entirely ("Files with errors are skipped
+        // entirely, not just the invalid settings"). A `statusLine` left with only `padding` or
+        // `refreshInterval` would switch off every other setting in the file, so unset takes all
+        // of it; the prior file stays in the backups.
         edit(&source, &["statusLine".to_owned()], None).map_err(fail)?
     } else {
         edit(&source, &parts, value.map(|v| Value::String(v.to_owned()))).map_err(fail)?
@@ -936,10 +1020,15 @@ fn write_json(path: &Path, key: &str, value: Option<&str>) -> Result<(), Setting
     if text == source {
         return Ok(());
     }
-    write::replace(path, &text).map_err(|e| io_error(path, e))
+    store.replace(path, &text).map_err(|e| io_error(path, e))
 }
 
-fn write_toml(path: &Path, key: &str, value: Option<&str>) -> Result<(), SettingsError> {
+fn write_toml(
+    store: &write::Store,
+    path: &Path,
+    key: &str,
+    value: Option<&str>,
+) -> Result<(), SettingsError> {
     let source = read_existing(path)?;
     let mut doc = source.parse::<toml_edit::DocumentMut>().map_err(|error| {
         SettingsError::new(
@@ -975,7 +1064,7 @@ fn write_toml(path: &Path, key: &str, value: Option<&str>) -> Result<(), Setting
     if text == source {
         return Ok(());
     }
-    write::replace(path, &text).map_err(|e| io_error(path, e))
+    store.replace(path, &text).map_err(|e| io_error(path, e))
 }
 
 #[cfg(test)]

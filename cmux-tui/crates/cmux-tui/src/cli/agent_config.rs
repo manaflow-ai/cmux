@@ -33,8 +33,12 @@ Scopes:
   claude  user (~/.claude/settings.json), project (.claude/settings.json), local (.claude/settings.local.json)
   codex   user (~/.codex/config.toml), project (.codex/config.toml, trusted projects), profile:NAME (NAME.config.toml)
 
-Edits keep comments, key order and every other key, and back up the file: FILE.cmux-backup is it
-before cmux's first edit (never replaced), FILE.cmux-backup-last before the latest one.
+Edits keep comments, key order and every other key, and back up the file in cmux's private
+folder, never beside it (so a project's backups stay out of git): NAME-HASH.cmux-backup is it
+before cmux's first edit (never replaced), NAME-HASH.cmux-backup-last before the latest one. The
+folder is ~/Library/Application Support/cmux-tui/agent-config/backups on macOS,
+$XDG_STATE_HOME/cmux-tui/agent-config/backups (~/.local/state/...) elsewhere; set and unset print
+the backup's path.
 --cwd names the project the project scopes resolve in (default: this folder).
 ";
 
