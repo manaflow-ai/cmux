@@ -15,6 +15,20 @@
 //! With no cmux app here (CI, a headless agent) nothing changes: `vm pause|resume|rm|fork|ls`
 //! stay the VM API's verbs (vm.rs). A name the app does not list that looks like a VM API id
 //! (`vm_…`) goes there too.
+//!
+//! `cmux machine VERB` (the hidden old spelling of `cmux vm VERB`, vm.rs) takes the same short
+//! verbs except `ls`/`list`, `ssh` and `move` (`machine ls` stays the machine catalog), so
+//! `machine pause|resume|rm|fork|status|resize|rename|show|shutdown|exec` reach a Cloud VM the
+//! app lists, as the `cloud <verb>-machine` actions do (cmux#29941). Those actions keep working
+//! as typed.
+//!
+//! Which backend a VM belongs to (the rule for `vm` and `machine` alike): the app's
+//! `cloud list-machines` answer decides. With the app here and signed in, a VM it lists (by id or
+//! its one title, or the only one) runs the app's Cloud verb; a `vm_…` id it does not list goes
+//! to the VM API, for a verb the VM API has; any other name is refused with `cmux vm ls` to run.
+//! With no app (or signed out), a verb the VM API has goes there. One exception keeps the old
+//! output: `show ID` with a `vm_…` id is the VM API's `get` without asking the app, so only a
+//! title, `--target` or no name at all (one VM) reach the app's `machine-status`.
 
 #[cfg(test)]
 mod tests;
@@ -28,6 +42,9 @@ const VERBS: &[(&str, &str)] = &[
     ("ls", "list-machines"),
     ("list", "list-machines"),
     ("status", "machine-status"),
+    // `show` is the naming rule's word for one record (machine-status's new name); a `vm_…` id
+    // keeps the VM API's `get` (module doc).
+    ("show", "machine-status"),
     ("pause", "pause-machine"),
     // Leo, 2026-11-08: "how would I be able to shut it down?" `shutdown` is `pause` (the disk and
     // memory stay; `rm` deletes). Not `stop`: the VM API's `vm stop` is its own verb (vm.rs).
@@ -45,7 +62,12 @@ const VERBS: &[(&str, &str)] = &[
 ];
 
 /// The short verbs the VM API (vm.rs) also has: with no signed-in app to answer, they go there.
-const API_VERBS: &[&str] = &["ls", "list", "pause", "shutdown", "resume", "rm", "fork", "exec"];
+const API_VERBS: &[&str] =
+    &["ls", "list", "show", "pause", "shutdown", "resume", "rm", "fork", "exec"];
+
+/// The short verbs `cmux machine` (`vm`'s old spelling) does not take: `machine ls` is the machine
+/// catalog (command/machine.rs), and `ssh` and `move` were never `machine` verbs.
+const NOT_MACHINE_VERBS: &[&str] = &["ls", "list", "ssh", "move"];
 
 /// Options only the VM API reads (its issuer, team and page size): a short verb with one goes
 /// there, app or not.
@@ -85,11 +107,15 @@ pub(super) struct Short {
     pub(super) command: Vec<String>,
 }
 
-/// `Some` for `vm VERB …` (or `cloud VERB …`) with a short verb, no help flag and at most one
-/// name.
+/// `Some` for `vm VERB …` (or `cloud VERB …`, or `machine VERB …` for a verb not in
+/// [`NOT_MACHINE_VERBS`]) with a short verb, no help flag and at most one name.
 pub(super) fn parse(command: &[String]) -> Option<Short> {
     let [scope, verb, rest @ ..] = command else { return None };
-    if scope != "vm" && scope != "cloud" {
+    let machine = scope == "machine";
+    if !machine && scope != "vm" && scope != "cloud" {
+        return None;
+    }
+    if machine && NOT_MACHINE_VERBS.contains(&verb.as_str()) {
         return None;
     }
     let cloud_verb = VERBS.iter().find(|(short, _)| short == verb).map(|(_, cloud)| *cloud)?;
@@ -386,13 +412,40 @@ pub(super) fn table(listed: &Value) -> String {
     out
 }
 
-/// `Some(exit code)` when `args` is a short `vm` verb and the cmux app is here; `None` leaves
-/// it to the VM API (vm.rs).
+/// Whether `short` stays with the VM API without asking the app: `show` naming a `vm_…` id, which
+/// was the VM API's `get` before `show` reached the app (its JSON stays that shape). A title,
+/// `--target` or no name goes on to the app's `machine-status`.
+pub(super) fn api_id_stays(short: &Short) -> bool {
+    short.cloud_verb == "machine-status"
+        && short.api_verb
+        && short.named.as_deref().is_some_and(|named| named.starts_with("vm_"))
+}
+
+/// `Some(exit code)` when `args` is a short `vm` (or `machine`) verb and the cmux app is here;
+/// `None` leaves it to the VM API (vm.rs).
+///
+/// `machine VERB` (the old spelling) prints its one rename note here only when the app ran the
+/// verb: on `None`, vm.rs runs it and prints the note itself, so it is never printed twice.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
+    let code = run_short(args)?;
+    if let Ok((_, command)) = super::parse_globals(args)
+        && let [scope, rest @ ..] = command.as_slice()
+        && scope == "machine"
+    {
+        super::vm::machine_rename_note(rest);
+    }
+    Some(code)
+}
+
+fn run_short(args: &[String]) -> Option<i32> {
     let (mut global, command) = super::parse_globals(args).ok()?;
     let mut short = parse(&command)?;
     if short.cloud_verb == "move" {
         restore_machine(&mut short, global.machine.take());
+    }
+    // `show vm_…`: the VM API's `get`, as before (module doc).
+    if api_id_stays(&short) {
+        return None;
     }
     let app = super::vm::app_present(
         global.app_socket.is_some(),

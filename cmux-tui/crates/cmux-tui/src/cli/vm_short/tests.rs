@@ -1,8 +1,8 @@
 use serde_json::json;
 
 use super::{
-    Resolved, Short, app_list, cloud_words, confirmed, misuse, not_listed, parse, resolve,
-    restore_machine, table,
+    Resolved, Short, api_id_stays, app_list, cloud_words, confirmed, misuse, not_listed, parse,
+    resolve, restore_machine, table,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -55,7 +55,43 @@ fn a_short_verb_takes_a_name_by_position() {
     assert_eq!(parse(&words(&["vm", "list-machines"])), None);
     assert_eq!(parse(&words(&["vm", "pause", "--help"])), None);
     assert_eq!(parse(&words(&["vm", "pause", "a", "b"])), None);
-    assert_eq!(parse(&words(&["machine", "pause", "dev"])), None);
+    assert_eq!(parse(&words(&["device", "pause", "dev"])), None);
+}
+
+/// `machine VERB` (`vm`'s hidden old spelling) reaches a Cloud VM the app lists, the same verb
+/// `vm VERB` and the `cloud VERB-machine` actions run (cmux#29941); `machine ls` stays the
+/// machine catalog, and `ssh` and `move` were never `machine` verbs.
+#[test]
+fn machine_verbs_are_the_vm_verbs_but_ls_ssh_and_move() {
+    for (verb, cloud) in [
+        ("pause", "pause-machine"),
+        ("resume", "resume-machine"),
+        ("rm", "kill-machine"),
+        ("fork", "fork-machine"),
+        ("status", "machine-status"),
+        ("show", "machine-status"),
+        ("resize", "resize-machine"),
+        ("rename", "rename-machine"),
+    ] {
+        let machine = parse(&words(&["machine", verb, "dev"])).unwrap();
+        let vm = parse(&words(&["vm", verb, "dev"])).unwrap();
+        assert_eq!(machine, vm, "machine {verb}");
+        assert_eq!((machine.cloud_verb, machine.named.as_deref()), (cloud, Some("dev")));
+    }
+    for verb in ["ls", "list", "ssh", "move"] {
+        assert_eq!(parse(&words(&["machine", verb])), None, "machine {verb}");
+    }
+    assert_eq!(parse(&words(&["machine", "pause", "--help"])), None);
+}
+
+/// `show vm_…` stays the VM API's `get` without asking the app (its JSON keeps that shape); a
+/// title or no name goes to the app's `machine-status`.
+#[test]
+fn show_with_a_vm_api_id_stays_with_the_vm_api() {
+    assert!(api_id_stays(&parse(&words(&["vm", "show", "vm_a1"])).unwrap()));
+    assert!(api_id_stays(&parse(&words(&["machine", "show", "vm_a1"])).unwrap()));
+    assert!(!api_id_stays(&parse(&words(&["vm", "show", "dev"])).unwrap()));
+    assert!(!api_id_stays(&parse(&words(&["vm", "status", "vm_a1"])).unwrap()));
 }
 
 #[test]

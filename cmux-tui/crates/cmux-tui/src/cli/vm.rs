@@ -418,7 +418,7 @@ pub(super) fn device_vm_refusal(verb: &str) -> String {
 
 /// `cmux machine VERB` (a VM verb) run at a terminal: one line on stderr with its new spelling,
 /// like [`cloud_rename_note`]. A script (no terminal on stderr) reads nothing new.
-fn machine_rename_note(rest: &[String]) {
+pub(super) fn machine_rename_note(rest: &[String]) {
     use std::io::IsTerminal as _;
     let japanese = crate::localization::catalog().is_japanese();
     let verb = rest.first().map(String::as_str);
