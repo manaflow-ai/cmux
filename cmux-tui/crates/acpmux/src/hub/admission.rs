@@ -423,20 +423,8 @@ impl Hub {
     /// A caller that may not learn host names (a Web client) or this host's peers (a peer
     /// daemon's connection) gets no host.
     fn over_cap_warning(&self, over: &OverCap, registry: Option<&Value>, ask: &Ask<'_>) -> Value {
-        use crate::placement::{Candidate, Work};
-        let verdict = (ask.local && ask.peers).then(|| {
-            let peers: Vec<Candidate> = self
-                .peers()
-                .into_iter()
-                .filter(|p| p.get("connected").and_then(Value::as_bool) == Some(true))
-                .filter_map(|p| Candidate::peer(&p))
-                .collect();
-            let verdict = crate::placement::place(&peers, registry, Work::Agent);
-            crate::shadow_admission::with_shadow("over-cap", verdict, &peers)
-        });
-        // A pick that has no room either (`overloaded`) is no better a place: no suggestion.
         let verdict =
-            verdict.filter(|v| v.get("overloaded").and_then(Value::as_bool) != Some(true));
+            (ask.local && ask.peers).then(|| over_cap_suggestion(self.peers(), registry)).flatten();
         let placed = verdict.as_ref().and_then(crate::placement::placed);
         let host = verdict.as_ref().and_then(|v| v.get("pick")).and_then(Value::as_str);
         let text = over.warning(ask.local, ask.peers, placed.as_deref());
@@ -453,6 +441,22 @@ impl Hub {
         }
         warning
     }
+}
+
+/// Where the lane-cap warning suggests a create go instead: the placement engine's automatic pick
+/// (`placement::auto_place`, so never a machine the registry marks personal or no_touch) among
+/// the connected `peers` (`Hub::peers` rows). `None` when the pick has no room either
+/// (`overloaded`), which is no better a place.
+fn over_cap_suggestion(peers: Vec<Value>, registry: Option<&Value>) -> Option<Value> {
+    use crate::placement::{Candidate, Work};
+    let peers: Vec<Candidate> = peers
+        .into_iter()
+        .filter(|p| p.get("connected").and_then(Value::as_bool) == Some(true))
+        .filter_map(|p| Candidate::peer(&p))
+        .collect();
+    let verdict = crate::placement::auto_place(&peers, registry, Work::Agent);
+    let verdict = crate::shadow_admission::with_shadow("over-cap", verdict, &peers);
+    (verdict.get("overloaded").and_then(Value::as_bool) != Some(true)).then_some(verdict)
 }
 
 /// Who asks for a new session, for `Hub::admit_new`.
@@ -701,5 +705,51 @@ mod tests {
         });
         assert_eq!(verdict, Verdict::default());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The lane-cap warning's suggested host never names a machine the registry marks a person's
+    /// own (`personal` or `no_touch`), even one with the most room; without the flag it would win.
+    #[test]
+    fn the_cap_warning_never_suggests_a_personal_machine() {
+        let lanes = json!({"reserved_gb": 4, "per_lane_gb": 2, "free_gb_floor": 10,
+            "disk_per_lane_gb": 3, "max_lanes": 12});
+        let reg = |flag: &str| {
+            let mut mac = json!({"lanes": lanes.clone()});
+            if !flag.is_empty() {
+                mac[flag] = json!(true);
+            }
+            json!({"machines": {"mac": mac, "lane": {"lanes": lanes.clone()}}})
+        };
+        let health = |ram_gb: u64, live: u64| {
+            json!({"cpus": 16, "load": [1.0, 1.0, 1.0], "liveSessions": live,
+                "ram": {"freeBytes": ram_gb * 1_000_000_000, "totalBytes": 64_000_000_000u64},
+                "disk": {"freeBytes": 500_000_000_000u64},
+                "pressure": {"ok": true, "over": [], "cores": 16}})
+        };
+        let peers = || {
+            vec![
+                json!({"name": "mac", "connected": true, "health": health(60, 0)}),
+                json!({"name": "lane", "connected": true, "health": health(14, 3)}),
+                // An unread personal machine ("resources unknown") is never suggested either.
+                json!({"name": "mac2", "connected": true}),
+            ]
+        };
+        let pick = |reg: &Value| {
+            over_cap_suggestion(peers(), Some(reg))
+                .and_then(|v| v["pick"].as_str().map(str::to_owned))
+        };
+        assert_eq!(pick(&reg("")).as_deref(), Some("mac"), "without the flag the roomy Mac wins");
+        for flag in ["personal", "no_touch"] {
+            let mut r = reg(flag);
+            r["machines"]["mac2"] = json!({flag: true, "lanes": lanes.clone()});
+            assert_eq!(pick(&r).as_deref(), Some("lane"), "{flag}");
+            let v = over_cap_suggestion(peers(), Some(&r)).unwrap();
+            assert!(!v["why"].as_str().unwrap().contains("mac"), "{v:#}");
+            let mac = v["hosts"].as_array().unwrap().iter().find(|h| h["name"] == "mac").unwrap();
+            assert_eq!(mac["refused"], crate::placement::NEVER_AUTO, "{flag}");
+            // Only the personal machines connected: no suggestion at all.
+            let only = vec![json!({"name": "mac", "connected": true, "health": health(60, 0)})];
+            assert!(over_cap_suggestion(only, Some(&r)).is_none_or(|v| v["pick"].is_null()));
+        }
     }
 }

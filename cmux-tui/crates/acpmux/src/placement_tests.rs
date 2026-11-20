@@ -723,3 +723,38 @@ fn the_pick_order_is_under_then_headroom_then_unread_then_full() {
     let v = place(&[full], Some(&reg), Work::Agent);
     assert_eq!((&v["pick"], &v["overloaded"]), (&json!("big"), &json!(true)), "{v:#}");
 }
+
+/// A machine the registry marks a person's own (top-level `personal: true` or `no_touch: true`,
+/// by name or alias) is never an automatic pick, even with the most room or no reading, while
+/// `place` alone (what a named host gets weighed with) still sizes it.
+#[test]
+fn an_auto_pick_never_names_a_personal_or_no_touch_machine() {
+    for flag in ["personal", "no_touch"] {
+        let mut reg = registry();
+        reg["machines"]["big"][flag] = json!(true);
+        reg["machines"]["light"][flag] = json!(false);
+        assert!(never_auto(Some(&reg), "big") && never_auto(Some(&reg), "Big-Box.local"), "{flag}");
+        assert!(personal(Some(&reg), "big-box"), "{flag}: dispatch leaves it out too");
+        assert!(!never_auto(Some(&reg), "light") && !never_auto(Some(&reg), "small"));
+        assert!(!never_auto(None, "big"));
+        let hosts = [
+            c("big", health(120.0, 32, 2.0, 900.0, 0)),
+            c("small", health(20.0, 8, 1.0, 200.0, 1)),
+        ];
+        assert_eq!(place(&hosts, Some(&reg), Work::Agent)["pick"], "big", "{flag}: it would win");
+        let v = auto_place(&hosts, Some(&reg), Work::Agent);
+        assert_eq!(v["pick"], "small", "{flag}: {v:#}");
+        assert!(!v["why"].as_str().unwrap().contains("big"), "{v:#}");
+        assert_eq!(host(&v, "big")["refused"], NEVER_AUTO);
+        assert_eq!(host(&v, "big")["ok"], false);
+        // Unread ("resources unknown") or the only host left: still never picked.
+        let v = auto_place(&[c("big", Value::Null)], Some(&reg), Work::Agent);
+        assert!(v["pick"].is_null(), "{flag}: {v:#}");
+        let v =
+            auto_place(&[c("big", Value::Null), c("small", Value::Null)], Some(&reg), Work::Agent);
+        assert_eq!(v["pick"], "small", "{flag}: {v:#}");
+    }
+    // Without a registry nothing is a person's own.
+    let v = auto_place(&[c("big", health(120.0, 32, 2.0, 900.0, 0))], None, Work::Agent);
+    assert_eq!(v["pick"], "big");
+}

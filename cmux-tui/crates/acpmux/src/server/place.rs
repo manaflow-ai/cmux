@@ -29,7 +29,7 @@ pub(super) async fn place(hub: &Hub, params: &Value) -> Value {
         candidates = off_interactive_hosts(candidates, registry.as_ref());
         down.retain(|(name, _)| !crate::placement::interactive(registry.as_ref(), name));
     }
-    let verdict = crate::placement::place(&candidates, registry.as_ref(), work);
+    let verdict = crate::placement::auto_place(&candidates, registry.as_ref(), work);
     let verdict = crate::placement::with_down(verdict, &down);
     crate::shadow_admission::with_shadow("place", verdict, &candidates)
 }
@@ -75,7 +75,7 @@ pub(super) async fn pick(hub: &Hub, work: Work) -> Value {
 /// the hosts it left out and why, which the verdict's `hosts` no longer lists.
 fn dispatch_place(candidates: Vec<Candidate>, registry: Option<&Value>, work: Work) -> Value {
     let (kept, left_out) = dispatch_hosts(candidates, registry, work);
-    let mut v = crate::placement::place(&kept, registry, work);
+    let mut v = crate::placement::auto_place(&kept, registry, work);
     if v.get("pick").is_some_and(Value::is_null) && !left_out.is_empty() {
         let why = v.get("why").and_then(Value::as_str).unwrap_or_default();
         let why = format!(
@@ -426,5 +426,37 @@ mod tests {
         assert_eq!(last_resort_refusal(Some(&reg), "spare", Work::Build), None);
         assert_eq!(last_resort_refusal(Some(&reg), "lane", Work::Agent), None);
         assert_eq!(last_resort_refusal(None, "spare", Work::Agent), None);
+    }
+
+    /// `new --machine auto` and `dispatch --machine auto` never pick a machine the registry marks
+    /// a person's own (top-level `personal` or `no_touch`), even the roomiest; a person who
+    /// names it still starts there (`named_refusal` forbids nothing for it).
+    #[test]
+    fn auto_picks_skip_a_personal_machine_and_a_named_one_still_starts() {
+        for flag in ["personal", "no_touch"] {
+            let mut reg = dispatch_registry();
+            reg["machines"]["mine"] = json!({flag: true, "aliases": ["sixteen"],
+                "lanes": reg["machines"]["lane"]["lanes"].clone()});
+            let hosts = || {
+                vec![named("sixteen", false, health(60, 0)), named("lane", false, health(30, 2))]
+            };
+            let raw = crate::placement::place(&hosts(), Some(&reg), Work::Agent);
+            assert_eq!(raw["pick"], "sixteen", "{flag}: without the rule it would win");
+            // `_acpmux/place` (`new --machine auto`, `session move --machine auto`).
+            let v = crate::placement::auto_place(&hosts(), Some(&reg), Work::Agent);
+            assert_eq!(v["pick"], "lane", "{flag}: {v:#}");
+            // `dispatch --machine auto` and the busy-host suggestion a dispatch makes.
+            let v = dispatch_place(hosts(), Some(&reg), Work::Agent);
+            assert_eq!(v["pick"], "lane", "{flag}: {v:#}");
+            let v = dispatch_place(
+                vec![named("sixteen", false, health(60, 0))],
+                Some(&reg),
+                Work::Agent,
+            );
+            assert!(v["pick"].is_null(), "{flag}: {v:#}");
+            // Named by a person: allowed.
+            assert_eq!(named_refusal(&reg, "sixteen", Work::Agent), None, "{flag}");
+            assert_eq!(named_refusal(&reg, "mine", Work::Agent), None, "{flag}");
+        }
     }
 }

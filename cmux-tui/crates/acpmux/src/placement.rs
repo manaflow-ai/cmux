@@ -282,7 +282,41 @@ pub fn interactive(registry: Option<&Value>, name: &str) -> bool {
 /// registry's role for a person's own apps (`leo-apps`, "Runs Leo-only apps"). False without a
 /// registry or for a machine it does not list.
 pub fn personal(registry: Option<&Value>, name: &str) -> bool {
-    interactive(registry, name) || machine(registry, name).is_some_and(|m| has_role(m, "leo-apps"))
+    interactive(registry, name)
+        || never_auto(registry, name)
+        || machine(registry, name).is_some_and(|m| has_role(m, "leo-apps"))
+}
+
+/// Whether the registry marks `name` (by name or alias) a person's own machine that no automatic
+/// pick may name: its entry's top-level `personal: true` or `no_touch: true` (Leo, 2026-11-16, of
+/// his own Mac: "it runs MY stuff"). Every auto pick and every suggestion goes through
+/// [`auto_place`], which weighs only the others; a person who names the machine still starts
+/// there. False without a registry or for a machine it does not list.
+pub fn never_auto(registry: Option<&Value>, name: &str) -> bool {
+    machine(registry, name).is_some_and(|m| {
+        ["personal", "no_touch"].iter().any(|k| m.get(*k).and_then(Value::as_bool) == Some(true))
+    })
+}
+
+/// Why [`auto_place`] passes a machine over (`never_auto`).
+pub const NEVER_AUTO: &str = "a person's own machine (fleet-registry.json personal or no_touch): \
+never picked automatically; name it to start there";
+
+/// [`place`] for an automatic pick or a suggestion (`new --machine auto`, `dispatch --machine
+/// auto`, the lane-cap warning's suggested host): the machines `never_auto` names never take the
+/// work, even when no other host has room, and `hosts` lists them as refused with why.
+pub fn auto_place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> Value {
+    let (out, kept): (Vec<&Candidate>, Vec<&Candidate>) =
+        candidates.iter().partition(|c| never_auto(registry, &c.name));
+    let kept: Vec<Candidate> = kept.into_iter().cloned().collect();
+    let mut verdict = place(&kept, registry, work);
+    if let Some(hosts) = verdict.get_mut("hosts").and_then(Value::as_array_mut) {
+        hosts.extend(out.iter().map(|c| {
+            json!({"name": c.name, "local": c.local, "ok": false, "room": null, "rank": null,
+                "tier": null, "live": null, "why": "", "refused": NEVER_AUTO, "load": false})
+        }));
+    }
+    verdict
 }
 
 /// Whether the registry gives `name` (by name or alias) `lanes.last_resort: true`: a host
