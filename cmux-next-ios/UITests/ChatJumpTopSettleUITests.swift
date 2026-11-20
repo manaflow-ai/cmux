@@ -53,5 +53,8 @@ final class ChatJumpTopSettleUITests: XCTestCase {
         summary.lifetime = .keepAlways
         add(summary)
         print("F8 visible transcript texts: \(counts.joined(separator: " "))")
+        // The fleet step keeps only failure lines when it drops the evidence zip (empty ui_cold under
+        // set -u, #47685), so the counts travel as a failure message.
+        XCTFail("F8-COUNTS \(counts.joined(separator: " "))")
     }
 }
