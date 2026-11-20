@@ -814,6 +814,10 @@ export type HarnessRow = {
   problem: string | null;
   /** From `_acpmux/harness/health` (absent from an older daemon): installed and newest versions. */
   version?: string | null;
+  /** Where acpmux found its program, and the npm package or Homebrew formula behind it: two rows
+   * with the same are one install, with one update card. */
+  path?: string | null;
+  package?: string | null;
   latest?: string | null;
   outdated?: boolean;
   /** Only from evidence (a profile's check or a probe's sign-in error). */
