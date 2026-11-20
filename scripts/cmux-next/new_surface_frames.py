@@ -50,8 +50,11 @@ steps after it. The rows start at the last frame before the reply's zero (frame_
 frame of the display inside the key's own work has no row; such a frame, and a frame that the recorder did not
 deliver, is still counted (`frames_not_delivered`: the frames after the key with no row). The display's frame time
 is the asked rate's (`asked_hz`), also when the rows come slower than it (`refresh_of`). With no asked rate the
-frame time is the rows' own median step, and a recorder that delivers each second frame of the display then gives
-half of the true numbers with no sign. `rows_ms` is each row's time after the judged key.
+frame time is the rows' own median step: a recorder that delivers each second frame of the display then gives
+half of the true numbers, and a frame with no row is not seen. `one_key` alone gives no sign of it, so the mode
+(new_surface_screen.py) makes each row of a run with no asked rate INVALID (`NO_RATE`, the reason `display`), and
+the row's line and the case's line then say `not known` for the frames with no row. `rows_ms` is each row's time
+after the judged key.
 
 A frame with no row. The recorder gives a row for each picture that the window server made and for each time
 that it says that nothing changed, and it does not give one for each frame of the display: in the still part of a
@@ -59,10 +62,12 @@ recording its rows come at its own pace. So the rows' step over the whole record
 that moves, and a rule is needed for that part alone:
 
   first_frame_span  the frames from the key to `content_first`: how many, how many with no row and which, the
-                 longest step between two rows, and `early_ms_at_most` (`span_of`): the frames with no row
-                 directly before the first content row, which is: with no row of the old picture between them
-                 (a blank row is not the old picture). The page can have come in one of those, so the row is then
-                 INVALID (`no-row`) and the reason says how early the page can have been. A frame with no row
+                 longest step between two rows, and `early_ms_at_most` (`span_of`). A frame with no row is
+                 directly before the first content row when no row of the old picture is between them (a blank
+                 row is not the old picture). The page can have come in one of those, so the row is then
+                 INVALID (`no-row`), and `early_ms_at_most` and the reason say how early the page can have been:
+                 the time from the FIRST of those frames to the first content row (a count of frame times, not
+                 the count of the frames with no row: a blank row between them counts too). A frame with no row
                  that is before a row of the old picture (a frame inside the key's own work is one) cannot be the
                  page's first frame: the row stays valid for its TIME.
   partial_state_not_seen  the frames from the key to `content_first` with no row, each of them. What such a
@@ -133,6 +138,9 @@ BLINK_PHASES = 4
 SETTLE_MS = 1000
 # A region is at its last picture when it showed it for at least this long at the recording's end (ms).
 SETTLED_MS = 100
+# The INVALID reason of each row of a run with no asked display rate (the mode adds it; the module doc).
+NO_RATE = ("display: no asked display rate (`--display-hz`; the entry gives it with `--vdisplay=HZ`): the frame time is the "
+           "rows' own median step, so a frame with no row is not seen and a frame's number can be too small")
 
 
 def _number(value):
@@ -175,10 +183,12 @@ def span_of(inside, refresh, start_frame=0, start_ms=0.0, old=None):
     """The frames of the display after `start_frame` (0: the key) up to the last of the numbered rows `inside`:
     how many there are (`frames`), how many have a row (`rows`), how many have none (`no_row`, and which:
     `no_row_frames`, the first 32), the longest time between two rows one after the other, the span's start as the
-    first time (`longest_gap_ms`), and `early_ms_at_most`: the frames with no row after the last row that still
-    shows the old state (`old`: the frames of those rows; None: each row before the last one), in ms. What the last
-    row is the first to show can have been on the screen that much earlier and no more: that row of the old state
-    does not show it, and a frame with no row before it cannot be the first one."""
+    first time (`longest_gap_ms`), and `early_ms_at_most`: the time from the FIRST frame with no row after the last
+    row that still shows the old state (`old`: the frames of those rows; None: each row before the last one) to the
+    last row, in ms (0 with no such frame). What the last row is the first to show can have been on the screen that
+    much earlier and no more: that row of the old state does not show it, and a frame with no row before it cannot
+    be the first one. It is not the count of those frames: a row between them that is not of the old state (a blank
+    row) does not prove that the frame before it did not show it."""
     have = {frame for frame, _ in inside}
     last = inside[-1][0]
     missing = [frame for frame in range(start_frame + 1, last + 1) if frame not in have]
@@ -186,7 +196,7 @@ def span_of(inside, refresh, start_frame=0, start_ms=0.0, old=None):
     floor = max([frame for frame, _ in inside[:-1] if old is None or frame in old] + [start_frame])
     return {"frames": last - start_frame, "rows": len(have), "no_row": len(missing), "no_row_frames": missing[:32],
             "longest_gap_ms": round(max(b - a for a, b in zip(times, times[1:])), 1),
-            "early_ms_at_most": round(sum(1 for frame in missing if frame > floor) * refresh, 1)}
+            "early_ms_at_most": round(max([last - frame for frame in missing if frame > floor] + [0]) * refresh, 1)}
 
 
 def no_row_fault(span, start, name):
@@ -563,6 +573,7 @@ def cell(summary):
     holes = summary["first_frame_no_row"]
     return (f"valid {summary['valid']}/{summary['n']}" + (f" (INVALID: {', '.join(summary['invalid'])})" if summary["invalid"] else "")
             + ("" if not holes["rows"] else
+               "; frames with no row from the key to content_first: not known (no asked display rate)" if "display" in summary["invalid"] else
                f"; frames with no row from the key to content_first, over EACH of {holes['rows']} rows (also the INVALID ones): in "
                f"{holes['with_a_frame_with_no_row']} rows ({holes['time_not_proved']} with one directly before content_first: the time is "
                f"not proved; {holes['time_proved_partial_state_not_seen']} with each before a row of the old picture: the time is proved, "

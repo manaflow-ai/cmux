@@ -6,6 +6,12 @@ first one, both in one recording, the gap by the app's own timer), `--runs` reco
 page's pixels) from before the key to `--duration-ms` after it, at `--scale` (1: a point is a pixel). The numbers
 of a recording, and what they do not see: new_surface_frames.py.
 
+The display's rate (`--display-hz`; the entry gives it with `--vdisplay=HZ`, the rate of the display that it
+made). A frame's number is a row's time over the display's frame time. With no asked rate the frame time is the
+median step of the recording's rows, and the recorder gives its rows at its own pace in the still part of a
+recording: a frame with no row directly before the page is then not seen. So each row of a run with no asked rate
+is INVALID (`display`; new_surface_frames.py `NO_RATE`), and its line says `not known` for the frames with no row.
+
 The session: `--workspaces N` makes the session that many workspaces with the repository's one session maker
 (scripts/perf-bench/session_real.py make, as scripts/measure/pane-motion-films.py does): each added workspace
 has a terminal tab and a page tab, `--live-shells` of the terminals keep a shell and each other one is parked. No
@@ -270,7 +276,8 @@ def add_arguments(parser):
     parser.add_argument("--keep-keys", type=int, default=2, help="--screen: recordings of each case whose pictures are kept in any case")
     parser.add_argument("--screen-tgz", help="--screen: write the report and the kept pictures here")
     parser.add_argument("--display", default="", help="--screen: the display's own line, for the report (the entry's virtual display)")
-    parser.add_argument("--display-hz", type=float, default=0, help="--screen: the display's refresh rate, when the entry made the display")
+    parser.add_argument("--display-hz", type=float, default=0,
+                        help="--screen: the display's refresh rate (the entry gives it for the display that it made); with none each row is INVALID")
     parser.add_argument("--build", help="--screen: the build's form (scripts/measure/build-flags.py's file), for the report")
     parser.add_argument("--page-engine", default="cef", choices=bench_page_engine.WANTED,
                         help="--screen: the engine that the new page must run in for a row to be a number (any: each row only says it)")
@@ -329,16 +336,21 @@ def fresh_session(tag, app=None):
 def holes(row):
     """The end of a row's printed line: the frames with no row from the key to its first frame, how early that
     frame can be, the second key's own first frame of a recording of two keys, and the app's opening records.
-    An INVALID row's line so still says how wrong its first frame can be."""
+    An INVALID row's line so still says how wrong its first frame can be. A row of a run with no asked display rate
+    says `not known` for each of these counts: its frame time is the rows' own step, which does not see such a frame."""
     span, second, records = row.get("first_frame_span"), row.get("second_first"), row.get("opening_records")
-    said = "" if not span else (f" no_row_to_content_first={span['no_row']}/{span['frames']} longest_gap_ms={span['longest_gap_ms']:g} "
-                                f"early_ms_at_most={span['early_ms_at_most']:g}"
-                                + (f" partial state: not seen in {span['no_row']} frames" if span["no_row"] else ""))
+    blind = frames_of.NO_RATE in (row.get("invalid") or [])
+    said = "" if not span else " no_row_to_content_first=not known early_ms_at_most=not known (no asked display rate)" if blind else (
+        f" no_row_to_content_first={span['no_row']}/{span['frames']} longest_gap_ms={span['longest_gap_ms']:g} "
+        f"early_ms_at_most={span['early_ms_at_most']:g}"
+        + (f" partial state: not seen in {span['no_row']} frames" if span["no_row"] else ""))
     if row.get("gap_ms") and "second_first" in row:
         said += " second_first=" + ("none" if not second else (
             f"{json.dumps([second['frame'], second['ms']])} after_mark_ms={second['after_mark_ms']:g} "
-            f"second_no_row={second['span']['no_row']}/{second['span']['frames']} second_early_ms_at_most={second['span']['early_ms_at_most']:g}"
-            + (f" second key's partial state: not seen in {second['span']['no_row']} frames" if second["span"]["no_row"] else "")
+            + ("second_no_row=not known second_early_ms_at_most=not known" if blind else (
+                f"second_no_row={second['span']['no_row']}/{second['span']['frames']} "
+                f"second_early_ms_at_most={second['span']['early_ms_at_most']:g}"
+                + (f" second key's partial state: not seen in {second['span']['no_row']} frames" if second["span"]["no_row"] else "")))
             + f" moving_at_the_mark={second['moving_at_the_mark']}"))
     return said + ("" if not records else f" records={json.dumps(records['spare'])}") + close_said(row)
 
@@ -379,6 +391,8 @@ class Screen:
         # The driver's word about its launch (run_end_record.py): a text makes each row INVALID. `launch`: its facts.
         # `launched`: the launch's environment and the bundle's CLI (new_surface_look.py `cli_try`), None with no launch.
         self.launch_fault, self.launch, self.launched = None, None, None
+        # A run with no asked display rate: this reason is in each row that has a recording (the module doc).
+        self.display_fault = None if opts.display_hz and opts.display_hz > 0 else frames_of.NO_RATE
         # `made`: the workspaces that the session's maker made. `size`, `tag`: with `--key-tabs`, the count in work
         # (asked and had) and its part of a row's label. `activation`, `key_workspace`: the report's facts of both.
         self.made, self.size, self.tag, self.activation, self.key_workspace = [], None, "", None, None
@@ -481,7 +495,7 @@ class Screen:
         row["label"] = label
         opened = frames_of.opened_since(before_opened, records)
         faults, starts = frames_of.input_proof(key, keys_sent, opened, self.count(key) - before_count, reply.get("spans"))
-        row["invalid"] += faults + [fault for fault in (session_fault, self.launch_fault) if fault]
+        row["invalid"] += faults + [fault for fault in (self.display_fault, session_fault, self.launch_fault) if fault]
         # The marks' times from the row's zero (the reply's own zero is `key_work_ms` after it).
         starts = [round(start + (row.get("key_work_ms") or 0), 1) for start in starts]
         spare = [bool(record.get("spare")) for record in records[len(records) - opened:]]
@@ -738,7 +752,7 @@ class Screen:
             faults.append(f"input: {len(plan)} New Tab key-downs sent, the app recorded {opened} openings ({low} to {high} are possible)")
         faults += [f"input: the New Tab key-down {index} of {len(plan)} was refused by the app" for index in refused]
         row["invalid"] = ([reason for reason in row["invalid"] if reason not in fact["not_a_fault_for_a_close"]] + early + faults
-                          + [fault for fault in (session_fault, self.launch_fault) if fault])
+                          + [fault for fault in (self.display_fault, session_fault, self.launch_fault) if fault])
         row.update({"keys_sent": 1, "lead_ms": reply.get("lead_ms"), "spare": spare, "opening_records": frames_of.records_fact("t", len(plan), spare),
                     "frame_count": reply.get("frame_count"), "mean_interval_ms": reply.get("mean_interval_ms")})
         if kind != "idle":

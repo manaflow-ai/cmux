@@ -531,10 +531,39 @@ class ScreenTests(unittest.TestCase):
     def test_a_run_with_no_asked_display_rate_has_no_valid_row(self):
         # With no asked rate the frame time is the median step of the recording's rows, and a frame with no row
         # directly before the page is then not seen: the same pictures that are valid at an asked rate are not valid.
-        report, _ = self.run_mode(FakeApp(self.folder, [(NEW, ROW_NEW)] * 240), display_hz=0, runs=1)
+        said = io.StringIO()
+        with contextlib.redirect_stdout(said):
+            report, _ = self.run_mode(FakeApp(self.folder, [(NEW, ROW_NEW)] * 240), display_hz=0, runs=1)
         self.assertEqual([[reason.split(":")[0] for reason in row["invalid"]] for row in report["rows"]], [["display"]] * 2)
         self.assertEqual([(case["valid"], case["invalid"]) for case in report["cases"].values()], [(0, ["display"])] * 2)
         self.assertIsNone(report["display_hz_asked"])
+        # The row's line and the case's line give no count of the frames with no row: the count is not known.
+        lines = said.getvalue().splitlines()
+        rows = [line for line in lines if line.startswith("NEW-SURFACE-SCREEN-ROW ")]
+        cases = [line for line in lines if line.startswith("NEW-SURFACE-SCREEN cmd-")]
+        self.assertEqual((len(rows), len(cases)), (2, 2))
+        for line in rows:
+            self.assertIn(" no_row_to_content_first=not known early_ms_at_most=not known (no asked display rate)", line)
+            self.assertNotIn("no_row_to_content_first=0", line)
+        for line in cases:
+            self.assertIn("valid 0/1 (INVALID: display); frames with no row from the key to content_first: not known (no asked display rate); tab ", line)
+            self.assertNotIn("ms early", line)
+        # A rate that is not above 0 is no asked rate.
+        with contextlib.redirect_stdout(io.StringIO()):
+            report, _ = self.run_mode(FakeApp(self.folder, [(NEW, ROW_NEW)] * 240), display_hz=-120.0, keys="n", runs=1)
+        self.assertEqual([reason.split(":")[0] for reason in report["rows"][0]["invalid"]], ["display"])
+
+    def test_the_line_of_a_row_with_no_asked_display_rate_says_not_known_for_the_second_keys_frames_too(self):
+        span = {"frames": 3, "rows": 3, "no_row": 0, "no_row_frames": [], "longest_gap_ms": 9.0, "early_ms_at_most": 0.0}
+        row = {"gap_ms": 100.0, "invalid": [], "first_frame_span": span,
+               "second_first": {"frame": 3, "ms": 25, "after_mark_ms": 21.0, "span": span, "moving_at_the_mark": False}}
+        self.assertEqual(new_surface_screen.holes(row),
+                         " no_row_to_content_first=0/3 longest_gap_ms=9 early_ms_at_most=0 second_first=[3, 25] after_mark_ms=21 "
+                         "second_no_row=0/3 second_early_ms_at_most=0 moving_at_the_mark=False")
+        row["invalid"] = [nsf.NO_RATE]
+        self.assertEqual(new_surface_screen.holes(row),
+                         " no_row_to_content_first=not known early_ms_at_most=not known (no asked display rate) second_first=[3, 25] "
+                         "after_mark_ms=21 second_no_row=not known second_early_ms_at_most=not known moving_at_the_mark=False")
 
     def test_the_asked_display_rate_gets_to_the_reader_of_a_key(self):
         # Frame 2 has no row and the page is in frame 3; after it the recorder gives a row for each third frame of the
