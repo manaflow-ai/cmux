@@ -204640,127 +204640,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "التخصيص"
+            "value": "المظهر"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Personalizacija"
+            "value": "Izgled"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Personalisering"
+            "value": "Udseende"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Personalisierung"
+            "value": "Erscheinungsbild"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Personalization"
+            "value": "Appearance"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Personalización"
+            "value": "Apariencia"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Personnalisation"
+            "value": "Apparence"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Personalizzazione"
+            "value": "Aspetto"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "パーソナライズ"
+            "value": "外観"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ការកំណត់ផ្ទាល់ខ្លួន"
+            "value": "រូបរាង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "개인화"
+            "value": "모양"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Personalisering"
+            "value": "Utseende"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Personalizacja"
+            "value": "Wygląd"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Personalização"
+            "value": "Aparência"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Персонализация"
+            "value": "Оформление"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การปรับแต่งส่วนตัว"
+            "value": "ลักษณะที่ปรากฏ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kişiselleştirme"
+            "value": "Görünüm"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Персоналізація"
+            "value": "Вигляд"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cá nhân hóa"
+            "value": "Giao diện"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "个性化"
+            "value": "外观"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "個人化"
+            "value": "外觀"
           }
         }
       }
@@ -229769,6 +229769,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 需閒置多久，「閒置時更新」才會安裝。"
+          }
+        }
+      }
+    },
+    "settings.category.interface": {
+      "comment": "Settings category for window sizing, motion and surfaces.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "واجهة التطبيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sučelje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brugerflade"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benutzeroberfläche"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interface"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interfaz"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interface utilisateur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interfaccia"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インターフェース"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចំណុចប្រទាក់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인터페이스"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brukergrensesnitt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interfejs"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interface do app"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Интерфейс"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่วนติดต่อผู้ใช้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arayüz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Інтерфейс"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giao diện ứng dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "界面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "介面"
           }
         }
       }
