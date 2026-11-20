@@ -226,6 +226,9 @@ impl AgentPort for PlacedPort {
     fn remove_queued(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
         self.port(session).remove_queued(session, prompt_id)
     }
+    fn withdraw_steer(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
+        self.port(session).withdraw_steer(session, prompt_id)
+    }
     fn set_mode(&self, session: &str, mode: &str) -> Result<(), String> {
         self.port(session).set_mode(session, mode)
     }
