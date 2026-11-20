@@ -479,12 +479,28 @@ impl Hub {
     /// answered its prompt, so what it carried counts as told, and the pushed
     /// prompts of those rules still waiting behind it are taken back. Runs
     /// before the turn lock is released, so no waiting push starts first.
-    pub(super) fn forum_turn_end(&self, session: &Arc<Session>, turn: &ForumTurn, answered: bool) {
-        if answered {
-            if let Err(error) =
-                self.forum().work_delivered(&session.id, turn.work.clone(), now_ms())
-            {
-                tracing::warn!(%error, "forum work digest acknowledgement failed");
+    pub(super) async fn forum_turn_end(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        turn: &ForumTurn,
+        answered: bool,
+    ) {
+        if answered && !turn.work.is_empty() {
+            let hub = self.clone();
+            let recipient = session.id.clone();
+            let ids = turn.work.clone();
+            let written = tokio::task::spawn_blocking(move || {
+                hub.forum().work_delivered(&recipient, ids, now_ms())
+            })
+            .await;
+            match written {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => {
+                    tracing::warn!(%error, "forum work digest acknowledgement failed")
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "forum work digest acknowledgement worker failed")
+                }
             }
         }
         session.forum_telling.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();

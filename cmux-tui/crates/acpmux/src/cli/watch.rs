@@ -22,12 +22,18 @@ pub enum WatchCmd {
         /// The session to wake. Default: the session this command runs in.
         #[arg(long)]
         to: Option<String>,
-        /// States that wake it: ready, permission, done, closed. Default: ready or permission.
+        /// States that wake it: ready, permission, done, closed, forum. Default: ready or permission.
         #[arg(long = "until", value_delimiter = ',')]
         until: Vec<String>,
         /// Only a turn whose transcript contains this text wakes it.
         #[arg(long = "match")]
         match_text: Option<String>,
+        /// Forum channel to watch with --until forum (local recipient's own session).
+        #[arg(long)]
+        channel: Option<String>,
+        /// Restrict the forum watch to this thread.
+        #[arg(long)]
+        thread: Option<String>,
     },
     /// The watches and the wakes they still owe (not yet accepted by the recipient).
     Ls,
@@ -59,8 +65,15 @@ pub(crate) fn add_params(
 
 pub async fn run(cmd: WatchCmd, json_out: bool) -> Result<()> {
     let (m, params) = match cmd {
-        WatchCmd::Add { sessions, to, until, match_text } => {
-            (method::MUX_WATCH_ADD, add_params(sessions, to, until, match_text))
+        WatchCmd::Add { sessions, to, until, match_text, channel, thread } => {
+            let mut params = add_params(sessions, to, until, match_text);
+            if let Some(channel) = channel {
+                params["channel"] = json!(channel);
+            }
+            if let Some(thread) = thread {
+                params["thread"] = json!(thread);
+            }
+            (method::MUX_WATCH_ADD, params)
         }
         WatchCmd::Ls => (method::MUX_WATCH_LS, json!({})),
         WatchCmd::Rm { id } => (method::MUX_WATCH_RM, json!({"id": id})),
@@ -145,6 +158,12 @@ fn condition(w: &Value) -> String {
     let until: Vec<&str> =
         w["until"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
     let mut s = format!("{} is {}", sessions.join(" or "), until.join(" or "));
+    if let Some(channel) = w["channel"].as_str() {
+        s.push_str(&format!(", channel {channel:?}"));
+        if let Some(thread) = w["thread"].as_str() {
+            s.push_str(&format!(", thread {thread:?}"));
+        }
+    }
     if let Some(m) = w["match"].as_str() {
         s.push_str(&format!(", matching {m:?}"));
     }

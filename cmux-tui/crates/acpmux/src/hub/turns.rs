@@ -528,6 +528,7 @@ impl Hub {
         // Pair/protected holds and race checks above still apply. Storage starts no agent,
         // needs no cold child, and does not grant a Web caller a local forum identity.
         if control != Control::Web
+            && !crate::author::awaits_owner(opts.provenance.as_ref())
             && !opts.send_now
             && !super::queue::closing(session)
             && super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref())
@@ -1249,14 +1250,14 @@ impl Hub {
             Ok(_) => {
                 let e = stopped_before_prompt();
                 self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
-                self.forum_turn_end(session, &told, false);
+                self.forum_turn_end(session, &told, false).await;
                 Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
                 drop(guard);
                 return Err(e);
             }
             Err(e) => {
                 self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
-                self.forum_turn_end(session, &told, false);
+                self.forum_turn_end(session, &told, false).await;
                 Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
                 drop(guard);
                 return Err(e);
@@ -1277,7 +1278,7 @@ impl Hub {
             let e = RpcError::new(-32000, "the remote floor cancelled this turn before its prompt")
                 .with_data(json!({"reason": reason}));
             self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
-            self.forum_turn_end(session, &told, false);
+            self.forum_turn_end(session, &told, false).await;
             Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
             drop(guard);
             return Err(e);
@@ -1599,7 +1600,7 @@ impl Hub {
             self.start_carried(session, &child, &turn_id, c, guard.take_slot());
         }
         // A rule counts as told once the agent answered the prompt that carried it.
-        self.forum_turn_end(session, &told, result.is_ok());
+        self.forum_turn_end(session, &told, result.is_ok()).await;
         // A cut turn goes on by itself (`auto_resume.rs`), unless carried on or cache_compact's.
         let goes_on = !trigger && !super::idle::cache_compact::is_own(run.provenance.as_ref());
         let cut = match (&result, detached) {

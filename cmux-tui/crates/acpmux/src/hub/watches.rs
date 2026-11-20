@@ -1,7 +1,7 @@
 //! Durable wake subscriptions. Watch checkpoints and owed messages commit together;
 //! outbox retries use the same prompt id, including across daemon restart.
 use super::watch_events;
-pub(crate) use super::watch_events::seed;
+pub(crate) use super::watch_events::{ForumSelector, seed, seed_forum};
 use super::{Hub, HubEvent};
 use crate::hub::outbox::{Delivery, State};
 use crate::rpc::RpcError;
@@ -31,8 +31,13 @@ pub struct Watch {
 
 impl Watch {
     fn status(&self) -> Value {
-        json!({"id": self.id, "to": self.to, "sessions": self.sessions, "until": self.until,
-            "match": self.match_text, "once": self.once, "active": self.active, "offline": self.offline})
+        let mut status = json!({"id": self.id, "to": self.to, "sessions": self.sessions, "until": self.until,
+            "match": self.match_text, "once": self.once, "active": self.active, "offline": self.offline});
+        if let Some(forum) = self.cursors.values().find_map(|c| c.forum.as_ref()) {
+            status["channel"] = json!(forum.channel);
+            status["thread"] = json!(forum.thread);
+        }
+        status
     }
 }
 #[derive(Clone, Default, Serialize, Deserialize)]

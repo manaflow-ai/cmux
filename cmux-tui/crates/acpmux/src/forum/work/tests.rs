@@ -123,10 +123,15 @@ fn forum_work_baseline_replay_measures_notices_without_claiming_live_delivery() 
         "cmux-freestyle-linux-x64",
     ];
     let forum = Forum::memory();
-    for n in 0..33 {
-        let text =
-            warning(&format!("host-{n}")).replace("cmux-fleet-linux-x64", labels[n % labels.len()]);
-        forum.work_post("coord", ingest("glaeda-gh", &text, 0).unwrap(), Value::Null, 0).unwrap();
+    let counts = [4, 2, 5, 8, 7, 5, 1, 1];
+    assert_eq!(counts.iter().sum::<usize>(), 33);
+    for (label, count) in labels.into_iter().zip(counts) {
+        for n in 0..count {
+            let text = warning(&format!("host-{n}")).replace("cmux-fleet-linux-x64", label);
+            forum
+                .work_post("coord", ingest("glaeda-gh", &text, 0).unwrap(), Value::Null, 0)
+                .unwrap();
+        }
     }
     for n in 0..4 {
         let text = format!("disk-hygiene on disk-{n}: healthy again (unowned-fetch cleared)");

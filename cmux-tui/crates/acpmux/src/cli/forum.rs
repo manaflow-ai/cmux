@@ -138,6 +138,9 @@ async fn send(recipient: &str, input: crate::forum::work::Input, json_out: bool)
     // Parse the existing send grammar and execute its own path: caller-token binding,
     // peer routing, team hub, lane relay, durable retries and receipt ids stay together.
     let wire = input.wire()?;
+    let key =
+        serde_json::to_vec(&(recipient, &input.channel, &input.thread, &input.key, &input.source))?;
+    let prompt_id = format!("forum-{}", crate::sha256::sha256_hex(&key));
     let args = crate::cli::command::Cli::try_parse_from([
         "acpmux",
         "send",
@@ -146,6 +149,8 @@ async fn send(recipient: &str, input: crate::forum::work::Input, json_out: bool)
         "fyi",
         "--from",
         "forum",
+        "--prompt-id",
+        &prompt_id,
         recipient,
         &wire,
     ])?;

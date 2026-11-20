@@ -4,12 +4,16 @@ use super::{Forum, MAX_BODY_BYTES, MAX_KEY_BYTES, Record};
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 pub const PREFIX: &str = "CMUX_FORUM_POST_V1\n";
 pub const DIGEST_MS: u64 = 15 * 60 * 1000;
 const KEEP_POSTS: usize = 100;
 const MAX_THREADS: usize = 1024;
+/// A retry keeps its original receipt for at least one day, independently of visible history.
+pub const RETRY_MS: u64 = 24 * 60 * 60 * 1000;
+const MAX_RETRY_KEYS: usize = 4096;
+const MAX_RECIPIENTS: usize = 128;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "snake_case")]
@@ -79,6 +83,13 @@ pub struct Lease {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub(super) enum Event {
+    /// A compacted recipient state. Tuple map keys are represented as rows on disk.
+    Snapshot {
+        recipient: String,
+        threads: Vec<SnapshotThread>,
+        pending: Vec<(String, String, String)>,
+        delivered_at: Option<u64>,
+    },
     Post {
         recipient: String,
         post: Post,
@@ -104,11 +115,59 @@ pub(super) enum Event {
     },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(super) struct RetryReceipt {
+    id: String,
+    kind: Kind,
+    body_hash: String,
+    created: u64,
+    sources: BTreeSet<String>,
+}
+
+impl RetryReceipt {
+    fn of(post: &Post) -> Self {
+        Self {
+            id: post.id.clone(),
+            kind: post.kind,
+            body_hash: crate::sha256::sha256_hex(post.body.as_bytes()),
+            created: post.created,
+            sources: post.sources.keys().cloned().collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(super) struct SnapshotThread {
+    channel: String,
+    thread: String,
+    posts: VecDeque<Post>,
+    receipts: BTreeMap<String, RetryReceipt>,
+    lease: Option<Lease>,
+}
+
 #[derive(Default)]
 struct Thread {
     posts: VecDeque<Post>,
-    keys: BTreeMap<String, String>,
+    keys: BTreeMap<String, RetryReceipt>,
+    /// Ordered expiry lets each expired key be removed once, not by scanning all keys per post.
+    expires: BTreeSet<(u64, String)>,
     lease: Option<Lease>,
+}
+
+impl Thread {
+    fn prune_keys(&mut self, now: u64) {
+        while self.expires.first().is_some_and(|(at, _)| *at <= now) {
+            let Some((_, key)) = self.expires.pop_first() else { break };
+            self.keys.remove(&key);
+        }
+    }
+
+    fn remember(&mut self, key: String, receipt: RetryReceipt) {
+        if let Some(old) = self.keys.insert(key.clone(), receipt.clone()) {
+            self.expires.remove(&(old.created.saturating_add(RETRY_MS), key.clone()));
+        }
+        self.expires.insert((receipt.created.saturating_add(RETRY_MS), key));
+    }
 }
 
 #[derive(Default)]
@@ -124,19 +183,58 @@ pub(super) struct State {
 }
 
 impl State {
+    pub(super) fn is_empty(&self) -> bool {
+        self.recipients.is_empty()
+    }
+
+    pub(super) fn snapshots(&self) -> impl Iterator<Item = Event> + '_ {
+        self.recipients.iter().map(|(recipient, state)| Event::Snapshot {
+            recipient: recipient.clone(),
+            threads: state
+                .threads
+                .iter()
+                .map(|((channel, name), thread)| SnapshotThread {
+                    channel: channel.clone(),
+                    thread: name.clone(),
+                    posts: thread.posts.clone(),
+                    receipts: thread.keys.clone(),
+                    lease: thread.lease.clone(),
+                })
+                .collect(),
+            pending: state
+                .pending
+                .iter()
+                .map(|((c, t), id)| (c.clone(), t.clone(), id.clone()))
+                .collect(),
+            delivered_at: state.delivered_at,
+        })
+    }
+
     pub(super) fn apply(&mut self, event: Event) {
         match event {
+            Event::Snapshot { recipient, threads, pending, delivered_at } => {
+                let mut state = ChannelState { delivered_at, ..ChannelState::default() };
+                for row in threads {
+                    let mut thread =
+                        Thread { posts: row.posts, lease: row.lease, ..Thread::default() };
+                    for (key, receipt) in row.receipts {
+                        thread.remember(key, receipt);
+                    }
+                    state.threads.insert((row.channel, row.thread), thread);
+                }
+                state.pending = pending.into_iter().map(|(c, t, id)| ((c, t), id)).collect();
+                self.recipients.insert(recipient, state);
+            }
             Event::Post { recipient, post } => {
                 let state = self.recipients.entry(recipient).or_default();
                 let key = (post.channel.clone(), post.thread.clone());
                 state.pending.insert(key.clone(), post.id.clone());
                 let thread = state.threads.entry(key).or_default();
-                thread.keys.insert(post.key.clone(), post.id.clone());
+                thread.prune_keys(post.created);
+                thread.remember(post.key.clone(), RetryReceipt::of(&post));
                 thread.posts.push_back(post);
                 while thread.posts.len() > KEEP_POSTS {
-                    if let Some(old) = thread.posts.pop_front() {
-                        thread.keys.remove(&old.key);
-                    }
+                    thread.posts.pop_front();
                 }
             }
             Event::Source { recipient, channel, thread, id, source, provenance } => {
@@ -146,6 +244,9 @@ impl State {
                     .and_then(|r| r.threads.get_mut(&(channel, thread)))
                 {
                     if let Some(post) = thread.posts.iter_mut().find(|p| p.id == id) {
+                        if let Some(receipt) = thread.keys.get_mut(&post.key) {
+                            receipt.sources.insert(source.clone());
+                        }
                         post.sources.insert(source, provenance);
                     }
                 }
@@ -180,40 +281,73 @@ impl Forum {
         input.validate()?;
         let provenance = json!({"transport": provenance, "body": input.body});
         let mut state = self.lock();
+        self.compact_work(&state);
         let key = (input.channel.clone(), input.thread.clone());
-        let channel = state.work.recipients.get(recipient);
-        if channel.is_some_and(|r| r.threads.len() >= MAX_THREADS && !r.threads.contains_key(&key))
+        if state.work.recipients.len() >= MAX_RECIPIENTS
+            && !state.work.recipients.contains_key(recipient)
         {
             bail!(
-                "forum.thread_limit: at most {MAX_THREADS} threads per recipient; archive a channel before posting"
+                "forum.recipient_limit: at most {MAX_RECIPIENTS} recipients; use an existing recipient"
             );
         }
-        let existing = channel.and_then(|r| r.threads.get(&key));
-        if let Some(post) = existing.and_then(|t| {
-            t.keys.get(&input.key).and_then(|id| t.posts.iter().find(|p| &p.id == id))
-        }) {
-            if post.kind != input.kind {
-                bail!("forum.key_conflict: this key already names a different post kind");
-            }
-            let id = post.id.clone();
-            if !post.sources.contains_key(&input.source) {
-                if post.sources.len() >= 128 {
-                    bail!("forum.source_limit: at most 128 sources per post");
-                }
-                let event = Event::Source {
-                    recipient: recipient.into(),
-                    channel: input.channel.clone(),
-                    thread: input.thread.clone(),
-                    id: id.clone(),
-                    source: input.source,
-                    provenance,
-                };
-                self.write(&[Record::Work(event.clone())], true)?;
-                state.work.apply(event);
-            }
-            return Ok(
-                json!({"stored": true, "duplicate": true, "postId": id, "channel": input.channel, "thread": input.thread}),
+        let channel = state.work.recipients.get_mut(recipient);
+        if channel
+            .as_ref()
+            .is_some_and(|r| r.threads.len() >= MAX_THREADS && !r.threads.contains_key(&key))
+        {
+            bail!(
+                "forum.thread_limit: at most {MAX_THREADS} threads per recipient; use an existing thread"
             );
+        }
+        let existing = channel.and_then(|r| r.threads.get_mut(&key));
+        if let Some(thread) = existing {
+            thread.prune_keys(at);
+            if let Some(old) = thread.keys.get(&input.key) {
+                // Runner samples intentionally have host-specific counts and bodies under one key.
+                // Every other typed post's key binds its exact kind and body.
+                let runner_sample = input.channel == "ops/runner-capacity"
+                    && input.kind == Kind::Warn
+                    && input.key.starts_with("queued/");
+                if old.kind != input.kind
+                    || (!runner_sample
+                        && old.body_hash != crate::sha256::sha256_hex(input.body.as_bytes()))
+                {
+                    bail!(
+                        "forum.key_conflict: this key already names a different kind or body; use a new key for a new observation"
+                    );
+                }
+                let id = old.id.clone();
+                if !old.sources.contains(&input.source) {
+                    if old.sources.len() >= 128 {
+                        bail!(
+                            "forum.source_limit: at most 128 sources per post; use a new key for a new observation"
+                        );
+                    }
+                    if !thread.posts.iter().any(|post| post.id == id) {
+                        bail!(
+                            "forum.history_expired: this key's receipt is retained but its body left the 100-post history; use a new key for a new source"
+                        );
+                    }
+                    let event = Event::Source {
+                        recipient: recipient.into(),
+                        channel: input.channel.clone(),
+                        thread: input.thread.clone(),
+                        id: id.clone(),
+                        source: input.source,
+                        provenance,
+                    };
+                    self.write(&[Record::Work(event.clone())], true)?;
+                    state.work.apply(event);
+                    self.compact_work(&state);
+                }
+                return Ok(json!({"stored": true, "duplicate": true, "postId": id,
+                    "channel": input.channel, "thread": input.thread, "retryRetentionMs": RETRY_MS}));
+            }
+            if thread.keys.len() >= MAX_RETRY_KEYS {
+                bail!(
+                    "forum.retry_limit: at most {MAX_RETRY_KEYS} distinct keys per thread in 24 hours; retry after the oldest key expires"
+                );
+            }
         }
         let post = Post {
             id: uuid::Uuid::now_v7().to_string(),
@@ -229,6 +363,7 @@ impl Forum {
         let event = Event::Post { recipient: recipient.into(), post };
         self.write(&[Record::Work(event.clone())], true)?;
         state.work.apply(event);
+        self.compact_work(&state);
         Ok(receipt)
     }
 
@@ -259,6 +394,7 @@ impl Forum {
             bail!("forum.bad_claim: valid channel/thread and leaseSeconds 30..3600 required");
         }
         let mut state = self.lock();
+        self.compact_work(&state);
         let old = state
             .work
             .recipients
@@ -298,6 +434,7 @@ impl Forum {
         };
         self.write(&[Record::Work(event.clone())], true)?;
         state.work.apply(event);
+        self.compact_work(&state);
         Ok(lease)
     }
 
@@ -321,9 +458,11 @@ impl Forum {
             return Ok(());
         }
         let mut state = self.lock();
+        self.compact_work(&state);
         let event = Event::Delivered { recipient: recipient.into(), ids, at };
         self.write(&[Record::Work(event.clone())], true)?;
         state.work.apply(event);
+        self.compact_work(&state);
         Ok(())
     }
 }
@@ -374,3 +513,6 @@ pub fn ingest(sender: &str, text: &str, now: u64) -> Option<Input> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod persistence_tests;

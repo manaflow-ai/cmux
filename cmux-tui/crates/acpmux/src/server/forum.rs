@@ -87,7 +87,7 @@ async fn handle(
                     str_param(params, "thread"),
                 ));
             }
-            let hub = hub.clone();
+            let worker = hub.clone();
             let params = params.clone();
             let author = if conn.is_person() {
                 Author::Person { account: account(&params)? }
@@ -99,7 +99,8 @@ async fn handle(
                 Author::Agent { session_id, .. } => session_id.clone(),
             };
             let posting = m == method::MUX_FORUM_POST;
-            tokio::task::spawn_blocking(move || {
+            let receipt = tokio::task::spawn_blocking(move || {
+                let hub = worker;
                 if posting {
                     let mut input = params.clone();
                     if let Some(o) = input.as_object_mut() {
@@ -127,7 +128,11 @@ async fn handle(
             })
             .await
             .map_err(|e| RpcError::internal(format!("forum work: {e}")))?
-            .map_err(|e: anyhow::Error| RpcError::invalid_params(format!("{e:#}")))
+            .map_err(|e: anyhow::Error| RpcError::invalid_params(format!("{e:#}")))?;
+            if posting && receipt["duplicate"] != true {
+                hub.append(&session, "mux", "forum_work", receipt.clone());
+            }
+            Ok(receipt)
         }
         method::MUX_FORUM_ANNOUNCE => {
             let author = if conn.is_person() {
