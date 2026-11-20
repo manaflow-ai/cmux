@@ -26,6 +26,7 @@ import { ARRIVAL_FRAME_LINES } from "./followChase";
 import { boxOf, clippedBottom, clippedBottomOf, coverClip, ghostOf, type CoverPath } from "./turnFold";
 import { ACTIVITY_LINE, LIVE_THINKING, WORKED, WORKING } from "./turns";
 import { isLineRow, type AcpmuxRow } from "../model";
+import { declareMove } from "../../../layout/motionContract";
 
 /// How the rows the fold takes away go. `fade` (shipped): each copy fades out where it was while the
 /// rows that stay slide over it. `tuck`: the copies slide up under the folded line as they fade, as
@@ -118,6 +119,9 @@ export type TurnEndFold = {
   timer?: ReturnType<typeof setTimeout>;
   /// Stops the passes that follow the rows as they are placed again (the observer and listener).
   stop?: () => void;
+  /// Ends the fold's declared layout move (`stream-append`: the reply settling at the end of the
+  /// transcript, schemas/layout-motion/contract.json), when the fold settles.
+  undeclare?: () => void;
 };
 
 const mounted = (thread: HTMLElement) => thread.querySelectorAll<HTMLElement>(":scope > .acpmux-row[data-row-id]");
@@ -320,6 +324,8 @@ export function settleTurnEnd(thread: HTMLElement | null, fold: TurnEndFold | un
   clearTimeout(fold.timer);
   fold.stop?.();
   fold.stop = undefined;
+  fold.undeclare?.();
+  fold.undeclare = undefined;
   for (const animation of fold.animations) animation.finish();
   fold.animations.clear();
   for (const copy of fold.copies) copy.remove();
@@ -379,7 +385,13 @@ export function playTurnEnd(
   let easing = settleEasing;
   let grew = false;
   const look = turnEndLook(thread);
-  const fold: TurnEndFold = { animations: new Set(), copies: new Set() };
+  // The fold moves the turn's rows on purpose, from the frame the swap paints until it settles: the
+  // reply landing at the end of the transcript, the rows above coming down to meet the folded line.
+  const fold: TurnEndFold = {
+    animations: new Set(),
+    copies: new Set(),
+    undeclare: declareMove({ event: "stream-append", scope: "all", by: "turn end fold" }),
+  };
   // The fold's clock starts with the first frame that paints it. A pass before that frame runs (the
   // rows measured and placed again in the long frame the swap renders) plays from the start, so the
   // first painted frame is the fold's first, never most of the way there in one step.

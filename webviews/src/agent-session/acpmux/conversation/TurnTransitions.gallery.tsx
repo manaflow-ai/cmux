@@ -97,6 +97,10 @@ function TurnTransitionsGallery({ turn, look }: { turn: GalleryTurn; look: TailG
 
 /// Plays the turn and waits until its summary row is drawn and the follow motion rests.
 const playTurn: Play = async (ctx) => {
+  // The scripted turn sends (the card clears to one line), and the steer turns send again: the
+  // composer's own growth, which the reader's Enter declares in the pane: declared on the card alone.
+  // The rows' moves are the transcript's own declared ones (a reply streaming, the turn's end fold).
+  ctx.declare("composer-growth", { targets: [{ selector: ".acpmux-composer-box" }] });
   await ctx.click({ testId: "turn-transition-play" });
   await ctx.waitFor(() => ctx.find({ testId: "turn-transition-state" }).textContent === "Turn settled", {
     capMs: 10_000,

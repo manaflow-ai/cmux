@@ -1,8 +1,6 @@
 // The agent chat page's layout-motion audit (layout/motionAudit.ts), in dev builds only: a `cmux-dev` link
 // scheme (a tagged dev build, the dev host) or the Vite dev page. Each undeclared move goes to the flicker
 // ring (`layout-undeclared`) and the console. Release and NIGHTLY pay nothing for it.
-import { useEffect } from "react";
-import { declareMove } from "../../layout/motionContract";
 import { startMotionAudit, type MotionAudit } from "../../layout/motionAudit";
 import { noteUndeclaredMove } from "./flickerLog";
 
@@ -24,12 +22,5 @@ export function startDevMotionAudit(scheme: unknown, win: Window = window): void
     // The pane matters more than its audit.
   }
 }
-
-/** While a reply streams, the transcript grows at its end: a declared move of its rows
- *  (schemas/layout-motion/contract.json `stream-append`), judged by the layout-motion audit. */
-export function useStreamAppendDeclaration(working: boolean): void {
-  useEffect(
-    () => (working ? declareMove({ event: "stream-append", scope: "all", by: "turn working" }) : undefined),
-    [working],
-  );
-}
+// The moves the transcript makes on purpose (a reply streaming, the turn's end fold) are declared by the
+// code that makes them (VirtualTranscript.tsx, conversation/turnEndFold.ts), wherever it is drawn.
