@@ -3845,6 +3845,7 @@ jobs:
             --script scripts/ci/package-test-lane.sh --ref "$GITHUB_SHA" \
             --arg=run --arg="--event=$EVENT_NAME" --arg="--full-suite=$FULL_SUITE" \
             --env "CMUX_CI_XCODE_APP=$STEP_XCODE_APP" \
+            --env "CI_WARNINGS=$CI_WARNINGS" \
             --env CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=26 | tee "$lane_log" || status=$?
           # The fleet step has no GITHUB_OUTPUT; its fingerprint receipt comes
           # back as one line of the streamed log.

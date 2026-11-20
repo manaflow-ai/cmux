@@ -196,6 +196,12 @@ class WorkflowsRouteWarningsThroughThePolicy(unittest.TestCase):
         for name in workflows:
             self.assertIn(SOFT_ENV_LINE, (ROOT / ".github/workflows" / name).read_text(encoding="utf-8"), name)
 
+    def test_fleet_package_lane_propagates_warning_mode(self):
+        # cmux-ci starts the package lane in a fresh checkout. Preserve the
+        # caller's mode there, or a pull request silently becomes deny again.
+        text = (ROOT / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
+        self.assertIn('--env "CI_WARNINGS=$CI_WARNINGS"', text)
+
     def test_nightly_and_release_never_go_soft(self):
         for path in sorted((ROOT / ".github/workflows").glob("*.y*ml")):
             if not re.search(r"nightly|release|promote|notariz|appcast", path.name):
