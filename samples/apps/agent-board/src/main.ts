@@ -10,6 +10,7 @@ const key = (thread: Thread) => `${thread.channel}\u0000${thread.thread}`
 
 // Pagination can split a post's source receipts across responses. Reassemble
 // only the displayed page state; the owner decides post identity and ordering.
+// latest is a bounded list preview. Only posts[] contains history fragments.
 function appendPage(previous: Thread[], incoming: Thread[]): Thread[] {
   const rows = new Map(previous.map((thread) => [key(thread), thread]))
   for (const thread of incoming) {
@@ -106,7 +107,7 @@ export function renderPane() {
       Row({ title: () => thread().thread, subtitle: () => `${thread().channel} · ${thread().latest.kind}`, symbol: () => symbol(thread().latest.kind) })
         .onTap(() => read(recipient(), thread()))),
     () => selected()?.lease ? Text(`Lease owner ${selected()!.lease!.owner} · expires ${time(selected()!.lease!.expires)}`).secondary() : null,
-    ForEach({ items: () => selected() ? selected()!.posts ?? [selected()!.latest] : [], key: (post) => post.id }, (post) => VStack([
+    ForEach({ items: () => selected() ? selected()!.posts ?? [] : [], key: (post) => post.id }, (post) => VStack([
       Row({ title: () => post().kind, subtitle: () => time(post().created), symbol: () => symbol(post().kind) }),
       Text(() => post().body),
       Text(() => {
