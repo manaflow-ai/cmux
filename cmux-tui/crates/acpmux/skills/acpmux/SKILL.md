@@ -149,6 +149,7 @@ acpmux --json ls --live --fields name,status,peer  # scripts; bare `ls --json` i
 acpmux resolve Mango                         # the handle, stable session id, host and task
 acpmux session rename --handle NAME Mango    # change the handle without changing the task or id
 acpmux ls Mango                               # the same session's handle, task, host and harness
+acpmux --json ls --machine local --live            # this machine's sessions only: `ls` lists every machine's, so a script after its own passes this
 acpmux session info NAME                           # model, mode, policy, pending permissions, usage
 acpmux session info NAME --fields status,turn.activity   # just those fields (one field: its bare value), no `--json | python3`
 acpmux ls 'review-*' --fields name,status          # name globs (`machine/glob` for one machine); --fields takes dotted paths
