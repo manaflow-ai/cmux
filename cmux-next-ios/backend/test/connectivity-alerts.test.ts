@@ -345,7 +345,7 @@ describe("the desk", () => {
     applyReport(desk, report(), tina, TEAM, AWAKE(T0), T0)
     const second = applyReport(desk, report({ serviceReachable: false }), ted, TEAM, AWAKE(T0), T0 + 60_000)
     expect(text(second)).toContain("1 other teammate lost a Mac within 10 minutes of this: likely service-side")
-    expect(text(second)).toContain("could not reach the cmux service either")
+    expect(text(second)).toContain("The cmux mobile service didn't answer the phone's health check either (the internet worked): likely a cmux mobile service outage")
     // Far apart in time: no correlation.
     const apart = applyReport(desk, report({}, T0 + 3_000_000), { key: "tom", email: "tom@manaflow.com" }, TEAM, AWAKE(T0 + 3_000_000), T0 + 3_000_000)
     expect(text(apart)).not.toContain("other teammate")
@@ -367,6 +367,87 @@ describe("the desk", () => {
   it("retries only Slack failures that can pass", () => {
     for (const e of ["ratelimited", "network: TypeError", "http_502", "internal_error", "service_unavailable"]) expect(retryable(e), e).toBe(true)
     for (const e of ["channel_not_found", "invalid_auth", "not_authed", "invalid_arguments", "restricted_action", "http_400", "brand_new_error", undefined]) expect(retryable(e), String(e)).toBe(false)
+  })
+})
+
+describe("service incidents", () => {
+  const tina = { key: "tina", email: "tina@manaflow.ai" }
+  const ted = { key: "ted", email: "ted@cmux.com" }
+  const service = (over: Record<string, unknown> = {}, at = T0) =>
+    report({ kind: "service_unreachable", surface: "presence", mac: undefined, transport: "websocket", ...over }, at)
+
+  it("parses a surface instead of a Mac and files it under the surface", () => {
+    const r = service()
+    expect(r.surface).toBe("presence")
+    expect(r.mac).toEqual({ id: "service:presence", name: "Mac presence" })
+    // A Mac sent with it is ignored: the surface names the incident.
+    expect(service({ mac: { id: "someone-else", name: "X" } }).mac.id).toBe("service:presence")
+    expect(() => service({ surface: "nope" })).toThrow(/surface/)
+    expect(() => service({ surface: undefined })).toThrow(/surface/)
+    expect(() => report({ kind: "service_unstable" })).toThrow(/surface/)
+  })
+
+  it("is posted without asking about a Mac, and says which service", () => {
+    const desk = emptyDesk()
+    const open = service({ surface: "chief_cloud" })
+    // No liveness at all (the route never asks): still posted.
+    const first = applyReport(desk, open, tina, TEAM, { liveness: null }, T0)
+    expect(first.actions.map((a) => a.kind)).toEqual(["post"])
+    expect(text(first)).toContain(":red_circle: *tina@manaflow.ai can't reach the Cloud Chief service*")
+    expect(text(first)).toContain("Service `chief_cloud`")
+    expect(text(first)).not.toContain("Mac `")
+    const end = applyReport(desk, service({ id: open.id, surface: "chief_cloud", state: "ended", endReason: "link_closed" }, T0 + 60_000), tina, TEAM, { liveness: null }, T0 + 60_000)
+    expect(text(end)).toContain("never reconnected (the app stopped using it)")
+    expect(text(end, 1)).toBe("Ended without reconnecting after 31s: the app stopped using it.")
+  })
+
+  it("renders an unstable socket and its recovery", () => {
+    const desk = emptyDesk()
+    const open = service({ kind: "service_unstable", surface: "device_hub", drops: 3 })
+    expect(startVerdict(open, { liveness: null }, T0)).toBeUndefined()
+    expect(text(applyReport(desk, open, tina, TEAM, { liveness: null }, T0))).toContain(
+      ":large_orange_circle: *tina@manaflow.ai's connection to the Screen Sharing hub service keeps dropping* — 3 drops in 31s"
+    )
+    const resolved = service({ id: open.id, kind: "service_unstable", surface: "device_hub", state: "resolved", durationMs: 700_000 }, T0 + 700_000)
+    const end = applyReport(desk, resolved, tina, TEAM, { liveness: null }, T0 + 700_000)
+    expect(text(end, 1)).toBe("Resolved: stable again after 11m 40s.")
+  })
+
+  it("names the mobile service as what the phone checked, for Chief and the hub", () => {
+    const chief = applyReport(emptyDesk(), service({ surface: "chief_cloud", serviceReachable: false }), tina, TEAM, { liveness: null }, T0)
+    expect(text(chief)).toContain("The cmux mobile service also didn't answer the phone's health check (the internet worked)")
+    expect(text(chief)).not.toContain("likely a cmux mobile service outage")
+    const presence = applyReport(emptyDesk(), service({ serviceReachable: false }), ted, TEAM, { liveness: null }, T0)
+    expect(text(presence)).toContain("likely a cmux mobile service outage")
+  })
+
+  it("flags two teammates losing the same service, not a different one", () => {
+    const desk = emptyDesk()
+    applyReport(desk, service(), ted, TEAM, { liveness: null }, T0)
+    expect(text(applyReport(desk, service(), tina, TEAM, { liveness: null }, T0 + 1000))).toContain("1 other teammate lost the Mac presence service")
+    const other = applyReport(desk, service({ surface: "device_hub" }), { key: "tom", email: "tom@cmux.com" }, TEAM, { liveness: null }, T0 + 2000)
+    expect(text(other)).not.toContain("other teammate")
+  })
+
+  it("threads a second incident on the same service under the first", () => {
+    const desk = emptyDesk()
+    const first = service()
+    applyReport(desk, first, tina, TEAM, { liveness: null }, T0)
+    applyReport(desk, service({ id: first.id, state: "resolved" }, T0 + 40_000), tina, TEAM, { liveness: null }, T0 + 40_000)
+    const again = applyReport(desk, service({}, T0 + 120_000), tina, TEAM, { liveness: null }, T0 + 120_000)
+    expect(again.actions[0]).toMatchObject({ kind: "post", thread: first.id })
+  })
+})
+
+describe("the build's commit", () => {
+  const tina = { key: "tina", email: "tina@manaflow.ai" }
+  it("shows the first 9 digits after the version, and drops anything that is not a commit", () => {
+    const app = { version: "1.2.0", build: "450", config: "TestFlight", simulator: false }
+    const withCommit = report({ app: { ...app, commit: "4F1C2A9D0E8B7766554433221100AABBCCDDEEFF" } })
+    expect(withCommit.app.commit).toBe("4f1c2a9d0e8b7766554433221100aabbccddeeff")
+    expect(text(applyReport(emptyDesk(), withCommit, tina, TEAM, AWAKE(T0), T0))).toContain("cmux 1.2.0 (450) TestFlight `4f1c2a9d0`")
+    for (const bad of ["$(CMUX_MOBILE_SOURCE_COMMIT)", "abc", "zzzzzzzz", 12345678]) expect(report({ app: { ...app, commit: bad } }).app.commit, String(bad)).toBeUndefined()
+    expect(text(applyReport(emptyDesk(), report({ app }), tina, TEAM, AWAKE(T0), T0))).toContain("cmux 1.2.0 (450) TestFlight\n")
   })
 })
 
@@ -458,6 +539,16 @@ describe("POST /v1/diagnostics/connectivity-incidents", () => {
     expect(calls[1]!.body).toMatchObject({ channel: "CTEAM", ts: "1001.0001" })
     expect(calls[2]!.body).toMatchObject({ channel: "CTEAM", thread_ts: "1001.0001", text: "Resolved: reconnected after 1m 15s." })
     mac.sock.ws.close()
+  })
+
+  it("posts a service incident without a Mac (no hub lookup)", async () => {
+    const tok = await token("tara")
+    const { mac: _mac, ...rest } = body()
+    const r = await call("POST", PATH, tok, { ...rest, kind: "service_unreachable", surface: "presence", transport: "websocket" })
+    expect(r).toMatchObject({ status: 202, json: { accepted: true, route: "team" } })
+    await settled()
+    expect(String(calls.at(-1)!.body.text)).toContain("tara@manaflow.ai can't reach the Mac presence service")
+    expect((await call("POST", PATH, tok, { ...rest, id: crypto.randomUUID(), kind: "service_unreachable", surface: "elsewhere" })).status).toBe(400)
   })
 
   it("posts nothing for a Mac that connected but never pinged (a dark wake)", async () => {

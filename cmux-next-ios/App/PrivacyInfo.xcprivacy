@@ -15,8 +15,10 @@
 	     (ChiefCloudBackend, /v1/home/attachments). Messages, terminal bytes,
 	     photos and audio for an agent on the user's own Mac go over the
 	     end-to-end encrypted link and are not collected. Voice notes become
-	     text on the phone. Connectivity records stay in an on-device journal
-	     (sent only by Copy Logs). No crash or analytics SDK.
+	     text on the phone. Connectivity records stay in the device's own log; for
+	     a cmux team account only, a major connectivity incident (its Mac, times,
+	     transport, app version and device model) is sent to cmux-mobile-api
+	     for the team's Slack. No crash or analytics SDK.
 	     Keep in lockstep with the App Store Connect privacy label. -->
 	<key>NSPrivacyCollectedDataTypes</key>
 	<array>

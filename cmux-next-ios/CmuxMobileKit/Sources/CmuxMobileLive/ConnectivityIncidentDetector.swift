@@ -17,6 +17,10 @@ import Foundation
 ///   changing (links left from before are expected to die then). At most one per Mac per
 ///   ``Rules/unstableCooldown``.
 ///
+/// - **Service unreachable / unstable**: the same two rules for a cmux service socket the phone keeps open
+///   (``Surface``: Mac presence, the Cloud Chief socket, the device hub), with no Mac to be asleep: the
+///   socket is wanted whenever its feature runs, and the service is the one at fault.
+///
 /// Every reported incident gets exactly one end: `resolved` (reconnected, or stable for
 /// ``Rules/stableAfter``) or `ended` with why it stopped being watched.
 public struct ConnectivityIncidentDetector: Sendable {
@@ -48,8 +52,41 @@ public struct ConnectivityIncidentDetector: Sendable {
         case notWanted(Incident.EndReason)
     }
 
+    /// A cmux service socket the phone keeps open (PROTOCOL.md "Connectivity incidents", `surface`).
+    public enum Surface: String, Sendable, Codable, CaseIterable {
+        /// The team's signaling socket: Mac presence (cmux-mobile-api).
+        case presence
+        /// A Cloud Chief conversation's socket (cmux-api).
+        case chiefCloud = "chief_cloud"
+        /// The device hub's socket, for Screen Sharing.
+        case deviceHub = "device_hub"
+
+        /// The detector's key for this surface (Mac ids never start so).
+        var key: String { "service:\(rawValue)" }
+
+        /// How a report names it.
+        public var label: String {
+            switch self {
+            case .presence: "Mac presence"
+            case .chiefCloud: "Cloud Chief"
+            case .deviceHub: "Screen Sharing hub"
+            }
+        }
+
+        init?(key: String) {
+            guard key.hasPrefix("service:") else { return nil }
+            self.init(rawValue: String(key.dropFirst("service:".count)))
+        }
+    }
+
     public struct Incident: Sendable, Equatable, Codable {
-        public enum Kind: String, Sendable, Codable { case macUnreachable = "mac_unreachable", linkUnstable = "link_unstable" }
+        public enum Kind: String, Sendable, Codable {
+            case macUnreachable = "mac_unreachable", linkUnstable = "link_unstable"
+            case serviceUnreachable = "service_unreachable", serviceUnstable = "service_unstable"
+
+            /// A Mac the phone could not reach, or a service socket it could not open.
+            public var isUnreachable: Bool { self == .macUnreachable || self == .serviceUnreachable }
+        }
         public enum State: String, Sendable, Codable { case open, resolved, ended }
         public enum EndReason: String, Sendable, Codable {
             case appBackgrounded = "app_backgrounded"
@@ -77,6 +114,8 @@ public struct ConnectivityIncidentDetector: Sendable {
         public var transport: String?
         public var serviceReachable: Bool?
         public var network: String?
+        /// The service socket, for a service incident (its `macID` is then the surface's key).
+        public var surface: Surface?
 
         public var duration: TimeInterval { max(0, observedAt.timeIntervalSince(startedAt)) }
 
@@ -200,6 +239,16 @@ public struct ConnectivityIncidentDetector: Sendable {
         }
     }
 
+    /// A service socket's new state (``LinkState/notWanted(_:)`` when its feature stopped).
+    public mutating func service(_ surface: Surface, _ state: LinkState, at date: Date) -> [Output] {
+        link(macID: surface.key, name: surface.label, state, at: date)
+    }
+
+    /// A live service socket dropped.
+    public mutating func serviceDropped(_ surface: Surface, reason: String, at date: Date) -> [Output] {
+        dropped(macID: surface.key, reason: reason, at: date)
+    }
+
     /// A dial to the Mac failed: its reason is the incident's last error.
     public mutating func dialFailed(macID: String, reason: String) {
         macs[macID]?.lastError = reason
@@ -296,9 +345,11 @@ public struct ConnectivityIncidentDetector: Sendable {
                 out.append(.report(unstable.with(.ended, at: date, endReason: .becameUnreachable)))
                 track.unstable = nil
             }
-            let incident = Incident(id: makeID(), kind: .macUnreachable, state: .open, startedAt: since, observedAt: date,
+            let surface = Surface(key: macID)
+            let incident = Incident(id: makeID(), kind: surface == nil ? .macUnreachable : .serviceUnreachable, state: .open,
+                                    startedAt: since, observedAt: date,
                                     macID: macID, macName: track.name, attempts: track.attempts, lastError: track.lastError,
-                                    transport: track.transport, serviceReachable: service, network: networkKind)
+                                    transport: track.transport, serviceReachable: service, network: networkKind, surface: surface)
             track.unreachable = incident
             out.append(.report(incident))
         }
@@ -306,9 +357,11 @@ public struct ConnectivityIncidentDetector: Sendable {
         // to sleep never reconnects). Not up yet: `evaluate` asks again when it is.
         if track.unstable == nil, track.unreachable == nil, case .connected = track.state,
            let first = unstableWindowStart(track, at: date) {
-            let incident = Incident(id: makeID(), kind: .linkUnstable, state: .open, startedAt: first, observedAt: date,
+            let surface = Surface(key: macID)
+            let incident = Incident(id: makeID(), kind: surface == nil ? .linkUnstable : .serviceUnstable, state: .open,
+                                    startedAt: first, observedAt: date,
                                     macID: macID, macName: track.name, drops: track.drops.count, lastError: track.lastError,
-                                    transport: track.transport, serviceReachable: service, network: networkKind)
+                                    transport: track.transport, serviceReachable: service, network: networkKind, surface: surface)
             track.unstable = incident
             track.lastUnstable = date
             out.append(.report(incident))

@@ -2,7 +2,7 @@
 after 2026-10-26): Settings → Automations and Artifacts (the account's own cmux Cloud calls),
 Home's Delete Conversation from List / Show Hidden Conversations, the next-step card, Continue on
 a failed turn, New Agent Chat on…, Move Workspace Above… / Below…, Reveal in Workspaces List,
-Compact Workspace List, Toggle Prompt Queueing, Long-Press Menus, Copy Logs, Connect GitHub and
+Compact Workspace List, Toggle Prompt Queueing, Long-Press Menus, Connect GitHub and
 Fork Conversation to New Column Right.
 
 Same rig as pq.py, pq_rows.py and pq_crows.py: the phone app in ONE headless simulator on the rig
@@ -537,25 +537,14 @@ def menus(j, label):
 
 
 def help_logs(j, label):
-    """Settings → About. After: Troubleshooting and Support, Discord, X and GitHub rows, and Copy
-    Logs puts this app's log on the clipboard (read back with simctl pbpaste)."""
+    """Settings → About. After: Troubleshooting and Support, Discord, X and GitHub rows. (Copy Logs
+    was removed on 2026-11-13; the team's connectivity incidents go to Slack instead.)"""
     tab(j, "Settings")
     for _ in range(8):
         j.sim.swipe(200, 640, 200, 250, 0.3)
         time.sleep(0.4)
     pq.shot(f"help-{label}-about")
-    out = {"rows": [x.label for x in j.sim.find(kind="Button") if x.label][-14:]}
-    copy = j.sim.find(ident="settings.copyLogs")
-    if label == "before" or not copy:
-        return out
-    subprocess.run(["xcrun", "simctl", "pbcopy", pq.load()["udid"]], input=b"", capture_output=True)
-    j.sim.tap_el(copy[0])
-    time.sleep(4)
-    pasted = subprocess.run(["xcrun", "simctl", "pbpaste", pq.load()["udid"]], capture_output=True, text=True).stdout
-    out["clipboard_head"] = pasted.splitlines()[:2]
-    out["clipboard_lines"] = len(pasted.splitlines())
-    pq.shot("help-after-copied")
-    return out
+    return {"rows": [x.label for x in j.sim.find(kind="Button") if x.label][-14:]}
 
 
 def github(j, label):

@@ -1,4 +1,5 @@
 import CmuxConnectivityTelemetry
+import CmuxMobileChief
 import Foundation
 import Network
 import OSLog
@@ -17,8 +18,11 @@ public struct ConnectivityIncidentApp: Sendable, Equatable, Codable {
     public var simulator: Bool
     public var model: String
     public var os: String
+    /// The source commit the build was made from (`CmuxMobileSourceCommit`), when it has one.
+    public var commit: String?
 
-    public init(version: String, build: String, config: String, simulator: Bool, model: String, os: String) {
+    public init(version: String, build: String, config: String, simulator: Bool, model: String, os: String, commit: String? = nil) {
+        self.commit = commit
         self.version = version
         self.build = build
         self.config = config
@@ -53,7 +57,15 @@ public struct ConnectivityIncidentApp: Sendable, Equatable, Codable {
             version: info["CFBundleShortVersionString"] as? String ?? "0",
             build: info["CFBundleVersion"] as? String ?? "0",
             config: config, simulator: simulator, model: model,
-            os: "\(os.majorVersion).\(os.minorVersion)\(os.patchVersion > 0 ? ".\(os.patchVersion)" : "")")
+            os: "\(os.majorVersion).\(os.minorVersion)\(os.patchVersion > 0 ? ".\(os.patchVersion)" : "")",
+            commit: Self.commit(info["CmuxMobileSourceCommit"]))
+    }
+
+    /// A source commit worth sending: hex, 7 to 40 characters (an unset build variable is not one).
+    static func commit(_ value: Any?) -> String? {
+        guard let text = (value as? String)?.trimmingCharacters(in: .whitespaces).lowercased(),
+              (7...40).contains(text.count), text.allSatisfy(\.isHexDigit) else { return nil }
+        return text
     }
 }
 
@@ -280,6 +292,57 @@ public final class ConnectivityIncidentReporter {
         handle(detector.dropped(macID: macID, reason: reason, at: now()))
     }
 
+    // MARK: Service sockets
+
+    private var serviceSockets: [ConnectivityIncidentDetector.Surface: ServiceSockets] = [:]
+    /// Presence sockets whose last event was a failure: the `connected(false)` that follows it is
+    /// that failure, not a deliberate replacement.
+    private var presenceFailed: Set<String> = []
+
+    /// One socket of a service surface: see ``ServiceSocketEvent``. A surface with one socket at a time
+    /// (presence, the device hub) gives each socket it starts its own id; Cloud Chief keeps one per open
+    /// conversation.
+    public func serviceSocket(_ surface: ConnectivityIncidentDetector.Surface, id: String, _ event: ServiceSocketEvent) {
+        let change = serviceSockets[surface, default: ServiceSockets()].apply(id, event)
+        guard change.changed else { return }
+        let date = now()
+        if let reason = change.droppedReason {
+            handle(detector.serviceDropped(surface, reason: reason, at: date))
+        }
+        handle(detector.service(surface, change.state, at: date))
+    }
+
+    /// The presence listener `id`'s update, as the `presence` surface.
+    public func presence(id: String, _ update: PresenceListener.Update) {
+        switch update {
+        case .dialing:
+            presenceFailed.remove(id)
+            serviceSocket(.presence, id: id, .dialing)
+        case .failed(let reason):
+            presenceFailed.insert(id)
+            serviceSocket(.presence, id: id, .failed(reason: reason))
+        case .connected(true):
+            presenceFailed.remove(id)
+            serviceSocket(.presence, id: id, .connected)
+        case .connected(false):
+            // After a failure it is that failure (already told); else the listener replaced its socket
+            // on purpose (a foreground, a network change): not a drop.
+            if !presenceFailed.contains(id) { serviceSocket(.presence, id: id, .restarting) }
+        case .snapshot, .mac:
+            break
+        }
+    }
+
+    /// A Cloud Chief conversation socket's change, as the `chief_cloud` surface.
+    public func chiefSocket(id: String, _ signal: ChiefCloudSocketSignals.Signal) {
+        switch signal {
+        case .dialing: serviceSocket(.chiefCloud, id: id, .dialing)
+        case .connected: serviceSocket(.chiefCloud, id: id, .connected)
+        case .ended(_, let reason): serviceSocket(.chiefCloud, id: id, .failed(reason: reason))
+        case .closed: serviceSocket(.chiefCloud, id: id, .closed)
+        }
+    }
+
     /// Time passed (the tick loop calls it; tests call it directly).
     public func tick() {
         handle(detector.tick(at: now()))
@@ -295,6 +358,10 @@ public final class ConnectivityIncidentReporter {
     /// Sign-out (and the coordinator stopping): open incidents end now as `signed_out`.
     public func stop() {
         stopTicking()
+        // A reporter is not reused after stop, but nothing of this sign-in's sockets may carry over:
+        // sockets that close after this (asynchronously) never reach it.
+        serviceSockets = [:]
+        presenceFailed = []
         retryTask?.cancel()
         for observer in lifecycleObservers { NotificationCenter.default.removeObserver(observer) }
         lifecycleObservers = []
