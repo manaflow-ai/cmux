@@ -115,9 +115,9 @@ final class PaneCommitMotion {
     /// layer had, with its copy of the window's picture when the ground is one, and with its plain ground when that
     /// is a layer in the pane's card (`PaneCommitMotion+Sheet`).
     var sheets: [(host: PaneHostView, color: CGColor?, picture: CALayer?, plain: CALayer?)] = []
-    /// The hosts that show only past an edge of a pane over them (`PaneCommitMotion+Cover`): each with its layer's
-    /// frame, with the window that it shows through at the end of its acts, and with those acts' numbers.
-    var covers: [ObjectIdentifier: (frame: CGRect, window: CGRect, acts: [Int])] = [:]
+    /// The hosts that show only past an edge of a pane over them (`PaneCommitMotion+Cover`): each with whether the move
+    /// kept it under then, its layer's frame, the window that it shows through at the end of its acts, and their numbers.
+    var covers: [ObjectIdentifier: (host: PaneHostView, kept: Bool, frame: CGRect, window: CGRect, acts: [Int])] = [:]
     /// The window's picture that the copies show, as it was read at the motion's first act, and its screen.
     var shownPicture: WindowStillPicture?
     weak var pictured: ScreenContentView?

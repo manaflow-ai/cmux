@@ -124,10 +124,24 @@ extension PaneCommitMotion {
     /// to the motion's end. A pane over which no such pane goes gets nothing. A pane with a window from an act before
     /// goes on from that window's end: the 2 moves add up, as the moves of the pane over it do (a zoom, and the
     /// unzoom in its move). When this act's window starts at another place, the pane gets this act's window alone.
+    ///
+    /// A window of an act before goes when no pane is over its pane as that act left it, unless this act's window
+    /// goes on from it: this act moves the pane itself (an unzoom, then a zoom of a pane that came back); the move
+    /// kept the pane under and a change took it back (a close, taken back); the window was under an unzoom's pane,
+    /// and that pane left. Else it stays: the pane over it still moves.
     func cover(_ hosts: [PaneHostView], under changes: [Change], _ token: MotionSpring) {
         let bare = changes.filter { change in !sheets.contains { $0.host === change.host } }
-        guard !bare.isEmpty else { return }
-        for host in hosts where !host.isHidden && !changes.contains(where: { $0.host === host }) {
+        var stale = covers.filter { entry in
+            let had = entry.value
+            return changes.contains { $0.host === had.host } || (had.kept ? !had.host.isLeaving : raised?.host.isLeaving ?? true)
+        }
+        defer {
+            for (id, had) in stale {
+                uncover(had.host, of: had.acts)
+                covers[id] = nil
+            }
+        }
+        for host in bare.isEmpty ? [] : hosts where !host.isHidden && !changes.contains(where: { $0.host === host }) {
             guard let layer = host.layer else { continue }
             let frame = layer.frame
             var across = Span(), down = Span()
@@ -144,7 +158,7 @@ extension PaneCommitMotion {
             let x = across.window(near: frame.minX, far: frame.maxX), y = down.window(near: frame.minY, far: frame.maxY)
             let start = CGRect(x: x.start, y: y.start, width: x.startLength, height: y.startLength)
             let end = CGRect(x: x.end, y: y.end, width: x.endLength, height: y.endLength)
-            // No pane of this act goes over it: a window from an act before stays as it is.
+            // No pane of this act goes over it: a window of an act before stays, or goes with the stale ones.
             guard start != frame || end != frame else { continue }
             let id = ObjectIdentifier(host)
             var base = frame, acts = [serial]
@@ -156,13 +170,20 @@ extension PaneCommitMotion {
                     (base, acts) = (had.window, had.acts + acts)
                 } else {
                     // Another pane goes over it now, or its own place changed: the window of this act alone.
-                    for act in had.acts {
-                        for path in ["position", "bounds.origin", "bounds.size"] { layer.removeAnimation(forKey: "pane.commit.\(act).\(path)") }
-                    }
+                    uncover(host, of: had.acts)
                 }
             }
             window(layer, token, from: start, to: end, over: base)
-            covers[id] = (frame: frame, window: end, acts: acts)
+            covers[id] = (host: host, kept: host.isLeaving, frame: frame, window: end, acts: acts)
+            stale[id] = nil
+        }
+    }
+
+    /// Takes the window of the acts `acts` from `host`: its layer shows at its own place and size again.
+    private func uncover(_ host: PaneHostView, of acts: [Int]) {
+        guard let layer = host.layer else { return }
+        for act in acts {
+            for path in ["position", "bounds.origin", "bounds.size"] { layer.removeAnimation(forKey: "pane.commit.\(act).\(path)") }
         }
     }
 
