@@ -16,8 +16,14 @@ no secret; the Linux publish job does), and then cancels its own run, so the dis
 its place in the concurrency group (it builds the ref's tip, which holds this run's commit). The jobs API can list a
 build that waits for an older build in its concurrency group as queued too (2026-11-17: run 43993339863's build read
 `queued` while 43978720557's held the group). Such a build may be rescued for that wait as well: its replacement
-waits in the group on the rescue route instead, and a rescued run never rescues again, so there is no loop. The
-watch ends after WATCH_MINUTES whatever it saw.
+waits in the group on the rescue route instead. The watch ends after WATCH_MINUTES whatever it saw.
+
+A rescued run rescues again, to a pool it has not tried (2026-11-20: rescued run 44734106982's build sat 110 min with
+no runner on glaeda-side-std-xcode-26.6, the pool its rescue picked, while a push run's build got another owned Mac in
+15 s, and nothing moved it). Each dispatch carries `rescue_tried`, the labels every earlier build of the chain sat on
+plus this one, and a pool whose label is in it is never picked again. A rescued run (rescue_tried set) rescues only to
+an untried owned pool, never to Blacksmith alone, so with three owned pools a chain ends after at most three rescues:
+there is no loop.
 
 Where the rescue goes (rescue_inputs()). Every rescue names `rescue_pool`, the first owned pool of OWNED_POOLS that is
 set and is not the label the build sat on (the jobs API's `labels`). With BLACKSMITH_SWITCH (vars.CI_BLACKSMITH_MACOS)
@@ -26,7 +32,7 @@ takes Blacksmith macOS only through the placement's blacksmith_12_jobs / blacksm
 leaves empty for a dead, stalled or full label; else the build takes `rescue_pool`. With the switch anything else
 (off or unset) it is `rescue: owned`, `rescue_pool` only, never Blacksmith (2026-11-17: the switch was unset and the
 Blacksmith macOS labels had 0 of 267 runners online). With no other owned pool and the switch off the build is left
-queued. A rescued run never rescues again (the workflow's `rescue` job runs only when inputs.rescue is empty).
+queued, and so is a rescued run's build with no untried owned pool.
 """
 from __future__ import annotations
 
@@ -79,14 +85,29 @@ def decide(job: Mapping[str, Any] | None, queued_since: float | None, now: float
     return (RESCUE if now - since >= minutes * 60 else WAIT), since
 
 
-def rescue_inputs(switch: str, stuck_on: list[str] | tuple[str, ...], env: Mapping[str, str]) -> dict[str, str] | None:
-    """The rescue dispatch's inputs, or None to leave the build queued. Pure."""
+def tried_labels(value: str | None) -> list[str]:
+    """The labels in a `rescue_tried` input (comma-separated), in order, without blanks or repeats. Pure."""
+    seen: list[str] = []
+    for label in (value or "").split(","):
+        if (label := label.strip()) and label not in seen:
+            seen.append(label)
+    return seen
+
+
+def rescue_inputs(switch: str, stuck_on: list[str] | tuple[str, ...], env: Mapping[str, str],
+                  tried: list[str] | tuple[str, ...] = ()) -> dict[str, str] | None:
+    """The rescue dispatch's inputs, or None to leave the build queued. TRIED: the labels earlier builds of this
+    rescue chain sat on (empty for a first rescue). Pure."""
     stuck = {str(label) for label in stuck_on or ()}
+    tried_now = tried_labels(",".join([*tried, *sorted(stuck)]))
     pool = next((key for key, variable in OWNED_POOLS
-                 if (label := (env.get(variable) or "").strip()) and label not in stuck), "")
+                 if (label := (env.get(variable) or "").strip()) and label not in tried_now), "")
+    carried = {"rescue_tried": ",".join(tried_now)}
+    if tried and not pool:
+        return None
     if switch.strip() in RESCUE_SWITCHES:
-        return {"rescue": RESCUE_INPUT, "rescue_pool": pool}
-    return {"rescue": OWNED_INPUT, "rescue_pool": pool} if pool else None
+        return {"rescue": RESCUE_INPUT, "rescue_pool": pool, **carried}
+    return {"rescue": OWNED_INPUT, "rescue_pool": pool, **carried} if pool else None
 
 
 def _api(method: str, path: str, token: str, body: Mapping[str, Any] | None = None) -> Any:
@@ -123,11 +144,11 @@ def watch(env: Mapping[str, str], api: Callable[..., Any] = _api, clock: Callabl
             if verdict == RESCUE:
                 waited = (now - queued_since) / 60
                 stuck_on = list((build_job(jobs) or {}).get("labels") or [])
-                inputs = rescue_inputs(switch, stuck_on, env)
+                inputs = rescue_inputs(switch, stuck_on, env, tried_labels(env.get("RESCUE_TRIED")))
                 if inputs is None:
                     out(f"::warning::{BUILD_JOB} queued {waited:.0f} min with no runner on {', '.join(stuck_on)}; "
-                        f"vars.CI_BLACKSMITH_MACOS is `{switch}` (off) and no other owned pool is set, so it is left "
-                        "queued")
+                        f"vars.CI_BLACKSMITH_MACOS is `{switch}` and no untried owned pool is set (tried: "
+                        f"{env.get('RESCUE_TRIED') or 'none'}), so it is left queued")
                     return WAIT
                 where = (f"Blacksmith macOS if the rescued run's placement finds a live slot, else "
                          f"rescue_pool={inputs['rescue_pool'] or 'none'}" if inputs["rescue"] == RESCUE_INPUT

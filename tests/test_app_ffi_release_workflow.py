@@ -1663,7 +1663,7 @@ class BuildRescueToBlacksmith(unittest.TestCase):
         self.assertEqual(verdict, m.RESCUE)
         self.assertEqual(posts, [
             ("POST", "repos/manaflow-ai/cmux/actions/workflows/app-ffi-release.yml/dispatches",
-             {"ref": "feat-cmux-next", "inputs": {"rescue": "blacksmith", "rescue_pool": ""}}),
+             {"ref": "feat-cmux-next", "inputs": {"rescue": "blacksmith", "rescue_pool": "", "rescue_tried": ""}}),
             ("POST", "repos/manaflow-ai/cmux/actions/runs/7/cancel", None)])
 
     def test_a_build_that_got_a_runner_or_a_switch_off_with_no_other_owned_pool_rescues_nothing(self):
@@ -1748,17 +1748,19 @@ class BuildRescueNeverToAnOffOrDeadBlacksmith(unittest.TestCase):
             with self.subTest(switch=switch):
                 verdict, posts = self.watch(switch, self.FFI_POOL)
                 self.assertEqual(verdict, m.RESCUE)
-                self.assertEqual(posts[0][2], {"ref": "feat-cmux-next",
-                                               "inputs": {"rescue": "owned", "rescue_pool": "promote"}})
+                self.assertEqual(posts[0][2], {"ref": "feat-cmux-next", "inputs": {
+                    "rescue": "owned", "rescue_pool": "promote", "rescue_tried": self.FFI_POOL}})
                 self.assertEqual(posts[1], ("POST", "repos/manaflow-ai/cmux/actions/runs/7/cancel", None))
         # The pool the build sat on is never the rescue's pool.
-        self.assertEqual(self.watch("", self.PROMOTE)[1][0][2]["inputs"], {"rescue": "owned", "rescue_pool": "ffi-pool"})
+        self.assertEqual(self.watch("", self.PROMOTE)[1][0][2]["inputs"],
+                         {"rescue": "owned", "rescue_pool": "ffi-pool", "rescue_tried": self.PROMOTE})
 
     def test_switch_on_names_the_owned_pool_its_rescued_run_falls_back_to(self):
         m = self.rescue_module
         verdict, posts = self.watch("pr-rescue", self.FFI_POOL)
         self.assertEqual(verdict, m.RESCUE)
-        self.assertEqual(posts[0][2]["inputs"], {"rescue": "blacksmith", "rescue_pool": "promote"})
+        self.assertEqual(posts[0][2]["inputs"], {"rescue": "blacksmith", "rescue_pool": "promote",
+                                                 "rescue_tried": self.FFI_POOL})
 
     def rescue_runs(self, switch: str, rescue: str = "") -> bool:
         job = self.workflow["jobs"]["rescue"]
