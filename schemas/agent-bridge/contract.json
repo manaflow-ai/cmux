@@ -25,6 +25,7 @@
     "chat.attention.open": "chat.attention.open",
     "chat.btw.inline": "chat.btw.inline",
     "chat.cloudCredentialTransfer": "chat.cloudCredentialTransfer",
+    "chat.computerUse.state": "chat.computerUse.state",
     "chat.computerUsePreview": "chat.computerUsePreview",
     "chat.draftAttachments": "chat.draftAttachments",
     "chat.draftAttachments.get": "chat.draftAttachments.get",

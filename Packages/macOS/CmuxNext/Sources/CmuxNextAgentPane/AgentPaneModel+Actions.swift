@@ -26,6 +26,9 @@ extension AgentPaneModel {
     /// user 2026-11-20): the app's Toggle Terminal and Chat on this tab, the tab right-click's same row. It shows another
     /// tab, so it spends the person's gesture.
     static let terminalSwitchActions: Set<String> = ["palette.toggleTerminalChat"]
+    /// Set Up Computer Use from the chat's "Computer use is not set up" notice (`@computer-use`,
+    /// ``AgentPaneComputerUseState``). It opens the onboarding step, so it spends the person's gesture.
+    static let setupActions: Set<String> = [AgentPaneComputerUseState.setupAction]
 
     /// A model the person cannot use (Leo 2026-10-26: "if user picks a model they don't have api key,
     /// we offer them to add credits or add their own api key"): Add Credits… takes the one paid-plan
@@ -48,7 +51,7 @@ extension AgentPaneModel {
     func runAction(_ id: String, session: String? = nil, environment: String? = nil, handoff: String? = nil) -> [String: Any] {
         let screenShare = id == "session.screenShare"
         let gated = Self.connectActions.contains(id) || Self.accessActions.contains(id) || Self.cloudStartActions.contains(id)
-            || Self.terminalSwitchActions.contains(id) || screenShare
+            || Self.terminalSwitchActions.contains(id) || Self.setupActions.contains(id) || screenShare
         guard id == "newTab.page" || Self.paletteActions.contains(id) || gated, let onRunAction else {
             return Self.unsupported("action.run")
         }

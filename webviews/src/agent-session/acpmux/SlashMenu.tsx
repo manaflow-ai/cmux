@@ -3,6 +3,7 @@ import { useEscapingList } from "../../ui/popupHost";
 import { Listbox } from "../../ui/Listbox";
 import { useComposerListBox } from "./backdropLayerModel";
 import { useT } from "./i18n";
+import { Icon } from "./icons/Icon";
 import { shownName, type SlashCommand, type SlashMatch } from "./slashCommands";
 
 export function SlashMenu({
@@ -11,7 +12,10 @@ export function SlashMenu({
   empty,
   onHover,
   onPick,
+  mark = "/",
 }: {
+  /** What the rows' names start with: the typed menu's own mark (`/`, Codex's `$`, the plugins' `@`). */
+  mark?: "/" | "$" | "@";
   matches: SlashMatch[];
   active: number;
   empty: string;
@@ -29,7 +33,7 @@ export function SlashMenu({
       shellRef={escape}
       items={matches}
       getKey={(match) => `${match.command.source ?? "agent"}:${match.command.name}`}
-      textValue={(match) => shownName(match.command)}
+      textValue={(match) => match.command.label ?? shownName(match.command)}
       label={t("composer.commands")}
       autoFocus={false}
       activeIndex={active}
@@ -42,11 +46,21 @@ export function SlashMenu({
       empty={<div className="acpmux-slash-empty">{empty}</div>}
       renderItem={(match) => (
         <>
+          {match.command.icon && (
+            <span className="acpmux-mention-icon" aria-hidden="true">
+              <Icon name={match.command.icon} size={14} />
+            </span>
+          )}
           <span className="acpmux-slash-name">
-            /<Highlighted name={shownName(match.command)} ranges={match.ranges} />
+            {match.command.label ?? (
+              <>
+                {mark}
+                <Highlighted name={shownName(match.command)} ranges={match.ranges} />
+              </>
+            )}
           </span>
           {match.command.hint && <span className="acpmux-slash-hint">{match.command.hint}</span>}
-          {match.command.source && match.command.source !== "agent" && (
+          {!match.command.label && match.command.source && match.command.source !== "agent" && (
             <span className="acpmux-slash-source">
               {match.command.source === "skill"
                 ? t("composer.slashSkill")

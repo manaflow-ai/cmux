@@ -9,10 +9,13 @@ import { mentionText } from "./mentionMenuModel";
 import { isAgentHome, listed, projectLabel, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
 import type { AcpmuxSnapshot } from "./model";
 import { isModelRouterKind } from "./routerKinds";
+import { toolMentionsFor, type ToolMention, type ToolMentionId } from "./toolMentions";
 
 export type MentionItem =
   | { kind: "session"; key: string; sessionId: string; title: string; project?: string; name: Run[] }
   | { kind: "harness"; key: string; harnessId: string; family?: string; name: Run[] }
+  /** A built-in tool (toolMentions.ts), named from the pane's table (`toolName`). */
+  | { kind: "tool"; key: string; toolId: ToolMentionId; icon: string; name: Run[] }
   | { kind: "folder" | "file"; key: string; path: string; name: Run[]; dir: Run[] };
 
 /// How many chats and folders the picker lists ahead of the files.
@@ -60,7 +63,7 @@ export function loadRecentMentionPaths(scope: string | undefined): RecentMention
 }
 
 export function rememberMentionPath(scope: string | undefined, item: MentionItem): void {
-  if (!scope || item.kind === "session" || item.kind === "harness") return;
+  if (!scope || item.kind === "session" || item.kind === "harness" || item.kind === "tool") return;
   const picked: RecentMention = { kind: item.kind, path: item.path };
   const next = [
     picked,
@@ -299,6 +302,7 @@ export function mentionItems({
   chatId,
   recent = [],
   harnesses = [],
+  toolName = (tool) => tool.id,
 }: {
   query: string;
   files: readonly FileMatch[];
@@ -306,10 +310,19 @@ export function mentionItems({
   chatId?: string;
   recent?: readonly RecentMention[];
   harnesses?: readonly AcpmuxSnapshot["catalog"][number][];
+  /** A built-in tool's name in the app's language ("Computer use"). */
+  toolName?: (tool: ToolMention) => string;
 }): MentionItem[] {
   const text = query.trim();
   const chats = sessionItems(sessions, chatId, text);
   const harnessRows = text ? harnessItems(harnesses, text) : [];
+  // The built-in tools show for a bare @ too (CMUX-682: always offered, set up or not).
+  const toolRows = toolMentionsFor(text).map((tool): MentionItem => {
+    const label = toolName(tool);
+    const named = text && label.toLowerCase().startsWith(text.toLowerCase());
+    const indexes = named ? Array.from({ length: text.length }, (_, index) => index) : [];
+    return { kind: "tool", key: `tool:${tool.id}`, toolId: tool.id, icon: tool.icon, name: textRuns(label, indexes) };
+  });
   const known = new Set(files.map((file) => file.path));
   const matching = (entry: RecentMention) => !text || fuzzyIndices(text, entry.path) !== undefined;
   const recentFiles = recent
@@ -336,8 +349,8 @@ export function mentionItems({
   ];
   // A harness follows the chats: a chat row being typed toward stays put as "@c" grows to
   // "@coord", and a bare @ (no query, so no harness) keeps its height.
-  if (/[./]/.test(text)) return [...paths, ...chats, ...harnessRows];
-  return [...chats, ...harnessRows, ...paths];
+  if (/[./]/.test(text)) return [...paths, ...chats, ...harnessRows, ...toolRows];
+  return [...chats, ...harnessRows, ...toolRows, ...paths];
 }
 
 /// The row Return or Tab picks: the one the person moved to (by key, so it stays put when the
@@ -355,6 +368,7 @@ export function mentionSelection(items: readonly MentionItem[], activeKey: strin
 /// and the transcript links (#22055).
 export function mentionInsert(item: MentionItem): { markdown: string; shown: string } {
   if (item.kind === "harness") return mentionText(item.harnessId);
+  if (item.kind === "tool") return mentionText(item.toolId);
   if (item.kind !== "session") return mentionText(item.kind === "folder" ? `${item.path}/` : item.path);
   const shown = `cmux session ${JSON.stringify(item.title)} (${item.sessionId}) `;
   return { markdown: shown.replace(/[\\`*_[\]~<&]/g, "\\$&"), shown };

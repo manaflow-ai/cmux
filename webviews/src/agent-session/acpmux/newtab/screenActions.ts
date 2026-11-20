@@ -36,6 +36,9 @@ export function newTabScreenActions(deps: {
   requestFolder?(cwd: string, start: (folder: string) => void, cancel?: (refusal?: unknown) => void): void;
   /// false: the page's chats run on another machine, whose folders are never this Mac's default.
   startsHere?(): boolean;
+  /// true: a chat of this Mac may not take `text` yet (`@computer-use` before Computer Use is set up,
+  /// toolMentions.ts); the pane says why, and the page keeps the prompt.
+  holdsSend?(text: string): boolean;
   /// Captures the page/selection owning this attempt, before any asynchronous work.
   startScope?(allowReconnect: boolean): () => boolean;
   clearError?(): void;
@@ -50,6 +53,8 @@ export function newTabScreenActions(deps: {
   return {
     onAsk(harness, text, picked, model, noProject, attachments, saved) {
       const peer = saved?.peer;
+      // Held for this Mac's setup: the pane says why (its notice), and the page keeps the prompt.
+      if (!peer && deps.startsHere?.() !== false && deps.holdsSend?.(text)) return Promise.reject(startCancelled());
       const queuedStart = !!harness && !peer && !noProject;
       const current = deps.startScope?.(queuedStart) ?? (() => true);
       // The prompt goes in the same turn as the switch: the switch queues it, and a folder trust
