@@ -1018,11 +1018,12 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(placement_job["steps"][-1]["env"]["PORTABLE_ATTEMPT3_RESCUE"], "1")
                 for name in consumers:
                     condition = str(workflow_jobs[name]["if"])
-                    if name == "web-validation":
-                        self.assertEqual(condition, "always()")
+                    self.assertIn("!cancelled()", condition)
+                    if name == "receipt":
+                        self.assertIn("needs.resolve.result == 'success'", condition)
+                        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", condition)
                     else:
                         self.assertIn("always()", condition)
-                        self.assertIn("!cancelled()", condition)
 
     def test_other_portable_callers_do_not_opt_into_bot_attempt_three(self):
         for workflow in ("ci.yml", "cmux-next.yml"):

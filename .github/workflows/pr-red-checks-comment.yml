@@ -23,8 +23,6 @@ env:
 jobs:
   comment:
     if: ${{ always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' }}
-    # Fresh runner-state capacity admits fleet Linux or an idle owned mini first.
-    # Forks keep the ephemeral route; missing placement keeps the existing hosted/paid fallback.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
     timeout-minutes: 5
     continue-on-error: true
