@@ -302,9 +302,9 @@ public final class BrowserChromeView: NSView {
         ]
         toolbarEdge.activate(toolbarPosition)
         density.update { [extensionSlot, toolbarButtons] in
-            extensionSlot.spacing = OmnibarStyle.buttonSpacing
-            toolbarButtons.spacing = OmnibarStyle.buttonSpacing
-            navigation.spacing = OmnibarStyle.buttonSpacing
+            extensionSlot.spacing = OmnibarStyle.buttonSpacing(scale: scale())
+            toolbarButtons.spacing = OmnibarStyle.buttonSpacing(scale: scale())
+            navigation.spacing = OmnibarStyle.buttonSpacing(scale: scale())
         }
         NSLayoutConstraint.activate([
             toolbar.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -312,9 +312,9 @@ public final class BrowserChromeView: NSView {
             toolbarHeight,
             density.bind(navigation.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor)) { OmnibarStyle.toolbarInset },
             navigation.centerYAnchor.constraint(equalTo: addressBar.centerYAnchor),
-            density.bind(addressBar.leadingAnchor.constraint(equalTo: navigation.trailingAnchor)) { OmnibarStyle.barMargin },
-            density.bind(extensionSlot.leadingAnchor.constraint(equalTo: addressBar.trailingAnchor)) { OmnibarStyle.barMargin },
-            density.bind(toolbarButtons.leadingAnchor.constraint(equalTo: extensionSlot.trailingAnchor)) { OmnibarStyle.buttonSpacing },
+            density.bind(addressBar.leadingAnchor.constraint(equalTo: navigation.trailingAnchor)) { OmnibarStyle.barMargin(scale: scale()) },
+            density.bind(extensionSlot.leadingAnchor.constraint(equalTo: addressBar.trailingAnchor)) { OmnibarStyle.barMargin(scale: scale()) },
+            density.bind(toolbarButtons.leadingAnchor.constraint(equalTo: extensionSlot.trailingAnchor)) { OmnibarStyle.buttonSpacing(scale: scale()) },
             // Just under required, the one link of the row that gives: a pane's content area starts at zero size, where
             // the row cannot fit. With every link required AppKit broke links inside the omnibar there and the long URL
             // then ran past the star to the window's edge once the pane was wide (BrowserToolbarZeroSizeTests).
@@ -324,7 +324,7 @@ public final class BrowserChromeView: NSView {
             // On the omnibar's vertical center, wherever the row places the omnibar.
             toolbarButtons.centerYAnchor.constraint(equalTo: addressBar.centerYAnchor),
             extensionSlot.centerYAnchor.constraint(equalTo: addressBar.centerYAnchor),
-            density.bind(extensionSlot.heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.buttonSize },
+            density.bind(extensionSlot.heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.buttonSize(scale: scale()) },
             // Soft minimums below the window's stay-put priority (500): the
             // omnibar never widens the pane or the window. BrowserToolbarLayout
             // hides extension buttons and Forward so these hold when possible.
@@ -332,7 +332,7 @@ public final class BrowserChromeView: NSView {
                 BrowserMetrics.minimumAddressWidth
             },
             density.bind(addressBar.widthAnchor.constraint(greaterThanOrEqualToConstant: 0).prioritized(.init(480))) {
-                OmnibarStyle.buttonSize
+                OmnibarStyle.buttonSize(scale: scale())
             },
 
             separator.leadingAnchor.constraint(equalTo: leadingAnchor),

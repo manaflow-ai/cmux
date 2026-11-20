@@ -67,15 +67,17 @@ enum OmnibarStyle {
     /// The toolbar row's content height: the tallest thing in it, the toolbar
     /// buttons beside the omnibar; the omnibar-only row
     /// (`OmnibarToolbarView`) has no buttons and is the bar's height.
-    static func rowContentHeight(withButtons: Bool = true) -> CGFloat { withButtons ? max(barHeight, buttonSize) : barHeight }
+    static func rowContentHeight(scale: CGFloat, withButtons: Bool = true) -> CGFloat {
+        withButtons ? max(barHeight(scale: scale), buttonSize(scale: scale)) : barHeight(scale: scale)
+    }
     /// The omnibar's top in the toolbar row: the top padding, then half the
     /// difference to the buttons, so the bar sits on their center line.
     static func barTop(scale: CGFloat, withButtons: Bool = true, underStrip: Bool = false) -> CGFloat {
-        toolbarTopPadding(scale: scale, underStrip: underStrip) + (rowContentHeight(withButtons: withButtons) - barHeight) / 2
+        toolbarTopPadding(scale: scale, underStrip: underStrip) + (rowContentHeight(scale: scale, withButtons: withButtons) - barHeight(scale: scale)) / 2
     }
     /// Toolbar row: the top padding, the row's content, then ``rowGap(scale:underStrip:)`` down to the page.
     static func toolbarHeight(scale: CGFloat, withButtons: Bool = true, underStrip: Bool = false) -> CGFloat {
-        toolbarTopPadding(scale: scale, underStrip: underStrip) + rowContentHeight(withButtons: withButtons)
+        toolbarTopPadding(scale: scale, underStrip: underStrip) + rowContentHeight(scale: scale, withButtons: withButtons)
             + rowGap(scale: scale, underStrip: underStrip)
     }
     /// Horizontal interior margin: the back arrow's ink starts where the first tab's icon does
@@ -124,6 +126,27 @@ enum OmnibarStyle {
     /// Gap between the reload button and the omnibox, and the omnibox and
     /// the extension slot: Helium's `kLocationBarMargin` (twice the base padding).
     static var barMargin: CGFloat { 2 * basePadding }
+
+    // MARK: On the window's pixels
+
+    /// `value` on a `scale` display's pixel grid. A density's sizes are half points (Default times one factor, #44449),
+    /// and a 1x display cannot draw half a point: AppKit then snapped each frame on its own, so Spacious's 37.5 pt
+    /// reload button drew 38 x 37 and the 2.5 pt gaps between the toolbar buttons came out 2 and 3 pt. Snapped here
+    /// once, every button, gap and bar agrees: whole points at 1x, the density's own half points at 2x.
+    static func onPixels(_ value: CGFloat, scale: CGFloat) -> CGFloat {
+        let scale = max(scale, 1)
+        return (value * scale).rounded() / scale
+    }
+    /// The backing scale `view` draws at: its window's, else the main screen's (a view not in a window yet).
+    static func scale(of view: NSView?) -> CGFloat { view?.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2 }
+    /// ``barHeight`` on the window's pixels.
+    static func barHeight(scale: CGFloat) -> CGFloat { onPixels(barHeight, scale: scale) }
+    /// ``buttonSize`` on the window's pixels: the toolbar buttons stay square.
+    static func buttonSize(scale: CGFloat) -> CGFloat { onPixels(buttonSize, scale: scale) }
+    /// ``buttonSpacing`` on the window's pixels: one gap between every pair of toolbar buttons.
+    static func buttonSpacing(scale: CGFloat) -> CGFloat { onPixels(buttonSpacing, scale: scale) }
+    /// ``barMargin`` on the window's pixels.
+    static func barMargin(scale: CGFloat) -> CGFloat { onPixels(barMargin, scale: scale) }
 
     // MARK: Omnibox
 

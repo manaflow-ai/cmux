@@ -74,11 +74,11 @@ public final class OmnibarToolbarView: ArrowCursorView {
         NSLayoutConstraint.activate([
             density.bind(addressBar.trailingAnchor.constraint(equalTo: trailingAnchor)) { -OmnibarStyle.toolbarInset },
             density.bind(addressBar.topAnchor.constraint(equalTo: topAnchor)) { [weak self, paneRow] in
-                guard paneRow else { return (OmnibarStyle.rowContentHeight(withButtons: withButtons) - OmnibarStyle.barHeight) / 2 }
-                return OmnibarStyle.barTop(scale: self?.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2, withButtons: withButtons,
-                                           underStrip: self?.meetsTabStrip ?? false)
+                let scale = OmnibarStyle.scale(of: self)
+                guard paneRow else { return (OmnibarStyle.rowContentHeight(scale: scale, withButtons: withButtons) - OmnibarStyle.barHeight(scale: scale)) / 2 }
+                return OmnibarStyle.barTop(scale: scale, withButtons: withButtons, underStrip: self?.meetsTabStrip ?? false)
             },
-            density.bind(addressBar.heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.barHeight },
+            density.bind(addressBar.heightAnchor.constraint(equalToConstant: 0)) { [weak self] in OmnibarStyle.barHeight(scale: OmnibarStyle.scale(of: self)) },
         ])
         guard let back, let forward, let reload else {
             density.bind(addressBar.leadingAnchor.constraint(equalTo: leadingAnchor)) { OmnibarStyle.toolbarInset }.isActive = true
@@ -98,8 +98,8 @@ public final class OmnibarToolbarView: ArrowCursorView {
         navigationGroup.setHuggingPriority(.required, for: .horizontal)
         addressBar.setContentHuggingPriority(.init(1), for: .horizontal)
         addSubview(navigationGroup)
-        navigationGroup.spacing = OmnibarStyle.buttonSpacing
-        density.update { navigationGroup.spacing = OmnibarStyle.buttonSpacing }
+        navigationGroup.spacing = OmnibarStyle.buttonSpacing(scale: OmnibarStyle.scale(of: self))
+        density.update { [weak self] in navigationGroup.spacing = OmnibarStyle.buttonSpacing(scale: OmnibarStyle.scale(of: self)) }
         NSLayoutConstraint.activate([
             density.bind(navigationGroup.leadingAnchor.constraint(equalTo: leadingAnchor)) { OmnibarStyle.toolbarInset },
             navigationGroup.centerYAnchor.constraint(equalTo: addressBar.centerYAnchor),
@@ -129,9 +129,9 @@ public final class OmnibarToolbarView: ArrowCursorView {
 
     /// The browser toolbar row's height on this window's pixel grid (else the main screen's).
     public var preferredHeight: CGFloat {
-        guard paneRow else { return OmnibarStyle.rowContentHeight(withButtons: hasButtons) }
-        return OmnibarStyle.toolbarHeight(scale: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2, withButtons: hasButtons,
-                                          underStrip: meetsTabStrip)
+        let scale = OmnibarStyle.scale(of: self)
+        guard paneRow else { return OmnibarStyle.rowContentHeight(scale: scale, withButtons: hasButtons) }
+        return OmnibarStyle.toolbarHeight(scale: scale, withButtons: hasButtons, underStrip: meetsTabStrip)
     }
 
     /// The row's height (`preferredHeight`); a density or `browser.omnibar.*` size change
