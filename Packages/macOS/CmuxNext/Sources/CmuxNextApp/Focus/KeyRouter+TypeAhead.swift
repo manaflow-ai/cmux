@@ -65,7 +65,7 @@ extension KeyRouter {
         let surface = String(describing: ObjectIdentifier(readiness))
         let waiting = typeAhead.pending(for: surface) || deliveringTypeAhead == surface || typeAheadTail.holds(surface) || parkedTyping.holds(readiness)
         let otherPage = keyInOtherPage(window, controller: controller)
-        let facts = Facts(pageInputPending: !readiness.isReady || waiting, keyInOtherPage: otherPage)
+        let facts = Facts(pageInputPending: !readiness.isReady || waiting || newTabInputCoordinator.typesByScript(in: controller.window), keyInOtherPage: otherPage)
         // Return follows the text typed before it, and the keys after it follow Return: they run once that text landed.
         if !otherPage, typeAheadTail.takes(keyCode: event.keyCode, chord: Self.isChord(event.modifierFlags), surface: surface, behindText: waiting) {
             decided.add(event)

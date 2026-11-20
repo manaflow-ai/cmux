@@ -33,6 +33,7 @@ final class NewTabInputCoordinator {
     /// The same for a page that does not exist yet (Cmd-N): the daemon makes the workspace and its
     /// first tab first, so the field comes later than in a pane that already shows.
     var incomingHoldLimit: Duration = .seconds(4)
+    private var scriptTypingUntil: [ObjectIdentifier: ContinuousClock.Instant] = [:] // by window (``typesByScript(in:)``)
     /// Injected for tests; the hold limit is the only time this coordinator reads.
     var now: () -> ContinuousClock.Instant = { ContinuousClock.now }
     /// Runs `fire` once `limit` from now (injected for tests), detached: never inside the opening run's `ActionRunScope`.
@@ -259,7 +260,7 @@ final class NewTabInputCoordinator {
             // or (the app not active yet) the shown agent page's window.
             if let page = Self.chromiumPageWindow(in: window) {
                 if keyboard?.drops(keyFor: page) == true { return }
-                Self.chromiumAgentPane(under: page, in: window)?.judge(held, eventWindow: page)
+                window.chromiumAgentPane(showingPageIn: page)?.judge(held, eventWindow: page)
                 return page.sendEvent(event)
             }
             if keyboard?.drops(keyFor: window.firstResponder) == true { return }
@@ -277,20 +278,8 @@ final class NewTabInputCoordinator {
         if let key = NSApp.keyWindow, key !== window, key.parent === window { return key }
         guard window.firstResponder === window || window.firstResponder == nil else { return nil }
         return window.childWindows?.first { child in
-            child.isVisible && chromiumAgentPane(under: child, in: window).map { !$0.isHiddenOrHasHiddenAncestor } == true
+            child.isVisible && window.chromiumAgentPane(showingPageIn: child).map { !$0.isHiddenOrHasHiddenAncestor } == true
         }
-    }
-
-    /// The agent pane in `window` whose Chromium page shows in `page` (its child window).
-    private static func chromiumAgentPane(under page: NSWindow, in window: NSWindow) -> AgentPaneView? {
-        let center = CGPoint(x: page.frame.midX, y: page.frame.midY)
-        var stack: [NSView] = window.contentView.map { [$0] } ?? []
-        while let view = stack.popLast() {
-            if let pane = view as? AgentPaneView, let content = pane.chromiumPage?.contentView, let host = content.window,
-               host.convertToScreen(content.convert(content.bounds, to: nil)).contains(center) { return pane }
-            stack.append(contentsOf: view.subviews)
-        }
-        return nil
     }
 
     private func install(_ entry: Entry, in window: NSWindow) {
@@ -355,6 +344,7 @@ final class NewTabInputCoordinator {
 
     func flush(in window: NSWindow?) {
         guard let window, let entry = entry(for: window) else { return }
+        if entry.incoming != nil { scriptTypingUntil[ObjectIdentifier(window)] = entry.buffer.began + entry.limit } // before its keys go on
         if entry.buffer.drain() {
             note("drained to field", entry)
             entry.deadline?.cancel()
@@ -388,6 +378,12 @@ final class NewTabInputCoordinator {
     private func expired(_ entry: Entry) -> Bool {
         now() - entry.buffer.began >= entry.limit
     }
+
+    /// Whether keys typed in `window` go to its focused page by script (the key router's type-ahead), not as key events: from
+    /// a Cmd-N page's readiness until its hold's limit. For a moment after a Chromium page's window becomes key, its renderer
+    /// drops key events, held or typed (cmux23 bench, 2026-11-19: "lo world 123", "hllo world 123"; Lawrence, "i did cmd n
+    /// and started typing and it didnt have focus"). A script insert needs no key window and no renderer focus.
+    func typesByScript(in window: NSWindow?) -> Bool { window.flatMap { scriptTypingUntil[ObjectIdentifier($0)] }.map { now() < $0 } ?? false }
 
     /// Whether `window` holds keys for an opening (debug and tests).
     func isHolding(in window: NSWindow?) -> Bool { window.map { held(in: $0) != nil } ?? false }
