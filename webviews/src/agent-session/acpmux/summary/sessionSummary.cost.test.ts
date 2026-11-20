@@ -28,8 +28,20 @@ function pastTurn(n: number, reads: { count: number }): AcpmuxRow[] {
     },
   };
   return [
-    { id: `reply-${n}`, version: 1, at: n, kind: "assistant", text: `Ran step ${n}, notes at https://example.com/n/${n}` },
-    { id: `activity-${n}`, version: 1, at: n, kind: "activity", items: [{ kind: "tool", tool }] } as unknown as AcpmuxRow,
+    {
+      id: `reply-${n}`,
+      version: 1,
+      at: n,
+      kind: "assistant",
+      text: `Ran step ${n}, notes at https://example.com/n/${n}`,
+    },
+    {
+      id: `activity-${n}`,
+      version: 1,
+      at: n,
+      kind: "activity",
+      items: [{ kind: "tool", tool }],
+    } as unknown as AcpmuxRow,
   ];
 }
 
@@ -39,7 +51,9 @@ const finished = (id: string, at: number): AcpmuxRow =>
     version: 1,
     at,
     kind: "activity",
-    items: [{ kind: "tool", tool: { id, kind: "execute", title: "ls", status: "completed", command: "ls", output: "a\nb" } }],
+    items: [
+      { kind: "tool", tool: { id, kind: "execute", title: "ls", status: "completed", command: "ls", output: "a\nb" } },
+    ],
   }) as unknown as AcpmuxRow;
 
 /// The same rows as new objects with plain outputs: nothing any cache kept applies to them.

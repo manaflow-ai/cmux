@@ -284,15 +284,13 @@ function sourceParts(row: AcpmuxRow): readonly SourcePart[] {
     // The person's own sent images only: another agent's or the Chief's prompt is not what they
     // pasted, and a prompt that failed to send gave the agent nothing.
     if (row.untyped || row.from || row.failed || !row.images?.length) return NONE;
-    const finds = row.images.map(
-      (image): SourceFind => ({
-        source: {
-          label: image.name ?? "",
-          kind: "image",
-          image: { id: image.id, src: image.src, ...(image.source ? { source: image.source.name } : {}) },
-        },
-      }),
-    );
+    const finds = row.images.map((image): SourceFind => ({
+      source: {
+        label: image.name ?? "",
+        kind: "image",
+        image: { id: image.id, src: image.src, ...(image.source ? { source: image.source.name } : {}) },
+      },
+    }));
     return [{ at: 0, finds }];
   }
   if (row.kind === "assistant") {
