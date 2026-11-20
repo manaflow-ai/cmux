@@ -1,6 +1,6 @@
 public import AppKit
 public import CmuxScreenKit
-import CmuxNextDevices
+public import CmuxNextDevices
 import CmuxNextRemoteView
 import CmuxNextWakeups
 public import Observation
@@ -17,6 +17,8 @@ public final class MacScreenPaneModel {
 
     public let session: MacScreenSession?
     public internal(set) var name: String
+    /// The device's platform, when the hub lists it: a Linux desktop's cards say how to reach a Linux machine.
+    public internal(set) var platform: DevicePlatform?
     public var gate: Gate
     /// The streamed Mac's displays (pixel sizes) and the one shown.
     public internal(set) var displays: [CGSize] = []
@@ -34,9 +36,10 @@ public final class MacScreenPaneModel {
     /// The device hub tab's session: its request, approval and ticket; nil for an unsupported record.
     public let hub: MacScreenHubViewer?
 
-    init(session: MacScreenSession?, name: String, gate: Gate, hub: MacScreenHubViewer? = nil) {
+    init(session: MacScreenSession?, name: String, platform: DevicePlatform? = nil, gate: Gate, hub: MacScreenHubViewer? = nil) {
         self.session = session
         self.name = name
+        self.platform = platform
         self.gate = gate
         self.hub = hub
     }
@@ -82,14 +85,16 @@ public final class MacScreenPane {
     private let hideTimer = DemandTimer(owner: "mac-screen.hidden-grace")
     /// The decoder of the current transport (one per session).
     private var decodeTask: Task<Void, Never>?
+    /// The current transport's remote cursor (cap `cursor`) into the pane's one cursor.
+    private var cursorTask: Task<Void, Never>?
 
     /// One of the user's devices from the device hub. Each stream is one
     /// approved session: `viewer` asks for it and hands its ticket's
     /// signaling to the session once; a dropped stream does not reconnect on
     /// its own (Try Again asks again).
-    public init(hubDevice viewer: MacScreenHubViewer, name: String, preferences: ScreenPreferences) {
+    public init(hubDevice viewer: MacScreenHubViewer, name: String, platform: DevicePlatform? = nil, preferences: ScreenPreferences) {
         let session = MacScreenSession(title: name, preferences: preferences, signaling: { [weak viewer] in viewer?.takeSignaling() })
-        model = MacScreenPaneModel(session: session, name: name, gate: .open, hub: viewer)
+        model = MacScreenPaneModel(session: session, name: name, platform: platform, gate: .open, hub: viewer)
         // A quality or display change: the ticket admits once, so the hub gives a new session.
         session.restart = { [weak viewer] in
             guard let viewer, let scope = viewer.phase.streamingScope else { return }
@@ -176,20 +181,30 @@ public final class MacScreenPane {
         model.hasFrame = false
         let presenter = view.presenter
         let counter = MacScreenFrameCounter()
+        session?.frameCounter = counter
         let deliver: @Sendable (RemoteDecodedFrame) -> Void = { [weak self] frame in
             presenter.present(frame)
             // The stats and the first picture, without a main-actor hop per frame.
-            guard counter.tick() else { return }
-            Task { @MainActor [weak self] in self?.framesShown(counter.take()) }
+            guard counter.tick(frame: frame.frame, decodedAtNanos: frame.decodedAtNanos) else { return }
+            Task { @MainActor [weak self] in self?.framesShown(counter) }
         }
-        let pipeline = RemoteDecodePipeline(source: transport, deliver: deliver)
+        let pipeline = RemoteDecodePipeline(source: transport, deliver: deliver, presented: { counter.shown($0) })
         // task-owner: this transport's decoder; ends with its stream or the next session's
         decodeTask = Task.detached(priority: .userInitiated) { await pipeline.run() }
+        cursorTask?.cancel()
+        view.cursor.setRemoteCursor(nil)
+        let cursors = transport.cursorUpdates()
+        // task-owner: this transport's cursor feed; ends with its stream or the next session's
+        cursorTask = Task { [weak self] in
+            for await cursor in cursors { self?.view.cursor.setRemoteCursor(cursor) }
+        }
     }
 
-    private func framesShown(_ count: Int) {
+    private func framesShown(_ counter: MacScreenFrameCounter) {
         guard let session else { return }
+        let count = counter.take()
         for _ in 0 ..< count { session.framePresented(size: view.video.framePixels) }
+        session.framesCounted(counter)
         if !model.hasFrame {
             model.hasFrame = true
             view.needsLayout = true
@@ -259,6 +274,7 @@ public final class MacScreenPane {
     public func close() {
         hideTimer.cancel()
         decodeTask?.cancel()
+        cursorTask?.cancel()
         visible = false
         if let hub = model.hub, hub.phase != .idle {
             // The hub hears why first, then the stream closes.
@@ -307,6 +323,8 @@ public final class MacScreenPaneView: NSView {
     let presenter = RemoteFramePresenters().make(.metal)
     let input = RemoteInputSurface()
     var capture: NSView { input.view }
+    /// One cursor: the local pointer wears the remote shape; the overlay only where they differ.
+    private(set) lazy var cursor = input.cursorCoordinator(video: video)
     let chrome: MacScreenChromeHost
     private let model: MacScreenPaneModel
     var toolbarHeight: CGFloat { chrome.toolbar.height(for: bounds.width) }
@@ -356,6 +374,7 @@ public final class MacScreenPaneView: NSView {
         } else {
             video.frame = .zero
         }
+        cursor.update()
         let showsCard = chrome.showsCard
         chrome.card.isHidden = !showsCard
         capture.isHidden = model.gate != .open

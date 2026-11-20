@@ -1,6 +1,6 @@
 // A shell call's leading `cd <folder> &&` is setup, not what it ran (Leo 2026-10-13, transcript row
-// design, #20456): the row reads "Ran git fetch …" without it (its first step, shortCommand.ts: Leo
-// 2026-10-20, "a short human label, not the raw command"), the opened Shell block names the folder
+// design, #20456): the row reads "Ran git fetch …" without it (a multi-step line reads whole since
+// 2026-11-14), the opened Shell block names the folder
 // by its last part beside its label and draws the rest whole, and Find counts the command as the
 // rows draw it. A cd that names no plain folder (`cd ..`, `cd ~`, `cd "$(…)"`) keeps its prefix in
 // the Shell block, and one that could run code stays in the row, so nothing the call ran is hidden.
@@ -55,8 +55,8 @@ const shell = (id: string, command: string) => ({
 test("a shell call reads without its leading cd, and opens to its folder and command", async () => {
   await render([shell("t1", FETCH)]);
   const row = host.querySelector<HTMLButtonElement>(".cv-tool")!;
-  // The table names its first step (commandActions.ts); the opened block draws the whole line.
-  expect(row.querySelector(".cv-tool__text")?.textContent).toBe("Fetched the latest commits …");
+  // A multi-step line reads whole, without its cd and with no " …" (2026-11-14 change).
+  expect(row.querySelector(".cv-tool__text")?.textContent).toBe(`Ran ${REST}`);
   await act(async () => row.click());
   expect(host.querySelector(".cv-shell__folder")?.textContent).toBe("cg-next-reds");
   expect(host.querySelector(".cv-shell__command")?.textContent).toBe(`$ ${REST}`);
@@ -69,7 +69,8 @@ test("a group's command rows drop the leading cd too", async () => {
     shell("t2", "cd ~/wt/lanes/x && ./run.sh build"),
   ]);
   const lines = [...host.querySelectorAll(".cv-command__line")].map((line) => line.textContent);
-  expect(lines).toEqual(["make -j8 …", "run.sh build"]);
+  // A multi-step line draws every step after the cd (2026-11-14 change).
+  expect(lines).toEqual(["make -j8 && make test", "run.sh build"]);
 });
 
 test("a cd that names no plain folder, or could run code, keeps its prefix", async () => {

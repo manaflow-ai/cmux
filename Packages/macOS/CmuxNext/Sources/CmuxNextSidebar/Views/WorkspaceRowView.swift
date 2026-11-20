@@ -31,6 +31,13 @@ final class WorkspaceRowView: SidebarRowView {
     /// when the same workspace's work finishes (`configureBadges`), never on a first configure or a
     /// row the pool hands to another workspace (cleared in `prepareForReuse`).
     var shownBadges: (workspace: WorkspaceID, states: [StatusIndicatorState])?
+    /// The state a waiting row's glow stands in for, and its halo (WorkspaceRowView+NeedsYouGlow).
+    var needsYouTone: StatusIndicatorState?, needsYouGlowLayer: CALayer?
+    /// The window is on screen and not covered, as the list tracks it for the rows' indicators
+    /// (`SidebarListView.setWindowVisible`): the glow breathes only then.
+    var isNeedsYouWindowVisible = true {
+        didSet { if isNeedsYouWindowVisible != oldValue { updateNeedsYouGlowMotion() } }
+    }
     /// The agents acting in the workspace (`sidebar.presenceDots`, cx-gg84).
     let presenceDots = PresenceDotsView()
     /// An agent driving the screen or a browser in the workspace (`sidebar.driveIndicator`), shown with the dots off.
@@ -38,6 +45,8 @@ final class WorkspaceRowView: SidebarRowView {
     /// A muted workspace (`notifications.mutedWorkspaces`): a quiet bell-slash
     /// in the trailing cluster, in the tertiary text color; hidden otherwise.
     let mutedMark = DecorativeImageView()
+    /// A workspace on a Cloud machine (``WorkspaceRowContent/runsInCloud``): a small cloud right after its name.
+    let cloudMark = DecorativeImageView()
     /// A runaway agent chat in the workspace (`SidebarWorkspace.usageWarnings`: no autocompact
     /// cap, a huge context, a storm of subagents): a small warning triangle in the trailing
     /// cluster, apart from the working spinner; its tooltip says each rule and the number.
@@ -159,10 +168,13 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.imageScaling = .scaleProportionallyDown
         mutedMark.isHidden = true
         mutedMark.setAccessibilityElement(false)
+        cloudMark.imageScaling = .scaleProportionallyDown
+        cloudMark.isHidden = true
+        cloudMark.setAccessibilityElement(false) // the row's label says Cloud
         usageWarningMark.imageScaling = .scaleProportionallyDown
         usageWarningMark.isHidden = true
         usageWarningMark.setAccessibilityElement(false)
-        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, usageWarningMark, badge, rowBadge, presenceDots, driveIndicator, tabCount, prBadge, placeholderBar, statusBlock,
+        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, cloudMark, usageWarningMark, badge, rowBadge, presenceDots, driveIndicator, tabCount, prBadge, placeholderBar, statusBlock,
          treeLine, pullRequests, keycap, rollUp].forEach(addSubview)
         setUpSessionTree()
         tabCount.isHidden = true
@@ -235,6 +247,13 @@ final class WorkspaceRowView: SidebarRowView {
         shownBadges = nil
     }
 
+    /// A row made or parked while its window is covered starts from the window's own state, as a row's
+    /// indicators do; the list keeps it current after that (`SidebarListView.setWindowVisible`).
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let window { isNeedsYouWindowVisible = window.occlusionState.contains(.visible) }
+    }
+
     private struct Content: Hashable {
         var ws: SidebarWorkspace
         var group: GroupID?
@@ -243,6 +262,8 @@ final class WorkspaceRowView: SidebarRowView {
         var agentMark: SidebarAgentMarkVariant, presenceDots: Bool, driveIndicator: SidebarDriveIndicatorVariant
         var rowBadge: SidebarRowBadgeStyle, stackLimit: Int
         var rowTitle: SidebarRowTitleMode, rowTitleSingleChat: Bool
+        /// The badge or glow (`notifications.attention.mark`) and the glow's breath (WorkspaceRowView+NeedsYouGlow).
+        var needsYouMark = DesignSettings.shared.attention.mark, animatesLoops = Motion.indicators.animatesLoops
         var row: WorkspaceRowContent?
     }
 
@@ -272,8 +293,12 @@ final class WorkspaceRowView: SidebarRowView {
         // agent brand with it: a row without the user's icon or a favicon stays text only, and
         // its corner badge sits in the trailing slot (`layoutColumnMark`).
         let badgesLead = content.rowBadge != .trailing && !isShowingPlaceholder
-        icon.configure(icon: shown.icon)
-        iconKind = shown.icon
+        // A Cloud row with no icon of its own leads with the cloud, in the icon column Home's glyph sits in
+        // (Austin, 2026-11-12); a row that has its own icon keeps it and shows the cloud after its name.
+        let leadsWithCloud = shown.icon == nil && shown.runsInCloud && !isShowingPlaceholder
+        let leadingIcon = leadsWithCloud ? WorkspaceIcon.symbol("cloud") : shown.icon
+        icon.configure(icon: leadingIcon)
+        iconKind = leadingIcon
         configureColor(shown)
         let priorTitle = lastTitle
         if titleArrivalPending || titleArrivalScheduled || titleArrivalActive {
@@ -326,6 +351,8 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.image = ws.muted && !isShowingPlaceholder
             ? NSImage.icon(symbol: "bell.slash", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)) : nil
         mutedMark.isHidden = mutedMark.image == nil
+        cloudMark.image = shown.runsInCloud && !leadsWithCloud && !isShowingPlaceholder ? NSImage.icon(.cloud, size: SidebarStyle.indicatorSize) : nil
+        cloudMark.isHidden = cloudMark.image == nil
         // The bell-slash alone does not say what is muted: notifications, not the tabs' sound
         // (the row's accessibility label says it too).
         mutedMark.themedToolTip = mutedMark.isHidden ? nil : Strings.notificationsMuted

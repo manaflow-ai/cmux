@@ -12,8 +12,9 @@
 //! same one for Codex): `CMUX_CLAUDE_AUTH=own|team` pins it, then `cr use`'s recorded choice; a
 //! sign-in of its own keeps own. That is any source `claude_auth::find_in` sees in the launch's
 //! effective env (the login values, the vault, `machine.env`, then the profile, as
-//! `login_env::effective_for` layers them): a key or token, settings env or a helper, the
-//! `.claude.json` API key or the saved sign-in;
+//! `login_env::effective_for` layers them; for a remote-origin launch, which gets none of those,
+//! only the host base and the profile: [`launch_env_now`]): a key or token, settings env or a
+//! helper, the `.claude.json` API key or the saved sign-in;
 //! no `https://` team origin, or one that does not resolve, keeps own. Otherwise team: the pair the
 //! shell set aside, read from the model-plane env file it was persisted to, or the origin and the
 //! public placeholder. A pair the person set themselves stays.
@@ -118,6 +119,41 @@ where
     let key =
         inputs.model_plane_var("ANTHROPIC_API_KEY").unwrap_or_else(|| PLACEHOLDER_KEY.to_owned());
     Some([("ANTHROPIC_BASE_URL".to_owned(), base), ("ANTHROPIC_API_KEY".to_owned(), key)])
+}
+
+/// The env Claude's sign-in check reads for one launch with the resolved profile env `profile`,
+/// over the daemon's own env `daemon` (less `machine.env`'s names), the vault's entries `vault`
+/// and `machine.env`'s values `machine` (`provider_cloud_auth::LaunchEnv::new`). A `remote`
+/// (remote-origin) launch starts from the fixed host base `daemon` and its profile only, so a
+/// vault or `machine.env` value is no sign-in of its own (#43821).
+#[cfg(test)]
+pub(crate) fn launch_env(
+    profile: BTreeMap<String, String>,
+    daemon: BTreeMap<String, String>,
+    vault: Vec<(String, String)>,
+    machine: BTreeMap<String, String>,
+    remote: bool,
+) -> BTreeMap<String, String> {
+    crate::provider_cloud_auth::LaunchEnv::new(
+        "claude",
+        profile,
+        daemon,
+        vault,
+        machine,
+        Vec::new(),
+        remote,
+    )
+    .into_env()
+}
+
+/// The env Claude's sign-in check reads for one launch (`hub/spawn.rs`): this daemon's env, vault
+/// and `machine.env` now under the resolved profile, or for a `remote` launch only the host base
+/// it starts from and the profile (`provider_cloud_auth::LaunchEnv::now`; tests: `launch_env`).
+pub(crate) fn launch_env_now(
+    profile: BTreeMap<String, String>,
+    remote: bool,
+) -> BTreeMap<String, String> {
+    crate::provider_cloud_auth::LaunchEnv::now("claude", profile, remote).into_env()
 }
 
 /// Claude's managed settings on Linux, under the machine root.
@@ -449,6 +485,55 @@ mod tests {
         std::fs::remove_file(m.home.join(".claude/settings.json")).unwrap();
         std::fs::write(m.home.join(".claude.json"), r#"{"primaryApiKey":"sk-own"}"#).unwrap();
         assert_eq!(pair(&m, &[], true).await, None);
+    }
+
+    /// [`pair`] over the env a launch gets ([`launch_env`]): its profile, the vault's entries and
+    /// `machine.env`'s values, with no daemon or login value but `HOME`; local or `remote`-origin.
+    async fn launch_pair(
+        m: &Machine,
+        profile: &[(&str, &str)],
+        vault: &[(&str, &str)],
+        machine: &[(&str, &str)],
+        remote: bool,
+    ) -> Option<[(String, String); 2]> {
+        let map = |v: &[(&str, &str)]| -> BTreeMap<String, String> {
+            v.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()
+        };
+        let daemon = BTreeMap::from([("HOME".to_owned(), m.home.to_string_lossy().into_owned())]);
+        let env = launch_env(
+            map(profile),
+            daemon,
+            map(vault).into_iter().collect(),
+            map(machine),
+            remote,
+        );
+        let read = env.clone();
+        let var = move |k: &str| read.get(k).cloned();
+        let inputs = Inputs { root: &m.root, home: &m.home, var: &var, broker: false };
+        team_pair(&inputs, &env, None, &m.home, |_| async move { true }).await
+    }
+
+    /// #43821: a remote-origin launch (a Cloud chat the app starts through its peer link) gets no
+    /// vault or `machine.env` value (`agent/command.rs`), so a Claude key held only there is no
+    /// sign-in of its own: it gets the team's model plane, not a sign-in prompt. A key in its own
+    /// profile still keeps own, and a local launch still counts all three.
+    #[tokio::test]
+    async fn a_remote_launch_counts_only_the_sign_in_it_gets() {
+        let m = machine("owner");
+        for k in ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"] {
+            let v = [(k, "real-key-123")];
+            assert_eq!(launch_pair(&m, &[], &v, &[], false).await, None, "local vault {k}");
+            assert_eq!(launch_pair(&m, &[], &[], &v, false).await, None, "local machine.env {k}");
+            assert_eq!(launch_pair(&m, &v, &[], &[], false).await, None, "local profile {k}");
+            let got = launch_pair(&m, &[], &v, &[], true).await;
+            assert_eq!(got, Some(team_pair_value()), "remote vault {k}");
+            let got = launch_pair(&m, &[], &[], &v, true).await;
+            assert_eq!(got, Some(team_pair_value()), "remote machine.env {k}");
+            assert_eq!(launch_pair(&m, &v, &[], &[], true).await, None, "remote profile {k}");
+        }
+        // No key anywhere: team mode either way.
+        assert_eq!(launch_pair(&m, &[], &[], &[], false).await, Some(team_pair_value()));
+        assert_eq!(launch_pair(&m, &[], &[], &[], true).await, Some(team_pair_value()));
     }
 
     fn team_pair_value() -> [(String, String); 2] {

@@ -210,7 +210,14 @@ test("Save hands the document to the host's save panel under its title, and says
 // A document's versions (cx-ncc.64, Claude parity): a reply that rewrites a document the chat already
 // has (same kind, same title) is its next version; the panel steps between them.
 test("a document's versions are the chat's documents of its kind and title, oldest first", async () => {
-  const { artifactVersions } = await import("../src/agent-session/acpmux/conversation/artifactVersions");
+  const { artifactVersions: versionsIn, replyDocuments } =
+    await import("../src/agent-session/acpmux/conversation/artifactVersions");
+  type Opened = Parameters<typeof versionsIn>[1];
+  const artifactVersions = (texts: readonly string[], opened: Opened) =>
+    versionsIn(
+      texts.flatMap((text) => replyDocuments({ text })),
+      opened,
+    );
   const replies = [
     "Here it is:\n\n```html\n<title>Pricing</title><p>One plan</p>\n```\n",
     "And notes:\n\n```md\n# Pricing\n\nNot HTML.\n```\n\n```html\n<title>Signup</title>\n```",

@@ -11,19 +11,7 @@ fn args(words: &[&str]) -> Vec<String> {
 fn call(command: AppCommand) -> (&'static str, Value) {
     match command {
         AppCommand::Call { method, params, .. } => (method, params),
-        AppCommand::Open { .. }
-        | AppCommand::Events { .. }
-        | AppCommand::DebugCall { .. }
-        | AppCommand::Screenshot { .. }
-        | AppCommand::Right { .. }
-        | AppCommand::Renderers { .. }
-        | AppCommand::ChatPerf { .. }
-        | AppCommand::Settings(_)
-        | AppCommand::Nightly(_)
-        | AppCommand::Live(_)
-        | AppCommand::Version => {
-            panic!("expected a call")
-        }
+        other => panic!("expected a call, got {other:?}"),
     }
 }
 
@@ -354,6 +342,21 @@ fn remote_views_reads_the_release_remote_view_state() {
     assert_eq!(params, json!({ "tab": "tab_1" }));
     assert!(parse(&args(&["app", "remote-views", "connect"])).is_err());
     assert!(parse(&args(&["app", "remote-views", "--mode", "control"])).is_err());
+}
+
+/// `cmux app mac-screens` reads the app's release Mac Screen state, all tabs or
+/// one; it is a read, never an `action.run`, and takes no other word.
+#[test]
+fn mac_screens_reads_the_release_mac_screen_state() {
+    let (method, params) = call(parse(&args(&["app", "mac-screens"])).unwrap().unwrap());
+    assert_eq!(method, "mac_screen.state");
+    assert_eq!(params, json!({}));
+    let (method, params) =
+        call(parse(&args(&["app", "mac-screens", "--tab", "tab_1"])).unwrap().unwrap());
+    assert_eq!(method, MAC_SCREENS_METHOD);
+    assert_eq!(params, json!({ "tab": "tab_1" }));
+    assert!(parse(&args(&["app", "mac-screens", "connect"])).is_err());
+    assert!(parse(&args(&["app", "mac-screens", "--input", "x"])).is_err());
 }
 
 /// `cmux app machines` and `cmux app join-line` call the app's every-build
@@ -1210,6 +1213,8 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::Settings(_)
         | AppCommand::Nightly(_)
         | AppCommand::Live(_)
+        | AppCommand::Try(_)
+        | AppCommand::LaunchTimes(_)
         | AppCommand::Version => {
             panic!("expected a call")
         }
@@ -1756,6 +1761,35 @@ fn a_chief_turn_names_the_home_chat_as_its_caller() {
     assert_eq!(caller_from(env(&[("CMUX_CALLER_HOME_CHAT", "0")])), None);
 }
 
+/// An agent names the workspace its session runs in (`CMUX_WORKSPACE_ID`), so
+/// the app places it there when no tab shows its chat (a closed chat tab, a
+/// Chief subagent told again later), never in the focused workspace, Home
+/// (user, 2026-11-18).
+#[test]
+fn an_agent_names_its_own_workspace_in_its_caller() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |key: &str| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| (*v).to_owned())
+    };
+    assert_eq!(
+        caller_from(env(&[("CMUX_AGENT_SESSION", "a1"), ("CMUX_WORKSPACE_ID", "W-1")])),
+        Some(json!({ "agent_session": "a1", "workspace": "W-1" }))
+    );
+    // A terminal caller is found by its terminal; it names no workspace.
+    assert_eq!(
+        caller_from(env(&[("CMUX_TUI_TERMINAL_ID", "t1"), ("CMUX_WORKSPACE_ID", "W-1")])),
+        Some(json!({ "terminal_id": "t1" }))
+    );
+}
+
+/// `cmux open --link` (the `BROWSER` and `open` shims every agent runs) names
+/// its caller, so an agent's link opens beside its own chat, not beside the
+/// focused pane in Home (user, 2026-11-18).
+#[test]
+fn open_link_sends_the_caller() {
+    assert!(takes_caller("browser.open_link"));
+    assert!(takes_caller("file.open"), "an agent's `cmux open FILE` opens in its own workspace");
+}
+
 /// Every page verb sends its caller: the app runs a verb without a tab on the
 /// browser nearest the caller, not the person's focused tab in another window
 /// (#26648), and an input verb's agent cursor tag says who drives and where
@@ -2295,4 +2329,45 @@ fn the_ping_gets_only_what_is_left_of_the_deadline() {
     let windows = windows.into_inner();
     assert_eq!(windows.len(), 1, "{windows:?}");
     assert!(windows.iter().all(|window| *window <= Duration::from_millis(110)), "{windows:?}");
+}
+
+/// Leo: "you guys kept fighting focus". `cmux cloud start-session --no-focus` (an agent's or a probe's
+/// start, `cloud start-chat --no-focus`'s step) says `focus: false` in the run itself, never an argument the
+/// action does not take; the app then shows, selects and raises nothing for it. Without the flag the run is
+/// today's: no `focus` at all, so a CLI start changes the app's view only with `--focus` (a person's own
+/// start in the app is origin `user`, which always may: `ActionInvocation.allowsViewChange`).
+#[test]
+fn no_focus_asks_the_app_to_leave_the_view_alone() {
+    let start = |extra: &[&str]| {
+        let mut words = args(&["--name", "box", "--agent", "claude"]);
+        words.extend(args(extra));
+        let (method, params) =
+            call(run_action("cloud start-session", &words, ActionName::Cli).unwrap());
+        assert_eq!(method, "action.run");
+        assert_eq!(params["args"]["name"], "box");
+        params
+    };
+    let quiet = start(&["--no-focus"]);
+    assert_eq!(quiet["focus"], false, "{quiet}");
+    assert!(quiet["args"].get("noFocus").is_none(), "{quiet}");
+    // Today's runs, unchanged: none says focus, and `--focus` asks for the view change.
+    assert!(start(&[]).get("focus").is_none());
+    assert_eq!(start(&["--focus"])["focus"], true);
+    // An action with its own `focus` argument (`open-remote`) gets it as that argument too.
+    let (_, remote) =
+        call(run_action("open-remote", &args(&["--no-focus"]), ActionName::Cli).unwrap());
+    assert_eq!(
+        (remote["focus"].clone(), remote["args"]["focus"].clone()),
+        (json!(false), json!(false))
+    );
+    // A person's `cmux cloud new-machine` opens the machine it made; with `--no-focus` nothing opens.
+    let made = json!({ "result": { "machine_id": "vm_1", "status": "running" } });
+    let (_, asked) =
+        call(run_action("cloud new-machine", &args(&["--no-focus"]), ActionName::Cli).unwrap());
+    assert_eq!(created_target(OutputMode::Human, &asked, &made), None);
+    let (_, plain) = call(run_action("cloud new-machine", &[], ActionName::Cli).unwrap());
+    assert_eq!(created_target(OutputMode::Human, &plain, &made).as_deref(), Some("machine:vm_1"));
+    // `cmux vm start-session --help` lists it.
+    let help = super::super::cloud_help::verb_help("start-session", false).unwrap();
+    assert!(help.contains("[--no-focus]"), "{help}");
 }

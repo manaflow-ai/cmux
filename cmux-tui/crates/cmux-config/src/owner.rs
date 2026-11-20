@@ -99,6 +99,14 @@ impl ConfigStore {
         snapshot
     }
 
+    /// Whether `file` names the settings file this owner reads and writes,
+    /// both paths standardized without touching the disk (`.` and `..`
+    /// folded, as Swift's `standardizedFileURL`; symlinks not followed).
+    /// `settings.edit`'s `file`: an owner started on another file refuses.
+    pub fn serves(&self, file: &Path) -> bool {
+        standardized(file) == standardized(&self.config_path)
+    }
+
     /// Runs `op`: refresh from disk (write ops), reduce, publish, adopt.
     pub fn apply(&mut self, op: Op) -> ApplyResult {
         let mut changes = Vec::new();
@@ -237,6 +245,23 @@ fn read_settings(config_path: &Path, seed_path: Option<&Path>) -> FileRead {
     }
 }
 
+/// `path` made absolute with `.` and `..` folded, without reading the disk.
+fn standardized(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut out = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+
 /// The saved team layer, limited to the catalog of this build.
 fn read_team_policy(state_dir: &Path, schema: &Schema) -> Option<TeamPolicyLayer> {
     let text = std::fs::read_to_string(team_policy_path(state_dir)).ok()?;
@@ -248,10 +273,8 @@ fn read_team_policy(state_dir: &Path, schema: &Schema) -> Option<TeamPolicyLayer
 /// `None` when the lock file cannot be opened (a read-only directory): the
 /// write then goes ahead like before, and the publish reports any error.
 ///
-/// The Mac app takes this lock the same way (`flock`, the same file name)
-/// around its own writes of the settings file, until those writes are
-/// `settings.*` ops: Swift `SettingsFileLock` in `CmuxNextSettings`. Change
-/// the lock kind or the file name in both places.
+/// The Mac app no longer writes the settings file (its writes are
+/// `settings.edit` ops), so only owners in this crate take the lock.
 pub(crate) fn lock_config(config_path: &Path) -> Option<ConfigLock> {
     // Beside the configured path, not a symlink's target: a dotfiles repo
     // never gets a lock file.
@@ -290,3 +313,24 @@ impl Drop for ConfigLock {
 #[cfg(all(test, unix))]
 #[path = "owner_lock_tests.rs"]
 mod lock_tests;
+
+#[cfg(all(test, unix))]
+mod serves_tests {
+    use super::*;
+
+    /// `settings.edit`'s `file` check: the configured path, written with `.`
+    /// or `..`, is served; another file is not.
+    #[test]
+    fn the_owner_serves_its_own_file_only() {
+        let dir = std::env::temp_dir().join(format!("cmux-serves-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config = dir.join("cmux-next.json");
+        let reader = Box::new(crate::managed::FixedManagedReader::default());
+        let store = ConfigStore::open(config.clone(), None, None, reader);
+        assert!(store.serves(&config));
+        assert!(store.serves(&dir.join("./sub/../cmux-next.json")));
+        assert!(!store.serves(&dir.join("other.json")));
+        assert!(!store.serves(&dir.join("sub/cmux-next.json")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

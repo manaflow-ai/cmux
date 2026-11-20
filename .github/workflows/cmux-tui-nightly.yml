@@ -21,7 +21,7 @@ concurrency:
 jobs:
   version:
     name: derive nightly versions
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     permissions:
       contents: read
     outputs:
@@ -89,7 +89,7 @@ jobs:
       attestations: write
     uses: ./.github/workflows/cmux-tui-build-package.yml
     with:
-      retention_days: 30  # tui-publish-npm/pypi download these by run id
+      retention_days: 7  # tui-publish-npm/pypi download these by run id
       version: ${{ needs.version.outputs.npm_version }}
       package_npm: true
       # PyPI's pypi-tui environment admits only cmux-tui-v* tags with a
@@ -123,7 +123,7 @@ jobs:
     needs:
       - version
       - build-package
-    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-latest' || fromJSON(vars.RUNNER_POOLS).provenance }} # github-hosted-required: npm provenance needs a github-hosted runner
     permissions:
       contents: read
       id-token: write

@@ -131,23 +131,6 @@ def journey(process, socket_path, env, app, out, report) -> list[str]:
     return failures
 
 
-def login_keychain(env: dict) -> None:
-    """A login keychain in the fresh home, as a real install has: without one the first Chromium
-    Safe Storage read puts up "Keychain Not Found" over the window (as stable_next_ui_journey.py)."""
-    home = Path(env["HOME"])
-    keychain = home / "Library" / "Keychains" / "login.keychain-db"
-    keychain.parent.mkdir(parents=True, exist_ok=True)
-    scoped = {"HOME": env["HOME"], "CFFIXED_USER_HOME": env["CFFIXED_USER_HOME"], "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-              "USER": env.get("USER", "")}
-    for args in (["create-keychain", "-p", "", str(keychain)],
-                 ["list-keychains", "-d", "user", "-s", str(keychain)],
-                 ["default-keychain", "-d", "user", "-s", str(keychain)],
-                 ["set-keychain-settings", str(keychain)]):
-        done = subprocess.run(["security", *args], env=scoped, capture_output=True, text=True, timeout=30)
-        if done.returncode != 0:
-            raise smoke.CannotRun(f"security {args[0]} in the fresh home failed: {done.stderr.strip()[:300]}")
-
-
 def main(argv: list[str] | None = None) -> int:
     global AX_DUMP
     args = list(argv if argv is not None else sys.argv[1:])
@@ -156,7 +139,7 @@ def main(argv: list[str] | None = None) -> int:
         AX_DUMP = args[i + 1]
         del args[i:i + 2]
     smoke.AFTER_RENDER = journey
-    smoke.PREPARE_HOME = login_keychain
+    smoke.PREPARE_HOME = smoke.login_keychain
     status = smoke.main(args)
     out = None
     if "--out" in args:

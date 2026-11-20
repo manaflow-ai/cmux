@@ -13,7 +13,7 @@ nonisolated extension SidebarLayout {
     ///
     /// - Parameters:
     ///   - insertion: The set that added the row (its section as the set left it, and the row's node index).
-    ///   - base: The list's metrics (`options.minimal` makes them minimal, as in `make`).
+    ///   - base: The list's metrics (`options` resolves them, as in `make`).
     ///   - o: The options the list lays out with; the layout was made with the same ones.
     mutating func insertLoose(_ insertion: SidebarRowInsertion, metrics base: SidebarLayoutMetrics, options o: SidebarLayoutOptions) -> Bool {
         let section = insertion.section, k = insertion.node

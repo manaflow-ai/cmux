@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileDesign
 import SwiftUI
 
 /// A Mac's browser tab opened on this iPhone: the phone's own web view, a small
@@ -29,7 +30,7 @@ struct NativeBrowserPage: View {
                         .font(.system(size: 15, weight: .medium))
                         .frame(width: 44, height: 44)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
                 .glassEffect(.regular.interactive(), in: .circle)
                 .padding(12)
                 .padding(.bottom, insets.bottom)

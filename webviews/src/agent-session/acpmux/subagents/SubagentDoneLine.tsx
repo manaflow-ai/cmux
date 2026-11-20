@@ -57,6 +57,7 @@ import { doneReportLook } from "./doneReport.experiment";
 import { RetryAffordanceContext, DoneReportLookContext, doneReport, shortReason } from "./subagentDoneLineModel";
 import { useWholeReport, type WholeReport } from "./wholeReport";
 import { WholeReportBody } from "./WholeReportBody";
+import { SubagentChipPreview } from "./SubagentPreview";
 import "./SubagentDoneLine.css";
 
 const DONE_LABEL: Record<string, StringKey> = {
@@ -234,6 +235,17 @@ function DoneLine({
           name={name}
           nameTitle={whole}
           {...(open && { onOpenName: () => open(agent.id), openNameLabel: t("subagents.open", { name }) })}
+          // The row's own chip, with the subagent's preview on it (SubagentPreview.tsx).
+          nameSlot={
+            <SubagentChipPreview agent={agent} name={name}>
+              <AgentTag
+                name={name}
+                className="cv-agentmsg__name cv-recipient"
+                ariaLabel={open ? t("subagents.open", { name }) : undefined}
+                onClick={open && (() => open(agent.id))}
+              />
+            </SubagentChipPreview>
+          }
           preview={messagePreview(report ?? "")}
           label={t(reportOpen ? "subagents.report.hide" : "subagents.report.show")}
           open={reportOpen}
@@ -295,12 +307,14 @@ function DoneLine({
             // tooltip-allow: the line cuts its title and reason; its whole text, the failure included
             <span className="cv-tool__text cv-subagent-failed__text" title={whole}>
               {open ? (
-                <AgentTag
-                  name={name}
-                  className="cv-subagent-failed__title"
-                  ariaLabel={openLabel}
-                  onClick={() => open(agent.id)}
-                />
+                <SubagentChipPreview agent={agent} name={name}>
+                  <AgentTag
+                    name={name}
+                    className="cv-subagent-failed__title"
+                    ariaLabel={openLabel}
+                    onClick={() => open(agent.id)}
+                  />
+                </SubagentChipPreview>
               ) : (
                 <span className="cv-subagent-failed__title">{name}</span>
               )}
@@ -310,16 +324,18 @@ function DoneLine({
             /* tooltip-allow: the line is cut at the pane's width; its whole text, the failure included */
             <span className="cv-tool__text cv-agent-activity__sentence" title={whole}>
               {!waiting && before}
-              <AgentTag
-                name={name}
-                ariaLabel={localReport ? name : openLabel}
-                onClick={localReport ? () => setReportOpen((value) => !value) : open && (() => open(agent.id))}
-                attributes={
-                  localReport
-                    ? { "aria-expanded": String(reportOpen), "aria-controls": reportOpen ? reportId : undefined }
-                    : undefined
-                }
-              />
+              <SubagentChipPreview agent={agent} name={name}>
+                <AgentTag
+                  name={name}
+                  ariaLabel={localReport ? name : openLabel}
+                  onClick={localReport ? () => setReportOpen((value) => !value) : open && (() => open(agent.id))}
+                  attributes={
+                    localReport
+                      ? { "aria-expanded": String(reportOpen), "aria-controls": reportOpen ? reportId : undefined }
+                      : undefined
+                  }
+                />
+              </SubagentChipPreview>
               {!waiting && after}
               {/* Its own box, cut before the chip (subagents.css): the reason and failure go first. */}
               {parts.length > 1 && (

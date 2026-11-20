@@ -68,6 +68,13 @@ if [ -z "$jobs" ]; then
   jobs=$((cpus * 2))
 fi
 [[ "$jobs" =~ ^[1-9][0-9]*$ ]] || { echo "error: --jobs is a positive whole number" >&2; exit 2; }
+# A mini's runner hook grants the job its share of the cores (CMUX_CI_CPU_BUDGET, the units it booked). A pool of one
+# check per core of the whole mini ran 14 wide on a grant of 5 beside other jobs, and its process-heavy tests took
+# about 3x their Linux time (job 131984422217). The grant caps --jobs; a runner that sets none keeps it.
+if [ "$mode" != wait ] && [[ "${CMUX_CI_CPU_BUDGET:-}" =~ ^[1-9][0-9]*$ ]] && [ "$CMUX_CI_CPU_BUDGET" -lt "$jobs" ]; then
+  echo "CMUX_CI_CPU_BUDGET=$CMUX_CI_CPU_BUDGET caps the pool at $CMUX_CI_CPU_BUDGET (was $jobs)"
+  jobs="$CMUX_CI_CPU_BUDGET"
+fi
 [ -z "$deadline_at" ] || [[ "$deadline_at" =~ ^[1-9][0-9]*$ ]] \
   || { echo "error: --deadline-at is a Unix time in seconds" >&2; exit 2; }
 CHECK_POOL_TIMEOUT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/timeout.sh"

@@ -56,8 +56,6 @@ mod catalog_validation;
 use catalog_validation::*;
 pub(crate) use catalog_validation::{validate_operation_error, validate_operation_outcome};
 
-const CATALOG_JSON: &str = include_str!("../../../spec/resource-operations-v2.json");
-
 /// Resolve a live terminal path or an unscoped durable terminal receipt.
 /// Nested selectors keep normal topology containment, so a detached receipt
 /// cannot satisfy a stale workspace, screen, pane, or tab path.
@@ -436,10 +434,10 @@ fn resolve_list_scope(
 /// projection lock that every command of the session waits on, so a large
 /// session's commands slowed with its size (a classic migration of 512
 /// workspaces went O(n²)).
+/// The selector resolves as `terminal.wait_exit`'s does, so the get also reads
+/// an ended terminal with no tab, which `terminal.list` gives until a close.
 fn get_terminal(mux: &Mux, selectors: &ResourceSelectors) -> Result<Value, ResourceError> {
-    let path = mux.resolve_resource_path(ResourceTarget::Terminal, selectors)?;
-    let terminal_id =
-        path.terminal.ok_or_else(|| ResourceError::not_found("terminals", "<resolved>"))?;
+    let terminal_id = resolve_terminal_wait_exit_id(mux, selectors)?;
     // The snapshot publishes every terminal's pending directory before it
     // reads; this one's is enough. Outside the projection lock, as there:
     // publishing takes the state lock itself.

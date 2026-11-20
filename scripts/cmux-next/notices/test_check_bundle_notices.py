@@ -203,6 +203,26 @@ class CheckBundleNoticesTest(unittest.TestCase):
         errors = [e for e in checker.check(self.app, bundle_map, notices) if "WebRTC" in e]
         self.assertEqual(errors, [])
 
+    def test_the_stub_executable_needs_only_first_party_and_the_framework_carries_the_app(self) -> None:
+        # CMUX-629: Contents/MacOS/cmux is a stub; the Swift, Ghostty (Zig) and Sparkle code is
+        # CmuxNextApp.framework, mapped once through its real binary (not its symlinks).
+        bundle_map = json.loads((HERE / "bundle-map.json").read_text())
+        stub = self.app / "Contents/MacOS/cmux"
+        stub.write_bytes(THIN)
+        fw = self.app / "Contents/Frameworks/CmuxNextApp.framework"
+        (fw / "Versions/A").mkdir(parents=True)
+        (fw / "Versions/A/CmuxNextApp").write_bytes(FAT)
+        (fw / "Versions/Current").symlink_to("A")
+        (fw / "CmuxNextApp").symlink_to("Versions/Current/CmuxNextApp")
+        errors = checker.check(self.app, bundle_map, ROOT / "THIRD_PARTY_LICENSES.md")
+        self.assertEqual([e for e in errors if e.startswith("Contents/MacOS/cmux:")], [])
+        framework_errors = [e for e in errors if "CmuxNextApp.framework" in e]
+        self.assertTrue(framework_errors, "the framework's zig-std notice is not bundled here, so it must be asked for")
+        self.assertTrue(all(e.startswith("Contents/Frameworks/CmuxNextApp.framework/Versions/A/CmuxNextApp: missing notice zig-std")
+                            for e in framework_errors), framework_errors)
+        [entry] = [e for e in bundle_map["entries"] if e["path"] == "Contents/MacOS/cmux"]
+        self.assertEqual(entry["notices"], ["first-party"])
+
     def test_the_map_covers_bundled_ghostty_themes(self) -> None:
         bundle_map = json.loads((HERE / "bundle-map.json").read_text())
         paths = {entry["path"] for entry in bundle_map.get("resources", [])}
@@ -227,11 +247,12 @@ class CheckBundleNoticesTest(unittest.TestCase):
         "Contents/Resources/bin/cmux-diff-sidecar",
         "Contents/Resources/bin/cmux-mobile-host",
         "Contents/Helpers/cmux-remote-browser-host.app/Contents/MacOS/cmux-remote-browser-host",
-        # The app binary links CCmuxAppFFI (static Rust, cmux-app-ffi).
-        "Contents/MacOS/cmux",
+        # CCmuxAppFFI (cmux-app-ffi), a dynamic library (Xcode embeds it from the dynamic xcframework).
+        # The app binary links no Rust since then, so it is not here.
+        "Contents/Frameworks/libcmux_app_ffi.dylib",
     )
     ZIG_BINARIES = (
-        "Contents/MacOS/cmux",  # GhosttyNextKit (static)
+        "Contents/Frameworks/CmuxNextApp.framework/*",  # GhosttyNextKit (static), behind the stub Contents/MacOS/cmux
         "Contents/Resources/bin/cmux",  # libghostty-vt
         "Contents/Resources/bin/cmux-tui-host",  # libghostty-vt
         "Contents/Resources/bin/cmux-tui-ssh/cmux-tui-*",
@@ -456,6 +477,25 @@ class CheckBundleNoticesTest(unittest.TestCase):
             for need in entry["notices"]:
                 self.assertRegex(need, r"^(first-party|rust-std|zig-std|section:[A-Za-z0-9._-]+|(file|ghostty-license-tree):Contents/.+)$")
             self.assertFalse(re.search(r"/Versions/[A-Z]/", entry["path"]), "match Versions with *, not a fixed letter")
+
+    # cmux Remote --------------------------------------------------------------
+
+    # Release builds embed the pinned cmux Remote (embed-cmux-remote-dev.sh, build-cmux-remote-dev.sh).
+    # nightly-next run 43864670865 (97eacf0d, 2026-11-16) failed the signed-app checks: these three
+    # Mach-O files had no bundle-map entry.
+    REMOTE = "Contents/Library/cmux Remote (dev).app"
+    # The cmux Computer Use engine, built from cmux-tui with the workspace's own toolchain.
+    REMOTE_ENGINE = f"{REMOTE}/Contents/Frameworks/libcmux_computer_use.dylib"
+
+    def test_the_map_covers_every_binary_of_the_embedded_cmux_remote(self) -> None:
+        bundle_map = json.loads((HERE / "bundle-map.json").read_text())
+        for rel in (f"{self.REMOTE}/Contents/MacOS/cmux-remote", f"{self.REMOTE}/Contents/Frameworks/libWebRTC.dylib",
+                    self.REMOTE_ENGINE):
+            entries = [e for e in bundle_map["entries"] if fnmatch.fnmatchcase(rel, e["path"])]
+            self.assertTrue(entries, f"{rel}: no bundle-map entry")
+        sdk = [e for e in bundle_map["entries"] if fnmatch.fnmatchcase(self.REMOTE_ENGINE, e["path"])][0]
+        self.assertIn("rust-std", sdk["notices"])
+        self.assertIn(self.STD_SECTION, sdk["notices"])
 
 
 if __name__ == "__main__":

@@ -181,6 +181,73 @@ fn a_toast_routes_to_the_provider_for_an_app_with_no_scopes() {
     assert_eq!(request["params"], params);
 }
 
+/// Reader mode and link hints reach the Mac app's browser tabs, which the
+/// daemon cannot script (`browser_rendered_by_app`): `page` is a provider
+/// family. `page.read` needs only `page:read`; `page.hints` and
+/// `page.follow` need `page:write` (grants.rs) and a gesture, and carry a
+/// mutation key.
+#[test]
+fn page_ops_route_to_the_provider_with_their_scopes_and_hints_need_a_gesture() {
+    let root = temp_dir();
+    write_app(
+        &root.0.join("bundled"),
+        "demo",
+        "cmux/demo",
+        json!({"page:read":"read the page","page:write":"draw link hints"}),
+    );
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    f.install("cmux/demo");
+    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
+    let rx = provider(&f, &["toast", "page"]);
+
+    // A read: no gesture, no mutation key.
+    f.supervisor
+        .dispatch(CLIENT, "m1", "n1", "tap", json!({"op":"page.read", "params":{}}), false)
+        .unwrap();
+    let request = next_request(&rx);
+    assert_eq!(
+        (request["op"].clone(), request["origin"].clone()),
+        (json!("page.read"), json!("script"))
+    );
+    assert!(request["idempotency_key"].is_null(), "a read must not get a mutation key");
+    let value = json!({"tab":"tab_1","url":"https://example.com/","title":"Example",
+        "article":{"title":"Example","byline":null,"site":null,"blocks":[]},"links":[]});
+    f.supervisor
+        .provider_result(
+            PROVIDER,
+            request["request_id"].as_u64().unwrap(),
+            true,
+            json!({"value":value}),
+        )
+        .unwrap();
+    let update =
+        f.wait("read result", |e| e["event"] == "apps-scene" && e["ops"][0]["op"] == "update");
+    assert_eq!(update["ops"][0]["props"]["result"], json!({"ok":true,"body":{"value":value}}));
+
+    // Hints without a gesture never reach the provider.
+    let refused = f.call("m1", "page.hints", json!({"action":"show"}), false);
+    assert_eq!(refused["body"]["code"], "gesture.required", "{refused}");
+    let refused = f.call("m1", "page.follow", json!({"label":"sa"}), false);
+    assert_eq!(refused["body"]["code"], "gesture.required", "{refused}");
+
+    // With a gesture they route as the user's mutation.
+    f.supervisor
+        .dispatch(
+            CLIENT,
+            "m1",
+            "n1",
+            "tap",
+            json!({"op":"page.hints", "params":{"action":"show"}}),
+            true,
+        )
+        .unwrap();
+    let request = next_request(&rx);
+    assert_eq!(request["op"], "page.hints");
+    assert_eq!(request["origin"], "user");
+    assert_eq!(request["params"], json!({"action":"show"}));
+    assert!(request["idempotency_key"].as_str().is_some_and(|k| k.starts_with("app:cmux/demo:")));
+}
+
 #[test]
 fn no_provider_fails_at_once_and_a_provider_leaving_fails_its_pending_calls() {
     let f = fixture();
