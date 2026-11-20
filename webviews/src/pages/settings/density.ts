@@ -109,6 +109,8 @@ function preset(id: string, name: string, nameKey: string, factor: number, row: 
   tokens.sidebarRowHeight = row - half(2 * factor);
   tokens.browserRowHeight = row;
   tokens.tabStripHeight = row + 2 * half(3 * factor);
+  // Compact's tabs sit a point further from the omnibar than their strip padding (Swift `DensityPreset`, `tabToOmnibarGap`).
+  if (id === "compact") tokens.tabToOmnibarGap = half(3 * factor) + 1;
   // Default's omnibar is Compact's (Swift `DensityPreset.omnibarScaleFactor`), on Chrome's 34 pt bar
   // (Swift `DensityPreset.chromeOmnibarHeight`) rounded at Helium's 8 on 28.
   if (id === "cozy") {

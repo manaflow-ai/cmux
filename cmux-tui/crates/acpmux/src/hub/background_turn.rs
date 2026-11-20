@@ -286,11 +286,15 @@ impl Hub {
     /// While an agent host is adopted (`hosts.rs` `adopt_held`): its replay comes before
     /// adoption rebuilds the open turn from the complete log (`recover_work`), so until the
     /// returned hold drops, model work counts as the turn the chat's log has open, when it has
-    /// one ([`Hub::log_turn_open`]). Before, the replayed words of the person's own streaming turn
-    /// opened a `background_turn` bracket, which the pane folds into one muted line: after a
-    /// restart the reply streamed on hidden until the turn ended (manaflow-ai/cmuxterm-hq#6338).
-    pub(super) fn hold_adopted_turn<'a>(&self, session: &'a Session) -> AdoptedTurn<'a> {
-        let open = self.log_turn_open(session);
+    /// one (`open`, [`Hub::log_turn_open`]'s read, made off the executor). Before, the replayed
+    /// words of the person's own streaming turn opened a `background_turn` bracket, which the pane
+    /// folds into one muted line: after a restart the reply streamed on hidden until the turn
+    /// ended (manaflow-ai/cmuxterm-hq#6338).
+    pub(super) fn hold_adopted_turn<'a>(
+        &self,
+        session: &'a Session,
+        open: bool,
+    ) -> AdoptedTurn<'a> {
         session.background_turns.lock().unwrap_or_else(|e| e.into_inner()).adopted_turn = open;
         AdoptedTurn(session)
     }
@@ -298,7 +302,7 @@ impl Hub {
     /// Whether the chat's log ends inside an acpmux turn: its last turn marker is a
     /// `turn_started`, or a `turn_result` that carried into the next turn (`carried_turn.rs`).
     /// Read from the end, as `open_work` finds the last turn.
-    fn log_turn_open(&self, session: &Session) -> bool {
+    pub(super) fn log_turn_open(&self, session: &Session) -> bool {
         let mut open = false;
         let _ = self.store.scan_back(
             &session.id,
