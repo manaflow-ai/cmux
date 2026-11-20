@@ -178,6 +178,19 @@ import Testing
         #expect(!args.values.contains { $0.contains(Self.token) })
         #expect(invites.pending() != nil)
     }
+
+    /// `open` names this app's bundle id, which a tagged dev Mac matches against its own tag.
+    @Test func theOpenArgsNameThisAppsBundleID() async throws {
+        let link = RemoveThisPhoneUnpairTests.RecordingLink(RemoveThisPhoneUnpairTests.AuthChannel(MacPinTests.challenge(Self.macKey)))
+        var pairing = Self.pairing(PairInvites())
+        pairing.bundleID = "dev.cmux.mobile.my-tag"
+        _ = await pairing.open(link: link, macID: MacPinTests.mac)
+        #expect(link.opened.first?.1["bundleId"] == "dev.cmux.mobile.my-tag")
+        let quiet = RemoveThisPhoneUnpairTests.RecordingLink(RemoveThisPhoneUnpairTests.AuthChannel(MacPinTests.challenge(Self.macKey)))
+        pairing.bundleID = nil
+        _ = await pairing.open(link: quiet, macID: MacPinTests.mac)
+        #expect(quiet.opened.first?.1["bundleId"] == nil)
+    }
 }
 
 #if os(iOS)
