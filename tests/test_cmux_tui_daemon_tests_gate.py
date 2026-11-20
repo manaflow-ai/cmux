@@ -85,7 +85,7 @@ def flat(text: str) -> str:
 
 
 class DaemonTestsGateTests(unittest.TestCase):
-    def test_the_gate_runs_on_its_blacksmith_size_whatever_the_pool_variables_say(self) -> None:
+    def test_the_gate_spills_to_its_explicit_blacksmith_size(self) -> None:
         runs_on = sole_runs_on(jobs()["cmux-next-daemon-tests"])
         for overrides in ({}, {"CI_NEXT_DAEMON_POOL": DAEMON_LABEL}, {"CI_PIN_DAEMON_POOL": PIN_LABEL},
                           {"CI_PR_POOL_OWNED": ""}, {"CI_NEXT_PROMOTE_POOL": ""}):
@@ -102,9 +102,11 @@ class DaemonTestsGateTests(unittest.TestCase):
                     # nothing (tests/test_ci_owned_first_not_census_frozen.py); Blacksmith is attempt 2+.
                     self.assertIn(label, OWNED_FIRST, (overrides, context))
                 else:
-                    # Its size's RUNNER_POOLS read (#47603): linux_8, or linux_16 while cloud overflow is saved.
-                    pool = "linux_16" if context.get("vars.CI_CLOUD_OVERFLOW_SAVED") else "linux_8"
-                    self.assertEqual(label, json.loads(context["vars.RUNNER_POOLS"])[pool], (overrides, context))
+                    # Attempt 2+ spills explicitly to Blacksmith. RUNNER_POOLS now includes the persistent fleet,
+                    # so using its linux_8/linux_16 values here would route the spill back onto reused runners.
+                    expected = ("blacksmith-16vcpu-ubuntu-2404" if context.get("vars.CI_CLOUD_OVERFLOW_SAVED")
+                                else "blacksmith-8vcpu-ubuntu-2404")
+                    self.assertEqual(label, expected, (overrides, context))
 
     def test_the_job_keeps_its_id_and_setup(self) -> None:
         daemon = jobs()["cmux-next-daemon-tests"]
