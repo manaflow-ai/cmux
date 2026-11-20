@@ -40,9 +40,15 @@ use std::time::Duration;
 #[path = "mesh_read_parts.rs"]
 pub(crate) mod parts;
 
-/// The methods a read may run: each answers a page of a session and changes nothing.
-const READ_METHODS: &[&str] =
-    &[method::MUX_INFO, method::MUX_EVENTS, method::MUX_ATTACH, method::MUX_HISTORY];
+/// The methods a read may run: each answers a page of a session (or its last replies, built
+/// there: one round trip for `acpmux last`) and changes nothing.
+const READ_METHODS: &[&str] = &[
+    method::MUX_INFO,
+    method::MUX_EVENTS,
+    method::MUX_ATTACH,
+    method::MUX_HISTORY,
+    method::MUX_LAST,
+];
 
 /// The other reads of one session a client may ask of `HOST/KEY` (`pairing/read_only.rs`): no
 /// read carries them, so a session only the hub reaches answers that, never `no session` from
@@ -66,6 +72,7 @@ fn crossing(m: &str) -> &'static [&'static str] {
     match m {
         _ if pages(m) => EVENT_PARAMS,
         method::MUX_HISTORY => &["limit"],
+        method::MUX_LAST => &["count"],
         _ => &[],
     }
 }

@@ -900,7 +900,10 @@ async fn forward_inner(
             }
             on = Some(epoch);
         }
-        let result = if matches!(m, method::MUX_INFO | method::MUX_EVENTS | method::MUX_HISTORY) {
+        let result = if matches!(
+            m,
+            method::MUX_INFO | method::MUX_EVENTS | method::MUX_HISTORY | method::MUX_LAST
+        ) {
             // History reads answer from the current snapshot, even during a running turn.
             // A connected link can still have a stuck handler; do not inherit its ten-minute
             // generic deadline. Dropping this future releases its pending reply entry. Attach

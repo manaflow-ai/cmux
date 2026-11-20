@@ -500,3 +500,71 @@ async fn call_error(hub: &Arc<Hub>, m: &str, params: Value) -> Value {
         }
     }
 }
+
+/// cmuxterm-hq#15806: `acpmux last HOST/NAME` read the turn back page by page, each page at most
+/// 40 KiB through the hub and its own round trip, so a coordinator's long turn ran past the 50 s
+/// a read waits. `_acpmux/last` builds the replies where the log is: one round trip, the same
+/// reply as the pages give.
+#[tokio::test]
+async fn last_reads_a_long_turns_reply_through_the_hub_in_one_round_trip() {
+    let b = machine_b();
+    let meta = json!({"acpmux": {"harness": "fake", "name": "long-turn"}});
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let session = made["sessionId"].as_str().unwrap().to_owned();
+    // One reply of 3000 chunks: the pages read back to its start to know it is whole.
+    call(
+        &b,
+        method::SESSION_PROMPT,
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": "chunks: 3000"}]}),
+    )
+    .await;
+    let dir = tempfile::tempdir().unwrap();
+    let a = machine_b();
+    let loopback = Arc::new(Loopback::new(&b, dir.path(), "person-1"));
+    let mesh: Arc<dyn MeshHub> = loopback.clone();
+    let _ = a.mesh.set(mesh);
+    let asks = || loopback.asks.load(std::sync::atomic::Ordering::SeqCst);
+    let key = format!("machine-b/{session}");
+
+    // Before: the pages `acpmux last` read from a daemon without `_acpmux/last`.
+    let mut pages = crate::cli::last_reply::Pages::new(1);
+    while let Some(query) = pages.next_query(&key) {
+        pages.take(&call(&a, method::MUX_EVENTS, query).await);
+    }
+    let paged = pages.replies();
+    let paged_asks = asks();
+    assert_eq!(paged.len(), 1);
+    assert!(paged[0].starts_with("w0 "), "{:?}", paged[0].get(..40));
+    assert!(paged[0].trim_end().ends_with("w2999"), "the paged reply is whole");
+
+    // After: one `_acpmux/last`.
+    let last = call(&a, method::MUX_LAST, json!({"sessionId": key, "count": 1})).await;
+    let last_asks = asks() - paged_asks;
+    eprintln!("hub round trips for last: paged {paged_asks}, _acpmux/last {last_asks}");
+    assert_eq!(last_asks, 1, "_acpmux/last took {last_asks} round trips");
+    assert!(paged_asks > 3, "the long turn paged in {paged_asks} round trips");
+    assert_eq!(last["replies"], json!(paged), "{last}");
+    assert_eq!(last["truncated"], json!(false));
+    assert_eq!((last["peer"].as_str(), last["via"].as_str()), (Some("machine-b"), Some("hub")));
+}
+
+/// An `_acpmux/last` answer fits one hub message whatever its replies hold: the newest reply
+/// keeps the most, each older one at least its start.
+#[test]
+fn last_replies_fit_one_hub_message() {
+    use crate::server::requests::last_fit_for_test as fit;
+    let replies = vec!["a".repeat(30_000), "b".repeat(30_000), "c".repeat(60_000)];
+    let (kept, truncated) = fit(replies, 48 * 1024);
+    assert!(truncated);
+    let total: usize = kept.iter().map(String::len).sum();
+    assert!(total <= 48 * 1024 + 2 * 3, "{total}");
+    assert!(kept[0].len() >= 1024 && kept[1].len() >= 1024, "older replies keep their start");
+    assert!(kept[2].starts_with("ccc") && kept[2].ends_with('…'));
+    let (whole, cut) = fit(vec!["short".into(), "reply".into()], 48 * 1024);
+    assert_eq!((whole, cut), (vec!["short".to_owned(), "reply".to_owned()], false));
+}
