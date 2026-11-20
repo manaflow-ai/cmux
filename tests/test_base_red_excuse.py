@@ -1350,11 +1350,30 @@ class Excusing(unittest.TestCase):
 
     def test_base_job_reads_are_bounded(self):
         self.gh.base_runs = self.dev_daily_runs(excuse.BASE_JOB_READS + 5) + self.gh.base_runs
-        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next run of its workflow"):
+        with self.assertRaisesRegex(excuse.Refused, f"{excuse.INCOMPLETE} {excuse.BASE_JOB_READS} job lists"):
             self.judge()
         reads = [route for route in self.gh.routes if route.endswith("/jobs?filter=latest&per_page=100")
                  and "/runs/10/" not in route]
         self.assertEqual(len(reads), excuse.BASE_JOB_READS)
+
+    def test_a_base_search_the_cap_cut_short_is_incomplete_and_a_retry_reads_past_it(self):
+        # cmuxterm-hq#14126, 2026-11-19: the search stopped at BASE_JOB_READS with runs still unread and said "no
+        # feat-cmux-next run of its workflow has a verdict", the words of a window read whole, so the red stopped as
+        # the PR's own; a retry counted the kept lists again and said the same. A cut search is a timed retry, and a
+        # kept list costs no read, so the next judgement reads past the first ones to the run with the verdict.
+        runs = self.dev_daily_runs(excuse.BASE_JOB_READS + 5)
+        for run in runs:
+            run.update(run_attempt=1, updated_at="2026-11-19T20:00:00Z")
+        self.gh.base_runs = runs + self.gh.base_runs
+        with tempfile.TemporaryDirectory() as kept, unittest.mock.patch.dict(os.environ, {excuse.JOBS_CACHE_ENV: kept}):
+            with self.assertRaises(excuse.Refused) as cut:
+                self.judge()
+            said = str(cut.exception)
+            self.assertRegex(said, rf"{excuse.INCOMPLETE} {excuse.BASE_JOB_READS} job lists .*not a verdict: retry "
+                                   r"after \d\d:\d\dZ")
+            self.assertNotIn("has a verdict for it to compare with", said)
+            text = "\n".join(self.judge())
+        self.assertIn("run 20", text)
 
     def tip_daemon_setup(self, *, verdict="failure"):
         # 2026-10-30 (#27692): a feat-cmux-next push never runs daemon-test, base pushes land every
@@ -8321,7 +8340,7 @@ class BaseRunsThatNeverBuildTheJob(unittest.TestCase):
     def test_runs_whose_suites_cannot_be_read_are_still_bounded(self):
         gh = TreeReuseGitHub(nodes=True)
         gh.run = lambda args: json.dumps({"errors": [{"message": "Something went wrong"}]})
-        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next run of its workflow has a verdict"):
+        with self.assertRaisesRegex(excuse.Refused, f"{excuse.INCOMPLETE} {excuse.BASE_JOB_READS} job lists"):
             self.judge(gh)
         self.assertEqual(len([run for run in gh.job_reads() if run != 10]), excuse.BASE_JOB_READS)
 
