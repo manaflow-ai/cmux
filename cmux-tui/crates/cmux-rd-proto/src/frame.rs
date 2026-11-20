@@ -7,11 +7,15 @@ pub const FRAME_LTR_PREFIX_LEN: usize = 24;
 /// `ref_frame` value of a frame that references no earlier frame (a keyframe).
 pub const REF_NONE: u32 = u32::MAX;
 
+/// The bit of the `au_len` field that says an LTR token follows `ref_frame`. An access unit is
+/// never 2 GiB, so a tokenless frame never sets it and keeps the version-1 layout byte for byte.
+const TOKEN_FLAG: u32 = 1 << 31;
+
 /// One encoded video frame before it is split into shards.
 ///
 /// Layout: `u32 au_len`, `u64 t_capture_us` (host monotonic microseconds),
-/// `u32 ref_frame`, an optional `u64` LTR token, then `au_len` bytes of H.264
-/// or HEVC access unit. The
+/// `u32 ref_frame`, a `u64` LTR token only when `au_len`'s top bit is set, then
+/// `au_len` (top bit cleared) bytes of H.264 or HEVC access unit. The
 /// shards of a frame carry this body; the last data shard is zero-padded,
 /// unless it is the frame's only shard and the frame has no parity.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,11 +32,19 @@ pub struct FrameBody {
 }
 
 impl FrameBody {
+    /// The length of [`Self::encode`]'s output, without serializing.
+    pub fn encoded_len(&self) -> usize {
+        let prefix = if self.ltr_token.is_some() { FRAME_LTR_PREFIX_LEN } else { FRAME_PREFIX_LEN };
+        prefix + self.access_unit.len()
+    }
+
     /// Serializes the body.
     pub fn encode(&self) -> Vec<u8> {
-        let prefix = if self.ltr_token.is_some() { FRAME_LTR_PREFIX_LEN } else { FRAME_PREFIX_LEN };
-        let mut out = Vec::with_capacity(prefix + self.access_unit.len());
-        let len = u32::try_from(self.access_unit.len()).unwrap_or(u32::MAX);
+        let mut out = Vec::with_capacity(self.encoded_len());
+        let mut len = u32::try_from(self.access_unit.len()).unwrap_or(u32::MAX).min(!TOKEN_FLAG);
+        if self.ltr_token.is_some() {
+            len |= TOKEN_FLAG;
+        }
         out.extend_from_slice(&len.to_le_bytes());
         out.extend_from_slice(&self.t_capture_us.to_le_bytes());
         out.extend_from_slice(&self.ref_frame.to_le_bytes());
@@ -46,24 +58,14 @@ impl FrameBody {
     /// Parses a body; trailing zero padding after the access unit is ignored.
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let mut r = Reader::new(bytes);
-        let len = r.u32()? as usize;
+        let raw_len = r.u32()?;
+        let len = (raw_len & !TOKEN_FLAG) as usize;
         let t_capture_us = r.u64()?;
         let ref_frame = r.u32()?;
+        let ltr_token = if raw_len & TOKEN_FLAG != 0 { Some(r.u64()?) } else { None };
         let rest = r.rest();
-        let with_token = len.checked_add(8).and_then(|end| {
-            let token = rest.get(..8)?;
-            let access = rest.get(8..end)?;
-            rest.get(8..12)?.starts_with(&[0, 0, 0, 1]).then_some((token, access))
-        });
-        let (ltr_token, access_unit) = if let Some((token, access)) = with_token {
-            let token =
-                u64::from_le_bytes(token.try_into().map_err(|_| DecodeError::Invalid("token"))?);
-            (Some(token), access.to_vec())
-        } else {
-            let access =
-                rest.get(..len).ok_or(DecodeError::Truncated { need: len, have: rest.len() })?;
-            (None, access.to_vec())
-        };
+        let access_unit =
+            rest.get(..len).ok_or(DecodeError::Truncated { need: len, have: rest.len() })?.to_vec();
         Ok(Self { t_capture_us, ref_frame, ltr_token, access_unit })
     }
 }

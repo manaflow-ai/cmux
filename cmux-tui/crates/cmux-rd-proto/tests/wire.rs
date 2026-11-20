@@ -71,6 +71,32 @@ fn frame_body_ignores_padding() {
 }
 
 #[test]
+fn a_tokenless_frame_whose_access_unit_starts_with_a_short_nal_keeps_every_byte() {
+    // A 4-byte PPS then a slice: bytes 8..12 of the access unit are a start code, which
+    // the old decoder took for a token's end and so stripped the PPS. With LTR off.
+    let access_unit = vec![0, 0, 0, 1, 0x68, 0xce, 0x3c, 0x80, 0, 0, 0, 1, 0x65, 0x88, 0x84, 0x00];
+    let body = FrameBody { t_capture_us: 7, ref_frame: 3, ltr_token: None, access_unit };
+    let mut bytes = body.encode();
+    assert_eq!(bytes.len(), cmux_rd_proto::FRAME_PREFIX_LEN + 16, "version-1 layout");
+    bytes.resize(bytes.len() + 64, 0);
+    assert_eq!(FrameBody::decode(&bytes).expect("decode"), body);
+}
+
+#[test]
+fn a_frame_with_an_ltr_token_round_trips_padded() {
+    let body = FrameBody {
+        t_capture_us: 9,
+        ref_frame: 2,
+        ltr_token: Some(0x0102_0304_0506_0708),
+        access_unit: vec![0, 0, 0, 1, 0x68, 0xce, 0x3c, 0x80, 0, 0, 0, 1, 0x41, 0x9a],
+    };
+    let mut bytes = body.encode();
+    assert_eq!(bytes.len(), body.encoded_len());
+    bytes.resize(bytes.len() + 64, 0);
+    assert_eq!(FrameBody::decode(&bytes).expect("decode"), body);
+}
+
+#[test]
 fn text_is_truncated_on_a_char_boundary() {
     let long = "é".repeat(200);
     let packet = InputPacket { first_seq: 1, events: vec![InputEvent::Text(long)] };
