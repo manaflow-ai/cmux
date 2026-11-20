@@ -57,7 +57,10 @@ UNTRACKED = re.compile(
     # Look ahead BEFORE consuming spaces: otherwise regex backtracking treats the
     # space in import( './module' ) as a computed expression. An empty import()
     # example in prose is not an expression either.
-    r"|import" + JS_GAP + r"\((?!" + JS_GAP + r"[\"'`])" + JS_GAP + r"(?=[\w$({\[/])"
+    # The graph does not parse comments inside imports. Keep those unresolved,
+    # including static relative imports, until its parser can follow them.
+    r"|\bimport\s*/[/*]"
+    r"|import" + JS_GAP + r"\((?!\s*[\"'`])\s*(?=[\w$({\[/])"
     r"|import" + JS_GAP + r"\(" + JS_GAP + r"`[^`]*\$\{"
     r"|(from\s+|import\(\s*)[\"']cmux:|Bun\.spawn")
 UNTRACKED_OUTSIDE_SRC = re.compile(r"readFile|readdir|createServer\(|requireBrowserLane|spawnSync|execSync|execFile")
