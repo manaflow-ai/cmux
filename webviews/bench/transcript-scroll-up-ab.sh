@@ -5,6 +5,7 @@
 # REPEATS times. Leo, 2026-11-16: "how about speeding up the scrolling up of chats?"
 #   bench/transcript-scroll-up-ab.sh BASE [repeats=8] [SHA...]
 #   cmux-ci test --setup playwright -- bash webviews/bench/transcript-scroll-up-ab.sh <base sha> 8 <base sha> <sha>
+# (on the fleet, name each SHA in full: its snapshot has no origin and fetches them from the public repository)
 # Name BASE twice for the base-vs-base floor: `transcript-scroll-up-ab.sh B 8 B S` measures this checkout, B, B
 # again and S. BASE `-` measures this checkout only. Every run's environment passes on to the bench (MODE, ROUNDS,
 # ROWS, PAGES, LATENCY ...). The order of the sides turns every repeat, so a runner warming or tiring over the run
@@ -28,9 +29,12 @@ trees=()
 trap 'for t in "${trees[@]}"; do git -C "$here" worktree remove --force "$t" 2>/dev/null || true; done' EXIT
 # `side NAME SHA`: a detached worktree of SHA with this checkout's bench and node_modules, measured as side NAME.
 side() {
-  local name="$1" sha="$2" depth=() tree
+  local name="$1" sha="$2" depth=() tree remote=origin
   [ "$(git rev-parse --is-shallow-repository)" = true ] && depth=(--depth=1)
-  sha="$(git rev-parse --verify -q "$sha^{commit}" || { git fetch -q "${depth[@]}" origin "$sha" && git rev-parse "$sha^{commit}"; })"
+  # A checkout with no origin (a fleet run's snapshot) fetches from the public repository; a SHA not
+  # here is fetched by its full id.
+  git remote get-url origin >/dev/null 2>&1 || remote=https://github.com/manaflow-ai/cmux.git
+  sha="$(git rev-parse --verify -q "$sha^{commit}" || { git fetch -q "${depth[@]}" "$remote" "$sha" && git rev-parse FETCH_HEAD; })"
   tree="$(mktemp -d)/$name"
   trees+=("$tree")
   git worktree add -q --detach "$tree" "$sha"
