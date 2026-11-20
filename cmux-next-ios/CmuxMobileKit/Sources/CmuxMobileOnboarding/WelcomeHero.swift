@@ -179,12 +179,14 @@ struct WelcomeHeroPrompt<Slot: View>: View {
                 HStack(spacing: 0) {
                     ForEach(Array(0...Self.word.count), id: \.self) { i in
                         // One fixed cell per letter plus one for the resting
-                        // cursor, so typing never moves anything.
-                        ZStack {
-                            Text(verbatim: i < Self.word.count ? String(Self.word[i]) : "x")
-                                .opacity(i < typed ? 1 : 0)
-                            if i == typed { cursorBlock(typing: typed < Self.word.count) }
-                        }
+                        // cursor, so typing never moves anything. The cursor is
+                        // an overlay so it takes the letter cell's size (a bare
+                        // shape in the stack would take all the space offered).
+                        Text(verbatim: i < Self.word.count ? String(Self.word[i]) : "x")
+                            .opacity(i < typed ? 1 : 0)
+                            .overlay {
+                                if i == typed { cursorBlock(typing: typed < Self.word.count) }
+                            }
                     }
                 }
                 .font(.system(size: 46, weight: .semibold, design: .monospaced))
@@ -299,18 +301,19 @@ struct WelcomeHeroBanner: View {
                 for (r, row) in rows.enumerated() {
                     let shown = IntroEase.out(IntroEase.seg(t, 0.1 + Double(r) * 0.06, 0.2 + Double(r) * 0.06))
                     guard shown > 0 else { continue }
-                    context.opacity = shown
+                    // One fill and one stroke per row: the shadow colour is
+                    // translucent, so strokes drawn one by one would darken
+                    // wherever their caps overlap at a cell edge.
+                    var blocks = Path()
+                    var shade = Path()
+                    func line(_ a: CGPoint, _ b: CGPoint) { shade.move(to: a); shade.addLine(to: b) }
                     for (c, ch) in row.enumerated() {
                         let x = CGFloat(c) * w, y = CGFloat(r) * h
                         let cx = x + w / 2, cy = y + h / 2
-                        if ch == "█" {
-                            // A hair wider so neighbouring blocks join with no seam.
-                            context.fill(Path(CGRect(x: x, y: y, width: w + 0.4, height: h + 0.4)), with: fill)
-                            continue
-                        }
-                        var p = Path()
-                        func line(_ a: CGPoint, _ b: CGPoint) { p.move(to: a); p.addLine(to: b) }
                         switch ch {
+                        case "█":
+                            // A hair larger so neighbouring blocks join with no seam.
+                            blocks.addRect(CGRect(x: x, y: y, width: w + 0.4, height: h + 0.4))
                         case "═":
                             line(CGPoint(x: x, y: cy - gap), CGPoint(x: x + w, y: cy - gap))
                             line(CGPoint(x: x, y: cy + gap), CGPoint(x: x + w, y: cy + gap))
@@ -330,10 +333,12 @@ struct WelcomeHeroBanner: View {
                             line(CGPoint(x: x + w, y: cy + gap), CGPoint(x: cx - gap, y: cy + gap)); line(CGPoint(x: cx - gap, y: cy + gap), CGPoint(x: cx - gap, y: y))
                             line(CGPoint(x: x + w, y: cy - gap), CGPoint(x: cx + gap, y: cy - gap)); line(CGPoint(x: cx + gap, y: cy - gap), CGPoint(x: cx + gap, y: y))
                         default:
-                            continue
+                            break
                         }
-                        context.stroke(p, with: shadow, style: stroke)
                     }
+                    context.opacity = shown
+                    context.stroke(shade, with: shadow, style: stroke)
+                    context.fill(blocks, with: fill)
                 }
             }
             // Terminal cells are twice as tall as wide.
