@@ -211,7 +211,7 @@ function Footer({ status, store, strings }: Props) {
       {status.host && <Requests host={status.host} store={store} />}
       <p className="pairing-muted">{strings.format("mobilePairing.page.macName", status.macName)}</p>
       {status.host?.status && <p className="pairing-muted pairing-host-status">{status.host.status}</p>}
-      {status.host && !status.localPhones && <Phones host={status.host} />}
+      {status.host && <Phones host={status.host} />}
       <div className="pairing-actions">
         <button
           type="button"
