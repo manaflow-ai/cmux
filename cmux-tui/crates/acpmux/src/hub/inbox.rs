@@ -121,9 +121,12 @@
 //! the session weakly.
 
 use super::*;
+#[path = "inbox_topic.rs"]
+mod topics;
 use crate::prompt_class::PromptClass;
 use std::sync::Weak;
 use std::sync::atomic::Ordering;
+pub(super) use topics::topic as surge_topic;
 
 /// The provenance kind of a notice.
 pub const NOTICE_KIND: &str = "inbox_notice";
@@ -1252,7 +1255,12 @@ impl Hub {
             sender_meta.as_ref(),
             human_authenticated,
         );
-        let thread = thread_key(explicit, &thread_sender(provenance, sender), &text);
+        let thread_sender = thread_sender(provenance, sender);
+        let tool_notice = tool_notice_of(provenance);
+        let thread = match &tool_notice {
+            Some(notice) => surge_topic(explicit, &text, Some(notice), &thread_sender),
+            None => thread_key(explicit, &thread_sender, &text),
+        };
         let (tx, mut rx) = tokio::sync::watch::channel(None);
         let mut resent: Option<Option<super::queue::Answer>> = None;
         let mut withdrawn = false;
@@ -1326,7 +1334,7 @@ impl Hub {
                             at: now_ms(),
                             text: text.clone(),
                             details: provenance.and_then(|p| p.get("details")).cloned(),
-                            tool_notice: tool_notice_of(provenance),
+                            tool_notice,
                             noticed: false,
                             read: false,
                             answer: Some(tx.clone()),
