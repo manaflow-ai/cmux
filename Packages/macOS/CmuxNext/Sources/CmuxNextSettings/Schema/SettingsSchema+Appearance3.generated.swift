@@ -4,6 +4,44 @@
 public import CmuxNextDesign
 
 extension AppearanceSettingsSchema {
+    static var tuning: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.appearanceTuning", "Appearance Tuning")
+        return [
+            SettingDescriptor(
+                AppearanceTuningSetting.glassTransparencyPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.glassTransparency", "Glass Transparency"),
+                help: SettingsText.keyed("settings.appearance.glassTransparency.help", "How much of the desktop or wallpaper shows through the glass."),
+                kind: .number(SettingNumber(AppearanceTuningSetting.glassTransparencyRange, step: 0.05, unit: .fraction)),
+                default: .number(AppearanceTuningSetting.glassTransparencyDefault),
+                keywords: ["glass", "transparency", "alpha", "clear"]
+            ).hiddenFromSettingsPage("duplicates appearance.backgroundOpacity; the key still loads"),
+            SettingDescriptor(
+                AppearanceTuningSetting.huePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.hue", "Hue"),
+                help: SettingsText.keyed("settings.appearance.hue.help", "Shift the tint color around the hue wheel."),
+                kind: .number(SettingNumber(AppearanceTuningSetting.hueRange, step: 0.05, unit: .fraction, placeholder: AppearanceTuningSetting.huePlaceholder)),
+                default: .number(AppearanceTuningSetting.hueDefault),
+                keywords: ["tint", "color", "colour"]
+            ),
+            SettingDescriptor(
+                AppearanceTuningSetting.saturationPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.saturation", "Saturation"),
+                help: SettingsText.keyed("settings.appearance.saturation.help", "Increase or reduce the tint color intensity."),
+                kind: .number(SettingNumber(AppearanceTuningSetting.saturationRange, step: 0.05, unit: .fraction, placeholder: AppearanceTuningSetting.saturationPlaceholder)),
+                default: .number(AppearanceTuningSetting.saturationDefault),
+                keywords: ["tint", "color", "colour", "intensity"]
+            ),
+        ]
+    }
+}
+
+extension AppearanceSettingsSchema {
     static var look: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.densityMotion", "Density and Motion")
         return [
@@ -337,50 +375,6 @@ extension AppearanceSettingsSchema {
                 default: .string(AnimationSpeedSetting.fallback.rawValue),
                 keywords: ["motion", "speed"]
             ).consumed(by: [.cmuxBrowser, .cmuxNext]),
-        ]
-    }
-}
-
-extension AppearanceSettingsSchema {
-    static var chromeStyle: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.panes", "Panes")
-        return [
-            SettingDescriptor(
-                ChromeStyleSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.chromeStyle", "Window Style"),
-                help: SettingsText.keyed("settings.appearance.chromeStyle.help", "Whether panes sit in one rounded card, and where lines are drawn."),
-                summary: SettingsText.keyed("settings.appearance.chromeStyle.summary", "Card, lines and sidebar background"),
-                kind: .choice(ChromeStyleSetting.choices),
-                default: .string(ChromeStyleSetting.fallback.rawValue),
-                keywords: ["window", "style", "chrome", "card", "flat", "border", "borders", "lines", "divider", "outline", "seam", "sidebar", "two-tone", "minimal", "bare", "floating", "gaps", "blocks"]
-            ),
-            SettingDescriptor(
-                TitleAreaToneSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.titleAreaTone", "Title Area"),
-                help: SettingsText.keyed("settings.appearance.titleAreaTone.help", "The title bar, tab bar and sidebar in the content's color, or shaded apart."),
-                summary: SettingsText.keyed("settings.appearance.titleAreaTone.summary", "One color or a subtle tone for the title area"),
-                kind: .choice([
-                    SettingChoice(TitleAreaTone.oneColor.rawValue, SettingsText.keyed("settings.choice.titleAreaTone.oneColor", "One Color")),
-                    SettingChoice(TitleAreaTone.subtleTone.rawValue, SettingsText.keyed("settings.choice.titleAreaTone.subtleTone", "Subtle Tone")),
-                ]),
-                default: .string(TitleAreaToneSetting.fallback.rawValue),
-                keywords: ["tone", "subtle tone", "two tone", "one color", "single color", "monochrome", "title", "titlebar", "tab bar", "tabs", "chrome", "divider", "contrast", "background"]
-            ),
-            SettingDescriptor(
-                TitleAreaContrastSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.titleAreaContrast", "Title Area Contrast"),
-                help: SettingsText.keyed("settings.appearance.titleAreaContrast.help", "How much darker the title bar, tab bar and sidebar are. 1 is the default."),
-                summary: SettingsText.keyed("settings.appearance.titleAreaContrast.summary", "How much the title and tab bar stand apart"),
-                kind: .number(SettingNumber(TitleAreaContrastSetting.range, step: 0.05, unit: .fraction, placeholder: TitleAreaContrastSetting.placeholder)),
-                default: .number(TitleAreaContrastSetting.fallback),
-                keywords: ["contrast", "title", "titlebar", "tab bar", "tabs", "chrome", "shade", "intensity", "darker", "softer", "frame"]
-            ),
         ]
     }
 }

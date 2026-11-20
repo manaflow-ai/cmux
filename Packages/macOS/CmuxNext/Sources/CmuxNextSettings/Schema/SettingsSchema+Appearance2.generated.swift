@@ -3,6 +3,28 @@
 
 public import CmuxNextDesign
 
+/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
+nonisolated enum AppearanceSettingsSchema {
+    static var iconTheme: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.iconTheme", "Icon Theme")
+        return [
+            SettingDescriptor(
+                NekoIconThemeSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.iconTheme", "Icon Theme"),
+                help: SettingsText.keyed("settings.appearance.iconTheme.help", "The icon drawings used by cmux."),
+                kind: .choice([
+                    SettingChoice(NekoIconTheme.default.rawValue, SettingsText.keyed("settings.choice.default", "Default")),
+                    SettingChoice(NekoIconTheme.neko.rawValue, SettingsText.keyed("settings.choice.neko", "Neko")),
+                ]),
+                default: .string(NekoIconThemeSetting.fallback.rawValue),
+                keywords: ["icons", "icon", "theme", "neko", "cat"]
+            ).hiddenFromSettingsPage("reserved until the Neko artwork passes light/dark 1x/2x review"),
+        ]
+    }
+}
+
 extension AppearanceSettingsSchema {
     static var appTheme: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.appTheme", "App Theme")
@@ -343,44 +365,6 @@ extension AppearanceSettingsSchema {
                 kind: .toggle,
                 default: .bool(WallpaperTintSetting.fallback),
                 keywords: ["wallpaper", "desktop", "tint", "tinting", "glass", "color", "colour", "space", "background"]
-            ),
-        ]
-    }
-}
-
-extension AppearanceSettingsSchema {
-    static var tuning: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.appearanceTuning", "Appearance Tuning")
-        return [
-            SettingDescriptor(
-                AppearanceTuningSetting.glassTransparencyPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.glassTransparency", "Glass Transparency"),
-                help: SettingsText.keyed("settings.appearance.glassTransparency.help", "How much of the desktop or wallpaper shows through the glass."),
-                kind: .number(SettingNumber(AppearanceTuningSetting.glassTransparencyRange, step: 0.05, unit: .fraction)),
-                default: .number(AppearanceTuningSetting.glassTransparencyDefault),
-                keywords: ["glass", "transparency", "alpha", "clear"]
-            ).hiddenFromSettingsPage("duplicates appearance.backgroundOpacity; the key still loads"),
-            SettingDescriptor(
-                AppearanceTuningSetting.huePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.hue", "Hue"),
-                help: SettingsText.keyed("settings.appearance.hue.help", "Shift the tint color around the hue wheel."),
-                kind: .number(SettingNumber(AppearanceTuningSetting.hueRange, step: 0.05, unit: .fraction, placeholder: AppearanceTuningSetting.huePlaceholder)),
-                default: .number(AppearanceTuningSetting.hueDefault),
-                keywords: ["tint", "color", "colour"]
-            ),
-            SettingDescriptor(
-                AppearanceTuningSetting.saturationPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.saturation", "Saturation"),
-                help: SettingsText.keyed("settings.appearance.saturation.help", "Increase or reduce the tint color intensity."),
-                kind: .number(SettingNumber(AppearanceTuningSetting.saturationRange, step: 0.05, unit: .fraction, placeholder: AppearanceTuningSetting.saturationPlaceholder)),
-                default: .number(AppearanceTuningSetting.saturationDefault),
-                keywords: ["tint", "color", "colour", "intensity"]
             ),
         ]
     }
