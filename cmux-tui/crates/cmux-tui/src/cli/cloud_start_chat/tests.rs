@@ -405,7 +405,7 @@ fn started() -> Ran {
 fn started_value() -> Value {
     json!({"machine_id": "vm-1", "machine_name": "chat-fresh", "session_id": "sess-1",
            "host": "registry:x", "agent": "claude", "workspace_id": "ws_1",
-           "tab_id": "tab-1", "target": "machine:vm-1"})
+           "tab_id": "tab-1", "target": "machine:vm-1", "link": "cmux-dev://cloud/session/team/vm-1/sess-1"})
 }
 
 #[test]
@@ -427,6 +427,7 @@ fn a_new_chat_starts_on_a_new_machine_sends_waits_and_answers_the_reply() {
     for (key, value) in [
         ("machine_id", "vm-1"),
         ("session_id", "sess-1"),
+        ("link", "cmux-dev://cloud/session/team/vm-1/sess-1"),
         ("workspace_id", "ws_1"),
         ("tab_id", "tab-1"),
         ("target", "machine:vm-1"),

@@ -297,13 +297,20 @@ struct CloudStartSession {
         if revealing, invocation.allowsViewChange, account == services.cloud.account { CloudHandlers.show(anchor.id, context) }
         // The team sees the new chat now (TeamDO `team.cloud.session.publish`), not on its tab's next change.
         services.cloudTeam.chatStarted()
-        return [
+        var answer: [String: ActionResultValue] = [
             "machine_id": .string(id), "machine_name": .string(name), "target": .string("machine:\(id)"),
             "session_id": .string(started.session), "host": .string(host), "agent": .string(agent),
             "workspace_id": .string(anchor.id), "surface_id": .string(String(started.surface)), "tab_id": .string(tabKey),
             // Where the start's time went (cmuxterm-hq#8658): `cmux cloud start-chat` lists it under its step.
             "stages_ms": .array(steps.recorded.map { .object(["step": .string($0.step), "ms": .int(Int($0.ms))]) }),
         ]
+        if account == services.cloud.account {
+            let teamLink = services.cloud.auth.teamID.flatMap { team in
+                services.linkText(DeepLink(.cloudSession(team: team, machine: id, session: started.session, kind: .chat)))
+            }
+            if let link = teamLink ?? services.linkText(DeepLink(.tab(tabKey))) { answer["link"] = .string(link) }
+        }
+        return answer
     }
 
     /// The store's tab of the chat this run opened. The person closing it before the store

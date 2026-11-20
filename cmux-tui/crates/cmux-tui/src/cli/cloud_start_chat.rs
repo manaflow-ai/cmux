@@ -1714,6 +1714,9 @@ fn steps(
         "folder": folder_kind(request.cwd.as_deref(), request.from_folder.as_deref()),
         "follow_up": follow_ups(machine_id, session),
     });
+    if let Some(link) = at(&started, "link").as_str() {
+        answer.set("link", json!(link));
+    }
     if let Some(cwd) = &request.cwd {
         answer.set("cwd", json!(cwd));
     }
@@ -3118,6 +3121,9 @@ fn report(outcome: &Outcome, output: OutputMode) -> i32 {
                         at(answer, "session_id").as_str().unwrap_or_default()
                     );
                 }
+            }
+            if let Some(link) = at(answer, "link").as_str() {
+                println!("{}", super::wire::sanitize_remote_text(link));
             }
             eprintln!(
                 "vm {}  session_id {}  tab_id {}",
