@@ -258,3 +258,39 @@ test("a list that is itself the scroller moves its window with its own scroll", 
   await act(async () => root.unmount());
   host.remove();
 });
+
+test("Tab from a row before the windowed rows in the same list lands on their true first row", async () => {
+  const { WindowedRows } = await import("../src/agent-session/acpmux/session-info/WindowedRows");
+  const host = dom.window.document.createElement("div");
+  dom.window.document.body.append(host);
+  const root = createRoot(host);
+  const items = itemsOf(10_000);
+  await act(async () =>
+    root.render(
+      <div data-scroller style={{ overflowY: "auto", height: VIEW }}>
+        <ul>
+          <li data-before>
+            <button type="button">before</button>
+          </li>
+          <WindowedRows items={items} render={(item) => <ProbeRow key={item.id} item={item} onOpen={open} />} />
+        </ul>
+      </div>,
+    ),
+  );
+  const scroller = host.querySelector<HTMLElement>("[data-scroller]")!;
+  scroller.scrollTop = 5_000 * ROW;
+  await act(async () => scroller.dispatchEvent(new dom.window.Event("scroll")));
+  const before = host.querySelector<HTMLElement>("li[data-before] button")!;
+  const firstMounted = host.querySelector<HTMLElement>("li[data-rows-rest] + li[data-i] button")!;
+  expect(Number(firstMounted.closest("li")!.getAttribute("data-i"))).toBeGreaterThan(1_000);
+  // The browser's Tab from the row before: focus moves to the first mounted row, from inside the list.
+  await act(async () => {
+    firstMounted.focus();
+    firstMounted.dispatchEvent(new dom.window.FocusEvent("focusin", { bubbles: true, relatedTarget: before }));
+  });
+  const landed = dom.window.document.activeElement?.closest("li")?.getAttribute("data-i");
+  console.log(`WINDOWED-ROWS Tab from a row before, same list: landed on row ${landed}`);
+  expect(landed).toBe("0");
+  await act(async () => root.unmount());
+  host.remove();
+});
