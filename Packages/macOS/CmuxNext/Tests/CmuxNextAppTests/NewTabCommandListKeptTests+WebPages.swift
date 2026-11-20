@@ -164,8 +164,10 @@ extension NewTabCommandListKeptTests {
             #expect(first.started == before.started + 1, "the first key from a terminal started \(first.started - before.started) listings")
             #expect(slices.contexts == [handed], "the listing's slices read under the focus contexts \(slices.contexts); the page has \(handed) at the hand-over")
             #expect(end.started == first.started, "a second ask started \(end.started - first.started) listings")
-            let page = try #require(Self.opened(services, after: known, old).first { tabs.views[$0] != nil }, "the key opened no New Tab page with a view")
-            let view = try #require(tabs.views[page], "the page has no view after its listing")
+            // Exactly one new page, then its view: a second new page with a view would hide a page of the key that has none.
+            let pages = Self.opened(services, after: known, old)
+            try #require(pages.count == 1, "the key opened \(pages.count) New Tab pages where 1 is wanted: \(Self.named(pages, services, pane))")
+            let view = try #require(tabs.views[pages[0]], "the key's page has no view after its listing: \(Self.named(pages, services, pane))")
             #expect(cold.list != nil && view.model.newTab?.omnibar.actions == again.list?.actions, "the page does not show the list of now")
         }
     }
@@ -187,15 +189,18 @@ extension NewTabCommandListKeptTests {
         func others() -> [AgentTabKey] { NewTabCommandListKeptTests.opened(services, after: known, old + [first]) }
 
         /// What each of `keys` is, for the words of a fixture's issue: a count of pages that is not the row's names its pages.
-        func named(_ keys: [AgentTabKey]) -> String {
-            let inPane = Set(pane.pane.tabs.map(\.id))
-            let words = keys.map { key in
-                let view = services.agentTabs.views[key] == nil ? "no view" : "a view"
-                let place = inPane.contains(key.key) ? "a tab of the row's pane" : "no tab of the row's pane"
-                return "\(key.key) (\(view), \(place))"
-            }
-            return words.joined(separator: ", ")
+        func named(_ keys: [AgentTabKey]) -> String { NewTabCommandListKeptTests.named(keys, services, pane) }
+    }
+
+    /// What each of `keys` is, for the words of an issue: its key, if it has a view, and if it is a tab of `pane`.
+    private static func named(_ keys: [AgentTabKey], _ services: AppServices, _ pane: PaneController) -> String {
+        let inPane = Set(pane.pane.tabs.map(\.id))
+        let words = keys.map { key in
+            let view = services.agentTabs.views[key] == nil ? "no view" : "a view"
+            let place = inPane.contains(key.key) ? "a tab of the row's pane" : "no tab of the row's pane"
+            return "\(key.key) (\(view), \(place))"
         }
+        return words.joined(separator: ", ")
     }
 
     /// The New Tab pages that were not there before, by their keys of now: a page's key changes at the store's answer.
