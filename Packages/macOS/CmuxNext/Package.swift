@@ -191,7 +191,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 9478c1ee2ae40ac0c6c7e35b0422307b730b3643e99e81ceb7eecb6cff14b8c4
+// app-ffi-pin-checksum: bd79f93545221502be3729354e30bcb38fd818d0a97cb42af3a387a264812695
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -280,7 +280,12 @@ let appFrameworkLinkerSettings: [LinkerSetting] = [
 ] + (appLinksStatically ? [] : [
     .unsafeFlags(["-Xlinker", "-objc_stubs_small"]),
     // Release only: a Debug or `swift test` link of a test bundle keeps every symbol.
-    .unsafeFlags(["-Xlinker", "-exported_symbol", "-Xlinker", "_cmux_next_*", "-Xlinker", "-dead_strip"],
+    // A release test bundle gets these flags too (it links this target), and swiftpm-testing-helper
+    // finds the bundle's Swift Testing runner with dlsym("main"): with only `_cmux_next_*` exported
+    // it found nothing and every release suite ran 0 tests. `_mai[n]` is a pattern, so the
+    // framework, which has no `main`, links as before.
+    .unsafeFlags(["-Xlinker", "-exported_symbol", "-Xlinker", "_cmux_next_*",
+                  "-Xlinker", "-exported_symbol", "-Xlinker", "_mai[n]", "-Xlinker", "-dead_strip"],
                  .when(configuration: .release)),
 ])
 
