@@ -3291,7 +3291,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ...(trustBlock ? { trustBlock } : {}),
       ...(canTrustFolder ? { trustFolder: () => trustNow.current() } : {}),
     }),
-    [runs, trustBlock, canTrustFolder],
+    [runs, trustBlock, canTrustFolder, trustNow],
   );
   // A wide pane reserves a right-side summary column; a narrow pane keeps the summary as a
   // popover under the header button so it never covers the composer controls.
@@ -10081,6 +10081,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     notices,
     quoteReply,
     inheritedFolderRef,
+    // useChatTrust's refs: the same objects every render.
+    trustCancelEpoch,
+    trustRouteSnapshot,
+    trustRenderedOwner,
+    trustRefused,
+    pendingTrustRefusal,
+    trustRevision,
+    retryAfterTrust,
+    trustRouteOwner,
+    peerTrustStarted,
   ]);
   const registryChips = (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
     | React.ComponentType<{ snapshot: AcpmuxSnapshot }>
