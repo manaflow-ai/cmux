@@ -2062,6 +2062,17 @@
       "title" : "Theme File",
       "type" : "string"
     },
+    "appearance.themeFileExceptions" : {
+      "default" : [
+
+      ],
+      "description" : "Settings you changed while a theme file sets them. Your value applies over the file's; resetting the row returns to the file's. Choosing another theme file clears the list.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Changed Over Theme File",
+      "type" : "array"
+    },
     "appearance.titleAreaContrast" : {
       "default" : 1,
       "description" : "How much darker the title bar, tab bar and sidebar are. 1 is the default.",
@@ -3889,6 +3900,12 @@
       "default" : false,
       "description" : "Mac Screen tabs connect only through the relay, to test it.",
       "title" : "Relay Only",
+      "type" : "boolean"
+    },
+    "macScreen.shareWithoutAsking" : {
+      "default" : false,
+      "description" : "Your own cmux CLI, agents and devices turn sharing on with no sheet. Each device's access still applies.",
+      "title" : "Share This Mac Without Asking",
       "type" : "boolean"
     },
     "macScreen.systemShortcuts" : {
@@ -6163,7 +6180,7 @@
       "type" : "boolean"
     },
     "workspaces.freeing.enabled" : {
-      "default" : false,
+      "default" : true,
       "description" : "Ends idle shells of long-unused workspaces; they restart in the same folder.",
       "title" : "Free Idle Terminals",
       "type" : "boolean"

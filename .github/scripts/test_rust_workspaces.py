@@ -249,6 +249,22 @@ class RustWorkspacesTests(unittest.TestCase):
                 self.change(path, "{\"v\": 2}\n")
                 self.assertEqual(self.planned(), planned)
 
+    def test_a_root_reference_reads_what_its_comment_lists(self) -> None:
+        # CARGO_MANIFEST_DIR/../../.. is the repository root: unannotated, every path reaches its reader (five
+        # workspaces ran on 325 of 327 merged PRs, 2026-11-17); `// affected-reads:` names what it reads.
+        root = 'let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");\n'
+        cases = (("", "README.md", ["ws/crates/own"]),
+                 ("// affected-reads: fixtures/f.json\n", "README.md", []),
+                 ("// affected-reads: fixtures/f.json\n", "fixtures/f.json", ["ws/crates/own"]),
+                 ("// affected-reads: none\n", "README.md", []),
+                 ("// affected-reads: fixtures/gone.json\n", "README.md", ["ws/crates/own"]))  # stale: every path
+        for i, (note, path, planned) in enumerate(cases):
+            with self.subTest(note=note, path=path):
+                self.change("ws/crates/own/tests/t.rs", f"// case {i}\n{note}{root}")
+                self.base = self.head()
+                self.change(path, f"changed {i}\n")
+                self.assertEqual(self.planned(), planned)
+
     def test_no_usable_base_or_a_list_change_plans_every_run_entry(self) -> None:
         everything = ["ws/crates/own", "solo", "term", "vws", "solo/tool", "vws/side"]
         for base in ("", "0" * 40, "f" * 40):
