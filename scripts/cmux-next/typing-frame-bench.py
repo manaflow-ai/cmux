@@ -171,6 +171,8 @@ MODE = None
 VARIANTS = {
     "base": {},
     "latcrit": {"env": {"CMUX_NEXT_EXP_LATENCY_CRITICAL": "1"}},
+    "rqos": {"env": {"CMUX_NEXT_EXP_RENDERER_QOS": "1"}},
+    "rqos_latcrit": {"env": {"CMUX_NEXT_EXP_RENDERER_QOS": "1", "CMUX_NEXT_EXP_LATENCY_CRITICAL": "1"}},
     "nocvdl": {"env": {"CMUX_NEXT_CEF_EXTRA_SWITCHES": "disable-features=CVDisplayLinkBeginFrameSource"}},
     "int20ms": {"interval": 0.02},
     "int500ms": {"interval": 0.5},
