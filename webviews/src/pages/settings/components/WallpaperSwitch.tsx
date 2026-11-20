@@ -408,7 +408,7 @@ export function WallpaperSwitch({
   const name = useId();
   const mode = modeOf(values, choices);
   // The last picture that stayed: Off puts it back after a mode that has none of its own. The last
-  // shuffle: Rotate goes back to its folder. Both outlive the page (wallpaperSwitch.ts's memory).
+  // shuffle: Rotate goes back to its folder. Both outlive this card (wallpaperSwitch.ts's memory).
   const lastFixed = useRef<string | null>(isFixed(values.background) ? values.background : rememberedFixed());
   useEffect(() => {
     rememberBackground(values.background);

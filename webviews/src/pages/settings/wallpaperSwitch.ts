@@ -61,7 +61,8 @@ export function isShuffle(id: string): boolean {
 // the rotating to day/night/whatever but it lost the folder ... i couldn't get back into it"). Light &
 // Dark and Time of Day keep theirs in their own keys; Rotate's folder and Off's picture live only in
 // appearance.background, which the next mode writes over, so the page keeps them: for the life of
-// the page, and in the web view's storage when it has some, so closing Settings keeps them too.
+// the page, and in its web view's storage while that store lives. A new Settings web view may start with an
+// empty store (nothing is kept on disk); keeping these in a host-backed key is the follow-up.
 const MEMORY_KEY = "cmux.settings.wallpaperSwitch.memory";
 /** shuffle: what Rotate last showed; folder: the last folder it shuffled (kept while it shows the
  * paintings, so the folder stays one click away); fixed: the picture Off last showed. */
@@ -111,7 +112,7 @@ export function rememberedFolder(): string | null {
   return remembered().folder;
 }
 
-/** The picture Off last showed (never none), or null before any. */
+/** The picture Off last showed (`none` when No Wallpaper was chosen), or null before any. */
 export function rememberedFixed(): string | null {
   return remembered().fixed;
 }
@@ -121,7 +122,7 @@ export function rememberBackground(background: string): void {
   const now = remembered();
   const next: WallpaperMemory = isShuffle(background)
     ? { ...now, shuffle: background, folder: background.startsWith(FOLDER_PREFIX) ? background : now.folder }
-    : isFixed(background) && background !== "none"
+    : isFixed(background)
       ? { ...now, fixed: background }
       : now;
   if (next.shuffle === now.shuffle && next.folder === now.folder && next.fixed === now.fixed) return;
@@ -129,7 +130,7 @@ export function rememberBackground(background: string): void {
   try {
     storage()?.setItem(MEMORY_KEY, JSON.stringify(next));
   } catch {
-    // No storage: the page still holds it until Settings closes.
+    // No storage: the page still holds it while it lives.
   }
 }
 
