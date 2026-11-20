@@ -367,8 +367,8 @@ fn a_name_longer_than_255_bytes_is_enametoolong() {
     let (state, manifest, fake) = setup(false);
     let overlay = open(state.path(), &manifest, &fake);
     let long = "x".repeat(256);
-    assert_eq!(overlay.lookup(overlay.root(), &long), Err(errno::ENAMETOOLONG));
-    assert_eq!(overlay.create(overlay.root(), &long, 0o644, me()), Err(errno::ENAMETOOLONG));
+    assert_eq!(overlay.lookup(overlay.root(), &long), Err(ENAMETOOLONG));
+    assert_eq!(overlay.create(overlay.root(), &long, 0o644, me()), Err(ENAMETOOLONG));
     let fits = "x".repeat(255);
     overlay.create(overlay.root(), &fits, 0o644, me()).unwrap();
 }
@@ -407,4 +407,40 @@ fn a_deleted_name_with_a_newline_stays_deleted_after_a_reopen() {
     drop(overlay);
     let overlay = open(state.path(), &manifest, &fake);
     assert_eq!(overlay.lookup(overlay.root(), "a\nb"), Err(ENOENT));
+}
+
+#[test]
+fn an_open_folder_keeps_its_attributes_after_it_is_renamed_over() {
+    // xfstests generic/035: fstat of an open folder another rename replaced answered ENOENT.
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let root = overlay.root();
+    overlay.mkdir(root, "from", 0o755, me()).unwrap();
+    let to = overlay.mkdir(root, "to", 0o755, me()).unwrap();
+    let handle = overlay.open_handle(to.ino, libc::O_RDONLY | libc::O_DIRECTORY).unwrap();
+    overlay.rename(root, "from", root, "to", 0).unwrap();
+    let gone = overlay.getattr(to.ino).unwrap();
+    assert_eq!((gone.kind, gone.nlink), (Type::Dir, 0));
+    overlay.release(handle);
+}
+
+#[test]
+fn reads_leave_access_times_alone_as_the_mount_says_noatime() {
+    // xfstests generic/120: the base's reads moved atime on the disk under it (its relatime).
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let (made, handle) = overlay.create(overlay.root(), "f", 0o644, me()).unwrap();
+    overlay.write_handle(handle, made.ino, 0, b"bytes").unwrap();
+    overlay.release(handle);
+    let old = Set { atime: Some(SetTime::At(1_000_000_000)), ..Set::default() };
+    overlay.setattr(made.ino, None, old).unwrap();
+    let handle = overlay.open_handle(made.ino, libc::O_RDONLY).unwrap();
+    assert_eq!(overlay.read_handle(handle, made.ino, 0, 10).unwrap(), b"bytes");
+    overlay.release(handle);
+    assert_eq!(overlay.read(made.ino, 0, 10).unwrap(), b"bytes");
+    overlay.readdir(overlay.root()).unwrap();
+    assert_eq!(overlay.getattr(made.ino).unwrap().atime_ns, 1_000_000_000);
+    let root_atime = overlay.getattr(overlay.root()).unwrap().atime_ns;
+    overlay.readdir(overlay.root()).unwrap();
+    assert_eq!(overlay.getattr(overlay.root()).unwrap().atime_ns, root_atime);
 }

@@ -2,7 +2,7 @@
 //! would, through the real wire ([`cmux_projection::link`]) and mounts it the way the machine does,
 //! so file system suites (pjdfstest, fsx, xfstests) run against the same code the agent sees.
 //!
-//!     conformance_mount SOURCE MOUNT STATE [--lower] [--allow-other] [--fsname=NAME]
+//!     conformance_mount SOURCE MOUNT STATE [--lower|--ro] [--allow-other] [--fsname=NAME] [--disk-atime]
 //!
 //! SOURCE is the stand-in Mac folder (files, folders and links, every one shared). MOUNT is an
 //! empty folder. STATE holds the upper layer and the cache. `--lower` mounts the read-only lower
@@ -117,12 +117,13 @@ mod linux {
         // Blocked before any thread starts: every thread inherits the mask, so only sigwait sees them.
         let signals = block_signals();
         let args: Vec<String> = std::env::args().skip(1).collect();
-        let lower_only = args.iter().any(|arg| arg == "--lower");
+        let lower_only = args.iter().any(|arg| arg == "--lower" || arg == "--ro");
+        let disk_atime = args.iter().any(|arg| arg == "--disk-atime");
         let allow_other = args.iter().any(|arg| arg == "--allow-other");
         let places: Vec<&String> = args.iter().filter(|arg| !arg.starts_with("--")).collect();
         let [source, at, state] = places.as_slice() else {
             anyhow::bail!(
-                "usage: conformance_mount SOURCE MOUNT STATE [--lower] [--allow-other] [--fsname=NAME]"
+                "usage: conformance_mount SOURCE MOUNT STATE [--lower|--ro] [--allow-other] [--fsname=NAME] [--disk-atime]"
             );
         };
         let source = std::fs::canonicalize(source)?;
@@ -156,7 +157,7 @@ mod linux {
         let overlay = Arc::new(Overlay::open(Arc::new(manifest), Path::new(state), link, owner)?);
         let at = std::fs::canonicalize(at)?;
         let fsname = args.iter().find_map(|arg| arg.strip_prefix("--fsname=")).map(str::to_owned);
-        let options = Options { read_only: lower_only, allow_other, fsname };
+        let options = Options { read_only: lower_only, allow_other, fsname, disk_atime };
         let mounted = cmux_projection::mount::mount_with(overlay, &at, options)?;
         std::fs::metadata(&at)?;
         println!("mounted");

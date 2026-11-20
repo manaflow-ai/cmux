@@ -22,7 +22,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::io::Write as _;
 use std::os::fd::AsRawFd as _;
-use std::os::unix::fs::{FileExt as _, FileTypeExt as _, PermissionsExt as _};
+use std::os::unix::fs::{FileExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
@@ -96,24 +96,6 @@ impl Type {
             libc::S_IFCHR => Self::Char,
             libc::S_IFBLK => Self::Block,
             _ => Self::File,
-        }
-    }
-
-    fn of_file_type(kind: fs::FileType) -> Self {
-        if kind.is_dir() {
-            Self::Dir
-        } else if kind.is_symlink() {
-            Self::Link
-        } else if kind.is_fifo() {
-            Self::Fifo
-        } else if kind.is_socket() {
-            Self::Socket
-        } else if kind.is_char_device() {
-            Self::Char
-        } else if kind.is_block_device() {
-            Self::Block
-        } else {
-            Self::File
         }
     }
 }
@@ -346,6 +328,12 @@ impl Overlay {
             remote_bytes: AtomicU64::new(0),
             cache_hits: AtomicU64::new(0),
         })
+    }
+
+    /// Whether reads leave access times as they are (the mount's `noatime`, the default), or let
+    /// the machine's disk keep them as its own mount says (`relatime`).
+    pub fn keep_atime(&self, keep: bool) {
+        self.upper.set_keep_atime(keep);
     }
 
     /// The folder that holds what the agent wrote.
@@ -681,7 +669,7 @@ impl Overlay {
         if let Node::Upper(stat) = &node {
             if stat.is_dir() {
                 for (name, inode, kind) in self.upper.list(&path).unwrap_or_default() {
-                    names.insert(name, (Type::of_file_type(kind), Some(inode)));
+                    names.insert(name, (Type::of_mode(kind), Some(inode)));
                 }
             }
         }
@@ -1012,6 +1000,12 @@ impl Overlay {
                     file.set_len(0).map_err(|error| io_errno(&error))?;
                 }
                 (Some(Arc::new(file)), None)
+            }
+            // An open folder keeps its attributes after it is deleted or renamed over (the
+            // descriptor's fstat); one this daemon may not open still lists by its path.
+            Node::Upper(stat) if stat.is_dir() => {
+                let opened = self.upper.open_file(&path, libc::O_RDONLY | libc::O_DIRECTORY, 0);
+                (opened.ok().map(Arc::new), None)
             }
             Node::Upper(_) => (None, None),
             Node::Lower(index) => (None, Some(index)),

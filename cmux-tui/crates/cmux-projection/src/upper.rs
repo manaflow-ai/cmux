@@ -7,6 +7,7 @@ use std::ffi::CString;
 use std::fs;
 use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// `stat` of an upper path, the fields the overlay uses.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -103,6 +104,9 @@ fn proc_path(fd: &OwnedFd) -> PathBuf {
 pub struct Upper {
     root: OwnedFd,
     path: PathBuf,
+    /// Reads through this layer leave access times alone (`O_NOATIME`), as the mount's `noatime`
+    /// says; off, the disk under it keeps them as its own mount says.
+    keep_atime: AtomicBool,
 }
 
 impl Upper {
@@ -118,7 +122,11 @@ impl Upper {
             return Err(std::io::Error::last_os_error());
         }
         // SAFETY: `fd` was just opened and is owned by nothing else.
-        Ok(Self { root: unsafe { OwnedFd::from_raw_fd(fd) }, path: path.to_path_buf() })
+        Ok(Self {
+            root: unsafe { OwnedFd::from_raw_fd(fd) },
+            path: path.to_path_buf(),
+            keep_atime: AtomicBool::new(true),
+        })
     }
 
     /// The upper folder's own path.
@@ -358,20 +366,43 @@ impl Upper {
     /// Opens `path` (never through a link) with `flags` (`O_CREAT` uses `mode`).
     pub fn open_file(&self, path: &str, flags: i32, mode: u32) -> Result<fs::File, i32> {
         let (dir, last) = self.parent(path)?;
-        // SAFETY: valid descriptor and C string; the result is checked.
-        let fd = unsafe {
-            libc::openat(
-                dir.as_raw_fd(),
-                last.as_ptr(),
-                flags | libc::O_CLOEXEC | libc::O_NOFOLLOW,
-                libc::c_uint::from(mode),
-            )
+        let fd = self.open_at(&dir, &last, flags | libc::O_CLOEXEC | libc::O_NOFOLLOW, mode)?;
+        Ok(fs::File::from(fd))
+    }
+
+    /// Whether reads through this layer leave access times alone ([`Upper::open_file`] opens with
+    /// `O_NOATIME`); on until the mount says otherwise.
+    pub fn set_keep_atime(&self, keep: bool) {
+        self.keep_atime.store(keep, Ordering::Relaxed);
+    }
+
+    /// `openat`, with `O_NOATIME` while access times are kept; without it where the kernel refuses
+    /// it (a file this daemon neither owns nor may override the owner of).
+    fn open_at(
+        &self,
+        dir: &OwnedFd,
+        name: &CString,
+        flags: i32,
+        mode: u32,
+    ) -> Result<OwnedFd, i32> {
+        let open = |flags: i32| {
+            // SAFETY: valid descriptor and C string; the result is checked.
+            let fd = unsafe {
+                libc::openat(dir.as_raw_fd(), name.as_ptr(), flags, libc::c_uint::from(mode))
+            };
+            if fd < 0 {
+                return Err(errno());
+            }
+            // SAFETY: `fd` was just opened and is owned by nothing else.
+            Ok(unsafe { OwnedFd::from_raw_fd(fd) })
         };
-        if fd < 0 {
-            return Err(errno());
+        if !self.keep_atime.load(Ordering::Relaxed) {
+            return open(flags);
         }
-        // SAFETY: `fd` was just opened and is owned by nothing else.
-        Ok(fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) }))
+        match open(flags | libc::O_NOATIME) {
+            Err(libc::EPERM) => open(flags),
+            opened => opened,
+        }
     }
 
     /// Opens an existing upper file, its mode notwithstanding. The kernel has already checked the
@@ -397,17 +428,56 @@ impl Upper {
 
     /// The names in folder `dir` with each one's inode number and whether it is a folder, a link
     /// or something else (`d_type`).
-    pub fn list(&self, dir: &str) -> Result<Vec<(String, u64, fs::FileType)>, i32> {
-        let fd = self.dir(dir)?;
-        let read = fs::read_dir(proc_path(&fd))
-            .map_err(|error| error.raw_os_error().unwrap_or(libc::EIO))?;
-        let mut out = Vec::new();
-        for entry in read.flatten() {
-            use std::os::unix::fs::DirEntryExt as _;
-            let Some(name) = entry.file_name().to_str().map(str::to_owned) else { continue };
-            let Ok(kind) = entry.file_type() else { continue };
-            out.push((name, entry.ino(), kind));
+    pub fn list(&self, dir: &str) -> Result<Vec<(String, u64, u32)>, i32> {
+        let at = self.dir(dir)?;
+        let dot = name(".")?;
+        // Read through a descriptor of its own (O_NOATIME while access times are kept): a
+        // listing leaves the folder's access time as the mount says.
+        let fd =
+            self.open_at(&at, &dot, libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC, 0)?;
+        // SAFETY: `fd` is an open folder; fdopendir takes it over (closedir closes it).
+        let stream = unsafe { libc::fdopendir(std::os::fd::IntoRawFd::into_raw_fd(fd)) };
+        if stream.is_null() {
+            return Err(errno());
         }
+        let mut out = Vec::new();
+        loop {
+            // SAFETY: `stream` is open; the entry it returns lives until the next readdir64.
+            let entry = unsafe { libc::readdir64(stream) };
+            if entry.is_null() {
+                break;
+            }
+            // SAFETY: a non-null entry from readdir64 holds a NUL-terminated name.
+            let (raw, ino, d_type) = unsafe {
+                let entry = &*entry;
+                (std::ffi::CStr::from_ptr(entry.d_name.as_ptr()), entry.d_ino, entry.d_type)
+            };
+            let Ok(found) = raw.to_str() else { continue };
+            if found == "." || found == ".." {
+                continue;
+            }
+            let format = match d_type {
+                libc::DT_DIR => libc::S_IFDIR,
+                libc::DT_REG => libc::S_IFREG,
+                libc::DT_LNK => libc::S_IFLNK,
+                libc::DT_FIFO => libc::S_IFIFO,
+                libc::DT_SOCK => libc::S_IFSOCK,
+                libc::DT_CHR => libc::S_IFCHR,
+                libc::DT_BLK => libc::S_IFBLK,
+                // A disk that names no type: its stat does.
+                _ => match self.stat(&if dir.is_empty() {
+                    found.to_owned()
+                } else {
+                    format!("{dir}/{found}")
+                }) {
+                    Ok(stat) => stat.format(),
+                    Err(_) => continue,
+                },
+            };
+            out.push((found.to_owned(), ino, format));
+        }
+        // SAFETY: `stream` is open and closed once.
+        unsafe { libc::closedir(stream) };
         Ok(out)
     }
 

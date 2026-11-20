@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime};
@@ -63,6 +63,9 @@ pub struct Options {
     /// The source the mount table shows (default `cmux-projection`): a suite that finds its mount
     /// by its device name sets one.
     pub fsname: Option<String>,
+    /// Access times follow the machine's disk (its `relatime`) instead of staying put (`noatime`,
+    /// the default). A read-only mount always keeps them.
+    pub disk_atime: bool,
 }
 
 /// Mounts `overlay` at `at` (an existing, empty folder).
@@ -86,12 +89,13 @@ pub fn mount_with(overlay: Arc<Overlay>, at: &Path, options: Options) -> anyhow:
             }
         })?;
     }
-    let fs = Fs { overlay, jobs: sender, listings: HashMap::new(), next_handle: AtomicU64::new(1) };
+    overlay.keep_atime(options.read_only || !options.disk_atime);
+    let fs = Fs { overlay, jobs: sender, listings: HashMap::new() };
     let mut mount_options = vec![
         MountOption::FSName(options.fsname.clone().unwrap_or_else(|| "cmux-projection".into())),
         MountOption::Subtype("cmux".into()),
         MountOption::DefaultPermissions,
-        MountOption::NoAtime,
+        if options.disk_atime { MountOption::Atime } else { MountOption::NoAtime },
         if options.read_only { MountOption::RO } else { MountOption::RW },
     ];
     if options.allow_other {
@@ -116,9 +120,9 @@ pub fn unmount_stale(at: &Path) {
 struct Fs {
     overlay: Arc<Overlay>,
     jobs: Sender<Job>,
-    /// Folder listings by handle, taken at `opendir` so paging is stable and cheap.
+    /// Folder listings by handle, taken at `opendir` and again at each read from the start, so
+    /// paging is stable and cheap.
     listings: HashMap<u64, Vec<(u64, FileType, String)>>,
-    next_handle: AtomicU64,
 }
 
 fn file_type(kind: Type) -> FileType {
@@ -177,6 +181,16 @@ fn who(req: &Request<'_>) -> Who {
 }
 
 impl Fs {
+    /// Folder `ino`'s listing as `readdir` pages it: `.`, `..`, then its names.
+    fn listing(&self, ino: u64) -> Result<Vec<(u64, FileType, String)>, i32> {
+        let entries = self.overlay.readdir(ino)?;
+        let mut listing = Vec::with_capacity(entries.len() + 2);
+        listing.push((ino, FileType::Directory, ".".to_owned()));
+        listing.push((ino, FileType::Directory, "..".to_owned()));
+        listing.extend(entries.into_iter().map(|(ino, kind, name)| (ino, file_type(kind), name)));
+        Ok(listing)
+    }
+
     fn run(&self, job: impl FnOnce(&Overlay) + Send + 'static) {
         let overlay = self.overlay.clone();
         let _ = self.jobs.send(Box::new(move || job(&overlay)));
@@ -420,16 +434,13 @@ impl Filesystem for Fs {
     }
 
     fn opendir(&mut self, _req: &Request<'_>, ino: u64, _flags: i32, reply: ReplyOpen) {
-        match self.overlay.readdir(ino) {
-            Ok(entries) => {
-                let handle = self.next_handle.fetch_add(1, Ordering::Relaxed);
-                let mut listing = vec![
-                    (ino, FileType::Directory, ".".to_owned()),
-                    (ino, FileType::Directory, "..".to_owned()),
-                ];
-                listing.extend(
-                    entries.into_iter().map(|(ino, kind, name)| (ino, file_type(kind), name)),
-                );
+        // The overlay's handle keeps the folder's attributes readable (fstat) after it is deleted
+        // or renamed over, as an open folder on a disk does.
+        let listed = self.listing(ino).and_then(|listing| {
+            Ok((self.overlay.open_handle(ino, libc::O_RDONLY | libc::O_DIRECTORY)?, listing))
+        });
+        match listed {
+            Ok((handle, listing)) => {
                 self.listings.insert(handle, listing);
                 reply.opened(handle, 0);
             }
@@ -440,11 +451,24 @@ impl Filesystem for Fs {
     fn readdir(
         &mut self,
         _req: &Request<'_>,
-        _ino: u64,
+        ino: u64,
         fh: u64,
         offset: i64,
         mut reply: ReplyDirectory,
     ) {
+        // A read from the start (the first, or one after rewinddir) lists the folder as it is now:
+        // POSIX has rewinddir see names made or deleted since the folder was opened.
+        if offset == 0 && self.listings.contains_key(&fh) {
+            match self.listing(ino) {
+                Ok(listing) => {
+                    self.listings.insert(fh, listing);
+                }
+                Err(errno) => {
+                    reply.error(errno);
+                    return;
+                }
+            }
+        }
         let Some(listing) = self.listings.get(&fh) else {
             reply.error(libc::EBADF);
             return;
@@ -468,6 +492,7 @@ impl Filesystem for Fs {
         reply: ReplyEmpty,
     ) {
         self.listings.remove(&fh);
+        self.overlay.release(fh);
         reply.ok();
     }
 
