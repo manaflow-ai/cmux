@@ -278,7 +278,8 @@ def runner_label_errors(runs_on: str) -> list[str]:
     Structural, so complete without enumerating values: the runs-on is a || chain whose every
     operand yields a Blacksmith label the expression writes out, whatever its conditions are:
     a string literal, `conditions && 'literal'` (a false condition only passes on to the next
-    operand), or a bounded pick `conditions && contains(fromJSON('[labels]'), R) && R`. The chain
+    operand), or a bounded pick `conditions && contains(fromJSON('[labels]'), R) && R` whose
+    labels are Blacksmith or GitHub-hosted ones (each runs one job, then is destroyed). The chain
     ends with a literal, so it never yields a falsy value. The one exception is the fork branch
     `github.repository_owner != 'manaflow-ai' && '<hosted label>'`, first, which never runs in
     manaflow-ai. The exact CI_TRUSTED_RUNNER selector is accepted too: its list is ephemeral.
@@ -308,7 +309,8 @@ def runner_label_errors(runs_on: str) -> list[str]:
                 == [("literal", "manaflow-ai"), ("ref", "github.repository_owner")]):
             continue
         picked = _bounded_pick(conditions, result) if label is None else []
-        if picked and all(blacksmith.fullmatch(item) for item in picked):
+        # A listed hosted label is as ephemeral as a Blacksmith size: one job, then destroyed.
+        if picked and all(blacksmith.fullmatch(item) or HOSTED_LITERAL_LABEL.fullmatch(item) for item in picked):
             continue
         errors.append(f"{runs_on!r}: operand {index + 1} can yield something other than a Blacksmith label it names")
     if not errors and _string(chain[-1]) is None:
