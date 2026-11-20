@@ -668,8 +668,21 @@ fn intent_only_changes_never_overwrite_target_staging() {
         assert_eq!(sh(dst.path(), "git diff HEAD --binary"), worktree);
         assert_eq!(sh(dst.path(), "git show-ref --head"), refs);
         assert!(!dst.path().join(".git/index.lock").exists());
-        sh(dst.path(), "git reset -q HEAD");
-        assert!(apply(dst.path(), &carry).ok, "preserving the target edit permits a retry");
+        // Save the conflicting staging before resolving this owned fixture.
+        // A mixed reset can retain an intent flag whose blob already matches
+        // HEAD; reading the tree constructs the clean index the retry requires.
+        let saved = tempfile::tempdir().unwrap();
+        std::fs::write(saved.path().join("target-index"), &index).unwrap();
+        let staged = sh(dst.path(), "git diff --cached --binary --ita-invisible-in-index");
+        std::fs::write(saved.path().join("target-staging.patch"), &staged).unwrap();
+        sh(dst.path(), "git read-tree HEAD");
+        let retry = apply(dst.path(), &carry);
+        assert!(retry.ok, "{source} / {target}: retry failed: {}", retry.stderr);
+        assert_eq!(std::fs::read(saved.path().join("target-index")).unwrap(), index);
+        assert_eq!(
+            std::fs::read_to_string(saved.path().join("target-staging.patch")).unwrap(),
+            staged
+        );
     }
 }
 
