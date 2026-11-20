@@ -315,7 +315,6 @@
    "src/agent-session/acpmux/locationPopover.ts::react-hooks-js/refs": 1,
    "src/agent-session/acpmux/locationPopover.ts::react-hooks-js/todo": 1,
    "src/agent-session/acpmux/needsYou/useNeedsYou.ts::react-hooks-js/refs": 1,
-   "src/agent-session/acpmux/newtab/NewTabScreen.tsx::react-doctor/no-ref-current-in-render": 12,
    "src/agent-session/acpmux/newtab/allChatsListModel.ts::react-doctor/no-impure-state-updater": 1,
    "src/agent-session/acpmux/newtab/allChatsListModel.ts::react-doctor/no-ref-current-in-render": 2,
    "src/agent-session/acpmux/newtab/allChatsListModel.ts::react-hooks-js/immutability": 1,
