@@ -27,8 +27,3 @@ extension AppsClient {
     /// The presence of every app now (observed through `apps`; the rule: `AppPresence`).
     public var presence: AppPresence { AppPresence(apps) }
 }
-
-extension AppsClient {
-    /// The presence of every app now (observed through `apps`; the rule: `AppPresence`).
-    public var presence: AppPresence { AppPresence(apps) }
-}
