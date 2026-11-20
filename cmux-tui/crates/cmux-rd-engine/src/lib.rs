@@ -979,7 +979,7 @@ impl MediaEngine {
         if self.profile.is_ultra() && self.probe_planner.active().is_none() && self.idle(now_us) {
             let due = self
                 .last_probe_start_us
-                .map_or(true, |started| now_us.saturating_sub(started) >= IDLE_PROBE_INTERVAL_US);
+                .is_none_or(|started| now_us.saturating_sub(started) >= IDLE_PROBE_INTERVAL_US);
             if due {
                 self.start_probe(ProbeReason::Idle, now_us);
                 self.emit_probe(now_us, &mut out);
