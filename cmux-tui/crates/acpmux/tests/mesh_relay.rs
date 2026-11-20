@@ -1469,14 +1469,15 @@ async fn only_a_same_person_mesh_start_gets_the_full_access_host_profile() {
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
-    for (name, same_person, policy, forged_boundary, mixed_grant, user) in [
-        ("own-full", true, "approve-all", false, false, Some("person-1")),
-        ("own-asking", true, "ask", false, false, Some("person-1")),
-        ("team-forged", false, "approve-all", true, false, Some("person-2")),
-        ("mixed-other", false, "approve-all", true, true, Some("person-2")),
-        ("mixed-missing", false, "approve-all", true, true, None),
-        ("mixed-empty", false, "approve-all", true, true, Some("")),
-        ("mixed-own", true, "approve-all", false, true, Some("person-1")),
+    for (name, same_person, policy, boundary, mixed_grant, user) in [
+        ("own-full", true, "approve-all", None, false, Some("person-1")),
+        ("own-asking", true, "ask", None, false, Some("person-1")),
+        ("own-opt-out", true, "approve-all", Some(false), false, Some("person-1")),
+        ("team-forged", false, "approve-all", Some(true), false, Some("person-2")),
+        ("mixed-other", false, "approve-all", Some(true), true, Some("person-2")),
+        ("mixed-missing", false, "approve-all", Some(true), true, None),
+        ("mixed-empty", false, "approve-all", Some(true), true, Some("")),
+        ("mixed-own", true, "approve-all", None, true, Some("person-1")),
     ] {
         let grant: MeshControlFrom = serde_json::from_value(if mixed_grant {
             json!({"sameUser": true, "daemonId": "inst_a", "ops": ["start"]})
@@ -1490,14 +1491,21 @@ async fn only_a_same_person_mesh_start_gets_the_full_access_host_profile() {
             .with_own_user(Arc::new(|| Some("person-1".into())));
         let mut request = message(name, "", Kind::Control);
         request.from.user = user.map(str::to_owned);
-        request.body = json!({"version": 1, "params": {"cwd": dir.path(), "mcpServers": [],
+        let mut body = json!({"version": 1, "params": {"cwd": dir.path(), "mcpServers": [],
             "_meta": {"acpmux": {"harness": "fake", "name": name, "policy": policy,
-                "vmBoundary": forged_boundary, "via": "peer"}}}})
-        .to_string();
+                "via": "peer"}}}});
+        if let Some(boundary) = boundary {
+            body["params"]["_meta"]["acpmux"]["vmBoundary"] = json!(boundary);
+        }
+        request.body = body.to_string();
         let ack = hook.control(&hub, &request).await.unwrap();
         assert_eq!(ack.state, AckState::Delivered, "{name}: {ack:?}");
         let session = hub.resolve(ack.detail.as_deref().unwrap()).unwrap();
-        assert_eq!(session.meta().vm_boundary, same_person && policy == "approve-all", "{name}");
+        assert_eq!(
+            session.meta().vm_boundary,
+            same_person && policy == "approve-all" && boundary != Some(false),
+            "{name}"
+        );
     }
     hub.shutdown_all().await;
 }
