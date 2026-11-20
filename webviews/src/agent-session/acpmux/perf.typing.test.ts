@@ -49,7 +49,7 @@ function page() {
     },
     removeEventListener: (type: string, listener: (event: unknown) => void) => listeners.get(type)?.delete(listener),
     fire: (type: string, event: unknown = {}) => {
-      for (const listener of [...(listeners.get(type) ?? [])]) listener(event);
+      for (const listener of Array.from(listeners.get(type) ?? [])) listener(event);
     },
   };
 }
