@@ -1,6 +1,270 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "backdrop.collection.live": {
+      "comment": "The wallpaper picker's group of live wallpapers: programs that move and follow the pointer.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خلفيات حية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Žive pozadine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Levende baggrunde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live-Hintergründe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live wallpapers"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fondos animados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fonds d’écran animés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sfondi animati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブ壁紙"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងរូបភាពផ្ទាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "라이브 배경화면"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Levende bakgrunner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tapety na żywo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Papéis de parede animados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Живые обои"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ภาพพื้นหลังแบบเคลื่อนไหว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canlı duvar kâğıtları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Живі шпалери"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hình nền động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "动态壁纸"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動態背景圖片"
+          }
+        }
+      }
+    },
+    "backdrop.live.attribution": {
+      "comment": "Below a live wallpaper's thumbnail when its manifest has no description.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خلفية حية: تتحرك وتتبع المؤشر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Živa pozadina: kreće se i prati pokazivač"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Levende baggrund: bevæger sig og følger markøren"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live-Hintergrund: bewegt sich und folgt dem Zeiger"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live wallpaper: moves, and follows the pointer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fondo animado: se mueve y sigue al puntero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fond d’écran animé : il bouge et suit le pointeur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sfondo animato: si muove e segue il puntatore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブ壁紙：動き、ポインタに反応します"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងរូបភាពផ្ទាល់៖ ផ្លាស់ទី និងតាមព្រួញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "라이브 배경화면: 움직이며 포인터를 따라갑니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Levende bakgrunn: beveger seg og følger pekeren"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tapeta na żywo: porusza się i podąża za wskaźnikiem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Papel de parede animado: se move e segue o ponteiro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Живые обои: движутся и следуют за указателем"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ภาพพื้นหลังแบบเคลื่อนไหว: เคลื่อนไหวและตามตัวชี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canlı duvar kâğıdı: hareket eder ve imleci izler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Живі шпалери: рухаються й стежать за вказівником"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hình nền động: chuyển động và đi theo con trỏ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "动态壁纸：会动，并跟随指针"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動態背景圖片：會動，並跟隨指標"
+          }
+        }
+      }
+    },
     "backdrop.collection.shader": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Living wallpapers"}}, "ar": {"stringUnit": {"state": "translated", "value": "خلفيات حية"}}, "bs": {"stringUnit": {"state": "translated", "value": "Žive pozadine"}}, "da": {"stringUnit": {"state": "translated", "value": "Levende baggrunde"}}, "de": {"stringUnit": {"state": "translated", "value": "Lebendige Hintergründe"}}, "es": {"stringUnit": {"state": "translated", "value": "Fondos vivos"}}, "fr": {"stringUnit": {"state": "translated", "value": "Fonds d’écran vivants"}}, "it": {"stringUnit": {"state": "translated", "value": "Sfondi viventi"}}, "ja": {"stringUnit": {"state": "translated", "value": "ライブ壁紙"}}, "km": {"stringUnit": {"state": "translated", "value": "ផ្ទាំងរូបភាពរស់"}}, "ko": {"stringUnit": {"state": "translated", "value": "살아 있는 배경화면"}}, "nb": {"stringUnit": {"state": "translated", "value": "Levende bakgrunner"}}, "pl": {"stringUnit": {"state": "translated", "value": "Żywe tapety"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Papéis de parede vivos"}}, "ru": {"stringUnit": {"state": "translated", "value": "Живые обои"}}, "th": {"stringUnit": {"state": "translated", "value": "วอลเปเปอร์มีชีวิต"}}, "tr": {"stringUnit": {"state": "translated", "value": "Canlı duvar kâğıtları"}}, "uk": {"stringUnit": {"state": "translated", "value": "Живі шпалери"}}, "vi": {"stringUnit": {"state": "translated", "value": "Hình nền sống động"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "动态交互壁纸"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "動態互動桌布"}}}},
     "backdrop.shader.currents": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Currents"}}, "ar": {"stringUnit": {"state": "translated", "value": "تيارات"}}, "bs": {"stringUnit": {"state": "translated", "value": "Struje"}}, "da": {"stringUnit": {"state": "translated", "value": "Strømme"}}, "de": {"stringUnit": {"state": "translated", "value": "Strömungen"}}, "es": {"stringUnit": {"state": "translated", "value": "Corrientes"}}, "fr": {"stringUnit": {"state": "translated", "value": "Courants"}}, "it": {"stringUnit": {"state": "translated", "value": "Correnti"}}, "ja": {"stringUnit": {"state": "translated", "value": "潮流"}}, "km": {"stringUnit": {"state": "translated", "value": "ចរន្ត"}}, "ko": {"stringUnit": {"state": "translated", "value": "물결"}}, "nb": {"stringUnit": {"state": "translated", "value": "Strømmer"}}, "pl": {"stringUnit": {"state": "translated", "value": "Prądy"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Correntes"}}, "ru": {"stringUnit": {"state": "translated", "value": "Течения"}}, "th": {"stringUnit": {"state": "translated", "value": "กระแสน้ำ"}}, "tr": {"stringUnit": {"state": "translated", "value": "Akıntılar"}}, "uk": {"stringUnit": {"state": "translated", "value": "Течії"}}, "vi": {"stringUnit": {"state": "translated", "value": "Dòng chảy"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "暗流"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "暗流"}}}},
     "backdrop.shader.ripples": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Ripples"}}, "ar": {"stringUnit": {"state": "translated", "value": "تموجات"}}, "bs": {"stringUnit": {"state": "translated", "value": "Talasići"}}, "da": {"stringUnit": {"state": "translated", "value": "Krusninger"}}, "de": {"stringUnit": {"state": "translated", "value": "Wellen"}}, "es": {"stringUnit": {"state": "translated", "value": "Ondas"}}, "fr": {"stringUnit": {"state": "translated", "value": "Ondulations"}}, "it": {"stringUnit": {"state": "translated", "value": "Increspature"}}, "ja": {"stringUnit": {"state": "translated", "value": "波紋"}}, "km": {"stringUnit": {"state": "translated", "value": "រលកតូចៗ"}}, "ko": {"stringUnit": {"state": "translated", "value": "잔물결"}}, "nb": {"stringUnit": {"state": "translated", "value": "Krusninger"}}, "pl": {"stringUnit": {"state": "translated", "value": "Zmarszczki"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Ondulações"}}, "ru": {"stringUnit": {"state": "translated", "value": "Рябь"}}, "th": {"stringUnit": {"state": "translated", "value": "ระลอกคลื่น"}}, "tr": {"stringUnit": {"state": "translated", "value": "Dalgacıklar"}}, "uk": {"stringUnit": {"state": "translated", "value": "Брижі"}}, "vi": {"stringUnit": {"state": "translated", "value": "Gợn sóng"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "涟漪"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "漣漪"}}}},

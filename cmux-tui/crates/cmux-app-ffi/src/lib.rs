@@ -30,12 +30,18 @@
 //! `terminal_prediction` is predictive local echo for a terminal whose shell runs
 //! on another machine (cmux-terminal-prediction, include/cmux_terminal_prediction.h).
 
+//! `wallpaper` is cmux-wallpaper's C ABI: live wallpapers (the program check and
+//! its Metal translation, the scheduler, the Frame packer; include/cmux_wallpaper_ffi.h).
 //! `agent_client` is the no-I/O agent list client (acpmux-client,
 //! include/acpmux_client.h); the app owns and drives its byte connection.
 
 pub mod hover;
 pub mod motion;
 pub mod terminal_selection;
+/// cbindgen:ignore
+/// Live wallpapers: its own header (include/cmux_wallpaper_ffi.h, cbindgen-wallpaper.toml),
+/// so it stays out of cmux_motion_ffi.h.
+pub mod wallpaper;
 
 pub use acpmux_client::ffi as agent_client;
 pub use cmux_action_catalog::ffi as action_catalog;
