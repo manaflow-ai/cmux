@@ -210,27 +210,18 @@ impl Target {
         }
     }
 
-    /// Delivers `wire` as message `uuid` from `sender`. A Claude Code session gets it in Claude
-    /// Code's own envelope with the sender's permission class when the daemon bound one (`mode`,
-    /// `prompt_provenance::FROM_MODE`), so a session that runs without asking takes it unasked
-    /// from a sender of its class; else as plain text, unattested, which such a session holds.
-    async fn deliver(
-        &self,
-        wire: &str,
-        uuid: &str,
-        sender: &str,
-        mode: Option<&str>,
-    ) -> Result<(), String> {
+    /// Delivers `wire` as message `uuid` from `sender`.
+    async fn deliver(&self, wire: &str, uuid: &str, sender: &str) -> Result<(), String> {
         match self {
             Target::Claude { config, peer, token } => {
                 let from = crate::claude_peers::from_address(sender);
-                let enveloped = crate::claude_peers::envelope(&from, Some(sender), mode, wire);
-                let text = enveloped.as_deref().unwrap_or(wire);
                 let sent =
-                    crate::claude_peers::deliver(config, peer, text, uuid, &from, token.as_deref())
+                    crate::claude_peers::deliver(config, peer, wire, uuid, &from, token.as_deref())
                         .await;
+                // Plain text attests no permission class: a session that runs without asking
+                // holds it (`claude_peers::count_unattested`).
                 if sent.is_ok() {
-                    crate::claude_peers::count_delivery(sender, enveloped.as_ref().and(mode));
+                    crate::claude_peers::count_unattested(sender);
                 }
                 sent
             }
@@ -351,13 +342,7 @@ impl Hub {
             Err(rx) => return Some(resent(session, &prompt_id, rx, opts).await),
         };
         let sender = opts.agent.clone().unwrap_or_else(|| "person".to_owned());
-        // The sender's permission class as the daemon bound it (a proven session's mode, a peer's
-        // or relay's word); never for the person's own prompt, which no session sent.
-        let mode = opts
-            .agent
-            .as_ref()
-            .and_then(|_| crate::prompt_provenance::mode_of(opts.provenance.as_ref()));
-        if let Err(e) = target.deliver(&wire, &uuid, &sender, mode).await {
+        if let Err(e) = target.deliver(&wire, &uuid, &sender).await {
             // A resend waiting on this delivery fails with it, and a later one delivers again.
             let gone = deliveries().by_uuid.remove(&uuid);
             if let Some(p) = gone {
@@ -367,11 +352,6 @@ impl Hub {
         }
         let details = target.details();
         let mut record = json!({"promptId": prompt_id, "uuid": uuid});
-        if claude {
-            // What the receiver read of the sender's class: `null` is unattested, which a
-            // session that runs without asking holds for its person.
-            record["fromMode"] = json!(mode);
-        }
         if let (Some(record), Some(more)) = (record.as_object_mut(), details.as_object()) {
             record.extend(more.clone());
         }

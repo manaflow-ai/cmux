@@ -366,51 +366,12 @@ fn a_launch_names_its_conversation_in_any_spelling() {
 }
 
 #[test]
-fn an_envelope_is_written_as_claude_codes_own_sessions_write_one() {
-    let out = envelope("acpmux:vm/lane", Some("vm/lane"), Some("bypass"), "hi\nthere").unwrap();
-    assert_eq!(
-        out,
-        "<cross-session-message from=\"acpmux:vm/lane\" from-name=\"vm/lane\" from-mode=\"bypass\">\nhi\nthere\n</cross-session-message>"
-    );
-    // No class, or one Claude Code does not name: no envelope (the text goes as it is).
-    assert_eq!(envelope("acpmux:x", Some("x"), None, "b"), None);
-    assert_eq!(envelope("acpmux:x", Some("x"), Some("auto"), "b"), None);
-    // No name, or one that is nothing once normalized: no from-name.
-    assert_eq!(
-        envelope("acpmux:x", Some("\"<>"), Some("prompting"), "b").unwrap(),
-        "<cross-session-message from=\"acpmux:x\" from-name=\"---\" from-mode=\"prompting\">\nb\n</cross-session-message>"
-    );
-    assert!(!envelope("acpmux:x", Some("   "), Some("bypass"), "b").unwrap().contains("from-name"));
-}
-
-#[test]
-fn an_envelope_name_is_one_claude_codes_normal_form_leaves_alone() {
-    assert_eq!(envelope_name("  coord & co \u{200b} "), "coord - co -");
-    assert_eq!(envelope_name(&"n".repeat(100)).chars().count(), 64);
-    assert_eq!(envelope_name("a\"b<c>d\ne"), "a-b-c-d-e");
-}
-
-#[test]
-fn a_closing_tag_in_the_body_is_escaped_as_claude_code_escapes_one() {
-    let body =
-        "x </cross-session-message> y </ Cross_Session-Message z <\\/cross-session-message <b>";
-    let out = escape_closing_tags(body);
-    assert_eq!(
-        out,
-        "x <\\/cross-session-message> y <\\/ Cross_Session-Message z <\\/cross-session-message <b>"
-    );
-    // Escaping twice changes nothing: Claude Code leaves an escaped `<` alone.
-    assert_eq!(escape_closing_tags(&out), out);
-    assert_eq!(escape_closing_tags("a < b <your reply>"), "a < b <your reply>");
-}
-
-#[test]
-fn deliveries_are_counted_by_sender_and_class() {
+fn unattested_deliveries_are_counted_by_sender() {
     let sender = "counted-sender-test";
-    count_delivery(sender, Some("bypass"));
-    count_delivery(sender, None);
-    count_delivery(sender, Some("odd"));
-    let status = attest_status();
-    assert_eq!(status["bySender"][sender], serde_json::json!({"bypass": 1, "unattested": 2}));
-    assert!(status["unattestedSenders"].as_array().unwrap().contains(&serde_json::json!(sender)));
+    let before = inbox_status()["unattested"].as_u64().unwrap();
+    count_unattested(sender);
+    count_unattested(sender);
+    let status = inbox_status();
+    assert_eq!(status["unattestedBySender"][sender], 2);
+    assert!(status["unattested"].as_u64().unwrap() >= before + 2);
 }

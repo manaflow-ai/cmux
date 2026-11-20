@@ -1173,9 +1173,9 @@ impl Hub {
             "largeMessages": crate::wire_size::global().status(),
             // The session list each client is sent, by its name (`list_bytes.rs`).
             "listReplies": crate::list_bytes::global().status(),
-            // Deliveries into Claude Code sessions by sender, attested (`bypass`, `prompting`) or
-            // not (`unattested`: held at a session that runs without asking) (`claude_peers.rs`).
-            "claudeInbox": crate::claude_peers::attest_status(),
+            // Deliveries into Claude Code sessions' inboxes by sender, none attesting a permission
+            // class, so held at a session that runs without asking (`claude_peers.rs`).
+            "claudeInbox": crate::claude_peers::inbox_status(),
             // Startup phases, memory, list rebuilds and each connection's queued bytes
             // (`gauges.rs`, `server/queue_gauge.rs`): atomics and short locks no request holds.
             "gauges": ({

@@ -796,21 +796,6 @@ pub const FROM_HARNESS: &str = "fromHarness";
 /// the machine's user, as the unix socket's is.
 pub const FROM_RELAY: &str = "fromRelay";
 
-/// `_meta.acpmux.fromMode`: the sending session's permission class, `bypass` (it runs every tool
-/// without asking) or `prompting`, the two classes Claude Code's cross-session messaging attests
-/// (`from-mode` on its `<cross-session-message>` envelope). A Claude Code session that runs
-/// without asking holds a message whose sender attested none for its person to let in by hand
-/// (Leo, 2026-11-20: "YOU ALL NEED TO BE FUCKING SENDING FUCKING MESSAGES FUCKING PROPERLY SO I
-/// DONT HAVE TO KEEP FUCKING LETTING THESE IN MANUALLY FUCK"). The daemon binds it where it binds
-/// the sender: from a proven session's own mode (`BoundSender::of_session`), a peer daemon's word
-/// on its own session, or a relay's word on the session it took the message from (`acpmux send
-/// --relayed-mode`). A client never names it: what one writes is dropped with the other sender
-/// fields. With none bound, nothing is attested, and the receiver holds the message as before.
-pub const FROM_MODE: &str = "fromMode";
-
-/// The permission classes [`FROM_MODE`] takes.
-pub const MODE_CLASSES: &[&str] = &["bypass", "prompting"];
-
 /// Where a relayed message came from ([`FROM_RELAY`]).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RelaySender {
@@ -876,8 +861,6 @@ pub struct BoundSender {
     pub harness: Option<String>,
     /// A relay's word on the machine and session it took the message from ([`FROM_RELAY`]).
     pub relay: Option<RelaySender>,
-    /// The sending session's permission class ([`FROM_MODE`]): `bypass` or `prompting`.
-    pub mode: Option<String>,
 }
 
 impl BoundSender {
@@ -887,15 +870,11 @@ impl BoundSender {
             session_id: fits(id, MAX_FIELD_BYTES).then(|| id.to_owned()),
             harness: Some(crate::web_modes::family_of(meta)).filter(|h| harness_fits(h)),
             relay: None,
-            mode: session_mode_class(meta).map(str::to_owned),
         }
     }
 
     fn is_empty(&self) -> bool {
-        self.session_id.is_none()
-            && self.harness.is_none()
-            && self.relay.is_none()
-            && self.mode.is_none()
+        self.session_id.is_none() && self.harness.is_none() && self.relay.is_none()
     }
 
     /// The `_meta.acpmux` fields that carry it to a peer.
@@ -909,9 +888,6 @@ impl BoundSender {
         }
         if let Some(relay) = &self.relay {
             out.insert(FROM_RELAY.to_owned(), relay.to_value());
-        }
-        if let Some(mode) = &self.mode {
-            out.insert(FROM_MODE.to_owned(), json!(mode));
         }
         Value::Object(out)
     }
@@ -941,7 +917,6 @@ pub fn peer_sender(params: &Value) -> Option<BoundSender> {
             .map(str::to_owned),
         harness: field(FROM_HARNESS).filter(|h| harness_fits(h)).map(str::to_owned),
         relay: mux.get(FROM_RELAY).and_then(RelaySender::of),
-        mode: mode_class(mux.get(FROM_MODE)),
     };
     (!sender.is_empty()).then_some(sender)
 }
@@ -954,12 +929,7 @@ pub fn relay_sender(params: &Value) -> Option<BoundSender> {
     let mux = params.pointer("/_meta/acpmux")?;
     let relay = RelaySender::of(mux.get(FROM_RELAY)?)?;
     let harness = mux.get(FROM_HARNESS).and_then(Value::as_str).filter(|h| harness_fits(h));
-    Some(BoundSender {
-        session_id: None,
-        harness: harness.map(str::to_owned),
-        relay: Some(relay),
-        mode: mode_class(mux.get(FROM_MODE)),
-    })
+    Some(BoundSender { session_id: None, harness: harness.map(str::to_owned), relay: Some(relay) })
 }
 
 /// Takes `fromSessionId`, `fromHarness` and `fromRelay` out of a prompt's `_meta.acpmux`: what a
@@ -969,7 +939,6 @@ pub fn drop_sender_fields(params: &mut Value) {
         mux.remove(FROM_SESSION_ID);
         mux.remove(FROM_HARNESS);
         mux.remove(FROM_RELAY);
-        mux.remove(FROM_MODE);
     }
 }
 
@@ -980,12 +949,7 @@ pub fn declared_harness(params: &Value) -> Option<BoundSender> {
     let mux = params.pointer("/_meta/acpmux")?;
     mux.get("fromAgent").and_then(Value::as_str)?;
     let harness = mux.get(FROM_HARNESS)?.as_str().filter(|h| harness_fits(h))?;
-    Some(BoundSender {
-        session_id: None,
-        harness: Some(harness.to_owned()),
-        relay: None,
-        mode: None,
-    })
+    Some(BoundSender { session_id: None, harness: Some(harness.to_owned()), relay: None })
 }
 
 /// `provenance` with the bound sender's fields set (replacing any it had).
@@ -1000,36 +964,8 @@ pub fn stamp_sender(mut provenance: Value, sender: Option<&BoundSender>) -> Valu
         if let Some(relay) = &sender.relay {
             fields.insert(FROM_RELAY.to_owned(), relay.to_value());
         }
-        if let Some(mode) = &sender.mode {
-            fields.insert(FROM_MODE.to_owned(), json!(mode));
-        }
     }
     provenance
-}
-
-/// The sending session's permission class a prompt's provenance carries ([`FROM_MODE`]), as
-/// the daemon bound it (`stamp_sender`); `None` when nothing attested one.
-pub fn mode_of(provenance: Option<&Value>) -> Option<&'static str> {
-    mode_class(provenance?.get(FROM_MODE))
-}
-
-/// `bypass` or `prompting` ([`MODE_CLASSES`]) in `value`, else `None`.
-fn mode_class(value: Option<&Value>) -> Option<&'static str> {
-    let value = value?.as_str()?;
-    MODE_CLASSES.iter().copied().find(|class| *class == value)
-}
-
-/// The permission class of session `meta` as Claude Code's cross-session messaging names it:
-/// `bypass` when its current mode runs every tool unasked (`web_modes::runs_everything_unasked`),
-/// else `prompting`; `None` when the session reports no mode.
-pub fn session_mode_class(meta: &crate::store::SessionMeta) -> Option<&'static str> {
-    let mode = crate::web_modes::mode_of(meta)?;
-    let family = crate::web_modes::mode_family(meta);
-    Some(if crate::web_modes::runs_everything_unasked(&family, &mode) {
-        "bypass"
-    } else {
-        "prompting"
-    })
 }
 
 /// The `fromSessionId` and `fromHarness` a prompt's provenance carries (`stamp_sender`).
@@ -1194,12 +1130,7 @@ mod sender_tests {
         let harness = declared_harness(&named);
         assert_eq!(
             harness,
-            Some(BoundSender {
-                session_id: None,
-                harness: Some("codex".into()),
-                relay: None,
-                mode: None
-            })
+            Some(BoundSender { session_id: None, harness: Some("codex".into()), relay: None })
         );
         let stamped = stamp_sender(named_sender("codex@workstation", "s-2"), harness.as_ref());
         assert_eq!(stamped["kind"], "agent_message");
@@ -1220,7 +1151,6 @@ mod sender_tests {
             session_id: Some("s-1".into()),
             harness: Some("claude".into()),
             relay: None,
-            mode: None,
         };
         assert_eq!(peer_sender(&both), Some(bound.clone()));
         assert_eq!(sent(bound.mux_fields())["_meta"]["acpmux"], both["_meta"]["acpmux"]);
@@ -1277,7 +1207,6 @@ mod sender_tests {
             session_id: Some("s-1".into()),
             harness: Some("codex".into()),
             relay: None,
-            mode: None,
         };
         let stamped = stamp_sender(given.clone(), Some(&bound));
         assert_eq!(sender_of(Some(&stamped)), (Some("s-1".into()), Some("codex".into())));
@@ -1334,7 +1263,6 @@ mod sender_tests {
                     session_id: Some("s-1".into()),
                     harness: Some("codex".into()),
                     relay: None,
-                    mode: None,
                 }),
             ),
             Some("dot"),
@@ -1413,7 +1341,6 @@ mod sender_tests {
                 session_id: Some("worker".into()),
                 harness: Some("codex".into()),
                 relay: None,
-                mode: None,
             }),
         );
         let record = sender_record(Some(&provenance), None, Some(&meta));
@@ -1439,7 +1366,6 @@ mod sender_tests {
                 session_id: Some("worker".into()),
                 harness: Some("codex".into()),
                 relay: None,
-                mode: None,
             }),
         );
         let record = sender_record_with_auth(Some(&provenance), Some("root"), Some(&meta), false);
@@ -1447,67 +1373,6 @@ mod sender_tests {
         assert_eq!(record["actorKind"], "codex_worker");
         assert_eq!(record["parent"], "root");
         assert_eq!(record["delegator"], "root");
-    }
-}
-
-#[cfg(test)]
-mod mode_tests {
-    use super::*;
-
-    fn meta(harness: &str, mode: Option<&str>) -> crate::store::SessionMeta {
-        let mut value = json!({
-            "schema": crate::store::META_SCHEMA, "id": "s", "name": "s", "harness": harness,
-            "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 2,
-        });
-        if let Some(mode) = mode {
-            value["modes"] = json!({"currentModeId": mode, "availableModes": []});
-        }
-        serde_json::from_value(value).unwrap()
-    }
-
-    /// A proven session's class is its own current mode's: `bypass` only for a mode that runs
-    /// every tool unasked, `prompting` for any other, nothing when it reports no mode.
-    #[test]
-    fn a_proven_sessions_class_is_its_current_modes() {
-        let class = |h: &str, m: Option<&str>| BoundSender::of_session("s", &meta(h, m)).mode;
-        assert_eq!(class("claude", Some("bypassPermissions")).as_deref(), Some("bypass"));
-        assert_eq!(class("claude", Some("default")).as_deref(), Some("prompting"));
-        assert_eq!(class("codex", Some("agent-full-access")).as_deref(), Some("bypass"));
-        assert_eq!(class("codex", Some("auto")).as_deref(), Some("prompting"));
-        assert_eq!(class("claude", None), None);
-        let stamped = stamp_sender(
-            json!({"kind": "session_message"}),
-            Some(&BoundSender::of_session("s", &meta("claude", Some("bypassPermissions")))),
-        );
-        assert_eq!(mode_of(Some(&stamped)), Some("bypass"));
-        assert_eq!(
-            BoundSender::of_session("s", &meta("claude", Some("bypassPermissions"))).mux_fields()
-                [FROM_MODE],
-            "bypass"
-        );
-    }
-
-    /// A peer's or a relay's word on its sender's class is taken only as one of the two
-    /// classes; a client's is dropped with the other sender fields.
-    #[test]
-    fn a_peers_or_relays_class_is_taken_and_a_clients_dropped() {
-        let sent = |mux: Value| json!({"_meta": {"acpmux": mux}});
-        let relay = json!({"by": "lane-gh", "machine": "vm-1", "session": "lane"});
-        let relayed = sent(json!({"fromRelay": relay, "fromMode": "bypass"}));
-        assert_eq!(relay_sender(&relayed).unwrap().mode.as_deref(), Some("bypass"));
-        let odd = sent(json!({"fromRelay": relay, "fromMode": "auto"}));
-        assert_eq!(relay_sender(&odd).unwrap().mode, None);
-        let peer = sent(json!({"fromSessionId": "s-1", "fromMode": "prompting"}));
-        assert_eq!(peer_sender(&peer).unwrap().mode.as_deref(), Some("prompting"));
-        // A peer naming only the class still names a sender (old peers name none).
-        assert!(peer_sender(&sent(json!({"fromMode": "bypass"}))).is_some());
-        // A named local sender's own claim of a class is never a bound class.
-        let named = sent(json!({"fromAgent": "x", "fromHarness": "codex", "fromMode": "bypass"}));
-        assert_eq!(declared_harness(&named).unwrap().mode, None);
-        let mut written = sent(json!({"fromMode": "bypass", "fromAgent": "x"}));
-        drop_sender_fields(&mut written);
-        assert_eq!(written, sent(json!({"fromAgent": "x"})));
-        assert_eq!(mode_of(Some(&json!({"fromMode": "yolo"}))), None);
     }
 }
 

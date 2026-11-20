@@ -1660,9 +1660,8 @@ fn first_prompt_id(args: &crate::cli::command::NewArgs) -> PromptId {
     prompt
 }
 
-/// `--relay NAME --relayed-from MACHINE[/SESSION] [--relayed-harness FAMILY] [--relayed-mode
-/// CLASS]` as the daemon reads them (`_meta.acpmux.fromRelay`, `fromHarness` and `fromMode`,
-/// `prompt_provenance::relay_sender`).
+/// `--relay NAME --relayed-from MACHINE[/SESSION] [--relayed-harness FAMILY]` as the daemon reads
+/// them (`_meta.acpmux.fromRelay` and `fromHarness`, `prompt_provenance::relay_sender`).
 fn relay_fields(relay: crate::cli::command::SendRelay) -> Option<Value> {
     let (by, from) = (relay.relay?, relay.relayed_from?);
     let (machine, session) = match from.split_once('/') {
@@ -1672,9 +1671,6 @@ fn relay_fields(relay: crate::cli::command::SendRelay) -> Option<Value> {
     let mut fields = json!({"fromRelay": {"by": by, "machine": machine, "session": session}});
     if let Some(harness) = relay.relayed_harness {
         fields.set("fromHarness", json!(harness));
-    }
-    if let Some(mode) = relay.relayed_mode {
-        fields.set(crate::prompt_provenance::FROM_MODE, json!(mode));
     }
     Some(fields)
 }
@@ -1710,39 +1706,6 @@ mod tests {
         assert!(
             Cli::try_parse_from(["acpmux", "send", "--relay", "lane-gh", "coord", "-"]).is_err()
         );
-        // The sender's permission class rides along as `fromMode`, one of the two classes only.
-        let args = [
-            "acpmux",
-            "send",
-            "--relay",
-            "lane-gh",
-            "--relayed-from",
-            "vm-1/lane",
-            "--relayed-mode",
-            "bypass",
-            "coord",
-            "-",
-        ];
-        let Ok(Cli { command: Some(Command::Send { relay, .. }), .. }) = Cli::try_parse_from(args)
-        else {
-            panic!("did not parse")
-        };
-        assert_eq!(super::relay_fields(relay).unwrap()["fromMode"], json!("bypass"));
-        let bad = [
-            "acpmux",
-            "send",
-            "--relay",
-            "x",
-            "--relayed-from",
-            "vm",
-            "--relayed-mode",
-            "auto",
-            "c",
-            "-",
-        ];
-        assert!(Cli::try_parse_from(bad).is_err());
-        let unrelayed = ["acpmux", "send", "--relayed-mode", "bypass", "coord", "-"];
-        assert!(Cli::try_parse_from(unrelayed).is_err());
     }
 
     #[test]

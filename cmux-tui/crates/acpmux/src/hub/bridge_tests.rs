@@ -172,6 +172,10 @@ async fn a_prompt_to_a_watched_desktop_chat_is_delivered_and_its_answer_shown() 
     assert_eq!(again["_meta"]["acpmux"]["turnId"], reply["_meta"]["acpmux"]["turnId"]);
     assert_eq!(again["_meta"]["acpmux"]["duplicate"], true);
     assert_eq!(inbox.load(std::sync::atomic::Ordering::SeqCst), 1);
+    // The delivery went as plain text, attesting no class, and `claudeInbox` counts it.
+    assert!(
+        crate::claude_peers::inbox_status()["unattestedBySender"]["person"].as_u64() >= Some(1)
+    );
 }
 
 /// A peer's outbox sends an open delivery again under its own prompt id on every link of the
@@ -921,105 +925,4 @@ fn the_reply_goes_to_the_verified_senders_chat_by_name() {
     let agent = Some(label.to_owned());
     let opts = PromptOptions { agent, provenance: Some(unverified), ..Default::default() };
     assert_eq!(reply_name(&opts).as_deref(), Some(label));
-}
-
-/// Leo, 2026-11-20, on Claude Code holding every relayed message for him to let in by hand: "YOU
-/// ALL NEED TO BE FUCKING SENDING FUCKING MESSAGES FUCKING PROPERLY SO I DONT HAVE TO KEEP FUCKING
-/// LETTING THESE IN MANUALLY FUCK". An agent's message whose sender's permission class the daemon
-/// bound (here a relay's word, `fromMode`) reaches a Claude Code session in Claude Code's own
-/// envelope with `from-mode`, which a session of the same class takes unasked; one with no class
-/// goes as plain text, unattested, and is counted so (`claudeInbox`).
-#[cfg(unix)]
-#[tokio::test]
-async fn an_agents_message_to_a_claude_session_attests_its_senders_mode() {
-    crate::claude_peers::TEST_ENABLED.store(true, std::sync::atomic::Ordering::SeqCst);
-    let config = scratch("attest");
-    let transcript = config.join("sid-at.jsonl");
-    std::fs::write(&transcript, "").unwrap();
-    let _inbox = fake_claude(&config, "sid-at", transcript.clone());
-    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-    let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", fake]}},
-        "defaultHarness": "fake",
-    }))
-    .unwrap();
-    cfg.store.mode = StoreMode::Memory;
-    let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
-    hub.harness_homes.lock().unwrap().claude = config.clone();
-    let session = hub
-        .new_session(crate::hub::NewRequest { cwd: Some(config.clone()), ..Default::default() })
-        .await
-        .unwrap();
-    {
-        let mut meta = session.meta.lock().unwrap();
-        meta.agent_session_id = Some("sid-at".into());
-        meta.tags.insert(
-            "bridge".into(),
-            crate::store::Tag { value: "claude".into(), expires_at: None },
-        );
-        meta.watching = Some(Watching {
-            family: "claude".into(),
-            file: transcript.clone(),
-            offset: 0,
-            codex_items: false,
-            open: None,
-        });
-    }
-    hub.save_meta(&session);
-    hub.start_watch(&session);
-
-    let sender = "gcp-codex-lane-attest/github-reads";
-    let send = |id: &str, mode: Option<&str>| {
-        let mut provenance = json!({"kind": "agent_message", "fromRelay":
-            {"by": "lane-gh", "machine": "gcp-codex-lane-attest", "session": "github-reads"}});
-        if let Some(mode) = mode {
-            provenance["fromMode"] = json!(mode);
-        }
-        PromptOptions {
-            prompt_id: Some(id.into()),
-            agent: Some(sender.into()),
-            provenance: Some(provenance),
-            ..Default::default()
-        }
-    };
-    for (id, mode) in [("p-attested", Some("bypass")), ("p-unattested", None)] {
-        let blocks = vec![json!({"type": "text", "text": format!("hello {id}")})];
-        tokio::time::timeout(
-            Duration::from_secs(20),
-            hub.prompt_with(&session, blocks, "test", false, send(id, mode)),
-        )
-        .await
-        .expect("answered within 20 s")
-        .unwrap();
-    }
-
-    let lines: Vec<Value> = std::fs::read_to_string(&transcript)
-        .unwrap()
-        .lines()
-        .filter_map(|l| serde_json::from_str(l).ok())
-        .filter(|l: &Value| l["type"] == "user")
-        .collect();
-    let content = |i: usize| lines[i]["message"]["content"].as_str().unwrap().to_owned();
-    let attested = content(0);
-    assert!(
-        attested.contains(&format!(
-            "<cross-session-message from=\"acpmux:{sender}\" from-name=\"{sender}\" from-mode=\"bypass\">\n"
-        )),
-        "{attested}"
-    );
-    assert!(attested.contains("hello p-attested\n</cross-session-message>"), "{attested}");
-    let plain = content(1);
-    assert!(!plain.contains("<cross-session-message"), "no class, no envelope: {plain}");
-    assert!(plain.contains("hello p-unattested"));
-
-    let events = hub.store.events(&session.id, 0, usize::MAX).unwrap();
-    let modes: Vec<&Value> = events
-        .iter()
-        .filter(|e| e.kind == "bridge_delivered")
-        .map(|e| &e.msg["fromMode"])
-        .collect();
-    assert_eq!(modes, [&json!("bypass"), &Value::Null]);
-    let status = crate::claude_peers::attest_status();
-    assert_eq!(status["bySender"][sender], json!({"bypass": 1, "unattested": 1}), "{status}");
-    assert!(status["unattestedSenders"].as_array().unwrap().contains(&json!(sender)), "{status}");
 }

@@ -201,123 +201,43 @@ pub fn frames(token: Option<&str>, text: &str, uuid: &str, from: &str) -> String
     out
 }
 
-/// Claude Code's cross-session envelope tag (code.claude.com/docs/en/cross-session-messaging).
-pub const ENVELOPE_TAG: &str = "cross-session-message";
-
-/// `body` in the envelope Claude Code's own sessions send one another:
-/// `<cross-session-message from="FROM" from-name="NAME" from-mode="MODE">\nBODY\n</cross-session-message>`.
-///
-/// Why: a Claude Code session that runs without asking (bypassPermissions) holds every message
-/// whose sender attested no permission class for its person to let in by hand ("The sender did
-/// not attest its permission mode, and this session bypasses permission prompts"). It reads the
-/// sender's class only from this envelope's `from-mode` (`bypass` or `prompting`), and only from
-/// an envelope written exactly as its own sessions write one: attributes in that order, the name
-/// in its normal form, and no closing tag in the body. Anything else reads as plain text with no
-/// class, which is held: an envelope this writes wrong fails closed, never open.
-///
-/// `mode` is the class the daemon bound for the sender (`prompt_provenance::FROM_MODE`), never
-/// one a client named. `None` when `mode` is not one of the two classes: the delivery then goes
-/// as plain text, unattested, as before.
-pub fn envelope(from: &str, name: Option<&str>, mode: Option<&str>, body: &str) -> Option<String> {
-    let mode = mode.filter(|m| crate::prompt_provenance::MODE_CLASSES.contains(m))?;
-    let mut attributes = format!(" from=\"{from}\"");
-    if let Some(name) = name.map(envelope_name).filter(|n| !n.is_empty()) {
-        attributes.push_str(&format!(" from-name=\"{name}\""));
-    }
-    attributes.push_str(&format!(" from-mode=\"{mode}\""));
-    let body = escape_closing_tags(body);
-    Some(format!("<{ENVELOPE_TAG}{attributes}>\n{body}\n</{ENVELOPE_TAG}>"))
-}
-
-/// A sender name as `from-name` carries it: ASCII letters, digits, spaces and `._/@:()-` (any
-/// other character becomes `-`), trimmed, at most 64 characters. Claude Code normalizes a name
-/// (drops `"<>` and control and format characters, trims, cuts at 64) and drops an envelope its
-/// normal form changes, so this writes only names that form leaves as they are.
-fn envelope_name(name: &str) -> String {
-    let clean: String = name
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || " ._/@:()-".contains(c) { c } else { '-' })
-        .collect();
-    clean.trim().chars().take(64).collect::<String>().trim().to_owned()
-}
-
-/// `body` with every `<` that may open a closing envelope tag written `<\`, as Claude Code
-/// escapes one: a `<` whose next letters (skipping anything else, as its own match skips
-/// separators) spell the tag. Escaping more than Claude Code would is harmless (it leaves an
-/// escaped `<` alone); a lookalike this misses makes the envelope read as plain text (held).
-fn escape_closing_tags(body: &str) -> String {
-    let tag: String = ENVELOPE_TAG.chars().filter(char::is_ascii_alphabetic).collect();
-    let mut out = String::with_capacity(body.len());
-    let mut rest = body;
-    while let Some(at) = rest.find('<') {
-        out.push_str(&rest[..=at]);
-        rest = &rest[at + 1..];
-        if rest.starts_with('\\') {
-            continue;
-        }
-        let letters: String = rest
-            .chars()
-            .take(4 * tag.len())
-            .filter(char::is_ascii_alphabetic)
-            .take(tag.len())
-            .collect::<String>()
-            .to_ascii_lowercase();
-        if letters == tag {
-            out.push('\\');
-        }
-    }
-    out.push_str(rest);
-    out
-}
-
-/// Claude deliveries since this daemon started, by sender and by what the sender's class was:
-/// `bypass` or `prompting` (attested, delivered unasked to a session of the same class), or
-/// `unattested` (held at a session that runs without asking until its person lets it in). The
-/// detector for that hold (`acpmux status`'s `claudeInbox`): a sender whose sends stay
-/// unattested is a sender path that lost its mode.
+/// Deliveries into Claude Code inboxes since this daemon started, by sender. Each goes as plain
+/// text on the session's socket and attests no permission class: Claude Code reads a sender's
+/// class only from its own sessions' `SendMessage` (or an own-child post), and offers a host
+/// daemon no supported way to declare one there. So a session that runs without asking
+/// (bypassPermissions) holds each of these for its person to let in by hand ("The sender did not
+/// attest its permission mode, and this session bypasses permission prompts"; Leo, 2026-11-20:
+/// "YOU ALL NEED TO BE FUCKING SENDING FUCKING MESSAGES FUCKING PROPERLY SO I DONT HAVE TO KEEP
+/// FUCKING LETTING THESE IN MANUALLY FUCK"). acpmux never writes Claude Code's attestation
+/// itself: that would forge the harness's own permission check. This counts them, so `acpmux
+/// status`'s `claudeInbox` shows which sender paths reach Claude sessions unattested.
 #[derive(Default)]
-struct AttestCounts {
-    by_sender: std::collections::BTreeMap<String, std::collections::BTreeMap<&'static str, u64>>,
-    total: std::collections::BTreeMap<&'static str, u64>,
+struct InboxCounts {
+    by_sender: std::collections::BTreeMap<String, u64>,
+    total: u64,
 }
 
 /// At most this many senders are counted one by one; later ones count in `total` only.
 const MAX_COUNTED_SENDERS: usize = 512;
 
-fn attest_counts() -> std::sync::MutexGuard<'static, AttestCounts> {
-    static COUNTS: std::sync::OnceLock<std::sync::Mutex<AttestCounts>> = std::sync::OnceLock::new();
+fn inbox_counts() -> std::sync::MutexGuard<'static, InboxCounts> {
+    static COUNTS: std::sync::OnceLock<std::sync::Mutex<InboxCounts>> = std::sync::OnceLock::new();
     COUNTS.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// Counts one delivery from `sender` with class `mode` (`None`: unattested).
-pub fn count_delivery(sender: &str, mode: Option<&str>) {
-    let class = match mode {
-        Some("bypass") => "bypass",
-        Some("prompting") => "prompting",
-        _ => "unattested",
-    };
-    let mut counts = attest_counts();
-    *counts.total.entry(class).or_default() += 1;
-    let room = counts.by_sender.len() < MAX_COUNTED_SENDERS;
-    if room || counts.by_sender.contains_key(sender) {
-        *counts.by_sender.entry(sender.to_owned()).or_default().entry(class).or_default() += 1;
+/// Counts one unattested delivery from `sender` into a Claude Code inbox.
+pub fn count_unattested(sender: &str) {
+    let mut counts = inbox_counts();
+    counts.total += 1;
+    if counts.by_sender.len() < MAX_COUNTED_SENDERS || counts.by_sender.contains_key(sender) {
+        *counts.by_sender.entry(sender.to_owned()).or_default() += 1;
     }
 }
 
-/// `{"total": {CLASS: N}, "bySender": {SENDER: {CLASS: N}}, "unattestedSenders": [SENDER]}`.
-pub fn attest_status() -> Value {
-    let counts = attest_counts();
-    let unattested: Vec<&String> = counts
-        .by_sender
-        .iter()
-        .filter(|(_, c)| c.contains_key("unattested"))
-        .map(|(sender, _)| sender)
-        .collect();
-    serde_json::json!({
-        "total": counts.total,
-        "bySender": counts.by_sender,
-        "unattestedSenders": unattested,
-    })
+/// `{"unattested": N, "unattestedBySender": {SENDER: N}}`: see [`count_unattested`].
+pub fn inbox_status() -> Value {
+    let counts = inbox_counts();
+    serde_json::json!({"unattested": counts.total, "unattestedBySender": counts.by_sender})
 }
 
 /// A `from` address Claude Code accepts: its address characters only, at most 300.

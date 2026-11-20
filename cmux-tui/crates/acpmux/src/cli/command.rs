@@ -1301,11 +1301,6 @@ pub struct SendRelay {
     /// That session's harness family (`claude`, `codex`, `gemini`, ...), in the machine's word.
     #[arg(long, value_name = "FAMILY", requires = "relay")]
     pub relayed_harness: Option<String>,
-    /// That session's permission class, in the machine's word: `bypass` (it runs every tool
-    /// without asking) or `prompting`. A Claude Code chat that runs without asking lets a message
-    /// in unasked only when its sender's class is attested (`prompt_provenance::FROM_MODE`).
-    #[arg(long, value_name = "CLASS", requires = "relay", value_parser = ["bypass", "prompting"])]
-    pub relayed_mode: Option<String>,
 }
 
 /// `acpmux session inbox NAME`'s flags.
