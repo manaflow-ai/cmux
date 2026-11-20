@@ -40,6 +40,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::ResumeHere { .. }
             | Command::Tail { .. }
             | Command::Info { .. }
+            | Command::Monitor { .. }
     )
 }
 
@@ -1123,6 +1124,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::ResumeHere { session, print } => {
             crate::cli::resume_here::run(connect(true).await?, &session, print, json_out).await
+        }
+        Command::Monitor { session, once } => {
+            crate::cli::monitor::run(&session, once, json_out).await
         }
         Command::Tail { session, last, follow, since } => {
             crate::cli::session_tail::tail(
