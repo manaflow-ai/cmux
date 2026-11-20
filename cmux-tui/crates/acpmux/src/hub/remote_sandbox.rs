@@ -50,7 +50,10 @@
 //! else the login environment's. The inline `--settings` pins it (a project
 //! file cannot move it), and a profile's own route skips the user settings
 //! source (`--setting-sources project,local`), whose env would otherwise
-//! replace the route's endpoint and key. `sr claude proxy` (`claude-sr`)
+//! replace the route's endpoint and key. That source also holds every user
+//! hook; the hooks the person lists in acpmux's `remoteSandbox.hooks` (none by
+//! default, `config/remote_sandbox.rs`) go into the inline `--settings` under
+//! `hooks` alone and run inside the same sandbox. `sr claude proxy` (`claude-sr`)
 //! starts its own proxy, which the sandbox never allows: a remote chain runs
 //! Claude Code straight to the subrouter server that proxy would use, as
 //! acpmux does when that launcher cannot run (`config/launchers.rs`).
@@ -123,7 +126,10 @@ pub(super) const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
 /// cannot nest in the profile), every acting tool asks, and the API route
 /// the sandbox opens (`endpoint`) is the one Claude uses: flag settings
 /// come after the user, project and local ones, so none of them moves it.
-pub(super) fn claude_settings(endpoint: Option<&str>) -> String {
+/// `hooks` (`remoteSandbox.hooks`, none by default) go in under `hooks` alone:
+/// nothing configured leaves these settings byte for byte as before, and
+/// nothing configured ever reaches `env`.
+pub(super) fn claude_settings(endpoint: Option<&str>, hooks: Option<&Value>) -> String {
     let mut v = json!({
         "sandbox": {"enabled": false, "autoAllowBashIfSandboxed": false},
         // Ask rules come before allow rules in every settings source, so the
@@ -132,6 +138,9 @@ pub(super) fn claude_settings(endpoint: Option<&str>) -> String {
     });
     if let Some(url) = endpoint {
         v.set("env", json!({"ANTHROPIC_BASE_URL": url}));
+    }
+    if let Some(hooks) = hooks {
+        v.set("hooks", hooks.clone());
     }
     v.to_string()
 }
@@ -373,6 +382,8 @@ pub(super) struct Bound {
     pub(super) endpoint: Option<Endpoint>,
     /// Its port, and whether its host is a loopback one.
     pub(super) api_port: Option<(u16, bool)>,
+    /// The user hooks its settings carry (`remoteSandbox.hooks`; `claude_settings`).
+    pub(super) hooks: Option<Value>,
 }
 
 /// The port of an `ANTHROPIC_BASE_URL`, and whether its host is loopback.
@@ -590,6 +601,7 @@ impl Bound {
             claude_project,
             api_port: endpoint.as_ref().and_then(|e| api_port(&e.url)),
             endpoint,
+            hooks: None,
         })
     }
     /// Platforms without either supported sandbox refuse remote chains.
@@ -687,6 +699,7 @@ fn linux_credential_file(home: &Path) -> Result<Option<String>, String> {
 /// no MCP servers, the refused argv and env refused, and `REFUSED_ENV` unset.
 fn boundary_plan(
     profile: &HarnessProfile,
+    hooks: Option<&Value>,
     plan: crate::claude_stdio::SpawnPlan,
 ) -> Result<crate::claude_stdio::SpawnPlan, String> {
     let user_settings = dirs::home_dir().and_then(|home| user_settings_endpoint(&home));
@@ -695,7 +708,7 @@ fn boundary_plan(
         user_settings.as_deref(),
         remote_login_value("ANTHROPIC_BASE_URL").as_deref(),
     );
-    let args = claude_args(endpoint.as_ref(), profile, plan.args)?;
+    let args = claude_args(endpoint.as_ref(), hooks, profile, plan.args)?;
     let mut out = Vec::with_capacity(args.len() + 2 * REFUSED_ENV.len() + 1);
     for k in REFUSED_ENV {
         out.push("-u".into());
@@ -716,7 +729,7 @@ pub(super) fn wrap(
     program: String,
     args: Vec<String>,
 ) -> Result<(String, Vec<String>), String> {
-    let args = claude_args(bound.endpoint.as_ref(), profile, args)?;
+    let args = claude_args(bound.endpoint.as_ref(), bound.hooks.as_ref(), profile, args)?;
     let mut out = bound.sandbox_args();
     out.push("/usr/bin/env".into());
     for k in REFUSED_ENV {
@@ -762,6 +775,7 @@ fn refused_arg(argv: &[String]) -> Option<&String> {
 
 fn claude_args(
     endpoint: Option<&Endpoint>,
+    hooks: Option<&Value>,
     profile: &HarnessProfile,
     mut args: Vec<String>,
 ) -> Result<Vec<String>, String> {
@@ -776,9 +790,10 @@ fn claude_args(
         return Err(format!("a remote chain never runs Claude Code with {bad} set"));
     }
     args.push("--settings".into());
-    let settings = claude_settings(endpoint.map(|e| e.url.as_str()));
+    let settings = claude_settings(endpoint.map(|e| e.url.as_str()), hooks);
     // Team mode on a Cloud machine (`claude_cloud_auth.rs`): the pair and no personal credential
-    // from a project or local settings file either.
+    // from a project or local settings file either. `team_settings` starts from these settings,
+    // so the configured hooks stay and its `env` (the pair) still wins over anything else.
     let settings = match crate::claude_cloud_auth::marked_pair(&profile.env) {
         Some(pair) => {
             let own = serde_json::from_str::<serde_json::Map<String, Value>>(&settings).ok();
@@ -872,7 +887,11 @@ fn linux_wrap(
     program: String,
     args: Vec<String>,
 ) -> Result<(String, Vec<String>), String> {
-    linux_keeper_args(bound, program, claude_args(bound.endpoint.as_ref(), profile, args)?)
+    linux_keeper_args(
+        bound,
+        program,
+        claude_args(bound.endpoint.as_ref(), bound.hooks.as_ref(), profile, args)?,
+    )
 }
 
 /// The canary's shell: $1 a file outside the allowed folders, $2 a 127.0.0.1
@@ -1401,8 +1420,10 @@ impl Hub {
         // and canary below, since the agent can write all of them (`vm_host.rs`).
         // Only the caller's own opt-out for this session does (`vm_boundary.rs`).
         // Bypass mode stays off (above); the session's policy answers Claude's prompts.
+        // The user hooks this chain carries (`remoteSandbox.hooks`, none by default).
+        let hooks = self.config.read().await.remote_sandbox.hooks.settings_value();
         if self.vm_boundary_unsandboxed(&session.meta()).await {
-            let plan = boundary_plan(&profile, plan).map_err(|why| {
+            let plan = boundary_plan(&profile, hooks.as_ref(), plan).map_err(|why| {
                 self.append(session, "mux", "remote_sandbox", json!({"refused": why}));
                 refused(why)
             })?;
@@ -1414,7 +1435,7 @@ impl Hub {
             return Ok((plan, std::borrow::Cow::Owned(profile)));
         }
         let (program, args) =
-            self.sandboxed_claude_plan(session, &profile, plan.program, plan.args).await?;
+            self.sandboxed_claude_plan(session, &profile, hooks, plan.program, plan.args).await?;
         scrub_env(&mut profile, true);
         Ok((crate::claude_stdio::SpawnPlan { program, args }, std::borrow::Cow::Owned(profile)))
     }
@@ -1425,6 +1446,7 @@ impl Hub {
         &self,
         session: &Session,
         profile: &HarnessProfile,
+        hooks: Option<Value>,
         program: String,
         args: Vec<String>,
     ) -> Result<(String, Vec<String>), RpcError> {
@@ -1445,7 +1467,8 @@ impl Hub {
                 crate::linux_sandbox::bwrap::probe(&path)
                     .map_err(|e| format!("bwrap unavailable: {e}"))?;
             }
-            let bound = Bound::for_session(&session.meta().cwd, &session.id, endpoint)?;
+            let mut bound = Bound::for_session(&session.meta().cwd, &session.id, endpoint)?;
+            bound.hooks = hooks;
             let plan = if linux {
                 #[cfg(target_os = "linux")]
                 {
@@ -1584,7 +1607,7 @@ mod endpoint_tests {
     #[test]
     fn acpmuxs_own_disallowed_tools_pass_and_other_tool_args_do_not() {
         let ok = |argv: &[&str]| {
-            claude_args(bound(None).endpoint.as_ref(), &profile(argv, &[]), vec![]).is_ok()
+            claude_args(bound(None).endpoint.as_ref(), None, &profile(argv, &[]), vec![]).is_ok()
         };
         // `acpmux new --prompt-file` / `--report-to` from a peer, and a chat with a server off.
         assert!(ok(&["claude", "--disallowedTools", "AskUserQuestion"]));
@@ -1614,7 +1637,7 @@ mod endpoint_tests {
         for key in LOADER_KEYS.split_whitespace() {
             let p = profile(&["claude"], &[(key, "injected")]);
             assert_eq!(
-                claude_args(bound(None).endpoint.as_ref(), &p, vec![]).is_err(),
+                claude_args(bound(None).endpoint.as_ref(), None, &p, vec![]).is_err(),
                 key != "TMPDIR",
                 "{key}"
             );
@@ -1858,7 +1881,139 @@ mod endpoint_tests {
             claude_project: "/Users/p/.claude/projects/x".into(),
             api_port: endpoint.as_ref().and_then(|e| api_port(&e.url)),
             endpoint,
+            hooks: None,
         }
+    }
+
+    /// `remoteSandbox.hooks` as config.json would give it.
+    fn configured_hooks(hooks: Value) -> Option<Value> {
+        serde_json::from_value::<crate::config::Config>(json!({"remoteSandbox": {"hooks": hooks}}))
+            .unwrap()
+            .remote_sandbox
+            .hooks
+            .settings_value()
+    }
+
+    /// The settings JSON in a remote chain's argv.
+    fn chain_settings(out: &[String]) -> Value {
+        let at = out.iter().position(|a| a == "--settings").unwrap();
+        serde_json::from_str(&out[at + 1]).unwrap()
+    }
+
+    /// A hook listed in `remoteSandbox.hooks` is in the chain's inline
+    /// settings, where Claude Code runs it although the user settings source
+    /// (holding every other user hook) is skipped; one not listed is not.
+    /// With nothing configured the settings are exactly what they were.
+    #[test]
+    fn a_configured_hook_is_in_the_chains_settings_and_no_other() {
+        let own = Some(Endpoint { url: "http://127.0.0.1:41234".into(), own: true });
+        let listed = json!({"PreToolUse": [{"matcher": "Agent", "hooks": [
+            {"type": "command", "command": "/u/bin/pick-subagent-model", "timeout": 5}
+        ]}]});
+        let mut b = bound(own.clone());
+        b.hooks = configured_hooks(listed.clone());
+        let p = profile(&["/bin/claude"], &[]);
+        let (_, out) =
+            wrap(Path::new("/usr/bin/sandbox-exec"), &b, &p, "/bin/claude".into(), vec![]).unwrap();
+        let settings = chain_settings(&out);
+        assert_eq!(settings["hooks"], listed);
+        assert!(!settings.to_string().contains("unlisted-hook"));
+        assert!(settings["hooks"].get("Stop").is_none(), "an unlisted event: {settings}");
+        let sources = out.iter().position(|a| a == "--setting-sources").unwrap();
+        assert_eq!(out[sources + 1], "project,local", "the user source stays skipped");
+        // The VM-boundary chain carries the same hooks.
+        let boundary = boundary_plan(
+            &p,
+            b.hooks.as_ref(),
+            crate::claude_stdio::SpawnPlan { program: "/bin/claude".into(), args: vec![] },
+        )
+        .unwrap();
+        assert_eq!(chain_settings(&boundary.args)["hooks"], listed);
+        #[cfg(target_os = "linux")]
+        {
+            let (_, out) = linux_wrap(&b, &p, "/bin/claude".into(), vec![]).unwrap();
+            assert_eq!(chain_settings(&out)["hooks"], listed);
+        }
+
+        // Nothing configured (absent or empty): the argv and settings of before.
+        assert_eq!(configured_hooks(json!({})), None);
+        let before = |url: Option<&str>| {
+            let mut v = json!({
+                "sandbox": {"enabled": false, "autoAllowBashIfSandboxed": false},
+                "permissions": {"disableBypassPermissionsMode": "disable", "ask": ASK_TOOLS},
+            });
+            if let Some(url) = url {
+                v.set("env", json!({"ANTHROPIC_BASE_URL": url}));
+            }
+            v.to_string()
+        };
+        assert_eq!(claude_settings(None, None), before(None));
+        assert_eq!(
+            claude_settings(Some("http://127.0.0.1:41234"), None),
+            before(Some("http://127.0.0.1:41234"))
+        );
+        let plain = bound(own);
+        let (_, out) =
+            wrap(Path::new("/usr/bin/sandbox-exec"), &plain, &p, "/bin/claude".into(), vec![])
+                .unwrap();
+        let at = out.iter().position(|a| a == "--settings").unwrap();
+        assert_eq!(out[at + 1], before(Some("http://127.0.0.1:41234")));
+        assert!(chain_settings(&out).get("hooks").is_none());
+    }
+
+    /// Configured hooks never let the user settings move the route: an
+    /// `ANTHROPIC_BASE_URL` in the user's `~/.claude/settings.json` still
+    /// loses to the profile's own route, the user source stays skipped, and
+    /// the inline settings' `env` holds only the pinned route. In team mode
+    /// the hooks stay and the team pair is still the env.
+    #[test]
+    fn user_env_cannot_move_the_endpoint_when_hooks_are_configured() {
+        let home = std::env::temp_dir().join(format!("acpmux-hooks-ep-{}", std::process::id()));
+        std::fs::create_dir_all(home.join(".claude")).unwrap();
+        std::fs::write(
+            home.join(".claude/settings.json"),
+            r#"{"env": {"ANTHROPIC_BASE_URL": "http://evil.example:31415", "ANTHROPIC_API_KEY": "user-key"},
+                "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "unlisted-hook"}]}]}}"#,
+        )
+        .unwrap();
+        let user = user_settings_endpoint(&home);
+        let _ = std::fs::remove_dir_all(&home);
+        assert_eq!(user.as_deref(), Some("http://evil.example:31415"));
+        let route = "http://127.0.0.1:41234";
+        let ep = endpoint(Some(route), user.as_deref(), None);
+        assert_eq!(ep, Some(Endpoint { url: route.into(), own: true }));
+
+        let listed =
+            json!({"PreToolUse": [{"hooks": [{"type": "command", "command": "/u/bin/guard"}]}]});
+        let mut b = bound(ep);
+        b.hooks = configured_hooks(listed.clone());
+        let p = profile(&["/bin/claude"], &[("ANTHROPIC_BASE_URL", route)]);
+        let (_, out) =
+            wrap(Path::new("/usr/bin/sandbox-exec"), &b, &p, "/bin/claude".into(), vec![]).unwrap();
+        let settings = chain_settings(&out);
+        assert_eq!(settings["env"], json!({"ANTHROPIC_BASE_URL": route}));
+        assert_eq!(settings["hooks"], listed);
+        assert!(!out.join(" ").contains("evil.example"), "{out:?}");
+        assert!(!out.join(" ").contains("unlisted-hook"), "{out:?}");
+        let sources = out.iter().position(|a| a == "--setting-sources").unwrap();
+        assert_eq!(out[sources + 1], "project,local");
+        assert!(!b.sandbox_args()[1].contains("31415"), "the user's port stays shut");
+
+        // Team mode: hooks kept, the pair (not the user's route or key) is the env.
+        let team = profile(
+            &["/bin/claude"],
+            &[
+                (crate::claude_cloud_auth::TEAM_MARKER, "1"),
+                ("ANTHROPIC_BASE_URL", "https://team.example/v1"),
+                ("ANTHROPIC_API_KEY", "team-key"),
+            ],
+        );
+        let args = claude_args(b.endpoint.as_ref(), b.hooks.as_ref(), &team, vec![]).unwrap();
+        let settings = chain_settings(&args);
+        assert_eq!(settings["hooks"], listed);
+        assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], "https://team.example/v1");
+        assert_eq!(settings["env"]["ANTHROPIC_API_KEY"], "team-key");
+        assert!(!args.join(" ").contains("evil.example"));
     }
 
     /// Claude's own order: the profile (or its route) wins, then the user's
@@ -1937,7 +2092,10 @@ mod endpoint_tests {
         // No route at all: no env pin, no port.
         let none = bound(None);
         assert!(!none.sandbox_args()[1].contains("Claude Code's own API route"));
-        assert_eq!(serde_json::from_str::<Value>(&claude_settings(None)).unwrap().get("env"), None);
+        assert_eq!(
+            serde_json::from_str::<Value>(&claude_settings(None, None)).unwrap().get("env"),
+            None
+        );
     }
 
     /// Claude Code's own temporary files go to this spawn's temporary folder,
