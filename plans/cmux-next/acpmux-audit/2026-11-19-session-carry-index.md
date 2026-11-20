@@ -58,9 +58,9 @@ writing, carry archives the affected regular files and symlinks and records abse
 paths; it never recurses into nested directories/submodules. Failure restores that
 snapshot, leaving the target index untouched. If restoration itself cannot finish,
 the private recovery archive and absent-path list remain and the error names them.
-`a_real_partial_write_restores_the_worktree_and_allows_retry` imposes a real file
+`a_real_partial_write_keeps_recovery_data_and_allows_retry` imposes a real file
 size limit on the final apply child, proves the first write occurred, and compares
-both original files and index bytes after recovery before retrying. The archive's
+original files and index bytes after recovery before retrying. A partial file that cannot be distinguished from a concurrent save remains in place with the recovery archive; the test saves those bytes before explicitly resolving its fixture and retrying. The archive's
 temporary disk cost is the original affected file bytes plus tar headers, and it
 is removed on success or successful recovery.
 
@@ -118,3 +118,18 @@ read-only parent directory. Unstaged submodule changes refuse with guidance beca
 a superproject patch cannot reproduce the submodule checkout; the submodule
 regression verifies refusal, source preservation, and staged-pointer transport
 with display preferences that hide submodule changes.
+
+Before any rollback mutation, every existing affected file or symlink must match
+either its raw archived original or the expected carry blob. Filtered Git diffs
+are insufficient: a clean filter can hide distinct saved bytes. An ambiguous
+tracked file or directory replacement leaves the entire target worktree untouched
+and reports the original archive, just like an ambiguous newly appeared file.
+`recovery_preserves_target_files_saved_after_the_backup` covers both existing and
+new files at both race points. Rollback extraction uses temporary disk for a second
+copy of the affected originals, only on failure; inability to extract retains the
+archive and reports recovery rather than guessing.
+
+An initialized target submodule must already be at the carried candidate commit.
+Carry never changes a nested checkout or reports a staged-pointer carry as success
+while leaving that checkout at another commit. The submodule regression covers
+refusal with target index/checkout preservation, then explicit checkout and retry.

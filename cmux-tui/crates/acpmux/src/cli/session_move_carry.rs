@@ -343,6 +343,37 @@ safe_parents() {
     [ ! -L "$parent" ] || return 1
   done
 }
+matches_expected() {
+  oid=$(GIT_INDEX_FILE="$s/expected" git rev-parse --verify ":$1" 2>/dev/null) || return 1
+  entry=$(GIT_INDEX_FILE="$s/expected" git ls-files --stage -- "$1") || return 1
+  mode=${entry%% *}
+  git cat-file blob "$oid" >"$s/compare-blob" 2>/dev/null || return 1
+  if [ -L "$1" ]; then
+    [ "$mode" = 120000 ] &&
+      [ "$(readlink -- "$1"; printf .)" = "$(cat "$s/compare-blob"; printf '\n.')" ]
+  else
+    case "$mode" in
+      100644) [ ! -x "$1" ] || return 1;;
+      100755) [ -x "$1" ] || return 1;;
+      *) return 1;;
+    esac
+    [ -f "$1" ] && cmp -s -- "$s/compare-blob" "$1"
+  fi
+}
+matches_before() {
+  parent=$1
+  while [ "$parent" != "${parent%/*}" ]; do
+    parent=${parent%/*}
+    [ ! -L "$s/before/$parent" ] || return 1
+  done
+  if [ -L "$1" ]; then
+    [ -L "$s/before/$1" ] &&
+      [ "$(readlink -- "$1"; printf .)" = "$(readlink -- "$s/before/$1"; printf .)" ]
+  else
+    [ ! -L "$s/before/$1" ] && [ -f "$s/before/$1" ] &&
+      cmp -s -- "$s/before/$1" "$1"
+  fi
+}
 GUARDS
 cd -- "$top" || exit 2
 real=$(git rev-parse --git-path index) || exit 3
@@ -389,10 +420,46 @@ if [ -s "$s/intent" ]; then
   git update-index --force-remove -z --stdin <"$s/intent" || exit 5
   git -c core.fsmonitor=false -c core.filemode=true -c core.symlinks=true --work-tree="$s/intent-worktree" add --sparse -N -f --pathspec-from-file="$s/intent" --pathspec-file-nul -- || exit 5
 fi
+# Applying a gitlink does not check out an initialized submodule. Refuse a
+# mismatched checkout before writes, preserving its own worktree and refs.
+if [ -s "$s/paths" ]; then
+  xargs -0 sh -c 'for p do
+    [ -e "$p/.git" ] || continue
+    entry=$(git ls-files --stage -- "$p") || exit 1
+    [ "${entry%% *}" = 160000 ] || continue
+    want=$(git rev-parse --verify ":$p") || exit 1
+    actual=$(unset GIT_INDEX_FILE; git -C "$p" rev-parse HEAD) || exit 1
+    if [ "$want" != "$actual" ]; then
+      printf "initialized target submodule needs commit %s before carry: %s\n" "$want" "$p" >&2
+      exit 1
+    fi
+  done' sh <"$s/paths" || exit 5
+fi
 # Write the candidate beside the real index before touching the working tree. Publishing
 # is then a rename on the same filesystem, with no allocation after the worktree changes.
 cp -- "$s/index" "$real.lock" || exit 2
+retain_recovery() {
+  keep_backup=1
+  echo "worktree recovery needs attention: original files are in $s/worktree-before.tar; originally absent paths are in $s/absent (NUL-separated)" >&2
+}
 restore_worktree() {
+  # A failed Git write and a concurrent save can produce the same partial state.
+  # Compare raw bytes, not filtered Git diffs. Any ambiguous file leaves the whole
+  # worktree untouched and the original archive available for explicit recovery.
+  mkdir "$s/before" || { retain_recovery; return 1; }
+  tar -xpf "$s/worktree-before.tar" -C "$s/before" || { retain_recovery; return 1; }
+  if ! xargs -0 sh -c 's=$1; . "$s/path-guards.sh"; shift; failed=0; for p do
+    safe_parents "$p" || continue
+    if [ -L "$p" ] || [ -f "$p" ]; then
+      if ! matches_before "$p" && ! matches_expected "$p"; then
+        printf "preserving ambiguous target path: %s\n" "$p" >&2
+        failed=1
+      fi
+    fi
+  done; exit "$failed"' sh "$s" <"$s/recovery-paths"; then
+    retain_recovery
+    return 1
+  fi
   restored=0
   # A carried file may replace a directory. Remove that file before restoring
   # the directory's original children; never remove an existing directory tree.
@@ -413,8 +480,7 @@ restore_worktree() {
       safe_parents "$p" || continue
       if [ -d "$p" ] && [ ! -L "$p" ]; then rmdir -- "$p" || failed=1
       elif [ -e "$p" ] || [ -L "$p" ]; then
-        if GIT_INDEX_FILE="$s/expected" git rev-parse --verify ":$p" >/dev/null 2>&1 &&
-           GIT_INDEX_FILE="$s/expected" git -c core.fsmonitor=false -c core.filemode=true -c core.symlinks=true diff --quiet --no-ext-diff --no-textconv --ignore-submodules=none -- "$p"; then
+        if matches_expected "$p"; then
           rm -f -- "$p" || failed=1
         else
           printf "preserving ambiguous target path: %s\n" "$p" >&2
@@ -438,8 +504,7 @@ restore_worktree() {
     tar -xpf "$s/worktree-before.tar" -C "$top" || restored=1
   else restored=1; fi
   if [ "$restored" != 0 ]; then
-    keep_backup=1
-    echo "worktree recovery needs attention: original files are in $s/worktree-before.tar; originally absent paths are in $s/absent (NUL-separated)" >&2
+    retain_recovery
     return 1
   fi
 }

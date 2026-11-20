@@ -439,12 +439,46 @@ fn worktree_apply_failure_preserves_the_original_index() {
     assert!(apply(dst.path(), &carry).ok, "the discarded candidate permits a fresh retry");
 }
 
+fn recovery_archive(out: &RemoteOut) -> std::path::PathBuf {
+    let path = out
+        .stderr
+        .split("original files are in ")
+        .nth(1)
+        .unwrap()
+        .split("; originally absent paths")
+        .next()
+        .unwrap();
+    let archive = std::path::PathBuf::from(path);
+    assert!(archive.is_file(), "{}", out.stderr);
+    archive
+}
+
+/// The disposable fixture explicitly resolves an ambiguous failed write. The
+/// caller keeps its current bytes separately before restoring the original tar.
+fn recover_owned_fixture(dir: &Path, out: &RemoteOut) {
+    let archive = recovery_archive(out);
+    sh(dir, "git reset --hard -q HEAD && git clean -fdq");
+    assert!(
+        Command::new("tar")
+            .arg("-xpf")
+            .arg(&archive)
+            .arg("-C")
+            .arg(dir)
+            .status()
+            .unwrap()
+            .success()
+    );
+}
+
 #[test]
 fn recovery_preserves_target_files_saved_after_the_backup() {
-    for after_apply in [false, true] {
+    for (tracked, after_apply) in [(false, false), (false, true), (true, false), (true, true)] {
         let src = tempfile::tempdir().unwrap();
         let dst = tempfile::tempdir().unwrap();
         repo(src.path());
+        if tracked {
+            sh(src.path(), "printf original > note.txt && git add note.txt && git commit -qm note");
+        }
         sh(src.path(), "printf carried > note.txt && git add note.txt");
         let source_index = std::fs::read(src.path().join(".git/index")).unwrap();
         let carry = snapshot(&here, src.path(), true).unwrap();
@@ -476,6 +510,17 @@ fn recovery_preserves_target_files_saved_after_the_backup() {
         assert!(!dst.path().join(".git/index.lock").exists());
         // Resolve the owned fixture conflict explicitly, then a normal retry works.
         std::fs::rename(dst.path().join("note.txt"), dst.path().join("saved-target-note")).unwrap();
+        if tracked {
+            let archived = Command::new("tar")
+                .args(["-xOf"])
+                .arg(recovery_archive(&out))
+                .arg("note.txt")
+                .output()
+                .unwrap();
+            assert!(archived.status.success());
+            assert_eq!(archived.stdout, b"original");
+            sh(dst.path(), "git checkout -- note.txt");
+        }
         assert!(apply(dst.path(), &carry).ok);
         assert_eq!(
             std::fs::read(dst.path().join("saved-target-note")).unwrap(),
@@ -651,7 +696,7 @@ fn rename_to_intent_never_discards_target_only_staged_content() {
 }
 
 #[test]
-fn a_real_partial_write_restores_the_worktree_and_allows_retry() {
+fn a_real_partial_write_keeps_recovery_data_and_allows_retry() {
     let src = tempfile::tempdir().unwrap();
     let dst = tempfile::tempdir().unwrap();
     repo(src.path());
@@ -688,6 +733,19 @@ fn a_real_partial_write_restores_the_worktree_and_allows_retry() {
     let out = here(&failing, &apply_input(&dst.path().to_string_lossy(), &carry).unwrap()).unwrap();
     assert!(!out.ok);
     assert!(out.stdout.contains("PARTIAL_WRITE:changed first"), "{} / {}", out.stdout, out.stderr);
+    if out.stderr.contains("worktree recovery needs attention") {
+        assert!(
+            out.stderr.contains("preserving ambiguous target path: z-last.txt"),
+            "{}",
+            out.stderr
+        );
+        let saved = tempfile::tempdir().unwrap();
+        let current = std::fs::read(dst.path().join("z-last.txt")).unwrap();
+        std::fs::write(saved.path().join("partial-write"), &current).unwrap();
+        assert_eq!(std::fs::read(dst.path().join(".git/index")).unwrap(), index);
+        recover_owned_fixture(dst.path(), &out);
+        assert_eq!(std::fs::read(saved.path().join("partial-write")).unwrap(), current);
+    }
     assert_eq!(std::fs::read(dst.path().join("a-first.txt")).unwrap(), b"base first\n");
     assert_eq!(
         std::fs::read(dst.path().join("b-directory/deep/nested/child")).unwrap(),
@@ -749,6 +807,19 @@ fn failed_apply_never_recovers_through_new_symlink_ancestors() {
         }
         assert_eq!(std::fs::read(outside.path().join("child")).unwrap(), b"target-only edit");
         assert_eq!(std::fs::read(dst.path().join(".git/index")).unwrap(), index);
+        if out.stderr.contains("worktree recovery needs attention") {
+            assert!(partial_write, "{}", out.stderr);
+            assert!(
+                out.stderr.contains("preserving ambiguous target path: z-last.txt"),
+                "{}",
+                out.stderr
+            );
+            let saved = tempfile::tempdir().unwrap();
+            let current = std::fs::read(dst.path().join("z-last.txt")).unwrap();
+            std::fs::write(saved.path().join("partial-write"), &current).unwrap();
+            recover_owned_fixture(dst.path(), &out);
+            assert_eq!(std::fs::read(saved.path().join("partial-write")).unwrap(), current);
+        }
         assert!(!dst.path().join("dir").exists());
         assert_eq!(sh(dst.path(), "git --no-optional-locks status --porcelain"), "");
         assert!(apply(dst.path(), &carry).ok, "retry after symlink-safe recovery");
@@ -798,6 +869,37 @@ fn submodule_patch_format_and_paths_ignore_display_preferences() {
     assert_eq!(sh(dst.path(), "git ls-files --stage"), sh(src.path(), "git ls-files --stage"));
     assert_eq!(std::fs::read(src.path().join(".git/index")).unwrap(), index);
     assert_eq!(std::fs::read(dst.path().join("kept.txt")).unwrap(), b"one\nstaged\n");
+
+    // A fresh uninitialized gitlink is supported, but an initialized checkout
+    // at the old commit must not silently gain unstaged submodule differences.
+    let initialized = tempfile::tempdir().unwrap();
+    sh(
+        initialized.path(),
+        &format!(
+            "git clone -q --branch lane/t {} . && git -c protocol.file.allow=always submodule update --init -q",
+            src.path().display()
+        ),
+    );
+    let before_index = std::fs::read(initialized.path().join(".git/index")).unwrap();
+    let before_module = sh(initialized.path(), "git -C module rev-parse HEAD");
+    let before_bytes = std::fs::read(initialized.path().join("module/kept.txt")).unwrap();
+    let out = apply(initialized.path(), &carry);
+    assert!(
+        !out.ok && out.stderr.contains("initialized target submodule needs commit"),
+        "{}",
+        out.stderr
+    );
+    assert_eq!(std::fs::read(initialized.path().join(".git/index")).unwrap(), before_index);
+    assert_eq!(sh(initialized.path(), "git -C module rev-parse HEAD"), before_module);
+    assert_eq!(std::fs::read(initialized.path().join("module/kept.txt")).unwrap(), before_bytes);
+    assert_eq!(std::fs::read(initialized.path().join("kept.txt")).unwrap(), b"one\n");
+    sh(initialized.path(), &format!("git -C module checkout -q {}", next.trim()));
+    let out = apply(initialized.path(), &carry);
+    assert!(out.ok, "{}", out.stderr);
+    assert_eq!(
+        sh(initialized.path(), "git --no-optional-locks status --porcelain"),
+        sh(src.path(), "git --no-optional-locks status --porcelain")
+    );
 }
 
 #[test]
