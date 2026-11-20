@@ -139,8 +139,8 @@ public final class MacScreenPane {
             self?.model.displays = sizes
             self?.model.currentDisplay = current
         }
-        // Only a live screen takes the keyboard (no card shows: not unsupported,
-        // connecting, waiting, failed or ended).
+        // Only a live screen takes the keyboard (no blocking card: not unsupported,
+        // connecting, failed or ended; Waiting for the first picture does not block).
         view.input.onFocusChange = { [weak self] focused in
             guard let self else { return }
             model.capturesKeyboard = focused && MacScreenPaneView.takesInput(gate: model.gate, card: model.card, viewOnly: model.viewOnly)
@@ -387,7 +387,7 @@ public final class MacScreenPaneView: NSView {
     }
 
     /// Input goes to the other Mac only while the screen is live with no card
-    /// over it (connected, with a picture), and the keyboard state says
+    /// that blocks it (connected, picture or not yet), and the keyboard state says
     /// exactly that. Under a card a click neither reaches the host nor takes
     /// the keyboard. A screen that had the keyboard before a drop keeps it
     /// (nothing is sent meanwhile; keys stay in cmux) and uses it again once
@@ -401,11 +401,13 @@ public final class MacScreenPaneView: NSView {
         onInputGateChange?()
     }
 
-    /// Whether the screen takes input: open, with no card (live, with a
-    /// picture), and not a View Only session (its keys, clicks and scrolls
-    /// stay here; the host would ignore them too).
+    /// Whether the screen takes input: open, with no card that blocks it
+    /// (live; the Waiting card before the first picture does not block, as
+    /// the host takes input once the session is connected), and not a View
+    /// Only session (its keys, clicks and scrolls stay here; the host would
+    /// ignore them too).
     static func takesInput(gate: MacScreenPaneModel.Gate, card: MacScreenCard?, viewOnly: Bool = false) -> Bool {
-        gate == .open && card == nil && !viewOnly
+        gate == .open && card?.blocksInput != true && !viewOnly
     }
 
     /// Tells the session how fast this window's display refreshes (nil: no

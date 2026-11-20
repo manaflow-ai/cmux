@@ -94,6 +94,8 @@ pub struct MediaSession {
     frame_interval_us: u64,
     /// Timing lines of frames still in the pacer: datagrams left, the line without `sent_us`.
     paced_logs: VecDeque<PacedLog>,
+    /// How long [`MediaSession::run`] waits for the display's first frame.
+    first_frame_timeout_ns: u64,
 }
 
 /// Whether frames are paced (`CMUX_RD_PACE=0` turns it off, for A/B measurement).
@@ -187,6 +189,14 @@ impl Timing {
 /// drop. The viewer's reconnect path can take longer than a short transport
 /// blip, including a phone waking from sleep; the session is still bounded.
 const REATTACH_GRACE_NS: u64 = 90_000_000_000;
+
+/// How long a session waits for the display's first frame (macOS: ScreenCaptureKit's)
+/// before it ends. The session runs meanwhile: Welcome is out and input goes through;
+/// only encoding waits.
+const FIRST_FRAME_TIMEOUT_NS: u64 = 3_000_000_000;
+/// The end reason when the display sent no frame in [`FIRST_FRAME_TIMEOUT_NS`].
+const NO_FIRST_FRAME: &str =
+    "failed: no frame from the display within 3 s (is Screen Recording allowed?)";
 
 fn viewer_silent_too_long(silent_us: u64) -> bool {
     silent_us > REATTACH_GRACE_NS / 1000
@@ -290,6 +300,7 @@ impl MediaSession {
             pacer: pacing_enabled().then(Pacer::new),
             frame_interval_us: 1_000_000 / u64::from(cfg.max_fps.max(1)),
             paced_logs: VecDeque::new(),
+            first_frame_timeout_ns: FIRST_FRAME_TIMEOUT_NS,
         })
     }
 
@@ -1017,3 +1028,9 @@ mod encode_off_loop_tests {
 #[cfg(test)]
 #[path = "stream_outage_tests.rs"]
 mod outage_drop_tests;
+
+/// No wait on the first frame: the session runs and takes input before the display's first
+/// frame; the start keyframe follows it.
+#[cfg(test)]
+#[path = "stream_first_frame_tests.rs"]
+mod first_frame_tests;

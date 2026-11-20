@@ -441,17 +441,32 @@ struct MacScreenOpenKeyboardTests {
     }
 }
 
-/// The screen takes input only while it is live with no card.
+/// The screen takes input while it is live with no card, or connected with
+/// only the Waiting card (the host takes input before its first picture).
 @MainActor
 @Suite(.closesItsWindows)
 struct MacScreenCardInputTests {
-    @Test func onlyALiveScreenWithNoCardTakesInput() {
+    @Test func onlyALiveScreenWithNoBlockingCardTakesInput() {
         #expect(MacScreenPaneView.takesInput(gate: .open, card: nil))
-        for card: MacScreenCard in [.connecting(reconnecting: false), .connecting(reconnecting: true), .waitingForPicture, .failed, .ended,
+        for card: MacScreenCard in [.connecting(reconnecting: false), .connecting(reconnecting: true), .failed, .ended,
                                     .hubConnect] {
             #expect(!MacScreenPaneView.takesInput(gate: .open, card: card))
         }
         #expect(!MacScreenPaneView.takesInput(gate: .unsupported, card: .unsupported))
+    }
+
+    /// A connected session with no frame yet takes input; the Waiting card
+    /// still shows, as an indicator that lets clicks through.
+    @Test func aConnectedScreenWithNoFrameYetTakesInput() {
+        let card = MacScreenPaneModel.connectedCard(hasFrame: false, stalled: false)
+        #expect(card == .waitingForPicture, "the Waiting card still shows")
+        #expect(card?.blocksInput == false)
+        #expect(MacScreenPaneView.takesInput(gate: .open, card: card))
+        #expect(!MacScreenPaneView.takesInput(gate: .open, card: card, viewOnly: true), "View Only stays view only")
+        // A stalled stream still blocks: Reconnecting is not an indicator.
+        let stalled = MacScreenPaneModel.connectedCard(hasFrame: false, stalled: true)
+        #expect(stalled?.blocksInput == true)
+        #expect(!MacScreenPaneView.takesInput(gate: .open, card: stalled))
     }
 
     @Test func aClickBesideACardNeverReachesTheCaptureView() throws {

@@ -77,6 +77,11 @@ enum MacScreenCard: Equatable {
     /// A Full Control session ended because the host lowered this Mac's access to View Only.
     case hubAccessLowered
     case hubEnded(MacScreenEndReason)
+
+    /// Whether the card holds input back. Waiting for the first picture does
+    /// not: the session is connected and the host takes input, so that card
+    /// is only an indicator and clicks go through it.
+    var blocksInput: Bool { self != .waitingForPicture }
 }
 
 /// The toolbar and the card over the screen, each in the tab's theme scope.

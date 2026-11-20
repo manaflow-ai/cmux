@@ -60,6 +60,13 @@ final class MacScreenCardView: MacScreenThemedView {
 
     override var isFlipped: Bool { true }
 
+    /// A card that does not block input (Waiting for the first picture) lets
+    /// clicks through to the screen under it.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if let card = shown?.card, !card.blocksInput { return nil }
+        return super.hitTest(point)
+    }
+
     /// The card's size: its width, and the height of what it says at that width (zero with no card).
     override var fittingSize: NSSize {
         guard shown?.card != nil else { return .zero }

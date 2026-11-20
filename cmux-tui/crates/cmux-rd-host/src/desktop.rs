@@ -59,6 +59,12 @@ pub trait Desktop {
     fn cursor(&mut self) -> Option<crate::cursor::CursorSample> {
         None
     }
+    /// Whether the display has sent a picture to encode. macOS opens its capture before
+    /// the first frame arrives, so the session (Welcome, input) never waits on it; the
+    /// start keyframe does. Readable [`Desktop::fd`] wakes the session when it lands.
+    fn has_frame(&self) -> bool {
+        true
+    }
 }
 
 /// Whether this OS's desktop can report the cursor as metadata (`Desktop::cursor`), so a
