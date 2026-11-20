@@ -224,7 +224,7 @@ impl Hub {
 
     /// (running, waiting) sessions now.
     fn lock_bridge_counts(&self) -> (usize, usize) {
-        self.session_handles().iter().fold((0, 0), |(run, wait), s| match s.status() {
+        self.live_session_handles().iter().fold((0, 0), |(run, wait), s| match s.status() {
             SessionStatus::Running => (run + 1, wait),
             SessionStatus::Waiting => (run, wait + 1),
             _ => (run, wait),
