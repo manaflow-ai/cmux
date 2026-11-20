@@ -2217,6 +2217,7 @@ async fn dispatch_request_with_identity(
                 .map_err(|e| RpcError::invalid_params(e.to_string()))?;
             }
             let mut opts = crate::hub::PromptOptions {
+                skip_surge_admission: false,
                 race_guard: None,
                 cloud_turn,
                 prompt_id,
