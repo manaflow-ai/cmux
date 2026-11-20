@@ -32,21 +32,38 @@ impl Route {
         }
         let defaults = config.defaults_for(&meta.harness);
         let preset = meta.preset.as_ref().and_then(|name| config.presets.get(name));
-        let env = |key: &str| {
-            meta.session_env
-                .get(key)
-                .or_else(|| preset.and_then(|p| p.env.get(key)))
-                .or_else(|| profile.env.get(key))
-                .or_else(|| defaults.env.get(key))
-                .cloned()
-        };
+        let mut configured = profile.env.clone();
+        for (key, value) in &defaults.env {
+            configured.entry(key.clone()).or_insert_with(|| value.clone());
+        }
+        if let Some(preset) = preset {
+            configured.extend(preset.env.clone());
+        }
+        let home = dirs::home_dir().unwrap_or_default();
+        let model = meta.model_request.clone().unwrap_or_default();
+        for value in configured.values_mut() {
+            *value = crate::config::expand_env_value(value, &meta.cwd, &home, &model);
+        }
+        meta.apply_chat_store(&mut configured);
+        configured.extend(meta.session_env.clone());
+        let mut spawn = profile.clone();
+        spawn.env = configured;
+        let resolved = crate::agent::resolved_profile_env(&spawn).ok()?;
+        let effective = crate::login_env::effective_for(Some("claude"), &resolved);
         let sr2 = profile.argv.get(1).is_some_and(|word| word == "claude2");
+        Self::from_env(sr2, &effective)
+    }
+
+    fn from_env(sr2: bool, env: &BTreeMap<String, String>) -> Option<Self> {
         let base = if sr2 {
-            env("SUBROUTER2_BASE_URL")
+            env.get("SUBROUTER2_BASE_URL")
+                .cloned()
                 .or_else(|| crate::login_env::var("SUBROUTER2_BASE_URL"))
                 .unwrap_or_else(|| "http://127.0.0.1:31416".to_owned())
         } else {
-            env("ANTHROPIC_BASE_URL").or_else(|| crate::login_env::var("ANTHROPIC_BASE_URL"))?
+            env.get("ANTHROPIC_BASE_URL")
+                .cloned()
+                .or_else(|| crate::login_env::var("ANTHROPIC_BASE_URL"))?
         };
         let mut url = reqwest::Url::parse(base.trim()).ok()?;
         if !matches!(url.scheme(), "http" | "https")
@@ -63,14 +80,15 @@ impl Route {
         url.set_path(&format!("{path}/v1/messages"));
         let bearer = if sr2 {
             Some(
-                env("SUBROUTER2_PROXY_TOKEN")
+                env.get("SUBROUTER2_PROXY_TOKEN")
+                    .cloned()
                     .or_else(|| crate::login_env::var("SUBROUTER2_PROXY_TOKEN"))
                     .unwrap_or_else(|| "subrouter2".to_owned()),
             )
         } else {
-            env("ANTHROPIC_AUTH_TOKEN")
+            env.get("ANTHROPIC_AUTH_TOKEN").cloned()
         };
-        let api_key = if sr2 { None } else { env("ANTHROPIC_API_KEY") };
+        let api_key = if sr2 { None } else { env.get("ANTHROPIC_API_KEY").cloned() };
         Some(Self { url, bearer, api_key })
     }
 
@@ -625,5 +643,52 @@ mod capacity_gate_tests {
         assert!(restored.get(Some(&other)).is_none());
         let file = std::fs::read_to_string(restored.path.as_ref().unwrap()).unwrap();
         assert!(!file.contains("synthetic-probe-credential"));
+    }
+
+    #[test]
+    fn capacity_route_uses_inherited_anthropic_credentials() {
+        let env = BTreeMap::from([
+            ("ANTHROPIC_BASE_URL".to_owned(), "https://gateway.test".to_owned()),
+            ("ANTHROPIC_API_KEY".to_owned(), "inherited-key".to_owned()),
+        ]);
+        let route = Route::from_env(false, &env).unwrap();
+        assert_eq!(route.api_key.as_deref(), Some("inherited-key"));
+    }
+
+    #[test]
+    fn capacity_route_uses_an_env_referenced_credential() {
+        let mut env = BTreeMap::from([
+            ("ANTHROPIC_BASE_URL".to_owned(), "https://gateway.test".to_owned()),
+            ("ANTHROPIC_AUTH_TOKEN".to_owned(), "${env:CAPACITY_PROBE_TOKEN}".to_owned()),
+        ]);
+        crate::config::profiles::resolve_env_refs(
+            &mut env,
+            &|key| (key == "CAPACITY_PROBE_TOKEN").then(|| "referenced-token".to_owned()),
+            &|_, _| Err("unexpected keychain lookup".to_owned()),
+        )
+        .unwrap();
+        let route = Route::from_env(false, &env).unwrap();
+        assert_eq!(route.bearer.as_deref(), Some("referenced-token"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn capacity_route_uses_a_file_referenced_credential() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let home = tempfile::tempdir().unwrap();
+        let secret = home.path().join("probe-token");
+        std::fs::write(&secret, "file-token\n").unwrap();
+        std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let mut env = BTreeMap::from([
+            ("ANTHROPIC_BASE_URL".to_owned(), "https://gateway.test".to_owned()),
+            ("ANTHROPIC_API_KEY".to_owned(), format!("${{file:{}}}", secret.display())),
+        ]);
+        crate::config::profiles::resolve_env_refs(&mut env, &|_| None, &|_, _| {
+            Err("unexpected keychain lookup".to_owned())
+        })
+        .unwrap();
+        let route = Route::from_env(false, &env).unwrap();
+        assert_eq!(route.api_key.as_deref(), Some("file-token"));
     }
 }
