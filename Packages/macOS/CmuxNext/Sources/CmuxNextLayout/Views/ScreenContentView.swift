@@ -422,7 +422,7 @@ final class ScreenContentView: NSView {
         // A change that snaps shows at the next frame tick when it resizes a pane. Else it shows in this turn, or, when
         // the turn holds its presentations (a key's sync, a frame tick's input), in the pass that turn asked for. What
         // the change took out goes in the pass that places the panes, never a turn before it.
-        if holdsSnap { zoomDim.sizesWillChange(on: self); _ = holdsSnapForContent(keyPress: keySnap) } // a zoom's sizes too: no dim comes before them
+        if holdsSnap { zoomDim.givesSizes(on: self, keyPress: keySnap) } // a zoom's sizes too: no dim comes before them
         if !frameInput.snapWaitsForContent, !context.holdsPresentations { beginShowingChange() }
         if presents { applyPresentation() }
         let moving = (animate || floatsOnly) && hasMotion

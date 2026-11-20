@@ -175,7 +175,7 @@ extension ScreenContentView {
             (frameInput.presentationWaiting, forcesPresentation) = (true, forcesPresentation || force)
             return
         }
-        beginShowingChange()
+        zoomDim.passBegins(on: self)
         // Every presentation shows the latest pan and the frame's input: nothing waits after it.
         (frameInput.panPresentationPending, frameInput.presentationWaiting) = (false, false)
         presentationPasses += 1

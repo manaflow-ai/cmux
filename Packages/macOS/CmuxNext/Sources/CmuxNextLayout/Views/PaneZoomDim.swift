@@ -73,6 +73,9 @@ final class PaneZoomDim {
     /// the canvas's camera changes in the zoom's own turn, and a page's zoom is the page's act.
     func layoutWillChange(on screen: ScreenContentView, to layout: ScreenLayout, zoomed: Bool, structural: Bool, onCanvas: Bool,
                           waitsForFrame: Bool) {
+        let acts = structural || screen.zoomed != zoomed
+        if acts { begins(.arm) }
+        defer { if acts { ends(.arm) } }
         motion.layoutWillChange(on: screen, to: layout, zoomed: zoomed, structural: structural, still: presentsPage || onCanvas || !waitsForFrame)
         let zooming = !screen.zoomed && zoomed
         let unzooming = screen.zoomed && !zoomed
@@ -107,6 +110,10 @@ final class PaneZoomDim {
     /// zoom's move the dim comes over the panes that the zoom covers. In the pass that shows an unzoom, the dim shows
     /// over the others at its full strength, and goes.
     func panesPlaced(on screen: ScreenContentView) {
+        // A pass with no change that waits (a scroll's pass of each frame) reads no trace state here.
+        let acts = motion.waits
+        if acts { ends(.pass); begins(.place) }
+        defer { if acts { ends(.place) } }
         showMarks(on: screen)
         // A zoom's dim still showed when this pass came: a second key came in the zoom's move.
         let zoomDimShowed = phase == .zooming

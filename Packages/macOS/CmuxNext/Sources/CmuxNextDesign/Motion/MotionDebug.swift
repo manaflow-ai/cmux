@@ -88,6 +88,8 @@ public struct MotionDebug {
                 ["name": span.name, "ms": (span.milliseconds * 10).rounded() / 10,
                  "at_ms": ((span.start - MotionTrace.startedAt) * 10000).rounded() / 10]
             },
+            // The list of spans is full: it keeps the spans it has, and each span that ended after that is not in it.
+            "spans_full": MotionTrace.spans.count >= MotionTrace.capacity,
             // Per-frame values (clock dt, travel left per animator), ms from `start`.
             "samples": MotionTrace.samples.map { sample -> [String: Any] in
                 ["name": sample.name, "t_ms": ((sample.time - MotionTrace.startedAt) * 10000).rounded() / 10,
