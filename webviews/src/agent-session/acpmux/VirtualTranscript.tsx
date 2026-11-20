@@ -59,6 +59,7 @@ import { holdMomentum, installMomentumHold } from "./threadMinimap/momentumHold"
 import { JUMP_CURVE, jumpDuration, jumpGlideStart, transcriptFadeReach } from "./threadMinimap/model";
 import { cssTimeMs, foldMotion, foldMs } from "./conversation/fold";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
+import { useStableCallback } from "./stableCallback";
 import { minimapReserve } from "./chatMinimap/paint";
 import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
@@ -7145,6 +7146,18 @@ function TranscriptView({
     for (const node of threadNode.querySelectorAll<HTMLElement>(":scope > .acpmux-row[data-row-id]"))
       if (node.getAttribute("aria-setsize") !== setSize) node.setAttribute("aria-setsize", setSize);
   }, [setSize]);
+  // One identity for the pane's life: a wheel tick re-renders the transcript to draw the rows coming into view,
+  // and a new handler each time drew the Jump to latest control again with it (render-counts.bench.ts `scroll`).
+  const onJumpLatest = useStableCallback((focused: boolean) => {
+    // One press, one move: to the latest message when this chat's ask waits there (or no
+    // ask is open), else straight to the next chat's ask.
+    // With no ask open it is Jump to latest, whatever the last render read for `behind`.
+    const asks = needsYou?.count ?? 0;
+    const here = asks - (needsYou?.elsewhere ?? 0);
+    const scroll = asks === 0 || (behind && here > 0);
+    if (scroll) jumpToLatest(focused);
+    if (needsYou && asks > 0) needsYou.next(scroll);
+  });
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
     <ReadOnlyBoundary readOnly={readOnly}>
@@ -7228,7 +7241,7 @@ function TranscriptView({
               />
             )}
             {/* The VS Code-style minimap at the right edge (Settings > Agent Chat > VS Code Minimap, off by default). */}
-            <ChatMinimap
+            <ChatMinimapMemo
               // Another chat is another minimap: no canvas, placeholder or scale carried over.
               key={sessionId}
               rows={rows}
@@ -7308,20 +7321,11 @@ function TranscriptView({
           )}
           {jumpUp && <JumpUp shown={upShown} back={jumpBackHeld} onJump={() => pressUp()} lift={dockSpace} />}
           {jumpButton && (
-            <JumpToLatest
+            <JumpToLatestMemo
               // The pill also shows at the latest message while the chats this chat started wait: it cycles to them.
               shown={behind || (needsYou?.elsewhere ?? 0) > 0}
               working={working}
-              onJump={(focused) => {
-                // One press, one move: to the latest message when this chat's ask waits there (or no
-                // ask is open), else straight to the next chat's ask.
-                // With no ask open it is Jump to latest, whatever the last render read for `behind`.
-                const asks = needsYou?.count ?? 0;
-                const here = asks - (needsYou?.elsewhere ?? 0);
-                const scroll = asks === 0 || (behind && here > 0);
-                if (scroll) jumpToLatest(focused);
-                if (needsYou && asks > 0) needsYou.next(scroll);
-              }}
+              onJump={onJumpLatest}
               lift={dockSpace}
               needsYou={needsYou}
             />
@@ -7333,3 +7337,7 @@ function TranscriptView({
 }
 
 const TranscriptViewMemo = React.memo(TranscriptView);
+/// A wheel tick re-renders the transcript; these draw again only when their own props change (the minimap reads
+/// the scroll from its scroller, not from a prop).
+const JumpToLatestMemo = React.memo(JumpToLatest);
+const ChatMinimapMemo = React.memo(ChatMinimap);
