@@ -538,7 +538,7 @@ describe("auto-roll scripts", () => {
     withDir(async (dir) => {
       const src = path.join(dir, "src");
       const platform = path.join(dir, "platform");
-      for (const file of ["images/cmux-vm/auto-roll.ts", "images/cmux-vm/auto-roll.json", "images/cmux-vm/inputs.lock.json", "images/cmux-vm/image-roll-push.sh", "workers/cmux-vm/wrangler.jsonc"]) {
+      for (const file of ["images/cmux-vm/auto-roll.ts", "images/cmux-vm/auto-roll.json", "images/cmux-vm/fallback-image.json", "images/cmux-vm/inputs.lock.json", "images/cmux-vm/image-roll-push.sh", "workers/cmux-vm/wrangler.jsonc"]) {
         mkdirSync(path.dirname(path.join(src, file)), { recursive: true });
         copyFileSync(path.join(repoRoot, file), path.join(src, file));
       }
@@ -557,6 +557,8 @@ describe("auto-roll scripts", () => {
       await git(platform, "remote", "add", "origin", path.join(dir, "platform.git"));
       await git(platform, "push", "-q", "origin", "main");
       const lock = readFileSync(path.join(src, "images/cmux-vm/inputs.lock.json"), "utf8");
+      // The same cmux-tui as the lock: the never-older check (auto-roll.ts behind) passes without that commit's history.
+      const pinned = (JSON.parse(lock) as { programs: { name: string; version: string }[] }).programs.find((program) => program.name === "cmux-tui")?.version ?? "";
       const temp = path.join(dir, "runner-temp");
       const fakeBin = path.join(dir, "bin");
       mkdirSync(temp);
@@ -568,7 +570,7 @@ describe("auto-roll scripts", () => {
       await runChildOk("chmod", ["+x", path.join(fakeBin, "bun")]);
       const out = await runChildOk(
         "bash",
-        ["images/cmux-vm/image-roll-push.sh", "roll", "--candidate", path.join(temp, "candidate.json"), "--revision", "ci-4242-2", "--run", "4242", "--attempt", "2", "--pin", "a".repeat(40), "--message-file", path.join(temp, "message.txt"), "--platform-checkout", platform, "--dry-run"],
+        ["images/cmux-vm/image-roll-push.sh", "roll", "--candidate", path.join(temp, "candidate.json"), "--revision", "ci-4242-2", "--run", "4242", "--attempt", "2", "--pin", pinned, "--message-file", path.join(temp, "message.txt"), "--platform-checkout", platform, "--dry-run"],
         { cwd: src, env: { ...gitEnv, PATH: `${fakeBin}:${process.env.PATH}`, PLATFORM_TOKEN: "unused", RUNNER_TEMP: temp, GITHUB_OUTPUT: path.join(temp, "output") } },
       );
       expect(out.stdout.trim().split("\n").at(-1)).toMatch(/^dry-run [0-9a-f]{40}/);
@@ -618,6 +620,85 @@ describe("auto-roll scripts", () => {
       expect(missing.status).not.toBe(0);
       expect(missing.stderr).toMatch(/not in this checkout/);
     }), 60_000);
+
+  // Roll 44191283358's re-run (attempt 2) promoted cmux-tui 6c776483 at 2026-11-18 04:53Z over roll 44224051230's
+  // newer ecd5f536 (04:30Z): plan() refused an older build only against the pin at plan time.
+  test("behind refuses a pin older than the tip's, allows the same or a newer one, and fails closed when shallow", () =>
+    withDir(async (dir) => {
+      const full = path.join(dir, "full");
+      await git(dir, "init", "-q", "-b", "feat-cmux-next", full);
+      const commitOf = async (msg: string) => {
+        await git(full, "commit", "-q", "--allow-empty", "-m", msg);
+        return (await git(full, "rev-parse", "HEAD")).stdout.trim();
+      };
+      const older = await commitOf("older");
+      const pinned = await commitOf("pinned");
+      const newer = await commitOf("newer");
+      const lock = path.join(dir, "lock.json");
+      writeFileSync(lock, JSON.stringify({ programs: [{ name: "cmux-tui", version: pinned }] }));
+      const script = path.join(repoRoot, "images/cmux-vm/auto-roll.ts");
+      const behind = (repo: string, pin: string) => runChild("bun", [script, "behind", "--pin", pin, "--lock", lock, "--repo", repo]);
+
+      const back = await behind(full, older);
+      expect(back.status).toBe(3);
+      expect((JSON.parse(back.stdout) as { reason: string }).reason).toMatch(/older than the tip's pinned/);
+      expect((await behind(full, pinned)).status).toBe(0);
+      expect((await behind(full, newer)).status).toBe(0);
+
+      const shallow = path.join(dir, "shallow");
+      await git(dir, "clone", "-q", "--depth", "1", "--branch", "feat-cmux-next", `file://${full}`, shallow);
+      const cut = await behind(shallow, older);
+      expect(cut.status).not.toBe(0);
+      expect(cut.status).not.toBe(3);
+      expect(cut.stderr).toMatch(/shallow/);
+    }), 60_000);
+
+  test("the push script lands nothing when a newer roll pinned a newer cmux-tui while this one baked", () =>
+    withDir(async (dir) => {
+      const src = path.join(dir, "src");
+      for (const file of ["images/cmux-vm/auto-roll.ts", "images/cmux-vm/auto-roll.json", "images/cmux-vm/fallback-image.json", "images/cmux-vm/inputs.lock.json", "images/cmux-vm/image-roll-push.sh", "workers/cmux-vm/wrangler.jsonc"]) {
+        mkdirSync(path.dirname(path.join(src, file)), { recursive: true });
+        copyFileSync(path.join(repoRoot, file), path.join(src, file));
+      }
+      await git(dir, "init", "-q", "--bare", "remote.git");
+      await git(dir, "init", "-q", "-b", "feat-cmux-next", src);
+      await git(src, "commit", "-q", "--allow-empty", "-m", "the roll's build");
+      const older = (await git(src, "rev-parse", "HEAD")).stdout.trim();
+      await git(src, "commit", "-q", "--allow-empty", "-m", "a newer build");
+      const newer = (await git(src, "rev-parse", "HEAD")).stdout.trim();
+      // The tip as a newer roll left it: its lock pins the newer build.
+      const lockPath = path.join(src, "images/cmux-vm/inputs.lock.json");
+      const lock = JSON.parse(readFileSync(lockPath, "utf8")) as { programs: Array<{ name: string; version: string }> };
+      for (const program of lock.programs) if (program.name === "cmux-tui") program.version = newer;
+      writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
+      await git(src, "add", ".");
+      await git(src, "commit", "-q", "-m", "a newer roll");
+      await git(src, "remote", "add", "origin", path.join(dir, "remote.git"));
+      await git(src, "push", "-q", "origin", "feat-cmux-next");
+      const before = readFileSync(path.join(src, "workers/cmux-vm/wrangler.jsonc"), "utf8");
+      const temp = path.join(dir, "runner-temp");
+      mkdirSync(temp);
+      writeFileSync(path.join(temp, "candidate.json"), JSON.stringify(candidate));
+      writeFileSync(path.join(temp, "message.txt"), "cmux-vm: image roll test\n");
+      const out = await runChild(
+        "bash",
+        ["images/cmux-vm/image-roll-push.sh", "roll", "--candidate", path.join(temp, "candidate.json"), "--revision", "ci-4242-2", "--run", "4242",
+          "--attempt", "2", "--pin", older, "--message-file", path.join(temp, "message.txt"), "--dry-run"],
+        { cwd: src, env: { ...gitEnv, RUNNER_TEMP: temp, GITHUB_OUTPUT: path.join(temp, "output") } },
+      );
+      expect(out.status).toBe(0);
+      expect(out.stdout.trim().split("\n").at(-1)).toMatch(/^nothing cmux-tui [0-9a-f]{12} is older than the tip's pinned/);
+      expect(readFileSync(path.join(temp, "output"), "utf8")).toContain("result=nothing");
+      expect(readFileSync(path.join(src, "workers/cmux-vm/wrangler.jsonc"), "utf8")).toBe(before);
+      const pinnedNow = (JSON.parse(readFileSync(lockPath, "utf8")) as typeof lock).programs.find((p) => p.name === "cmux-tui")!.version;
+      expect(pinnedNow).toBe(newer);
+    }), 60_000);
+
+  test("the promote job checks out full history for the never-older check", () => {
+    const { YAML } = (globalThis as unknown as { Bun: { YAML: { parse(text: string): unknown } } }).Bun;
+    const roll = YAML.parse(readFileSync(new URL("../../.github/workflows/cloud-vm-image-roll.yml", import.meta.url), "utf8")) as { jobs: Record<string, { steps: Array<{ with?: Record<string, unknown> }> }> };
+    expect(roll.jobs["promote"]!.steps[0]!.with).toMatchObject({ "fetch-depth": 0, filter: "blob:none" });
+  });
 
   test("the plan job checks out full history and fails on a pin it cannot fetch", () => {
     const { YAML } = (globalThis as unknown as { Bun: { YAML: { parse(text: string): unknown } } }).Bun;
