@@ -10,6 +10,7 @@ import CmuxMobileModel
 import CmuxMobileTerminal
 import CmuxMobileWorkspaces
 import QuartzCore
+import SafariServices
 import SwiftUI
 import UIKit
 import OSLog
@@ -26,7 +27,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "live-terminal-link"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -194,6 +195,7 @@ struct DemoDriver {
         case "onboarding": break  // driven by CmuxMobileOnboarding's script until the shell appears
         case "live": await live()
         case "live-terminal": await liveTerminal()
+        case "live-terminal-link": await liveTerminalLink()
         case "approve": await approve()
         case "workspace-new": await workspaceNew()
         case "connect-mac": await connectMac()
@@ -722,6 +724,45 @@ struct DemoDriver {
         let known = CmuxMobileTerminalThemes.shared.theme(for: ws.macID)?.background ?? "none"
         step("live-terminal theme \(model.hostTheme?.background ?? "none"), known for its Mac \(known), state \(model.debugState)")
         step("live-terminal shown")
+    }
+
+    /// Live end to end (real Mac): this phone types `open URL` in the paired Mac's first terminal;
+    /// the Mac's daemon sends the link here (`phone-open-link`) and it opens in the Safari view over
+    /// the terminal, not on the Mac (`cmux_next_pair_e2e.py`'s link leg).
+    private func liveTerminalLink() async {
+        step("live-terminal-link start")
+        shell.tab = .workspaces
+        guard await until(120, { shell.live?.link.phase.isConnected == true }) else { return step("live-terminal-link no link") }
+        guard await until(60, { shell.store.workspaces.contains { $0.tabs.contains { $0.kind == .terminal } } }),
+              let ws = shell.store.workspaces.first(where: { $0.tabs.contains { $0.kind == .terminal } }),
+              let tab = ws.tabs.first(where: { $0.kind == .terminal }) else { return step("live-terminal-link no terminal") }
+        shell.store.requestOpen(tabID: tab.id, in: ws.id)
+        shell.workspacesPath = [ws]
+        await pause(2)
+        WorkspaceDemoDirector.shared.post(.activate(tab.id))
+        guard await until(30, { shell.terminalTabs.model(forTabID: tab.id) != nil }),
+              let model = shell.terminalTabs.model(forTabID: tab.id) else { return step("live-terminal-link no model") }
+        await until(30) { model.connectionState.isAttached }
+        await until(20) { model.debugState != "-" && !model.debugState.contains("draws=0 ") }
+        await pause(1.5)
+        model.composerText = "open https://example.com/?from=cmux-phone-link-e2e"
+        model.send()
+        let opened = await until(30) { Self.safariViewShown() }
+        await pause(3)
+        step("live-terminal-link \(opened ? "safari-view shown" : "no safari-view")")
+    }
+
+    /// A Safari view is presented over some window of this app.
+    private static func safariViewShown() -> Bool {
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+        return windows.contains { window in
+            var current = window.rootViewController
+            while let presented = current?.presentedViewController {
+                if presented is SFSafariViewController { return true }
+                current = presented
+            }
+            return false
+        }
     }
 
     /// Live end to end (real Mac): Mac online and connected, the daemon's

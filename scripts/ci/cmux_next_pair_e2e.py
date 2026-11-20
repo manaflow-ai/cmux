@@ -306,6 +306,7 @@ def main():
     # CMUX_PAIR_E2E_DISCOVERY=0 leaves it out (a ref before it).
     discovery = os.environ.get("CMUX_PAIR_E2E_DISCOVERY") != "0"
     ask_ok = restart_ok = not discovery
+    link_ok = False
     keychain = RigKeychain(a.mac_app)
     try:
         note(f"- Keychain: {keychain.start()}")
@@ -436,6 +437,9 @@ def main():
             note(f"- phone Settings > Devices after pairing: {phone_shot('phone-devices-paired')}")
             if a.theme and paired:
                 note(f"- theme: {theme_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, phone_shot, rpc, screens)}")
+            if paired:
+                link_ok, link_line = link_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, phone_shot, rpc, screens)
+                note(f"- link: {link_line}")
             if paired and probe:
                 # The phone lists this Mac by the rig's device name (CMUX_NEXT_MOBILE_DEVICE_NAME), not the
                 # page's MacName: the probe waits for a link to that name (since 2026-10-29 it never matched).
@@ -484,7 +488,7 @@ def main():
     if discovery:
         note(f"- discovery: Allow request {'PASS' if ask_ok else 'FAIL'}, restart with a split identity "
              f"{'PASS' if restart_ok else 'FAIL'}")
-    return 0 if paired and uploaded and cloud_ok and ask_ok and restart_ok else 1
+    return 0 if paired and uploaded and cloud_ok and ask_ok and restart_ok and link_ok else 1
 
 
 ASKS = re.compile(r"phone (\w+) asks to pair: (\w+)")
@@ -507,6 +511,25 @@ def theme_leg(simctl, udid, bundle_id, phone_env, phone_log, phone_shot, rpc, sc
     mac = rpc("debug.window_snapshot", {"path": os.path.join(screens, "theme-mac-window.png")}, timeout=60)
     mac_line = "screens/theme-mac-window.png" if isinstance(mac, dict) and not mac.get("error") else f"no Mac snapshot ({mac.get('error')})"
     return f"live-terminal {outcome}; phone {phone}; Mac {mac_line}"
+
+
+def link_leg(simctl, udid, bundle_id, phone_env, phone_log, phone_shot, rpc, screens):
+    """The phone types `open URL` in the paired Mac's first terminal (DEBUG demo `live-terminal-link`):
+    the Mac's daemon sends the link to the phone (`phone-open-link`), which opens it in a Safari view.
+    (passed, summary line)."""
+    since = time.monotonic()
+    subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
+    subprocess.run(simctl + ["launch", udid, bundle_id, "-cmux-mobile-no-restore", "-cmux-mobile-demo", "live-terminal-link"],
+                   env=phone_env, check=True, capture_output=True)
+    shown = phone_log.wait_at(re.compile(r"demo step: live-terminal-link (safari-view shown|no [\w-]+)"), 300, since=since)
+    outcome = shown[1].group(1) if shown else "timed out"
+    pushed = phone_log.wait_at(re.compile(r"opened a link: it opens on this phone"), 0, since=since)
+    phone = phone_shot("link-phone-safari-view")
+    mac = rpc("debug.window_snapshot", {"path": os.path.join(screens, "link-mac-window.png")}, timeout=60)
+    mac_line = "screens/link-mac-window.png" if isinstance(mac, dict) and not mac.get("error") else f"no Mac snapshot ({mac.get('error')})"
+    ok = outcome == "safari-view shown" and bool(pushed)
+    return ok, (f"{'PASSED' if ok else 'FAIL'}: {outcome}; phone-open-link event "
+                f"{'received' if pushed else 'NOT received'}; phone {phone}; Mac {mac_line}")
 
 
 def log_time(line):
