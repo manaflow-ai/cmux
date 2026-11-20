@@ -12,6 +12,7 @@ import type { Root } from "react-dom/client";
 import type { SceneOp, SceneStore as SceneStoreType } from "../src/apps/scene/store";
 import { settleReact } from "./support/domTeardown";
 import { mountedRowRenders } from "./support/mountedRowRenders";
+import { until } from "./support/until";
 import { installVirtualSizes } from "./support/virtualSizes";
 
 const scope = globalThis as Record<string, unknown>;
@@ -204,9 +205,11 @@ test("a windowed stack keeps scene motion: a scroll enters nothing, an added row
   const leaving = document.querySelector<HTMLElement>('[data-app-node="r305"]')!;
   expect(leaving.hasAttribute("data-leaving")).toBe(true);
   expect(mountedIds().indexOf("r305")).toBe(mountedIds().indexOf("new") + 1);
-  for (let turn = 0; turn < 200 && document.querySelector('[data-app-node="r305"]'); turn += 1)
-    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 5)));
-  expect(document.querySelector('[data-app-node="r305"]')).toBeNull();
+  // Until its leave ends: each turn yields to the leave's timer and flushes the render it causes.
+  await until(
+    () => document.querySelector('[data-app-node="r305"]') === null,
+    () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 0))),
+  );
   // A later scroll still enters nothing.
   await scrollTo(scroller, 400 * ROW);
   expect(entering()).toBe(0);
