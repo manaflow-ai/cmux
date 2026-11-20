@@ -934,6 +934,12 @@ pub struct Brain {
     /// The turn (its key) whose running work the steer deadline asked to
     /// move to the background, once a turn (`steer.rs`).
     backgrounded: Option<String>,
+    /// The turn (its key) whose running work did move to the background
+    /// (`steer.rs`): its session must outlive the turn (`background.rs`).
+    moved: Option<String>,
+    /// Turn sessions that are not kept but still run moved work: followed
+    /// until their background turn ends, then ended (`background.rs`).
+    draining: Vec<background::Draining>,
     steer_seq: u64,
     /// A draft could not be published (logged once).
     draft_failed: bool,
@@ -1249,6 +1255,8 @@ impl Brain {
             steer_left: None,
             withdrawing: None,
             backgrounded: None,
+            moved: None,
+            draining: Vec::new(),
             steer_seq: 0,
             draft_failed: false,
             run_failed: false,

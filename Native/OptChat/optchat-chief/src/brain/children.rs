@@ -86,6 +86,7 @@ impl Brain {
                 }
                 self.ensure_chief_inbox(&sessions_listed);
                 self.adopt_orphans(false);
+                self.catch_up_background();
                 self.reconcile_children();
                 self.maybe_start_turn();
                 self.prewarm_next_turn();

@@ -294,6 +294,8 @@ impl Brain {
             return;
         }
         if moved {
+            self.moved = Some(key.to_owned());
+            self.interrupt.set_moved_work();
             (self.log)(&format!(
                 "turn {key}: moved its running work to the background so a new message is read now"
             ));

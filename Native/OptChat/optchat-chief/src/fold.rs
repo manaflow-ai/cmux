@@ -189,7 +189,7 @@ impl TurnFold {
     pub fn posted_itself(&self) -> bool {
         self.tools.values().any(|t| {
             let name = t.name.rsplit("__").next().unwrap_or(&t.name);
-            matches!(name, "send" | "reply")
+            t.done && matches!(name, "send" | "reply")
         })
     }
 
@@ -269,11 +269,15 @@ impl TurnFold {
         if event.dir == "mux" && event.kind == "background_turn" {
             let started = event.msg.get("state").and_then(Value::as_str) == Some("started");
             if self.follow_background && self.in_background_turn && !started {
-                // A followed turn ended: its words so far are a reply.
+                // A followed turn ended: its words are the reply, and the
+                // fold stops here (a later bracket is the next follow's).
                 self.finish_talk(&mut out);
                 if let Some(text) = self.last_talk.take() {
                     self.answered.push(text);
                 }
+                self.ended = Some(Ended { error: None });
+                self.in_background_turn = false;
+                return out;
             }
             self.in_background_turn = started;
             return out;

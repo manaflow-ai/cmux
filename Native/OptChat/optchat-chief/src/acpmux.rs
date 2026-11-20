@@ -964,7 +964,6 @@ fn route(turns: &Mutex<HashMap<String, TurnRoute>>, sink: &Sink, n: Notification
                 let state = n
                     .params
                     .pointer("/msg/state")
-                    .or_else(|| n.params.pointer("/event/msg/state"))
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_owned();

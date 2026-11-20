@@ -44,6 +44,10 @@ pub struct Interrupt {
     /// A stop that ends the session (the owner's Stop, a denial, an engine
     /// change) came too: it wins over `keeps_session`, whatever the order.
     ends_session: AtomicBool,
+    /// The brain moved the turn's running work to the background
+    /// (`steer.rs`): the session outlives the turn until that work reports
+    /// (`brain/background.rs`), so the runner hands it back, kept or not.
+    moved_work: AtomicBool,
     /// The turn carries another person's text: the native engine refuses
     /// its local effects (README "Remote-origin messages").
     gate: AtomicBool,
@@ -122,6 +126,15 @@ impl Interrupt {
 
     /// Whether a cancel this interrupt caused leaves a session the next turn
     /// may take.
+    /// The turn's running work moved to the background (`steer.rs`).
+    pub fn set_moved_work(&self) {
+        self.moved_work.store(true, Ordering::SeqCst);
+    }
+
+    pub fn moved_work(&self) -> bool {
+        self.moved_work.load(Ordering::SeqCst)
+    }
+
     pub fn keeps_session(&self) -> bool {
         self.keeps_session.load(Ordering::SeqCst) && !self.ends_session.load(Ordering::SeqCst)
     }
@@ -1159,7 +1172,7 @@ pub fn run_with_drafts(
     // no session was kept (8 of ~1,400 turns, Nov 12-19): each turn started
     // a new Claude Code and wrote its whole input to the cache again.
     let resumable = cancelled && interrupt.keeps_session() && !forced_end;
-    let kept = (start.keep
+    let kept = ((start.keep || interrupt.moved_work())
         && !fold.expects_carry()
         && orphan.is_none()
         && moved.is_none()

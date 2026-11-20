@@ -522,3 +522,79 @@ fn a_background_task_claude_code_answers_on_its_own_after_the_turn_posts_its_rep
         vec!["s1", "s1"]
     );
 }
+
+#[test]
+fn a_session_with_moved_work_outlives_its_turn_until_the_work_reports() {
+    // keep_turn_session off: the session would end with the turn.
+    let dir = tempfile::tempdir().unwrap();
+    let s = settings(dir.path());
+    let owner = Arc::new(Mutex::new(Owner {
+        summary: Some(summary()),
+        ..Owner::default()
+    }));
+    let mut h = Harness::configured(dir, long_tool_script(), owner, s, Arc::new(|_: &str| {}));
+    {
+        let mut inner = h.agents.inner.lock().unwrap();
+        inner.system_prompts = true;
+        inner.steering = true;
+        inner.steer_at_end = true;
+        inner.backgrounds = true;
+    }
+    h.brain.set_steer_deadline(Some(Duration::from_millis(20)));
+    running(&mut h, "run the long build");
+    h.say("user_local", "while that runs: what is 5 plus 6?");
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while h.agents.inner.lock().unwrap().backgrounded.is_empty() {
+        assert!(std::time::Instant::now() < deadline, "no background move");
+        tick(&mut h);
+    }
+    h.agents.hold(false);
+    h.agents.release();
+    // Timers too (the re-armed steer deadline): settle alone steps inputs.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !h.brain.is_idle() {
+        assert!(std::time::Instant::now() < deadline, "the turn never ended");
+        tick(&mut h);
+    }
+    assert!(
+        !h.agents
+            .inner
+            .lock()
+            .unwrap()
+            .ended
+            .contains(&"s1".to_owned()),
+        "the session that runs the moved build is not ended with its turn"
+    );
+    h.agents.append_events(
+        "s1",
+        vec![
+            serde_json::json!({"dir": "mux", "kind": "background_turn", "msg": {"state": "started", "id": "b1", "trigger": "task_notification"}}),
+            update(
+                "agent_message_chunk",
+                serde_json::json!({"content": {"type": "text", "text": "The long build passed."}}),
+            ),
+            serde_json::json!({"dir": "mux", "kind": "background_turn", "msg": {"state": "ended", "id": "b1", "trigger": "task_notification", "quiet": false, "reason": "result"}}),
+        ],
+    );
+    h.brain.step(Input::from(
+        optchat_chief::acpmux::AgentEvent::BackgroundTurn {
+            session_id: "s1".into(),
+            state: "ended".into(),
+        },
+    ));
+    h.settle_posts();
+    assert_eq!(
+        posted(&h, "The long build passed."),
+        1,
+        "its report reaches the person"
+    );
+    assert!(
+        h.agents
+            .inner
+            .lock()
+            .unwrap()
+            .ended
+            .contains(&"s1".to_owned()),
+        "the session ends once its work reported"
+    );
+}
