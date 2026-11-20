@@ -89,6 +89,10 @@ extension MacScreenPages {
         let probe = session.frameCounter?.latestProbe
         row["luma_mean"] = probe.map { .number(($0.mean * 10).rounded() / 10) } ?? .null
         row["luma_variance"] = probe.map { .number(($0.variance * 10).rounded() / 10) } ?? .null
+        // The viewer's stages to the glass (design D8): Decode, Present and the two together.
+        row["decode_ms"] = frames.map { summary($0.decode) } ?? .null
+        row["glass_ms"] = frames.map { summary($0.glass) } ?? .null
+        row["decode_present_ms"] = frames.map { summary($0.decodePresent) } ?? .null
         return .object(row)
     }
 
