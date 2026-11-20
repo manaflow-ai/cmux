@@ -43,6 +43,7 @@
   "agent-session/acpmux/needsYou/needsYou.css": 6,
   "agent-session/acpmux/newtab/history.css": 1,
   "agent-session/acpmux/newtab/screen.css": 8,
+  "agent-session/acpmux/newtab/widgets.css": 9,
   "agent-session/acpmux/offer/suggestedTasks.css": 2,
   "agent-session/acpmux/planBuild/planBuild.css": 2,
   "agent-session/acpmux/planUsageCard.css": 2,
