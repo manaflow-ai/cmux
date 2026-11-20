@@ -34,17 +34,18 @@ extension PaneCommitMotionTests {
     }
 
     /// Where `layer` shows, in its superlayer, when the moves of each act on it are at `part(act)` of their way
-    /// (0: the start, 1: the end). Two acts in one move have two timings: they are at two parts in one frame.
+    /// (0: the start, 1: the end). Two acts in one move have two timings: they are at two parts in one frame. Each
+    /// act's moves add to the layer's own origin and size: one act alone can give a size below 0, the sum is the rect.
     static func rect(of layer: CALayer, at part: (Int) -> CGFloat) -> CGRect {
         let keys = layer.animationKeys() ?? []
         let end = move(of: layer, only: []).end
-        var rect = end
+        var origin = end.origin, size = end.size
         for number in Set(keys.compactMap({ Self.act(of: $0) })) {
             let one = move(of: layer, only: Set(keys.filter { Self.act(of: $0) == number })).rect(at: part(number))
-            rect = CGRect(x: rect.minX + one.minX - end.minX, y: rect.minY + one.minY - end.minY,
-                          width: rect.width + one.width - end.width, height: rect.height + one.height - end.height)
+            origin = CGPoint(x: origin.x + one.origin.x - end.origin.x, y: origin.y + one.origin.y - end.origin.y)
+            size = CGSize(width: size.width + one.size.width - end.size.width, height: size.height + one.size.height - end.size.height)
         }
-        return rect
+        return CGRect(origin: origin, size: size)
     }
 
     /// The origin of the own coordinates of `layer` at `part`: its `bounds.origin`, and each animation that adds to it.
