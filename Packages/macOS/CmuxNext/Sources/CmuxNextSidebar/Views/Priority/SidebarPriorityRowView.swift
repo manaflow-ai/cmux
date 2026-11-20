@@ -45,6 +45,15 @@ final class SidebarPriorityRowView: NSView {
     let answers = SidebarAnswerButtons()
     private var pointerHover: PointerHover?
     private var isHovered = false { didSet { if isHovered != oldValue { needsLayout = true; needsDisplay = true } } }
+    /// The chip says the row's state in words (`sidebar.priorityView.statusWords`), not only a working
+    /// row's time. Off by default: the status mark alone.
+    var statusWords = false {
+        didSet {
+            guard statusWords != oldValue else { return }
+            chip.stringValue = chipLine(now: Date())
+            needsLayout = true
+        }
+    }
 
     init(entry: SidebarPriorityEntry) {
         self.entry = entry
@@ -105,7 +114,7 @@ final class SidebarPriorityRowView: NSView {
         placeLabel.stringValue = [entry.project, entry.machine].compactMap(\.self).joined(separator: " · ")
         preview.stringValue = entry.preview ?? ""
         preview.isHidden = entry.preview == nil
-        chip.stringValue = Self.visibleChipText(entry.state, now: Date())
+        chip.stringValue = chipLine(now: Date())
         indicator.configure(Self.indicatorState(entry.state))
         pin.label = entry.pinTitle
         markRead.isEnabled = entry.canMarkRead
@@ -120,7 +129,7 @@ final class SidebarPriorityRowView: NSView {
     /// Refreshes a working chip's elapsed time.
     func tick(now: Date) {
         guard case .working = entry.state else { return }
-        chip.stringValue = Self.visibleChipText(entry.state, now: now)
+        chip.stringValue = chipLine(now: now)
         needsLayout = true
     }
 
@@ -143,6 +152,15 @@ final class SidebarPriorityRowView: NSView {
         guard case .working(let since) = state else { return "" }
         return since.flatMap { elapsed(from: $0, to: now) } ?? ""
     }
+
+    /// With status words (`sidebar.priorityView.statusWords`) every row but an idle one says its state
+    /// ("Needs you", "Done", "Working 5m"); without, only a working row's time shows.
+    static func visibleChipText(_ state: SidebarPriorityEntry.State, now: Date, statusWords: Bool) -> String {
+        guard statusWords else { return visibleChipText(state, now: now) }
+        return state == .idle ? "" : chipText(state, now: now)
+    }
+
+    private func chipLine(now: Date) -> String { Self.visibleChipText(entry.state, now: now, statusWords: statusWords) }
 
     /// "5m", "2h": the largest whole unit, nil under a minute.
     static func elapsed(from start: Date, to now: Date) -> String? {

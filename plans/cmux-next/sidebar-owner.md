@@ -1,5 +1,21 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-19 (lane/codex-priority-view, review fixes): Sidebar-Look: a keyboard focus ring on the Priority filter
+  chips, the sidebar buttons' own (`Palette.focusRing`, 1.5 pt, only with keyboard access on and the window key).
+  With Keyboard Navigation on, Tab focuses a chip, Space or Return picks it and the arrow keys pick the chip beside
+  (wrapping); the bar is a radio group. A drag under a filter now keeps every shown row's new slot, so hidden rows
+  keep theirs. The five `sidebar.priorityView.*` settings rows have their own "Priority View" card. Regression:
+  `SidebarPriorityFilterChipKeysTests`, `SidebarPriorityFiltersTests.aDragUnderAFilterGivesTheMergedFeedOrder`.
+
+- 2026-11-19 (lane/codex-priority-view): Sidebar-Look: Leo, 2026-11-19: "how about the customizations for
+  claude/codex/[...] aka \"studio\" and the actual functionality and features of them?". The Priority view can act as
+  the Codex app's activity list, behind three settings whose defaults draw today's view:
+  `sidebar.priorityView.filters` (All, Waiting, Unread and Running chips with counts under the header, and Mark All as
+  Read in the header's trailing slot; the pick is a Priority mark), `sidebar.priorityView.showIdle` (off: idle rows
+  leave, a pinned or dragged one stays) and `sidebar.priorityView.statusWords` (each row's chip says its state: "Needs
+  you", "Done", "Working 5m"). Row heights are unchanged; the chips add one line to the panel's top. Regression:
+  `SidebarPriorityFiltersTests`; gallery `AACodexPriorityGalleryTests.renderTheCodexPriorityView`.
+
 - 2026-11-19 (lane/needs-you-glow): Sidebar-Look: Leo, 2026-11-19, on eight new features: "all of them" and "some of
   them maybe just as customizations lol if it affects default looks". "Needs you" as motion, off by default: with
   `notifications.attention.mark` `glow` (default `badge`, no change), a workspace row that waits for the person (an

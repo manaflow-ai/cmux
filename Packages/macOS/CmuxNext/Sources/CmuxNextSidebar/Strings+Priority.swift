@@ -33,6 +33,25 @@ extension Strings {
         String(format: String(localized: "sidebar.priority.state.workingFor", defaultValue: "Working %@", bundle: .module), duration)
     }
     static var priorityIdle: String { String(localized: "sidebar.priority.state.idle", defaultValue: "Idle", bundle: .module) }
+    /// The header button with `sidebar.priorityView.filters`: every unseen result and failure read.
+    static var priorityMarkAllRead: String {
+        String(localized: "sidebar.priority.markAllRead", defaultValue: "Mark All as Read", bundle: .module)
+    }
+    /// The filter chips' names (`sidebar.priorityView.filters`).
+    static var priorityFilterAll: String { String(localized: "sidebar.priority.filter.all", defaultValue: "All", bundle: .module) }
+    static var priorityFilterWaiting: String {
+        String(localized: "sidebar.priority.filter.waiting", defaultValue: "Waiting", bundle: .module)
+    }
+    static var priorityFilterUnread: String {
+        String(localized: "sidebar.priority.filter.unread", defaultValue: "Unread", bundle: .module)
+    }
+    static var priorityFilterRunning: String {
+        String(localized: "sidebar.priority.filter.running", defaultValue: "Running", bundle: .module)
+    }
+    /// What the list says when the picked filter has no rows.
+    static var priorityFilterEmpty: String {
+        String(localized: "sidebar.priority.filter.empty", defaultValue: "Nothing here right now", bundle: .module)
+    }
     static var priorityMarkRead: String { String(localized: "sidebar.priority.markRead", defaultValue: "Mark as Read", bundle: .module) }
     static var priorityPin: String { String(localized: "sidebar.priority.pin", defaultValue: "Pin to Priority", bundle: .module) }
     static var priorityUnpin: String { String(localized: "sidebar.priority.unpin", defaultValue: "Unpin from Priority", bundle: .module) }
