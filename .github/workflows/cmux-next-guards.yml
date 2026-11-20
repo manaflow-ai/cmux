@@ -146,7 +146,7 @@ jobs:
           scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --group release-notary --deadline 780 --results "$RUNNER_TEMP/release-notary.json" || true
           python3 scripts/ci/guards_new_reds.py --tip "$RUNNER_TEMP/release-notary.json"
 
-  # Signing jobs (nightly.yml, cmux-tui-artifacts.yml) take their runner from these variables, so they must
+  # Signing jobs (the nightly notarization and iOS nightly Mac jobs) take their runner from this variable, so they must
   # name ephemeral runners only: Blacksmith or GitHub's hosted Linux, never an owned mini
   # (tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py rule 7). Unset falls back to a Blacksmith
   # literal and passes. This job's own runner is a literal, so a variable at a missing label still goes red.
@@ -158,11 +158,10 @@ jobs:
     steps:
       - name: Runner variables that signing jobs read name ephemeral runners
         env:
-          LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}
           MACOS_RUNNER_26: ${{ vars.MACOS_RUNNER_26 }}
         run: |
           bad=0
-          for name in LINUX_RUNNER MACOS_RUNNER_26; do
+          for name in MACOS_RUNNER_26; do
             value="${!name}"
             case "$value" in
               ""|blacksmith-*|ubuntu-*) echo "$name=${value:-<unset>}" ;;
@@ -350,6 +349,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # setup-python installs 3.9 on Linux; a runner without it takes the one uv installs, if any.
       # The head and the base run on the same machine, so either way they compare like for like.
@@ -972,6 +972,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: The web lint pre-push hook
         run: python3 -m pytest -p no:cacheprovider -n 4 -v tests/test_web_lint_prepush.py

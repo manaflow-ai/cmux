@@ -24,6 +24,8 @@ use serde_json::{Value, json};
 use super::OutputMode;
 use crate::localization::AutomationMessages;
 
+#[path = "automation_secret.rs"]
+mod automation_secret;
 #[path = "automation_webhook.rs"]
 mod automation_webhook;
 mod events;
@@ -1701,6 +1703,9 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs, out: &Out) -> Out
     };
     if verb == "teleport" || verb == "move" {
         return teleport::run(rest, global, out, true);
+    }
+    if verb == "secret" || verb == "secrets" {
+        return automation_secret::run(rest, global, out);
     }
     let mut valued = SPEC_VALUED.to_vec();
     valued.extend(["limit", "key", "editor", "machine", "repo", "ref"]);

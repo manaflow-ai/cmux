@@ -670,6 +670,12 @@ pub struct Agents {
     pub failed_steers: usize,
     /// Steers are answered only when the turn ends (codex-acp).
     pub steer_at_end: bool,
+    /// `withdraw_steer` drops an unread steer (Claude Code's
+    /// `cancel_async_message`); else it answers false, as an agent that
+    /// cannot take one back.
+    pub withdraws: bool,
+    /// Every `withdraw_steer`: (session, prompt id).
+    pub withdrawn: Vec<(String, String)>,
     /// Turns whose prompt was answered.
     pub answered_turns: usize,
     /// Each prompt's session id, in prompt order.
@@ -1165,6 +1171,14 @@ impl AgentPort for FakeAgents {
             .modes
             .push((session.to_owned(), mode.to_owned(), prompts));
         Ok(())
+    }
+
+    fn withdraw_steer(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
+        let mut inner = self.inner.lock().unwrap();
+        inner
+            .withdrawn
+            .push((session.to_owned(), prompt_id.to_owned()));
+        Ok(inner.withdraws)
     }
 
     fn remove_queued(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
