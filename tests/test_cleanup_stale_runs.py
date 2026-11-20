@@ -182,8 +182,9 @@ class SupersededTests(unittest.TestCase):
     def test_cancel_rereads_the_run_and_its_pr(self):
         api = mock.Mock()
         api.open_heads.return_value = dict(self.heads)
-        api.runs.return_value = [self.run_data]
+        api.queued_pull_request_runs.return_value = [self.run_data]
         api.request.side_effect = [dict(self.run_data), {"state": "open", "head": {"sha": "new"}}, {}]
+        api.pull_requests_for_commit.return_value = [{"number": 5, "state": "open", "head": {"sha": "new"}}]
         self.assertEqual(self.run_main(api), 0)
         self.assertEqual(api.request.call_args_list, [
             mock.call("GET", "/repos/test/repo/actions/runs/7"),
@@ -198,20 +199,43 @@ class SupersededTests(unittest.TestCase):
             with self.subTest(current=current, pr=pr):
                 api = mock.Mock()
                 api.open_heads.return_value = dict(self.heads)
-                api.runs.return_value = [self.run_data]
+                api.queued_pull_request_runs.return_value = [self.run_data]
                 api.request.side_effect = [current, pr]
+                api.pull_requests_for_commit.return_value = []
                 self.assertEqual(self.run_main(api), 0)
                 self.assertNotIn("POST", [call.args[0] for call in api.request.call_args_list])
+
+    def test_another_pr_pushed_back_to_this_head_is_kept(self):
+        # The inventory saw PR 6 at "other"; by the recheck it was pushed back to this run's commit.
+        api = mock.Mock()
+        api.open_heads.return_value = dict(self.heads)
+        api.queued_pull_request_runs.return_value = [self.run_data]
+        api.request.side_effect = [dict(self.run_data), {"state": "open", "head": {"sha": "new"}}]
+        api.pull_requests_for_commit.return_value = [{"number": 6, "state": "open", "head": {"sha": "old"}}]
+        self.assertEqual(self.run_main(api), 0)
+        api.pull_requests_for_commit.assert_called_once_with("old")
+        self.assertNotIn("POST", [call.args[0] for call in api.request.call_args_list])
+
+    def test_malformed_created_at_is_kept_without_a_traceback(self):
+        for created_at in ("not-a-time", "2026-13-45T00:00:00Z", 12345):
+            with self.subTest(created_at=created_at):
+                run = dict(self.run_data, created_at=created_at)
+                self.assertIsNone(MODULE.classify_superseded(run, self.heads, now=self.now))
+        api = mock.Mock()
+        api.open_heads.return_value = dict(self.heads)
+        api.queued_pull_request_runs.return_value = [dict(self.run_data, id=8, created_at="garbage"), self.run_data]
+        self.assertEqual(self.run_main(api, cleanup="false"), 0)
 
     def test_dry_run_and_schedule_never_cancel(self):
         api = mock.Mock()
         api.open_heads.return_value = dict(self.heads)
-        api.runs.return_value = [self.run_data]
+        api.queued_pull_request_runs.return_value = [self.run_data]
         self.assertEqual(self.run_main(api, cleanup="false"), 0)
         api.request.assert_not_called()
         environment = {"GH_TOKEN": "t", "GH_REPO": "test/repo", "CLEANUP": "true", "SUPERSEDED": "true",
                        "GITHUB_EVENT_NAME": "schedule"}
         api = mock.Mock()
+        api.queued_pull_request_runs.return_value = []
         api.runs.return_value = []
         with mock.patch.dict(MODULE.os.environ, environment, clear=True), \
                 mock.patch.object(MODULE, "GitHub", return_value=api):
@@ -235,10 +259,140 @@ class SupersededTests(unittest.TestCase):
         self.assertEqual(request.call_count, 3)
 
 
+class QueuedListingTests(unittest.TestCase):
+    def test_a_short_page_does_not_end_the_listing(self):
+        client = MODULE.GitHub("test-token", "test/repo")
+        pages = [{"workflow_runs": [{"id": i} for i in range(98)]}, {"workflow_runs": [{"id": 98}]}, {"workflow_runs": []}]
+        with mock.patch.object(client, "request", side_effect=pages):
+            self.assertEqual(len(client.runs("queued")), 99)
+
+    def test_a_window_that_fills_the_listing_cap_is_split(self):
+        # 2026-11-19: over 2,500 queued runs, but one query lists at most 1,000.
+        client = MODULE.GitHub("test-token", "test/repo")
+        now = dt.datetime(2026, 11, 19, 19, 0, tzinfo=dt.timezone.utc)
+        calls = []
+
+        def runs(status, pages=10, *, created=None):
+            calls.append(created)
+            if len(calls) == 1:
+                return [{"id": i} for i in range(MODULE.LIST_CAP)]
+            return [{"id": f"{created}-{i}"} for i in range(3)] + [{"id": "shared"}]
+
+        with mock.patch.object(client, "runs", side_effect=runs):
+            found = client.queued_pull_request_runs(now=now, hours=2)
+        self.assertEqual(calls[0], "2026-11-19T17:00:00Z..2026-11-19T19:00:00Z")
+        self.assertEqual(sorted(calls[1:]), ["2026-11-19T17:00:00Z..2026-11-19T18:00:00Z",
+                                             "2026-11-19T18:00:00Z..2026-11-19T19:00:00Z"])
+        self.assertEqual(len(found), 7)
+
+
+class DeadQueuedTests(unittest.TestCase):
+    now = dt.datetime(2026, 9, 19, tzinfo=dt.timezone.utc)
+    run_data = {"id": 7, "created_at": "2026-09-18T00:00:00Z", "status": "queued", "event": "pull_request",
+                "head_sha": "old", "head_branch": "feat", "path": ".github/workflows/ci.yml", "name": "CI",
+                "workflow_id": 1, "run_attempt": 1, "pull_requests": [{"number": 5}]}
+
+    def pr(self, sha="old", draft=False, labels=()):
+        return {"sha": sha, "draft": draft, "labels": tuple(labels)}
+
+    def kind(self, run, prs, runs=None):
+        keepers = MODULE.duplicate_keepers(runs or [run], self.now)
+        return MODULE.classify_dead(run, prs, keepers, now=self.now)
+
+    def test_superseded_and_closed(self):
+        self.assertEqual(self.kind(self.run_data, {5: self.pr("new")}), "superseded head")
+        self.assertEqual(self.kind(self.run_data, {6: self.pr("other")}), "closed PR")
+
+    def test_draft_head_unstarted_a_day_is_stale_but_a_young_one_or_ready_pr_is_kept(self):
+        self.assertEqual(self.kind(self.run_data, {5: self.pr(draft=True)}), "stale draft")
+        young = dict(self.run_data, created_at="2026-09-18T12:00:00Z")
+        self.assertIsNone(self.kind(young, {5: self.pr(draft=True)}))
+        self.assertIsNone(self.kind(self.run_data, {5: self.pr()}))
+        self.assertIsNone(self.kind(self.run_data, {5: self.pr(draft=True), 6: self.pr()}))
+
+    def test_older_duplicate_goes_once_the_newest_has_waited(self):
+        newer = dict(self.run_data, id=8, created_at="2026-09-18T01:00:00Z")
+        self.assertEqual(self.kind(self.run_data, {5: self.pr()}, [self.run_data, newer]), "duplicate")
+        self.assertIsNone(self.kind(newer, {5: self.pr()}, [self.run_data, newer]))
+        fresh = dict(newer, created_at="2026-09-18T23:55:00Z")
+        self.assertIsNone(self.kind(self.run_data, {5: self.pr()}, [self.run_data, fresh]))
+        for other in (dict(newer, head_sha="x"), dict(newer, workflow_id=2), dict(newer, pull_requests=[{"number": 6}])):
+            with self.subTest(other=other):
+                self.assertIsNone(self.kind(self.run_data, {5: self.pr()}, [self.run_data, other]))
+        rerun = dict(self.run_data, run_attempt=2)
+        self.assertIsNone(self.kind(rerun, {5: self.pr()}, [rerun, newer]))
+
+    def test_runs_that_must_be_kept(self):
+        cases = {
+            "started": dict(self.run_data, status="in_progress"),
+            "push": dict(self.run_data, event="push"),
+            "dispatch": dict(self.run_data, event="workflow_dispatch"),
+            "no pull request": dict(self.run_data, pull_requests=[]),
+            "young": dict(self.run_data, created_at="2026-09-18T23:55:00Z"),
+            "nightly": dict(self.run_data, path=".github/workflows/nightly.yml"),
+            "release": dict(self.run_data, name="Release"),
+        }
+        for label, run in cases.items():
+            with self.subTest(label):
+                self.assertIsNone(self.kind(run, {6: self.pr("other")}))
+        self.assertIsNone(self.kind(self.run_data, {5: self.pr("new", labels=["no-janitor"])}))
+        self.assertIsNone(self.kind(self.run_data, {5: self.pr(draft=True, labels=["no-janitor"])}))
+
+    def run_main(self, api, cleanup="true"):
+        environment = {"GH_TOKEN": "t", "GH_REPO": "test/repo", "CLEANUP": cleanup, "DEAD_QUEUED": "true",
+                       "MAX_SUPERSEDED": "200", "GITHUB_EVENT_NAME": "workflow_dispatch"}
+        with mock.patch.dict(MODULE.os.environ, environment, clear=True), \
+                mock.patch.object(MODULE, "GitHub", return_value=api):
+            return MODULE.main()
+
+    def test_cancel_rereads_the_run_its_pr_and_the_kept_run(self):
+        newer = dict(self.run_data, id=8, created_at="2026-09-18T01:00:00Z")
+        open_pr = {"number": 5, "state": "open", "draft": False, "labels": [], "head": {"sha": "old"}}
+        for kept_status, cancels in (("queued", 1), ("in_progress", 0)):
+            with self.subTest(kept_status=kept_status):
+                api = mock.Mock()
+                api.open_prs.return_value = {5: self.pr()}
+                api.queued_pull_request_runs.return_value = [self.run_data, newer]
+                api.request.side_effect = [dict(self.run_data), open_pr, dict(newer, status=kept_status), {}]
+                api.pull_requests_for_commit.return_value = []
+                self.assertEqual(self.run_main(api), 0)
+                posts = [c for c in api.request.call_args_list if c.args[0] == "POST"]
+                self.assertEqual(len(posts), cancels)
+                self.assertEqual(api.request.call_args_list[:3], [
+                    mock.call("GET", "/repos/test/repo/actions/runs/7"),
+                    mock.call("GET", "/repos/test/repo/pulls/5", missing_is_empty=True),
+                    mock.call("GET", "/repos/test/repo/actions/runs/8")])
+
+    def test_a_reopened_pr_keeps_a_closed_pr_run(self):
+        api = mock.Mock()
+        api.open_prs.return_value = {}
+        api.queued_pull_request_runs.return_value = [self.run_data]
+        api.request.side_effect = [dict(self.run_data),
+                                   {"number": 5, "state": "open", "draft": False, "labels": [], "head": {"sha": "old"}}]
+        api.pull_requests_for_commit.return_value = []
+        self.assertEqual(self.run_main(api), 0)
+        self.assertNotIn("POST", [c.args[0] for c in api.request.call_args_list])
+
+    def test_dry_run_counts_each_kind_and_cancels_nothing(self):
+        api = mock.Mock()
+        api.open_prs.return_value = {5: self.pr("new")}
+        api.queued_pull_request_runs.return_value = [self.run_data, dict(self.run_data, id=9, pull_requests=[{"number": 4}])]
+        with mock.patch("builtins.print") as printed:
+            self.assertEqual(self.run_main(api, cleanup="false"), 0)
+        api.request.assert_not_called()
+        text = " ".join(str(c.args[0]) for c in printed.call_args_list)
+        self.assertIn('would_cancel=2 {"closed PR": 1, "superseded head": 1}', text)
+
+
 class WorkflowSafetyTests(unittest.TestCase):
     def test_scheduled_and_manual_janitors_are_serialized(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("concurrency:\n  group: ci-stale-run-janitor\n  cancel-in-progress: false", workflow)
+
+    def test_dead_queued_is_a_dispatch_input(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("      dead_queued:\n", workflow)
+        self.assertIn("DEAD_QUEUED: ${{ inputs.dead_queued || 'false' }}", workflow)
 
 
 if __name__ == "__main__":
