@@ -103,3 +103,16 @@ test("a query narrows an earlier one only when every match of it is one of the e
   // A word with no letters or digits matches as typed only.
   expect(narrows(q("-"), q("-f"))).toBe(false);
 });
+
+test("an effort word still being typed keeps the models the rest of the query finds", () => {
+  const index = new ModelSearchIndex(
+    entries,
+    (entry) => entry.models,
+    (entry) => entry.name,
+  );
+  const ids = (query: string) => index.find(parseQuery(query, efforts)).map((row) => row.model.id);
+  // "m" on the way to "medium": Opus stays listed while it is typed, as the full picker kept it.
+  expect(ids("opus 5.5 m")).toEqual(["claude-opus-5-5"]);
+  expect(ids("opus 5.5 med")).toEqual(["claude-opus-5-5"]);
+  expect(ids("opus 5.5 medium")).toEqual(["claude-opus-5-5"]);
+});
