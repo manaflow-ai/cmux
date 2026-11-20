@@ -8119,3 +8119,19 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 .cv-tool__file:hover {
   text-decoration-color: currentColor;
 }
+
+/* A running call's time at its row's edge (RunningTime.tsx): in sight at rest, not on hover only as a
+   finished call's was, since while it runs how long it has run is the row's news. The edge's dim
+   tone and size (`.cv-command__meta`); `Clock` keeps its width while it ticks. */
+.cv-command__elapsed {
+  color: var(--cv-text-dim);
+}
+/* How long a finished command took, in its opened Shell card beside the label and folder. */
+.cv-shell__time {
+  flex: none;
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+  white-space: nowrap;
+}

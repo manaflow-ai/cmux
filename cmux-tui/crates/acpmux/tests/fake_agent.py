@@ -24,6 +24,8 @@ Behaviour per prompt text:
   "goal: <objective>" -> a Codex goal as session_info_update _meta.goal (running 32 min), then a short reply
   "/goal pause|resume|clear|<text>" -> that goal paused, running again, gone, or set to <text>
   "work-gate: <p>" -> a plan step in progress and a running tool call, then as "gate:"
+  "elapsed-tour:" -> a finished shell, a shell gone on in the background, then a shell
+                 held running in the foreground (until session/cancel, else 300 s)
   image blocks -> the echo ends with " image:<sha256 of its bytes>" for each
   anything     -> echoes the text as one agent_message_chunk
 
@@ -721,6 +723,42 @@ def handle_prompt(rid, params):
                 choices.append(reply.get("outcome", {}))
         update(sid, {"sessionUpdate":"agent_message_chunk", "content":{"type":"text", "text":json.dumps(choices)}})
         send({"jsonrpc":"2.0", "id":rid, "result":{"stopReason":"end_turn"}})
+        return
+    # "elapsed-tour:" (a capture of how long tool calls run, the agent pane's RunningTime.tsx): a
+    # shell that finishes after 1.4 s, a shell that goes on in the background as Claude Code reports
+    # one (its result names the task, then `background_task_update` running), a short reply, then a
+    # shell held running in the foreground until session/cancel or 300 s.
+    if text.startswith("elapsed-tour:"):
+        def shell(call_id, command):
+            update(sid, {"sessionUpdate": "tool_call", "toolCallId": call_id, "title": command, "kind": "execute",
+                         "status": "in_progress", "rawInput": {"command": command}})
+        def done(call_id, out):
+            update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": call_id, "status": "completed",
+                         "content": [{"type": "content", "content": {"type": "text", "text": out}}]})
+        shell("et-status", "git status --short")
+        time.sleep(1.4)
+        done("et-status", " M webviews/src/agent-session/acpmux/conversation/RunningTime.tsx")
+        waited = "glaeda-gh wait pid 13341 --timeout 1750"
+        shell("et-bg", waited)
+        done("et-bg", "Command running in background with ID: et-bg-task.")
+        update(sid, {"sessionUpdate": "background_task_update", "taskId": "et-bg-task", "toolCallId": "et-bg",
+                     "command": waited, "state": "running"})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {
+            "type": "text", "text": "The wait runs in the background; the tests run now."}})
+        time.sleep(0.5)
+        shell("et-fg", "cargo test --workspace")
+        deadline = time.monotonic() + 300
+        while time.monotonic() < deadline:
+            with lock:
+                was_cancelled = sid in cancelled
+                cancelled.discard(sid)
+            if was_cancelled:
+                update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "et-fg", "status": "failed"})
+                send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+                return
+            time.sleep(0.1)
+        done("et-fg", "test result: ok. 412 passed")
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "work-gate: PATH [| TITLE]" reports a plan step in progress and a running
     # tool call (TITLE, else "Run cargo test"), then blocks on the FIFO at PATH
