@@ -304,6 +304,16 @@ fn the_owners_stop_after_the_chiefs_own_stop_still_ends_the_session() {
         true,
         "the turn still ran when the owner stopped it"
     );
+    // The turn answers once the runner's second cancel reaches it (it ends
+    // cancelled). Letting go of the hold before that would let it answer
+    // clean, a turn the stop never reached.
+    let deadline = std::time::Instant::now() + WAIT;
+    while h.agents.inner.lock().unwrap().answered_turns == 0 {
+        assert!(std::time::Instant::now() < deadline, "no cancel reached s1");
+        if let Ok(input) = h.rx.recv_timeout(std::time::Duration::from_millis(20)) {
+            h.brain.step(input);
+        }
+    }
     h.agents.hold(false);
     h.settle_posts();
     h.say("user_local", "two");
