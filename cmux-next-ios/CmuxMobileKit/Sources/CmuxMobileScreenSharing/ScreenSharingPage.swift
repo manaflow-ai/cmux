@@ -300,7 +300,7 @@ struct ScreenSharingViewerScreen: View {
                        secondaryTitle: "Close", secondary: close)
         case let .refused(refusal, _):
             EmptyState(symbol: "exclamationmark.triangle", title: refusal.title(viewer.hostName), message: refusal.message,
-                       primaryTitle: refusal == .other || refusal == .hostOffline ? "Try Again" : nil, primary: retry,
+                       primaryTitle: refusal.isOther || refusal == .hostOffline ? "Try Again" : nil, primary: retry,
                        secondaryTitle: "Close", secondary: close)
         case let .ended(reason):
             EmptyState(symbol: "rectangle.on.rectangle.slash", title: "Sharing ended",
@@ -329,6 +329,7 @@ extension ScreenSharingRefusal {
         case .hostOffline: "Open cmux on the Mac and make sure it's online."
         case .notShared: "Turn on Share This Mac in the Mac's Settings › Devices."
         case .notFound: nil
+        case let .other(reason?): "The device hub could not start the session: \(reason)"
         case .other: "Check your connection and try again."
         }
     }
