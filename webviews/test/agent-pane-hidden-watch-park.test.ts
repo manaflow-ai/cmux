@@ -3,9 +3,9 @@
 // "My Mac is at load 272 on 15 cores"; the shared renderer at 168% of a core). acpmux tells every
 // watching connection every chat's change, one whole row each, so every hidden pane parsed and laid
 // each one over its list: the renderer's work grew with chats times panes. A pane hidden for
-// `WATCH_PARK_AFTER_MS` now turns its watch off (`_acpmux/watch {enabled: false}`) and, shown again,
-// follows the list from its cursor: the rows changed meanwhile, never the list, with its own chat's
-// row taken as its `session_changed` would have been.
+// `WATCH_PARK_AFTER_MS` now parks its watch (`_acpmux/watch {enabled: false, attachedRows: true}`,
+// acpmux `watch-attached-rows-v1`): its own chat's row still comes, no other chat's does, and
+// shown again it follows the list from its cursor: the rows changed meanwhile, never the list.
 import { afterAll, beforeAll, beforeEach, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
@@ -77,6 +77,8 @@ class FakeAcpmux {
   rowSeq = new Map<string, number>();
   seq = 1;
   watching = false;
+  /// Off with `attachedRows`: the attached chat's row (SELECTED) still comes.
+  watchingAttached = false;
   watches: Record<string, unknown>[] = [];
   /// `session_changed` notices that reached the page.
   told = 0;
@@ -95,14 +97,19 @@ class FakeAcpmux {
       result = {
         protocolVersion: 1,
         _meta: {
-          acpmux: { origin: "local", extensions: [], capabilities: this.follows ? ["session-list-follow-v1"] : [] },
+          acpmux: {
+            origin: "local",
+            extensions: [],
+            capabilities: this.follows ? ["session-list-follow-v1", "watch-attached-rows-v1"] : [],
+          },
         },
       };
     else if (message.method === "_acpmux/watch") {
       this.watches.push(params);
       this.watching = params.enabled !== false;
+      this.watchingAttached = !this.watching && params.attachedRows === true;
       const at = { listSeq: this.seq, listEpoch: "e1" };
-      if (!this.watching) result = {};
+      if (!this.watching) result = this.watchingAttached ? {} : { ...at, sessions: this.rows };
       else if (this.follows && params.listEpoch === "e1" && typeof params.afterSeq === "number")
         result = {
           ...at,
@@ -121,7 +128,7 @@ class FakeAcpmux {
     this.rows[n - 1] = row;
     this.seq += 1;
     this.rowSeq.set(row.sessionId, this.seq);
-    if (!this.watching) return;
+    if (!this.watching && !(this.watchingAttached && row.sessionId === SELECTED)) return;
     this.told += 1;
     this.onmessage?.({
       data: JSON.stringify({
@@ -174,12 +181,14 @@ test("a pane hidden past the park delay turns its watch off, hears nothing, and 
   try {
     setVisibility("hidden");
     await advance(6000);
-    expect(socket.watches.at(-1)).toEqual({ enabled: false });
+    expect(socket.watches.at(-1)).toEqual({ enabled: false, attachedRows: true });
     const toldBefore = socket.told;
     for (let n = 2; n < 300; n++) socket.change(n, { status: "running", updatedAt: 2_000_000 + n });
-    socket.change(1, { title: "Renamed while hidden" });
-    // Parked: not one of 299 changes reached the page.
+    // Parked: not one of 298 other chats' changes reached the page.
     expect(socket.told - toldBefore).toBe(0);
+    // Its own chat's row still comes, so its tab and header stay right while hidden.
+    socket.change(1, { title: "Renamed while hidden" });
+    expect(socket.told - toldBefore).toBe(1);
     jest.useRealTimers();
     setVisibility("visible");
     await settle();
@@ -219,7 +228,7 @@ test("a quick hide (a tab switch) keeps the watch on", async () => {
   }
 });
 
-test("a daemon that cannot follow a cursor keeps every hidden pane watching", async () => {
+test("a daemon without list follow or attached rows keeps every hidden pane watching", async () => {
   const { socket, client } = await openPane(false);
   jest.useFakeTimers();
   try {

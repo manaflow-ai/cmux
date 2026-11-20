@@ -196,6 +196,10 @@ pub struct Conn {
     /// [`Conn::MAX_CREATED`]): what `_acpmux/side` may tag besides a fork of the chat.
     created: StdMutex<std::collections::VecDeque<String>>,
     watch_all: AtomicBool,
+    /// With the watch off (`watch_all` false), the rows of the chats this connection attached still
+    /// come as `session_changed` (`_acpmux/watch {enabled: false, attachedRows: true}`): a hidden page
+    /// keeps its own chat's row and hears no other chat's (`list_reply::ATTACHED_ROWS_CAPABILITY`).
+    watch_attached: AtomicBool,
     watch_tools: AtomicBool,
     watch_inventory: StdMutex<bool>,
     /// The unix socket peer's audit token, read at accept (macOS); what
@@ -1685,6 +1689,7 @@ async fn serve_connection_from(
         controls: Default::default(),
         created: StdMutex::default(),
         watch_all: AtomicBool::new(false),
+        watch_attached: AtomicBool::new(false),
         watch_tools: AtomicBool::new(false),
         watch_inventory: StdMutex::new(false),
         peer,
@@ -2173,9 +2178,11 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         }
         params
     };
-    let watching = conn.watch_all.load(Ordering::SeqCst);
     let sub = conn.sub_opts(&ev.session_id);
     let attached = sub.is_some();
+    // A watch off but keeping its attached chats' rows hears this chat's as a watcher does.
+    let watching = conn.watch_all.load(Ordering::SeqCst)
+        || (attached && conn.watch_attached.load(Ordering::SeqCst));
     if !watching && !attached {
         return;
     }
@@ -2378,6 +2385,9 @@ mod computer_use_relay;
 mod connection_token_tests;
 pub(crate) mod controls;
 mod in_flight;
+#[cfg(test)]
+#[path = "watch_attached_rows_tests.rs"]
+mod watch_attached_rows_tests;
 pub(crate) use crate::clock_text::{civil_from_days, iso};
 pub(crate) use change_kind::session_change_kind;
 mod change_kind;

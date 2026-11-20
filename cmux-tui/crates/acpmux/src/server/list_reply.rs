@@ -242,6 +242,18 @@ fn pending(hub: &Hub, raw: bool, params: &Value) -> Result<Value, RpcError> {
 pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     crate::hub::session_pages::refuse_watch_filters(params)?;
     let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
+    let attached_rows = params.get("attachedRows").and_then(Value::as_bool).unwrap_or(false);
+    conn.watch_attached.store(!on && attached_rows, Ordering::SeqCst);
+    if !on && attached_rows {
+        // A page nobody shows parks its watch (webviews direct.ts `parkWatchWhenHidden`): no other
+        // chat's change reaches it, and it reads no list now; shown again, it follows from its
+        // cursor. Every watching page heard every chat's change, so at 600 chats the shared
+        // renderer parsed each one once per hidden page (Leo, 2026-11-20: "My Mac is at load 272
+        // on 15 cores").
+        conn.watch_tools.store(false, Ordering::SeqCst);
+        conn.watch_all.store(false, Ordering::SeqCst);
+        return Ok(json!({}));
+    }
     let tools = with_tools(params)?;
     conn.watch_tools.store(on && tools, Ordering::SeqCst);
     conn.watch_all.store(on, Ordering::SeqCst);

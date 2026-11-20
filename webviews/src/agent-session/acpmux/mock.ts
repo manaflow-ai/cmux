@@ -1411,6 +1411,8 @@ export class MockAcpmuxSocket {
   private rowSeq = new Map<string, number>();
   private goneRows: { sessionId: string; at: number }[] = [];
   private watching = true;
+  /// The watch off with `attachedRows`: the attached chat's row still comes (`watch-attached-rows-v1`).
+  private watchingAttached = false;
 
   private tellChanged(params: { kind: string; session?: Record<string, any> }): void {
     const sessionId = params.session?.sessionId;
@@ -1418,15 +1420,16 @@ export class MockAcpmuxSocket {
     this.listSeq += 1;
     if (params.kind === "purged") this.goneRows.push({ sessionId, at: this.listSeq });
     else this.rowSeq.set(sessionId, this.listSeq);
-    if (this.watching)
+    if (this.watching || (this.watchingAttached && sessionId === this.attached))
       this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { ...params, listSeq: this.listSeq } });
   }
 
-  /// `_acpmux/watch`: `enabled: false` stops the notices; on, the list (or with a cursor, the rows
-  /// changed after it) current to `listSeq`.
+  /// `_acpmux/watch`: `enabled: false` stops the notices (`attachedRows`: but the attached chat's);
+  /// on, the list (or with a cursor, the rows changed after it) current to `listSeq`.
   private watch(params: Record<string, any>): Record<string, unknown> {
     this.watching = params.enabled !== false;
-    if (!this.watching) return {};
+    this.watchingAttached = !this.watching && params.attachedRows === true;
+    if (!this.watching) return this.watchingAttached ? {} : { sessions: this.sessions };
     const at = { listSeq: this.listSeq, listEpoch: MOCK_LIST_EPOCH };
     const after = params.afterSeq;
     if (params.listEpoch === MOCK_LIST_EPOCH && typeof after === "number")

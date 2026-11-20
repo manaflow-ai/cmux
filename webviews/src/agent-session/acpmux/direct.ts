@@ -727,6 +727,8 @@ const SESSION_REREAD_MS = 2000;
 /// How long a page stays hidden before its session watch turns off (`parkWatchWhenHidden`): past a
 /// quick tab switch, so flipping between two tabs never re-reads the list.
 const WATCH_PARK_AFTER_MS = 5000;
+/// acpmux's `_acpmux/watch {enabled: false, attachedRows: true}`: off, with the attached chats' rows.
+const WATCH_ATTACHED_ROWS_CAPABILITY = "watch-attached-rows-v1";
 /// How often the pane reads the peers again while a missing chat's machine is still connecting.
 const MISSING_RECHECK_MS = 2000;
 
@@ -5971,25 +5973,28 @@ export class AcpmuxDirectClient {
   /// change, one whole row each, so each hidden agent page parsed and laid every change of every chat
   /// over its list: the shared renderer's cost grew with chats times pages, 168% of a core at about
   /// 600 chats on Leo's Mac (2026-11-20: "My Mac is at load 272 on 15 cores"). Parked, a hidden page
-  /// costs nothing per change; showing it reads only the rows changed since (`unparkWatch`). Only a
-  /// list held whole to a cursor parks (`SessionPager.followable`): any other could not catch up.
+  /// costs nothing per change; showing it reads only the rows changed since (`unparkWatch`). Its own
+  /// chat's row still comes (`attachedRows`, acpmux `watch-attached-rows-v1`), so its tab and header
+  /// stay right. Only a daemon with that mode and a list held whole to a cursor
+  /// (`SessionPager.followable`) parks: any other could not keep the chat's row or catch up.
   private parkWatchWhenHidden(): void {
     if (this.closed || this.watchParked || this.parkTimer || pageShown()) return;
+    if (!this.capabilities?.has(WATCH_ATTACHED_ROWS_CAPABILITY)) return;
     this.parkTimer = setTimeout(() => {
       this.parkTimer = undefined;
       if (this.closed || this.watchParked || pageShown() || !this.sessionPages.followable) return;
       if (this.lagRead || this.sessionReread) return this.parkWatchWhenHidden();
       this.watchParked = true;
-      this.request("_acpmux/watch", { enabled: false }).catch(() => {
+      this.request("_acpmux/watch", { enabled: false, attachedRows: true }).catch(() => {
         // Still on: changes keep coming as before, and the next hide tries again.
         this.watchParked = false;
       });
     }, WATCH_PARK_AFTER_MS);
   }
 
-  /// The page shows again: a parked watch turns back on from the list's cursor, and every row that
-  /// changed meanwhile goes through what its `session_changed` would have done (the shown chat's
-  /// summary and queue, its started chats, Needs you's asks).
+  /// The page shows again: a parked watch turns back on from the list's cursor, and every other row
+  /// that changed meanwhile goes through what its `session_changed` would have done here (its
+  /// started chats, Needs you's asks); the shown chat's own row came all along.
   private unparkWatch(): void {
     if (this.parkTimer) clearTimeout(this.parkTimer);
     this.parkTimer = undefined;
@@ -6006,11 +6011,10 @@ export class AcpmuxDirectClient {
           if (prior.has(session)) continue;
           this.asks.session(session, "updated");
           if (
-            session.sessionId === this.selectedSessionId ||
-            this.offerChildIds().includes(session.sessionId) ||
-            this.isStartedChild(session)
+            session.sessionId !== this.selectedSessionId &&
+            (this.offerChildIds().includes(session.sessionId) || this.isStartedChild(session))
           )
-            this.sessionChanged({ session, kind: "updated" } as SessionChanged);
+            this.childChanged(session.sessionId);
         }
         for (const sessionId of priorIds) if (!listed.has(sessionId)) this.asks.forget(sessionId);
       })

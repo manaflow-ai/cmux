@@ -25,7 +25,7 @@
 //                                      % of one core: what `ps` read on Leo's Mac
 //   bun bench/session-scale-scroll.bench.ts [--sizes 100,10000] [--pages 4] [--newtabs 2] [--rate 4]
 //     [--pad 17000] [--cpu 1] [--turns 30] [--long 2000] [--seconds 6] [--hidden both|hidden|visible] [--profile]
-//     [--idle] [--rate-per-session R]
+//     [--idle] [--rate-per-session R] [--no-park]
 //
 // `--idle`: nobody scrolls; the window only measures what the change stream costs the renderer (Leo's Mac,
 // 2026-11-20, about 600 sessions: the renderer at 168% of a core averaged over 5 minutes, "My Mac is at load
@@ -54,6 +54,9 @@ const PER_SESSION = flag("--rate-per-session");
 /// Changes a second the daemon sends at `size` listed sessions.
 const rateFor = (size: number) => (PER_SESSION === undefined ? FIXED_RATE : Number(PER_SESSION) * size);
 const IDLE = argv.includes("--idle");
+/// `--no-park`: the mock daemon names no `watch-attached-rows-v1`, as an acpmux before it, so hidden pages keep
+/// their watch on (the before arm of one A/B, same code and harness).
+const PARK = !argv.includes("--no-park");
 const PAD = Number(flag("--pad") ?? 17_000);
 /// The scrolled chat: a short one, a few screens tall.
 const TURNS = Number(flag("--turns") ?? 30);
@@ -158,19 +161,19 @@ async function installDriver({ size, rate, pad }: { size: number; rate: number; 
 
 async function openPage(page: Page, port: number, size: number, kind: "chat" | "long" | "newtab") {
   await page.addInitScript(
-    ({ count, newTab }) => {
+    ({ count, newTab, park }) => {
       const mock = globalThis as {
         cmuxAcpmuxMockListSize?: number;
         cmuxAcpmuxMockCapabilities?: string[];
         __cmuxNewTabContext?: unknown;
       };
       mock.cmuxAcpmuxMockListSize = count;
-      // As acpmux does since its row log: a list follows from a cursor, so a watch may turn off and catch up.
-      mock.cmuxAcpmuxMockCapabilities = ["session-list-follow-v1"];
+      // As acpmux does: a list follows from a cursor, and a watch may park keeping its chat's row.
+      mock.cmuxAcpmuxMockCapabilities = ["session-list-follow-v1", ...(park ? ["watch-attached-rows-v1"] : [])];
       // A New Tab page as the app opens one: the host injects its context before the first render.
       if (newTab) mock.__cmuxNewTabContext = {};
     },
-    { count: size, newTab: kind === "newtab" },
+    { count: size, newTab: kind === "newtab", park: PARK },
   );
   await page.addInitScript(visibility);
   await page.addInitScript(probe);
@@ -330,6 +333,7 @@ try {
           busy_pct: round1((busy / wall) * 100),
           renderer_cpu_pct: round1((rendererMs / wall) * 100),
           idle: IDLE,
+          park: PARK,
           long_tasks: long.length,
           longest_task_ms: round1(Math.max(0, ...long.map((task) => task.ms))),
           shown_renders: renderCount(renders[0] ?? {}),
@@ -341,11 +345,11 @@ try {
         console.log(
           `n=${size} hidden pages report ${mode}, pages=${PAGES} (${NEWTABS} new tab) rate=${rateFor(size)}/s cpu=${CPU}x:` +
             `frames ${row.frames} p50 ${row.frame_p50} p95 ${row.frame_p95} max ${row.frame_max} ms, dropped ${row.dropped}, ` +
-            `main thread busy ${row.busy_pct} %, renderer CPU ${row.renderer_cpu_pct} % of a core${IDLE ? " (idle)" : ""}, long tasks ${row.long_tasks} (longest ${row.longest_task_ms} ms), ` +
+            `main thread busy ${row.busy_pct} %, renderer CPU ${row.renderer_cpu_pct} % of a core${IDLE ? " (idle)" : ""}${PARK ? "" : " (no park)"}, long tasks ${row.long_tasks} (longest ${row.longest_task_ms} ms), ` +
             `hidden pages' renders ${JSON.stringify(row.hidden_renders)} (pane ${JSON.stringify(row.hidden_pane_renders)})`,
         );
         perfRow({
-          name: `session_scale_${IDLE ? "idle" : "scroll"}.frame.n${size}.${mode}`,
+          name: `session_scale_${IDLE ? "idle" : "scroll"}${PARK ? "" : "_nopark"}.frame.n${size}.${mode}`,
           p50: Number(row.frame_p50 ?? 0),
           p95: Number(row.frame_p95 ?? 0),
           target: TARGET_MS.frameWork,
