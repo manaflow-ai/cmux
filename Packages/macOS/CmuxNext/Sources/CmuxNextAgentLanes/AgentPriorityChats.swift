@@ -286,7 +286,7 @@ public final class AgentPriorityChats {
     /// The Archived fold's rows: the `limit` newest archives, each with its folder's name.
     public func archivedEntries(limit: Int) -> [SidebarArchivedChat] {
         archivedChats.newest(limit: limit).map { chat in
-            let folder = chat.cwd.map { URL(fileURLWithPath: $0).lastPathComponent }.flatMap { $0.isEmpty || $0 == "/" ? nil : $0 }
+            let folder = chat.cwd.map { ($0 as NSString).lastPathComponent }.flatMap { $0.isEmpty || $0 == "/" ? nil : $0 }
             return SidebarArchivedChat(id: chat.id, title: chat.title, project: folder,
                                        archivedAt: chat.archivedAtMs.map { Date(timeIntervalSince1970: Double($0) / 1000) })
         }
