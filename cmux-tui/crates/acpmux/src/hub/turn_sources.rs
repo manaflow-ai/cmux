@@ -103,6 +103,11 @@ impl TurnSources {
 
 impl Hub {
     pub(super) fn note_turn_source(&self, session: &Session, update: &Value) {
+        // Called after tap.rs excludes child/replayed/muted updates. A prompt not yet
+        // written cannot own reads from a prior harness or a history load.
+        if session.stalled_counted.lock().unwrap_or_else(|e| e.into_inner()).is_none() {
+            return;
+        }
         session.turn_sources.lock().unwrap_or_else(|e| e.into_inner()).observe(update);
     }
 
@@ -237,6 +242,53 @@ fn failed(update: &Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn turn_sources_tap_excludes_child_reads_and_reads_before_prompt() {
+        use crate::agent::Direction;
+        let hub = Hub::new(
+            crate::config::Config::default(),
+            Box::new(crate::store::MemoryStore::default()),
+        );
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "sources", "name": "sources",
+            "harness": "fake", "cwd": "/tmp", "status": "running", "createdAt": 1, "updatedAt": 1,
+        }))
+        .unwrap();
+        hub.store.save(&meta).unwrap();
+        let session = hub.make_session(meta);
+        session.meta.lock().unwrap().agent_session_id = Some("root".to_owned());
+        let tap = hub.session_tap(&session);
+        let send = |owner: &str, update: Value| {
+            tap(
+                Direction::In,
+                &Message::notification(
+                    crate::rpc::method::SESSION_UPDATE,
+                    json!({"sessionId": owner, "update": update}),
+                ),
+                None,
+            );
+        };
+        send("root", read("before", "/docs/before.md"));
+        send("root", done("before"));
+        assert!(session.turn_sources.lock().unwrap().sources.is_empty());
+        *session.stalled_counted.lock().unwrap() = Some("turn-1".to_owned());
+        send(
+            "root",
+            json!({"sessionUpdate":"subagent_spawned", "subagentSessionId":"child", "background":true,
+            "toolCallId":"child-call", "name":"Unrelated background work"}),
+        );
+        send("child", read("child-read", "/docs/child.md"));
+        send("child", done("child-read"));
+        send("root", read("root-read", "/docs/root.md"));
+        send("root", done("root-read"));
+        {
+            let state = session.turn_sources.lock().unwrap();
+            assert_eq!(state.sources.len(), 1);
+            assert_eq!(state.sources[0].tool_call_id, "root-read");
+        }
+        hub.shutdown_all().await;
+    }
 
     fn read(id: &str, path: &str) -> Value {
         json!({"sessionUpdate":"tool_call", "toolCallId":id, "status":"in_progress",
