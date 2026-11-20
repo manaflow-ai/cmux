@@ -147,7 +147,9 @@ struct NativeNewTabSpareTests {
 
     /// PACING TRIAGE #32910, native page (REVIEW-STANDARD: no partial fixes): the native page's palette actions are read
     /// as the web page's are, in slices of budgeted background work (``AgentPaneNewTabActions``), never every action in
-    /// one main-thread task; the prepared page and a cold one both get them, and a keystroke does not read them in its turn.
+    /// one main-thread task; the first page and the next one both get them, and a keystroke does not read them in its turn.
+    /// The first page is the prepared one. The next one is a prepared page again when the app made one while the row
+    /// waited for the first page's list, else a page made cold: each failure text says which of the 2 it was.
     @Test func theNativePageReadsThePalettesActionsInSlices() async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
@@ -183,13 +185,14 @@ struct NativeNewTabSpareTests {
         _ = try #require(pool.nativeSpare, "no native spare was prepared")
 
         var seen: [ObjectIdentifier] = []
-        for adopted in [true, false] {
+        for first in [true, false] {
+            let prepared = pool.nativeSpare != nil
             BenchSpans.begin()
             let key = try #require(NewTabPage.openNative(in: pane, reusingShown: false))
             for _ in 0..<300 where pane.currentTabKey != key { try await Task.sleep(for: .milliseconds(10)) }
             // This tab's own page: the earlier one stays parked in the pane, hidden.
-            let page = try #require(services.pages.existingView(key), "no page view for tab \(key) (adopted spare: \(adopted))")
-            let model = try #require(Self.host(in: page)?.model, "no native page in tab \(key) (adopted spare: \(adopted))")
+            let page = try #require(services.pages.existingView(key), "no page view for tab \(key) (a prepared page was parked: \(prepared))")
+            let model = try #require(Self.host(in: page)?.model, "no native page in tab \(key) (a prepared page was parked: \(prepared))")
             #expect(!seen.contains(ObjectIdentifier(model)), "the second Cmd-T found the first page's model")
             seen.append(ObjectIdentifier(model))
             @MainActor func readCount() -> Int { BenchSpans.spans.filter { $0.name == "newTab.paletteActions" }.count }
@@ -198,11 +201,11 @@ struct NativeNewTabSpareTests {
             // A keystroke reads nothing in its turn.
             let before = readCount()
             model.text = "t"
-            #expect(readCount() == before, "a keystroke read the palette's actions in its turn (adopted spare: \(adopted))")
+            #expect(readCount() == before, "a keystroke read the palette's actions in its turn (a prepared page was parked: \(prepared))")
             for _ in 0..<2000 where model.page.omnibar.actions.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
-            #expect(!model.page.omnibar.actions.isEmpty, "the native page never got the palette's actions (adopted spare: \(adopted))")
+            #expect(!model.page.omnibar.actions.isEmpty, "the native page never got the palette's actions (a prepared page was parked: \(prepared))")
             let reads = BenchSpans.end().filter { $0.name == "newTab.paletteActions" }
-            if adopted {
+            if first {
                 // The first page: no list is kept yet. A listing takes one task to start and one to arrange; the reads
                 // between them are the slices.
                 #expect(reads.count >= 4, "the native page read every palette action in one task (\(reads.map(\.milliseconds)) ms)")
