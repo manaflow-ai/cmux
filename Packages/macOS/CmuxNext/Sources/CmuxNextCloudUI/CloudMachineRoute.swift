@@ -36,15 +36,34 @@ public struct CloudMachineRoute: Sendable {
 
     private let exec: Exec
 
-    public init(exec: @escaping Exec) {
-        self.exec = exec
+    public init(exec: @escaping Exec, start: (@Sendable () async throws -> Void)? = nil) {
+        self.exec = Self.startingWhenStopped(exec, start: start)
         machineID = nil
     }
 
-    /// The route of Cloud machine `machineID`, whose commands run through the Cloud API's exec.
-    public init(api: CloudAPIClient, machineID: String) {
-        exec = { try await api.exec(machineID, command: $0, timeoutMs: $1) }
+    /// The route of Cloud machine `machineID`, whose commands run through the Cloud API's exec. `start` starts or resumes
+    /// the machine when the exec finds it not running (``startingWhenStopped(_:start:)``); nil refuses as the route does.
+    public init(api: CloudAPIClient, machineID: String, start: (@Sendable () async throws -> Void)? = nil) {
+        exec = Self.startingWhenStopped({ try await api.exec(machineID, command: $0, timeoutMs: $1) }, start: start)
         self.machineID = machineID
+    }
+
+    /// `exec`, except that a refusal because the machine does not run (`vm_not_running`: the Cloud API's exec and file
+    /// routes run only on a machine whose record reads running) runs `start` and sends the command once more. The start's
+    /// link can be up on a machine whose record does not run: a click's link connect starts a paused machine and answers
+    /// before its record does, and an idle pause can land as the link comes up. The start's route check was the first
+    /// exec there, and its refusal ended the start with "the machine is not running; start it first" (cmux#47638). A
+    /// second refusal, or any other one, is thrown as it came.
+    public static func startingWhenStopped(_ exec: @escaping Exec, start: (@Sendable () async throws -> Void)?) -> Exec {
+        guard let start else { return exec }
+        return { command, timeoutMs in
+            do {
+                return try await exec(command, timeoutMs)
+            } catch let refusal as CloudAPIError where refusal.isMachineNotRunning {
+                try await start()
+                return try await exec(command, timeoutMs)
+            }
+        }
     }
 
     /// The machine ``init(api:machineID:)`` named; a ``prepare(_:)`` refusal retries on it.

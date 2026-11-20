@@ -150,6 +150,18 @@ extension CloudWait {
         }) { status() != .starting }
     }
 
+    /// Waits while `status` reads `pausing` (an idle pause or a Pause Machine landing), up to `limit`, as
+    /// ``outwaitResume(of:within:read:)`` waits out a resume: a start that found its machine not running resumes it
+    /// once it is paused, never refuses it as pausing (cmux#47638). Returns at once for any other status.
+    public static func outwaitPause(of status: @escaping @MainActor @Sendable () -> CloudMachine.Status, within limit: Duration,
+                                    read: @escaping @MainActor @Sendable () async -> Void) async {
+        guard status() == .pausing else { return }
+        _ = await holds(within: limit, redialing: startRedial, redial: {
+            // task-owner: one record read; the wait observes what it applies and ends at its own deadline
+            Task { @MainActor in await read() }
+        }) { status() != .pausing }
+    }
+
     /// Whether `wait` answered true within `limit`; true too when it ran past `limit`, since what it waits on
     /// may still run. False only when `wait` answered false (nothing to wait on).
     public static func ended(within limit: Duration, _ wait: @escaping @Sendable () async -> Bool) async -> Bool {

@@ -137,6 +137,51 @@ import Testing
         #expect(await updated.count == 1)
     }
 
+    /// cmux#47638: a composer Cloud send ('1+1') failed at "Set up a Cloud machine" with "Couldn't move the chat. the
+    /// machine is not running; start it first". The start's link was up, but the machine's record did not run (a click's
+    /// connect starts a paused machine and answers first; an idle pause can land as it comes up), and the Cloud API's exec
+    /// refuses such a machine (`vm_not_running`). The route check, the start's first exec, now starts or resumes the
+    /// machine and reads again; the chat starts with no update.
+    @Test func aStartWhoseMachineDoesNotRunYetStartsItAndGoesOn() async throws {
+        let machine = StoppedMachine(report: Self.unrouted(variables: ["CLAUDE_CODE_OAUTH_TOKEN"]))
+        let updated = UpdateCount()
+        try await CloudMachineRoute(exec: { _, _ in try await machine.exec() }, start: { await machine.start() })
+            .prepare(family: "claude") { await updated.add() }
+        #expect(await machine.starts == 1, "the start started the machine once")
+        #expect(await machine.refusals == 1, "the route check read again once the machine ran")
+        #expect(await updated.count == 0)
+    }
+
+    /// The same machine with no start to run (a caller that has none): the refusal is the route's, and nothing loops.
+    /// A second refusal after a start, or a refusal of another kind, is thrown as it came, with no second start.
+    @Test func aRefusalTheStartCannotLiftIsThrownAsItCame() async {
+        let notRunning = CloudAPIError.http(status: 409, code: "vm_not_running", message: "the machine is not running; start it first")
+        let forbidden = CloudAPIError.http(status: 403, code: "vm_forbidden", message: "this user may not use the team's machines")
+        for (refusal, startsExpected) in [(notRunning, 1), (forbidden, 0)] {
+            let starts = UpdateCount()
+            let exec = CloudMachineRoute.startingWhenStopped({ _, _ in throw refusal }, start: { await starts.add() })
+            await #expect(throws: refusal) { _ = try await exec("acp machine-auth", 1_000) }
+            #expect(await starts.count == startsExpected)
+        }
+        let unwrapped = CloudMachineRoute.startingWhenStopped({ _, _ in throw notRunning }, start: nil)
+        await #expect(throws: notRunning) { _ = try await unwrapped("acp machine-auth", 1_000) }
+    }
+
+    /// A machine whose exec route refuses it as not running until it is started, then prints `report`.
+    private actor StoppedMachine {
+        let report: String
+        private(set) var starts = 0, refusals = 0
+        init(report: String) { self.report = report }
+        func start() { starts += 1 }
+        func exec() throws -> CloudExecResult {
+            guard starts > 0 else {
+                refusals += 1
+                throw CloudAPIError.http(status: 409, code: "vm_not_running", message: "the machine is not running; start it first")
+            }
+            return CloudExecResult(exitCode: 0, stdout: report, stderr: "")
+        }
+    }
+
     private actor UpdateCount {
         var count = 0
         func add() { count += 1 }
