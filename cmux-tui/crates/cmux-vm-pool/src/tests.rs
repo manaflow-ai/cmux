@@ -308,3 +308,59 @@ fn vcpu_demand_resumes_until_the_gap_is_covered_and_blocks_pauses() {
     assert_eq!(d.resume, vec!["id-fsp-b".to_owned()]);
     assert!(d.pause.is_empty(), "nothing pauses while demand waits");
 }
+
+#[test]
+fn measured_load_grows_when_every_running_vm_is_full_and_pauses_quiet_ones() {
+    use crate::load::Load;
+    let machines = vec![
+        machine(Provider::Gcp, "cmux-runner-pool-a", Power::Running, 4),
+        machine(Provider::Gcp, "cmux-runner-pool-b", Power::Running, 4),
+        machine(Provider::Freestyle, "fsp-c", Power::Paused, 1),
+    ];
+    // Runners look idle (one each), so the slot rule alone would not grow.
+    let roster = vec![
+        runner("cmux-runner-pool-a-1", true, false),
+        runner("cmux-runner-pool-b-1", true, false),
+    ];
+    let load = |cpu: f64, mem: Option<f64>| Load { cpu_pct: cpu, mem_pct: mem };
+    let mut s = Scheduler::new(Policy { idle_ms: 1_000, keep_idle: 0, ..Policy::default() });
+    s.set_loads(
+        [
+            ("cmux-runner-pool-a".to_owned(), load(95.0, None)),
+            ("cmux-runner-pool-b".to_owned(), load(40.0, Some(93.0))),
+        ]
+        .into(),
+    );
+    let d = s.tick(0, &machines, &roster, Demand::Jobs(1));
+    assert!(d.all_full, "a at 95% CPU, b at 93% RAM: both at the line");
+    assert_eq!(d.resume, vec!["id-fsp-c".to_owned()]);
+    // One machine under the line: no growth (work goes there).
+    s.set_loads(
+        [
+            ("cmux-runner-pool-a".to_owned(), load(95.0, None)),
+            ("cmux-runner-pool-b".to_owned(), load(60.0, Some(50.0))),
+        ]
+        .into(),
+    );
+    let d = s.tick(1, &machines, &roster, Demand::Jobs(1));
+    assert!(!d.all_full && d.resume.is_empty());
+    // Quiet (under 20% CPU, no job) for the idle window: pause; a quiet VM with a job never pauses.
+    let busy_b = vec![
+        runner("cmux-runner-pool-a-1", false, false),
+        runner("cmux-runner-pool-b-1", true, true),
+    ];
+    s.set_loads(
+        [
+            ("cmux-runner-pool-a".to_owned(), load(5.0, None)),
+            ("cmux-runner-pool-b".to_owned(), load(5.0, None)),
+        ]
+        .into(),
+    );
+    assert!(s.tick(10, &machines, &busy_b, Demand::Jobs(0)).pause.is_empty());
+    let d = s.tick(1_010, &machines, &busy_b, Demand::Jobs(0));
+    assert_eq!(
+        d.pause,
+        vec!["id-cmux-runner-pool-a".to_owned()],
+        "a quiet with its listener stopped pauses; b has a job"
+    );
+}

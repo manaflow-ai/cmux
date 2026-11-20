@@ -19,6 +19,7 @@ pub mod freestyle;
 pub mod gce;
 pub mod github;
 pub mod http;
+pub mod load;
 pub mod model;
 pub mod plan;
 pub mod schedule;

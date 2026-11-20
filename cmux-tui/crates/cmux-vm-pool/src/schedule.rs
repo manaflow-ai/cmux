@@ -11,6 +11,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
+use crate::load::Load;
 use crate::model::{Machine, Power, Runner};
 use crate::plan;
 
@@ -24,6 +25,10 @@ pub struct Policy {
     pub prefixes: Vec<String>,
     /// The label demand is counted for.
     pub label: String,
+    /// Measured CPU or RAM at or over this: the machine takes no more work (scale up when all are).
+    pub busy_pct: f64,
+    /// Measured CPU under this (and no job) for `idle_ms`: the machine pauses.
+    pub quiet_pct: f64,
 }
 
 impl Default for Policy {
@@ -33,6 +38,8 @@ impl Default for Policy {
             keep_idle: 4,
             prefixes: vec!["fsp-".to_owned(), "cmux-runner-pool-".to_owned()],
             label: "cmux-linux".to_owned(),
+            busy_pct: 90.0,
+            quiet_pct: 20.0,
         }
     }
 }
@@ -48,6 +55,8 @@ pub struct Decision {
     /// With a vCPU demand: what was asked and what was free.
     pub demand_vcpu: u64,
     pub free_vcpu: u64,
+    /// Work waited and every measured running machine was at the admission line.
+    pub all_full: bool,
 }
 
 /// What the pool must cover this tick.
@@ -79,11 +88,17 @@ pub struct Scheduler {
     pub policy: Policy,
     /// Since when each machine has had every runner online and idle (by machine id).
     idle_since: HashMap<String, u64>,
+    /// Measured load by machine name, set before each tick ([`Scheduler::set_loads`]); empty when unmeasured.
+    loads: HashMap<String, Load>,
 }
 
 impl Scheduler {
     pub fn new(policy: Policy) -> Self {
-        Self { policy, idle_since: HashMap::new() }
+        Self { policy, idle_since: HashMap::new(), loads: HashMap::new() }
+    }
+
+    pub fn set_loads(&mut self, loads: HashMap<String, Load>) {
+        self.loads = loads;
     }
 
     fn in_pool(&self, runner: &str) -> bool {
@@ -111,13 +126,19 @@ impl Scheduler {
             .map(|m| m.slots.max(1))
             .sum();
 
-        // Idle clocks: a machine is idle while running with every listed runner online and not busy.
+        // Idle clocks. Measured: running, no job on it, CPU under the quiet line (its runners may be offline: the
+        // guest's admit loop stops listeners while the VM is full). Unmeasured: running with every listed runner
+        // online and not busy.
         let mut live = HashSet::new();
         for machine in machines {
+            let runners = by.get(&machine.id);
+            let no_job = runners.is_none_or(|rs| rs.iter().all(|r| !r.busy));
             let idle = machine.power == Power::Running
-                && by
-                    .get(&machine.id)
-                    .is_some_and(|rs| !rs.is_empty() && rs.iter().all(|r| r.online && !r.busy));
+                && match self.loads.get(&machine.name) {
+                    Some(load) => no_job && load.quiet(self.policy.quiet_pct),
+                    None => runners
+                        .is_some_and(|rs| !rs.is_empty() && rs.iter().all(|r| r.online && !r.busy)),
+                };
             if idle {
                 self.idle_since.entry(machine.id.clone()).or_insert(now_ms);
                 live.insert(machine.id.clone());
@@ -161,6 +182,21 @@ impl Scheduler {
             return decision;
         }
         if demand.wanted() {
+            // Measured: work waits and every measured running machine is at the admission line: grow, even when
+            // runners look idle (a full VM's listeners are stopped, or its idle runners cannot fit the work).
+            let measured: Vec<&Load> = machines
+                .iter()
+                .filter(|m| m.power == Power::Running)
+                .filter_map(|m| self.loads.get(&m.name))
+                .collect();
+            if !measured.is_empty() && measured.iter().all(|l| l.full(self.policy.busy_pct)) {
+                decision.all_full = true;
+                let grow = match demand {
+                    Demand::Jobs(n) => plan::pick_up(machines, n.max(1)),
+                    Demand::Vcpu(need) => plan::pick_up_vcpu(machines, need.max(1)),
+                };
+                decision.resume = grow.into_iter().map(|m| m.id.clone()).collect();
+            }
             return decision;
         }
         // Pause the longest-idle machines first while the idle floor stays.
@@ -181,7 +217,7 @@ impl Scheduler {
             if left.saturating_sub(slots) < self.policy.keep_idle {
                 continue;
             }
-            left -= slots;
+            left = left.saturating_sub(slots);
             decision.pause.push(machine.id.clone());
         }
         decision

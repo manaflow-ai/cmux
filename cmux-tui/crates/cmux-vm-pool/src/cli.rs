@@ -1,6 +1,6 @@
 //! `cmux vm pool VERB` (and the `cmux-vm-pool` binary): ls, up, pause, watch, schedule.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use futures_util::future::join_all;
@@ -10,6 +10,7 @@ use crate::freestyle::Freestyle;
 use crate::gce::Gce;
 use crate::github::{self, GitHub};
 use crate::http;
+use crate::load::{self, Load};
 use crate::model::{Machine, Provider, Runner, now_ms};
 use crate::plan;
 use crate::schedule::{Demand, Policy, Scheduler, feed_queued, parse_demand};
@@ -29,6 +30,8 @@ nothing here deletes a machine.
   pause                  pause (Freestyle) or suspend (GCE) machines whose
                          runners are all idle: --names FILE, or --idle with GH_TOKEN
   watch                  time runners coming online in GitHub
+  load                   measured CPU and RAM per machine, and the pool's CPU p50/p90
+                         (GCE Cloud Monitoring; the controller's pool telemetry with --load-url)
   schedule               the loop: queued jobs resume machines, idle ones pause
 
 Options:
@@ -40,6 +43,8 @@ Options:
   watch:    --since UNIX_MS  --count N  --names FILE  --timeout SECS
             --idle-only --names-out FILE [--prefix P]... [--max N]
   schedule: --feed URL --repo OWNER/NAME... --idle-minutes M (10)
+            --load-url URL (the controller's GET /v1/pool/telemetry: scale up when
+            work waits and every VM is at 90% CPU or RAM; pause under 20% CPU)
             --demand-file PATH (one line `vcpu=N mem_gib=M`, reread each tick;
             resumes by vCPU instead of by queued job count)
             --keep-idle K (4) --tick SECS (5) [--once]
@@ -79,6 +84,7 @@ struct Args {
     keep_idle: u32,
     tick_s: u64,
     demand_file: Option<String>,
+    load_url: Option<String>,
     once: bool,
     interval_ms: u64,
     label: String,
@@ -163,6 +169,7 @@ fn parse(words: &[String]) -> Result<Args, String> {
             }
             "--tick" => args.tick_s = number(flag, value(flag)?)?.max(1),
             "--demand-file" => args.demand_file = Some(value(flag)?),
+            "--load-url" => args.load_url = Some(value(flag)?),
             "--interval-ms" => args.interval_ms = number(flag, value(flag)?)?.max(100),
             "--label" => args.label = value(flag)?,
             "--freestyle-purpose" => args.freestyle_purpose = Some(value(flag)?),
@@ -261,6 +268,35 @@ impl Pool {
             Some(g) => g.roster(&self.client).await.map_err(|e| e.0),
             None => Ok(Vec::new()),
         }
+    }
+
+    /// Measured load by machine name: GCE Cloud Monitoring CPU, then the controller's pool telemetry (CPU and
+    /// RAM) over it. A source that fails is said on stderr and left out: no reading never means "full".
+    async fn loads(&self, load_url: Option<&str>) -> HashMap<String, Load> {
+        let gce = async {
+            match &self.gce {
+                Some(g) => load::gce_cpu(&self.client, &g.token, &g.project, &g.label, 300)
+                    .await
+                    .map_err(|e| e.0),
+                None => Ok(HashMap::new()),
+            }
+        };
+        let controller = async {
+            match load_url {
+                Some(url) => load::controller(&self.client, url).await,
+                None => Ok(HashMap::new()),
+            }
+        };
+        let (gce, controller) = futures_util::join!(gce, controller);
+        let mut loads = gce.unwrap_or_else(|e| {
+            eprintln!("cmux vm pool: GCE CPU: {e}");
+            HashMap::new()
+        });
+        match controller {
+            Ok(more) => loads.extend(more),
+            Err(e) => eprintln!("cmux vm pool: pool telemetry: {e}"),
+        }
+        loads
     }
 
     async fn power_on(&self, machine: &Machine) -> Result<(), String> {
@@ -370,6 +406,7 @@ pub async fn run(
         "pause" => pause(&args, env, out).await,
         "watch" => watch(&args, env, out).await,
         "schedule" => schedule(&args, env, out).await,
+        "load" => load(&args, env, out).await,
         other => Err(format!("unknown verb `{other}`\n\n{HELP}")),
     };
     match result {
@@ -660,6 +697,7 @@ async fn schedule(
                     }
                     None => Demand::Jobs(queued),
                 };
+                scheduler.set_loads(pool.loads(args.load_url.as_deref()).await);
                 let decision = scheduler.tick(now_ms(), &machines, &roster, demand);
                 let resume: Vec<&Machine> =
                     machines.iter().filter(|m| decision.resume.contains(&m.id)).collect();
@@ -676,6 +714,7 @@ async fn schedule(
                         "starting": decision.starting,
                         "demand_vcpu": decision.demand_vcpu,
                         "free_vcpu": decision.free_vcpu,
+                        "all_full": decision.all_full,
                         "resumed": resumed,
                         "paused": paused,
                     });
@@ -701,4 +740,28 @@ async fn schedule(
             tokio::time::sleep(rest).await;
         }
     }
+}
+
+/// `load`: each pool machine's measured CPU (and RAM where the controller has it), and the pool's p50/p90:
+/// the before and after numbers of a placement change.
+async fn load(
+    args: &Args,
+    env: &dyn Fn(&str) -> Option<String>,
+    out: &mut dyn std::io::Write,
+) -> Result<(), String> {
+    let pool = Pool::open(args, env, false).await?;
+    let machines = pool.machines().await?;
+    let loads = pool.loads(args.load_url.as_deref()).await;
+    let pooled: HashMap<String, Load> =
+        loads.into_iter().filter(|(name, _)| machines.iter().any(|m| &m.name == name)).collect();
+    let mut rows: Vec<Value> = pooled
+        .iter()
+        .map(|(name, l)| json!({"name": name, "cpu_pct": l.cpu_pct, "mem_pct": l.mem_pct}))
+        .collect();
+    rows.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+    let summary = load::summary(&pooled);
+    let running = machines.iter().filter(|m| m.power == crate::model::Power::Running).count();
+    let text = format!("{running} running, {summary}\n");
+    emit(out, args.json, &json!({"running": running, "summary": summary, "machines": rows}), &text);
+    Ok(())
 }
