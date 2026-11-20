@@ -190,7 +190,9 @@ async fn finished_shared_admission_recovers_100_fake_503_sessions_across_two_dae
     let hubs = [authority.clone(), member.clone()];
     let mut sessions = Vec::new();
     for n in 0..100 {
-        let hub = &hubs[n % 2];
+        // More than the server's 64 finite-work slots wait on the member's one
+        // peer link. Pause/status/release must remain available behind those waits.
+        let hub = &hubs[usize::from(n % 5 != 0)];
         let session = hub
             .new_session(NewRequest {
                 name: Some(format!("fake-503-{n}")),

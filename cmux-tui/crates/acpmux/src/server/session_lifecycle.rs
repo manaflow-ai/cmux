@@ -97,7 +97,14 @@ mod tests {
     ) -> Value {
         let (input, incoming) = mpsc::channel(32);
         let (output, mut outgoing) = mpsc::channel(32);
-        tokio::spawn(serve_connection_with(hub.clone(), incoming, output, origin));
+        // The helper deliberately gives a Peer origin only a listener token. The real
+        // multi-daemon test separately proves the authenticated peer-token path.
+        let auth = if origin == Origin::Peer {
+            ConnAuth::ListenerToken
+        } else {
+            ConnAuth::proven_for(origin)
+        };
+        tokio::spawn(serve_connection_authed(hub.clone(), incoming, output, origin, auth));
         let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}});
         if caller == Some("terminal") {
             hello["_meta"] = json!({"acpmux": {"callerProtocol": 1, "callerKind": "terminal"}});
@@ -161,7 +168,8 @@ mod tests {
             assert!(reply.get("error").is_some(), "{reply}");
             assert!(hub.resolve(target).unwrap().meta().finished.is_none());
         }
-        for origin in [Origin::Local, Origin::Web, Origin::Peer] {
+        hub.bind_fleet("local").await.unwrap();
+        for origin in [Origin::Local, Origin::Web, Origin::Peer, Origin::LocalApp] {
             for op in ["fleet_status", "fleet_acquire", "fleet_release", "fleet_resume"] {
                 let reply = request(&hub, origin, Some("self"), op, "self").await;
                 assert!(reply.get("error").is_some(), "unauthenticated fleet RPC: {reply}");
