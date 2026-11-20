@@ -2219,12 +2219,28 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const sourceReply = revealedSourceReply(value);
     if (sourceReply !== undefined) {
       const chat = shownView.current;
-      return void revealMessageWhenShown(
-        sourceReply,
-        (segment) => (shownView.current === chat ? showSourceReply.current(segment) : undefined),
-        document,
-        { chat: () => shownView.current },
-      );
+      const client = directClient.current;
+      const current = () => shownView.current === chat && directClient.current === client;
+      const show = async () => {
+        if (
+          sourceReply.seq !== undefined &&
+          (!client || !(await client.loadSourceReply(sourceReply.seq, sourceReply.replyId)))
+        ) {
+          if (current()) notices.failed(t("turn.sources.revealFailed"));
+          return;
+        }
+        if (!current()) return;
+        const shown = await revealMessageWhenShown(
+          sourceReply.replyId,
+          (segment) => (current() ? showSourceReply.current(segment) : undefined),
+          document,
+          { chat: () => shownView.current },
+        );
+        if (!shown && current()) notices.failed(t("turn.sources.revealFailed"));
+      };
+      return void show().catch(() => {
+        if (current()) notices.failed(t("turn.sources.revealFailed"));
+      });
     }
     // The command palette's chats page opens a chat at the message it found by what was said:
     // the newest row of that kind holding the words, brought in as a `message=<id>` link's is.

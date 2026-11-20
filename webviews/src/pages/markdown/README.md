@@ -16,6 +16,8 @@ A file opened from a chat may carry `sourceUses: true` and an opaque `sourceCont
 
 When an already-open viewer gains a different originating chat, the host's `sourceContext` page command carries `{path, sourceUses, sourceContext}` at the top level. The store updates that capability without reloading or saving the document, preserving dirty edits. Context or file changes discard pending query/reveal results. A file without the capability has no disclosure, and navigation never inherits another file's context.
 
+The host reveals `source-reply:` followed by JSON `{replyId, seq}`, using the sequence it retained when serving the edge. The chat reads one bounded event window ending at that sequence, verifies the `turn_sources` record names the same reply, then reveals exactly `assistant-${replyId}`. It does not walk the intervening history or fill the gap in the background. If that bounded window cannot recover the reply, the chat reports that it could not show it. Older hosts' bare segment tokens only reveal already-loaded rows.
+
 ## Editable everywhere
 
 Every markdown file opens editable, whoever opened it (Open File..., `cmux open`, an agent, a link) and in any workspace, Home included. The host sends `readOnly` with a `readOnlyReason` only for a real reason, and the page names it: `encoding` (not UTF-8), `binary`, `permission` (the file is not writable) or `transcript` (a chat transcript the host opens read only). A change on disk reloads the page when it has no unsaved edits and raises the conflict banner when it has.
