@@ -181,3 +181,30 @@ export function answerOf(question: string, reply: string): string {
   if (quoted !== asked && !quoted.endsWith(`: ${asked}`)) return reply;
   return lines.slice(end).join("\n").trim();
 }
+
+/// What a one-line preview of a prompt shows when the prompt answers an ask (`answerPrompt`: the
+/// ask quoted, "> Claude Code: <question>", then the answer): the answer, and the question it
+/// answers for a muted second line where the preview has room. Leo, 2026-11-19, on a queued row that
+/// read "> Claude Code: [trust] Let our pool's results count for …" ("odd looking"): a preview
+/// never draws the raw quote, and never the question in the answer's place. Undefined for a prompt
+/// that does not open with a quote, or quotes with no answer under it: that previews as itself.
+/// The full bubble keeps the whole text (it renders the quote as a blockquote, PromptText.tsx).
+export function answerPreview(text: string): { answer: string; question: string } | undefined {
+  if (!/^\s{0,3}>/.test(text)) return undefined;
+  const lines = text.split("\n");
+  let end = 0;
+  while (end < lines.length && /^\s{0,3}>/.test(lines[end]!)) end += 1;
+  const answer = lines.slice(end).join("\n").trim();
+  const question = lines
+    .slice(0, end)
+    .map((line) => line.replace(/^\s{0,3}> ?/, "").trim())
+    .filter(Boolean)
+    .join(" ");
+  return answer && question ? { answer, question } : undefined;
+}
+
+/// A prompt's text as a one-line preview reads it: the answer of a quoted answer (`answerPreview`),
+/// else the prompt itself.
+export function promptPreview(text: string): string {
+  return answerPreview(text)?.answer ?? text;
+}
