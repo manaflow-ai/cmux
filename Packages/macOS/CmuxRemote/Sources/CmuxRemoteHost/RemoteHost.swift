@@ -8,6 +8,18 @@ import os
 
 private let logger = Logger(subsystem: "com.cmuxterm.remote", category: "host")
 
+/// The device/keychain namespace used by the pinned helper asset before the outer
+/// bundle was renamed to cmux Computer Use. The outer bundle id identifies the
+/// TCC permission holder, while this value preserves the signed-in device and
+/// relay identity across that display rename.
+public enum RemoteHostIdentity {
+    public static let deviceKeychainBundleIdentifier = "com.cmuxterm.remote.dev"
+
+    public static func scopedDeviceKeychainIdentifier(scope: String) -> String {
+        deviceKeychainBundleIdentifier + "." + scope
+    }
+}
+
 /// What the daemon hands the host at start, on the bootstrap pipe (fd 3): one
 /// JSON line, never argv or env.
 public struct HostBootstrap: Sendable {
@@ -62,9 +74,10 @@ public final class RemoteHost: NSObject, NSApplicationDelegate {
         self.layout = layout
         let children = RemoteChildLifetime()
         self.children = children
-        let namespace = DeviceCaptureNamespace(bundleIdentifier: (Bundle.main.bundleIdentifier ?? "com.cmuxterm.remote.dev") + "." + scope)
+        let keychainScope = RemoteHostIdentity.scopedDeviceKeychainIdentifier(scope: scope)
+        let namespace = DeviceCaptureNamespace(bundleIdentifier: keychainScope)
         captureLease = RemoteCaptureLease(stateDirectory: stateDirectory,
-                                         keychainScope: (Bundle.main.bundleIdentifier ?? "com.cmuxterm.remote.dev") + "." + scope,
+                                         keychainScope: keychainScope,
                                          home: ProcessInfo.processInfo.environment["HOME"] ?? "",
                                          empty: { try namespace.isEmpty() }, remove: { try namespace.remove() })
         let workerEnvironment = Self.workerEnvironment(hubURL: bootstrap.hubURL, headless: bootstrap.headless,

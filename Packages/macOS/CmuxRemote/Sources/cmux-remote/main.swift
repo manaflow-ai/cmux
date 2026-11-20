@@ -16,8 +16,6 @@ import Foundation
 
 signal(SIGPIPE, SIG_IGN)
 let arguments = Array(CommandLine.arguments.dropFirst())
-let bundleID = Bundle.main.bundleIdentifier ?? "com.cmuxterm.remote.dev"
-
 func option(_ name: String) -> String? {
     guard let index = arguments.firstIndex(of: name), index + 1 < arguments.count else { return nil }
     return arguments[index + 1]
@@ -43,7 +41,9 @@ case "worker":
         guard let state = option("--state-dir"), let scope = option("--scope") else { fail("screen-sharing needs --state-dir and --scope") }
         let headless = ProcessInfo.processInfo.environment["CMUX_REMOTE_HEADLESS"] != "0"
         MainActor.assumeIsolated {
-            ScreenSharingWorker(layout: layout, stateDirectory: state, keychainScope: "\(bundleID).\(scope)", headless: headless).run()
+            ScreenSharingWorker(layout: layout, stateDirectory: state,
+                                keychainScope: RemoteHostIdentity.scopedDeviceKeychainIdentifier(scope: scope),
+                                headless: headless).run()
         }
     case nil:
         fail("unknown worker")
