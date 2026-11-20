@@ -196,6 +196,14 @@ typedef enum {
   // shim turns Chrome's own status bubble off (chrome_status_bubble), so the
   // host draws this inside the tab's pane.
   CMUX_SHIM_STATUS_MESSAGE = 51,
+  // A page's alert, confirm or prompt (only after cmux_shim_set_js_dialogs(1);
+  // Chromium's own dialog does not show). request = the question's token,
+  // a = 0 alert, 1 confirm, 2 prompt; s1 = the asking origin's URL; s2 = JSON
+  // {"message","default"}. Chromium waits for cmux_shim_js_dialog_reply.
+  CMUX_SHIM_JS_DIALOG = 52,
+  // Chromium ended the browser's waiting JS_DIALOG questions itself (the
+  // renderer ended, the page navigated or closed). Not sent after an answer.
+  CMUX_SHIM_JS_DIALOG_DISMISSED = 53,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -498,6 +506,14 @@ CMUX_SHIM_EXPORT int cmux_shim_try_close(int browser_id);
 // Answers BEFORE_UNLOAD_DIALOG `token` (accept = 1: Leave or Reload).
 // Returns 0 when the token is unknown or already answered.
 CMUX_SHIM_EXPORT int cmux_shim_before_unload_reply(int token, int accept);
+// 1: a page's alert, confirm and prompt come to the host as
+// CMUX_SHIM_JS_DIALOG (it must answer each); 0 (the default): Chromium shows
+// its own. The host turns it on with in-tree pages. UI thread.
+CMUX_SHIM_EXPORT void cmux_shim_set_js_dialogs(int enabled);
+// Answers JS_DIALOG `token`: accept 1 is OK, 0 Cancel; `text` is a prompt's
+// answer (ignored otherwise; NULL is ""). Returns 0 when the token is
+// unknown or already answered.
+CMUX_SHIM_EXPORT int cmux_shim_js_dialog_reply(int token, int accept, const char* text);
 // DevTools protocol message ids. Raw sends (cmux_shim_devtools_send) and
 // shim-internal calls (cmux_shim_devtools_call, the DevTools calls of a CEF
 // tab) share ONE id space per browser. Raw sends use ids >= 2^30

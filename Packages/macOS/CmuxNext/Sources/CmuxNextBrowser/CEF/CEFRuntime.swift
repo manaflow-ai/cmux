@@ -471,6 +471,10 @@ final class CEFRuntime {
             state = .ready
             // In-tree pages need fork API 36; an older engine keeps child-window pages, and says so in debug.cef.
             InTreePages.shared.engineResolved(CEFInTreeCalls.support(shim: library.shim, apiVersion: library.shim.forkAPIVersion()))
+            // The fork cancels an in-tree page's alert, confirm or prompt that no handler takes: cmux asks them
+            // (`CEFTab+JSDialogs`). Child-window pages keep Chromium's own dialog.
+            library.shim.setJSDialogs(InTreePages.shared.isActive ? 1 : 0)
+            if choosersGoToApp { library.shim.setFileDialogs(1) }
             CEFStartSteps.shared.timed("ready_hooks") {
                 startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install()
                 observeDisplays()

@@ -17,11 +17,17 @@ extension CEFRuntime {
 
     /// `tab`'s offer started or ended: choosers go to the app while any offer stands.
     func agentFileOfferChanged(_ tab: CEFTab, armed: Bool) {
-        let wasOn = !agentFileOffers.isEmpty
+        let wasOn = choosersGoToApp
         if armed { agentFileOffers.insert(ObjectIdentifier(tab)) } else { agentFileOffers.remove(ObjectIdentifier(tab)) }
-        let isOn = !agentFileOffers.isEmpty
+        let isOn = choosersGoToApp
         if isOn != wasOn { shim?.setFileDialogs(isOn ? 1 : 0) }
     }
+
+    /// Every chooser goes to the app: while an agent's offer stands, and always with in-tree pages (fork API 36),
+    /// where the fork cancels a chooser no CEF handler takes (Chromium's panel would anchor to the page's headless
+    /// window; live step ff9c0eb4: in tree `<input type=file>` opened nothing). The person then picks in the App's
+    /// panel, without the page's accept filters.
+    var choosersGoToApp: Bool { !agentFileOffers.isEmpty || InTreePages.shared.isActive }
 
     /// Sends `tab`'s own choosers to the app while it records the person's pick, else gives them back.
     func applyFileDialogRoute(_ tab: CEFTab) {
