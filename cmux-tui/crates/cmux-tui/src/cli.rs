@@ -145,6 +145,8 @@ mod sandbox_run;
 #[cfg(unix)]
 mod vm;
 #[cfg(unix)]
+mod vm_gcp;
+#[cfg(unix)]
 mod vm_ready;
 #[cfg(unix)]
 mod vm_short;
@@ -712,6 +714,19 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         Some(machine_server::Mount::Lifecycle(rewritten)) => {
             lifecycle_args = rewritten;
             lifecycle_args.as_slice()
+        }
+        None => args,
+    };
+    // `vm VERB --provider gcp|all` and `gcp:ZONE/NAME` ids: the GCP provider (vm_gcp.rs);
+    // `--provider freestyle` goes on without it.
+    #[cfg(unix)]
+    let provider_args;
+    #[cfg(unix)]
+    let args = match vm_gcp::run_if_requested(args) {
+        Some(vm_gcp::Route::Exit(code)) => return code,
+        Some(vm_gcp::Route::Args(rewritten)) => {
+            provider_args = rewritten;
+            provider_args.as_slice()
         }
         None => args,
     };
