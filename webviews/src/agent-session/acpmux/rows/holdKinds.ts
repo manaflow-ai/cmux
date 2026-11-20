@@ -21,7 +21,7 @@ export const HOLD_MAX_KINDS = 16;
 /// acpmux's names for many kinds at once, which a hold refuses.
 const CATEGORIES = new Set(["transcript", "mux", "wire", "all"]);
 
-/// The hold's params: acpmux's `AttachParams` with `hold`, which the generated type does not name yet.
+/// The hold's params: acpmux's `AttachParams` with `hold` set.
 export type HoldAttach = AttachParams & { hold: true; eventStream: true; kinds: string[]; visible: boolean };
 
 /// The hold's params, or none when its kinds are not exact page-state kinds within the bound: the
@@ -33,6 +33,13 @@ export function holdAttach(
 ): HoldAttach | undefined {
   if (kinds.length > HOLD_MAX_KINDS || kinds.some((kind) => !kind || CATEGORIES.has(kind))) return undefined;
   return { sessionId, hold: true, eventStream: true, kinds: [...kinds], visible };
+}
+
+/// Whether the cmux host refused the hold as malformed: a host whose params rule does not take
+/// `hold` (AcpmuxPaneMethods+Params.swift, cmux-agent-pane-policy policy.json) answers
+/// `transport.intent_invalid`. Asking the hold again gets the same answer; the chat opens on v1.
+export function holdAttachRefused(error: unknown): boolean {
+  return (error as { code?: unknown } | null)?.code === "transport.intent_invalid";
 }
 
 /// What of a record streamed on a hold the page reads: a `subsession` record only as its `limits`.

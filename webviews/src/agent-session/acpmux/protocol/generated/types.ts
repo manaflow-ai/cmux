@@ -198,6 +198,12 @@ export interface AttachParams {
    * `_acpmux/event`.
    */
   eventStream?: (boolean | null);
+  /**
+   * The hold of a chat whose rows come from the row store (`attach-hold-v1`,
+   * `server/requests.rs` `hold_attach_filter`): no page and no log read, only the exact
+   * page-state `kinds` streamed live; needs `eventStream: true`.
+   */
+  hold?: (boolean | null);
   kinds?: (EventKinds | null);
   /** Default 2000. */
   limit?: (number | null);
