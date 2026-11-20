@@ -14,6 +14,7 @@ import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { CommandRow } from "./CommandRow";
 import { ToolRow } from "./ToolRow";
 import { McpCallRow } from "./McpCallRows";
+import { Thinking } from "./Thinking";
 import { settleReact } from "../../../../test/support/domTeardown";
 import { subscribePageSecond } from "../../../ui/pageClock";
 
@@ -181,4 +182,37 @@ test("a running MCP call (a wait) shows how long it has run", async () => {
     />,
   );
   expect(time(container)).toBe("5m 30s");
+});
+
+// The running turn's line at the bottom, which names the call in flight ("Running cargo test"): with
+// the turn's clock over the work ("Working for", liveTurnClock.experiment.ts `top`, the default) it
+// was untimed and said nothing of how long the call had run. Seen in the real app on a fleet capture,
+// 2026-11-19: "Running cargo test --workspace" with no time under "Working for 1m 44s".
+test("the live line names a running call with how long that call has run, under Working for", async () => {
+  now = STARTED + 2 * 60_000 + 7_000;
+  const container = await render(
+    <Thinking
+      since={STARTED - 30_000}
+      untimed
+      turnTotal
+      doing="cargo test --workspace"
+      doingShell
+      doingAt={STARTED}
+      command
+    />,
+  );
+  expect(time(container)).toBe("2m 7s");
+  // Not the turn's clock: that stands over the work.
+  expect(container.querySelector(".cv-worked__time")).toBeNull();
+});
+
+test("the live line says no time for a call just started, nor once nothing runs", async () => {
+  now = STARTED + 1_000;
+  const quick = await render(<Thinking untimed turnTotal doing="git status" doingShell doingAt={STARTED} command />);
+  expect(time(quick)).toBeNull();
+  await act(async () => root!.unmount());
+  root = undefined;
+  now = STARTED + 60_000;
+  const thinking = await render(<Thinking untimed turnTotal />);
+  expect(time(thinking)).toBeNull();
 });
