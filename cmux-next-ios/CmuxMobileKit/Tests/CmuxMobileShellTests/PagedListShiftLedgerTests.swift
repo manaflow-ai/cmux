@@ -28,7 +28,8 @@ struct PagedListShiftLedgerTests {
         var ledger = PagedListShiftLedger()
         // A row that starts below the reader's top grows: the rows below it move, the reader's does not.
         ledger.sized(item: 30, by: 20, aboveReader: false)
-        #expect(!ledger.pays(20))
+        let paid = ledger.pays(20)
+        #expect(!paid)
         #expect(ledger.pending == 0)
     }
 
@@ -38,14 +39,17 @@ struct PagedListShiftLedgerTests {
         // which asks for the same correction: one move pays it, a second is the person's.
         ledger.sized(item: 12, by: 20, aboveReader: true)
         ledger.corrected(20, item: 12)
-        #expect(ledger.pays(20))
-        #expect(!ledger.pays(20))
+        let first = ledger.pays(20)
+        let second = ledger.pays(20)
+        #expect(first)
+        #expect(!second)
     }
 
     @Test func theFingersStepStillCounts() {
         var ledger = PagedListShiftLedger()
         // A drag with no sizing in between explains its move: a row that moved with it did not shift.
-        #expect(!ledger.pays(8))
+        let paid = ledger.pays(8)
+        #expect(!paid)
         ledger.explain(8)
         #expect(shift(ledger, moved: -8) == 0)
     }
