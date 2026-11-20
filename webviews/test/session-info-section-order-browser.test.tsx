@@ -181,6 +181,18 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
         for (const gap of geometry.gaps) expect(gap).toBeCloseTo(gridLength("gap"), 1);
         expect(geometry.between).toBeGreaterThanOrEqual(4);
         expect(geometry.rules).toBe(geometry.between);
+        // The panel with its dividers and with them switched off, for a person to look at: written only
+        // when a CI run collects files (`cmux-ci test --artifact`, $FAST_CHECKS_OUT).
+        const out = process.env.FAST_CHECKS_OUT;
+        if (out) {
+          const { mkdirSync, writeFileSync } = await import("node:fs");
+          mkdirSync(out, { recursive: true });
+          await page.evaluate(() => document.documentElement.setAttribute("data-theme", "dark"));
+          const body = page.locator(".acpmux-session-info__body");
+          writeFileSync(path.join(out, "session-info-dividers.png"), await body.screenshot());
+          await page.addStyleTag({ content: ".acpmux-session-info-slot::before { content: none !important }" });
+          writeFileSync(path.join(out, "session-info-no-dividers.png"), await body.screenshot());
+        }
       } finally {
         await page.close();
       }
