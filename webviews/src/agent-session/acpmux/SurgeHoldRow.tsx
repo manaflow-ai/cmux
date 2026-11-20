@@ -72,9 +72,10 @@ export function SurgeHoldRow({
   }, [asked]);
   const [shown, setShown] = useState(HELD_PAGE);
   const [listing, setListing] = useState<Listing>({ state: "loading" });
-  // Each read asked for (a new number reads once): the chat opening, the panel opening on counts the
-  // last read did not see, Refresh, Try again. Never a snapshot arriving while the panel is open.
-  const [wanted, setWanted] = useState(1);
+  // Each read asked for (a new number reads once): the panel's first opening, an opening on counts
+  // the last read did not see, Refresh, Try again. None while shut (the chat's attach brings its
+  // counts, direct.ts), and never a snapshot arriving while the panel is open.
+  const [wanted, setWanted] = useState(initiallyOpen ? 1 : 0);
   const panelId = useId();
   const field = useRef<HTMLInputElement>(null);
   const held = surge?.held ?? 0;
@@ -90,11 +91,11 @@ export function SurgeHoldRow({
   useEffect(() => {
     latest.current = counts;
   }, [counts]);
-  // One read when the chat opens, whatever its page holds: the listing carries acpmux's cumulative
-  // snapshot (direct.ts `inboxThreads`), so a chat reopened past its newest surge event still draws
-  // its row. Then a read only when one is asked for (`wanted`), so a surge of posts while the panel
-  // is open costs no read per post.
+  // A read only when one is asked for (`wanted`): the row's counts come with the chat's attach, so a
+  // chat that never opens the panel reads no listing, and a surge of posts while it is open costs no
+  // read per post.
   useEffect(() => {
+    if (wanted === 0) return;
     let live = true;
     const at = latest.current;
     listRef.current().then(
@@ -128,8 +129,9 @@ export function SurgeHoldRow({
     setOpen(next);
     setOnlyNeed(next && needOnly);
     if (next) setShown(HELD_PAGE);
-    // Opening on counts the last listing did not see (or after a failed one) reads once.
-    if (next && (stale || listing.state === "failed")) setWanted(wanted + 1);
+    // The first opening reads the listing; one on counts the last listing did not see (or after a
+    // failed one) reads once more.
+    if (next && (wanted === 0 || stale || listing.state === "failed")) setWanted(wanted + 1);
   };
   const heldText = t("surge.held", { n: held });
   const needText = t("surge.needYou", { n: needYou });

@@ -124,14 +124,14 @@ const type = (input: HTMLInputElement, value: string) =>
     input.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
   });
 
-test("nothing held draws no row; the chat opening reads the listing once for its cumulative snapshot", async () => {
+test("nothing held draws no row and reads no listing (the attach brings the counts)", async () => {
   const { container, calls, draw } = await render(undefined);
   await settle();
   expect(container.querySelector(".acpmux-surge")).toBeNull();
   await draw({ held: 0, needYou: 0, seq: 3 });
   await settle();
   expect(container.querySelector(".acpmux-surge")).toBeNull();
-  expect(calls.list).toBe(1);
+  expect(calls.list).toBe(0);
 });
 
 test("one row whose counts update in place as snapshots come, with no read per snapshot", async () => {
@@ -144,12 +144,13 @@ test("one row whose counts update in place as snapshots come, with no read per s
   expect(container.querySelectorAll(".acpmux-surge").length).toBe(1);
   expect(container.querySelector(".acpmux-surge-count")?.textContent).toContain("37");
   expect(container.querySelector("button.acpmux-surge-need")?.textContent).toContain("2");
-  expect(calls.list).toBe(1);
+  // Shut, the row reads no listing at all; its first opening reads one.
+  expect(calls.list).toBe(0);
   await draw({ held: 0, needYou: 0, seq: 99 });
   expect(container.querySelector(".acpmux-surge")).toBeNull();
 });
 
-test("opening on the counts already listed reads nothing more; need-you first; search and the filter narrow", async () => {
+test("the first opening reads the listing once, nothing more; need-you first; search and the filter narrow", async () => {
   const { container, calls } = await render({ held: 10, needYou: 1, seq: 1 });
   await settle();
   await click(container.querySelector(".acpmux-surge-toggle"));
