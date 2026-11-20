@@ -68,7 +68,8 @@ class LaunchTTIUITests: XCTestCase {
     @MainActor
     func run(_ flow: Flow, app: XCUIApplication) throws -> [String: Double] {
         let row = app.buttons[flow == .chat ? Self.chatWorkspace : Self.terminalWorkspace]
-        // The stress list replaces the mock one: wait for its first row, then the list's frame mark.
+        // The stress list replaces the mock one: wait for its first row, then the list's frame mark
+        // (taken only by a seeded row, `ListStressSettings.countsListFrame`).
         XCTAssertTrue(app.buttons[Self.chatWorkspace].waitForExistence(timeout: 60), "the stress list\n\(app.debugDescription)")
         XCTAssertTrue(waitForMark("workspaces_list_frame", in: app), "the list's first frame mark")
         // The terminal workspace sits below the ones that need the person: scroll to it

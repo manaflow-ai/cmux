@@ -13,12 +13,12 @@ log line. Every build has them; their cost is a fixed set of names taken once.
 | `app_init` | the App's `init` began (dyld, static initializers and UIKit before it) |
 | `first_frame` | the first SwiftUI frame (the launch mark) was presented |
 | `shell_frame` | the signed-in shell's first frame was presented |
-| `workspaces_list_frame` | the Workspaces list's first frame with a row was presented |
+| `workspaces_list_frame` | the Workspaces list's first frame with a row was presented (with the list rig, a seeded `ws-sN` row) |
 | `workspace_row_tap` | a workspace row was tapped |
-| `chat_composer_ready` | the first frame with an agent chat's composer was presented |
+| `chat_composer_ready` | the first frame with an agent chat's composer shown was presented (not a chat face parked behind a terminal) |
 | `terminal_ready` | a terminal attached to its session presented a frame |
-| `terminal_key_sent` | the first key typed into a terminal went to its session |
-| `terminal_echo_presented` | that key's echo was presented |
+| `terminal_key_sent` | the first single printable key typed into a terminal was accepted by its session |
+| `terminal_echo_presented` | that key's byte, as text in the same terminal's output (not in an escape sequence), was presented |
 
 ## Bench
 

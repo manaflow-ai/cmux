@@ -1,4 +1,7 @@
 #if os(iOS)
+#if DEBUG
+import CmuxMobileAgentChat
+#endif
 import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxSpinner
@@ -1072,7 +1075,13 @@ struct WorkspaceListRow: View, Equatable {
         .opacity(model.isStale ? 0.55 : 1)
         .animation(theme.motion.smooth.animation.unlessReduceMotion, value: model.isStale)
         .onAppear {
-            LaunchMarks.shared.markNextFrame("workspaces_list_frame")
+            #if DEBUG
+            // The list rig's seeded rows, not the mock ones shown before it seeds (LaunchTTIUITests).
+            let countsForLaunch = ListStressSettings.shared.countsListFrame(rowID: ws.id)
+            #else
+            let countsForLaunch = true
+            #endif
+            if countsForLaunch { LaunchMarks.shared.markNextFrame("workspaces_list_frame") }
             // verify/fast-connect.md: when a row is first on screen, cached or live.
             if model.tracksMacData {
                 ConnectTimeline.shared.mark(model.isStale ? "workspace_row_cached" : "workspace_row_live")

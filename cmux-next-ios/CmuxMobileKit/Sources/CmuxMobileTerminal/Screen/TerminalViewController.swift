@@ -743,8 +743,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // terminal queries go only while attached and never make the
             // "Keys typed while your Mac was unreachable" notice.
             if surface.isEncodingUserInput {
-                if firstEcho.sent(data) { LaunchMarks.shared.mark("terminal_key_sent") }
                 model.session.send(data)
+                // The launch marks' key: one the session took (not refused, not held for a
+                // reattach), in the one terminal whose echo is then tracked (the marks are per process).
+                if model.connectionState.isAttached, !inputRefused, !LaunchMarks.shared.has("terminal_key_sent"),
+                   firstEcho.sent(data) {
+                    LaunchMarks.shared.mark("terminal_key_sent")
+                }
             } else {
                 model.session.sendReply(data)
                 // A scroll or a tap is still the person's: this phone is the active device.

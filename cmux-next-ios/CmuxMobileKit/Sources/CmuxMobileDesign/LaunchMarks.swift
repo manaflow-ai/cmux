@@ -17,12 +17,12 @@ import SwiftUI
 /// - `app_init`: the App's `init` began (dyld, static initializers and UIKit's start before it)
 /// - `first_frame`: the first SwiftUI frame (the launch mark) was presented
 /// - `shell_frame`: the signed-in shell's first frame was presented
-/// - `workspaces_list_frame`: the Workspaces list's first frame with rows was presented
+/// - `workspaces_list_frame`: the Workspaces list's first frame with rows was presented (the list rig's seeded rows)
 /// - `workspace_row_tap`: a workspace row was tapped
-/// - `chat_composer_ready`: an agent chat's composer was on screen (first frame presented)
+/// - `chat_composer_ready`: an agent chat's composer was on screen (first frame presented; not a hidden chat face)
 /// - `terminal_ready`: a terminal attached to its session presented a frame
-/// - `terminal_key_sent`: the first key typed into a terminal went to its session
-/// - `terminal_echo_presented`: that key's echo was presented on screen
+/// - `terminal_key_sent`: the first single printable key a terminal's session accepted
+/// - `terminal_echo_presented`: that key's byte, as text in that terminal's output, was presented
 ///
 /// Cost is constant: a fixed set of names, each taken once; the one-shot
 /// display link of `markNextFrame` stops at its first frame.
