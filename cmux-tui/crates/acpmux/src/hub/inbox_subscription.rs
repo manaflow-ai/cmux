@@ -120,6 +120,81 @@ impl Hub {
         }))
     }
 
+    /// Grant the recipient's `thread` to a distinct session that first subscribed to it itself.
+    /// The canonical owner id comes from the resolved session, never from a journal record or
+    /// a caller-controlled label.
+    pub(crate) fn grant_inbox_subscription(
+        &self,
+        recipient: &Session,
+        thread: &str,
+        owner: &Session,
+    ) -> Result<Value, RpcError> {
+        let thread = thread_id(thread)?;
+        if recipient.id == owner.id {
+            return Err(RpcError::invalid_params(
+                "inbox_subscription.owner_must_differ: grant a distinct subscriber",
+            )
+            .with_data(json!({"reason": "inbox_subscription.owner_must_differ"})));
+        }
+        if !self.inbox_subscription_bindings(owner)?.contains_key(thread) {
+            return Err(RpcError::invalid_params(
+                "inbox_subscription.owner_not_subscribed: owner must subscribe first",
+            )
+            .with_data(json!({"reason": "inbox_subscription.owner_not_subscribed"})));
+        }
+        let owner_id = owner.id.as_str();
+        let (_, stored) = self.append_logged(
+            recipient,
+            "mux",
+            crate::surge_triage::GRANT_KIND,
+            json!({"threadId": thread, "ownerSessionId": owner_id, "active": true}),
+            None,
+        );
+        if !stored {
+            return Err(RpcError::internal("could not persist inbox subscription grant"));
+        }
+        Ok(json!({
+            "sessionId": recipient.id,
+            "threadId": thread,
+            "ownerSessionId": owner_id,
+            "granted": true,
+        }))
+    }
+
+    /// Revoke a recipient's grant. The owner may have unsubscribed since the grant was made;
+    /// resolving it still prevents stale or arbitrary ids from entering the journal.
+    pub(crate) fn revoke_inbox_subscription(
+        &self,
+        recipient: &Session,
+        thread: &str,
+        owner: &Session,
+    ) -> Result<Value, RpcError> {
+        let thread = thread_id(thread)?;
+        if recipient.id == owner.id {
+            return Err(RpcError::invalid_params(
+                "inbox_subscription.owner_must_differ: revoke a distinct subscriber",
+            )
+            .with_data(json!({"reason": "inbox_subscription.owner_must_differ"})));
+        }
+        let owner_id = owner.id.as_str();
+        let (_, stored) = self.append_logged(
+            recipient,
+            "mux",
+            crate::surge_triage::GRANT_KIND,
+            json!({"threadId": thread, "ownerSessionId": owner_id, "active": false}),
+            None,
+        );
+        if !stored {
+            return Err(RpcError::internal("could not persist inbox subscription revoke"));
+        }
+        Ok(json!({
+            "sessionId": recipient.id,
+            "threadId": thread,
+            "ownerSessionId": owner_id,
+            "granted": false,
+        }))
+    }
+
     /// List the target session's active durable thread bindings.
     pub(crate) fn inbox_subscriptions(&self, session: &Session) -> Result<Value, RpcError> {
         let subscriptions = self

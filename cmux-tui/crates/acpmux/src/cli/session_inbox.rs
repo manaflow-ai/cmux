@@ -20,6 +20,9 @@ pub async fn run(
     before: Option<u64>,
     subscribe: Option<&str>,
     unsubscribe: Option<&str>,
+    grant: Option<&str>,
+    revoke: Option<&str>,
+    subscriber: Option<&str>,
     subscriptions: bool,
     json_out: bool,
 ) -> Result<()> {
@@ -55,6 +58,33 @@ pub async fn run(
                 "Unsubscribed from surge thread {}.",
                 reply["threadId"].as_str().unwrap_or(thread)
             );
+        }
+        return Ok(());
+    }
+    if grant.is_some() || revoke.is_some() || subscriber.is_some() {
+        let thread = grant
+            .or(revoke)
+            .ok_or_else(|| anyhow::anyhow!("--subscriber requires --grant or --revoke"))?;
+        let subscriber =
+            subscriber.ok_or_else(|| anyhow::anyhow!("--grant/--revoke requires --subscriber"))?;
+        let owner_id = resolve_id(client, subscriber).await?;
+        let method = if grant.is_some() {
+            method::MUX_INBOX_SUBSCRIPTION_GRANT
+        } else {
+            method::MUX_INBOX_SUBSCRIPTION_REVOKE
+        };
+        let reply = client
+            .request(
+                method,
+                json!({"sessionId": id, "threadId": thread, "ownerSessionId": owner_id}),
+            )
+            .await?;
+        if json_out {
+            print_json(&reply);
+        } else if grant.is_some() {
+            println!("Granted surge thread {thread} for subscriber {owner_id}.");
+        } else {
+            println!("Revoked surge thread {thread} for subscriber {owner_id}.");
         }
         return Ok(());
     }

@@ -270,9 +270,24 @@ async fn owner_items_go_only_to_owners_the_recipient_authorized() {
         let reply = rpc_as(&hub, &who.id, method, params).await;
         assert_eq!(reply["result"]["subscribed"], true, "{reply}");
     }
-    // The recipient authorizes `owner` for runners; `lead` gave it its first work.
-    let grant = json!({"threadId": "runners", "ownerSessionId": owner.id, "active": true});
-    hub.append(&s, "mux", triage::GRANT_KIND, grant);
+    // The recipient authorizes `owner` for runners through the RPC; the owner had to self-bind
+    // first, and the recipient's own agent is the only session allowed to write the grant.
+    let granted = rpc_as(
+        &hub,
+        &s.id,
+        crate::rpc::method::MUX_INBOX_SUBSCRIPTION_GRANT,
+        json!({"sessionId": s.id, "threadId": "runners", "ownerSessionId": owner.id}),
+    )
+    .await;
+    assert_eq!(granted["result"]["granted"], true, "{granted}");
+    let unauthorized = rpc_as(
+        &hub,
+        &stranger.id,
+        crate::rpc::method::MUX_INBOX_SUBSCRIPTION_GRANT,
+        json!({"sessionId": s.id, "threadId": "runners", "ownerSessionId": owner.id}),
+    )
+    .await;
+    assert_eq!(unauthorized["error"]["data"]["reason"], "inbox_subscription.other_session");
     s.meta.lock().unwrap().delegator = Some(lead.id.clone());
     // Nobody subscribes for another: the RPC refuses it, and records naming another session
     // (a subscription in the recipient's journal, one in a stranger's) own nothing.
@@ -311,12 +326,32 @@ async fn owner_items_go_only_to_owners_the_recipient_authorized() {
     assert!(to(&lead).iter().any(|m| m.contains("ci lane idle")), "the delegator got its digest");
     assert!(to(&stranger).is_empty(), "nothing of the recipient's reaches the stranger");
 
+    // Revoked through the recipient RPC after the hub read the owners: the next pass keeps the
+    // owner's self-binding but no longer routes the recipient's digest to it.
+    let revoked = rpc_as(
+        &hub,
+        &s.id,
+        crate::rpc::method::MUX_INBOX_SUBSCRIPTION_REVOKE,
+        json!({"sessionId": s.id, "threadId": "runners", "ownerSessionId": owner.id}),
+    )
+    .await;
+    assert_eq!(revoked["result"]["granted"], false, "{revoked}");
+    hold(&hub, &s, "m4", "runners", "fyi", "runner queued 45 min");
+    hub.surge_triage_pass(&s).await.unwrap();
+    let events = hub.events(&s.id, 0, 100_000).unwrap();
+    let revoked_record = records(&events, triage::RECORD_KIND)
+        .filter(|r| r["items"].as_array().is_some_and(|i| i.iter().any(|x| x["promptId"] == "m4")))
+        .next()
+        .unwrap()
+        .clone();
+    assert_eq!(revoked_record["items"][0]["category"], "needs_this_session", "{revoked_record}");
+
     // Unsubscribed through the RPC after the hub read the owners: the next pass keeps it.
     let params = json!({"sessionId": owner.id, "threadId": "runners"});
     let reply =
         rpc_as(&hub, &owner.id, crate::rpc::method::MUX_INBOX_SUBSCRIPTION_REMOVE, params).await;
     assert_eq!(reply["result"]["subscribed"], false, "{reply}");
-    hold(&hub, &s, "m4", "runners", "fyi", "runner queued 50 min");
+    hold(&hub, &s, "m5", "runners", "fyi", "runner queued 50 min");
     hub.surge_triage_pass(&s).await.unwrap();
     let events = hub.events(&s.id, 0, 100_000).unwrap();
     let last = records(&events, triage::RECORD_KIND)
@@ -324,7 +359,7 @@ async fn owner_items_go_only_to_owners_the_recipient_authorized() {
         .last()
         .unwrap()
         .clone();
-    assert_eq!(last["items"][0]["promptId"], "m4");
+    assert_eq!(last["items"][0]["promptId"], "m5");
     assert_eq!(last["items"][0]["category"], "needs_this_session", "{last}");
 }
 

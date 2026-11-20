@@ -1318,6 +1318,15 @@ pub struct SessionInboxOpts {
     /// Remove this recipient session's durable surge thread binding.
     #[arg(long, value_name = "THREAD", conflicts_with_all = ["search", "subscribe", "subscriptions", "thread", "digest", "dry_run"])]
     pub unsubscribe: Option<String>,
+    /// Grant this thread to a distinct session that has self-subscribed first.
+    #[arg(long, value_name = "THREAD", conflicts_with_all = ["search", "subscribe", "unsubscribe", "subscriptions", "thread", "digest", "dry_run", "revoke"])]
+    pub grant: Option<String>,
+    /// Revoke this thread from a distinct subscriber.
+    #[arg(long, value_name = "THREAD", conflicts_with_all = ["search", "subscribe", "unsubscribe", "subscriptions", "thread", "digest", "dry_run", "grant"])]
+    pub revoke: Option<String>,
+    /// Subscriber session for --grant or --revoke.
+    #[arg(long, value_name = "SESSION", conflicts_with_all = ["search", "subscribe", "unsubscribe", "subscriptions", "thread", "digest", "dry_run"])]
+    pub subscriber: Option<String>,
     /// List this recipient session's durable surge thread bindings.
     #[arg(long, conflicts_with_all = ["search", "subscribe", "unsubscribe", "thread", "digest", "dry_run"])]
     pub subscriptions: bool,
@@ -1347,6 +1356,12 @@ pub struct SessionInboxTarget {
     pub subscribe: Option<String>,
     #[arg(long, value_name = "THREAD", conflicts_with_all = ["search", "subscribe", "subscriptions", "thread"])]
     pub unsubscribe: Option<String>,
+    #[arg(long, value_name = "THREAD", conflicts_with_all = ["search", "subscribe", "unsubscribe", "subscriptions", "thread", "revoke"])]
+    pub grant: Option<String>,
+    #[arg(long, value_name = "THREAD", conflicts_with_all = ["search", "subscribe", "unsubscribe", "subscriptions", "thread", "grant"])]
+    pub revoke: Option<String>,
+    #[arg(long, value_name = "SESSION", conflicts_with_all = ["search", "subscribe", "unsubscribe", "subscriptions", "thread"])]
+    pub subscriber: Option<String>,
     #[arg(long, conflicts_with_all = ["search", "subscribe", "unsubscribe", "thread"])]
     pub subscriptions: bool,
     #[arg(long)]
@@ -1611,6 +1626,9 @@ pub fn flatten(c: Command) -> Command {
                 before: opts.before,
                 subscribe: opts.subscribe,
                 unsubscribe: opts.unsubscribe,
+                grant: opts.grant,
+                revoke: opts.revoke,
+                subscriber: opts.subscriber,
                 subscriptions: opts.subscriptions,
                 thread: opts.thread,
                 unread: opts.mark_read,

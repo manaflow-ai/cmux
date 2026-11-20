@@ -613,6 +613,10 @@ pub mod method {
     pub const MUX_INBOX_SUBSCRIPTION_REMOVE: &str = "_acpmux/inbox_subscription_remove";
     /// List active surge thread bindings: `{sessionId}`.
     pub const MUX_INBOX_SUBSCRIPTIONS: &str = "_acpmux/inbox_subscriptions";
+    /// Grant a recipient's thread to an already self-subscribed owner: `{sessionId, threadId, ownerSessionId}`.
+    pub const MUX_INBOX_SUBSCRIPTION_GRANT: &str = "_acpmux/inbox_subscription_grant";
+    /// Revoke a recipient's thread grant: `{sessionId, threadId, ownerSessionId}`.
+    pub const MUX_INBOX_SUBSCRIPTION_REVOKE: &str = "_acpmux/inbox_subscription_revoke";
     pub const MUX_TAG: &str = "_acpmux/tag";
     /// Ends a session's link to the session that started it (`acpmux session detach`,
     /// `hub/lane_reports.rs`): `{sessionId}` -> `{sessionId, detached}`. Its turns no longer go
