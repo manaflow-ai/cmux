@@ -66,8 +66,13 @@ fn http(status: u16, body: String, extra: String) -> (String, JoinHandle<Vec<u8>
 }
 
 fn loopback_http() -> Network {
+    loopback_http_in(None)
+}
+
+fn loopback_http_in(space: Option<cmux_build_space::BuildSpace>) -> Network {
     let _ = rustls::crypto::ring::default_provider().install_default();
     Network {
+        space,
         client_version: "1.2.3".into(),
         http: reqwest::blocking::Client::builder()
             .no_proxy()
@@ -235,7 +240,7 @@ fn server_pairing_http_refuses_redirects_and_bounds_untrusted_responses() {
 
 #[test]
 fn server_pairing_collection_header_is_redacted_and_never_put_in_the_wait_url() {
-    let request = request("https://api.example.test", &begun()).unwrap();
+    let request = request("https://api.example.test", &begun(), None).unwrap();
     assert_eq!(request.uri().to_string(), "wss://api.example.test/v1/pair/wait?code=7KQ4M2XD");
     assert!(request.headers()["Sec-WebSocket-Protocol"].to_str().unwrap().contains(SECRET));
     assert!(!format!("{request:?}").contains(SECRET));
@@ -273,7 +278,7 @@ fn socket_wait(messages: Vec<Message>, idle: bool, timeout: Duration) -> Result<
     let result = runtime.block_on(async {
         let stream = tokio::net::TcpStream::connect(address).await.unwrap();
         let (socket, _) = tokio_tungstenite::client_async_with_config(
-            request("https://api.example.test", &begun()).unwrap(),
+            request("https://api.example.test", &begun(), None).unwrap(),
             stream,
             Some(socket_config()),
         )
@@ -405,4 +410,45 @@ fn server_pairing_wait_treats_a_code_the_backend_deleted_as_expired() {
     // clock-skew window must end the attempt, not report the API unreachable until the window ends.
     assert!(matches!(handshake_status(404), Ok(Waited::Expired)));
     assert_eq!(handshake_status(500).unwrap_err().message, "server.pair.unreachable");
+}
+
+/// The build space header line of one recorded request, if any.
+fn space_line(bytes: &[u8]) -> Option<String> {
+    String::from_utf8_lossy(bytes).lines().find_map(|line| {
+        line.to_ascii_lowercase().strip_prefix("x-cmux-build-space:").map(|v| v.trim().to_owned())
+    })
+}
+
+/// Pair Another Machine from a dev build: the joining machine's begin, backend calls and wait
+/// upgrade all carry the build's space, so the pairing lives in that build's PairingDO; a
+/// nightly's carry none.
+#[test]
+fn a_dev_builds_pairing_sends_its_build_space_on_every_call_and_the_wait_upgrade() {
+    let space = cmux_build_space::testing::space("my-tag-2");
+    for (network, want) in [
+        (loopback_http_in(Some(space.clone())), Some("dev:my-tag-2".to_owned())),
+        (loopback_http_in(None), None),
+    ] {
+        let (api, worker) = http(200, r#"{"ok":true}"#.into(), String::new());
+        let _ = network.health(&api);
+        assert_eq!(space_line(&worker.join().unwrap()), want, "health");
+        let (api, worker) = http(200, r#"{"ok":true}"#.into(), String::new());
+        let _ = network.begin(&api, &serde_json::json!({"proof": "fixture"}));
+        assert_eq!(space_line(&worker.join().unwrap()), want, "begin");
+        let (api, worker) = http(200, r#"{"ok":true}"#.into(), String::new());
+        let _ = network.backend_post(&api, "/v1/pair/x", &serde_json::json!({}), Some("tok"));
+        assert_eq!(space_line(&worker.join().unwrap()), want, "backend_post");
+    }
+    let upgrade = request("https://api.example.test", &begun(), Some(&space)).unwrap();
+    assert_eq!(
+        upgrade.headers().get("x-cmux-build-space").and_then(|v| v.to_str().ok()),
+        Some("dev:my-tag-2")
+    );
+    let nightly = request("https://api.example.test", &begun(), None).unwrap();
+    assert!(nightly.headers().get("x-cmux-build-space").is_none());
+}
+
+#[test]
+fn a_pairing_with_an_unusable_build_space_is_refused() {
+    assert!(Network::in_space("1.2.3", cmux_build_space::testing::refused()).is_err());
 }

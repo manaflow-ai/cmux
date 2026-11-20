@@ -7,7 +7,7 @@ import CmuxNextWakeups
 /// attached (plans/cmux-next/data-model.md 1.4): the machine, its state,
 /// Connect when the user can start it, and the last screen the home
 /// session saved. Never drops the reference.
-final class RemoteTerminalPlaceholderView: NSView {
+final class RemoteTerminalPlaceholderView: NSView, PaneCommitMotionPicture {
     enum State: Equatable {
         /// The session is connecting (or its terminal is being attached).
         case reconnecting
