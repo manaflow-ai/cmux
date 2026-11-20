@@ -589,7 +589,7 @@ fn try_code(
     let Some(name) = json.get("name").and_then(Value::as_str).map(str::to_owned) else {
         return Ok(render::Answer::Library { json, human });
     };
-    let on = customize.library()?.entries.iter().any(|entry| entry.name() == name && entry.on);
+    let on = customize.library()?.entries.iter().any(|entry| entry.name == name && entry.on);
     if !on {
         // Nothing a running cmux can take: it is in the library, off, and
         // there is nothing to time.
