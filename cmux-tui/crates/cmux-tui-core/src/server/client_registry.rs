@@ -800,6 +800,8 @@ impl ClientRegistry {
                     // `restart` on the daemon-shutdown notice (disconnect.rs).
                     || capability == super::DAEMON_SHUTDOWN_RESTART_CAPABILITY
                     || capability == "cloud-mobile-chat-v1"
+                    // A phone opens a link a program asks for (server/phone_link.rs).
+                    || capability == super::phone_link::CAPABILITY
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }
