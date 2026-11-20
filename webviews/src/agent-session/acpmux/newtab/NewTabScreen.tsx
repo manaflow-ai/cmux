@@ -2375,9 +2375,12 @@ export function NewTabScreen(props: Props) {
                     : rows[current]
                       ? `nt-row-${current}`
                       : undefined,
-                  spellcheck: spellChecking && !shell ? "true" : "false",
+                  // One completion UI: the system's spelling bubble and inline predictions stay off
+                  // while the slash list shows, as in the chat composer.
+                  spellcheck: spellChecking && !shell && !commandsOpen ? "true" : "false",
                   autocapitalize: "off",
                   autocorrect: "off",
+                  writingsuggestions: commandsOpen ? "false" : undefined,
                 }}
               />
               {/* The attachments placed in the text draw inside the field at their place, as Messages
