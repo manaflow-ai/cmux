@@ -216,6 +216,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var statusBehavior = StatusBehaviorSettings()
     /// `appearance.borders`; "default" when unset or invalid.
     public var borders: BorderMode = BordersSetting.fallback
+    /// `appearance.liquidGlass`; off when unset or invalid, so web pages draw no glass.
+    public var liquidGlass: Bool = LiquidGlassSetting.fallback
     /// `appearance.fontSmoothing`; `antialiased` when unset or invalid. Applied once per launch
     /// (``ProcessFontSmoothing/apply(_:to:)``), so a change shows after a restart.
     public var fontSmoothing: FontSmoothing = FontSmoothingSetting.fallback
@@ -425,6 +427,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art } else { snapshot.backdropArt = nil }
         snapshot.take(ReducedBackgroundsSetting.parse(root), \.reducedBackgrounds)
         snapshot.take(FontSmoothingSetting.parse(root), \.fontSmoothing)
+        snapshot.take(LiquidGlassSetting.parse(root), \.liquidGlass)
         snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
