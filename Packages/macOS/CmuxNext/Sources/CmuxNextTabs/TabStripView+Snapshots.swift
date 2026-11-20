@@ -20,6 +20,10 @@ extension TabStripView {
         var busyUnreadMark = TabTunables.busyUnreadMark.value
         /// Where the trailing status mark sits (`TabTunables.statusMarkPlacement`).
         var statusMarkPlacement = TabTunables.statusMarkPlacement.value
+        /// A waiting tab's badge or glow (`notifications.attention.mark`, `TabCell+NeedsYouGlow`).
+        var needsYouMark = DesignSettings.shared.attention.mark
+        /// The glow breathes only while loops run (Reduce Motion, speed off).
+        var animatesLoops = Motion.indicators.animatesLoops
     }
 
     /// Model fields whose change triggers a sync. Equal arrays that share
