@@ -1696,6 +1696,7 @@ mod live_open;
 mod machine_catalog;
 mod retained;
 mod settings;
+mod slides;
 mod terminal_wait_timeout;
 
 fn code_mode_server(fake: Fake) -> Server<Fake> {
