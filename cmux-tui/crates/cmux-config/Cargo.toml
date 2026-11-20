@@ -12,6 +12,9 @@ workspace = true
 
 [dependencies]
 cmux-json.workspace = true
+# The sidebar row layout reducer: the bounds of sidebar.workspaceRow.lines/linesByKind/linesByAgent
+# (schema/sidebar_rows.rs). Pure, serde only.
+cmux-layout-reducer.workspace = true
 cmux-theme-tokens.workspace = true
 base64.workspace = true
 notify.workspace = true

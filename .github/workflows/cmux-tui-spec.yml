@@ -32,6 +32,7 @@ on:
       - "tests/test_ci_affected_jobs.py"
       # Files outside cmux-tui that acpmux or its path dependencies include_str!
       # (tests/test_cargo_test_verdict.py keeps this list whole).
+      - "Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json"
       - "Resources/theme-files/*.json"
       - "docs/remote-agents-and-cloud.md"
       - "plans/cmux-next/spec-proposals/visuals/design-tokens.json"
