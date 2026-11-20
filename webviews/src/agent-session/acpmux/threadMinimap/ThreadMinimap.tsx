@@ -104,6 +104,7 @@ const ENTRANCES_KEPT = 256;
 /// at rest once the band has held FLING_REST_MS.
 const FLING_SPEED = 12;
 const FLING_MOVES = 3;
+// motion: allow a gesture rest timer (how long the band holds still), not an animation step.
 const FLING_REST_MS = 120;
 /// Whether `node` holds focus a navigation key gave it, not a click's; still true once a pointer
 /// move has taken its ring away, so the rail keeps the keyboard (focusCameFromKey).
