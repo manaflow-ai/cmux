@@ -136,11 +136,14 @@ export function ElsewhereChip({ path, host, label }: { path: string; host: strin
 /// its mark centred) though its address is no pull request's, as a nightly build's or a run's does.
 export function UrlChip({
   href,
+  target,
   icon,
   reference = false,
   children,
 }: {
   href: string;
+  /** Run-step links keep opening a new browsing context while sharing the preview card. */
+  target?: "_blank";
   icon?: ReactNode;
   reference?: boolean;
   children: ReactNode;
@@ -222,6 +225,7 @@ export function UrlChip({
         data-open-session={agent["data-open-session"]}
         data-open-session-sender={agent["data-open-session-sender"]}
         href={href}
+        target={target}
         rel="noreferrer"
         {...trigger}
         onPointerEnter={(event) => {

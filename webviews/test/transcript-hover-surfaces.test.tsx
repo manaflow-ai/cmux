@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MessageRow } from "../src/pages/home-channels/MessageRow";
 import { RunSteps } from "../src/pages/home-channels/RunSteps";
 import { TranscriptRowView } from "../src/pages/home-messages/transcript/TranscriptRows";
+import { SubagentTranscript } from "../src/agent-session/acpmux/backgroundTasks/SubagentTranscript";
 import type { HomeMessage, HomeRun, HomeRunStep } from "../src/pages/home-channels/types";
 import type { Strings } from "../src/pages/shared/i18n";
 
@@ -94,4 +95,15 @@ test("run transcript timestamps retain their step date", () => {
 test("run transcript links use the shared preview trigger", () => {
   const html = renderToStaticMarkup(<RunSteps run={run} steps={[step]} agentNames={new Map()} />);
   expect(html).toMatch(/<a[^>]*class="[^"]*cv-chip[^"]*"[^>]*href="https:\/\/example.com\/reference"/);
+});
+
+test("nested agent transcript timestamps retain their row date", () => {
+  const html = renderToStaticMarkup(
+    <SubagentTranscript
+      running={false}
+      rows={[{ id: "nested-reply", kind: "assistant", version: 1, at, text: "Finished at 10:20 UTC." }]}
+    />,
+  );
+  expect(html).toContain('class="cv-time-hover"');
+  expect(html).toContain('dateTime="2026-11-19T10:20:00.000Z"');
 });
