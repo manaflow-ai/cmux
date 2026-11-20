@@ -349,8 +349,9 @@ pub(super) fn after_append(transaction: &Transaction<'_>, sequence: i64) -> anyh
 
 /// Writes the subject rows of each journal row after the mark, moves the
 /// mark to the journal's head, and puts the number of [`SCHEMA_VERSION`]
-/// back, all in the caller's one commit: the write of a stop and of an
-/// open. Returns the subject rows written.
+/// back, all in the caller's one commit: the write of a stop, of the release
+/// of the session after it, of an open, and of a rollback's check of a
+/// session that no daemon owns. Returns the subject rows written.
 pub(crate) fn write_tail(transaction: &Transaction<'_>) -> anyhow::Result<usize> {
     let rows = write_through(transaction, query_journal_head(transaction)?)?;
     transaction.execute(SET_NUMBER, [SCHEMA_VERSION, ROWS_DUE_SCHEMA_VERSION])?;
@@ -360,8 +361,11 @@ pub(crate) fn write_tail(transaction: &Transaction<'_>) -> anyhow::Result<usize>
 impl WorkspaceRegistry {
     /// The stop's write ([`write_tail`]), in a commit of its own. A journal
     /// row after it puts the store at [`ROWS_DUE_SCHEMA_VERSION`] again, so
-    /// the release of the session runs it one time more, as the owner's
-    /// last write.
+    /// the release of the session runs it one time more, before the session
+    /// is free for another owner. Neither runs while the journal's writer
+    /// can still append (a writer that did not end in the stop's time): this
+    /// takes the registry's connection with no end time. The registry stays
+    /// open after the release, so a row can still come after it.
     pub(crate) fn write_journal_subject_tail(&self) -> anyhow::Result<usize> {
         let db = self.connection.get();
         let transaction = db.unchecked_transaction()?;

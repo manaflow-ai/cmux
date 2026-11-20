@@ -204,7 +204,10 @@ pub(crate) fn while_no_daemon_owns<T>(
 /// session directory: the newest modification time and the total size of
 /// its top-level files (registry, its WAL, `startup-timings.jsonl`). Every
 /// owner start and every adoption commits there, so a change means an owner
-/// ran in between; nothing else writes there while its guard is free.
+/// ran in between, with one exception: a rollback's check that finds the
+/// registry with journal subject rows due writes them, with the guard held
+/// by the check (`stored_number_for_a_rollback`). That changes this mark one
+/// time with no owner run. Nothing else writes there while its guard is free.
 pub(crate) fn session_owner_mark(root: &Path, component: &str) -> String {
     let dir = platform::normalize_filesystem_path(root.join(component));
     let (mut newest, mut size, mut files) = (0_u128, 0_u64, 0_usize);

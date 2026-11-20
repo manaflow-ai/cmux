@@ -166,10 +166,16 @@ cancellation remain destructive. `start` and `cursor` are mutually exclusive.
 **Subject rows.** Each committed subject also gets a row in an append-only
 `(kind, id, sequence)` index. A later commit writes these rows, not the record
 transaction: the commit of the record that ends a period of 100 records, a
-segment seal, a daemon stop and a registry open each write the rows of every
-record after the mark (`meta.journal_subject_rows_through`) and move the mark
-in that same commit. A store that has no index yet gets the index and the
-rows of every active record in the one transaction that makes the index. A
+segment seal, a daemon stop, the release of the session after that stop, a
+registry open and a rollback's check of a session that no daemon owns each
+write the rows of every record after the mark
+(`meta.journal_subject_rows_through`) and move the mark in that same commit.
+A store that has no index yet gets the index and the rows of every active
+record in the one transaction that makes the index. A store that has the
+index and no mark is the store of a build that wrote the rows in the record
+transaction: an open gives it a mark at its newest active record and writes
+no row. A record that an open's migration appends, before the store has the
+number of this schema, gets its rows in its own transaction. A
 read by subject takes the index and, when the index does not fill the page,
 for every active record after the mark the subjects that the record itself
 names, in one statement: it gives what an index written in the record
@@ -186,17 +192,26 @@ subject rows due. A build that does not know the mark reads the index alone,
 so it must not open that store, and it refuses 16. The transaction of the
 first record that gets no subject rows sets the 16; a stop, the release of
 the session after it, and an open put the 15 back in the commit that writes
-the rows. After a crash the store stays at 16 until a build that knows the
-mark opens it, or until a rollback's check (`cmux-tui __store-schemas
---stored`) writes the rows: for a session that no daemon owns, the check
-takes the session's guard and makes the same commit, so one session that
-ended with no stop does not refuse a rollback. That check makes no file; a
+the rows. A stop whose journal writer did not end in the stop's time writes
+no rows, and the release after it writes none: that writer can still append,
+and it holds the store's connection while it does. That store stays at 16.
+After such a stop, and after a crash, the store stays at 16 until a build
+that knows the mark opens it, or until a rollback's check (`cmux-tui
+__store-schemas --stored`) writes the rows: for a session that no daemon
+owns, the check takes the session's guard and makes the same commit, so one
+session that ended with no stop does not refuse a rollback. For a store at
+16 whose guard is held (a daemon owns the session, or a host sweep or a
+reset holds the guard for a short time), the check reads 15 and writes
+nothing: the owner's stop writes the rows. That check makes no file; a
 write that fails leaves the store as it was and reads 16. When the check
 cannot ask the guard (a lock file is not there, or the lock of the
-session-locks directory stays busy past its bound), it gives no number and
+session-locks directory stays busy past its bound), or when another
+connection holds the store's write lock past 500 ms, it gives no number and
 ends with an error: it did not read 16 with the guard held, so the app says
 that it cannot tell whether the kept build reads the data, and does not roll
-back.
+back. The folder that a session reset left in the state root when it did not
+end (`.reset-<session>-<kind>-<id>.deleting`) is no session for the check:
+no build opens it again, and the next reset of that session deletes it.
 
 So 16 is not a plain schema
 number: the next schema change takes 17 and its rows-due number is 18, and the

@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use anyhow::Context;
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 
+use crate::workspace_registry::is_pending_reset_dir_name;
 use crate::workspace_registry::session_journal::subject_rows::stored_number_for_a_rollback;
 
 const REGISTRY: &str = "workspace_registry";
@@ -116,6 +117,11 @@ pub enum Stored {
 /// check that stops at `end` made the write of each session that it read,
 /// and no write for a session after them. A call after it finds those
 /// stores written.
+///
+/// The folder that a session reset left in the state root when it did not
+/// end (`is_pending_reset_dir_name`) is no session: the check does not read
+/// its stores and does not count it. No build opens that folder again, and
+/// the next reset of that session deletes it.
 pub fn stored_until(state_root: &Path, end: Option<Instant>) -> anyhow::Result<Stored> {
     let mut found = BTreeMap::new();
     let entries = match std::fs::read_dir(state_root) {
@@ -131,7 +137,13 @@ pub fn stored_until(state_root: &Path, end: Option<Instant>) -> anyhow::Result<S
     // answer before the end names how many there are.
     let mut sessions: Vec<PathBuf> = Vec::new();
     for entry in entries {
-        let session = entry.with_context(|| format!("read {}", state_root.display()))?.path();
+        let entry = entry.with_context(|| format!("read {}", state_root.display()))?;
+        // The folder that a session reset left when it did not end is no
+        // session: no build opens it again, and no guard has its name.
+        if entry.file_name().to_str().is_some_and(is_pending_reset_dir_name) {
+            continue;
+        }
+        let session = entry.path();
         if session.is_dir() && STORES.iter().any(|(_, file, _)| session.join(file).is_file()) {
             sessions.push(session);
         }

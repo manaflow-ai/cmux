@@ -883,6 +883,21 @@ impl JournalIngressSender {
         self.state.closed.load(Ordering::Acquire)
     }
 
+    /// True when no writer thread of this ingress can commit any more: none
+    /// was started, or the one that was started ended with no error. False
+    /// while a writer runs, and for a writer that did not end in the time of
+    /// its close ([`Self::close_and_join`]): that thread is detached, and it
+    /// can still commit. It waits for nothing.
+    pub(crate) fn writer_ended(&self) -> bool {
+        match &*self.writer.lock().recover_poison() {
+            JournalWriterOwner::Vacant | JournalWriterOwner::Closed => true,
+            JournalWriterOwner::Reserved | JournalWriterOwner::Running(_) => false,
+            JournalWriterOwner::Joining(completion) => {
+                matches!(*completion.result.lock().recover_poison(), Some(Ok(())))
+            }
+        }
+    }
+
     pub(crate) fn close_and_join(&self) -> anyhow::Result<()> {
         self.close_and_join_until(Instant::now() + JOURNAL_WRITER_SHUTDOWN_WAIT)
     }
