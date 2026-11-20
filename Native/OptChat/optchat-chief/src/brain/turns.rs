@@ -707,6 +707,15 @@ impl Brain {
             _ => None,
         };
         let retire = match (&kept, &reuse) {
+            // Its moved work still runs: followed until it reports, not ended.
+            (Some(k), None) if k.moved => {
+                self.draining.push(super::background::Draining {
+                    session: k.kept.session.clone(),
+                    after: k.kept.after,
+                    conversation: k.conversation.clone(),
+                });
+                None
+            }
             (Some(k), None) => Some(k.kept.session.clone()),
             _ => None,
         }
@@ -2596,6 +2605,12 @@ pub(super) struct KeptTurn {
     pub seen_end: u64,
     /// The kept turn's first request's prompt tokens (its context size).
     pub tokens: u64,
+    /// The conversation the kept turn answered (where a background reply
+    /// of its session goes, `background.rs`).
+    pub conversation: Option<String>,
+    /// Its session runs work the turn moved to the background, whose report
+    /// has not come yet: never retired, drained instead (`background.rs`).
+    pub moved: bool,
 }
 
 /// A kept session's context past this many tokens is not prompted again:
@@ -2666,6 +2681,15 @@ impl Brain {
         }
         let uncached =
             first.cache_read == 0 && first.cache_write == 0 && first.input > UNCACHED_LIMIT;
+        let conversation = self
+            .state
+            .turn
+            .as_ref()
+            .filter(|t| t.key == key)
+            .and_then(|t| t.conversation.clone());
+        // The turn moved its running work to the background (`steer.rs`):
+        // ending the session would kill that work and its promised report.
+        let moved = self.moved.as_deref() == Some(key);
         match pending {
             Some((_, sig)) if !uncached && !steer_left && tokens < KEEP_MAX_TOKENS => {
                 self.state.kept_session = Some(kept.session.clone());
@@ -2674,6 +2698,18 @@ impl Brain {
                     sig,
                     seen_end: self.chat.status().messages,
                     tokens,
+                    conversation,
+                    moved,
+                });
+            }
+            _ if moved => {
+                (self.log)(&format!(
+                    "turn {key}: its session is not kept, but it runs work moved to the background; following it until that work reports"
+                ));
+                self.draining.push(super::background::Draining {
+                    session: kept.session.clone(),
+                    after: kept.after,
+                    conversation,
                 });
             }
             _ => {
