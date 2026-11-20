@@ -62,7 +62,7 @@ import Testing
                 "browser.link.copyText", "browser.link.saveAs", "browser.selection.copy", "browser.selection.lookUp",
                 "chief.openSubagent", "cloud.group.memberRemove", "cloud.group.memberSet", "cloud.group.members",
                 "cloud.team.members", "cloud.team.session", "cloud.team.sessions", "commandPaletteNext", "commandPalettePrevious",
-                "computerUse.approval.forget", "computerUse.approval.set", "feed.githubAction", "feed.openItem", "history.goTo", "home.messageAbout", "home.messageChiefFromAnyApp", "home.openConversation", "home.sendSelectionTo", "home.showHideChiefFromAnyApp",
+                "feed.githubAction", "feed.openItem", "history.goTo", "home.messageAbout", "home.messageChiefFromAnyApp", "home.openConversation", "home.sendSelectionTo", "home.showHideChiefFromAnyApp",
                 "home.sendSelectionToChief", "list.next", "list.previous",
                 "import.card", "import.list", "import.suggest",
                 "omnibar.openInBackgroundTab", "omnibar.openInForegroundTab", "openBrowser.chromium", "palette.startAgentFromAnyApp",

@@ -132,9 +132,7 @@ enum AgentHandlers {
             registry.bindEffect(id, effect: { invocation in
                 guard let app = (invocation["appId"] ?? invocation["app_id"])?.stringValue, !app.isEmpty else { return .refused(ComputerUseSessionStrings.noApp) }
                 let decision = invocation["decision"]?.stringValue
-                if id == "computerUse.approval.set", decision != "always", decision != "never" {
-                    return .refused(ComputerUseSessionStrings.noDecision)
-                }
+                if id == "computerUse.approval.set", decision != "always", decision != "never" { return .refused(ComputerUseSessionStrings.noDecision) }
                 let remote = context.services.cmuxRemote
                 // action-wait-allow: the saved approvals live in cmux Remote's Computer Use worker, another process.
                 return .waiting(.externalProcess) {
@@ -145,6 +143,7 @@ enum AgentHandlers {
                 }
             })
         }
+        context.services.cmuxRemote.bindApprovalSuggestions(into: registry)
         registry.bind("palette.computerUse.accessibility", run: { _ in context.services.onboarding.computerUseSetup.open(.accessibility) })
         registry.bind("palette.computerUse.screenRecording", run: { _ in context.services.onboarding.computerUseSetup.open(.screenRecording) })
         registry.bindAgentPane(customizeRows: { context.services.settings?.snapshot.customizeFromTheApp == true }) { invocation in
