@@ -28,6 +28,7 @@ final class MobilePairingPageProvider: PageProvider {
     static let statusOp = "cmux.mobilePairing.status"
     static let setAllowedOp = "cmux.mobilePairing.setAllowed"
     static let answerPairOp = "cmux.mobilePairing.answerPair"
+    static let revokePhoneOp = "cmux.mobilePairing.revokePhone"
     static let changesStream = "cmux.mobilePairing.changes"
     /// The switch the page reads and writes: the one the iPhone host follows.
     static let switchPath = MobileSettings.allowIPhoneConnectionsPath
@@ -43,6 +44,8 @@ final class MobilePairingPageProvider: PageProvider {
         var macName: @Sendable () async -> String
         /// Writes one setting as the person's own change.
         var write: @MainActor @Sendable (_ path: [String], _ value: JSONValue) async throws -> Void
+        /// Whether Settings > Advanced > Labs exposes local revocation.
+        var revocationEnabled: @MainActor @Sendable () -> Bool = { false }
         /// This Mac's pairing link (``IPhoneHostService/pairInvite(macName:now:)``), nil until the
         /// host is online for the account with iPhone connections on.
         var invite: @MainActor @Sendable (_ macName: String) -> MobileHostPairInvite? = { _ in nil }
@@ -74,6 +77,7 @@ final class MobilePairingPageProvider: PageProvider {
                 }
                 try await settings.setSetting(at: path, to: value, by: .user)
             },
+            revocationEnabled: { [weak services] in services?.settings?.snapshot.mobileDeviceRevoke ?? false },
             invite: { [weak services] macName in services?.iphone.pairInvite(macName: macName) })
     }
 
@@ -98,6 +102,18 @@ final class MobilePairingPageProvider: PageProvider {
             guard dependencies.host.answerPairRequest(id: id, allow: allow) else {
                 throw PageError.invalidParams("no request from that phone is waiting")
             }
+            return .object([:])
+        case Self.revokePhoneOp:
+            guard context.page == "cmux.mobile-pairing", context.userGesture else {
+                throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+            }
+            guard dependencies.revocationEnabled(), dependencies.signedIn() else { throw PageError.unknownOp(op) }
+            guard let id = params["id"]?.stringValue,
+                  dependencies.host.locallyApprovedPhoneRows.contains(where: { $0["id"]?.stringValue == id }) else {
+                throw PageError.invalidParams("no local approval for that phone")
+            }
+            // This Mac's approval only. removePhone(id:) also deletes the account registration.
+            dependencies.host.revokePhone(id: id)
             return .object([:])
         default:
             throw PageError.unknownOp(op)
@@ -126,7 +142,8 @@ final class MobilePairingPageProvider: PageProvider {
     private static func fingerprint(_ dependencies: Dependencies) -> String {
         let account = dependencies.account()
         return [String(dependencies.signedIn()), account.id, account.name ?? "", String(dependencies.allowed()),
-                String(describing: dependencies.host.pageJSON)].joined(separator: "|")
+                String(describing: dependencies.host.pageJSON), String(dependencies.revocationEnabled()),
+                dependencies.revocationEnabled() ? String(describing: dependencies.host.locallyApprovedPhoneRows) : ""].joined(separator: "|")
     }
 
     private func status() async -> JSONValue {
@@ -160,6 +177,9 @@ final class MobilePairingPageProvider: PageProvider {
                 "blocked": card["blocked"] ?? .null,
             ],
         ]
+        if signedIn, dependencies.revocationEnabled() {
+            reply["localPhones"] = .array(host.locallyApprovedPhoneRows)
+        }
         if signedIn, let account = dependencies.account().name { reply["account"] = .string(account) }
         if case .failed(let reason) = state { reply["failure"] = .string(reason) }
         if state == .ready, let invite = dependencies.invite(macName), let qr = Self.qr(invite) { reply["qr"] = qr }

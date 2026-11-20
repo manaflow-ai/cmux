@@ -11,6 +11,8 @@ export const MobilePairingOps = {
   answerPair: "cmux.mobilePairing.answerPair",
   /** Stream: one empty event whenever the status may have changed; the page asks again. */
   changes: "cmux.mobilePairing.changes",
+  /** Local approval only; requires Labs opt-in and the person’s gesture. */
+  revokePhone: "cmux.mobilePairing.revokePhone",
 } as const;
 
 /** The host's native op that runs one of the page's registry actions. */
@@ -45,6 +47,8 @@ export interface MobilePairingStatus {
   allowed: boolean;
   /** Phones connected now. */
   connectedPhones: number;
+  /** Present only when the native Labs experiment is enabled. Includes offline approvals. */
+  localPhones?: PairingPhone[];
   /** The iPhone host's own words (localized by the host); absent from an older host. */
   host?: PairingHost;
   /** The listener's own failure text (`failed` only). */

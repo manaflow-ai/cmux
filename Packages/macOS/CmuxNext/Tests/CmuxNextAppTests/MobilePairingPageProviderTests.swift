@@ -16,9 +16,10 @@ import Testing
     /// A stand-in app: a signed-in account and one settings value the page writes.
     @MainActor final class Fake {
         var allowed = false
+        var revocationEnabled = false
         var writes: [([String], JSONValue)] = []
         var invite: MobileHostPairInvite?
-        let host = IPhoneHostService(loginKeychain: LoginKeychain())
+        let host = IPhoneHostService(loginKeychain: LoginKeychain(), pairedStore: MobileHostPairedStore(seal: MobileHostMemoryPairingSeal()))
 
         func provider() -> MobilePairingPageProvider {
             MobilePairingPageProvider(dependencies: .init(
@@ -28,6 +29,7 @@ import Testing
                     writes.append((path, value))
                     if path == MobileSettings.allowIPhoneConnectionsPath { allowed = value.boolValue ?? false }
                 },
+                revocationEnabled: { [unowned self] in revocationEnabled },
                 invite: { [unowned self] _ in invite }))
         }
     }
@@ -91,6 +93,50 @@ import Testing
         } catch let error as PageError {
             #expect(error.code == "cmux.protocol.invalid_params")
         } catch { Issue.record("\(error)") }
+    }
+
+    @Test func localRevokeIsDefaultOffAndOnlyThePersonsClickCanRevokeOnePhone() async throws {
+        let fake = Fake()
+        let store = fake.host.pairedStore
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        store.select(userID: "user-1")
+        await store.attach(directory: directory)
+        let phone = MobileHostPairRequest(phoneDeviceID: "one", name: "First iPhone", identityKey: "identity-one", approvalKey: "approval-one")
+        let other = MobileHostPairRequest(phoneDeviceID: "two", name: "Other iPhone", identityKey: "identity-two", approvalKey: "approval-two")
+        let machine = MobileHostPairRequest(phoneDeviceID: "mac", name: "Other Mac", identityKey: "mac-key", approvalKey: "mac-key", kind: "machine")
+        try await store.change(for: "user-1") { list in
+            for request in [phone, other, machine] { list.approve(request, at: Date(timeIntervalSince1970: 5)) }
+        }
+        let provider = fake.provider()
+        let click = PageCallContext(page: "cmux.mobile-pairing", userGesture: true)
+        let off = try await provider.call(MobilePairingPageProvider.statusOp, params: [:], context: click)
+        #expect(off["localPhones"] == nil)
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call(MobilePairingPageProvider.revokePhoneOp, params: ["id": "one"], context: click)
+        }
+        #expect(store.trusts(phone))
+        fake.revocationEnabled = true
+        let on = try await provider.call(MobilePairingPageProvider.statusOp, params: [:], context: click)
+        #expect(on["localPhones"]?.arrayValue?.count == 2, "offline approvals appear even with phone access off; machines do not")
+        for context in [PageCallContext(page: "cmux.mobile-pairing"), PageCallContext(page: "other", userGesture: true)] {
+            await #expect(throws: PageError.self) {
+                _ = try await provider.call(MobilePairingPageProvider.revokePhoneOp, params: ["id": "one"], context: context)
+            }
+        }
+        for id in ["unknown", "mac"] {
+            await #expect(throws: PageError.self) {
+                _ = try await provider.call(MobilePairingPageProvider.revokePhoneOp, params: ["id": .string(id)], context: click)
+            }
+        }
+        #expect(store.trusts(phone))
+        _ = try await provider.call(MobilePairingPageProvider.revokePhoneOp, params: ["id": "one"], context: click)
+        #expect(!store.trusts(phone))
+        #expect(store.trusts(other))
+        #expect(store.trusts(machine))
+        let after = try await provider.call(MobilePairingPageProvider.statusOp, params: [:], context: click)
+        #expect(after["localPhones"]?.arrayValue?.compactMap { $0["id"]?.stringValue } == ["two"])
+        #expect(CmuxConfigSnapshot().mobileDeviceRevoke == false)
     }
 
     /// The code is the pairing link itself, and the page asks for a new one a minute before the
