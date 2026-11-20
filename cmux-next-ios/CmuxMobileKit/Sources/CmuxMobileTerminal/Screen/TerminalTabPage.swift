@@ -246,19 +246,14 @@ struct EmbeddedTerminalControllerView: UIViewControllerRepresentable {
     let insets: EdgeInsets
     let isInteractive: Bool
 
-    func makeUIViewController(context: Context) -> TerminalViewController {
-        let controller = host.controller
-        // The same controller comes back when the tab is shown again; a page
-        // being replaced may still hold it for a moment.
-        if controller.parent != nil {
-            controller.willMove(toParent: nil)
-            controller.view.removeFromSuperview()
-            controller.removeFromParent()
-        }
-        return controller
+    func makeUIViewController(context: Context) -> EmbeddedTerminalContainer {
+        EmbeddedTerminalContainer(terminal: host.controller)
     }
 
-    func updateUIViewController(_ controller: TerminalViewController, context: Context) {
+    func updateUIViewController(_ container: EmbeddedTerminalContainer, context: Context) {
+        container.loadViewIfNeeded()
+        let controller = container.terminal
+        guard controller.parent === container else { return }
         controller.setEmbeddedInsets(UIEdgeInsets(top: insets.top, left: 0, bottom: insets.bottom, right: 0))
         // Zoomed into the grid or mid-swipe the page is a picture: SwiftUI's
         // `accessibilityHidden` does not reach a representable's UIKit views,
@@ -272,6 +267,36 @@ struct EmbeddedTerminalControllerView: UIViewControllerRepresentable {
         }
     }
 
-    static func dismantleUIViewController(_ controller: TerminalViewController, coordinator: ()) {}
+    static func dismantleUIViewController(_ controller: EmbeddedTerminalContainer, coordinator: ()) {}
+}
+
+/// SwiftUI owns one container per representable lifetime. The terminal survives
+/// those lifetimes, so returning it directly lets an outgoing representable's
+/// delayed teardown detach the controller already used by the incoming page.
+/// Only the child moves; tearing down the old container cannot remove it again.
+final class EmbeddedTerminalContainer: UIViewController {
+    let terminal: TerminalViewController
+
+    init(terminal: TerminalViewController) {
+        self.terminal = terminal
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        if terminal.parent != nil {
+            terminal.willMove(toParent: nil)
+            terminal.view.removeFromSuperview()
+            terminal.removeFromParent()
+        }
+        addChild(terminal)
+        terminal.view.translatesAutoresizingMaskIntoConstraints = true
+        terminal.view.frame = view.bounds
+        terminal.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(terminal.view)
+        terminal.didMove(toParent: self)
+    }
 }
 #endif

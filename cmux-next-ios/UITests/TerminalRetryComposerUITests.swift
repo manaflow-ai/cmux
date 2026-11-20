@@ -15,10 +15,13 @@ final class TerminalRetryComposerUITests: XCTestCase {
         normal.launch()
         let normalField = normal.textViews["terminal.composer.field"]
         XCTAssertTrue(normalField.waitForExistence(timeout: 20), "normal terminal composer\n\(normal.debugDescription)")
+        waitUntilHittable(normalField)
         let normalFieldHeight = normalField.frame.height
         let normalSend = normal.buttons["terminal.composer.send"]
         XCTAssertTrue(normalSend.waitForExistence(timeout: 5), "normal Send control\n\(normal.debugDescription)")
         let normalSendHeight = normalSend.frame.height
+        XCTAssertGreaterThan(normalFieldHeight, 0, "the normal field is laid out")
+        XCTAssertGreaterThan(normalSendHeight, 0, "the normal Send control is laid out")
         normal.terminate()
 
         let app = XCUIApplication()
@@ -31,6 +34,9 @@ final class TerminalRetryComposerUITests: XCTestCase {
         XCTAssertTrue(retry.waitForExistence(timeout: 30), "pending terminal exposes Retry\n\(app.debugDescription)")
         let field = app.textViews["terminal.composer.field"]
         XCTAssertTrue(field.waitForExistence(timeout: 10), "terminal composer\n\(app.debugDescription)")
+        waitUntilHittable(field)
+        waitUntilHittable(retry)
+        XCTAssertGreaterThan(retry.frame.height, 0, "Retry must be visible, not only present in accessibility")
         XCTAssertEqual(field.frame.height, normalFieldHeight, accuracy: 1,
                        "empty Retry keeps the normal composer height")
         XCTAssertLessThanOrEqual(retry.frame.height, normalSendHeight + 1,
@@ -38,6 +44,7 @@ final class TerminalRetryComposerUITests: XCTestCase {
         attach(app, "empty-retry")
 
         field.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "tapping the visible composer opens the keyboard")
         field.typeText("keep this draft")
         let send = app.buttons["terminal.composer.send"]
         XCTAssertTrue(send.waitForExistence(timeout: 5), "Send returns for a populated draft\n\(app.debugDescription)")
@@ -71,6 +78,13 @@ final class TerminalRetryComposerUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Agent stopped"].waitForExistence(timeout: 10),
                       "failed-turn card opens its failure state\n\(app.debugDescription)")
         attach(app, "failed-turn-chat-card")
+    }
+
+    @MainActor
+    private func waitUntilHittable(_ element: XCUIElement) {
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: element)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed,
+                       "the control must be on screen and accept a tap: \(element.debugDescription)")
     }
 
     @MainActor
