@@ -84,6 +84,7 @@ impl SearchKind {
         match name {
             "chats" | "agent" | "agents" => Some(Self::Chat),
             "commands" => Some(Self::Command),
+            "scrollbacks" => Some(Self::Scrollback),
             "tabs" => Some(Self::Tab),
             "workspaces" => Some(Self::Workspace),
             _ => Self::parse(name),
@@ -285,9 +286,14 @@ impl SearchIndex {
         // query, so a rare kind does not test the match row by row over the whole index.
         let mut sql_filter = kind_filter("+d.kind", &kinds, &mut values);
         sql_filter.push_str(&time_filter("+d.at_ms", &filter, &mut values));
+        // Both columns, as the FTS `NOT` above tests both.
         for word in short_out {
-            sql_filter.push_str(" AND docs_text.text NOT LIKE ? ESCAPE '\\'");
-            values.push(Sql::Text(format!("%{}%", escape_like(word))));
+            sql_filter.push_str(
+                " AND docs_text.text NOT LIKE ? ESCAPE '\\' AND d.title NOT LIKE ? ESCAPE '\\'",
+            );
+            let pattern = format!("%{}%", escape_like(word));
+            values.push(Sql::Text(pattern.clone()));
+            values.push(Sql::Text(pattern));
         }
         values.push(Sql::Integer(i64::try_from(limit).unwrap_or(i64::MAX)));
         let sql = format!(
