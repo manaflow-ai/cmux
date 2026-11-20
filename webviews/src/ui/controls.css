@@ -116,7 +116,7 @@
   background: color-mix(in srgb, var(--ds-color-danger) 88%, var(--ds-color-on-accent));
 }
 .ui-btn[data-disabled] {
-  opacity: 0.4;
+  opacity: var(--ds-disabled-opacity, 0.6);
 }
 
 /* ui.css's dialog button spacing and keycap, at no specificity so ui.css and the rule below still win:
@@ -232,7 +232,7 @@
   translate: calc(var(--ui-switch-h) - var(--ui-switch-w)) 0;
 }
 .ui-switch[data-disabled] {
-  opacity: 0.4;
+  opacity: var(--ds-disabled-opacity, 0.6);
 }
 .ui-switch:focus-visible {
   outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);
@@ -280,7 +280,7 @@
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ds-color-muted);
 }
 .ui-input[data-disabled] {
-  opacity: 0.4;
+  opacity: var(--ds-disabled-opacity, 0.6);
 }
 
 /* TABS: the active mark sits on the tab itself, so nothing measures or moves after first paint. */
@@ -316,7 +316,7 @@
   color: var(--ds-color-fg);
 }
 .ui-tabs-trigger[data-disabled] {
-  opacity: 0.4;
+  opacity: var(--ds-disabled-opacity, 0.6);
 }
 .ui-tabs-trigger:focus-visible {
   outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);
