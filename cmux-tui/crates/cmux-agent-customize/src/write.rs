@@ -100,9 +100,10 @@ impl Store {
             let first = self.backup_path(&target);
             let backups = first.parent().unwrap_or(&self.dir).to_path_buf();
             create_private_dir(&backups)?;
-            // symlink_metadata: a link (even a dangling one) counts as there, so it is never
-            // written.
-            if fs::symlink_metadata(&first).is_err() {
+            // The first backup is kept once it is a real file. Anything else there (a planted or
+            // dangling symlink) is replaced by the rename, never written through.
+            let kept = fs::symlink_metadata(&first).is_ok_and(|m| !m.file_type().is_symlink());
+            if !kept {
                 write_new(&backups, &first, &original, &first, None)?;
             }
             let last = self.last_backup_path(&target);
@@ -165,8 +166,8 @@ fn create_private_dir(dir: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// Writes `bytes` to a new private temporary file in `dir`, gives it `mode` if any, and renames
-/// it over `dest` (which replaces a symlink at `dest` rather than following it).
+/// Writes `bytes` to a new private temporary file in `dir`, renames it over `dest` (which
+/// replaces a symlink at `dest` rather than following it), then gives it `mode` if any.
 fn write_new(
     dir: &Path,
     target: &Path,
@@ -183,10 +184,13 @@ fn write_new(
         let mut out = create_private(&tmp)?;
         out.write_all(bytes)?;
         out.sync_all()?;
+        fs::rename(&tmp, dest)?;
+        // Widen to the original mode only once the file is complete and in place, through the
+        // open handle: the temporary name stays private while the bytes are being written.
         if let Some(mode) = mode {
-            fs::set_permissions(&tmp, mode)?;
+            out.set_permissions(mode)?;
         }
-        fs::rename(&tmp, dest)
+        Ok(())
     })();
     if written.is_err() {
         let _ = fs::remove_file(&tmp);
