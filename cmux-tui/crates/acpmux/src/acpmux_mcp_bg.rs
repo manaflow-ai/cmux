@@ -345,6 +345,7 @@ esac
     /// grants them), pinned to the head it read; a daemon that is down (exit 3) or a glaeda-gh too old for the
     /// arguments (64) falls back to the gh watch, so the wait never gets less reliable.
     #[test]
+    #[cfg(unix)]
     fn run_wait_waits_through_glaeda_gh_and_falls_back_to_gh() {
         let dir = cmux_unix_socket::short_test_dir("run-wait-glaeda");
         let calls = dir.path().join("calls");
