@@ -154,6 +154,9 @@ public final class AgentUnsentDrafts {
     /// Whether tab `key` (of `machine`) holds a new chat's typed text (its close earns an undo toast).
     public func hasDraft(_ key: String, machine: String? = nil) -> Bool { drafts[slot(key, machine: machine)] != nil }
 
+    /// How many new chats (and windows' leftover slots) hold typed text not sent yet: Update When Idle waits for them.
+    public var count: Int { drafts.count }
+
     /// Tab `key`'s kept text, if any.
     public func draft(for key: String) -> String? { drafts[key] }
 
