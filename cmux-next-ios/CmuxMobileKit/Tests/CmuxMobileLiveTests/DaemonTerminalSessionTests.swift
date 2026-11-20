@@ -65,9 +65,20 @@ final class FakeTerminalDaemon: @unchecked Sendable {
 
     var recorded: [[String: Any]] { lock.withLock { commands } }
 
+    private var writeLog: [[String]] = []
+    /// The commands of each write the phone made, in order (a batch is one write).
+    var writes: [[String]] { lock.withLock { writeLog } }
+
     func respond(_ service: String, _ data: Data) -> [Data] {
         // A batch (`DaemonClient.requests`) is several lines in one write.
-        data.split(separator: 0x0A).flatMap { respondLine(service, Data($0)) }
+        let lines = data.split(separator: 0x0A)
+        if service == "daemon" {
+            let cmds = lines.compactMap { line in
+                (try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any])?["cmd"] as? String
+            }
+            lock.withLock { writeLog.append(cmds) }
+        }
+        return lines.flatMap { respondLine(service, Data($0)) }
     }
 
     private func respondLine(_ service: String, _ line: Data) -> [Data] {
@@ -204,7 +215,8 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         defer { session.stop() }
         session.reattachBackoff = []
         var screenState = session.connectionState
-        if !wasAttached { daemon.failNextAttaches = 1 }
+        // A first attach tries twice: with its grid beside identify, then in series (TerminalAttachPlan).
+        if !wasAttached { daemon.failNextAttaches = 2 }
         session.start { screenState = screenState.applying($0) }
         if wasAttached {
             try await waitUntil { session.isAttached }
