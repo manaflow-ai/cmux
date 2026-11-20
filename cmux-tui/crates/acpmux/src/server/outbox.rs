@@ -56,6 +56,10 @@ pub(super) enum Next {
     /// The chat moved to another daemon (`transfer.moved`, its `movedTo`): nothing ran here, and
     /// the delivery follows it to this `HOST/SESSION` at once (`follow_move`).
     Moved(String),
+    /// The chat moved to a sibling daemon on this machine (`session transfer --to SOCKET`:
+    /// `movedTo {socket, sessionId}`, no host), which no `HOST/SESSION` reaches: the delivery is
+    /// handed to that daemon's own outbox (`hand_to_socket`).
+    MovedToSocket { socket: String, session: String },
     /// The chat is being moved right now (`transfer.moving`): tried again after
     /// [`MOVING_RETRY`], without spending a retry delay, until the move commits (then
     /// [`Next::Moved`]) or aborts (then it runs here).
@@ -748,6 +752,21 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                         let why = format!("{error}; followed {moves_followed} moves, last to {to}");
                         (why, Next::Fail)
                     }
+                    // Moved to a sibling daemon here: its outbox takes the delivery over. A
+                    // daemon that does not answer is tried again on the back-off.
+                    Next::MovedToSocket { socket, session } => {
+                        match hand_to_socket(&delivery, &socket, &session).await {
+                            // Its attachment files stay: the request the sibling took may name
+                            // them, and the settled sweep removes them with the record.
+                            Ok(accepted) => {
+                                hub.outbox.update_saved(id, |d| {
+                                    crate::hub::open_delivery::accepted(d, None, accepted);
+                                });
+                                return;
+                            }
+                            Err(why) => (format!("{error}; {why}"), Next::Retry),
+                        }
+                    }
                     // Mid-move: tried again shortly, on no back-off, while the delivery's day
                     // lasts (`expired`, above).
                     Next::Moving
@@ -1182,8 +1201,19 @@ pub(super) async fn attempt_once(
 /// peer or a timeout is tried again.
 fn next(e: &RpcError) -> Next {
     let data = e.data.as_ref();
-    if let Some(to) = data.and_then(|d| moved_address(d.get("movedTo")?)) {
-        return Next::Moved(to);
+    if let Some(to) = data.and_then(|d| d.get("movedTo")).filter(|to| to.is_object()) {
+        let session = to.get("sessionId").and_then(Value::as_str).filter(|s| !s.is_empty());
+        let socket = to.get("socket").and_then(Value::as_str).filter(|s| s.starts_with('/'));
+        let host = to.get("host").and_then(Value::as_str).filter(|h| !h.is_empty());
+        match (session, host, socket) {
+            (Some(session), Some(host), _) => return Next::Moved(format!("{host}/{session}")),
+            (Some(session), None, Some(socket)) => {
+                let (socket, session) = (socket.to_owned(), session.to_owned());
+                return Next::MovedToSocket { socket, session };
+            }
+            (Some(session), None, None) => return Next::Moved(session.to_owned()),
+            _ => {}
+        }
     }
     if e.message.starts_with("transfer.moving") {
         return Next::Moving;
@@ -1216,13 +1246,30 @@ fn next(e: &RpcError) -> Next {
     }
 }
 
-/// The address a `movedTo` record names (`transfer_out.rs` `moved_error`): `HOST/SESSION`, or
-/// the bare session id when the move named no machine (a `session transfer` to a sibling daemon
-/// on this machine). None when it names no session.
-fn moved_address(to: &Value) -> Option<String> {
-    let session = to.get("sessionId").and_then(Value::as_str).filter(|s| !s.is_empty())?;
-    let host = to.get("host").and_then(Value::as_str).filter(|h| !h.is_empty());
-    Some(host.map_or_else(|| session.to_owned(), |h| format!("{h}/{session}")))
+/// Hands delivery `delivery` to the sibling daemon at `socket` that its chat moved to (as
+/// `session`): that daemon's own `send_queue`, under the same prompt id, so its outbox owns it
+/// from here (a second hand-off of the same prompt id is the first delivery there, never a
+/// second run). Its answer, the delivery's status there, is this delivery's acceptance. Never
+/// this daemon's own socket: a chat that moved here is no move away.
+async fn hand_to_socket(delivery: &Delivery, socket: &str, session: &str) -> Result<Value, String> {
+    let path = std::path::Path::new(socket);
+    let own = crate::config::socket_path();
+    let canonical = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_owned());
+    if canonical(path) == canonical(&own) {
+        return Err("the chat's move names this daemon's own socket".into());
+    }
+    let client = crate::client::Client::connect_without_caller(path)
+        .await
+        .map_err(|e| format!("the daemon at {socket} does not answer: {e}"))?;
+    let init = json!({"protocolVersion": 1, "clientInfo": {"name": "acpmux-outbox"}});
+    client.request(method::INITIALIZE, init).await.map_err(|e| e.to_string())?;
+    let mut request = delivery.request.clone();
+    request.set("sessionId", json!(session));
+    let status = client
+        .request(method::MUX_SEND_QUEUE, json!({"request": request}))
+        .await
+        .map_err(|e| format!("the daemon at {socket} did not take it: {e}"))?;
+    Ok(json!({"handedTo": {"socket": socket, "sessionId": session}, "status": status}))
 }
 
 /// Points delivery `id` at where its chat moved (`to`, `HOST/SESSION`): its target and its
@@ -1267,6 +1314,9 @@ mod moved_next_tests {
         assert_eq!(next(&moved), Next::Moved("gcp-1/m1".into()));
         let here = moved_error(&json!({"sessionId": "m2"}));
         assert_eq!(next(&here), Next::Moved("m2".into()));
+        let sibling = moved_error(&json!({"socket": "/tmp/dev.sock", "sessionId": "m3"}));
+        let handed = Next::MovedToSocket { socket: "/tmp/dev.sock".into(), session: "m3".into() };
+        assert_eq!(next(&sibling), handed);
         let nowhere = moved_error(&json!({"host": "gcp-1"}));
         assert_eq!(next(&nowhere), Next::Retry);
         let moving =

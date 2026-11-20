@@ -26,7 +26,9 @@ pub(super) async fn run(
     let id = resolve_id(&src, session).await?;
     // The source asks the target itself if this client goes away midway (`hub/transfer_watch.rs`).
     let socket = std::path::absolute(to)?;
-    let to_meta = json!({"socket": to});
+    // Absolute, as the watch's: an outbox that finds the chat moved hands its messages to the
+    // daemon at this socket (`server/outbox.rs` `hand_to_socket`), whatever its own folder.
+    let to_meta = json!({"socket": socket});
     let watch = json!({"socket": socket});
     let running = (interrupt, after_turn);
     let moved =

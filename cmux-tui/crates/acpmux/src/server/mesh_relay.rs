@@ -1008,6 +1008,7 @@ pub async fn deliver(
             | Next::NoSession
             | Next::Stale
             | Next::Moved(_)
+            | Next::MovedToSocket { .. }
             | Next::Moving,
         )) => {
             tracing::info!(
