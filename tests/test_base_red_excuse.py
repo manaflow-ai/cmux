@@ -16648,6 +16648,22 @@ class CutSearchConsumers(unittest.TestCase):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
         self.assert_incomplete(str(cut.exception))
 
+    def test_followup_an_unplaced_heads_window_cut_short_is_incomplete_not_its_own_red(self):
+        # #47971's review F1: an unplaced head is compared whole within one red base verdict. The newest red fails
+        # another test; the search is cut before the older red that fails the head's own, which was never read.
+        unplaced = UnplacedSignature()
+        github = FakeGitHub()
+        github.jobs = {1: unplaced.job(), 2: dict(unplaced.job(), id=2, run_id=20, head_sha=BASE_SHA),
+                       4: dict(unplaced.job(), id=4, run_id=22, head_sha=BASE_SHA)}
+        github.logs = {1: framed_log(unplaced.lines(NEW_RED), SWIFT), 2: framed_log(unplaced.lines(NEW_RED), SWIFT),
+                       4: framed_log(unplaced.lines(OLD_RED), SWIFT)}
+        newer = {"id": 22, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                 "conclusion": "failure", "head_sha": BASE_SHA, "created_at": "2026-11-17T00:00:00Z"}
+        github.base_runs = [newer] + self.no_verdict_runs(github, SWIFT, excuse.BASE_JOB_READS + 5) + github.base_runs
+        with self.assertRaises(excuse.Refused) as cut:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assert_incomplete(str(cut.exception))
+
     def test_f4_the_shared_catalog_search_cut_short_is_incomplete(self):
         github = SharedCatalogGitHub()
         github.base_runs = self.no_verdict_runs(github, SharedCatalogGitHub.GEN, excuse.BASE_JOB_READS + 5,
