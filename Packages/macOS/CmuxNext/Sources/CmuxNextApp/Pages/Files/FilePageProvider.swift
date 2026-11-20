@@ -10,6 +10,7 @@ import Foundation
 /// recents and picker, the look (settings section, theme.css), preference writes, and where a
 /// followed link opens.
 protocol FilePageHosting: AnyObject {
+    var sourceUses: FilePageSourceContext? { get }
     var roots: FileWorkspaceRoots { get }
     /// `markdown.remoteImages`: load web images without a per-document click (default false).
     var remoteImages: Bool { get }
