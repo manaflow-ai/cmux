@@ -32,7 +32,7 @@ fn quoted_reply(text: &str) -> Option<&str> {
         }
         end += line.len();
     }
-    let reply = text[end..].trim();
+    let reply = text.get(end..)?.trim();
     (end > 0 && !reply.is_empty()).then_some(reply)
 }
 
