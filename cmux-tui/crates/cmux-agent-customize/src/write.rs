@@ -25,34 +25,65 @@ fn with_suffix(file: &Path, suffix: &str) -> PathBuf {
 /// [`backup_path`] when that does not exist yet; the new text goes to a temporary file beside it
 /// and is renamed over it, so a reader never sees half a file. A symlinked file is written where
 /// it points (the link stays). The file's mode is kept.
+///
+/// Every file cmux creates here (backups and the temporary file) starts private (0600 on Unix)
+/// and is created exclusively, then renamed into place: a symlink a project ships at a backup
+/// path is replaced, never written through, and the new text is never readable by others while
+/// it is written. Backups stay private.
 pub fn replace(file: &Path, text: &str) -> io::Result<()> {
     let target = fs::canonicalize(file).unwrap_or_else(|_| file.to_path_buf());
     let dir = target.parent().ok_or_else(|| io::Error::other("no parent folder"))?;
     fs::create_dir_all(dir)?;
     let prior = fs::metadata(&target).ok();
     if prior.is_some() {
+        let original = fs::read(&target)?;
         let first = backup_path(&target);
-        if !first.exists() {
-            fs::copy(&target, &first)?;
+        // symlink_metadata: a link (even a dangling one) counts as there, so it is never written.
+        if fs::symlink_metadata(&first).is_err() {
+            write_new(dir, &target, &original, &first, None)?;
         }
-        fs::copy(&target, last_backup_path(&target))?;
+        write_new(dir, &target, &original, &last_backup_path(&target), None)?;
     }
+    write_new(dir, &target, text.as_bytes(), &target, prior.map(|p| p.permissions()))
+}
+
+/// Writes `bytes` to a new private temporary file in `dir`, gives it `mode` if any, and renames
+/// it over `dest` (which replaces a symlink at `dest` rather than following it).
+fn write_new(
+    dir: &Path,
+    target: &Path,
+    bytes: &[u8],
+    dest: &Path,
+    mode: Option<fs::Permissions>,
+) -> io::Result<()> {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let mut tmp_name = target.file_name().unwrap_or_default().to_os_string();
-    tmp_name.push(format!(".cmux-tmp-{}", std::process::id()));
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    tmp_name.push(format!(".cmux-tmp-{}-{n}", std::process::id()));
     let tmp = dir.join(tmp_name);
     let written = (|| {
-        let mut out = fs::File::create(&tmp)?;
-        out.write_all(text.as_bytes())?;
+        let mut out = create_private(&tmp)?;
+        out.write_all(bytes)?;
         out.sync_all()?;
-        if let Some(prior) = &prior {
-            fs::set_permissions(&tmp, prior.permissions())?;
+        if let Some(mode) = mode {
+            fs::set_permissions(&tmp, mode)?;
         }
-        fs::rename(&tmp, &target)
+        fs::rename(&tmp, dest)
     })();
     if written.is_err() {
         let _ = fs::remove_file(&tmp);
     }
     written
+}
+
+/// Creates `path` as a new file only it can read (0600 on Unix). Fails if anything, a symlink
+/// included, is already there.
+fn create_private(path: &Path) -> io::Result<fs::File> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(path)
 }
 
 #[cfg(test)]
@@ -105,5 +136,27 @@ mod tests {
         let last = last_backup_path(&settings);
         assert!(!fs::symlink_metadata(&last).unwrap().file_type().is_symlink());
         assert_eq!(fs::read_to_string(&last).unwrap(), "old");
+    }
+
+    /// The new text of a private (0600) file is never readable by others, not even while it is
+    /// being written, and neither are its backups.
+    #[cfg(unix)]
+    #[test]
+    fn private_files_stay_private_through_a_write() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let secret = dir.path().join("config.toml");
+        fs::write(&secret, "token = \"s3cret\"").unwrap();
+        fs::set_permissions(&secret, fs::Permissions::from_mode(0o600)).unwrap();
+        let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        let probe = dir.path().join("probe");
+        create_private(&probe).unwrap();
+        assert_eq!(mode(&probe), 0o600);
+        // Exclusive: never opens what is already there, a symlink included.
+        assert!(create_private(&probe).is_err());
+        replace(&secret, "token = \"other\"").unwrap();
+        assert_eq!(mode(&secret), 0o600);
+        assert_eq!(mode(&backup_path(&secret)), 0o600);
+        assert_eq!(mode(&last_backup_path(&secret)), 0o600);
     }
 }
