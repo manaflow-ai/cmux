@@ -147,11 +147,20 @@ impl Machine {
         machine
     }
 
-    /// A Cloud machine's records (the debug-only `CMUX_TEST_CLOUD_ETC` seam): only a Cloud host
-    /// serves `fs-v1` and `projection-v1`.
+    /// `CMUX_PROJECTION_MATRIX_MACHINE=own`: the machine is a Linux machine of the person's own (a
+    /// lane VM, a CI machine), not a Cloud host, and serves the folder to its owner only.
+    fn own() -> bool {
+        std::env::var("CMUX_PROJECTION_MATRIX_MACHINE").is_ok_and(|kind| kind == "own")
+    }
+
+    /// The machine's records (the debug-only `CMUX_TEST_CLOUD_ETC` seam): a Cloud host's, or
+    /// none for a machine of one's own.
     fn cloud_etc(&self) -> PathBuf {
         let etc = self.side.home.parent().unwrap().join("etc-cmux");
         fs::create_dir_all(&etc).unwrap();
+        if Self::own() {
+            return etc;
+        }
         fs::write(etc.join("image-stamp"), "cmux-vm inputs=projection-roundtrip-matrix\n").unwrap();
         fs::write(etc.join("vm-kind"), "owner\n").unwrap();
         fs::set_permissions(&etc, fs::Permissions::from_mode(0o755)).unwrap();
@@ -165,9 +174,15 @@ impl Machine {
         let mut command = self.side.cmux();
         command
             .env("ACPMUX_HOME", self.side.home.parent().unwrap().join("acpmux"))
-            .env("CMUX_TEST_CLOUD_ETC", self.cloud_etc())
-            .env("CMUX_VM_ID", "vm-projection-roundtrip-matrix")
-            .env("CMUX_CODEROUTER_URL", "http://127.0.0.1:9")
+            .env("CMUX_TEST_CLOUD_ETC", self.cloud_etc());
+        if Self::own() {
+            command.env_remove("CMUX_CODEROUTER_URL");
+        } else {
+            command
+                .env("CMUX_VM_ID", "vm-projection-roundtrip-matrix")
+                .env("CMUX_CODEROUTER_URL", "http://127.0.0.1:9");
+        }
+        command
             .args(["server", action, "--json", "--session", &self.session, "--socket"])
             .arg(&self.socket);
         command
