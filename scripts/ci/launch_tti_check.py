@@ -14,10 +14,11 @@ with an agent chat on the acpmux test agent, one turn answered), then workspaces
 
   FRONT    what the front window shows at the quit and so after the relaunch: `chat` (l5-b's chat tab, typed into
            its composer) or `terminal` (l5-a's terminal, typed into its shell's tty, which echoes).
-  KIND     `cold`: the copy is deleted and copied again (ditto) from the one kept at the start, so the launch is the
-           first exec of new files, as after an update in place (launch-ready.sh copy=fresh); `warm`: the same copy
-           relaunched right after the quit (launch-ready.sh prerun=0); `warm60`: before it, one full run of the same
-           copy that stays up 60 s after its window shows, then quits (launch-ready.sh prerun=60).
+  KIND     `cold_install`: the copy is deleted and copied again (ditto) from the one kept at the start, so the launch
+           is the first exec of new files, as a fresh install; `cold_after_update`: the same fresh copy after the
+           updater's StagedUpdatePrewarm sequence; `warm`: the same copy relaunched right after the quit
+           (launch-ready.sh prerun=0); `warm60`: before it, one full run of the same copy that stays up 60 s after
+           its window shows, then quits (launch-ready.sh prerun=60).
 
 Each round is Quit and Keep Sessions, then the app started again with the run's environment, the typing probe on
 (CMUX_NEXT_TYPING_PROBE, a release build's own key-to-echo timeline) and a fresh launch-marks pipe. From the start the
@@ -49,7 +50,9 @@ import csv
 import ctypes
 import ctypes.util
 import json
+import mmap
 import os
+import plistlib
 import shutil
 import subprocess
 import sys
@@ -63,10 +66,12 @@ import relaunch_restore_check as rr  # noqa: E402  (its probe set, seed and laun
 
 KEY_EVERY_S = 0.04
 KEY_X = 7  # kVK_ANSI_X
-KINDS = ("cold", "warm", "warm60")
+KINDS = ("cold_install", "cold_after_update", "warm", "warm60")
 FRONTS = ("chat", "terminal")
-DEFAULT_PLAN = ("cold:chat,cold:terminal,warm:chat,warm:terminal,warm60:chat,warm60:terminal,"
-                "cold:chat,cold:terminal,warm:chat,warm:terminal")
+DEFAULT_PLAN = ("cold_install:chat,cold_install:terminal,cold_after_update:chat,cold_after_update:terminal,"
+                "warm:chat,warm:terminal,warm60:chat,warm60:terminal,"
+                "cold_install:chat,cold_install:terminal,cold_after_update:chat,cold_after_update:terminal,"
+                "warm:chat,warm:terminal,warm60:chat,warm60:terminal")
 PRERUN_S = 60.0
 INPUT_MARK_MESSAGE = b"pane.inputEchoed"  # what a page posts when its composer drew a typed key (the mark's source)
 CHAT_MARK = "agent_pane.input_echoed"
@@ -248,6 +253,66 @@ def fresh_copy(app: Path, pristine: Path) -> None:
     subprocess.run(["ditto", str(pristine), str(app)], check=True, timeout=600)
 
 
+def staged_prewarm_plan(app: Path) -> list[tuple[Path, list[str]]]:
+    """The ordered process part of ``StagedUpdatePrewarm.runs(bundle:)`` for APP."""
+    with open(app / "Contents" / "Info.plist", "rb") as handle:
+        executable_name = plistlib.load(handle)["CFBundleExecutable"]
+    main = app / "Contents" / "MacOS" / executable_name
+    runs: list[tuple[Path, list[str]]] = []
+    if main.is_file() and os.access(main, os.X_OK):
+        runs.append((main, ["--cmux-prewarm-launch"]))
+    for name in ("cmux", "cmux-tui"):
+        binary = app / "Contents" / "Resources" / "bin" / name
+        if binary.is_file() and os.access(binary, os.X_OK):
+            runs.append((binary, ["--version"]))
+    frameworks = app / "Contents" / "Frameworks"
+    helpers = sorted((p for p in frameworks.iterdir() if p.is_dir() and p.suffix == ".app" and " Helper" in p.name),
+                     key=lambda p: p.name) if frameworks.is_dir() else []
+    for helper in helpers:
+        binary = helper / "Contents" / "MacOS" / helper.stem
+        if binary.is_file() and os.access(binary, os.X_OK):
+            runs.append((binary, ["--version"]))
+    if main.is_file() and os.access(main, os.X_OK):
+        runs.append((main, ["--cmux-prewarm-chromium"]))
+    return runs
+
+
+def staged_update_prewarm(app: Path, env: dict) -> dict:
+    """Mirror the updater's best-effort process and Frameworks-page pre-warm on a fresh copy."""
+    result: dict = {"runs": []}
+    for executable, arguments in staged_prewarm_plan(app):
+        started = time.monotonic()
+        status: int | str
+        try:
+            completed = subprocess.run([str(executable), *arguments], cwd=env.get("HOME"), env=env,
+                                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                       timeout=20)
+            status = completed.returncode
+        except (OSError, subprocess.SubprocessError) as error:
+            status = f"error: {error}"
+        result["runs"].append({"executable": executable.name, "arguments": arguments, "status": status,
+                               "ms": round((time.monotonic() - started) * 1000, 1)})
+    files = pages = 0
+    frameworks = app / "Contents" / "Frameworks"
+    paths = sorted(frameworks.rglob("*")) if frameworks.is_dir() else ()
+    for path in paths:
+        if path.is_symlink() or not path.is_file():
+            continue
+        try:
+            size = path.stat().st_size
+            if size == 0:
+                continue
+            with open(path, "rb") as handle, mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ) as mapped:
+                for offset in range(0, size, mmap.PAGESIZE):
+                    mapped[offset]
+            files += 1
+            pages += (size + mmap.PAGESIZE - 1) // mmap.PAGESIZE
+        except OSError:
+            continue
+    result["frameworks"] = {"files": files, "pages": pages}
+    return result
+
+
 def read_marks(fd: int, buf: bytearray, marks: dict) -> None:
     try:
         while chunk := os.read(fd, 1 << 16):
@@ -295,13 +360,15 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
     why = quit_app(inst, process)
     if why:
         failures.append(why)
-    if kind == "cold":
+    if kind in ("cold_install", "cold_after_update"):
         try:
             fresh_copy(app, pristine)
         except (OSError, subprocess.SubprocessError) as error:
             failures.append(f"the fresh copy failed: {error}")
             rr.safe_print("TTI-ROUND " + json.dumps(row, default=str), flush=True)
             return row, process
+        if kind == "cold_after_update":
+            row["prewarm"] = staged_update_prewarm(app, env)
     elif kind == "warm60":
         _, why = prerun(inst, app, env, out, PRERUN_S)
         if why:
@@ -461,8 +528,8 @@ def main(argv: list[str] | None = None) -> int:
     source.add_argument("--dmg")
     parser.add_argument("--workspaces", type=int, default=120)
     parser.add_argument("--chats", type=int, default=6)
-    parser.add_argument("--plan", default=DEFAULT_PLAN, help="KIND:FRONT rounds in order; KIND cold, warm or warm60, "
-                                                             "FRONT chat or terminal")
+    parser.add_argument("--plan", default=DEFAULT_PLAN, help="KIND:FRONT rounds in order; KIND cold_install, "
+                                                             "cold_after_update, warm or warm60, FRONT chat or terminal")
     parser.add_argument("--settle", type=float, default=30.0, help="seconds a launch may take to take a key")
     parser.add_argument("--fake-agent", default=str(rr.DEFAULT_FAKE_AGENT))
     parser.add_argument("--out")
