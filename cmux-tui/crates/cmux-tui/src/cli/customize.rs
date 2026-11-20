@@ -52,7 +52,7 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
                                               (`library off NAME` puts back what was under any of them)
   cmux customize try CODE [--minutes N]       Try code on: as `use`, then off by itself in N minutes (10);
                                               `library on NAME` keeps it, `library off NAME` ends it now
-  cmux customize profiles                    The saved profiles
+  cmux customize profiles                     The saved profiles
   cmux customize recipes [--open]             Ready-made changes to try with `use` (--open: the guide, in cmux)
   cmux customize library [VERB]               Everything you applied, kept as layers: list|status|on|off|order|export|import|remove
 
@@ -595,7 +595,8 @@ fn try_code(
         // there is nothing to time.
         return Ok(render::Answer::Library { json, human });
     }
-    let until_ms = now_ms.saturating_add(duration_ms);
+    // From when it is on, not when the fetch or build began.
+    let until_ms = self::now_ms().max(now_ms).saturating_add(duration_ms);
     customize.library_try_until(&name, until_ms, origin, now_ms)?;
     json[TRY_UNTIL] = json!(until_ms);
     human.push_str(&format!(

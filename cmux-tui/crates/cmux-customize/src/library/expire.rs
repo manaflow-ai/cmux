@@ -201,7 +201,11 @@ impl Customize {
     /// It is not the only guard: every `library status` and `list`, and the
     /// app's start, expire a try whose time is up.
     pub fn run_code_try_timer(&self, app_abi: Option<u32>, origin: &str) -> Vec<Expired> {
+        /// Tries at turning off a try past its time (the library may be
+        /// busy), a second apart, before leaving it to the next read.
+        const RETRIES: u32 = 3;
         let mut expired = Vec::new();
+        let mut retries = 0;
         loop {
             let now = crate::try_on::now_ms();
             let pass =
@@ -211,12 +215,18 @@ impl Customize {
                 Ok(Some(next)) => next,
                 _ => return expired,
             };
-            // A try past its time that could not be turned off is said by
-            // `library status`; waiting again would spin.
-            if next <= now {
+            let wait = if next > now {
+                retries = 0;
+                next - now
+            } else if retries < RETRIES {
+                retries += 1;
+                1_000
+            } else {
+                // Still on past its time: `library status` says so and turns
+                // it off at the next read; waiting again would spin.
                 return expired;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(next - now));
+            };
+            std::thread::sleep(std::time::Duration::from_millis(wait));
         }
     }
 
