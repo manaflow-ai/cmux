@@ -121,14 +121,54 @@ pub(super) struct Meta {
 
 /// The `{...}` of `export const meta = {...}`, braces included.
 pub(super) fn meta_literal(script: &str) -> Option<&str> {
-    // `const meta` as a whole word: never `const metaData`.
-    let at = script.match_indices("const meta").map(|(at, _)| at).find(|at| {
-        let next = script.get(at + "const meta".len()..).and_then(|rest| rest.chars().next());
-        !next.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
-    })?;
-    let open = at + script.get(at..)?.find('{')?;
+    let open = meta_declaration(script)?;
     let close = open + matching(script.get(open..)?, '{', '}')?;
     script.get(open..=close)
+}
+
+fn is_ident(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_' || c == '$'
+}
+
+/// The byte offset of the `{` of `const meta = {`, read as code: a `const meta` in a string, a
+/// template or a comment declares nothing, and `const metaData` is another name.
+fn meta_declaration(script: &str) -> Option<usize> {
+    let mut chars = script.char_indices().peekable();
+    let mut after_ident = false;
+    while let Some((i, c)) = chars.next() {
+        match c {
+            '"' | '\'' | '`' => {
+                skip_string(&mut chars, c);
+                after_ident = false;
+                continue;
+            }
+            '/' if skip_comment(&mut chars) => {
+                after_ident = false;
+                continue;
+            }
+            'c' if !after_ident => {
+                if let Some(open) = script.get(i..).and_then(declared_object) {
+                    return Some(i + open);
+                }
+            }
+            _ => {}
+        }
+        after_ident = is_ident(c);
+    }
+    None
+}
+
+/// For `text` starting at `const`: the offset of the `{` it declares as `meta`, with blanks between
+/// the words, the `=` and the brace; None for any other declaration.
+fn declared_object(text: &str) -> Option<usize> {
+    let rest = text.strip_prefix("const")?;
+    let name = rest.trim_start();
+    let after = name.strip_prefix("meta").filter(|_| name.len() < rest.len())?;
+    if after.chars().next().is_some_and(is_ident) {
+        return None;
+    }
+    let brace = after.trim_start().strip_prefix('=')?.trim_start();
+    brace.starts_with('{').then(|| text.len() - brace.len())
 }
 
 /// The byte offset of the bracket closing the one `text` starts with, skipping strings and comments.

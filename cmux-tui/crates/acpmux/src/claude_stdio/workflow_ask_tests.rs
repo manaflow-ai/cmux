@@ -106,6 +106,22 @@ fn comments_and_a_longer_name_do_not_mislead_the_parser() {
     assert_eq!(meta.phases, ["A"]);
 }
 
+/// Review of #46229: `const meta` is found as code, never in a string, a template or a comment,
+/// and never as another declaration (`const metaData`, `const constmeta`).
+#[test]
+fn the_meta_declaration_is_read_as_code() {
+    let script = "// const meta = { name: 'comment' }\n\
+        const note = \"const meta = { name: 'string' }\";\n\
+        const tpl = `const meta = { name: 'template' }`;\n\
+        const constmeta = { name: 'other' };\n\
+        export const meta={ name: 'real', phases: [{ title: 'A' }] }";
+    let meta = parse_meta(meta_literal(script).expect("a meta literal"));
+    assert_eq!(meta.name.as_deref(), Some("real"));
+    assert_eq!(meta.phases, ["A"]);
+    assert_eq!(meta_literal("const meta = 1; const x = {}"), None);
+    assert_eq!(meta_literal("/* const meta = { name: 'x' } */"), None);
+}
+
 /// Review of #46229: a device or FIFO the model names is never read (its size reads 0), and a
 /// relative path is the chat folder's.
 #[cfg(unix)]

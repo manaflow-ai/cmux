@@ -84,12 +84,18 @@ test("the card's height estimate grows with its phases", () => {
 });
 
 test("a usage-limit hold needs a capacity wait and a used-up window", () => {
-  const full = { windows: [{ id: "session", usedPercent: 100, resetsAt: 1 }] };
+  const now = 1_800_000_000_000;
+  const full = { windows: [{ id: "session", usedPercent: 100, resetsAt: now / 1000 + 3600 }] };
   const half = { windows: [{ id: "session", usedPercent: 50 }] };
-  expect(usageLimitHold({ reason: "capacity", nextAt: 5 }, full)).toEqual({ nextAt: 5 });
-  expect(usageLimitHold({ reason: "capacity" }, full)).toEqual({});
+  expect(usageLimitHold({ reason: "capacity", nextAt: 5 }, full, now)).toEqual({ nextAt: 5 });
+  expect(usageLimitHold({ reason: "capacity" }, full, now)).toEqual({});
+  // Review of #46229: acpmux waits on a spent window as a rate limit too.
+  expect(usageLimitHold({ reason: "rate_limit", nextAt: 5 }, full, now)).toEqual({ nextAt: 5 });
+  // A window past its reset is no longer spent; one with no reset time stays spent.
+  expect(usageLimitHold({ reason: "capacity", nextAt: 5 }, full, now + 3_601_000)).toBeUndefined();
+  expect(usageLimitHold({ reason: "capacity" }, { windows: [{ usedPercent: 100 }] }, now)).toEqual({});
   // A provider that is only full (529) has no window used up: not a usage limit.
-  expect(usageLimitHold({ reason: "capacity", nextAt: 5 }, half)).toBeUndefined();
-  expect(usageLimitHold({ reason: "transport", nextAt: 5 }, full)).toBeUndefined();
-  expect(usageLimitHold(undefined, full)).toBeUndefined();
+  expect(usageLimitHold({ reason: "capacity", nextAt: 5 }, half, now)).toBeUndefined();
+  expect(usageLimitHold({ reason: "transport", nextAt: 5 }, full, now)).toBeUndefined();
+  expect(usageLimitHold(undefined, full, now)).toBeUndefined();
 });

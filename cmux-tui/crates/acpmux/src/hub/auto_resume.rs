@@ -186,6 +186,17 @@ pub(super) fn continue_text(error: &str, reason: &str) -> String {
     )
 }
 
+/// Whether a cut turn stopped at an account usage limit: its error says so, or it waits on a
+/// capacity or rate-limit retry while one of the chat's usage windows is spent and not yet reset
+/// (`usage_limit_reached`). The pane's "Paused at usage limit" line uses the same rule
+/// (workflowCardModel `usageLimitHold`), so the continue names the paused workflows whenever the
+/// card says the limit paused them.
+fn stopped_at_usage_limit(error: &str, reason: &str, limits: Option<&Value>) -> bool {
+    super::turn_errors::is_usage_limit_error(error)
+        || (matches!(reason, "capacity" | "rate_limit")
+            && crate::claude_stdio::usage_limit_reached(limits, (super::now_ms() / 1000) as i64))
+}
+
 /// The continue text with the chat's paused workflow runs (`WorkflowIndex::paused_runs`), each
 /// to resume by its run id; the text as it was when none is paused.
 fn with_paused_workflows(text: String, runs: &[String]) -> String {
@@ -1357,7 +1368,7 @@ impl Hub {
         }
         // A usage limit pauses the chat's running workflows too: the continue names them, so
         // they go on by themselves with the chat.
-        if super::turn_errors::is_usage_limit_error(cut.error) {
+        if stopped_at_usage_limit(cut.error, reason, session.meta().usage_limits.as_ref()) {
             text = with_paused_workflows(text, &self.workflow_index.paused_runs(&session.id));
         }
         let blocks = vec![json!({"type": "text", "text": text})];

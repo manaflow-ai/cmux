@@ -24,19 +24,28 @@ export function configureWorkflowLabs(enabled: boolean): void {
 }
 
 /// The chat's wait at an account usage limit, as the workflow card says it: acpmux's retry waits
-/// for a capacity error (hub/auto_resume.rs, `retry.reason`), and a plan window is used up
-/// (`usageLimits`); a provider that is only full has no window at 100%, so it is not called a
-/// usage limit. `nextAt` (unix ms) is when the chat continues by itself.
+/// for a capacity or rate-limit error (hub/auto_resume.rs, `retry.reason`), and a plan window is
+/// used up and not yet reset (`usageLimits`, the rule of acpmux's `usage_limit_reached`, whose
+/// continue names the paused workflows by the same test). A provider that is only full has no
+/// window at 100%, so it is not called a usage limit. `nextAt` (unix ms) is when the chat
+/// continues by itself.
 export type UsageLimitHold = { nextAt?: number };
 
 export function usageLimitHold(
   retry: { reason?: string; nextAt?: number } | undefined,
   usageLimits: unknown,
+  now: number = Date.now(),
 ): UsageLimitHold | undefined {
-  if (retry?.reason !== "capacity") return undefined;
+  if (retry?.reason !== "capacity" && retry?.reason !== "rate_limit") return undefined;
   const windows =
     usageLimits && typeof usageLimits === "object" ? (usageLimits as { windows?: unknown }).windows : undefined;
-  const spent = Array.isArray(windows) && windows.some((window) => Number(window?.usedPercent) >= 100);
+  // `resetsAt` is unix seconds; a window past it is no longer spent.
+  const spent =
+    Array.isArray(windows) &&
+    windows.some(
+      (window) =>
+        Number(window?.usedPercent) >= 100 && (typeof window?.resetsAt !== "number" || window.resetsAt * 1000 > now),
+    );
   if (!spent) return undefined;
   return retry.nextAt !== undefined ? { nextAt: retry.nextAt } : {};
 }
