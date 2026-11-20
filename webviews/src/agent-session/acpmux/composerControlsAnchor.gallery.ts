@@ -134,5 +134,14 @@ export default agentPaneEntry({
   },
   experiment: {
     definition: composerControlsAnchor,
+    script: [
+      {
+        name: "Drop Leo's screenshot, recording and log",
+        run: async (ctx) => {
+          await drop(ctx, ["screenshot", "video"]);
+          await pasteLog(ctx);
+        },
+      },
+    ],
   },
 });
