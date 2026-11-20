@@ -386,13 +386,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             })
             .await
         }
-        Some(Command::UniichatAgent { url, home, whole_prompt }) => {
-            crate::cli::uniichat_agent::run(crate::cli::uniichat_agent::Options {
-                url,
-                home,
-                whole_prompt,
-            })
-            .await
+        Some(Command::UniichatAgent { action, url, home, whole_prompt }) => {
+            let options = crate::cli::uniichat_agent::Options { url, home, whole_prompt };
+            if action.as_deref() == Some("login") {
+                crate::cli::uniichat_login::run(options).await
+            } else {
+                crate::cli::uniichat_agent::run(options).await
+            }
         }
         Some(Command::Stdio { model, preset, effort, policy }) => {
             let (harness, model) = match model {
