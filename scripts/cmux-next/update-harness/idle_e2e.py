@@ -188,13 +188,15 @@ def main():
         probe.close()
     out = os.path.abspath(a.out)
     work = os.path.join(out, "work")
-    shutil.rmtree(work, ignore_errors=True)
+    # A repeated run never erases another run's artifacts or state.
+    if os.path.lexists(work):
+        raise SystemExit(f"{work} exists: use a fresh output directory")
     keys, feed = os.path.join(work, "keys"), os.path.join(work, "feed")
     for d in (keys, feed, os.path.join(work, "v1"), os.path.join(work, "v2"), os.path.join(work, "cwd"), os.path.join(work, "draft")):
         os.makedirs(d)
     marks_path = os.path.join(out, "marks.ndjson")
-    if os.path.exists(marks_path):
-        os.unlink(marks_path)
+    if os.path.lexists(marks_path):
+        raise SystemExit(f"{marks_path} exists: use a fresh output directory")
     name = os.path.basename(a.app.rstrip("/"))
     v1, v2 = os.path.join(work, "v1", name), os.path.join(work, "v2", name)
     feed_url = f"http://127.0.0.1:{a.port}/appcast.xml"
@@ -202,8 +204,18 @@ def main():
     slug = "-".join(filter(None, "".join(c if c.isalnum() else " " for c in a.tag.lower()).split()))
     acp_home = os.path.join(os.environ["HOME"], ".acpmux/builds",
                             "com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", slug).strip("."))
-    if os.path.exists(os.path.join(acp_home, "config.json")):
-        shutil.rmtree(acp_home)  # an earlier round of this tag; Agent refuses a home it did not configure
+    with open(os.path.join(a.app, "Contents/Info.plist"), "rb") as f:
+        source_identity = plistlib.load(f).get("CFBundleIdentifier")
+    if source_identity != os.path.basename(acp_home):
+        raise SystemExit("the app must be the isolated DEV build for --tag")
+    if os.path.lexists(sock):
+        raise SystemExit(f"{sock} exists: use a fresh tag")
+    os.makedirs(os.path.dirname(acp_home), exist_ok=True)
+    # Exclusive creation proves that the final teardown owns this home.
+    try:
+        os.mkdir(acp_home)
+    except FileExistsError:
+        raise SystemExit(f"{acp_home} exists: use a fresh tag")
     result = {"tag": a.tag, "app": name, "expect": a.expect, "idle_minutes": a.idle_minutes, "quiet_seconds": a.quiet_seconds,
               "handoff": a.handoff, "holds": {}, "passed": False}
     server = None
@@ -278,8 +290,6 @@ def main():
                                    "checkAutomatically": False}}, f)
         result["config"] = json.load(open(config))
         marks = Marks(marks_path)
-        if os.path.exists(sock):
-            os.unlink(sock)
         env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
                "SHELL": "/bin/zsh", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
                "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_DEV_BACKEND_MODE": "local", "CMUX_NEXT_CONFIG_FILE": config}

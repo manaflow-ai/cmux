@@ -18,8 +18,11 @@ set -uo pipefail
 
 main() {
   cd "$(dirname "$0")/../.." || exit 3
-  local out="$PWD/.build/update-idle-e2e" tools
-  rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
+  local out tools report="$PWD/.build/update-idle-e2e/report.tgz"
+  mkdir -p "$PWD/.build" || exit 3
+  out="$(mktemp -d "$PWD/.build/update-idle-e2e.XXXXXX")" || exit 3
+  chmod 0777 "$out"
+  local work_dirs=()
   # The harness as of this commit, whatever the sides' trees hold.
   tools="$out/tools" && mkdir -p "$tools" && cp -R scripts/cmux-next/update-harness "$tools/" \
     && cp scripts/cmux-next/tag_teardown.py "$tools/"  # run.py and idle_e2e.py import it from their parent folder
@@ -53,6 +56,7 @@ main() {
   git -c advice.detachedHead=false checkout --quiet --detach "$head" || exit 3
   run_side() {
     local side="$1" round="$2" expect=install
+    work_dirs+=("$out/run-$side-$round/work")
     [[ "$side" == base ]] && expect=none
     echo "UIE-ROUND $round $side expect=$expect"
     GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh python3 -I "$tools/update-harness/idle_e2e.py" \
@@ -69,8 +73,9 @@ main() {
     run_side head "$i" || rc=1
   done
   git -c advice.detachedHead=false checkout --quiet --detach "$checkout"
-  rm -rf "$out/base" "$out/head" "$out"/run-*/work
-  tar -czf "$out.tgz" -C "$out" . 2>/dev/null && mv "$out.tgz" "$out/report.tgz"
+  rm -rf "$out/base" "$out/head" "${work_dirs[@]}"
+  mkdir -p "$(dirname "$report")" || exit 3
+  tar -czf "$out.tgz" -C "$out" . 2>/dev/null && mv "$out.tgz" "$report" || exit 3
   exit "$rc"
 }
 
