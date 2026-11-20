@@ -3,6 +3,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { settleReact } from "../../../test/support/domTeardown";
 import type { AcpmuxRow } from "./model";
+import type { MessageSource } from "./messageSources";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -24,7 +25,12 @@ test("replayed source events mark the exact reply even after a later turn starts
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const socket = new MockAcpmuxSocket(() => Promise.resolve());
   const daemon = socket as unknown as { record: (target: string, step: unknown) => void };
-  const source = { kind: "file", uri: "file:///docs/readme.md", title: "readme.md", toolCallId: "read-1" };
+  const source: MessageSource = {
+    kind: "file",
+    uri: "file:///docs/readme.md",
+    title: "readme.md",
+    toolCallId: "read-1",
+  };
   const steps = [
     { mux: "user_message", msg: { text: "Read the guide" } },
     { mux: "turn_started", msg: { turnId: "t1" } },
