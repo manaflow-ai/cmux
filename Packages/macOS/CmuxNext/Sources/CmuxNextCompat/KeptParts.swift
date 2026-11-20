@@ -126,7 +126,9 @@ public final class KeptParts<Owner: AnyObject, Model: AnyObject, Part> {
             }
             let mark = kept?.mark ?? KeptPartMark(store.signal)
             let tracking = kept?.tracking ?? SingleArmedTracking()
-            // Before the read, so a change in the middle of `make` leaves the part stale.
+            // The part is fresh from here. Its observation starts when `make` returns: a change in the middle of
+            // `make` is not heard. Only `make` itself can make one (the values change on the main actor, where
+            // `make` runs), so `make` writes nothing that it reads.
             mark.fresh()
             let part = tracking.track(shape: [], { () -> Part in
                 mark.observe()

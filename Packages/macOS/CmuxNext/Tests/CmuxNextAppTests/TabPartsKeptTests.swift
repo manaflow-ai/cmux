@@ -250,11 +250,11 @@ struct TabPartsKeptTests {
                 "one tab made: the row made the tab list's title of \(small.made.titles) tabs in a workspace of \(Self.sizes[0]) tabs and of \(large.made.titles) in one of \(Self.sizes[1]), want the same count")
         #expect(small.closed.titles == large.closed.titles,
                 "one tab closed: the row made the tab list's title of \(small.closed.titles) tabs in a workspace of \(Self.sizes[0]) tabs and of \(large.closed.titles) in one of \(Self.sizes[1]), want the same count")
-        #expect(large.made.titles <= 1 && large.closed.titles == 0,
+        #expect(large.made.titles == 1 && large.closed.titles == 0,
                 "the row made the tab list's title of \(large.made.titles) tabs for one tab made and of \(large.closed.titles) for one tab closed, want the new tab's own and none")
         #expect(small.made.items == large.made.items && small.closed.items == large.closed.items,
                 "the row made \(small.made.items) and \(small.closed.items) items of the tab list for one tab made and closed in a workspace of \(Self.sizes[0]) tabs, and \(large.made.items) and \(large.closed.items) in one of \(Self.sizes[1]), want the same counts")
-        #expect(large.made.items <= 1 && large.closed.items == 0,
+        #expect(large.made.items == 1 && large.closed.items == 0,
                 "the row made \(large.made.items) items of the tab list for one tab made and \(large.closed.items) for one tab closed, want the new tab's own and none")
         let others = [small.made.otherFaces, small.closed.otherFaces, large.made.otherFaces, large.closed.otherFaces]
         #expect(others == [0, 0, 0, 0],
@@ -356,10 +356,12 @@ struct TabPartsKeptTests {
             + "a workspace of \(Self.sizes[1]) tabs: one tab made = \(large.made) parts, one tab closed = \(large.closed) parts")
         #expect(small.made == large.made, "one tab made: \(small.made) tab parts in a workspace of \(Self.sizes[0]) tabs and \(large.made) in one of \(Self.sizes[1]), want the same count")
         #expect(small.closed == large.closed, "one tab closed: \(small.closed) tab parts in a workspace of \(Self.sizes[0]) tabs and \(large.closed) in one of \(Self.sizes[1]), want the same count")
-        #expect(large.made <= 1 && large.closed == 0, "\(large.made) tab parts for one tab made and \(large.closed) for one tab closed, want the new tab's own and none")
+        #expect(large.made == 1 && large.closed == 0, "\(large.made) tab parts for one tab made and \(large.closed) for one tab closed, want the new tab's own and none")
     }
 
-    /// The home view's agents, with the app's own feed.
+    /// The home view's agents, with the app's own feed. The tab that comes and goes is a terminal with no agent, so
+    /// the feed's list does not change with it; then a chat comes and goes, and the feed has one agent more and
+    /// one fewer, with one part made for the chat and none for its close.
     @Test func aTabMadeOrClosedMakesNoOtherTabsPartOfItsAgentGlances() async throws {
         let keys = Self.keys(40)
         let services = try Self.app(keys, storm: Self.sizes[0], chats: true)
@@ -385,8 +387,11 @@ struct TabPartsKeptTests {
             await LargeSessionFixture.drainMain()
             return (work.byStep["HomeAgentGlances.tabParts"] ?? 0, feed.observedItems == walk())
         }
+        /// The agents that the feed has now, over each workspace.
+        func shown() -> Int { feed.observedItems?.map(\.count).reduce(0, +) ?? -1 }
 
         var costs: [(made: Int, closed: Int)] = []
+        var chats: [(made: Int, closed: Int)] = []
         for tabs in Self.sizes {
             // The workspace at this size; its cost is no row.
             let sized = await step(tabs)
@@ -394,14 +399,29 @@ struct TabPartsKeptTests {
             let closed = await step(tabs)
             #expect(sized.same && made.same && closed.same, "the feed's agents are not the walk's agents at \(tabs) tabs (sized \(sized.same), made \(made.same), closed \(closed.same))")
             costs.append((made.parts, closed.parts))
+
+            // The tab above is a terminal: no agent, so the feed's list is the same list before and after it. A chat
+            // made and closed changes the list: a feed that does not map the workspace again shows the old count.
+            let under = await step(tabs + 2)
+            let before = shown()
+            let chatMade = await step(tabs + 3)
+            let more = shown()
+            let chatClosed = await step(tabs + 2)
+            let fewer = shown()
+            #expect(under.same && chatMade.same && chatClosed.same, "the feed's agents are not the walk's agents at \(tabs + 2) tabs (sized \(under.same), one chat made \(chatMade.same), one chat closed \(chatClosed.same))")
+            #expect(more == before + 1 && fewer == before, "the feed has \(before), \(more) and \(fewer) agents (before, one chat made, one chat closed) at \(tabs + 2) tabs, want \(before), \(before + 1) and \(before)")
+            chats.append((chatMade.parts, chatClosed.parts))
         }
+        let (chatsMade, chatsClosed) = (chats.map { $0.made }, chats.map { $0.closed })
+        #expect(chatsMade == [1, 1] && chatsClosed == [0, 0],
+                "one chat made = \(chatsMade) tab parts and one chat closed = \(chatsClosed) (a workspace of \(Self.sizes[0] + 2) tabs, then of \(Self.sizes[1] + 2)), want the new chat's own and none")
         let (small, large) = (costs[0], costs[1])
         let agents = feed.observedItems?.map(\.count).reduce(0, +) ?? -1
         print("TAB-PARTS agent glances (\(agents) agents in the feed): a workspace of \(Self.sizes[0]) tabs: one tab made = \(small.made) parts, one tab closed = \(small.closed) parts; "
             + "a workspace of \(Self.sizes[1]) tabs: one tab made = \(large.made) parts, one tab closed = \(large.closed) parts")
         #expect(small.made == large.made, "one tab made: \(small.made) tab parts in a workspace of \(Self.sizes[0]) tabs and \(large.made) in one of \(Self.sizes[1]), want the same count")
         #expect(small.closed == large.closed, "one tab closed: \(small.closed) tab parts in a workspace of \(Self.sizes[0]) tabs and \(large.closed) in one of \(Self.sizes[1]), want the same count")
-        #expect(large.made <= 1 && large.closed == 0, "\(large.made) tab parts for one tab made and \(large.closed) for one tab closed, want the new tab's own and none")
+        #expect(large.made == 1 && large.closed == 0, "\(large.made) tab parts for one tab made and \(large.closed) for one tab closed, want the new tab's own and none")
     }
 
     /// A pane's FIRST tab closed (a terminal): no agent's part is made again. Each chat's part reads whether its

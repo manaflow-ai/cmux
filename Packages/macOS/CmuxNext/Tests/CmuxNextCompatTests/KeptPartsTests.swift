@@ -49,6 +49,37 @@ import Testing
     /// change is not fixed: runs of these tests gave each order, and one run gave both in the rounds of one test.
     static let rounds = 40
 
+    /// A part that a test can see go: only its holder keeps it.
+    @MainActor final class Token {}
+
+    /// One change of `tab`'s title to `title`. The first wake of the change moves `cell`, inside the change callback
+    /// that counted the wake. The count of the wakes inside the change.
+    private func wakesOfAChange(of tab: Tab, to title: String, moving cell: Tab) -> Int {
+        let counted = Calls()
+        let wakes = ObservationWakes(atWake: {
+            counted.add()
+            if counted.count == 1 { MainActor.assumeIsolated { cell.title = "moved with \(title)" } }
+        })
+        ObservationWakes.$current.withValue(wakes) { tab.title = title }
+        return wakes.count
+    }
+
+    /// The values that a stream's consumer got.
+    @MainActor final class Seen {
+        var values: [String] = []
+    }
+
+    /// Gives the main actor's other tasks their turns until `done`, and then some more, so a task that has one
+    /// more step to do has done it.
+    private func settle(_ done: () -> Bool) async {
+        var turns = 0
+        while !done(), turns < 2_000 {
+            await Task.yield()
+            turns += 1
+        }
+        for _ in 0 ..< 40 { await Task.yield() }
+    }
+
     /// `workspace`'s parts from `kept`, with each call of `make` written to `made`.
     private func titles(_ kept: KeptParts<Workspace, Tab, String>, _ workspace: Workspace, _ made: Made) -> [String] {
         kept.parts(of: workspace, workspace.tabs) { tab in
@@ -111,6 +142,57 @@ import Testing
         workspace.tabs[1].badge = "+"
         #expect(tagged(kept, workspace, tags, made) == ["a+!", "b"])
         #expect(made.titles == ["a", "b", "a!", "a+!"], "a value that a part did not read made it again")
+    }
+
+    /// The observation of a part ends when the part is made again for another input: a value that only the part
+    /// of the input before read wakes no caller and makes no part.
+    @Test func theObservationOfAPartEndsWhenAnotherInputMakesThePartAgain() {
+        let workspace = Workspace([Tab("a"), Tab("b")])
+        let kept = KeptParts<Workspace, Tab, String>(step: "KeptPartsTests.parts")
+        let (tags, made) = (Tags(), Made())
+        tags.set("!", of: workspace.tabs[0])
+        #expect(tagged(kept, workspace, tags, made) == ["a!", "b"])
+        tags.set("", of: workspace.tabs[0])
+        #expect(tagged(kept, workspace, tags, made) == ["a", "b"])
+        #expect(made.titles == ["a!", "b", "a"], "setup: the tab's part is not made again for its tag")
+
+        // This call makes no part: the caller's observation reads the owner's cell and no model's badge.
+        let heard = Heard()
+        let caller = SingleArmedTracking()
+        _ = caller.track(shape: [], { tagged(kept, workspace, tags, made) }, onChange: { heard.hear() })
+        #expect(made.titles == ["a!", "b", "a"], "setup: the call under the observation made a part")
+
+        // Only the part of the tag read the badge, and that part is gone.
+        workspace.tabs[0].badge = "+"
+        #expect(!heard.value, "the observation of a part that is gone woke the caller")
+        #expect(tagged(kept, workspace, tags, made) == ["a", "b"])
+        #expect(made.titles == ["a!", "b", "a"], "a value that only a part that is gone read made a part")
+    }
+
+    /// The parts of an owner that is gone stay until the holder has 64 owners, and go when the next owner comes.
+    @Test func thePartsOfAnOwnerThatIsGoneGoWhenTheOwnersReachTheLimit() {
+        let kept = KeptParts<Workspace, Tab, Token>(step: "KeptPartsTests.tokens")
+        // Each live owner is made before the owner that goes: none of them has its address.
+        let live = (0 ..< 64).map { Workspace([Tab("live \($0)")]) }
+        weak var part: Token?
+        weak var goneOwner: Workspace?
+        do {
+            let gone = Workspace([Tab("gone")])
+            goneOwner = gone
+            part = kept.parts(of: gone, gone.tabs) { _ in Token() }.first
+        }
+        let (ownerIsGone, keptAtFirst) = (goneOwner == nil, part != nil)
+        #expect(ownerIsGone, "setup: the owner is not gone")
+        #expect(keptAtFirst, "setup: the holder does not keep the part")
+
+        // With these the holder has 64 owners: the one that is gone and 63 live ones.
+        for owner in live.dropLast() { _ = kept.parts(of: owner, owner.tabs) { _ in Token() } }
+        let keptBelowTheLimit = part != nil
+        #expect(keptBelowTheLimit, "the parts of an owner that is gone went before the holder had 64 owners")
+
+        _ = kept.parts(of: live[63], live[63].tabs) { _ in Token() }
+        let wentAtTheLimit = part == nil
+        #expect(wentAtTheLimit, "the parts of an owner that is gone stayed when owner 65 came")
     }
 
     @Test func withNoHolderEachPartIsMadeFromItsInput() {
@@ -259,7 +341,8 @@ import Testing
     }
 
     /// The feed's form: a stream whose value is joined from the kept parts evaluates one time for one change, while
-    /// its consumer waits for the next value.
+    /// its consumer waits for the next value. This row alone does not hold the stream's rule of one registration,
+    /// one change: it was green in runs with that rule gone. The next row holds it.
     @Test func aStreamOverKeptPartsEvaluatesOneTimeForOneChange() async {
         let workspace = Workspace([Tab("a"), Tab("b")])
         let kept = KeptParts<Workspace, Tab, String>(step: "KeptPartsTests.parts")
@@ -277,6 +360,39 @@ import Testing
             #expect(next == ["round \(round)", "b"])
         }
         #expect(evaluations.count == 1 + Self.rounds, "the stream evaluated \(evaluations.count) times for its first value and \(Self.rounds) changes of one tab")
+    }
+
+    /// The stream's rule of one registration, one change, with no order of the system in it (the form of
+    /// ``aCallerThatMovesASecondValueOfItsOwnRegistrationHearsOneChange()``). The stream's registration read the
+    /// tab's title and the cell. Inside the stream's callback for the title, the first wake of the round moves the
+    /// cell: the registration is still on the cell, so the system calls the stream's callback again inside the first
+    /// call. The stream counts one wake at that change and evaluates one time after it.
+    @Test func aStreamWhoseCallbackMovesASecondValueOfItsRegistrationCountsOneChange() async {
+        let (tab, cell) = (Tab("a"), Tab("cell"))
+        let evaluations = Calls()
+        let (first, later) = ObservationStream.current({
+            evaluations.add()
+            return tab.title + cell.title
+        })
+        #expect(first == "acell")
+        let seen = Seen()
+        let consumer = Task { @MainActor in
+            var values = later.makeAsyncIterator()
+            while let value = await values.next() { seen.values.append(value) }
+        }
+        defer { consumer.cancel() }
+
+        var wakes: [Int] = []
+        for round in 0 ..< Self.rounds {
+            // The consumer has the value of the round before and waits in `next()`.
+            await settle { seen.values.count == round }
+            wakes.append(wakesOfAChange(of: tab, to: "round \(round)", moving: cell))
+        }
+        await settle { seen.values.count == Self.rounds }
+
+        #expect(seen.values == (0 ..< Self.rounds).map { "round \($0)moved with round \($0)" }, "setup: the first wake of a round did not move the cell")
+        #expect(wakes == Array(repeating: 1, count: Self.rounds), "the stream's wakes for one change in each round: \(wakes)")
+        #expect(evaluations.count == 1 + Self.rounds, "the stream evaluated \(evaluations.count) times for its first value and \(Self.rounds) changes")
     }
 
     /// A report of the system's own rule, with no condition on its count: a registration that read 2 values has

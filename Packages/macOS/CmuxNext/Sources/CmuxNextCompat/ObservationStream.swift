@@ -74,7 +74,9 @@ internal import os
 ///   which then fires into a finished state and does nothing.
 /// - Observed values must change on the main actor. A will-set from another
 ///   thread can reach the main-actor re-evaluation before the new value is
-///   stored; the value then comes one change late.
+///   stored; the value then comes one change late. One tracking counts one
+///   change (``OneObservationCall``): no second evaluation comes to correct
+///   such a will-set, or a will-set callback that runs a nested run loop.
 /// - One iterator serves one consumer. Calling `next()` from two tasks at
 ///   once on copies of one iterator is a programming error (the system type
 ///   traps); here the second waiter replaces the first.
