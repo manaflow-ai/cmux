@@ -54,6 +54,18 @@ public actor AgentSessionAttachClient {
     /// credential for a Cloud chat's agent (cmux-tui `agent_session_start.rs`, model-connections.md Revision 2). Served
     /// only on the owner's own Cloud VM, so it is no ``DaemonCapability`` case: this Mac's bundled daemon never lists it.
     public static let startCredentialsCapability = "agent-session-start-credentials-v1"
+    /// A Codex credential (an OpenAI key or a ChatGPT sign-in's token) reaches Codex on that machine: its acpmux puts the
+    /// provider override after `app-server`, where codex keeps it (cmux#45774; cmux-tui `agent_session_start.rs`). An older
+    /// one advertises ``startCredentialsCapability`` yet drops the override, and the chat runs on no key. Served beside it.
+    public static let startCodexCredentialsCapability = "agent-session-start-codex-credentials-v1"
+    /// The refusal of a Codex start that carries a credential to a daemon without ``startCodexCredentialsCapability``,
+    /// before it is sent; `AgentRemoteStartRefusal.olderDaemonCodes` updates the machine and starts again.
+    public static let codexCredentialsUnsupported = "app.codex_credentials_update"
+    /// The capability a start of `harness` needs to carry the owner's model credential: a Codex one needs
+    /// ``startCodexCredentialsCapability``, every other one ``startCredentialsCapability``.
+    public static func credentialsCapability(harness: String?) -> String {
+        harness == "codex" ? startCodexCredentialsCapability : startCredentialsCapability
+    }
     /// A Cloud machine's running link id while its connect answer says the caller owns it, else nil
     /// (`CloudLinkSession.ownerLink`).
     public typealias OwnerLink = @Sendable () async -> Int?
@@ -108,6 +120,8 @@ public actor AgentSessionAttachClient {
         var startMode = false
         /// `agent-session-start-credentials-v1`.
         var credentials = false
+        /// `agent-session-start-codex-credentials-v1`.
+        var codexCredentials = false
         /// `agent-session-trust-vm-kind-v1`.
         var trustVMKind = false
         /// `agent-session-children-v1`.
@@ -220,6 +234,9 @@ public actor AgentSessionAttachClient {
             }
             guard model == nil || served.model else {
                 throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not support choosing a start model")
+            }
+            guard credentials == nil || harness != "codex" || served.codexCredentials else {
+                throw AgentSessionAttachError(code: Self.codexCredentialsUnsupported, message: "the machine's cmux would drop the Codex credential")
             }
         }
         let params = Self.startParams(cwd: cwd, harness: harness, homeConfirmed: homeConfirmed, personKey: personKey,
@@ -924,6 +941,7 @@ public actor AgentSessionAttachClient {
                             permissionMode: identity.supports(DaemonCapability.agentSessionStartPermissionMode.rawValue),
                             startMode: identity.supports(DaemonCapability.agentSessionStartMode.rawValue),
                             credentials: identity.supports(Self.startCredentialsCapability),
+                            codexCredentials: identity.supports(Self.startCodexCredentialsCapability),
                             trustVMKind: identity.supports(DaemonCapability.agentSessionTrustVMKind.rawValue),
                             children: identity.supports(DaemonCapability.agentSessionChildren.rawValue),
                             fork: identity.supports(DaemonCapability.agentSessionFork.rawValue),

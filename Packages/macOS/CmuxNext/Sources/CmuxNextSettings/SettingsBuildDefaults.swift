@@ -43,6 +43,9 @@ extension SettingsController {
     /// so Settings offers Reset (an explicit off in NIGHTLY, whose default is on, counts).
     public func isCustomized(_ descriptor: SettingDescriptor) -> Bool {
         guard let stored = descriptor.storedValue(in: fileRoot) else { return false }
+        // A value kept over the active theme file is the person's even at the default: Reset returns
+        // to the file's value (#44894).
+        if ThemeFileExceptionsSetting.keys(in: fileRoot).contains(descriptor.id), setsInThemeFile(descriptor.id) { return true }
         return stored != defaultValue(of: descriptor)
     }
 }
