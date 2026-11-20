@@ -168,6 +168,19 @@ export default agentPaneEntry({
         summary(5.9, { status: "failed", durationMs: 4_000, error: "API Error: 529 overloaded_error" }),
       ]),
     },
+    // c-763204aef8 (asks board: "API-error turn shows an empty 'Worked for Ns'"): the turn's only step
+    // was an omitted thought, which draws nothing, and it folded under a line that opened to nothing.
+    "rate-limited-after-omitted-thought": {
+      note: "A Codex turn that thought (omitted, nothing to read) and then hit a 429: the card stands alone, with no Worked for or Failed after line over nothing, and Retry leads since nothing ran.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          activity([{ kind: "thought", text: "" }], 5.95),
+          summary(5.9, { status: "failed", durationMs: 6_000, error: rateLimit }),
+        ],
+        { harness: "codex", model: "gpt-6-astra" },
+      ),
+    },
     "details-placement-wide": {
       note: "Rate-limit card at a wide width: Details reserves its own action row before and after opening.",
       snapshot: failed(
