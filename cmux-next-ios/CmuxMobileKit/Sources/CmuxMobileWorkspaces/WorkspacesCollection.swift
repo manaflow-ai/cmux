@@ -118,6 +118,9 @@ struct WorkspacesCollection: UIViewRepresentable {
     let control: WorkspacesListControl
     /// Rows came or went in the store (the list animates that).
     let membershipKey: Int
+    /// The connection banner's slot over the list (`cmuxMobileBannerInset`): the list runs
+    /// under the bars, so the banner's SwiftUI safe-area inset never reaches it.
+    let bannerInset: CGFloat
 
     func makeCoordinator() -> WorkspacesListController {
         WorkspacesListController(control: control)
@@ -131,6 +134,7 @@ struct WorkspacesCollection: UIViewRepresentable {
         // A person's change (pin, group, filter) comes in an animated transaction.
         let animated = context.transaction.animation != nil && !context.transaction.disablesAnimations
         context.coordinator.update(model: model, actions: actions, animated: animated, membershipKey: membershipKey)
+        context.coordinator.setBannerInset(bannerInset)
     }
 }
 
@@ -398,6 +402,14 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
     }
 
     // MARK: Updates
+
+    /// The banner inset the list carries (its first line starts under the banner).
+    private var banner = BannerContentInset()
+
+    func setBannerInset(_ inset: CGFloat) {
+        guard let collectionView else { return }
+        banner.apply(inset, to: collectionView)
+    }
 
     func update(model: WorkspacesListModel, actions: WorkspacesCollectionActions, animated: Bool, membershipKey: Int) {
         self.actions = actions

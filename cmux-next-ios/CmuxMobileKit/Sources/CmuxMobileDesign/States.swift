@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxSpinner
 import SwiftUI
+import UIKit
 
 private let theme = CmuxMobileTheme.standard
 
@@ -232,13 +233,68 @@ extension View {
     /// y - 12. It takes its own room: the content below (a list) is inset
     /// by the banner's height at every text size, so it covers nothing (R2-4).
     /// A swipe up or sideways, or a tap, hides it until the state changes.
+    ///
+    /// SwiftUI content gets the room as a safe-area inset. A UIKit list that
+    /// runs under the bars (`ignoresSafeArea`, so its own content insets clear
+    /// them) ignores that inset too; it reads the slot's height from
+    /// `\.cmuxMobileBannerInset` and applies it with `BannerContentInset`.
     public func cmuxMobileBanner(_ state: ConnectionBannerState?, retry: (() -> Void)? = nil) -> some View {
-        safeAreaInset(edge: .top, spacing: 0) { BannerHost(state: state, retry: retry) }
+        modifier(BannerSlot(state: state, retry: retry))
     }
 
     /// Shows a toast under the top safe area for 3 s. One at a time; newest replaces.
     public func cmuxMobileToast(_ toast: Binding<CmuxMobileToast?>) -> some View {
         overlay(alignment: .top) { ToastHost(toast: toast) }
+    }
+}
+
+extension EnvironmentValues {
+    /// The height the connection banner's slot (`cmuxMobileBanner`) takes under
+    /// the top safe area: 0 with no banner. For UIKit lists that ignore the safe
+    /// area and so never see the banner's SwiftUI inset (`BannerContentInset`).
+    @Entry public var cmuxMobileBannerInset: CGFloat = 0
+}
+
+/// Insets a UIKit list that runs under the bars by the connection banner's
+/// slot, on top of the bars' automatic insets, so its first line starts under
+/// the banner (and a tap on it is the line's). It adds only the difference to
+/// `contentInset.top`, so other owners of that inset (pull to refresh) keep theirs,
+/// and a list at its top stays at its top when the banner comes or goes.
+@MainActor
+public struct BannerContentInset {
+    /// The banner inset this list carries now.
+    public private(set) var applied: CGFloat = 0
+
+    public init() {}
+
+    public mutating func apply(_ inset: CGFloat, to scrollView: UIScrollView) {
+        let inset = max(0, inset)
+        let change = inset - applied
+        guard abs(change) > 0.25 else { return }
+        let atTop = scrollView.contentOffset.y <= -scrollView.adjustedContentInset.top + 0.5
+        applied = inset
+        scrollView.contentInset.top += change
+        scrollView.verticalScrollIndicatorInsets.top += change
+        if atTop, !scrollView.isDragging {
+            scrollView.contentOffset.y = -scrollView.adjustedContentInset.top
+        }
+    }
+}
+
+/// `cmuxMobileBanner`: the banner as a top safe-area inset, and its slot's
+/// height in the content's environment for the UIKit lists that ignore that inset.
+private struct BannerSlot: ViewModifier {
+    let state: ConnectionBannerState?
+    let retry: (() -> Void)?
+    @State private var height: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.cmuxMobileBannerInset, height)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                BannerHost(state: state, retry: retry)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+            }
     }
 }
 

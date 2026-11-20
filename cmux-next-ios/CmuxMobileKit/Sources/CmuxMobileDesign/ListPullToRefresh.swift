@@ -193,7 +193,12 @@ public final class ListPullToRefresh {
         guard !scrollView.isDragging else { return stopSliding() }
         guard abs(scrollView.contentOffset.y - slide.written) < 0.5 else {
             stopSliding()
-            return setHeld(slide.to, in: scrollView, pinToTop: false)
+            setHeld(slide.to, in: scrollView, pinToTop: false)
+            // Another inset owner (the connection banner's slot) pinned the list to its top
+            // mid-slide: the rest of the slot going must not leave a gap over the first row.
+            let top = -scrollView.adjustedContentInset.top
+            if scrollView.contentOffset.y < top { scrollView.contentOffset.y = top }
+            return
         }
         let spring = CmuxMobileTheme.standard.motion.smooth
         let elapsed = CACurrentMediaTime() - slide.start
