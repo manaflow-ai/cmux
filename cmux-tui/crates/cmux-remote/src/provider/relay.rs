@@ -1785,7 +1785,11 @@ async fn wait_unless_resumed(
             }
             _ = interval.tick() => false,
         };
-        if clocks.jump(Instant::now(), wall()) > CLOCK_JUMP {
+        // A wall-clock step past the monotonic one, or a monotonic gap past
+        // the relay's retirement between two looks a second apart (a pause
+        // where every guest clock kept running).
+        let look = clocks.look(Instant::now(), wall());
+        if look.wall_ahead > CLOCK_JUMP || look.outlived_relay() {
             return Waited::Resumed;
         }
         if elapsed {
