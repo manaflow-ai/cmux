@@ -222,20 +222,68 @@ test("one outdated agent has no Update all; a version skipped in this profile is
   expect(view.names()).toEqual(["opencode"]);
 });
 
-// Lawrence 2026-11-19 (clip "CleanShot 2026-11-19 at 3.37.01 PM"): the list read "Cmux 2.1.325 →
-// 2.1.329" with Claude's mark, and "OpenCode" twice. The first is acpmux's `cmux` profile, Claude
-// Code's hidden fallback to the cmux model router (it runs the same `claude`): no menu offers it, so
-// the list does not either. The second is `opencode-v2`, its own install, named as the rail names
-// it: "OpenCode (v2)".
+// Lawrence 2026-11-19 (clip "CleanShot 2026-11-19 at 3.37.01 PM"): "OpenCode" twice. `opencode` and
+// `opencode-v2` are two installs of one brand: the second is named as the rail names it, "OpenCode (v2)".
 test("a harness the menus do not offer is not listed, and two rows never share a name", async () => {
   const view = await mount(
-    [outdated("cmux", "2.1.325", "2.1.329"), opencode, outdated("opencode-v2", "0.0.0-next", "1.19.6"), codex],
+    [outdated("acme", "1.0.0", "1.1.0"), opencode, outdated("opencode-v2", "1.18.0", "1.19.6"), codex],
     undefined,
-    (id) => id !== "cmux",
+    (id) => id !== "acme",
   );
   expect(view.names()).toEqual(["opencode", "opencode-v2", "codex"]);
   const label = (id: string) => view.rowOf(id)!.querySelector(".acpmux-harness-update-name")?.textContent;
   expect(label("opencode")).toBe("OpenCode");
   expect(label("opencode-v2")).toBe("OpenCode (v2)");
   expect(label("codex")).toBe("Codex");
+});
+
+// Lawrence 2026-11-19 (msg 42278, "there are duplicates sometimes"): "Claude Code 2.1.325 → 2.1.329"
+// and "Cmux 2.1.325 → 2.1.329" with Claude's mark. acpmux reports health per harness profile, and its
+// `cmux` profile (the router fallback) runs the same ~/.local/bin/claude as `claude`. "Sometimes":
+// the menus hid `cmux` only once the catalog said it is not pickable, so a menu opened before the
+// catalog arrived (or a catalog without the row) listed it. The list is one row per installed
+// binary, whatever the catalog says, named for the agent the binary is.
+const claudeAt = (id: string, version = "2.1.325"): HarnessHealth => ({
+  ...outdated(id, version, "2.1.329"),
+  path: "/Users/me/.local/bin/claude",
+  package: "@anthropic-ai/claude-code",
+  update: { command: "/Users/me/.local/bin/claude update", elevated: false },
+});
+
+test("two profiles that run one binary are one row, named for that binary, before the catalog says either", async () => {
+  const view = await mount([claudeAt("cmux"), claudeAt("claude"), codex]);
+  expect(view.names()).toEqual(["claude", "codex"]);
+  expect(view.rowOf("claude")!.querySelector(".acpmux-harness-update-name")?.textContent).toBe("Claude Code");
+  await view.draw([claudeAt("claude"), claudeAt("cmux"), codex]);
+  expect(view.names()).toEqual(["claude", "codex"]);
+  // Update all updates that binary once.
+  await view.click(view.container.querySelector(".acpmux-harness-updates-all"));
+  expect(view.calls.map((call) => call.ids)).toEqual([["claude", "codex"]]);
+});
+
+test("a profile that wraps another agent's binary is never named by its profile id", async () => {
+  const view = await mount([claudeAt("cmux"), codex]);
+  expect(view.rowOf("cmux")!.querySelector(".acpmux-harness-update-name")?.textContent).toBe("Claude Code");
+  expect(view.container.textContent).not.toContain("Cmux");
+});
+
+test("the chat's own offer covers every profile of its binary", async () => {
+  const offer: UpdateOffer = {
+    harness: "claude",
+    agent: "Claude Code",
+    version: "2.1.325",
+    latest: "2.1.329",
+    update: () => undefined,
+    updateWith: () => undefined,
+    skip: () => undefined,
+  };
+  const view = await mount([claudeAt("claude"), claudeAt("cmux"), codex], offer);
+  expect(view.names()).toEqual(["claude", "codex"]);
+});
+
+test("a version skipped for one profile of a binary holds for all of them", async () => {
+  const view = await mount([claudeAt("claude"), claudeAt("cmux"), codex]);
+  localStorage.setItem(SKIPPED, JSON.stringify({ claude: "2.1.329" }));
+  await view.draw([claudeAt("cmux"), claudeAt("claude"), codex]);
+  expect(view.names()).toEqual(["codex"]);
 });

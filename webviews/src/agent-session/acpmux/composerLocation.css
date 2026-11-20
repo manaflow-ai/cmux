@@ -1531,7 +1531,12 @@
    with the density as before. New Tab's (`.nt-composer .acpmux-composer`, below) keeps its density zoom. */
 :is(.acpmux-dock, .acpmux-composer) {
   --acpmux-density: max(1, var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
-  --acpmux-density-text: var(--cmux-chat-text-scale, var(--cmux-interface-scale, 1));
+  /* The chat's text scale is Default's at every density now (the trajectory, user 2026-11-19); the composer keeps
+     growing above Default as before (Lucas 2026-11-13: Spacious's prompt should be bigger). */
+  --acpmux-density-text: max(
+    var(--cmux-chat-text-scale, var(--cmux-interface-scale, 1)),
+    var(--cmux-density-text-scale, var(--cmux-interface-scale, 1))
+  );
 }
 /* The composer's type steps also cover New Tab's suggestions and create row.
    Dock toasts, asks and lists keep the transcript's sizes. */
