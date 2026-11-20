@@ -68,9 +68,13 @@ struct ComposeInlineText {
     static func orphanRanges(in s: NSAttributedString, keeping ids: Set<ID>) -> [NSRange] {
         var out: [NSRange] = []
         let ns = s.string as NSString
-        for i in 0..<ns.length where ns.character(at: i) == 0xFFFC {
+        // One search per attachment character, not a character read per character: every key runs this.
+        var found = ns.range(of: "\u{FFFC}", options: .literal)
+        while found.location != NSNotFound {
+            let i = found.location
             let a = s.attribute(.attachment, at: i, effectiveRange: nil) as? ComposeInlineAttachment
             if !(a.map { ids.contains($0.attachmentID) } ?? false) { out.append(NSRange(location: i, length: 1)) }
+            found = ns.range(of: "\u{FFFC}", options: .literal, range: NSRange(location: i + 1, length: ns.length - i - 1))
         }
         return out.reversed()
     }
