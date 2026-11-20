@@ -6433,5 +6433,87 @@ class JoblessSweepTests(unittest.TestCase):
         self.assertFalse(any("/actions/workflows/" in path and "status" not in path for _, path in fake.log))
 
 
+def truncate(fake):
+    """The in-flight listing hits its page ceiling, as run 44702795585's did (queued 3992/3992 truncated)."""
+    listed = fake.in_flight_runs
+
+    def in_flight_runs():
+        runs = listed()
+        fake.run_listing["queued"] = dict(fake.run_listing.get("queued") or {}, truncated=True, total_at_least=True)
+        return runs
+    fake.in_flight_runs = in_flight_runs
+    return fake
+
+
+class TruncatedJoblessSweepTests(unittest.TestCase):
+    """Run 44702795585 on 2026-11-20: 6059 of at least 6080 in-flight runs listed, so the sweep decided nothing, and
+    a jobless run was never cleared during the backlog that strands them. find_jobless() reads each candidate's own
+    jobs, its workflow's runs on its branch and its holder's jobs, so the jobless pass still acts; nothing else does."""
+
+    sweep = JoblessSweepTests.sweep
+    world = JoblessSweepTests.world
+
+    def orphan_world(self):
+        stuck, fake = self.world()
+        orphan = make_run(status="queued", age=340, branch="ci/macos26-app-host-repair")
+        fake.runs[orphan["id"]] = dict(orphan)
+        # A newer job on its pool got a runner: the orphan pass's evidence (TruncatedSweepTests' world).
+        busy = make_run(status="in_progress", age=20, branch="busy")
+        fake.runs[busy["id"]] = dict(busy)
+        fake.job_map[orphan["id"]] = [linux_job(age=330), orphan_job(age=220)]
+        fake.job_map[busy["id"]] = [served_job(age=15)]
+        return stuck, orphan, fake
+
+    def test_a_complete_sweep_cancels_the_orphan_and_the_jobless_run(self):
+        stuck, orphan, fake = self.orphan_world()
+        with tempfile.TemporaryDirectory() as temp:
+            code, text, load, _ = self.sweep(fake, temp)
+        self.assertEqual(code, 0, text)
+        self.assertIs(load["truncated"], False)
+        self.assertIn([str(orphan["id"]), "cancel"], fake.posts())
+        self.assertIn([str(stuck["id"]), "cancel"], fake.posts())
+
+    def test_a_truncated_sweep_still_clears_a_jobless_run_at_an_open_head_and_re_runs_it(self):
+        stuck, fake = self.world()
+        truncate(fake)
+        with tempfile.TemporaryDirectory() as temp:
+            code, text, load, _ = self.sweep(fake, temp)
+            self.assertEqual(code, 0, text)
+            self.assertIs(load["truncated"], True)
+            self.assertEqual(fake.posts(), [[str(stuck["id"]), "cancel"], [str(stuck["id"]), "force-cancel"]])
+            [entry] = load["lost_reruns"]
+            self.assertEqual((entry["run_id"], entry["jobless"], entry["open_head"]), (stuck["id"], True, True))
+            self.assertIn("### Jobless runs", text)
+            self.assertIn("only the jobless pass acted", text)
+            # The next sweep is truncated too: the settled cancel is re-run whole at the same head.
+            fake.runs[stuck["id"]].update(status="completed", conclusion="cancelled")
+            fake.snapshots.append(load)
+            code, text, load, _ = self.sweep(fake, temp)
+            self.assertEqual(code, 0, text)
+            self.assertEqual(fake.posts()[-1], [str(stuck["id"]), "rerun"])
+            self.assertTrue(fake.app_only_posts[-1].endswith(f"/runs/{stuck['id']}/rerun"))
+            self.assertEqual(load["lost_reruns"], [])
+
+    def test_a_truncated_sweep_cancels_no_orphan_or_superseded_run_and_carries_other_re_runs(self):
+        stuck, orphan, fake = self.orphan_world()
+        truncate(fake)
+        other = {"run_id": 999001, "attempt": 1, "head_sha": "abc", "branch": "elsewhere",
+                 "cancelled_at": iso(5), "open_head": True}
+        fake.snapshots[-1]["lost_reruns"] = [other]
+        with tempfile.TemporaryDirectory() as temp, \
+                mock.patch.object(janitor, "skip_superseded_delivery") as delivery, \
+                mock.patch.object(janitor, "skip_superseded_dev_publish") as dev:
+            code, text, load, _ = self.sweep(fake, temp)
+        self.assertEqual(code, 0, text)
+        self.assertNotIn([str(orphan["id"]), "cancel"], fake.posts())
+        self.assertEqual(fake.posts(), [[str(stuck["id"]), "cancel"], [str(stuck["id"]), "force-cancel"]])
+        delivery.assert_not_called()
+        dev.assert_not_called()
+        # A pending entry that is not a jobless run's is carried forward as it was, never read or re-run.
+        self.assertEqual(load["lost_reruns"][0], other)
+        self.assertEqual([e["run_id"] for e in load["lost_reruns"]], [999001, stuck["id"]])
+        self.assertIn("decided nothing else", text)
+
+
 if __name__ == "__main__":
     unittest.main()
