@@ -578,11 +578,32 @@ async fn surge_receipt_restores_the_same_held_message_and_searches_its_original_
 #[test]
 fn surge_actionable_thread_clears_through_team_ack_and_replay() {
     let (hub, session) = hub_with_chat("surge-ack");
-    let mut held =
-        item("prompt-1", "topic:runner", "watcher", PromptClass::Result, now_ms(), "runner report");
-    held.surge_held = true;
-    held.noticed = true;
-    session.inbox().items.push(held);
+    for (seq, at, kind) in [(1, 10_000, "turn_started"), (2, 40_000, "turn_result")] {
+        session.time_breakdown.lock().unwrap().record(&EventRecord {
+            seq,
+            at,
+            kind: kind.into(),
+            dir: "mux".into(),
+            msg: json!({"turnSeq":1,"turnId":"finished","status":"completed"}),
+            host_seq: None,
+        });
+    }
+    let opts = PromptOptions {
+        provenance: Some(crate::prompt_provenance::notice(
+            &json!({"sender":"watcher","severity":"warn","title":"Runner warning"}),
+            "surge-ack",
+        )),
+        class: Some(PromptClass::Fyi),
+        thread: Some("topic:runner".into()),
+        ..Default::default()
+    };
+    let body = [json!({"type":"text","text":"runner report"})];
+    assert!(
+        hub.hold_surge_message(&session, "first", "cli", &body, &opts, 41_000).unwrap().is_none()
+    );
+    let receipt =
+        hub.hold_surge_message(&session, "prompt-1", "cli", &body, &opts, 42_000).unwrap().unwrap();
+    assert_eq!(receipt["surgeHeld"], true);
     hub.persist_surge_triage(
         &session,
         json!({"batchId":"batch-ack", "items":[{"promptId":"prompt-1", "threadId":"topic:runner",

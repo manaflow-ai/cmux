@@ -13,7 +13,6 @@ pub(super) struct Counts {
     actionable_by_prompt: std::collections::HashMap<String, String>,
     actionable_by_thread: std::collections::HashMap<String, u64>,
     held_pending: std::collections::HashSet<String>,
-    suppress_prompts: std::collections::HashSet<String>,
 }
 
 impl Counts {
@@ -57,7 +56,7 @@ impl Counts {
                 let thread = item.get("threadId").and_then(Value::as_str).unwrap_or_default();
                 if prompt.is_empty()
                     || thread.is_empty()
-                    || self.suppress_prompts.contains(prompt)
+                    || !self.held_pending.contains(prompt)
                     || self.actionable_by_prompt.contains_key(prompt)
                     || additions.iter().any(|(id, _)| id == prompt)
                 {
@@ -91,7 +90,6 @@ impl Counts {
                         items.iter().filter_map(|item| item.get("promptId").and_then(Value::as_str))
                     {
                         self.held_pending.remove(prompt);
-                        self.suppress_prompts.remove(prompt);
                     }
                 }
                 // Older callers wrote an empty record with a scalar actionable count. Keep that
@@ -105,9 +103,7 @@ impl Counts {
             "inbox_read" => {
                 if let Some(ids) = event.msg.get("promptIds").and_then(Value::as_array) {
                     for id in ids.iter().filter_map(Value::as_str) {
-                        if self.held_pending.remove(id) {
-                            self.suppress_prompts.insert(id.to_owned());
-                        }
+                        self.held_pending.remove(id);
                         self.remove_actionable(id);
                     }
                 }
@@ -115,7 +111,6 @@ impl Counts {
             "inbox_removed" => {
                 if let Some(id) = event.msg.get("promptId").and_then(Value::as_str) {
                     self.held_pending.remove(id);
-                    self.suppress_prompts.insert(id.to_owned());
                     self.remove_actionable(id);
                 }
             }
@@ -158,14 +153,18 @@ impl Counts {
     }
 
     pub(super) fn need_you_after_removing(&self, prompt_ids: &[String]) -> u64 {
-        let mut threads = std::collections::HashSet::new();
+        let mut removed = std::collections::HashMap::<&str, usize>::new();
         for prompt in prompt_ids {
             let Some(thread) = self.actionable_by_prompt.get(prompt) else { continue };
-            if self.actionable_by_thread.get(thread) == Some(&1) {
-                threads.insert(thread);
-            }
+            *removed.entry(thread.as_str()).or_default() += 1;
         }
-        self.actionable_by_thread.len().saturating_sub(threads.len()) as u64
+        let cleared = removed
+            .into_iter()
+            .filter(|(thread, count)| {
+                self.actionable_by_thread.get(*thread).is_some_and(|total| count >= total)
+            })
+            .count();
+        self.actionable_by_thread.len().saturating_sub(cleared) as u64
     }
 }
 
@@ -439,5 +438,67 @@ mod tests {
             "receiver",
         ));
         assert!(eligible(&opts, &blocks).is_none());
+    }
+
+    #[test]
+    fn actionable_deltas_ignore_read_before_triage_and_count_distinct_threads() {
+        let event = |seq, kind, msg| EventRecord {
+            seq,
+            at: seq,
+            kind: kind.into(),
+            dir: "mux".into(),
+            msg,
+            host_seq: None,
+        };
+        let mut counts = Counts::default();
+        counts.restore(&event(
+            1,
+            "inbox",
+            json!({"promptId":"p1", "surgeHeld":true,
+            "surge":{"held":1,"needYou":0}}),
+        ));
+        counts.restore(&event(
+            2,
+            "inbox_read",
+            json!({"promptIds":["p1"],
+            "surge":{"held":1,"needYou":0}}),
+        ));
+        counts.restore(&event(
+            3,
+            "inbox_triaged",
+            json!({"items":[{"promptId":"p1",
+            "threadId":"t1","category":"needs_this_session"}],
+            "surge":{"held":1,"needYou":1}}),
+        ));
+        assert_eq!(counts.need_you, 0);
+        assert!(!counts.need_you_for("t1"));
+
+        let mut counts = Counts::default();
+        for (seq, prompt) in [(1, "p1"), (2, "p2"), (3, "p3")] {
+            counts.apply(&event(seq, "inbox", json!({"promptId":prompt, "surgeHeld":true})));
+        }
+        counts.apply(&event(
+            4,
+            "inbox_triaged",
+            json!({"items":[
+            {"promptId":"p1","threadId":"t1","category":"needs_this_session"},
+            {"promptId":"p2","threadId":"t1","category":"needs_this_session"},
+            {"promptId":"p3","threadId":"t2","category":"needs_this_session"}]}),
+        ));
+        assert_eq!(counts.need_you, 2);
+        counts.apply(&event(
+            5,
+            "inbox_read",
+            json!({"promptIds":["p1"],
+            "surge":{"held":0,"needYou":2}}),
+        ));
+        assert_eq!(counts.need_you, 2);
+        counts.apply(&event(
+            6,
+            "inbox_read",
+            json!({"promptIds":["p2"],
+            "surge":{"held":0,"needYou":1}}),
+        ));
+        assert_eq!(counts.need_you, 1);
     }
 }
