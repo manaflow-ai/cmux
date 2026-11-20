@@ -2,28 +2,28 @@ public import AppKit
 import CmuxNextActions
 
 /// Joins the actions shared by all hosts to the clicked host's own sidebar menu.
-@MainActor public enum SidebarMachineMenu {
-    public static func inserting(_ shared: NSMenu, into menu: NSMenu, topLevelLimit: Int) -> NSMenu {
+extension NSMenu {
+    public func insertingSharedMachineActions(_ shared: NSMenu, topLevelLimit: Int) -> NSMenu {
         let items = shared.items
         shared.removeAllItems()
-        guard !items.isEmpty else { return menu }
+        guard !items.isEmpty else { return self }
         // Customize Menu… ends every menu and is not one of its rows (topLevelLimit counts rows).
-        if menu.items.filter({ !$0.isSeparatorItem && !ActionRegistry.isCustomizeItem($0) }).count >= topLevelLimit,
-           let options = menu.items.first(where: { $0.title == MenuFolder.options.title })?.submenu {
+        if self.items.filter({ !$0.isSeparatorItem && !ActionRegistry.isCustomizeItem($0) }).count >= topLevelLimit,
+           let options = self.items.first(where: { $0.title == MenuFolder.options.title })?.submenu {
             options.addItem(.separator())
             for item in items { options.addItem(item) }
-            return menu
+            return self
         }
-        var at = menu.items.firstIndex(where: \.isSeparatorItem) ?? menu.items.count
+        var at = self.items.firstIndex(where: \.isSeparatorItem) ?? self.items.count
         if at > 0 {
-            menu.insertItem(.separator(), at: at)
+            insertItem(.separator(), at: at)
             at += 1
         }
         for item in items {
-            menu.insertItem(item, at: at)
+            insertItem(item, at: at)
             at += 1
         }
-        if at < menu.items.count, !menu.items[at].isSeparatorItem { menu.insertItem(.separator(), at: at) }
-        return menu
+        if at < self.items.count, !self.items[at].isSeparatorItem { insertItem(.separator(), at: at) }
+        return self
     }
 }

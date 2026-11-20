@@ -128,6 +128,6 @@ enum SidebarContextMenus {
         }
         // Its rows join the header's menu, which ends with its own Customize Menu….
         let shared = registry.makeContextMenu(for: .machineSection, target: target, customize: false)
-        return SidebarMachineMenu.inserting(shared, into: menu, topLevelLimit: topLevelLimit)
+        return menu.insertingSharedMachineActions(shared, topLevelLimit: topLevelLimit)
     }
 }
