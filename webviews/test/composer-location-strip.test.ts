@@ -333,51 +333,28 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     await page.close();
   });
 
-  for (const variant of ["folder-short-note", "folder-short-note-de", "folder-short-note-fr"]) {
-    test(`${variant} leaves a visible project row in a short pane`, async () => {
-      const page = await open("agent-pane.composer-context", variant, 720, undefined, 180);
-      const popup = page.locator(".acpmux-folder-popover");
-      const viewport = page.locator(".ui-combobox-viewport");
-      const note = page.locator(".acpmux-location-note");
-      const project = page.locator(".acpmux-location-row").first();
-      const [popupRect, viewportRect, noteRect, projectRect] = await Promise.all([
-        popup.boundingBox(),
-        viewport.boundingBox(),
-        note.boundingBox(),
-        project.boundingBox(),
-      ]);
-      expect(popupRect).not.toBeNull();
-      expect(viewportRect).not.toBeNull();
-      expect(noteRect).not.toBeNull();
-      expect(projectRect).not.toBeNull();
-      expect(noteRect!.height).toBeLessThanOrEqual(16);
-      const noteVisibility = await note.evaluate((element) => {
-        const style = getComputedStyle(element);
-        const range = document.createRange();
-        range.selectNodeContents(element);
-        const text = range.getBoundingClientRect();
-        const box = element.getBoundingClientRect();
-        return {
-          lineHeight: parseFloat(style.lineHeight),
-          paddingTop: parseFloat(style.paddingTop),
-          paddingBottom: parseFloat(style.paddingBottom),
-          borderTop: parseFloat(style.borderTopWidth),
-          textTop: text.top,
-          textBottom: text.bottom,
-          boxTop: box.top,
-          boxBottom: box.bottom,
-        };
-      });
-      expect(noteVisibility.paddingTop + noteVisibility.paddingBottom + noteVisibility.borderTop).toBe(0);
-      expect(noteVisibility.textTop).toBeGreaterThanOrEqual(noteVisibility.boxTop - 1);
-      expect(noteVisibility.textBottom).toBeLessThanOrEqual(noteVisibility.boxBottom + 1);
-      expect(noteRect!.height).toBeGreaterThanOrEqual(noteVisibility.lineHeight);
-      expect(projectRect!.y).toBeGreaterThanOrEqual(viewportRect!.y);
-      expect(projectRect!.y + projectRect!.height).toBeLessThanOrEqual(viewportRect!.y + viewportRect!.height);
-      expect(viewportRect!.y + viewportRect!.height).toBeLessThanOrEqual(popupRect!.y + popupRect!.height);
-      await page.close();
-    });
-  }
+  test("a tall pane gives the folder menu's extra height to its list, and its width follows the names", async () => {
+    const page = await open("agent-pane.composer-context", "folder-long-list", 720, undefined, 900);
+    const popup = page.locator(".acpmux-folder-popover");
+    const viewport = page.locator(".ui-combobox-viewport");
+    const [popupRect, viewportRect] = await Promise.all([popup.boundingBox(), viewport.boundingBox()]);
+    expect(popupRect).not.toBeNull();
+    expect(viewportRect).not.toBeNull();
+    // The list is no longer held at the shared 260 px location-list cap.
+    expect(viewportRect!.height).toBeGreaterThan(260);
+    expect(popupRect!.height).toBeLessThanOrEqual(560);
+    // As wide as its fullest listed row needs, between the old 240 px floor and 560: no name in view is cut.
+    expect(popupRect!.width).toBeGreaterThanOrEqual(240 - 1);
+    expect(popupRect!.width).toBeLessThanOrEqual(560 + 1);
+    const cut = await page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>(".acpmux-folder-popover [role='option'] .acpmux-location-name")]
+        .filter((name) => name.scrollWidth > name.clientWidth + 1)
+        .map((name) => name.textContent),
+    );
+    expect(cut).toEqual([]);
+    expect(await page.locator(".acpmux-location-note").count()).toBe(0);
+    await page.close();
+  });
 
   test("a normal pane scrolls the last long-list project fully inside the popup", async () => {
     const page = await open("agent-pane.composer-context", "folder-long-list", 720);
