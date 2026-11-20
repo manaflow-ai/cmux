@@ -1226,11 +1226,16 @@ jobs:
           persist-credentials: false
           # The rollback reads production's source tags as commits (prod-promote.ts), so the whole history.
           fetch-depth: 0
+          # backend's bun install needs its workspaces outside backend/ (clients/ts, workers/cmux-vm/sdk):
+          # without them the rollback stopped at "listed in bun.lock but not on disk" (run 44764045780).
+          # scripts/cmux-next/release/test/backend-sparse-checkout.test.ts keeps this list complete.
           sparse-checkout: |
             scripts/cmux-next
             Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials
             tests/fixtures/model-stub
             backend
+            clients/ts
+            workers/cmux-vm/sdk
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
