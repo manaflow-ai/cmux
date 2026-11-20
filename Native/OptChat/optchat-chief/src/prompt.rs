@@ -235,6 +235,26 @@ pub fn cached_layout_at_marks(
     cached_layout(system, context, tail, marker)
 }
 
+/// This Mac's IANA time zone name: `TZ` when it names one, else the zone
+/// `/etc/localtime` links to (`.../zoneinfo/America/Los_Angeles`).
+pub fn local_zone() -> Option<String> {
+    let from_tz = std::env::var("TZ")
+        .ok()
+        .map(|z| z.trim_start_matches(':').trim().to_owned())
+        .filter(|z| z.contains('/') && !z.starts_with('/'));
+    from_tz.or_else(|| {
+        let link = std::fs::read_link("/etc/localtime").ok()?;
+        let text = link.to_string_lossy().into_owned();
+        let (_, zone) = text.split_once("zoneinfo/")?;
+        Some(zone.to_owned()).filter(|z| !z.is_empty())
+    })
+}
+
+/// The turn's clock line (chief_kernel `now_line`) for this Mac now.
+pub fn now_line_here() -> String {
+    chief_kernel::prompt::now_line(chrono::Local::now().fixed_offset(), local_zone().as_deref())
+}
+
 /// The user's instructions file, `$MUX_HOME/optchat/AGENTS.md` (None when
 /// missing or empty).
 pub fn user_instructions(path: &std::path::Path) -> Option<String> {
