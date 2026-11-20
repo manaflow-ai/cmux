@@ -45,7 +45,9 @@ jobs:
     # One group with app-ffi-release.yml's repin job: re-pins run one at a time
     # on the same pull request.
     concurrency:
-      group: app-ffi-repin
+      # -v2 (2026-11-20): GitHub kept the old key held after runs 44636531297 and 44645693256 were cancelled; every
+      # later re-pin sat PENDING with no holder (run 44651765158). A new key keeps the same one-at-a-time rule.
+      group: app-ffi-repin-v2
       cancel-in-progress: false
     steps:
       # The same two tokens as app-ffi-release.yml's repin job (see there).
