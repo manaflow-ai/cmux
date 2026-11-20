@@ -41,6 +41,7 @@ pub(crate) fn running_work(session: &Session, turn_runs: bool, commands: usize) 
 
 /// A peer's summary as a census row (`Hub::session_list_summary`): no inventory, and a long
 /// title cut (`TITLE_CHARS`), including in rows supplied by older peers.
+/// A packed row cuts the same with no parse (`PeerRow::changed_text`).
 pub(crate) fn without_summary_tools(mut summary: Value) -> Value {
     if let Some(row) = summary.as_object_mut() {
         row.remove("tools");
@@ -710,6 +711,7 @@ impl Hub {
         let summary = SessionSummary {
             session_id: m.id.clone(),
             name: m.name.clone(),
+            handle: Some(m.spoken_handle().into_owned()),
             name_given: m.name_given,
             harness: m.harness.clone(),
             family: m.family.clone(),
@@ -764,10 +766,18 @@ impl Hub {
             preview: m.preview.as_deref().map(|p| short_text(p, 160)),
             last_message: last_message(&m),
             queued: session.queued(),
+            // The person's unsent text (`set_composer_draft`): an idle app update waits for it.
+            has_draft: m.composer_draft.as_deref().is_some_and(|d| !d.trim().is_empty()),
+            // Background work no turn shows: an idle app update waits for it too.
+            working_below: self.holds_work_below(session),
             // A turn failed: the prompts that waited behind it wait for a client to resume them.
             queue_paused: session.queue_paused(),
             // A daemon start holds its queue until a person opens it (`protected_hold.rs`).
             person_hold: self.person_hold(session),
+            // The account's rate limit holds every turn until the reset (`rate_hold.rs`).
+            rate_limited_until: session.rate_hold.until(),
+            // Parked after six failed turns in a row: goes on at `acpmux retry` (`rate_hold.rs`).
+            rate_limit_parked: session.rate_hold.parked(),
             // Its queued prompt waits for a run slot of its parent (`subsession_runs.rs`).
             waits_for_slot: self.waits_for_slot(&m),
             // An agent start under way (`lifecycle.rs` holds `spawn_lock` until the agent answered
