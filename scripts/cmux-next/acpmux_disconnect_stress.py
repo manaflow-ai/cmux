@@ -69,6 +69,8 @@ HERE = Path(__file__).resolve().parent
 FAKE_AGENT = HERE.parent.parent / "cmux-tui" / "crates" / "acpmux" / "tests" / "fake_agent.py"
 MARK = re.compile(r"\b(HUB|DIRECT)-(\d+)\b")
 LEASE_S = 15.0
+# The faults and how often each is picked.
+FAULTS = {"refuse": 2, "outage": 2, "ack-drop": 2, "detach": 2, "send-kill": 2, "take-over": 1.5}
 TTL_S = 9
 
 # The stand-in agent behind a wrapper that logs each prompt it is given, then passes every line on.
@@ -553,9 +555,8 @@ class Stress:
     # Faults --------------------------------------------------------------------------------------
 
     def fault(self) -> None:
-        kinds = ["refuse", "outage", "ack-drop", "detach", "send-kill", "take-over"]
-        weights = [2, 2, 2, 2, 2, 1.5]
-        kind = self.rng.choices(kinds, weights)[0]
+        kinds = [k for k in FAULTS if k in self.a.faults.split(",")]
+        kind = self.rng.choices(kinds, [FAULTS[k] for k in kinds])[0]
         if kind == "refuse":
             d = self.rng.uniform(3, 15)
             self.hub.refuse_status = self.rng.choice([401, 403])
@@ -860,6 +861,7 @@ def main() -> int:
     ap.add_argument("--gap-max", type=float, default=18, help="most seconds between two faults")
     ap.add_argument("--send-deadline", type=float, default=180, help="how long one direct send keeps trying")
     ap.add_argument("--settle", type=float, default=300, help="longest wait for delivery after the faults lift")
+    ap.add_argument("--faults", default=",".join(FAULTS), help="the faults to inject, comma-separated: " + ", ".join(FAULTS))
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--log", default="info", help="the daemon's log filter")
     ap.add_argument("--recount", nargs="+", metavar="RUN_DIR", help="count finished runs again from their files")
@@ -871,6 +873,8 @@ def main() -> int:
         return code
     if not (a.acpmux and a.out):
         ap.error("--acpmux and --out are required for a run")
+    if not [k for k in a.faults.split(",") if k in FAULTS] or set(a.faults.split(",")) - set(FAULTS):
+        ap.error(f"--faults takes some of {', '.join(FAULTS)}")
     if a.seed is None:
         a.seed = random.randrange(1 << 30)
     os.umask(0o022)  # the daemon refuses a state directory under a group- or world-writable folder
