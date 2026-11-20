@@ -160,7 +160,12 @@ async fn start(
     follow::follow(
         hub,
         conn,
-        follow::Chat { host: host.to_owned(), remote: id.clone(), key: id.clone() },
+        follow::Chat {
+            host: host.to_owned(),
+            remote: id.clone(),
+            key: id.clone(),
+            asked: id.clone(),
+        },
         0,
     );
     Ok(json!({
