@@ -1,4 +1,5 @@
 import CmuxConversationCore
+import CmuxMobileDesign
 import CmuxMobileTransport
 import Foundation
 import Testing
@@ -42,8 +43,10 @@ import Testing
         #expect(await eventually { feed.rows?.count == 4 })
         #expect(feed.rows?.map(\.id) == read.rows?.map(\.id))
         #expect(feed.isShowingKeptRows)
+        // A launch's kept rows say nothing while the Mac's list is on its way (conn-quiet: no
+        // spinner over content under the quiet bound).
         #expect(HomeListNote.make(rows: feed.rows, showingKept: feed.isShowingKeptRows, homeMacID: "mac-1",
-                                  macsMayExist: true, searching: false, failing: false) == .updating)
+                                  macsMayExist: true, searching: false, failing: false) == .none)
 
         // The Mac answers: its list, no longer the kept one.
         await feed.connect(link: MockMacLink { _, request in owner.respond(request) }, macID: "mac-1")
@@ -172,6 +175,39 @@ import Testing
         #expect(feed.rows == nil)
         #expect(cache.cached(key) == nil)
         #expect(await MacHomeRowsCache(directory: directory).load(key) == nil)
+    }
+
+    /// Kept rows say "Updating…" only once the Mac's list has been on its way for the quiet
+    /// bound, and never during a search or over a failure note.
+    @Test func keptRowsSayUpdatingOnlyAfterTheQuietBound() {
+        let rows: [MacHomeRow] = []
+        #expect(HomeListNote.make(rows: rows, showingKept: true, homeMacID: "m", macsMayExist: true,
+                                  searching: false, failing: false) == .none)
+        #expect(HomeListNote.make(rows: rows, showingKept: true, homeMacID: "m", macsMayExist: true,
+                                  searching: false, failing: false, keptForLong: true) == .updating)
+        #expect(HomeListNote.make(rows: rows, showingKept: false, homeMacID: "m", macsMayExist: true,
+                                  searching: false, failing: false, keptForLong: true) == .none)
+        #expect(HomeListNote.make(rows: rows, showingKept: true, homeMacID: "m", macsMayExist: true,
+                                  searching: true, failing: false, keptForLong: true) == .none)
+    }
+
+    /// Home's gate is keyed by the Mac whose kept rows show (review F1): moving from one Mac's
+    /// kept rows to another's waits the bound anew, instead of inheriting the first one's wait.
+    @MainActor
+    @Test func anotherMacsKeptRowsWaitTheBoundAnew() async throws {
+        let gate = QuietStatusGate(delay: .seconds(1))
+        gate.update(downFor: "mac-1")
+        try await Task.sleep(for: .milliseconds(600))
+        gate.update(downFor: "mac-2")
+        try await Task.sleep(for: .milliseconds(600))
+        // 1.2 s since mac-1 (past its bound), 0.6 s since mac-2: mac-2's wait is not over.
+        #expect(!gate.isShown, "another Mac's kept rows do not inherit the first one's wait")
+        try await Task.sleep(for: .milliseconds(1000))
+        #expect(gate.isShown, "past the bound for mac-2 the note shows")
+        gate.update(downFor: "mac-2")
+        #expect(gate.isShown, "the same Mac again keeps it")
+        gate.update(downFor: nil)
+        #expect(!gate.isShown, "the Mac's list came: nothing to say")
     }
 
     /// No Mac yet and nothing kept: Home says it is loading instead of an empty list; with no
