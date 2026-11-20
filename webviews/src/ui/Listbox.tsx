@@ -7,17 +7,17 @@
 // same at a thousand rows as at ten thousand; windowed rows carry aria-posinset/aria-setsize. Each
 // row is a memoized component: a highlight change re-renders the two rows it moved between.
 import {
+  memo,
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
   type ReactNode,
   type Ref,
   type UIEventHandler,
-  memo,
-  useLayoutEffect,
 } from "react";
 import { cx } from "./cx";
 import { useScrollEdges } from "./scrollEdges";
