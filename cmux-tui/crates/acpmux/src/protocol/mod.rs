@@ -239,9 +239,12 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_RACE_LIST, Request),
         untyped(method::MUX_RACE_START, Request),
         untyped(method::MUX_RACE_STATS, Request),
-        // Forum announcements (`server/forum.rs`).
+        // Forum announcements and work threads (`server/forum.rs`).
         untyped(method::MUX_FORUM_ACK, Request),
         untyped(method::MUX_FORUM_ANNOUNCE, Request),
+        untyped(method::MUX_FORUM_CLAIM, Request),
+        untyped(method::MUX_FORUM_POST, Request),
+        untyped(method::MUX_FORUM_THREADS, Request),
         keyed::<params::ForumRulesParams>(method::MUX_FORUM_RULES, Request),
         keyed::<params::SetToolsParams>(method::MUX_SET_TOOLS, Request),
         untyped(method::MUX_SET_DIRECTORIES, Request),
