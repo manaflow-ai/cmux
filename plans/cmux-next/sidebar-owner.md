@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-20 (a-plus-button-radius): Sidebar-Look: Lawrence, 2026-11-20 (msg 43775), on the tab bar's `+ ⌄` beside
+  the pane's ⋮: "roundness of this button needs to always be same as roundness of tabs and size of plus button must be
+  smae as size of these buttons (watch out for padding)". Every + (`PlusButtonLook`: the tab bar's, the sidebar's New
+  Workspace and group +) rounds at the tab pill's radius through one token, `Metrics.tabBarControlCornerRadius`
+  (at most half its side), not the proportional 8-on-28 corner; the sidebar +'s focus ring takes the same corner. The
+  tab bar's split + is the ⋮'s square (`Metrics.tabBarControlSide`), not a tab's height. Regression:
+  `TabBarPlusShapeTests` (every density).
 - 2026-11-19 (lane/needs-you-glow): Sidebar-Look: Leo, 2026-11-19, on eight new features: "all of them" and "some of
   them maybe just as customizations lol if it affects default looks". "Needs you" as motion, off by default: with
   `notifications.attention.mark` `glow` (default `badge`, no change), a workspace row that waits for the person (an

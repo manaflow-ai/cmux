@@ -240,8 +240,9 @@ final class SidebarIconButton: ClickableButton {
         // isRound: a light round x on a card (Lawrence 2026-11-07, "the X sits in a heavy box").
         // Else the tab's ratio on its own side, one shape at every density (Lucas 2026-11-15).
         let half = min(bounds.width, bounds.height) / 2
+        // A + keeps its focus ring on the + look's own corner (a tab's, ``PlusButtonLook``).
         layer?.cornerRadius = concentricRadius.map { min($0, half) } // radius-allow: isRound
-            ?? (isRound ? half : Metrics.buttonCornerRadius(proportionalTo: 2 * half))
+            ?? (isRound ? half : plusLook?.fillLayer.cornerRadius ?? Metrics.buttonCornerRadius(proportionalTo: 2 * half))
         performWithTheme {
             contentTintColor = tintOverride ?? (hover.state.hovering || hover.state.pressed ? Palette.textPrimary : Palette.textSecondary)
         }
