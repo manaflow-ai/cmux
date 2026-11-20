@@ -2314,6 +2314,15 @@ impl Hub {
         if by_name.len() == 1 {
             return Ok(by_name.remove(0));
         }
+        // No session has it as its name now: one that had it before a rename
+        // (`former_names.rs`), ahead of short names and prefixes. A peer's session that has it
+        // as its name now wins (`resolve_remote`).
+        if by_name.is_empty()
+            && let Some(found) = self.resolve_former_here(key)
+            && self.remote_strict_matches(key) == 0
+        {
+            return found;
+        }
         let named = |matched: &[Arc<Session>]| -> Vec<String> {
             matched
                 .iter()
