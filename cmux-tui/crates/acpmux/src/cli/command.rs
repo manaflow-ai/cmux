@@ -46,7 +46,7 @@ pub enum Command {
     /// print its host, ids, harness, model, folder, lane, pull requests, last turn and link.
     #[command(alias = "find")]
     Resolve {
-        /// The link, an id, `HOST/NAME`, a name, a bead id, or `@` for this session.
+        /// The link, an id, `HOST/NAME`, a name, a spoken handle, a bead id, or `@` for this session.
         query: String,
     },
     /// Who else works on these files: the other live and recent sessions, here and on peers, that
@@ -396,9 +396,14 @@ pub enum Command {
     },
     /// Be an ACP agent backed by a UniiChat server (uniichat.com or your own
     /// `unii serve`), over UniiChat's own protocol: streaming, stop, images.
-    /// Signs in with the token `unii login` keeps. In a profile:
-    /// `args = ["uniichat-agent"]`.
+    /// Signs in with the token `unii login` keeps; `uniichat-agent login`
+    /// makes that sign-in itself, so no `unii` program is needed. In a
+    /// profile: `args = ["uniichat-agent"]`.
     UniichatAgent {
+        /// `login`: sign in to the server (an email or @github, a link, a
+        /// code) and keep the token where the adapter reads it.
+        #[arg(value_parser = ["login"])]
+        action: Option<String>,
         /// The server; default `$UNII_URL`, else https://uniichat.com.
         #[arg(long)]
         url: Option<String>,
@@ -580,7 +585,13 @@ pub enum Command {
         dry_run: bool,
     },
     #[command(hide = true, alias = "rename-session")]
-    Rename { session: String, new_name: String },
+    Rename {
+        session: String,
+        new_name: String,
+        /// Rename the spoken handle.
+        #[arg(long)]
+        handle: bool,
+    },
     /// Give the session this shell runs in a stable name every machine that peers this one sends
     /// to: a Claude Code session acpmux did not start (the Claude desktop app's Code tab, a
     /// terminal `claude`). Run it from that session's own Bash tool: it delivers a one-time code
@@ -1016,7 +1027,13 @@ pub enum SessionCmd {
     /// a daemon restart left it the earlier daemon's).
     Restart { session: String },
     /// Rename a session.
-    Rename { session: String, new_name: String },
+    Rename {
+        session: String,
+        new_name: String,
+        /// Rename the spoken handle.
+        #[arg(long)]
+        handle: bool,
+    },
     /// Detach a session from the session that started it: its turns stop showing in that
     /// session's chat, and its `lane.reportsTo` tag goes. The session keeps running.
     Detach { session: String },
@@ -1499,7 +1516,9 @@ pub fn flatten(c: Command) -> Command {
                 Command::Kill { session, purge, condition }
             }
             SessionCmd::Restart { session } => Command::RestartAgent { session },
-            SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },
+            SessionCmd::Rename { session, new_name, handle } => {
+                Command::Rename { session, new_name, handle }
+            }
             SessionCmd::Detach { session } => Command::DetachParent { session },
             SessionCmd::Resume { session, open, mesh } if !mesh.mesh => {
                 Command::ResumeQueue { session, open }
