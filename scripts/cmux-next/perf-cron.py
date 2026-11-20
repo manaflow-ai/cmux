@@ -101,6 +101,11 @@ TIP_EVERY_HOURS = 6
 # as not run ('no_tree'). 2026-11-17 07:13Z: none of the 10 commits since the last tip had a tree, so no tip started,
 # and the web-ui rows of new Linux benches (cmux#44534) waited on a prerequisite only the Mac parts have.
 TREE_WAIT_HOURS = 2
+# A tree lookup (cmux_tui_tree_key.py twice, then files.cmux.com) costs 0.2 to 10 s. A plan tick's bisect looks up at
+# most this many commits, each once (the tip walk is bounded by CANDIDATE_DEPTH): on 2026-11-19 the bisect looked up
+# every commit of 16 culprit ranges of 300 to 740 commits with no Mac tree among them, uncached, so the plan job hit
+# its 75 min timeout every tick and no part ran for a day.
+BISECT_TREE_LOOKUPS = 40
 # The plan's checkout is shallow (fetch-depth 300): a culprit range older than that is deepened this many commits at
 # a time, at most DEEPEN_ROUNDS times, before its commits are listed.
 DEEPEN_STEP = 500
@@ -2976,6 +2981,20 @@ def plan(o):
             print(f"perf-cron: no commit since the last tip has a published cmux-tui tree; the tip is {newest[:12]}, "
                   f"its Mac parts wait for its tree (at most {TREE_WAIT_HOURS} h)")
     bisect = None
+    looked_up, told = set(), []
+
+    def bisect_tree_ready(sha):
+        # Past BISECT_TREE_LOOKUPS new commits a commit reads as having no tree for this tick only: its step waits
+        # for a later tick.
+        if sha not in trees:
+            if len(looked_up) >= BISECT_TREE_LOOKUPS:
+                if not told:
+                    told.append(sha)
+                    print(f"perf-cron: the bisect looked up {BISECT_TREE_LOOKUPS} commits' cmux-tui trees this tick; "
+                          "the rest wait for the next tick")
+                return False
+            looked_up.add(sha)
+        return tree_ready(sha)
     if not state.get("current") and not (candidate and tip_due(state, t)):
         for group in bisect_groups(state):
             rng = group["range"]
@@ -2988,7 +3007,7 @@ def plan(o):
             between = range_commits(rng["good"], rng["bad"])
             if between is None:
                 continue
-            ok = bisect_measurable(group["rows"], lambda c: fleet_runs(c, tip_version) and tree_published(c),
+            ok = bisect_measurable(group["rows"], lambda c: fleet_runs(c, tip_version) and bisect_tree_ready(c),
                                    supported_parts_at)
             sha = bisect_midpoint(between, ok, rng.get("skip") or [])
             if sha:

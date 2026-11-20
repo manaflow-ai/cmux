@@ -3253,6 +3253,50 @@ class BisectGoneHostTests(unittest.TestCase):
                     self.assertEqual((plan["action"], plan["sha"], plan["worker"]), ("part", "b" * 40, "cmux21"))
 
 
+class BisectTreeLookupTests(unittest.TestCase):
+    """2026-11-19: the bisect looked up the tree of every commit of 16 ranges of 300 to 740 commits, none with a
+    tree, and the plan job hit its 75 min timeout every tick."""
+
+    def test_a_tick_looks_up_at_most_the_bisect_budget_of_trees_each_once(self):
+        tip, commits = "f" * 40, [f"{i:040x}" for i in range(1, 501)]
+        looked = []
+
+        def git(*args, check=True):
+            return tip if args[0] in ("rev-parse", "rev-list") else ""
+
+        def tree_published(sha):
+            looked.append(sha)
+            return False
+        with tempfile.TemporaryDirectory() as d:
+            state = cron.empty_state(T0)
+            state["persisted"] = True
+            state["last_tried"] = {"sha": tip, "at": cron.iso(at(0))}
+            state["regressions"] = [
+                {"name": f"cmd_d.e2e@cmux2{n}", "p95": 30.0, "base": 20.0, "confirmed": True,
+                 "range": {"good": f"{n:x}" * 40, "bad": f"{n + 1:x}" * 40, "skip": [], "steps": 0}} for n in (1, 3)]
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump(state, f)
+            out = os.path.join(d, "plan.out")
+            with mock.patch.object(cron, "now_utc", lambda: at(1)), mock.patch.object(cron, "git", git), \
+                    mock.patch.object(cron, "measure_version", lambda sha: 2), \
+                    mock.patch.object(cron, "commit_on_branch", lambda repo, t, known=(): cron.is_sha), \
+                    mock.patch.object(cron, "tree_published", tree_published), \
+                    mock.patch.object(cron, "range_commits", lambda g, b: commits), \
+                    mock.patch.object(cron, "tip_due", lambda state, t: False), \
+                    mock.patch.object(cron, "github_busy", lambda *a: None), \
+                    mock.patch.object(cron, "frame_pacing_runs", lambda repo: []), \
+                    mock.patch.object(cron, "is_ancestor", lambda a, b: False), \
+                    mock.patch.object(cron, "supported_parts_at", lambda sha: ["motion"]), \
+                    contextlib.redirect_stdout(io.StringIO()) as said:
+                cron.cmd_plan(argparse.Namespace(repo="o/r", dir=d, tip="HEAD", yield_mode="queued", no_mac=False,
+                                                 output=out))
+            plan = dict(line.split("=", 1) for line in open(out).read().splitlines())
+        self.assertEqual(plan["action"], "none", plan.get("reason"))
+        self.assertEqual(len(looked), cron.BISECT_TREE_LOOKUPS, "two ranges of 500 commits, none with a tree")
+        self.assertEqual(len(set(looked)), len(looked), "each commit is looked up once a tick")
+        self.assertIn("the rest wait for the next tick", said.getvalue())
+
+
 
 class DiffBenchVersionTests(unittest.TestCase):
     """Lead 2026-10-24: a change to the diff benches at the measured commit is version-gated like split-spring.sh."""
