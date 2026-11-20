@@ -120,7 +120,10 @@ import Testing
         #expect(abs(back.height - button) <= 0.5, "\(label), back button \(back.height)")
         #expect(abs(back.width - button) <= 0.5, "\(label), back button is square: \(back.width)")
         #expect(abs(bar.height - omnibar) <= 0.5, "\(label), omnibar \(bar.height)")
-        #expect(abs(pill.height - row) <= 0.5, "\(label): the tab follows the visible row")
+        // Compact's tab is 2 pt over its row: the user's tuning (2026-11-19) keeps Helium's 28 pt tab over a 24 pt sidebar
+        // row token (26 pt with the row fill), as `TabsFollowRowsTests` holds.
+        let lift: CGFloat = preset == .compact ? 2 : 0
+        #expect(abs(pill.height - (row + lift)) <= 0.5, "\(label): the tab follows the visible row")
         let expectedBar: CGFloat = preset == .cozy ? 34 : (28 / 0.9 * CGFloat(preset.omnibarScaleFactor) * 2).rounded() / 2
         #expect(abs(bar.height - expectedBar) <= 0.5, "\(label): the bar is Helium's 28 pt at Compact, Chrome's 34 at Default")
     }
@@ -153,8 +156,11 @@ import Testing
         #expect(iconInk.lowerBound >= -0.01, "\(preset): the tab icon draws inside its box")
         // The arrow's ink starts on the icon box, or as near as the toolbar's leading edge lets it: a large density's
         // button is wider than its 13 pt ink, and the button stays inside the toolbar (OmnibarStyle.toolbarInset).
-        #expect(arrowLeft >= iconLeft - 0.75, "\(preset): back arrow ink starts at \(arrowLeft), first tab icon box at \(iconLeft)")
-        #expect(arrowLeft <= iconLeft + 0.75 || OmnibarStyle.toolbarInset == 0,
+        // Within one device pixel of the window (0.75 pt at 2x as before): a 1x display draws the ink centered on whole
+        // points, so a half-point inset lands a point off there (Compact and Spacious on the fleet's 1x display workers).
+        let pixel = 0.25 + 1 / max(window.backingScaleFactor, 1)
+        #expect(arrowLeft >= iconLeft - pixel, "\(preset): back arrow ink starts at \(arrowLeft), first tab icon box at \(iconLeft)")
+        #expect(arrowLeft <= iconLeft + pixel || OmnibarStyle.toolbarInset == 0,
                 "\(preset): back arrow ink starts at \(arrowLeft), first tab icon box at \(iconLeft)")
         // Compact's 14 pt reload ink calibrates the shared toolbar box (0.617 of its side); the back arrow's
         // keyline fills 0.6 of that box. Both scale from Default, independently of the small-icon fallback.
