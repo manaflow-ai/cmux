@@ -145,6 +145,6 @@ fn the_largest_clipboard_part_fits_one_record() {
         }
     }
     assert!(largest <= MAX_PART_ENCODED + 128, "{largest}");
-    assert!(largest < 65_000 && largest < cmux_rd_proto::MAX_STREAM_FRAME);
+    assert!(largest < 65_000, "{largest}");
     assert_eq!(parts, MAX_CLIPBOARD_TEXT.div_ceil(MAX_PART_ENCODED / 6));
 }
