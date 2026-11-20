@@ -93,6 +93,10 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if args.first().is_some_and(|a| a == crate::bg_hook::HOOK_ARG) {
         return crate::bg_hook::main(args.get(1).map(std::path::PathBuf::from));
     }
+    // A rewritten background shell starting its command as a daemon task (`bg_hook::rewrite`).
+    if args.first().is_some_and(|a| a == crate::bg_hook::START_ARG) {
+        return crate::bg_hook::start_main(args.get(1..).unwrap_or_default());
+    }
     #[cfg(target_os = "linux")]
     if args.first().is_some_and(|a| a == "__remote-sandbox-canary-unix") {
         return crate::linux_sandbox::keeper::canary_unix(args.get(1..).unwrap_or_default())

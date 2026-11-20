@@ -441,15 +441,16 @@ async fn local_sessions_get_the_browser_and_computer_use_tools_and_skills() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// The hook process itself (`bg_hook.rs`), as Claude Code runs it: a background Bash call in a
-/// chat whose MCP config has the `acpmux` server is denied with the exact `bg_start` call, and
-/// the same call again runs (the server may be unusable); with no such server, with no config,
-/// or for a foreground call it prints nothing and the shell runs.
+/// The hook process itself (`bg_hook.rs`), as Claude Code runs it: a lead's background Bash call
+/// in a chat whose MCP config has the `acpmux` server is rewritten to start the same command as a
+/// daemon task (every time, never turned away); a subagent's is denied with the exact `bg_start`
+/// call, and the same call again runs (the server may be unusable); with no such server, with no
+/// config, or for a quick foreground call it prints nothing and the shell runs.
 #[test]
 fn the_background_shell_hook_denies_only_where_bg_start_is_there() {
     let home = std::env::temp_dir().join(format!("acpmux-bg-hook-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
-    let run_command = |session: &str, background: bool, command: &str| -> String {
+    let call = |session: &str, background: bool, command: &str, agent: Option<&str>| -> String {
         use std::io::Write;
         let mut child = daemon_env::acpmux(&home.join("scratch"))
             .arg("__bg-hook")
@@ -462,12 +463,19 @@ fn the_background_shell_hook_denies_only_where_bg_start_is_there() {
             .stdout(std::process::Stdio::piped())
             .spawn()
             .unwrap();
-        let input = json!({"tool_name": "Bash", "cwd": "/srv/app", "tool_input":
+        let mut input = json!({"tool_name": "Bash", "cwd": "/srv/app", "tool_input":
             {"command": command, "run_in_background": background}});
+        if let Some(agent) = agent {
+            input["agent_id"] = json!(agent);
+            input["agent_type"] = json!("Explore");
+        }
         child.stdin.take().unwrap().write_all(input.to_string().as_bytes()).unwrap();
         let out = child.wait_with_output().unwrap();
         assert!(out.status.success(), "the hook failed: {out:?}");
         String::from_utf8(out.stdout).unwrap()
+    };
+    let run_command = |session: &str, background: bool, command: &str| {
+        call(session, background, command, Some("a0"))
     };
     let run = |session: &str, background: bool| run_command(session, background, "npm run dev");
     let config = |session: &str, servers: Value| {
@@ -477,6 +485,18 @@ fn the_background_shell_hook_denies_only_where_bg_start_is_there() {
     };
     config("with", json!({"acpmux": {"command": "acpmux", "args": ["acpmux-mcp"]}}));
     config("without", json!({"other": {"command": "x"}}));
+    // The lead's background shell starts a daemon task, the first time and every time.
+    for _ in 0..2 {
+        let started: Value =
+            serde_json::from_str(&call("with", true, "npm run dev", None)).unwrap();
+        let out = &started["hookSpecificOutput"];
+        assert!(out.get("permissionDecision").is_none(), "{started}");
+        let command = out["updatedInput"]["command"].as_str().unwrap();
+        assert!(command.contains(" __bg-start '/srv/app' 'npm run dev' ''; then\n"), "{command}");
+        assert!(command.ends_with("\nnpm run dev\nfi"), "{command}");
+    }
+    assert_eq!(call("without", true, "npm run dev", None), "", "no acpmux server: it runs");
+    // A subagent's is turned away once, naming bg_start.
     let deny: Value = serde_json::from_str(&run("with", true)).unwrap();
     let out = &deny["hookSpecificOutput"];
     assert_eq!(out["permissionDecision"], "deny", "{deny}");
@@ -486,24 +506,28 @@ fn the_background_shell_hook_denies_only_where_bg_start_is_there() {
         "{reason}"
     );
     assert!(reason.ends_with("send this same Bash call again and it runs as asked."), "{reason}");
-    assert_eq!(run("with", true), "", "the same call again: the native background shell runs");
+    assert!(!run("with", true).contains("deny"), "the same call again: the shell runs");
     assert!(run("with", true).contains("deny"), "after it ran, a new call is turned away again");
-    assert!(run("with", true).is_empty());
+    assert!(!run("with", true).contains("deny"));
     // Two calls retried in turn (A, B, A, B): each repeat still gets through.
     let (a, b) = (|| run_command("with", true, "a"), || run_command("with", true, "b"));
     assert!(a().contains("deny") && b().contains("deny"));
-    assert_eq!((a(), b()), (String::new(), String::new()), "interleaved retries were stranded");
-    assert_eq!(run_command("with", false, "git status"), "", "a quick foreground call runs");
+    assert!(!a().contains("deny") && !b().contains("deny"), "interleaved retries were stranded");
+    assert_eq!(call("with", false, "git status", None), "", "a quick foreground call runs");
     // A known-slow foreground call is sent to the background once; the same call again runs.
-    let slow: Value = serde_json::from_str(&run("with", false)).unwrap();
+    let slow: Value = serde_json::from_str(&call("with", false, "npm run dev", None)).unwrap();
     let reason = slow["hookSpecificOutput"]["permissionDecisionReason"].as_str().unwrap();
     assert!(reason.contains("a dev server"), "{reason}");
     assert!(reason.contains("mcp__acpmux__bg_start"), "{reason}");
-    assert_eq!(run("with", false), "", "the same slow call again runs in the foreground");
-    let slow: Value = serde_json::from_str(&run("without", false)).unwrap();
+    assert_eq!(call("with", false, "npm run dev", None), "", "the same slow call again runs");
+    let slow: Value = serde_json::from_str(&call("without", false, "npm run dev", None)).unwrap();
     let reason = slow["hookSpecificOutput"]["permissionDecisionReason"].as_str().unwrap();
     assert!(reason.contains("run_in_background: true"), "{reason}");
-    assert_eq!(run("without", true), "", "no acpmux server: the native background shell runs");
-    assert_eq!(run("no-config", true), "", "no config: the native background shell runs");
+    assert!(!run("without", true).contains("deny"), "no acpmux server: the shell runs");
+    assert_eq!(
+        call("no-config", true, "x", None),
+        "",
+        "no config: the native background shell runs"
+    );
     let _ = std::fs::remove_dir_all(&home);
 }
