@@ -410,7 +410,7 @@ test("two profiles that run one binary get one update card, named for that binar
     await act(async () => page.provider.setHarnesses({ loading: false, problem: null, harnesses }));
     await settle();
     const element = card(page.container)!;
-    expect(ids(element).sort()).toEqual(["claude", "cmux"]);
+    expect(ids(element)).toEqual(harnesses.map((row) => row.id));
     const cards = [...element.querySelectorAll<HTMLElement>("[data-harness-update-card]")];
     expect(cards.map((node) => node.dataset.harnessUpdateCard)).toEqual(["claude"]);
     expect(cards[0]!.textContent).toContain("Claude Code");
