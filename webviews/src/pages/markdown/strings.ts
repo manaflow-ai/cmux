@@ -1,6 +1,13 @@
 // Every string key the markdown page uses. Values live in `Localizable.xcstrings` next to this file;
 // scripts/pages/gen-strings.mjs writes `generated/strings.json`.
 export const L = {
+  sourceUses: "sourceUses.label",
+  sourceUsesReply: "sourceUses.reply",
+  sourceUsesEmpty: "sourceUses.empty",
+  sourceUsesMore: "sourceUses.more",
+  sourceUsesFailed: "sourceUses.failed",
+  sourceUsesRevealFailed: "sourceUses.revealFailed",
+  sourceUsesLimit: "sourceUses.limit",
   title: "page.title",
   comment: "comment.marker",
   deleteComment: "comment.delete",

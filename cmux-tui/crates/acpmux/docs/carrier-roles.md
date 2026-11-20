@@ -122,7 +122,7 @@ also checks its teammates against. acpmux maps each verb to its own methods:
 | (handshake) | `initialize` | Always. |
 | `agent-session-attach` | `_acpmux/attach` | Always hidden (`visible: false`): a teammate never changes the owner's unread or seen state. |
 | `agent-session-observe` | `_acpmux/attach`, `_acpmux/info` | The same hidden attach, and the chat's detail. |
-| `agent-session-events` | `_acpmux/events`, `_acpmux/attachment` | Page through the log, and the images its prompts sent. |
+| `agent-session-events` | `_acpmux/events`, `_acpmux/attachment`, `_acpmux/source_uses` | Page through the log, its recorded source uses, and the images its prompts sent. |
 | `agent-session-prompt` | `session/prompt` | Carries the author acpmux stamps from the header (below); a prompt naming any other author has it replaced. |
 | `agent-session-cancel` | `session/cancel` (request or notification) | The Web's cancel rules apply; it stops the owner's turn too (below). |
 | `agent-session-detach` | `_acpmux/detach` | |

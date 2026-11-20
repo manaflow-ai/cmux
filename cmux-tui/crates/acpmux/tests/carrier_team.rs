@@ -306,6 +306,7 @@ async fn a_teammate_granted_chat_a_works_a_and_is_refused_b_and_every_other_verb
         method::MUX_ATTACH,
         method::MUX_INFO,
         method::MUX_EVENTS,
+        method::MUX_SOURCE_USES,
         method::MUX_ATTACHMENT,
         method::SESSION_PROMPT,
         method::SESSION_CANCEL,

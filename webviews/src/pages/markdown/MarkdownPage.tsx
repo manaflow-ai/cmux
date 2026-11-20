@@ -14,6 +14,8 @@ import type { MarkdownReadOnlyReason } from "./host";
 import type { MarkdownMode, MarkdownStore } from "./store";
 import type { ReadingSettingsActions } from "./ReadingSettings";
 import { toolbarFileLabel } from "./toolbarFile";
+import { SourceUses } from "./SourceUses";
+import type { SourceUsesClient } from "./sourceUses";
 
 /** The note that says why a file is read only. */
 const READ_ONLY_NOTE: Record<MarkdownReadOnlyReason, string> = {
@@ -30,6 +32,7 @@ const LinkOverlayHost = lazy(() => import("./linkOverlays").then((module) => ({ 
 const ReadingSettings = lazy(() => import("./ReadingSettings").then((module) => ({ default: module.ReadingSettings })));
 
 export interface MarkdownPageProps {
+  sourceUsesClient?: SourceUsesClient;
   store: MarkdownStore;
   strings: Strings;
   /** Mounts the rich text editor into its element (and unmounts it on null). */
@@ -50,6 +53,7 @@ export interface MarkdownPageProps {
 }
 
 export function MarkdownPage({
+  sourceUsesClient,
   store,
   strings,
   editorRef,
@@ -225,6 +229,14 @@ export function MarkdownPage({
             onChange={(text) => store.setSource(text)}
           />
         ) : null}
+        {state.phase === "ready" && !state.navigating && state.config?.sourceUses === true && sourceUsesClient && (
+          <SourceUses
+            key={`${state.config.path}:${state.config.sourceContext ?? ""}:${state.revision}`}
+            path={state.config.path}
+            client={sourceUsesClient}
+            strings={strings}
+          />
+        )}
       </main>
       {overlays ? (
         <Suspense fallback={null}>

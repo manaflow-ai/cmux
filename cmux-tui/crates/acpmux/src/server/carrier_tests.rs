@@ -65,6 +65,7 @@ const TEAM_ALLOWED: &[&str] = &[
     "_acpmux/attach",
     "_acpmux/info",
     "_acpmux/events",
+    "_acpmux/source_uses",
     "_acpmux/attachment",
     "session/prompt",
     "session/cancel",

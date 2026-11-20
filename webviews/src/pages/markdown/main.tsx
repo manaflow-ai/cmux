@@ -328,7 +328,8 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
       // file again from disk), `open` a path typed in the omnibar (`text`), Cmd-K is `link`,
       // Cmd-= / Cmd-- / Cmd-0 the text size; `goToTop` is the `markdownGoToTop` action (a user's
       // `g g` in a read-only page).
-      onCommand: ({ command, text }) => {
+      onCommand: (message) => {
+        const { command, text } = message;
         if (isMarkdownZoomCommand(command)) zoom.run(command);
         else if (command === "save") void store.save();
         else if (command === "back") void router.go(-1);
@@ -340,6 +341,7 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
         else if (command === "resetTableWidths") editor?.resetTableWidths();
         else if (command === "resetContextTableWidths") editor?.resetTableWidthsAt(contextTarget);
         else if (command === "comments") editor?.setComments(parseComments(parseJSON(text)));
+        else if (command === "sourceContext") store.updateSourceContext(message);
         // Cmd-F, Cmd-G, Shift-Cmd-G, Cmd-E and Hide Find Bar: the app's shared find actions.
         else if (command === "find") find.show(text);
         else if (command === "findNext") find.next();
@@ -392,6 +394,7 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
   createRoot(root).render(
     <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
       <MarkdownPage
+        sourceUsesClient={client ?? undefined}
         store={store}
         strings={strings}
         editorRef={editorRef}
