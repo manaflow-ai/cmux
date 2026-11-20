@@ -27,9 +27,17 @@ await requireBrowserLane("settings-personalization-motion-browser.test.ts", asyn
   }, 200_000);
   afterAll(async () => vite?.close());
 
-  async function open(page: Page, variant: string, width = 900) {
+  // The gallery sets its media preferences from the frame URL.
+  async function open(page: Page, variant: string, { width = 900, reducedMotion = false } = {}) {
     const port = (vite.httpServer!.address() as { port: number }).port;
-    await page.goto(`http://127.0.0.1:${port}${galleryFrame("pages.settings", { variant, width, height: 640 })}`);
+    await page.goto(
+      `http://127.0.0.1:${port}${galleryFrame("pages.settings", {
+        variant,
+        width,
+        height: 640,
+        reducedMotion: reducedMotion ? 1 : undefined,
+      })}`,
+    );
     await page.waitForSelector(".settings[data-page-shown]");
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryReady));
   }
@@ -105,11 +113,8 @@ await requireBrowserLane("settings-personalization-motion-browser.test.ts", asyn
       await page.locator(appearance).click();
       expect(await height()).toBe(0);
 
-      await page.evaluate(() => {
-        delete document.documentElement.dataset.cmuxMotion;
-      });
-      await page.emulateMedia({ reducedMotion: "reduce" });
-      expect(await transitions()).toBe("all");
+      await open(page, "general", { reducedMotion: true });
+      expect(await transitions()).not.toContain("grid-template-rows");
       await page.locator(parent).click();
       expect(await height()).toBeGreaterThan(0);
       expect(await children.evaluate((element) => element.getAnimations().length)).toBe(0);
@@ -150,10 +155,10 @@ await requireBrowserLane("settings-personalization-motion-browser.test.ts", asyn
       expect(await fill(theme)).toBe(selected);
       expect(await scale(theme)).toBe(1);
 
-      await page.emulateMedia({ reducedMotion: "reduce" });
-      await sounds.hover();
+      await open(page, "personalization-sounds", { reducedMotion: true });
+      await theme.hover();
       await page.mouse.down();
-      expect(await scale(sounds)).toBe(1);
+      expect(await scale(theme)).toBe(1);
       await page.mouse.up();
     } finally {
       await browser.close();
@@ -193,7 +198,7 @@ await requireBrowserLane("settings-personalization-motion-browser.test.ts", asyn
     const browser = await webkit.launch({ headless: true, timeout: 30_000 });
     try {
       const page = await browser.newPage({ viewport: { width: 480, height: 640 } });
-      await open(page, "general", 480);
+      await open(page, "general", { width: 480 });
       await page.locator(parent).click();
       const sounds = page.locator('[data-part-link="sounds"]');
       await sounds.click();
