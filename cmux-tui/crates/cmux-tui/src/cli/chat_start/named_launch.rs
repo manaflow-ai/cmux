@@ -6,7 +6,8 @@ use serde_json::{Value, json};
 
 pub(super) fn deadline(start: &Start, began: Instant) -> Option<Instant> {
     let target = start.on.as_deref()?;
-    (start.named_machine && !start.wait && target != "here")
+    // Waiting for the first reply does not turn automatic placement into a machine name.
+    (start.named_machine && target != "here" && (!start.wait || target == "auto"))
         .then(|| began + acpmux::launch_contract::NAMED_START_LIMIT)
 }
 

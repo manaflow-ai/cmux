@@ -1,9 +1,9 @@
-public import CmuxNextActions
+import CmuxNextActions
 import Foundation
 
 /// A confirmed start on the team's VM. The chat link uses the same identity as the team publisher.
-public nonisolated enum CloudChatStartReceipt {
-    public static func fields(machine: String, name: String, session: String, host: String, agent: String,
+extension CloudStartSession {
+    nonisolated static func receipt(machine: String, name: String, session: String, host: String, agent: String,
                               workspace: String, surface: String, tab: String, stages: [(step: String, ms: Int64)],
                               team: String?, scheme: String?) -> [String: ActionResultValue] {
         var answer: [String: ActionResultValue] = [
