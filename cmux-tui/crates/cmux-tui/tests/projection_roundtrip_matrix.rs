@@ -128,7 +128,57 @@ impl Side {
 struct Machine {
     side: Side,
     socket: PathBuf,
+    /// Where the Mac dials: the socket, or on a machine of one's own the carrier in front of it.
+    dial: PathBuf,
     session: String,
+}
+
+/// The carrier a Mac reaches a machine of its own through, standing in at `at`: each connection
+/// it opens to `socket` is stamped the owner's (`carrier-role`) before the Mac's bytes pass both
+/// ways. On such a machine an unstamped local connection may not use file ops.
+fn carrier(at: &Path, socket: &Path) {
+    use std::io::{Read as _, Write as _};
+    use std::os::unix::net::{UnixListener, UnixStream};
+    let listener = UnixListener::bind(at).unwrap();
+    let socket = socket.to_path_buf();
+    std::thread::spawn(move || {
+        for mac in listener.incoming() {
+            let Ok(mac) = mac else { return };
+            let socket = socket.clone();
+            std::thread::spawn(move || {
+                let Ok(mut machine) = UnixStream::connect(&socket) else { return };
+                if machine
+                    .write_all(b"{\"cmd\":\"carrier-role\",\"id\":0,\"vmk\":\"owner\"}\n")
+                    .is_err()
+                {
+                    return;
+                }
+                // The stamp's one-line answer, read a byte at a time so none of the Mac's is taken.
+                let mut answer = Vec::new();
+                let mut byte = [0u8; 1];
+                while machine.read_exact(&mut byte).is_ok() && byte[0] != b'\n' {
+                    answer.push(byte[0]);
+                }
+                assert!(
+                    String::from_utf8_lossy(&answer).contains("\"ok\":true"),
+                    "carrier-role: {}",
+                    String::from_utf8_lossy(&answer)
+                );
+                let (Ok(mut mac_in), Ok(mut machine_out)) = (mac.try_clone(), machine.try_clone())
+                else {
+                    return;
+                };
+                let up = std::thread::spawn(move || {
+                    let _ = std::io::copy(&mut mac_in, &mut machine_out);
+                    let _ = machine_out.shutdown(std::net::Shutdown::Write);
+                });
+                let mut mac_out = mac;
+                let _ = std::io::copy(&mut machine, &mut mac_out);
+                let _ = mac_out.shutdown(std::net::Shutdown::Write);
+                let _ = up.join();
+            });
+        }
+    });
 }
 
 impl Machine {
@@ -137,13 +187,19 @@ impl Machine {
         let acpmux = at.join("acpmux");
         fs::create_dir_all(&acpmux).unwrap();
         fs::set_permissions(&acpmux, fs::Permissions::from_mode(0o700)).unwrap();
+        let socket = at.join("m.sock");
+        let dial = if Self::own() { at.join("carrier.sock") } else { socket.clone() };
         let machine = Self {
             side,
-            socket: at.join("m.sock"),
+            socket,
+            dial,
             session: format!("projection-matrix-{}", std::process::id()),
         };
         let ensure = machine.server("ensure").output().unwrap();
         assert!(ensure.status.success(), "ensure: {}", String::from_utf8_lossy(&ensure.stderr));
+        if Self::own() {
+            carrier(&machine.dial, &machine.socket);
+        }
         machine
     }
 
@@ -249,7 +305,7 @@ fn trip_as(case: &str, projected: bool, fill: impl FnOnce(&Side, &Path)) -> Resu
         .cmux()
         .args(["link", "start-chat", "copy", "--key", &key, "--account", "leo"])
         .args(["--machine", "vm-a", "--socket"])
-        .arg(&machine.socket)
+        .arg(&machine.dial)
         .arg("--local")
         .arg(&local)
         .arg("--work-root")
@@ -322,7 +378,7 @@ impl Trip {
             .mac
             .cmux()
             .args(["link", "sync", "pull", "--socket"])
-            .arg(&self.machine.socket)
+            .arg(&self.machine.dial)
             .arg(&self.local)
             .arg(&self.folder)
             .output()
