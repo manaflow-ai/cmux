@@ -323,7 +323,7 @@ pub fn parse_time(name: &'static str, text: &str) -> Result<u32, YouTubeError> {
                 _ => 1,
             };
             total = total.saturating_add(number(count)?.saturating_mul(scale));
-            rest = &tail[unit.len_utf8()..];
+            rest = tail.get(unit.len_utf8()..).ok_or_else(bad)?;
         }
         total
     };
@@ -346,7 +346,10 @@ pub fn parse_quality(text: &str) -> Result<u32, YouTubeError> {
 
 fn strip_prefix_ignore_case<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
     let head = text.get(..prefix.len())?;
-    head.eq_ignore_ascii_case(prefix).then(|| &text[prefix.len()..])
+    if !head.eq_ignore_ascii_case(prefix) {
+        return None;
+    }
+    text.get(prefix.len()..)
 }
 
 /// The YouTube sites.

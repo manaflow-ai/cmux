@@ -149,8 +149,8 @@ fn read_words(args: &[String]) -> Result<Words, UsageError> {
     let mut words = Words::default();
     let mut index = 0;
     let mut literal = false;
-    while index < args.len() {
-        let word = args[index].as_str();
+    while let Some(word) = args.get(index) {
+        let word = word.as_str();
         index += 1;
         if literal || !word.starts_with("--") {
             if words.value.replace(word.to_owned()).is_some() {
@@ -177,7 +177,7 @@ fn read_words(args: &[String]) -> Result<Words, UsageError> {
             "--end" => words.end = Some(value("--end")?),
             "--quality" => words.quality = Some(value("--quality")?),
             "--light" | "--dark" if inline.is_none() => {
-                let side = &flag[2..];
+                let side = flag.strip_prefix("--").unwrap_or(flag);
                 if words.side.is_some_and(|chosen| chosen != side) {
                     return Err(usage_error(
                         "pick one of --light or --dark: each run sets one side of the pair",
