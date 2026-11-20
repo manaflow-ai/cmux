@@ -176,6 +176,7 @@ VARIANTS = {
     "nocvdl": {"env": {"CMUX_NEXT_CEF_EXTRA_SWITCHES": "disable-features=CVDisplayLinkBeginFrameSource"}},
     # The paint-to-present pipeline: unlocked from vsync (the floor), and CoreAnimation overlays off (GL composite).
     "vsyncoff": {"env": {"CMUX_NEXT_CEF_EXTRA_SWITCHES": "disable-gpu-vsync:disable-frame-rate-limit"}},
+    "vsynconly": {"env": {"CMUX_NEXT_CEF_EXTRA_SWITCHES": "disable-gpu-vsync"}},
     "nooverlay": {"env": {"CMUX_NEXT_CEF_EXTRA_SWITCHES": "disable-mac-overlays"}},
     "int20ms": {"interval": 0.02},
     "int500ms": {"interval": 0.5},
@@ -609,6 +610,7 @@ def measure_agentpane(phase, pid, pane, streams=()):
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL), sample_path)
     expected = agent_expected_text(opts.samples)
     dispatch, trips = [], []
+    cpu_before = tree_cpu(pid)
     send_start = time.monotonic()
     for index, key in enumerate(expected):
         deadline = send_start + index * opts.interval
@@ -620,6 +622,14 @@ def measure_agentpane(phase, pid, pane, streams=()):
                          "late_ms": (started - deadline) * 1000,
                          "rpc_ms": (time.monotonic() - started) * 1000, "reply": reply})
         trips.append(dispatch[-1]["rpc_ms"])
+    typing_wall = time.monotonic() - send_start
+    cpu_typed = tree_cpu(pid)
+    # EXPERIMENT: CPU while nothing is typed (the frame-pacing arms must not burn CPU at rest), 3 s after the keys.
+    time.sleep(1.0)
+    rest_from, rest_start = tree_cpu(pid), time.monotonic()
+    time.sleep(3.0)
+    cpu_pct = {"typing": cpu_share(cpu_before, cpu_typed, typing_wall),
+               "rest": cpu_share(rest_from, tree_cpu(pid), time.monotonic() - rest_start)}
     typing = wait(lambda: (lambda report: report if report.get("keys", 0) >= len(expected) else None)(
         rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=5) or {}), 15, step=0.25)
     typing = typing or (rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=10) or {})
@@ -648,7 +658,7 @@ def measure_agentpane(phase, pid, pane, streams=()):
                   "driver_p99_rpc_ms": pct(trips).get("p99"),
                   "frames": frames, "frame_metrics": frame_report, "frames_over_16ms": frame_report.get("frames_over_16ms"),
                   "frame_bursts": frame_report.get("frame_bursts"), "main_thread_cost": frame_report.get("main_thread_cost"),
-                  "hangs": hangs,
+                  "hangs": hangs, "cpu_pct": cpu_pct,
                   "streams": [stream.calls for stream in streams], "main_profile": main_profile,
                   "complete": bool(verdict["complete"] and cleared)})
     results["runs"].append(entry)
@@ -793,6 +803,42 @@ def cpu_seconds(pid):
     for x in parts:
         total = total * 60 + x
     return total
+
+
+def tree_cpu(root):
+    """EXPERIMENT (lane typing-opus-idle): CPU seconds of `root` and every descendant, by Chromium process type
+    (`--type=`: renderer, gpu-process, utility; the app itself is `app`), plus WindowServer's."""
+    out = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,cputime=,command="], capture_output=True, text=True).stdout
+    rows, children = {}, {}
+    for line in out.splitlines():
+        parts = line.split(None, 3)
+        if len(parts) < 3:
+            continue
+        pid, ppid = int(parts[0]), int(parts[1])
+        seconds = 0.0
+        for x in parts[2].replace("-", ":").split(":"):
+            seconds = seconds * 60 + float(x)
+        command = parts[3] if len(parts) > 3 else ""
+        kind = re.search(r"--type=(\S+)", command)
+        rows[pid] = (seconds, kind.group(1) if kind else ("WindowServer" if command.endswith("WindowServer") else "app"))
+        children.setdefault(ppid, []).append(pid)
+    totals, stack = {}, [root]
+    while stack:
+        pid = stack.pop()
+        if pid in rows:
+            seconds, kind = rows[pid]
+            totals[kind] = totals.get(kind, 0.0) + seconds
+        stack.extend(children.get(pid, []))
+    ws = window_server_pid()
+    if ws in rows:
+        totals["WindowServer"] = rows[ws][0]
+    return totals
+
+
+def cpu_share(before, after, wall):
+    """Percent of one core per process type between two tree_cpu reads."""
+    return {kind: round(100 * (after.get(kind, 0.0) - before.get(kind, 0.0)) / wall, 1)
+            for kind in sorted(set(before) | set(after))} if wall > 0 else {}
 
 
 def window_server_pid():
