@@ -1,0 +1,38 @@
+{
+  "title": "React to Agents (appearance.agentGlow, off by default): a terminal agent works (a faint wash in its machine's color), asks for permission (a soft glow at the window's edges), then stops (calm). Record it with: cmux-ci capture SHA --state scripts/cmux-next/media/states/agent-glow.json --video --pr N",
+  "settings": {
+    "appearance": {
+      "agentGlow": true
+    }
+  },
+  "steps": [
+    {"title": "Launch", "wait": 3},
+    {"title": "Workspace Glow", "cmux": ["workspace", "new", "--name", "Glow"], "wait": 2},
+    {"title": "Show it", "cmux": ["workspace", "name:Glow", "focus"], "wait": 1.5, "record": true},
+    {"title": "Calm: no agent works or waits", "shot": {"name": "calm"}, "wait": 1},
+    {
+      "title": "A Claude agent in this terminal starts a turn",
+      "cmux": ["workspace", "name:Glow", "screen", "current", "pane", "current", "tab", "current", "terminal", "current", "write", "--text",
+        "cmux agent hook emit --source claude --event UserPromptSubmit --payload-json '{\"session_id\":\"glow-capture\"}'; clear\r"],
+      "daemon": true,
+      "wait": 3
+    },
+    {"title": "Working: a faint wash", "shot": {"name": "working"}, "wait": 1},
+    {
+      "title": "It asks for permission",
+      "cmux": ["workspace", "name:Glow", "screen", "current", "pane", "current", "tab", "current", "terminal", "current", "write", "--text",
+        "cmux agent hook emit --source claude --event PermissionRequest --payload-json '{\"session_id\":\"glow-capture\",\"tool_name\":\"Bash\"}'; clear\r"],
+      "daemon": true,
+      "wait": 3
+    },
+    {"title": "Needs you: the glow", "shot": {"name": "needs-you"}, "wait": 2},
+    {
+      "title": "Its turn ends",
+      "cmux": ["workspace", "name:Glow", "screen", "current", "pane", "current", "tab", "current", "terminal", "current", "write", "--text",
+        "cmux agent hook emit --source claude --event Stop --payload-json '{\"session_id\":\"glow-capture\"}'; clear\r"],
+      "daemon": true,
+      "wait": 3
+    },
+    {"title": "Calm again", "shot": {"name": "calm-again"}}
+  ]
+}
