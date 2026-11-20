@@ -196,6 +196,7 @@ mod models_view;
 pub(crate) mod native_messaging;
 mod page_first;
 mod paging;
+pub(crate) mod permission_modes;
 mod personal_stats;
 mod policy_gate;
 mod policy_mode;
@@ -227,11 +228,13 @@ pub(crate) fn prompt_attribution_mark(
 }
 mod prompt_sender;
 mod protected_hold;
+// The account's rate limit holds every turn of a chat until its reset.
 mod queue;
 mod queue_admission;
 mod queue_edit;
+pub(crate) mod rate_hold;
 pub(crate) mod reply_fit;
-pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
+pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender, on_peer_host};
 pub(crate) use queue::approved_prompts_error;
 pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_key};
 mod credentials;
@@ -568,7 +571,12 @@ fn message_key(id: &str, target: Option<&str>, peer: Option<&str>) -> String {
 #[derive(Debug, Clone)]
 pub struct RemoteRef {
     pub peer: String,
-    pub summary: Value,
+    /// The peer's row, packed (`peer_row.rs`), sharing its text with the table's row. The hub's
+    /// event ring holds up to 8,192 events, and an outage of a peer announces every row of it:
+    /// as a parsed `Value` each held a tree several times the row's text, and a host with ~100
+    /// sessions and peers that came and went grew about 55 MB a minute. A connection parses it
+    /// as it sends it, and frees it then.
+    pub summary: PeerRow,
 }
 
 impl RemoteRef {
@@ -983,6 +991,10 @@ pub struct Hub {
     /// The harnesses whose `known_models` entry is that disk copy, not a report of this
     /// daemon's: the probe still runs for them.
     pub(super) acp_from_disk: StdMutex<std::collections::HashSet<String>>,
+    /// What each ACP harness's startup probe's `session/new` answered about a new chat's choices,
+    /// by profile name: its `modes` and `configOptions`, as sent. A `_acpmux/harnesses` row's
+    /// `reported` falls back to it until a chat of the harness reports (`start_mode.rs`).
+    pub(super) probed_choices: StdMutex<HashMap<String, (Option<Value>, Option<Value>)>>,
     /// Model lists from Claude Code's and Codex's own CLIs, by profile name
     /// (`hub/live_models.rs`): richer than `known_models` (efforts, fast).
     pub(super) live_models: StdMutex<HashMap<String, Vec<crate::live_models::LiveModel>>>,
@@ -1464,6 +1476,7 @@ impl Hub {
             known_models: StdMutex::new(HashMap::new()),
             acp_cached: StdMutex::new(HashMap::new()),
             acp_from_disk: StdMutex::new(std::collections::HashSet::new()),
+            probed_choices: StdMutex::new(HashMap::new()),
             live_models: StdMutex::new(HashMap::new()),
             live_rechecks: StdMutex::new(HashMap::new()),
             live_ages: StdMutex::new(live_ages::LiveAges::default()),
@@ -1995,6 +2008,8 @@ impl Hub {
             auto_resume_restored: AtomicBool::new(false),
             protected_hold: AtomicBool::new(false),
             auto_resume: Default::default(),
+            rate_hold: Default::default(),
+            rate_note: Default::default(),
             turn_lock: Mutex::new(()),
             releasing: AtomicBool::new(false),
             turn_claimed: AtomicBool::new(false),

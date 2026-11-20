@@ -251,19 +251,23 @@
       "reads no picker output and so waits on one fixed label (scripts/ci/runner_routing_table.py). All three",
       "lists only shrink."
     ],
-    "pr-red-checks-comment.yml#comment": "portable-checks",
     "ci-guards.yml#guard-status": "portable-checks",
-    "pr-checks.yml#size": "portable-checks",
-    "pr-checks.yml#ui-review": "portable-checks",
-    "pr-checks.yml#split": "portable-checks",
     "cmux-next-fast-gates.yml#resolve": "portable-checks",
     "cmux-next-fast-gates.yml#post": "portable-checks",
-    "web-validation.yml#web-validation": "portable-checks",
+    "cmux-next-fast-gates.yml#receipt": "portable-checks",
     "agent-brands.yml#swift-test": {
       "class": "apple-swift-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
     },
     "app-ffi-release.yml#build": "apple-app-build",
+    "fast-checks.yml#checks-mac": {
+      "class": "apple-swift-tests",
+      "placement_followup": "setup=kernel-free dispatch (#46651) reads vars.CI_LIGHT_LANE_RUNNER directly; take the label from a placement job"
+    },
+    "measure-swift-typecheck.yml#typecheck": {
+      "class": "apple-swift-tests",
+      "placement_followup": "runs-on reads vars.CI_LIGHT_LANE_RUNNER / CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
+    },
     "billing.yml#ios-billing": "apple-ios",
     "auth-refresh-tests.yml#auth-refresh-tests": {
       "class": "apple-swift-tests",
@@ -479,6 +483,7 @@
     "nightly.yml#visual-gate-nightly-verdict": {"class": "portable-checks"},
     "nightly.yml#report-visual-gate-nightly": {"class": "portable-checks"},
     "nightly.yml#report-nightly-failure": {"class": "portable-checks"},
+    "nightly.yml#report-nightly-fix-forward": {"class": "portable-checks"},
     "nightly.yml#republish-nightly-next": {"class": "portable-checks"},
     "nightly.yml#runner-preflight": {"class": "portable-checks"},
     "nightly.yml#decide": {"class": "portable-checks"},
