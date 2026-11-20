@@ -55,6 +55,9 @@ import urllib.request
 from pathlib import Path
 from typing import Callable
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
+
 BRANCH = "feat-cmux-next"
 SHA = re.compile(r"^[0-9a-f]{40}$")
 WORKFLOW_PATH = ".github/workflows/fast-checks.yml"
@@ -84,35 +87,31 @@ class Rejected(Exception):
 Fetch = Callable[[str], bytes]
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001, D102
-        return None
-
-
 def github_fetch(token: str, api: str = "https://api.github.com") -> Fetch:
-    opener = urllib.request.build_opener(_NoRedirect)
-
     def fetch(path: str) -> bytes:
         request = urllib.request.Request(f"{api}/{path.lstrip('/')}", headers={
             "Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-ci-receipt"})
+        # Each call ends by its deadline as a whole, not per socket wait (tests/test_ci_no_bare_urlopen.py).
         try:
-            with opener.open(request, timeout=30) as response:
-                return response.read()
-        except urllib.error.HTTPError as error:
-            location = error.headers.get("Location") if error.code in (301, 302, 303, 307, 308) else None
-            if location and location.startswith("https://"):
-                # A job log answers with a signed storage URL; it must be read without the token (urllib would
-                # send the Authorization header on, which the storage host refuses).
-                try:
-                    with urllib.request.urlopen(urllib.request.Request(
-                            location, headers={"User-Agent": "cmux-ci-receipt"}), timeout=60) as response:
-                        return response.read()
-                except (urllib.error.URLError, TimeoutError) as again:
-                    raise Rejected(f"the redirect for {path} did not answer: {again}") from again
-            raise Rejected(f"GitHub answered {error.code} for {path}") from error
-        except (urllib.error.URLError, TimeoutError) as error:
+            status, body, headers = deadline_http.request(request, 30, follow_redirects=False)
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
             raise Rejected(f"GitHub did not answer for {path}: {error}") from error
+        if status < 300:
+            return body
+        location = headers.get("Location") if status in (301, 302, 303, 307, 308) else None
+        if location and location.startswith("https://"):
+            # A job log answers with a signed storage URL; it must be read without the token (the storage
+            # host refuses an Authorization header).
+            try:
+                again, body, _ = deadline_http.request(urllib.request.Request(
+                    location, headers={"User-Agent": "cmux-ci-receipt"}), 60)
+            except (urllib.error.URLError, TimeoutError, OSError) as error:
+                raise Rejected(f"the redirect for {path} did not answer: {error}") from error
+            if again < 300:
+                return body
+            raise Rejected(f"the redirect for {path} answered {again}")
+        raise Rejected(f"GitHub answered {status} for {path}")
     return fetch
 
 
@@ -429,6 +428,12 @@ def produce_rust_workspaces(work: Path, head: str, base: str) -> int:
 
 def produce(args: argparse.Namespace) -> int:
     repo = Path(git(Path.cwd(), "rev-parse", "--show-toplevel").stdout.strip())
+    # The receipt names a commit's tree, and the merge is made from that commit: a tracked edit not in it would be
+    # neither tested nor named, so refuse it rather than claim a tree the edit is not in.
+    dirty = git(repo, "status", "--porcelain", "--untracked-files=no").stdout.strip()
+    if dirty:
+        log(f"ci-receipt: the checkout has tracked changes not in HEAD ({dirty.splitlines()[0]}...); commit them first")
+        return 2
     head = tested_head(repo)
     with tempfile.TemporaryDirectory(prefix="ci-receipt-") as scratch:
         work = Path(scratch) / "merge"

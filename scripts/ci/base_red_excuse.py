@@ -83,7 +83,7 @@ import time
 import urllib.parse
 import urllib.request
 import zipfile
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from collections import Counter
 from typing import Callable, NamedTuple
@@ -3466,9 +3466,13 @@ def validate_guard_routes(repo: str, sha: str, guard: dict, children: list[dict]
         raise Refused(f"'{name}': no routed failure report to compare with its children")
 
 
-def validate_run_rollup(name: str, children: list[dict], repo: str = HOME_REPO) -> None:
+def validate_run_rollup(name: str, children: list[dict], repo: str = HOME_REPO, rollup: dict | None = None) -> None:
     """Run rollup NAME (ci-status), red, needs a failed job under it (its needs, ROLLUPS_FILE): a red run whose only
     failed jobs are outside them did not turn it red, so its own verdict did, and nothing here can compare that."""
+    if rollup is not None and refused_at_setup(rollup):
+        # A runner that refused the rollup itself (a pool job hook, run 44690650796) is not "no failed job under its
+        # needs": that sent readers hunting for a missing child (claude-sr2-coord, 2026-11-20).
+        raise Refused(f"'{name}' was refused at setup: re-run")
     under = rollups(repo)["run"][name]["under"]
     if not any(child.get("conclusion") == "failure" and any(matches(m, child.get("name", "")) for m in under.values())
                for child in children):
@@ -4574,7 +4578,7 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                 raise Refused(f"run {run}: its aggregate check failed with no failed job to compare with the base")
             validate_guard_routes(repo, sha, guard, children, github)
         for rollup in run_rollups:
-            validate_run_rollup(rollup["name"], children, repo)
+            validate_run_rollup(rollup["name"], children, repo, rollup)
     if checks:
         latest = latest_checks(repo, sha, github)
         aggregate_jobs = []
@@ -4605,7 +4609,7 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                 if job.get("conclusion") != "failure":
                     raise Refused(f"'{name}': exact aggregate job is {job.get('conclusion')}, not failure")
                 if name in rollups(repo)["run"]:
-                    aggregate_runs.append((name, job["run_id"]))
+                    aggregate_runs.append((name, job))
                     continue
                 aggregate_jobs.append(job)
             else:
@@ -4628,11 +4632,14 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                         continue
                     job = job_for(repo, newer, sha, github)
                 jobs[job["id"]] = job
-        for name, run in aggregate_runs:
+        for name, rollup in aggregate_runs:
+            if refused_at_setup(rollup):
+                raise Refused(f"'{name}' was refused at setup: re-run")
+            run = rollup["run_id"]
             found = head_jobs(repo, sha, [run], [], github, ignored=ignored, seen=seen)
             if not found:
                 raise Refused(f"run {run}: its aggregate check failed with no failed job to compare with the base")
-            validate_run_rollup(name, found, repo)
+            validate_run_rollup(name, found, repo, rollup)
             jobs.update((job["id"], job) for job in found)
         for guard in aggregate_jobs:
             found = head_jobs(repo, sha, [guard["run_id"]], [], github, ignored=ignored, seen=seen)
@@ -4703,6 +4710,55 @@ def replaced_while_waiting(repo: str, jobs: list[dict], found: dict, github, cac
     return None
 
 
+# A search the cap cut short is not a search read to its end (2026-11-19, cmuxterm-hq#14126): base_verdicts stopped at
+# BASE_JOB_READS with runs of the window still unread, and judge() said "no feat-cmux-next run of its workflow has a
+# verdict for it to compare with", the words of a window read whole, so the red stopped as the PR's own. Each
+# judgement counted every list against the cap, kept ones too, so a retry read the same 40 and said the same. Now a list
+# already kept (a completed attempt's: the jobs cache, the settled store) costs no read and is not counted, the cut is
+# recorded (SEARCH_CUT), and a cut search says "incomplete" with a retry time: CUT_RETRY_S, glaeda-gh's sweep window,
+# by which the lists read now are kept and the next judgement reads past them.
+SEARCH_CUT = "search-cut"
+CUT_RETRY_S = 600
+INCOMPLETE = "incomplete: read"  # cut_refusal's words; merge_hold reads them as a timed retry, never a red
+
+
+def kept_run_jobs(repo: str, run: dict) -> list[dict] | None:
+    """RUN's kept job list (base_run_jobs' disk cache, or the settled store) when it has one, else None: no read."""
+    where = jobs_cache()
+    if (where is not None and run.get("status") == "completed" and isinstance(run.get("run_attempt"), int)
+            and re.fullmatch(r"[0-9TZ:.+-]{10,40}", str(run.get("updated_at") or ""))):
+        stamp = re.sub(r"[^0-9]", "", run["updated_at"])
+        key = where / f"{repo.replace('/', '--')}-{int(run['id'])}-{run['run_attempt']}-{stamp}.json"
+        try:
+            kept = json.loads(key.read_text())
+            if (isinstance(kept, list) and all(isinstance(job, dict) and job.get("run_id") == run["id"] for job in kept)
+                    and time.time() - key.stat().st_mtime < JOBS_CACHE_SECONDS):
+                return kept
+        except (OSError, ValueError):
+            pass
+    settled = settled_answer(f"repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")
+    if settled is NOT_KEPT:
+        return None
+    jobs = [found for page in (settled if isinstance(settled, list) else [settled]) if isinstance(page, dict)
+            for found in page.get("jobs") or []]
+    for job in jobs:
+        if job.get("run_id") is None:
+            job["run_id"] = run["id"]
+    return jobs
+
+
+def search_cut(job_reads: dict, *workflows) -> int | None:
+    """The job lists read before the cap cut a base search of any of WORKFLOWS short, or None when none was cut."""
+    cut = [job_reads[(SEARCH_CUT, workflow)] for workflow in workflows if (SEARCH_CUT, workflow) in job_reads]
+    return max(cut) if cut else None
+
+
+def cut_refusal(name: str, base: str, read: int) -> str:
+    at = (datetime.now(timezone.utc) + timedelta(seconds=CUT_RETRY_S)).strftime("%H:%MZ")
+    return (f"'{name}': {INCOMPLETE} {read} job lists of {base} runs of its workflow (at most {BASE_JOB_READS} a "
+            f"judgement) and none had a verdict for it, with older runs still unread; not a verdict: retry after {at}")
+
+
 def base_verdicts(repo: str, workflow, name: str, github, evidence: "Evidence", base_jobs: dict,
                   job_reads: dict, suites: SuiteChecks | None = None):
     """(run, job) for each completed BASE run with a verdict for job NAME, newest first, read lazily: the window of
@@ -4719,10 +4775,13 @@ def base_verdicts(repo: str, workflow, name: str, github, evidence: "Evidence", 
         if base_jobs.get(candidate_run["id"]) is None:
             if not may_hold(suites, runs, index, name, verdict=True):
                 continue  # its suite has no verdict for NAME: no job read, so none counted (the sweep limit's note)
-            if job_reads.get(workflow, 0) >= BASE_JOB_READS:
+            kept = kept_run_jobs(repo, candidate_run)
+            if kept is None and job_reads.get(workflow, 0) >= BASE_JOB_READS:
+                job_reads[(SEARCH_CUT, workflow)] = job_reads.get(workflow, 0)  # runs were left unread (search_cut)
                 break
-            job_reads[workflow] = job_reads.get(workflow, 0) + 1
-            base_jobs[candidate_run["id"]] = base_run_jobs(repo, candidate_run, github)
+            if kept is None:
+                job_reads[workflow] = job_reads.get(workflow, 0) + 1
+            base_jobs[candidate_run["id"]] = kept if kept is not None else base_run_jobs(repo, candidate_run, github)
         found = next((found for found in base_jobs[candidate_run["id"]] if found.get("name") == name), None)
         if found is not None and replaced_while_waiting(repo, base_jobs[candidate_run["id"]], found, github,
                                                         REPLACED_READS):
@@ -4910,6 +4969,8 @@ GUARD_WORKFLOWS = {
         "portable-placement": _PLACE,
         "hot-route": _PLACE,
         "ci-guard-group": "judged step by step against the base by its own rule (GUARD_GROUP_JOB)",
+        "release-notary": "skipped on a pull request (its `if:`): it judges a push to the branch on its own "
+                          "(guards_new_reds.py --tip), so no pull request's red is its",
         "rust-notices-tree": _PRODUCT,
         "pr-red-checks": _PUBLISH,
     },
@@ -5019,6 +5080,12 @@ PACKAGE_JOBS = {
                   "cmux-tui/crates/cmux-transport/", "cmux-tui/crates/cmux-wg/",
                   # cmux-mobile-link-ffi depends on cmux-window-rules (#43111)
                   "cmux-tui/crates/cmux-window-rules/", "schemas/remote-tab/",
+                  # cmux-mobile-link and cmux-mobile-host send the dev build's space (cmux-build-space, #43648),
+                  # which reads the bundle rule from cmux-agent-pane-policy; its `testing` feature adds cmux-scope
+                  "cmux-tui/crates/cmux-build-space/", "cmux-tui/crates/cmux-agent-pane-policy/",
+                  "cmux-tui/crates/cmux-scope/", "cmux-tui/crates/cmux-unix-socket/",
+                  # cmux-agent-pane-policy's bundle rule tests read the shared build-identity vectors
+                  "schemas/build-identity/",
                   # cmux-wg's smoltcp is the vendored copy ([patch.crates-io] in cmux-next-ios/rust)
                   "cmux-tui/vendor/smoltcp/",
                   # cmux-mobile-host's tests read the Mac's lane policy to keep the two in step
@@ -8295,6 +8362,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             if shared:
                 audit.append(why_not)  # a setup red other PRs share (other_pr_setup_verdict)
                 continue
+            if (cut := search_cut(job_reads, workflow, base_workflow)) is not None:
+                raise Refused(cut_refusal(name, base, cut))
             dispatch = base_dispatch(repo, base, workflow_info, evidence.runs(workflow), github)
             raise Refused(f"'{name}': no {base} run of its workflow has a verdict for it to compare with "
                           f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists, "
