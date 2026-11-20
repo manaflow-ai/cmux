@@ -719,6 +719,17 @@ impl Acpmux {
             Ok(Ok(v)) if v.get("stopReason").and_then(Value::as_str) == Some("withdrawn") => {
                 Err("steer: withdrawn before the agent read it".into())
             }
+            // A turn end, not a read: Claude Code answers `steered` when it read
+            // the steer; acpmux ends a steer the turn ended first with the turn's
+            // own answer (another stop reason), and the steer was never read.
+            // codex-acp answers every steer at the turn's end (logged when sent).
+            Ok(Ok(v))
+                if v.get("stopReason")
+                    .and_then(Value::as_str)
+                    .is_some_and(|r| r != "steered") =>
+            {
+                Err(format!("{STEER_UNREAD_AT_END} ({})", v["stopReason"]))
+            }
             // Claude Code: `steered` at its echo; codex-acp: its own answer.
             Ok(Ok(_)) => Ok(()),
             Ok(Err(e)) => Err(format!("steer: {e}")),

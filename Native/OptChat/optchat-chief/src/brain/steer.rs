@@ -194,6 +194,12 @@ impl Brain {
         let steer = self.steering.remove(at);
         let current = self.phase == Phase::Running
             && self.state.turn.as_ref().is_some_and(|t| t.key == steer.key);
+        // A turn end answered a steer logged when sent (codex-acp answers
+        // every steer so): delivered as before.
+        let result = match result {
+            Err(e) if steer.logged && e.starts_with(crate::acpmux::STEER_UNREAD_AT_END) => Ok(()),
+            other => other,
+        };
         match result {
             Ok(()) if steer.logged => {}
             Ok(()) => {
@@ -222,8 +228,14 @@ impl Brain {
                     }
                 ));
                 // A steer a stop ended after it was written may still wait
-                // unread in the harness (acpmux's `stopped_unread`).
-                if e.contains("stopped before the agent read it") {
+                // unread in the harness (acpmux's `stopped_unread`), and one
+                // its turn's end answered was never read: before 2026-11-20 the
+                // latter was logged as read and never answered (bench burst5:
+                // three messages lost when the Chief stopped its turn while
+                // they were steered in and unread).
+                if e.contains("stopped before the agent read it")
+                    || e.starts_with(crate::acpmux::STEER_UNREAD_AT_END)
+                {
                     self.steer_left = Some(steer.key.clone());
                 }
                 for mut item in steer.items.into_iter().rev() {
