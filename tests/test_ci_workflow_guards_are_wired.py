@@ -57,6 +57,10 @@ UNWIRED: set[str] = {
     # scripts/install-axe-ci.sh's sha256 refusal and reads ios-e2e.yml only to check it calls that script, not the
     # Homebrew tap. Run it by hand when either changes. Exit: as below.
     "tests/test_install_axe_ci.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (kept manual under the 2026-10-23 no-new-CI rule, lifted 2026-11-18). It evaluates every PR- and
+    # merge-queue-reachable runs-on, runner input and env against the reserved cmux-gcp-nightly(-jit)-x64 labels.
+    # Run it by hand when a PR-triggered or reusable workflow's runner changes. Exit: as below.
+    "tests/test_ci_nightly_labels_reserved.py",
     # lane = "manual" (kept manual under the 2026-10-23 no-new-CI rule, lifted 2026-11-18). It checks pool reads against .github/runners.json and that
     # copy against main's; run it by hand when a pool read or the pools change. Exit: as below.
     "tests/test_ci_runner_pools_copy.py",
