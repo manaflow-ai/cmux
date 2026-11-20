@@ -148,6 +148,8 @@ function checkDelivery(
   const held = new Set<string>();
   const visible = new Set<string>();
   const classified = new Set<string>();
+  const owed = new Set<string>();
+  const delivered = new Set<string>();
   for (const event of events) {
     const msg = event.msg;
     if (event.kind === "inbox" && msg.surgeHeld === true) {
@@ -157,9 +159,20 @@ function checkDelivery(
     }
     if (event.kind === "bridge_delivered" || event.kind === "user_message") visible.add(msg.promptId);
     if (event.kind === "inbox_triaged") {
-      for (const item of msg.items ?? []) classified.add(item.promptId);
+      for (const item of msg.items ?? []) {
+        expect(held.has(item.promptId)).toBe(true);
+        expect(classified.has(item.promptId)).toBe(false);
+        expect(["needs_this_session", "needs_its_owner", "already_handled", "noise"]).toContain(item.category);
+        classified.add(item.promptId);
+        if (!item.repeatOf && (item.category === "needs_this_session" || item.category === "needs_its_owner")) {
+          expect(typeof msg.digestPromptId).toBe("string");
+          owed.add(msg.digestPromptId);
+        }
+      }
+      if (typeof msg.digestDelivered === "string") delivered.add(msg.digestDelivered);
     }
   }
+  for (const id of owed) expect(delivered.has(id)).toBe(true);
   for (const id of source) {
     expect(held.has(id) || visible.has(id)).toBe(true);
     if (held.has(id)) {
