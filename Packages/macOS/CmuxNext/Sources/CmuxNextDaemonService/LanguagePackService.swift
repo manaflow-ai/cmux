@@ -85,13 +85,24 @@ public final class LanguagePackService {
                 // an older answer and briefly show the wrong language; the observation loop will
                 // request the current one after this await returns.
                 guard (appLanguage.code ?? systemLanguage) == language else { return }
-                activated = language
                 // task-owner: awaited here; opens the pack's bundles off the main thread (each a folder listing)
                 await Task.detached(priority: .userInitiated) { Bundle.activateLanguagePack(root: root) }.value
+                // The setting can also change during activation. Undo the stale activation before
+                // the next observation starts the current language's request.
+                guard (appLanguage.code ?? systemLanguage) == language else {
+                    await Task.detached(priority: .userInitiated) { Bundle.deactivateLanguagePack() }.value
+                    activated = nil
+                    return
+                }
+                activated = language
                 logger.info("language pack \(language, privacy: .public) active")
             case .bundled:
                 guard (appLanguage.code ?? systemLanguage) == language else { return }
                 await deactivate(for: language)
+                guard (appLanguage.code ?? systemLanguage) == language else {
+                    activated = nil
+                    return
+                }
             case .unavailable(let code, let message):
                 logger.error("language pack \(language, privacy: .public): \(code, privacy: .public) \(message, privacy: .public)")
             }
