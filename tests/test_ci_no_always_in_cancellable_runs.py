@@ -50,7 +50,7 @@ RUST_WORKSPACES = """\
         name: rust workspaces
         needs: [workspace]
         if: ${{ CONDITION }}
-        runs-on: blacksmith-8vcpu-ubuntu-2404
+        runs-on: ubuntu-24.04
         steps:
           - if: always()
             run: "true"
