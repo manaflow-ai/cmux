@@ -62,7 +62,7 @@ const dialog = (designScale as unknown as { dialog: { padding: number } }).dialo
 test("the popup radius is the reference launcher's 18, one number native and web", () => {
   expect(named("popup").px).toBe(18);
   const tokens = repo("Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/DesignTokens.swift");
-  expect(tokens).toContain(`static let radiusPopup: CGFloat = ${named("popup").px}`);
+  expect(tokens).toContain(`nonisolated static let radiusPopup: CGFloat = ${named("popup").px}`);
   expect(repo("webviews/src/pages/shared/desktop.css")).toContain(
     `--ds-radius-popup: var(--cmux-popup-radius, ${named("popup").px}px);`,
   );
@@ -88,7 +88,7 @@ test("a popup row is concentric with the popup, native and web", () => {
 test("the native and web dialog are one radius: the button corner plus one padding", () => {
   expect(dialog.padding).toBe(12);
   const tokens = repo("Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/DesignTokens.swift");
-  expect(tokens).toContain(`static let dialogPadding: CGFloat = ${dialog.padding}`);
+  expect(tokens).toContain(`nonisolated static let dialogPadding: CGFloat = ${dialog.padding}`);
   // Web: corner = --ds-radius-control (the host's button corner) + --ui-dialog-padding (the scale's dialog padding).
   const popup = repo("webviews/src/ui/popupSurface.css");
   expect(popup).toContain("--ui-dialog-padding: var(--ds-dialog-padding);");

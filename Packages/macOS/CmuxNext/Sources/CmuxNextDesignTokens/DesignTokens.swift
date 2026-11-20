@@ -21,11 +21,11 @@ public struct DesignTokens: Sendable {
     public static let controlPrimary: CGFloat = 32
 
     public static let radiusControl: CGFloat = 6
-    public static let radiusPopup: CGFloat = 18
+    public nonisolated static let radiusPopup: CGFloat = 18
     public static let radiusCard: CGFloat = 14
     public static let radiusComposer: CGFloat = 18
     /// A dialog's padding on every side (design-scale.json `dialog.padding`); its corner is the button corner plus it.
-    public static let dialogPadding: CGFloat = 12
+    public nonisolated static let dialogPadding: CGFloat = 12
 
     public static let glassPlainTint: CGFloat = 0.6
     public static let glassPlainBlur: CGFloat = 20
