@@ -753,10 +753,11 @@ async fn run_control(
                             path_epoch.send_modify(|epoch| *epoch += 1);
                         }
                         // Send at once, so the spray opens this side's NAT
-                        // toward the peer's new address.
+                        // toward the peer's new address (even while parked:
+                        // the peer that says it moved is awake).
                         let current = lock(&net).clone();
                         if let Some(net) = current {
-                            let _ = net.refresh().await;
+                            let _ = net.reach_moved_peer().await;
                         }
                     }
                     Ok(RoamMessage::Ack { generation: acked }) => {

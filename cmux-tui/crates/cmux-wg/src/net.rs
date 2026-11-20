@@ -258,14 +258,23 @@ impl WgNet {
         self.send_rebind(Rebind::Keep).await
     }
 
+    /// The peer said it moved to a new network: send toward it at once, as
+    /// `refresh` does, even while held. A peer that says it moved is awake,
+    /// and the send opens this side's NAT toward its new address.
+    pub async fn reach_moved_peer(&self) -> Result<(), WgError> {
+        self.send_rebind(Rebind::PeerMoved).await
+    }
+
     /// Hold the tunnel for a peer that goes silent on purpose (a phone the OS
     /// suspends in the background), or release it with `None`. While held,
     /// nothing goes out on its own: no TCP keepalive probe, no WireGuard
-    /// keepalive (persistent or passive), so a parked peer's radio is never
-    /// woken; and a TCP connection waits `hold` for the peer instead of its
-    /// user timeout. Data the owner writes, a rebind's reassertion and a
-    /// handshake retry still go out. Release once the peer was heard again
-    /// ([`crate::tcp_stack::TcpStack::set_hold`] says why).
+    /// keepalive (persistent or passive), and no reassertion after this
+    /// side's own rebind or refresh (it goes out at the release instead), so
+    /// a parked peer's radio is never woken; and a TCP connection waits
+    /// `hold` for the peer instead of its user timeout. Data the owner
+    /// writes, `reach_moved_peer` and a handshake retry still go out. Release
+    /// once the peer was heard again ([`crate::tcp_stack::TcpStack::set_hold`]
+    /// says why).
     pub async fn hold(&self, hold: Option<Duration>) -> Result<(), WgError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.commands
@@ -371,6 +380,8 @@ enum Rebind {
     Underlay(Box<dyn Underlay>),
     Socket(UdpSocket),
     Keep,
+    /// The peer moved: reassert even while held.
+    PeerMoved,
 }
 
 struct Driver {
@@ -397,6 +408,8 @@ struct Driver {
     datagram_ports: HashMap<u16, mpsc::Sender<Datagram>>,
     watchdog: Watchdog,
     wakeups: Arc<AtomicU64>,
+    /// A rebind while held owes the peer its reassertion at the release.
+    reassert_at_release: bool,
     scratch: Vec<u8>,
 }
 
@@ -456,6 +469,7 @@ impl Driver {
             datagram_ports: HashMap::new(),
             watchdog: Watchdog::default(),
             wakeups: Arc::new(AtomicU64::new(0)),
+            reassert_at_release: false,
             scratch: vec![0u8; BUFFER_BYTES + 32],
         })
     }
@@ -745,6 +759,9 @@ impl Driver {
                 self.stack.set_hold(hold);
                 let keepalive = self.config.persistent_keepalive.is_some_and(|seconds| seconds > 0);
                 self.schedule.set_persistent_keepalive(keepalive && hold.is_none());
+                if hold.is_none() && std::mem::take(&mut self.reassert_at_release) {
+                    self.reassert();
+                }
                 let _ = reply.send(());
             }
             Command::BindDatagram { port, reply } => {
@@ -759,6 +776,7 @@ impl Driver {
                 self.send_datagram(from_port, to, &payload, priority);
             }
             Command::Rebind { rebind, reply } => {
+                let moved_peer = matches!(rebind, Rebind::PeerMoved);
                 match rebind {
                     Rebind::Underlay(underlay) => {
                         self.underlay.replace(underlay);
@@ -770,9 +788,15 @@ impl Driver {
                         let peer = self.underlay.peer_hint();
                         self.underlay.replace(Box::new(SocketPath::new(socket, peer)));
                     }
-                    Rebind::Keep => {}
+                    Rebind::Keep | Rebind::PeerMoved => {}
                 }
-                self.reassert();
+                // A held peer is suspended: a send now would wake it (or be
+                // lost), so this side's own move waits for the release.
+                if self.stack.hold().is_some() && !moved_peer {
+                    self.reassert_at_release = true;
+                } else {
+                    self.reassert();
+                }
                 let _ = reply.send(());
             }
             Command::Shutdown => {}

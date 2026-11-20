@@ -109,8 +109,9 @@ async fn a_held_connection_survives_five_silent_minutes_and_works_after_release(
     pair.sim.set_link(addr(PHONE), addr(MAC), link(true));
     tokio::time::sleep(Duration::from_secs(5 * 60)).await;
     pair.sim.set_link(addr(PHONE), addr(MAC), link(false));
-    // The phone comes back: a rebind reasserts the session (a new handshake,
-    // the old session is past 120 s), then its first data goes out.
+    // The phone comes back: its first data starts a new handshake (the old
+    // session is past 120 s; a refresh while still held waits for the
+    // release), then goes out.
     pair.phone.refresh().await.unwrap();
     assert!(alive(&mut pair.dialed, &mut pair.accepted).await, "the held connection ended");
     pair.phone.hold(None).await.unwrap();
