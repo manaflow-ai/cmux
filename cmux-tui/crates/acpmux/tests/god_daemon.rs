@@ -1654,9 +1654,11 @@ const SIZE_ALL_LOGS: Duration = Duration::from_secs(1800);
 const OLDER_PAGE_LIMIT: u64 = 2000;
 const OLDER_PAGE_BYTES: u64 = 1 << 20;
 
-/// The repeated settled turns after a coord-sim chat's settlement: twice the largest page read,
-/// so every newest page is ordinary history (a quarter of the history when that is less).
-const TAIL_BYTES: u64 = 2 * OLDER_PAGE_BYTES;
+/// The repeated settled turns after a coord-sim chat's settlement (a quarter of the history when
+/// that is less). A page counts only transcript kinds' bytes, so 1 MiB of them reaches back past
+/// several MiB of log: at 2 MiB the 1 GB and 4 GB newest pages were 26% and 37% settlement
+/// records. 16 MiB keeps every newest page ordinary history.
+const TAIL_BYTES: u64 = 16 * OLDER_PAGE_BYTES;
 
 /// The kinds the pane's attach asks a local acpmux for (attachParams.ts `plainAttach`).
 fn app_attach(id: &str) -> Value {
