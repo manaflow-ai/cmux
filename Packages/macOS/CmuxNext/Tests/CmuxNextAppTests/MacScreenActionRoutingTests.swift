@@ -47,6 +47,42 @@ struct MacScreenActionRoutingTests {
         #expect(pages.pendingScopes.isEmpty)
     }
 
+    /// `cmux action run macScreen.open --device X --autoconnect` (a control-socket run, as a CLI read-back of a
+    /// release build sends it) opens the tab connecting, with no Connect click: the bound effect asks for `.view` and
+    /// confirms the record, so `makeHubPane` resumes the scope. Without `autoconnect`, or with it false, the same run
+    /// still opens at Connect. Leo, 2026-11-16: "At least like Linux to Mac".
+    @Test func autoconnectOpensASocketRunConnecting() throws {
+        let pages = pages()
+        let opened = OpenedTabs()
+        let actions = MacScreenActions(pages: pages, selectedTab: { nil }, providerKey: { id, _ in id },
+                                       open: { record, _, byPerson in
+                                           // As the app's open does (AgentHandlers): the tab's record, then its view.
+                                           let key = "tab-\(opened.items.count)"
+                                           opened.items.append(key)
+                                           pages.prepare(key, record: try record(), byPerson: byPerson)
+                                           _ = pages.makeView(for: key)
+                                       }, refusal: { Issue.record("refused: \($0)") })
+        let registry = ActionRegistry.standard()
+        actions.bind(into: registry)
+        defer { opened.items.forEach(pages.tabClosed) }
+        func run(_ autoconnect: ActionValue?) throws -> SessionScope? {
+            var arguments: [String: ActionValue] = ["device": .string(device)]
+            arguments["autoconnect"] = autoconnect
+            var invocation = ActionInvocation(arguments: arguments, origin: .cli)
+            invocation.viaControlSocket = true
+            #expect(registry.perform("macScreen.open", invocation: invocation))
+            let key = try #require(opened.items.last)
+            return try #require(pages.tab(key)?.pane?.model.hub).resumeScope
+        }
+        #expect(try run(nil) == nil, "default off: the tab waits at Connect")
+        #expect(try run(.bool(false)) == nil)
+        #expect(pages.pendingScopes.isEmpty)
+        #expect(try run(.bool(true)) == .view, "autoconnect: the tab connects to view")
+        #expect(pages.pendingScopes.isEmpty, "the tab took the scope it asked for")
+        #expect(try run(.string("true")) == .view, "--autoconnect=true")
+        #expect(opened.items.count == 4)
+    }
+
     @Test func aMalformedDeviceDoesNotBecomeTheHomePage() {
         let pages = pages()
         for value: ActionValue in [.string(""), .string("ssh:studio"), .int(1)] {
@@ -89,6 +125,19 @@ struct MacScreenActionRoutingTests {
         let looser = [HubDevice(id: device, name: "mac-mini"), HubDevice(id: other, name: "Mac Mini")]
         #expect((try? MacScreenActions.deviceID(named: "Mac-Mini", among: looser)) == device)
         #expect(failure { _ = try MacScreenActions.deviceID(named: "mac mini!", among: looser) }?.contains(other) == true)
+    }
+
+    /// One machine registered several times under one name (a reinstall, an old hub record): the one registration
+    /// that is online and shares is the one a person means. Two live ones, or none, stay ambiguous.
+    @Test func aNameWithOneLiveRegistrationOpensThatOne() {
+        let stale = HubDevice(id: device, name: "studio")
+        let live = HubDevice(id: other, name: "studio", macScreenShared: true, online: true)
+        let notShared = HubDevice(id: third, name: "studio", online: true)
+        #expect((try? MacScreenActions.deviceID(named: "Studio", among: [stale, live, notShared])) == other)
+        var second = live
+        second.id = third
+        #expect(failure { _ = try MacScreenActions.deviceID(named: "Studio", among: [stale, live, second]) } != nil)
+        #expect(failure { _ = try MacScreenActions.deviceID(named: "Studio", among: [stale, notShared]) } != nil)
     }
 
     @Test func anUnknownNameFailsListingEveryDeviceAsNameAndID() {
@@ -205,4 +254,9 @@ struct MacScreenActionRoutingTests {
             #expect(actions.viewer(invocation) === firstPane)
         }
     }
+}
+
+/// The tabs an `open` made, in order (autoconnectOpensASocketRunConnecting).
+@MainActor private final class OpenedTabs {
+    var items: [String] = []
 }
