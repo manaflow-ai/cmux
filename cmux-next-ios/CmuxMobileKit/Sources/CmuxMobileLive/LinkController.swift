@@ -366,8 +366,13 @@ public final class LinkController {
     static func useApplicationBackgroundTasks() {
         #if canImport(UIKit)
         beginBackgroundTask = { name in
-            let task = UIApplication.shared.beginBackgroundTask(withName: name)
-            return { UIApplication.shared.endBackgroundTask(task) }
+            let ending = BackgroundTaskEnding()
+            // iOS runs out of time with the park's FFI call still out: end
+            // the task there and then, or iOS ends the app.
+            let task = UIApplication.shared.beginBackgroundTask(withName: name) { ending.end() }
+            guard task != .invalid else { return {} }
+            ending.arm { UIApplication.shared.endBackgroundTask(task) }
+            return { ending.end() }
         }
         #endif
     }
@@ -604,5 +609,32 @@ final class RaceOnce: @unchecked Sendable {
             defer { done = true }
             return !done
         }
+    }
+}
+
+/// One background task's end, run once: by its release when the work is
+/// done, or by iOS's expiration handler when the time runs out, whichever is
+/// first. The expiration ends the task on the spot and waits on nothing (the
+/// park's FFI call may still be out): iOS ends an app whose expired task is
+/// still open.
+@MainActor
+final class BackgroundTaskEnding {
+    private var ended = false
+    private var endTask: (() -> Void)?
+
+    /// `endTask` ends the task; it runs at once if the end came first.
+    func arm(_ endTask: @escaping () -> Void) {
+        if ended {
+            endTask()
+        } else {
+            self.endTask = endTask
+        }
+    }
+
+    func end() {
+        guard !ended else { return }
+        ended = true
+        endTask?()
+        endTask = nil
     }
 }

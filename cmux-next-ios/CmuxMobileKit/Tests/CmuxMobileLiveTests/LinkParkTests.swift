@@ -234,3 +234,27 @@ private final class ParkingDialer: MacLinkDialer, @unchecked Sendable {
         #expect(!machine.isParked)
     }
 }
+
+/// The park's background task ends once, whichever comes first: iOS's
+/// expiration (the park's FFI call still out) or the release.
+@MainActor
+@Suite struct BackgroundTaskEndingTests {
+    @Test func theExpirationEndsTheTaskOnceAndTheLateReleaseDoesNothing() {
+        let ending = BackgroundTaskEnding()
+        var ends = 0
+        ending.arm { ends += 1 }
+        ending.end()
+        #expect(ends == 1, "the expiration ends the task on the spot")
+        ending.end()
+        #expect(ends == 1, "the release after the expiration ends nothing more")
+    }
+
+    @Test func anEndBeforeTheTaskIsArmedEndsItAsItArms() {
+        let ending = BackgroundTaskEnding()
+        var ends = 0
+        ending.end()
+        ending.arm { ends += 1 }
+        ending.end()
+        #expect(ends == 1)
+    }
+}
