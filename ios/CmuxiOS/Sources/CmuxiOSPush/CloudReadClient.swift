@@ -1,3 +1,4 @@
+public import CMUXAuthCore
 import CMUXMobileCore
 public import CmuxFeedPushCore
 public import Foundation
@@ -39,11 +40,15 @@ public protocol FeedItemReading: Sendable {
 public struct CloudReadClient: FeedItemReading {
     public let baseURL: URL
     public let tokens: any InstallTokenProviding
+    /// The build's cloud data space (a dev build's `X-Cmux-Build-Space`); a misconfigured dev build's
+    /// calls throw ``CMUXBuildSpaceError`` before they are sent.
+    public let buildSpace: CMUXBuildSpaceState
     private let session = CmxCredentialedHTTPSession()
 
-    public init(baseURL: URL, tokens: any InstallTokenProviding) {
+    public init(baseURL: URL, tokens: any InstallTokenProviding, buildSpace: CMUXBuildSpaceState = .nightly) {
         self.baseURL = baseURL
         self.tokens = tokens
+        self.buildSpace = buildSpace
     }
 
     public func approveRequest(item: String) async throws -> FeedApproveRequest? {
@@ -73,6 +78,7 @@ public struct CloudReadClient: FeedItemReading {
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try buildSpace.apply(to: &request)
         request.httpBody = try JSONSerialization.data(withJSONObject: ["op": op, "params": params])
         request.timeoutInterval = 15
         let body: Data
