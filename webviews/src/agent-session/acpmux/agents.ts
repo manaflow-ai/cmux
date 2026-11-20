@@ -17,6 +17,7 @@ const KNOWN: Record<string, string> = {
   qwen: "Qwen Code",
   copilot: "GitHub Copilot",
   aider: "Aider",
+  deepseek: "DeepSeek",
   // acpmux's built-in Chief harness (`cmux chief acp`): the person's chat with their Chief.
   chief: "Chief",
 };

@@ -537,6 +537,11 @@ path = "tests/test_ci_rd_host_macos_route.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_receipt.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Checks scripts/ci/ci_receipt.py: which cmux-ci test runs count as the fast gates and rust workspaces for a tree (fe0f9593); run python3 tests/test_ci_receipt.py yourself after changing it (about 1 s, no network)."
+
+[[test]]
 path = "tests/test_ci_recovery_runs_after_a_timeout.py"
 lane = "linux-guard"
 
