@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+"""The in-tree pages verifier's live parts on one step's app (split-spring-terminal.py --suite=in-tree-verify).
+
+Runs each part with the step's --app and --tag, in its own folder under --out, and writes --json:
+{parts: {name: {cmd, exit, seconds, report}}, host, macos}. Always exits 0 (each part's exit is in the JSON).
+
+  cef-intree      cef-layer-verify.py --mode intree --input debug (C3, C2 page_views, C17 select/context rows)
+  cef-off         cef-layer-verify.py --mode off --input debug (C20: today's path with the switch off)
+  overlay-on      overlay-live-check.py --in-tree on (C2, C10)
+  overlay-off     overlay-live-check.py --in-tree off (C20)
+  live-on         in-tree-live-checks.py --in-tree on (C2 census, C7 focus steal, C9 shortcuts, C16 prompts)
+  live-off        in-tree-live-checks.py --in-tree off (C20)
+  prompts         permission-prompts-live.py --engines chromium with CMUX_IN_TREE_PAGES=1 (C16)
+
+--parts picks a subset (comma-separated).
+"""
+import json, os, platform, subprocess, sys, time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+argv = sys.argv[1:]
+
+
+def value(name, default=None):
+    for i, a in enumerate(argv):
+        if a == name and i + 1 < len(argv):
+            return argv[i + 1]
+        if a.startswith(name + "="):
+            return a.split("=", 1)[1]
+    return default
+
+
+APP, TAG = value("--app"), value("--tag")
+OUT = value("--out") or "/tmp/in-tree-verify"
+REPORT = value("--json") or os.path.join(OUT, "report.json")
+PARTS = (value("--parts") or "cef-intree,overlay-on,live-on,prompts,cef-off,overlay-off,live-off").split(",")
+os.makedirs(OUT, exist_ok=True)
+
+# overlay-live-check.py finds the app in DerivedData by tag; a cached step app lives elsewhere: link it there for the run.
+derived = os.path.expanduser(f"~/Library/Developer/Xcode/DerivedData/cmux-{TAG}/Build/Products/Debug")
+link = os.path.join(derived, f"cmux DEV {TAG}.app")
+made_link = False
+if APP and not os.path.exists(link):
+    os.makedirs(derived, exist_ok=True)
+    os.symlink(os.path.abspath(APP), link)
+    made_link = True
+
+
+def part(name):
+    folder = os.path.join(OUT, name)
+    os.makedirs(folder, exist_ok=True)
+    env = dict(os.environ)
+    report = None
+    if name in ("cef-intree", "cef-off"):
+        cmd = ["cef-layer-verify.py", "--app", APP, "--tag", TAG, "--out", folder, "--input", "debug",
+               "--mode", "intree" if name == "cef-intree" else "off"]
+    elif name in ("overlay-on", "overlay-off"):
+        cmd = ["overlay-live-check.py", "--tag", TAG, "--out", folder, "--in-tree", name.split("-")[1]]
+    elif name in ("live-on", "live-off"):
+        report = os.path.join(folder, "in-tree-live.json")
+        cmd = ["in-tree-live-checks.py", "--app", APP, "--tag", TAG, "--out", folder, "--json", report,
+               "--in-tree", name.split("-")[1]]
+    elif name == "prompts":
+        env["CMUX_IN_TREE_PAGES"] = "1"
+        cmd = ["permission-prompts-live.py", "--tag", TAG, "--app", APP, "--out", folder, "--engines", "chromium"]
+    else:
+        return {"error": f"unknown part {name}"}
+    print(f"== in-tree-verify {name}: {' '.join(cmd)}", flush=True)
+    started = time.time()
+    with open(os.path.join(folder, "stdout.log"), "w") as log:
+        proc = subprocess.Popen([sys.executable, os.path.join(HERE, cmd[0])] + cmd[1:], env=env,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        lines = []
+        for line in proc.stdout:
+            log.write(line)
+            lines.append(line.rstrip("\n"))
+            print(f"  [{name}] {line}", end="", flush=True)
+        code = proc.wait()
+    result = {"cmd": cmd, "exit": code, "seconds": round(time.time() - started, 1),
+              "rows": [l for l in lines if l.split(" ", 1)[0] in ("PASS", "FAIL", "INFO", "SKIP")][-80:], "tail": lines[-40:]}
+    for candidate in [report] + [os.path.join(folder, f) for f in ("report.json", "overlay-live.json", "cef-layer-verify.json")]:
+        if candidate and os.path.exists(candidate):
+            try:
+                with open(candidate) as f:
+                    result["report"] = json.load(f)
+                break
+            except ValueError:
+                pass
+    print(f"== in-tree-verify {name} exit {code}", flush=True)
+    return result
+
+
+results = {"parts": {}, "host": platform.node(), "macos": platform.mac_ver()[0], "app": APP, "tag": TAG}
+try:
+    for name in PARTS:
+        results["parts"][name] = part(name)
+        with open(REPORT, "w") as f:
+            json.dump(results, f, indent=1, default=str)
+finally:
+    if made_link:
+        os.unlink(link)
+print("IN-TREE-VERIFY " + json.dumps({k: v.get("exit") for k, v in results["parts"].items()}), flush=True)
+sys.exit(0)
