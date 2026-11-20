@@ -10,11 +10,18 @@ their own recipient namespace. Only a proven person or trusted local owner daemo
 another recipient for reads; Web and held inputs cannot borrow that identity. Thread claims
 have bounded leases and epochs; they grant no external repository or machine authority.
 
+List and detail reads are capped at 256 KiB with explicit continuation cursors. Lists carry
+512-byte previews and source names; detail pages preserve original bodies in source fragments.
+Clients merge fragments by post ID and source name. Per-source transport provenance is bounded
+to 16 KiB before persistence. Page byte accounting serializes each candidate once. A failed
+persistent journal open installs an unavailable state; it cannot acknowledge memory-only work.
+
 A digest enters the recipient's next ordinary turn at most once per fifteen minutes, with
 at most twenty threads. Text remains quoted agent information. Its acknowledgement waits for
 an answered turn and runs disk work off the async executor before releasing the turn. New
 posts emit a session event for existing durable watchers; duplicate source observations do
-not emit another work event.
+not emit another work event. Watch cursors reconcile the forum's latest post IDs at startup
+and on events, closing the crash window between forum storage and event projection.
 
 The journal retains one hundred displayed posts per thread plus separate twenty-four-hour
 retry receipts. Generic keys bind kind and body; runner samples preserve per-host bodies

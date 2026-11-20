@@ -229,6 +229,7 @@ pub struct Forum {
     path: Option<PathBuf>,
     journal_bytes: AtomicU64,
     compact_after: AtomicU64,
+    persistent_error: Option<String>,
 }
 
 impl Forum {
@@ -239,7 +240,22 @@ impl Forum {
             path: None,
             journal_bytes: AtomicU64::new(0),
             compact_after: AtomicU64::new(COMPACT_MIN_BYTES),
+            persistent_error: None,
         }
+    }
+
+    /// A failed persistent open must never silently accept volatile work as stored.
+    pub(crate) fn unavailable(error: String) -> Self {
+        Self { persistent_error: Some(error), ..Self::memory() }
+    }
+
+    pub(super) fn ensure_available(&self) -> Result<()> {
+        if let Some(error) = &self.persistent_error {
+            anyhow::bail!(
+                "forum.storage_unavailable: {error}; repair the journal and reopen the daemon"
+            );
+        }
+        Ok(())
     }
 
     /// The log under `root` (`<ACPMUX_HOME>/forum`), replayed.
@@ -280,6 +296,7 @@ impl Forum {
             path: Some(path),
             journal_bytes: AtomicU64::new(journal_bytes),
             compact_after: AtomicU64::new(COMPACT_MIN_BYTES),
+            persistent_error: None,
         };
         // Upgrade an accumulated journal once on open; failures leave the original intact.
         forum.compact_work(&forum.lock());
@@ -292,6 +309,7 @@ impl Forum {
 
     /// Appends `records` in one write; `durable` flushes them to disk first.
     fn write(&self, records: &[Record], durable: bool) -> Result<()> {
+        self.ensure_available()?;
         let Some(path) = &self.path else { return Ok(()) };
         let mut bytes = Vec::new();
         for record in records {

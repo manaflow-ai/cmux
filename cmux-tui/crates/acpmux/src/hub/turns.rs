@@ -529,7 +529,6 @@ impl Hub {
         // needs no cold child, and does not grant a Web caller a local forum identity.
         if control != Control::Web
             && !crate::author::awaits_owner(opts.provenance.as_ref())
-            && !opts.send_now
             && !super::queue::closing(session)
             && super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref())
                 .is_some()
@@ -538,6 +537,11 @@ impl Hub {
                 super::inbox::relay_body(text).strip_prefix(crate::forum::work::PREFIX)
             })
         {
+            if opts.send_now {
+                return Err(RpcError::invalid_params(
+                    "forum.requires_queued_delivery: typed work posts cannot use send-now or steer",
+                ));
+            }
             let input: crate::forum::work::Input = serde_json::from_str(wire)
                 .map_err(|e| RpcError::invalid_params(format!("forum.bad_post: {e}")))?;
             let provenance = opts.provenance.clone().unwrap_or(Value::Null);

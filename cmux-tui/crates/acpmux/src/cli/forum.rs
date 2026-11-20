@@ -20,6 +20,9 @@ pub enum ForumCmd {
         thread: Option<String>,
         #[arg(long)]
         session_id: Option<String>,
+        /// Continue a bounded page with the previous response's nextCursor.
+        #[arg(long)]
+        cursor: Option<String>,
     },
     /// Post typed work through the existing durable message transport.
     Post {
@@ -105,9 +108,9 @@ pub async fn run(cmd: ForumCmd, json_out: bool) -> Result<()> {
                 })?;
             return send(&recipient, input, json_out).await;
         }
-        ForumCmd::Threads { channel, thread, session_id } => (
+        ForumCmd::Threads { channel, thread, session_id, cursor } => (
             method::MUX_FORUM_THREADS,
-            json!({"channel": channel, "thread": thread, "sessionId": session_id}),
+            json!({"channel": channel, "thread": thread, "sessionId": session_id, "cursor":cursor}),
         ),
         ForumCmd::Claim { channel, thread, epoch, lease_seconds } => (
             method::MUX_FORUM_CLAIM,

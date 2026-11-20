@@ -173,7 +173,13 @@ impl Hub {
     /// Keeps the forum log under `root` (the daemon: `<ACPMUX_HOME>/forum`);
     /// before it, a hub keeps posts in memory. Call once, before serving.
     pub fn open_forum(&self, root: &Path) -> anyhow::Result<()> {
-        let forum = Forum::open(root)?;
+        let forum = match Forum::open(root) {
+            Ok(forum) => forum,
+            Err(error) => {
+                let _ = self.forum.set(Forum::unavailable(format!("{error:#}")));
+                return Err(error);
+            }
+        };
         self.forum.set(forum).map_err(|_| anyhow::anyhow!("the forum is already open"))
     }
 

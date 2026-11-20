@@ -14,6 +14,31 @@ const MAX_THREADS: usize = 1024;
 pub const RETRY_MS: u64 = 24 * 60 * 60 * 1000;
 const MAX_RETRY_KEYS: usize = 4096;
 const MAX_RECIPIENTS: usize = 128;
+pub const MAX_WORK_PAGE_BYTES: usize = 256 * 1024;
+const MAX_PROVENANCE_BYTES: usize = 16 * 1024;
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PageCursor {
+    recipient: String,
+    channel: Option<String>,
+    thread: Option<String>,
+    next_channel: String,
+    next_thread: String,
+    post_id: Option<String>,
+    source: Option<String>,
+}
+
+fn post_summary(post: &Post) -> Value {
+    let mut end = post.body.len().min(512);
+    while !post.body.is_char_boundary(end) {
+        end -= 1;
+    }
+    json!({"id":post.id, "channel":post.channel, "thread":post.thread, "kind":post.kind,
+        "key":post.key, "created":post.created, "body": &post.body[..end],
+        "bodyTruncated": end < post.body.len(), "sourceCount":post.sources.len(),
+        "sources":post.sources.keys().map(|k| (k.clone(), Value::Null)).collect::<serde_json::Map<_, _>>()})
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "snake_case")]
@@ -279,6 +304,11 @@ impl Forum {
         at: u64,
     ) -> Result<Value> {
         input.validate()?;
+        if serde_json::to_vec(&provenance)?.len() > MAX_PROVENANCE_BYTES {
+            bail!(
+                "forum.provenance_too_large: transport provenance must be at most {MAX_PROVENANCE_BYTES} serialized bytes"
+            );
+        }
         let provenance = json!({"transport": provenance, "body": input.body});
         let mut state = self.lock();
         self.compact_work(&state);
@@ -386,6 +416,124 @@ impl Forum {
             .collect()
     }
 
+    /// Bounded reads. Detail posts are source fragments: merge equal post IDs and their
+    /// sources maps. Cursor points to the next fragment, never an unstable numeric offset.
+    pub fn work_threads_page(
+        &self,
+        recipient: &str,
+        channel: Option<&str>,
+        thread: Option<&str>,
+        cursor: Option<&str>,
+    ) -> Result<Value> {
+        self.ensure_available()?;
+        let resume: Option<PageCursor> = cursor
+            .map(|text| {
+                if text.len() > 2048 {
+                    bail!("forum.bad_cursor: cursor is too large");
+                }
+                let c: PageCursor = serde_json::from_str(text)
+                    .map_err(|_| anyhow::anyhow!("forum.bad_cursor: invalid cursor JSON"))?;
+                if c.recipient != recipient
+                    || c.channel.as_deref() != channel
+                    || c.thread.as_deref() != thread
+                    || (thread.is_some() != c.post_id.is_some())
+                    || (c.post_id.is_some() != c.source.is_some())
+                {
+                    bail!("forum.bad_cursor: cursor does not match this recipient and selection");
+                }
+                Ok(c)
+            })
+            .transpose()?;
+        let state = self.lock();
+        let mut page = json!({"recipient":recipient,"threads":[],"nextCursor":null});
+        let mut page_bytes = serde_json::to_vec(&page)?.len();
+        let mut seeking = resume.is_some();
+        let mut add = |c: &str,
+                       t: &str,
+                       post: Option<&Post>,
+                       source: Option<(&String, &Value)>,
+                       v: &Thread|
+         -> Result<bool> {
+            let marker = PageCursor {
+                recipient: recipient.into(),
+                channel: channel.map(str::to_owned),
+                thread: thread.map(str::to_owned),
+                next_channel: c.into(),
+                next_thread: t.into(),
+                post_id: post.map(|p| p.id.clone()),
+                source: source.map(|(name, _)| name.clone()),
+            };
+            if seeking {
+                let matches = resume.as_ref().is_some_and(|r| {
+                    r.next_channel == c
+                        && r.next_thread == t
+                        && r.post_id == marker.post_id
+                        && r.source == marker.source
+                });
+                if !matches {
+                    return Ok(false);
+                }
+                seeking = false;
+            }
+            let latest = v.posts.back().map(post_summary);
+            let posts = match (post, source) {
+                (Some(p), Some((name, provenance))) => json!([{
+                    "id":p.id,"channel":p.channel,"thread":p.thread,"kind":p.kind,"key":p.key,
+                    "created":p.created,"body":p.body,"sources":{name:provenance},
+                    "sourceCount":p.sources.len(),"fragment":true
+                }]),
+                _ => Value::Null,
+            };
+            let row = json!({"channel":c,"thread":t,"latest":latest,"lease":v.lease,"posts":posts});
+            let rows = page["threads"]
+                .as_array_mut()
+                .ok_or_else(|| anyhow::anyhow!("forum.page_state"))?;
+            // Serialize each candidate once: byte accounting is linear in the page size.
+            let row_bytes = serde_json::to_vec(&row)?.len() + usize::from(!rows.is_empty());
+            // Leave space for the bounded resume token and JSON string escaping of it.
+            if page_bytes + row_bytes > MAX_WORK_PAGE_BYTES - 8192 {
+                if rows.is_empty() {
+                    bail!("forum.page_entry_too_large: stored source cannot fit a page");
+                }
+                page["nextCursor"] = json!(serde_json::to_string(&marker)?);
+                return Ok(true);
+            }
+            rows.push(row);
+            page_bytes += row_bytes;
+            Ok(false)
+        };
+        if let Some(r) = state.work.recipients.get(recipient) {
+            'threads: for ((c, t), v) in &r.threads {
+                if channel.is_some_and(|want| want != c) || thread.is_some_and(|want| want != t) {
+                    continue;
+                }
+                if thread.is_none() {
+                    if add(c, t, None, None, v)? {
+                        break;
+                    }
+                } else {
+                    for post in v.posts.iter().rev() {
+                        for source in &post.sources {
+                            if add(c, t, Some(post), Some(source), v)? {
+                                break 'threads;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if seeking {
+            bail!(
+                "forum.stale_cursor: next post or source is no longer retained; restart the read"
+            );
+        }
+        if serde_json::to_vec(&page)?.len() > MAX_WORK_PAGE_BYTES {
+            bail!("forum.page_entry_too_large: cursor exceeds page budget");
+        }
+        Ok(page)
+    }
+
+    #[cfg(test)]
     pub fn work_threads(
         &self,
         recipient: &str,
@@ -535,3 +683,6 @@ mod tests;
 
 #[cfg(test)]
 mod persistence_tests;
+
+#[cfg(test)]
+mod api_tests;

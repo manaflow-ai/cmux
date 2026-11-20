@@ -81,11 +81,19 @@ async fn handle(
             let session = hub.resolve(recipient)?;
             let recipient = session.id.clone();
             if m == method::MUX_FORUM_THREADS {
-                return Ok(hub.forum().work_threads(
-                    &recipient,
-                    str_param(params, "channel"),
-                    str_param(params, "thread"),
-                ));
+                let hub = hub.clone();
+                let params = params.clone();
+                return tokio::task::spawn_blocking(move || {
+                    hub.forum().work_threads_page(
+                        &recipient,
+                        str_param(&params, "channel"),
+                        str_param(&params, "thread"),
+                        str_param(&params, "cursor"),
+                    )
+                })
+                .await
+                .map_err(|e| RpcError::internal(format!("forum read worker: {e}")))?
+                .map_err(|e| RpcError::invalid_params(format!("{e:#}")));
             }
             let worker = hub.clone();
             let params = params.clone();

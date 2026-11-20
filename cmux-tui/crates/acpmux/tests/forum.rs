@@ -37,6 +37,20 @@ const RULES: &str = "_acpmux/forum/rules";
 const ACK: &str = "_acpmux/forum/ack";
 
 #[tokio::test]
+async fn forum_work_failed_persistent_open_never_acknowledges_memory_storage() {
+    let hub = hub();
+    let root = tempfile::tempdir().unwrap();
+    let invalid = root.path().join("not-a-directory");
+    std::fs::write(&invalid, b"occupied").unwrap();
+    assert!(hub.open_forum(&invalid).is_err());
+    let mut app = Client::person(&hub).await;
+    let recipient = app.new_session().await;
+    let error = app.refused("_acpmux/forum/post", json!({"sessionId":recipient,"channel":"work","thread":"task","kind":"status","key":"one","body":"cannot persist","source":"person"})).await;
+    assert!(error.to_string().contains("forum.storage_unavailable"), "{error}");
+    app.refused("_acpmux/forum/threads", json!({"sessionId":recipient})).await;
+}
+
+#[tokio::test]
 async fn forum_work_relay_stores_without_a_turn_and_digest_is_safe() {
     let hub = hub();
     let mut app = Client::person(&hub).await;
@@ -85,7 +99,8 @@ async fn forum_work_rpc_preserves_person_author_and_fences_lease_renewal() {
         )
         .await;
     assert_eq!(
-        rows["threads"][0]["latest"]["sources"]["person"]["transport"]["author"]["kind"], "person",
+        rows["threads"][0]["posts"][0]["sources"]["person"]["transport"]["author"]["kind"],
+        "person",
         "{rows}"
     );
     let mut agent = Client::as_session(&hub, &recipient).await;
