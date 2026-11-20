@@ -141,7 +141,7 @@ pub(super) fn release_interval(rate: std::num::NonZeroU16) -> Duration {
 }
 
 #[derive(Default)]
-pub(super) struct Gates {
+pub(crate) struct Gates {
     by_url: Mutex<HashMap<reqwest::Url, Arc<Gate>>>,
     path: Option<PathBuf>,
     pub(super) changed: Notify,
