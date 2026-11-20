@@ -1114,6 +1114,10 @@ FEAT_BRANCH = "refs/heads/feat-cmux-next"
 # only on attempt 1 of a labelled same-repository pull request; it overrides every route a Mac job's runs-on reads
 # ahead of `runner` and `deferred_runner`, so each placed job takes the slot. A rescue re-run (attempt 2) is placed as
 # before. The label is read from the run's own payload, so labelling a PR takes effect on its next push.
+# The bot's app FFI re-pin PR (head app-ffi-repin) whose diff path_route reads as a pure re-pin (ffi_repin: only
+# app-ffi-pin.json and Package.swift, the pin moved and nothing else) takes the slot unlabelled: on 2026-11-20
+# cmux#48065's fast tier queued 96+ min on the side label behind ordinary PR jobs, and a merged FFI change reaches
+# the app only when that PR lands. glaeda's hook ranks it as a stack-blocker job by its branch and file count.
 STACK_SLOT_PREFIX = "glaeda-nightly-"
 # The fast tier's own fast label and the DEV compile slot's fresh label are dedicated slots of their own and keep
 # their placement; every shared route a queued job could wait on is cleared.
