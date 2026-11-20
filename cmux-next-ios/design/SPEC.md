@@ -386,10 +386,8 @@ Content (top to bottom):
 
 1. Header row, 20 pt side margin, centered at the toolbar line: the title "Teams"
    (`sidebarTitle`, one line) leading, no brand wordmark (Aziz 2026-11-18: the app icon
-   already says cmux). Trailing: "Invite" (`person.badge.plus` + "Invite" in a 44 pt glass
-   capsule, for the selected team; VoiceOver "Invite to <team>"; spinner while the link is
-   made; glyph only, in a 44 pt circle, at accessibility text sizes; absent for the personal
-   space), then the 44 pt glass circle `plus` → menu: "Create team", "Join with invite link".
+   already says cmux). Trailing: the 44 pt glass circle `plus` → menu: "Create team",
+   "Join with invite link".
    (Header layout is `chatgpt-03-sidebar`.)
 2. No section label: the header names the list; 16 pt above the first row.
 3. Team rows (`List` style plain, no separators), each 60 pt:
@@ -408,14 +406,15 @@ Content (top to bottom):
      (`person.badge.plus`), "Copy team name", divider, "Leave team" (destructive, confirmation
      alert). Pattern: `grok-15-row-context-menu`.
 4. No "Invite to team" row under the list (it read as another team and did not say which
-   team it invited to). The header's Invite opens the share sheet with the Stack invitation
+   team it invited to). Instead, a bottom toolbar item at the trailing edge (Aziz
+   2026-11-19): "Invite" (`person.badge.plus` + "Invite" in a 44 pt glass capsule, 20 pt
+   margin, 8 pt above the bottom safe area, for the selected team; VoiceOver "Invite to
+   <team>"; spinner while the link is made; glyph only, in a 44 pt circle, at accessibility
+   text sizes; absent for the personal space). It opens the share sheet with the Stack invitation
    URL from `POST /v1/teams/:teamId/invites`; another team is invited from its row's
    context menu.
-5. Bottom bar (pinned, 20 pt margins, 8 pt above the bottom safe area):
-   - Leading: primary capsule "Invite" with `person.badge.plus` (48 h, `accent` fill,
-     `onAccent` text, `cta` font). Measured `claude-01-sidebar` "New session".
-   - Trailing: 48 pt circle avatar of the signed-in user (initials on `surfaceRaised`, like
-     Claude's "AA"), opens Settings > Account and closes the drawer.
+5. Bottom bar (pinned, 20 pt margins, 8 pt above the bottom safe area): only Invite, at the
+   trailing edge (item 4). The account lives in Settings, not here.
 
 Team switch: tap row → `.selection` haptic, row highlight moves (`snap`), drawer closes
 (`drawer`), then the shell crossfades (`gentle`) to the new team's data; lists show skeletons

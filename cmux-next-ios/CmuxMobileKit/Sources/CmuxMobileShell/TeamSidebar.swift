@@ -9,10 +9,10 @@ import SwiftUI
 private let theme = CmuxMobileTheme.standard
 
 /// The drawer's content (SPEC 3.3, with the product override): a "Teams"
-/// header with Invite (the active team, never the personal space) and a `+`
-/// menu (Create team, Join with invite link), then the team list with avatars
-/// and Mac presence dots. Team switching only. Any other team is invited from
-/// its row's context menu.
+/// header with a `+` menu (Create team, Join with invite link), the team list
+/// with avatars and Mac presence dots, and Invite (the active team, never the
+/// personal space) at the bottom trailing edge. Team switching only. Any other
+/// team is invited from its row's context menu.
 struct TeamSidebar: View {
     let store: AppStore
     let shell: ShellModel
@@ -53,6 +53,19 @@ struct TeamSidebar: View {
             }
             .scrollBounceBehavior(.basedOnSize)
             .scrollIndicators(.hidden)
+            // The drawer's bottom toolbar: Invite at the trailing edge, over the
+            // list's end, at the tab bar's line.
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                // The personal space is just you: nobody to invite.
+                if let team = store.activeTeam, !team.isPersonalSpace {
+                    HStack {
+                        Spacer(minLength: 0)
+                        inviteButton(team)
+                    }
+                    .padding(.horizontal, theme.metrics.sideMargin)
+                    .padding(.bottom, 8)
+                }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(theme.colors.bg.color.ignoresSafeArea())
@@ -77,10 +90,9 @@ struct TeamSidebar: View {
         }
     }
 
-    /// "Teams" and the drawer's actions. The title names what the drawer
+    /// "Teams" and the drawer's add menu. The title names what the drawer
     /// switches; the brand wordmark it replaced said nothing the app icon
-    /// doesn't. Invite sits next to the title because it acts on the team
-    /// the drawer has selected, and its label names that team.
+    /// doesn't.
     private var header: some View {
         HStack(spacing: 8) {
             Text("Teams")
@@ -90,10 +102,6 @@ struct TeamSidebar: View {
                 .minimumScaleFactor(0.75)
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
-            // The personal space is just you: nobody to invite.
-            if let team = store.activeTeam, !team.isPersonalSpace {
-                inviteButton(team)
-            }
             Menu {
                 Button("Create team", systemImage: "person.2.badge.plus") { creatingTeam = true }
                 Button("Join with invite link", systemImage: "link") { joiningTeam = true }
@@ -111,7 +119,8 @@ struct TeamSidebar: View {
         .padding(.top, 0)
     }
 
-    /// A glass capsule, "Invite", same height as the `+` circle beside it; at
+    /// A glass capsule, "Invite", 44 pt tall like the drawer's `+`; it acts on
+    /// the selected team and its label names that team. At
     /// accessibility text sizes the glyph alone, in a circle, so the title
     /// keeps its room. While the invite link is being made the glyph is a
     /// spinner and the button does nothing.

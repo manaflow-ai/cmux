@@ -1,7 +1,7 @@
 import XCTest
 
-/// The team drawer's header (mock data, no account): "Teams" as its title, no
-/// "cmux" wordmark, and Invite beside the `+` for the selected team. Invite
+/// The team drawer (mock account): "Teams" as its title, no "cmux" wordmark,
+/// and Invite at the bottom trailing edge for the selected team. Invite
 /// names the team it acts on, a tap on it starts that team's invite, the old
 /// "Invite to team" row under the list is gone, and the personal space has no
 /// Invite. Every state is attached in light and dark, and at an accessibility
@@ -54,9 +54,9 @@ final class TeamDrawerInviteUITests: XCTestCase {
             .filter { abs($0.frame.midY - title.frame.midY) < 12 }
         XCTAssertTrue(wordmark.isEmpty, "the cmux wordmark is still in the drawer header")
 
-        // Invite, for the selected team (Manaflow in the mock data), next to `+`.
+        // Invite, for the selected team (Manaflow in the mock data).
         let invite = app.buttons["sidebar.invite"]
-        XCTAssertTrue(invite.waitForExistence(timeout: 10), "header Invite\n\(app.debugDescription)")
+        XCTAssertTrue(invite.waitForExistence(timeout: 10), "bottom Invite\n\(app.debugDescription)")
         XCTAssertEqual(invite.label, "Invite to Manaflow")
         XCTAssertTrue(invite.isHittable)
         if !largeText {
@@ -64,12 +64,16 @@ final class TeamDrawerInviteUITests: XCTestCase {
             // full one (glyph, gap, word, 14 pt sides) is about 108 pt.
             XCTAssertGreaterThanOrEqual(invite.frame.width, 96, "the capsule truncates Invite")
         }
-        XCTAssertEqual(invite.frame.midY, add.frame.midY, accuracy: 2, "Invite and + share the header row")
-        XCTAssertLessThan(invite.frame.maxX, add.frame.minX, "Invite sits before +")
-        XCTAssertLessThan(title.frame.maxX, invite.frame.minX, "the title is not under Invite")
+        // Bottom trailing: below the team list, at the drawer's right edge (its
+        // trailing margin lines up with +), in the bottom quarter of the screen.
+        let screen = app.windows.firstMatch.frame
+        XCTAssertGreaterThan(invite.frame.minY, screen.maxY * 0.75, "Invite is not at the bottom")
+        XCTAssertEqual(invite.frame.maxX, add.frame.maxX, accuracy: 2, "Invite's trailing edge lines up with +")
+        let lastRow = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Build Fleet")).firstMatch
+        XCTAssertLessThan(lastRow.frame.maxY, invite.frame.minY, "Invite covers the team list")
         // The row under the list is gone.
         XCTAssertFalse(app.buttons["Invite to team"].exists, "the old Invite to team row is still listed")
-        attach(app, "01-header-manaflow-\(suffix)")
+        attach(app, "01-drawer-manaflow-\(suffix)")
 
         // A tap starts the selected team's invite. With no cmux service (mock
         // data) it ends in the "needs the cmux service" toast; live, it opens
@@ -87,16 +91,16 @@ final class TeamDrawerInviteUITests: XCTestCase {
 
         // Another team: Invite follows the selection.
         switchTeam(app, to: "Build Fleet")
-        XCTAssertTrue(invite.waitForExistence(timeout: 10), "header Invite after the switch\n\(app.debugDescription)")
+        XCTAssertTrue(invite.waitForExistence(timeout: 10), "bottom Invite after the switch\n\(app.debugDescription)")
         XCTAssertEqual(invite.label, "Invite to Build Fleet")
-        attach(app, "03-header-build-fleet-\(suffix)")
+        attach(app, "03-drawer-build-fleet-\(suffix)")
 
         // The personal space: nobody to invite, so no Invite.
         switchTeam(app, to: "Personal")
         XCTAssertTrue(app.staticTexts["Teams"].firstMatch.waitForExistence(timeout: 10))
         XCTAssertTrue(invite.waitForNonExistence(timeout: 5), "Invite shows for the personal space")
         XCTAssertTrue(app.buttons["Add team"].firstMatch.exists)
-        attach(app, "04-header-personal-\(suffix)")
+        attach(app, "04-drawer-personal-\(suffix)")
     }
 
     /// Taps the team's row; the switch closes the drawer (ShellModel.switchTeam),
