@@ -172,7 +172,7 @@ public final class KeptParts<Owner: AnyObject, Model: AnyObject, Part> {
             for old in gone {
                 if let store = stores.removeValue(forKey: old) { empty(store) }
             }
-            sweepAt = max(64, stores.count * 2)
+            sweepAt = 64
         }
         let store = Store(owner)
         stores[id] = store
