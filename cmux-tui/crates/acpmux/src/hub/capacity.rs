@@ -3,6 +3,7 @@ use crate::config::{Config, HarnessKind};
 use crate::store::SessionMeta;
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::Notify;
@@ -122,11 +123,55 @@ pub(super) fn release_interval(rate: std::num::NonZeroU16) -> Duration {
 }
 
 #[derive(Default)]
-pub(super) struct Gates(Mutex<HashMap<reqwest::Url, Arc<Gate>>>);
+pub(super) struct Gates {
+    by_url: Mutex<HashMap<reqwest::Url, Arc<Gate>>>,
+    path: Option<PathBuf>,
+}
+
+impl Gates {
+    pub(super) fn open(home: Option<&Path>) -> Self {
+        let path = home.map(|home| home.join("claude-capacity.json"));
+        let deadlines = path.as_ref().and_then(|path| {
+            let bytes = std::fs::read(path).ok()?;
+            serde_json::from_slice::<BTreeMap<String, u64>>(&bytes).ok()
+        });
+        let by_url = deadlines
+            .into_iter()
+            .flatten()
+            .filter_map(|(url, at)| {
+                Some((reqwest::Url::parse(&url).ok()?, Arc::new(Gate::new(at))))
+            })
+            .collect();
+        Self { path, by_url: Mutex::new(by_url) }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<reqwest::Url, Arc<Gate>>> {
+        self.by_url.lock().unwrap_or_else(|err| err.into_inner())
+    }
+
+    // Called under the map lock, after releasing the individual gate lock.
+    fn save(&self, gates: &HashMap<reqwest::Url, Arc<Gate>>) {
+        let Some(path) = &self.path else { return };
+        let deadlines: BTreeMap<_, _> = gates
+            .iter()
+            .filter_map(|(url, gate)| {
+                let at = match gate.state().phase {
+                    Phase::Closed(at) => at,
+                    Phase::Releasing(_) => now_ms(),
+                    Phase::Open => return None,
+                };
+                Some((url.as_str(), at))
+            })
+            .collect();
+        if let Err(error) = super::atomic_json::write_json_atomic(path, &json!(deadlines)) {
+            tracing::warn!(%error, "could not save Claude capacity gate deadlines");
+        }
+    }
+}
 
 impl Gates {
     pub(super) fn get(&self, route: Option<&Route>) -> Option<Arc<Gate>> {
-        self.0.lock().unwrap_or_else(|err| err.into_inner()).get(&route?.url).cloned()
+        self.lock().get(&route?.url).cloned()
     }
 }
 
@@ -138,6 +183,8 @@ pub(super) struct Gate {
 struct State {
     phase: Phase,
     next_id: u64,
+    generation: u64,
+    worker_started: bool,
     waiters: BTreeMap<(bool, u64), Arc<Notify>>,
 }
 
@@ -153,6 +200,8 @@ impl Gate {
             state: Mutex::new(State {
                 phase: Phase::Closed(deadline),
                 next_id: 0,
+                generation: 0,
+                worker_started: false,
                 waiters: BTreeMap::new(),
             }),
             changed: Notify::new(),
@@ -184,23 +233,36 @@ pub(super) struct Ticket {
     pub(super) ready: Arc<Notify>,
 }
 
+pub(super) struct Permit {
+    gate: Arc<Gate>,
+    generation: u64,
+}
+
 impl Ticket {
-    pub(super) fn take(&self, interval: Duration) -> bool {
+    pub(super) fn belongs_to(&self, gate: &Arc<Gate>) -> bool {
+        Arc::ptr_eq(&self.gate, gate)
+    }
+
+    fn permit(&self, interval: Duration) -> Option<Permit> {
+        self.take(interval).map(|generation| Permit { gate: self.gate.clone(), generation })
+    }
+
+    pub(super) fn take(&self, interval: Duration) -> Option<u64> {
         let mut state = self.gate.state();
         match state.phase {
-            Phase::Open => return true,
-            Phase::Closed(_) => return false,
+            Phase::Open => return Some(state.generation),
+            Phase::Closed(_) => return None,
             Phase::Releasing(next)
                 if Instant::now() < next || state.waiters.keys().next() != Some(&self.key) =>
             {
-                return false;
+                return None;
             }
             Phase::Releasing(_) => {}
         }
         state.waiters.remove(&self.key);
         state.phase = Phase::Releasing(Instant::now() + interval);
         self.gate.changed.notify_one();
-        true
+        Some(state.generation)
     }
 }
 
@@ -217,21 +279,139 @@ impl Hub {
         self.capacity.get(route).is_some_and(|gate| gate.waiting())
     }
 
+    pub(super) fn capacity_waits_unless_permitted(
+        &self,
+        route: Option<&Route>,
+        permit: Option<&Permit>,
+    ) -> bool {
+        self.capacity.get(route).is_some_and(|gate| {
+            let state = gate.state();
+            match state.phase {
+                Phase::Open => false,
+                Phase::Closed(_) => true,
+                Phase::Releasing(_) => permit.is_none_or(|permit| {
+                    !Arc::ptr_eq(&gate, &permit.gate) || state.generation != permit.generation
+                }),
+            }
+        })
+    }
+
+    pub(super) async fn wait_retry_capacity(
+        &self,
+        session: &Session,
+        cut: &str,
+        route: Option<&Route>,
+        interval: Duration,
+    ) -> Result<Option<Permit>, crate::rpc::RpcError> {
+        let mut ticket = None::<Ticket>;
+        while let Some(gate) = self.capacity.get(route) {
+            let moved = session.queue_moved.notified();
+            tokio::pin!(moved);
+            moved.as_mut().enable();
+            super::auto_resume::check_capacity_cut(session, cut)?;
+            if !gate.waiting() {
+                return Ok(None);
+            }
+            if ticket.as_ref().is_some_and(|ticket| !ticket.belongs_to(&gate)) {
+                ticket.take();
+            }
+            let ticket = ticket.get_or_insert_with(|| gate.join(priority(session, None)));
+            if let Some(permit) = ticket.permit(interval) {
+                return Ok(Some(permit));
+            }
+            tokio::select! {
+                () = ticket.ready.notified() => {}
+                () = moved => {}
+            }
+        }
+        Ok(None)
+    }
+
+    pub(super) fn capacity_wait_count(
+        &self,
+        session: &Session,
+        meta: &SessionMeta,
+        retry: bool,
+    ) -> u64 {
+        if !self.capacity.lock().values().any(|gate| gate.waiting()) {
+            return 0;
+        }
+        let Ok(config) = self.config.try_read() else { return 0 };
+        let route = Route::of(&config, meta);
+        if !self.capacity_waits(route.as_ref()) {
+            return 0;
+        }
+        session.queue().iter().filter(|prompt| !prompt.aside()).count() as u64 + u64::from(retry)
+    }
+
     pub(super) fn capacity_close(self: &Arc<Self>, route: Route, retry_at: Option<u64>) {
-        let deadline = retry_at.unwrap_or_else(|| now_ms() + DEFAULT_RETRY_MS);
-        let mut gates = self.capacity.0.lock().unwrap_or_else(|err| err.into_inner());
-        if let Some(gate) = gates.get(&route.url) {
+        let deadline = retry_at.unwrap_or_else(|| now_ms().saturating_add(DEFAULT_RETRY_MS));
+        let mut gates = self.capacity.lock();
+        let gate =
+            gates.entry(route.url.clone()).or_insert_with(|| Arc::new(Gate::new(deadline))).clone();
+        {
             let mut state = gate.state();
             match &mut state.phase {
                 Phase::Closed(until) => *until = (*until).max(deadline),
-                _ => state.phase = Phase::Closed(deadline),
+                _ => {
+                    state.generation += 1;
+                    state.phase = Phase::Closed(deadline);
+                }
             }
-            gate.changed.notify_one();
-            return;
         }
-        let gate = Arc::new(Gate::new(deadline));
-        gates.insert(route.url.clone(), gate.clone());
+        self.capacity.save(&gates);
         drop(gates);
+        gate.changed.notify_one();
+        self.capacity_worker(route, gate);
+    }
+
+    pub(super) async fn retry_waits_for_capacity(
+        self: &Arc<Self>,
+        session: &Session,
+        error: &str,
+    ) -> bool {
+        if !exhausted(error) {
+            return false;
+        }
+        let route = Route::of(&*self.config.read().await, &session.meta());
+        self.capacity_activate(route.as_ref());
+        self.capacity_waits(route.as_ref())
+    }
+
+    pub(super) async fn restore_capacity_retry(
+        self: &Arc<Self>,
+        session: &Session,
+        error: &str,
+        failed_at: u64,
+        not_before: Option<u64>,
+    ) {
+        let route = Route::of(&*self.config.read().await, &session.meta());
+        let until = retry_at(error, failed_at)
+            .max(not_before)
+            .unwrap_or_else(|| failed_at.saturating_add(DEFAULT_RETRY_MS));
+        if let Some(route) = route
+            && self.capacity.get(Some(&route)).is_none()
+        {
+            self.capacity_close(route, Some(until));
+        }
+    }
+
+    pub(super) fn capacity_activate(self: &Arc<Self>, route: Option<&Route>) {
+        if let Some(gate) = self.capacity.get(route)
+            && let Some(route) = route
+        {
+            self.capacity_worker(route.clone(), gate);
+        }
+    }
+
+    fn capacity_worker(self: &Arc<Self>, route: Route, gate: Arc<Gate>) {
+        {
+            let mut state = gate.state();
+            if state.worker_started || matches!(state.phase, Phase::Open) {
+                return;
+            }
+            state.worker_started = true;
+        }
         let hub = Arc::downgrade(self);
         self.scope.spawn_until_cancelled("gateway-capacity", async move {
             enum Action {
@@ -273,22 +453,34 @@ impl Hub {
                             return;
                         }
                         let result = route.probe().await;
-                        let mut state = gate.state();
-                        if matches!(state.phase, Phase::Closed(at) if at == probed_at) {
+                        let Some(hub) = hub.upgrade() else { return };
+                        let gates = hub.capacity.lock();
+                        {
+                            let mut state = gate.state();
+                            if !matches!(state.phase, Phase::Closed(at) if at == probed_at) {
+                                continue;
+                            }
                             state.phase = match result {
-                                Ok(()) => Phase::Releasing(Instant::now()),
+                                Ok(()) => {
+                                    tracing::info!(
+                                        "Claude gateway capacity returned; pacing queued turns"
+                                    );
+                                    Phase::Releasing(Instant::now())
+                                }
                                 Err(at) => Phase::Closed(at),
                             };
                         }
+                        hub.capacity.save(&gates);
                     }
                     Action::Finish => {
                         let Some(hub) = hub.upgrade() else { return };
-                        let mut gates =
-                            hub.capacity.0.lock().unwrap_or_else(|err| err.into_inner());
+                        let mut gates = hub.capacity.lock();
                         let mut state = gate.state();
                         if matches!(state.phase, Phase::Releasing(_)) && state.waiters.is_empty() {
                             state.phase = Phase::Open;
-                            gates.remove(&route.url);
+                            state.worker_started = false;
+                            drop(state);
+                            hub.capacity.save(&gates);
                             return;
                         }
                     }
@@ -298,7 +490,7 @@ impl Hub {
     }
 }
 
-pub(super) fn priority(session: &Session) -> bool {
+pub(super) fn priority(session: &Session, prompt: Option<&str>) -> bool {
     let meta = session.meta();
     let name = meta.name.rsplit('/').next().unwrap_or_default().to_ascii_lowercase();
     let tag = |key: &str| {
@@ -307,11 +499,52 @@ pub(super) fn priority(session: &Session) -> bool {
             .filter(|tag| tag.expires_at.is_none_or(|expires| expires > now_ms()))
             .map(|tag| tag.value.as_str())
     };
-    name.starts_with("ask-")
+    let trace = prompt.is_some_and(|text| {
+        text.lines().any(|line| {
+            line.trim_start()
+                .strip_prefix("Leo-Ask-Trace:")
+                .is_some_and(|id| id.trim_start().starts_with("ask-"))
+        })
+    });
+    trace
+        || name.starts_with("ask-")
         || name.starts_with("dep-")
         || name.starts_with("desktop-")
         || name.split(['-', '_']).any(|part| matches!(part, "coord" | "coordinator"))
         || tag("priority") == Some("1")
         || tag("ask-trace").is_some_and(|value| !value.is_empty())
         || tag("Leo-Ask-Trace").is_some_and(|value| !value.is_empty())
+}
+
+#[cfg(test)]
+mod capacity_gate_tests {
+    use super::*;
+
+    #[test]
+    fn capacity_gate_paces_priority_and_skips_cancelled_waiters() {
+        let gate = Arc::new(Gate::new(10));
+        let ordinary = gate.join(false);
+        let cancelled = gate.join(true);
+        let urgent = gate.join(true);
+        let interval = release_interval(std::num::NonZeroU16::new(5).unwrap());
+        assert_eq!(interval, Duration::from_secs(12));
+        assert!(urgent.take(interval).is_none());
+        assert!(ordinary.take(interval).is_none());
+        drop(cancelled);
+        gate.state().phase = Phase::Releasing(Instant::now());
+        assert!(ordinary.take(interval).is_none());
+        assert!(urgent.take(interval).is_some());
+        assert!(ordinary.take(interval).is_none());
+        gate.state().phase = Phase::Releasing(Instant::now());
+        assert!(ordinary.take(interval).is_some());
+    }
+
+    #[test]
+    fn capacity_gate_recognizes_only_gateway_exhaustion() {
+        let error = "API Error: 503 no non-exhausted claude accounts; retry-after: 2400";
+        assert!(exhausted(error));
+        assert_eq!(retry_at(error, 1000), Some(2_401_000));
+        assert!(!exhausted("API Error: 503 service unavailable"));
+        assert!(!exhausted("API Error: 400 no non-exhausted claude accounts"));
+    }
 }

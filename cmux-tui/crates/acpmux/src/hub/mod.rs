@@ -1370,6 +1370,7 @@ impl Hub {
         let suggestion_gate = StdMutex::new(crate::suggestion_gate::Gate::open(home.as_deref()));
         // Beside the session store in its home; a memory store keeps it in memory only.
         let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
+        let capacity = capacity::Gates::open(home.as_deref());
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let audit = audit_log::AuditLog::open(store.audit_dir());
@@ -1592,7 +1593,7 @@ impl Hub {
             open_waits: Default::default(),
             session_update_encodes: Default::default(),
             wait_evaluations: Default::default(),
-            capacity: Default::default(),
+            capacity,
             subagent_retries: Default::default(),
             subagent_resumes: Default::default(),
             transfer_lease_changed: Notify::new(),

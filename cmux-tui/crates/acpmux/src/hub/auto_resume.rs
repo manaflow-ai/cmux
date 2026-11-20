@@ -375,6 +375,14 @@ pub(super) fn check_cut(
     }
 }
 
+pub(super) fn check_capacity_cut(session: &Session, cut: &str) -> Result<(), RpcError> {
+    let pending = session.auto_resume.lock();
+    if matches!(pending.as_ref(), Some(Mark::Stopping(t) | Mark::Stopped(t)) if t == cut) {
+        return Err(stopped());
+    }
+    check_cut(session, Some(cut), false)
+}
+
 /// Up to a fifth more than `delay`, the same for a chat each time.
 pub(super) fn staggered(delay: u64, session_id: &str) -> u64 {
     use std::hash::{Hash, Hasher};
@@ -662,7 +670,7 @@ impl Hub {
                 hub.take_pending(&session, &turn_id);
                 return;
             };
-            if set {
+            if set && !hub.retry_waits_for_capacity(&session, &error).await {
                 // Its delay, or its mark going (`Wake`): Stop, close, a turn that took the chat.
                 tokio::select! {
                     () = tokio::time::sleep(Duration::from_millis(delay)) => {}
@@ -1022,6 +1030,7 @@ impl Hub {
             (None, None) => pending.take(),
         };
         drop(pending);
+        session.queue_moved.notify_waiters();
         // A row may have shown this turn's retry being decided: watchers and peers hear it
         // settle, though an idle Stop records nothing else (Codex review, round 3).
         if let Some(turn) = settles {

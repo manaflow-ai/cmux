@@ -383,10 +383,15 @@ impl Hub {
                 }
                 return;
             }
-            let delay = retry.next_at.saturating_sub(crate::hub::now_ms());
-            tokio::select! {
-                () = tokio::time::sleep(Duration::from_millis(delay)) => {}
-                () = wake.notified() => {}
+            if super::super::capacity::exhausted(&error) {
+                hub.restore_capacity_retry(&session, &error, last.at, not_before).await;
+            }
+            if !hub.retry_waits_for_capacity(&session, &error).await {
+                let delay = retry.next_at.saturating_sub(crate::hub::now_ms());
+                tokio::select! {
+                    () = tokio::time::sleep(Duration::from_millis(delay)) => {}
+                    () = wake.notified() => {}
+                }
             }
             let cut = CutTurn {
                 from: from.as_deref(),

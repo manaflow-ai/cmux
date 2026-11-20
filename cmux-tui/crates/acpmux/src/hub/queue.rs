@@ -194,7 +194,7 @@ pub(super) struct Slot<'a> {
     /// An automatic continuation (`PromptOptions::after_turn`, `auto_resume.rs`): it never
     /// queues, so a prompt about to start its turn (`Session::turn_claimed`) does not make it
     /// queue; it waits for the lock, and `check_cut` decides after.
-    pub(super) after_turn: bool,
+    pub(super) after_turn: Option<&'a str>,
     /// [`QueuedPrompt::steer_on_start`]: the person's steer to an agent that steers, sent before
     /// the turn it is for showed.
     pub(super) steer_on_start: bool,
@@ -304,7 +304,19 @@ impl Hub {
                 super::capacity::release_interval(config.capacity.release_per_min),
             )
         };
-        let capacity_waits = || self.capacity_waits(capacity_route.as_ref());
+        let capacity_route = capacity_route.as_ref();
+        self.capacity_activate(capacity_route);
+        // A cut-turn retry already has its own durable wait. Keep it there until it
+        // can take a paced slot, so restoring or stopping it uses the same attempt.
+        let mut retry_permit = None;
+        if let Some(cut) = p.after_turn {
+            retry_permit = self
+                .wait_retry_capacity(session, cut, capacity_route, release_interval)
+                .await
+                .map_err(Err)?;
+        }
+        let capacity_waits =
+            || self.capacity_waits_unless_permitted(capacity_route, retry_permit.as_ref());
         // Claimed under the queue lock, as `restore_queue` takes them: a turn of agent messages
         // joins only a restored prompt its task claimed (`digest.rs` `take_joined`).
         let restored = {
@@ -383,7 +395,7 @@ impl Hub {
                     // the claim: a prompt counts in `queued` until it holds the claim.
                     let waiting = stop_held
                         || session.queued() > held
-                        || (session.turn_claimed() && !p.after_turn)
+                        || (session.turn_claimed() && p.after_turn.is_none())
                         || session.turn().is_some()
                         || awaiting_owner
                         || capacity_waits();
@@ -457,6 +469,10 @@ impl Hub {
                     // turn.
                     if queue_waits(session) || capacity_waits() {
                         drop(guard);
+                        if p.after_turn.is_some() {
+                            session.queued.fetch_sub(1, Ordering::SeqCst);
+                            return Err(Err(super::auto_resume::superseded()));
+                        }
                         // Its `queued` reservation is still counted.
                         let (waits, position) =
                             self.enqueue_or_refuse(session, &p, &turn_id, limits)?;
@@ -561,7 +577,7 @@ impl Hub {
                     session,
                     &turn_id,
                     &withdraw,
-                    capacity_route.as_ref(),
+                    capacity_route,
                     release_interval,
                 )
                 .await
@@ -985,13 +1001,13 @@ impl Hub {
             // Prompts a failed turn holds, or that wait for the owner, wait wherever they are; the
             // first other one is next. Read with the lock held: the turn that just ended may have
             // held this one.
-            let (head, held, provenance) = {
+            let (head, held, provenance, candidate) = {
                 let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 let mine = queue.iter().find(|q| q.turn_id == turn_id);
                 let held = mine.is_some_and(QueuedPrompt::aside);
                 let provenance = mine.and_then(|q| q.run.provenance.clone());
                 let head = queue.iter().find(|q| !q.aside()).is_none_or(|q| q.turn_id == turn_id);
-                (head, held, provenance)
+                (head, held, provenance, mine.map(|q| q.run.clone()))
             };
             let moving = session.moving().is_some();
             if head && !held && !moving && session.turn().is_none() {
@@ -999,11 +1015,21 @@ impl Hub {
                     match self.take_run_slot(session, provenance.as_ref()) {
                         // Claimed before `take_queued` takes it out of the count.
                         Ok(slot) => {
-                            if let Some(gate) = self.capacity.get(route) {
+                            if let Some(gate) =
+                                self.capacity.get(route).filter(|gate| gate.waiting())
+                            {
+                                if capacity_ticket
+                                    .as_ref()
+                                    .is_some_and(|ticket| !ticket.belongs_to(&gate))
+                                {
+                                    capacity_ticket.take();
+                                }
                                 let ticket = capacity_ticket.get_or_insert_with(|| {
-                                    gate.join(super::capacity::priority(session))
+                                    let text =
+                                        candidate.as_ref().map(|run| prompt_text(&run.blocks));
+                                    gate.join(super::capacity::priority(session, text.as_deref()))
                                 });
-                                if !ticket.take(interval) {
+                                if ticket.take(interval).is_none() {
                                     drop(slot);
                                     drop(guard);
                                     tokio::select! {

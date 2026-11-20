@@ -44,6 +44,7 @@ const EXTRA_KEYS: &[&str] = &[
     "turnCount",
     "retry",
     "retryDeciding",
+    "capacityWaitCount",
     "lifecycleReceipt",
     "stale",
     "watching",
