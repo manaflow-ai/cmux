@@ -172,6 +172,8 @@ PATH_OWNERS = {
     "scripts/swift_source_mask.py": frozenset(("release-ios",)),
     # test_ci_reusable_workflow_permissions.py loads it; cmux.ci.guard runs that.
     "scripts/ci/check_reusable_workflow_permissions.py": frozenset(("ci",)),
+    # test_ci_no_always_in_cancellable_runs.py loads it by path.
+    "scripts/ci/check_always_in_cancellable_runs.py": frozenset(("ci",)),
     "scripts/ci/require_swift_test_execution.py": frozenset(("app-host-execution",)),
     "scripts/ci/run-swift-testing-suites.sh": frozenset(("app-host-execution",)),
     # run-swift-testing-suites.sh runs it.

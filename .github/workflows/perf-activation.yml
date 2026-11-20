@@ -363,7 +363,7 @@ jobs:
     needs:
       - activation_changes
       - activation-session-benchmark
-    if: ${{ always() }}
+    if: ${{ !cancelled() }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
