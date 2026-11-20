@@ -16,9 +16,43 @@ pub async fn run(
     session: &str,
     thread: Option<&str>,
     mark_read: bool,
+    search: Option<&str>,
+    before: Option<u64>,
     json_out: bool,
 ) -> Result<()> {
     let id = resolve_id(client, session).await?;
+    if let Some(query) = search {
+        let reply = client
+            .request(
+                method::MUX_INBOX_THREADS,
+                json!({"sessionId":id,"search":query,"before":before}),
+            )
+            .await?;
+        let hits = reply["hits"]
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("this daemon does not support held-inbox search"))?;
+        if json_out {
+            print_json(&reply);
+        } else {
+            for hit in hits {
+                let field = |key: &str| hit[key].as_str().unwrap_or_default();
+                println!(
+                    "[{}] {} · {}\n{}",
+                    field("promptId"),
+                    field("from"),
+                    field("threadId"),
+                    field("text")
+                );
+            }
+            if hits.is_empty() {
+                println!("No matching held messages.");
+            }
+            if let Some(next) = reply["next"].as_u64() {
+                println!("Continue with --before {next}.");
+            }
+        }
+        return Ok(());
+    }
     let reply = match thread {
         Some(thread) => {
             let params = json!({"sessionId": id, "threadId": thread, "markRead": mark_read});

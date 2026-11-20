@@ -1306,6 +1306,12 @@ pub struct SendRelay {
 /// `acpmux session inbox NAME`'s flags.
 #[derive(Args, Default)]
 pub struct SessionInboxOpts {
+    /// Search the full text, sender and thread of surge-held messages.
+    #[arg(long, conflicts_with_all = ["thread", "digest", "dry_run"])]
+    pub search: Option<String>,
+    /// Continue a held-inbox search before this sequence number.
+    #[arg(long, requires = "search")]
+    pub before: Option<u64>,
     /// A threadId, as the list names it.
     #[arg(long, value_name = "THREAD", conflicts_with_all = ["digest", "dry_run"])]
     pub thread: Option<String>,
@@ -1324,6 +1330,10 @@ pub struct SessionInboxOpts {
 #[derive(Args)]
 pub struct SessionInboxTarget {
     pub session: String,
+    #[arg(long)]
+    pub search: Option<String>,
+    #[arg(long, requires = "search")]
+    pub before: Option<u64>,
     #[arg(long)]
     pub thread: Option<String>,
     #[arg(long)]
@@ -1582,6 +1592,8 @@ pub fn flatten(c: Command) -> Command {
             }
             SessionCmd::Inbox { session, opts } => Command::SessionInboxCmd(SessionInboxTarget {
                 session,
+                search: opts.search,
+                before: opts.before,
                 thread: opts.thread,
                 unread: opts.mark_read,
             }),
