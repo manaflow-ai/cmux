@@ -56,8 +56,6 @@ mod catalog_validation;
 use catalog_validation::*;
 pub(crate) use catalog_validation::{validate_operation_error, validate_operation_outcome};
 
-const CATALOG_JSON: &str = include_str!("../../../spec/resource-operations-v2.json");
-
 /// Resolve a live terminal path or an unscoped durable terminal receipt.
 /// Nested selectors keep normal topology containment, so a detached receipt
 /// cannot satisfy a stale workspace, screen, pane, or tab path.

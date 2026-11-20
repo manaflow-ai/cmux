@@ -505,7 +505,7 @@ pub fn prepare(paths: &Paths, answer: &Value, setup: &BrainSetup, log: &dyn Fn(S
 pub fn install_hint(brain: &Brain) -> &'static str {
     match brain.family {
         "hermes" => {
-            "install it with `uv tool install 'hermes-agent[acp] @ git+https://github.com/NousResearch/hermes-agent@v0.23.2'`, then restart the Chief"
+            "install it with its installer (hermes-agent.nousresearch.com/docs/getting-started/installation; it builds no wheel), then restart the Chief"
         }
         "openclaw" => "install it with `npm install -g openclaw`, then restart the Chief",
         _ => "not installed",
