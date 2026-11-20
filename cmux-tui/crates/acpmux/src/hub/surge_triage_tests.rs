@@ -422,3 +422,135 @@ async fn failed_journal_writes_lose_no_decision_and_no_delivery() {
     assert_ne!(accepts[0]["duplicate"], true);
     assert_eq!(accepts[1]["duplicate"], true, "the resend is the first one's duplicate");
 }
+
+fn hold_from(hub: &Hub, s: &Session, id: &str, from: &str, thread: &str, text: &str) {
+    let msg = json!({"promptId": id, "threadId": thread, "from": from, "class": "fyi",
+        "text": text, "surgeHeld": true});
+    hub.append(s, "mux", "inbox", msg);
+}
+
+/// The prompt ids each surge digest to `who` named.
+fn digested(hub: &Hub, who: &str) -> Vec<Value> {
+    let events = hub.events(who, 0, 100_000).unwrap();
+    events
+        .iter()
+        .filter(|e| e.kind == "queued" || e.kind == "user_message")
+        .filter_map(|e| e.msg.pointer("/_meta/provenance").or(e.msg.get("provenance")))
+        .filter(|p| p["kind"] == PROVENANCE_KIND)
+        .map(|p| p["promptIds"].clone())
+        .collect()
+}
+
+fn item<'a>(events: &'a [EventRecord], id: &str) -> &'a Value {
+    records(events, triage::RECORD_KIND)
+        .flat_map(|r| r["items"].as_array().unwrap())
+        .find(|i| i["promptId"] == id)
+        .unwrap_or_else(|| panic!("{id} triaged"))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_repeated_observation_wakes_no_one_twice_across_passes_and_restarts() {
+    let (hub, s) = chat(Some("1 this")).await;
+    let thread = "runner pool";
+    hold_from(
+        &hub,
+        &s,
+        "m1",
+        "gcp-lane-1/ci-watch",
+        thread,
+        "Runner ubuntu-2404 queued 12 min on #48195",
+    );
+    hub.surge_triage_pass(&s).await.unwrap();
+    // The next 30-second pass: another host's report of the same incident.
+    hold_from(
+        &hub,
+        &s,
+        "m2",
+        "gcp-lane-7/ci-watch",
+        thread,
+        "runner ubuntu-2404 queued 40 min on #48195",
+    );
+    hub.surge_triage_pass(&s).await.unwrap();
+    // A restart: the projection is rebuilt from the journal, and still knows m1 was told.
+    hub.surge_triage_journals.lock().unwrap().clear();
+    hold_from(
+        &hub,
+        &s,
+        "m3",
+        "gcp-lane-9/ci-watch",
+        thread,
+        "runner ubuntu-2404 queued 55 min on #48195",
+    );
+    hub.surge_triage_pass(&s).await.unwrap();
+    // A materially different condition on the same topic surfaces.
+    hold_from(
+        &hub,
+        &s,
+        "m4",
+        "gcp-lane-7/ci-watch",
+        thread,
+        "runner pool down: no runner registers",
+    );
+    hub.surge_triage_pass(&s).await.unwrap();
+
+    let events = hub.events(&s.id, 0, 100_000).unwrap();
+    assert!(item(&events, "m1").get("repeatOf").is_none());
+    assert_eq!(item(&events, "m2")["repeatOf"], "m1", "the receipt names the first report");
+    assert_eq!(item(&events, "m3")["repeatOf"], "m1", "across a restart");
+    assert!(item(&events, "m4").get("repeatOf").is_none(), "{}", item(&events, "m4"));
+    assert_eq!(digested(&hub, &s.id), [json!(["m1"]), json!(["m4"])]);
+    let last = records(&events, triage::RECORD_KIND).filter(|r| r.get("surge").is_some()).last();
+    assert_eq!(last.unwrap()["surge"]["needYou"], 1, "one open thread, not four messages");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_question_and_an_expired_report_are_never_repeats() {
+    let mut told = triage::Told::default();
+    let b = triage::batches(
+        "coord",
+        vec![triage::Held {
+            prompt_id: "q2".into(),
+            thread_id: "t".into(),
+            from: "lane-b".into(),
+            class: "question".into(),
+            text: "which base?".into(),
+        }],
+    )
+    .remove(0);
+    let print = triage::fingerprint(&b.messages[0]);
+    told.note("coord", "t", &print, "q1", 0);
+    let mut d =
+        triage::decide(&b, None, &Owners::default()).into_iter().flatten().collect::<Vec<_>>();
+    triage::mark_repeats(&b, &mut d, &mut told, 10);
+    assert_eq!(d[0].repeat_of, None, "someone waits on a question's answer");
+    assert_eq!(told.repeat("coord", "t", &print, 10), Some("q1"));
+    assert_eq!(told.repeat("coord", "t", &print, triage::REPEAT_WINDOW_MS), None, "expired");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_grant_revoked_before_delivery_sends_the_item_to_the_chat_not_the_old_owner() {
+    let (hub, s) = chat(Some("1 owner")).await;
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let owner = hub.new_session(req).await.unwrap();
+    let params = json!({"sessionId": owner.id, "threadId": "runners"});
+    let method = crate::rpc::method::MUX_INBOX_SUBSCRIPTION_SET;
+    rpc_as(&hub, &owner.id, method, params).await;
+    let grant = json!({"threadId": "runners", "ownerSessionId": owner.id, "active": true});
+    hub.append(&s, "mux", triage::GRANT_KIND, grant);
+    hold(&hub, &s, "m1", "runners", "fyi", "runner queued 40 min");
+    // Decided for the owner and journaled; delivery fails.
+    FAIL_BEFORE_DELIVERY.lock().unwrap().insert(s.id.clone(), 1);
+    assert!(hub.surge_triage_pass(&s).await.is_err());
+    let events = hub.events(&s.id, 0, 100_000).unwrap();
+    assert_eq!(item(&events, "m1")["owner"], owner.id.as_str());
+    // The recipient revokes the grant before the retry delivers.
+    let revoke = json!({"threadId": "runners", "ownerSessionId": owner.id, "active": false});
+    hub.append(&s, "mux", triage::GRANT_KIND, revoke);
+    assert_eq!(hub.surge_triage_pass(&s).await.unwrap(), PassEnd::Done);
+    assert!(digested(&hub, &owner.id).is_empty(), "the old owner hears nothing");
+    assert_eq!(digested(&hub, &s.id), [json!(["m1"])], "the chat is told instead");
+    let events = hub.events(&s.id, 0, 100_000).unwrap();
+    let marker = records(&events, triage::RECORD_KIND).find(|r| r.get("digestDelivered").is_some());
+    assert_eq!(marker.unwrap()["redirected"][0]["promptId"], "m1");
+    assert_eq!(hub.surge_open_topics(&s, &mut hub.surge_journal(&s).unwrap()), 1);
+}

@@ -539,7 +539,7 @@ pub fn digest_id(to: &str, lines: &[Line]) -> String {
 pub fn actionable_topics(lines: &[Line]) -> u64 {
     let threads: BTreeSet<&str> = lines
         .iter()
-        .filter(|l| l.category == Category::NeedsThisSession)
+        .filter(|l| l.category == Category::NeedsThisSession && l.repeat_of.is_none())
         .map(|l| l.thread_id.as_str())
         .collect();
     threads.len() as u64
@@ -595,7 +595,10 @@ fn render(head: String, session: &str, lines: &[&Line], read_link: bool) -> Stri
 
 /// The lines the chat's own digest shows: its `needs_this_session` items.
 pub fn digest_lines(lines: &[Line]) -> Vec<&Line> {
-    lines.iter().filter(|l| l.category == Category::NeedsThisSession).collect()
+    lines
+        .iter()
+        .filter(|l| l.category == Category::NeedsThisSession && l.repeat_of.is_none())
+        .collect()
 }
 
 /// The lines `owner`'s digest shows: the `needs_its_owner` items routed to it.
@@ -603,6 +606,7 @@ pub fn owner_digest_lines<'a>(owner: &str, lines: &'a [Line]) -> Vec<&'a Line> {
     lines
         .iter()
         .filter(|l| l.category == Category::NeedsItsOwner && l.owner.as_deref() == Some(owner))
+        .filter(|l| l.repeat_of.is_none())
         .collect()
 }
 
