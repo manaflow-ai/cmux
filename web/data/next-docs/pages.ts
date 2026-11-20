@@ -405,6 +405,7 @@ export const nextDocPages: NextDocPage[] = [
         "--session-name NAME: run another session than main.",
         "--user: start the service when you log in and stop it when you log out. Lingering stays as it is.",
         "--channel stable or --channel nightly (with ssh://): install the latest build of that channel there instead of your own build. --nightly is the same as --channel nightly.",
+        "--label NAME (with ssh://): the machine's name in the cmux sidebar here, instead of its host name.",
         "--yes: run every step without asking. It is required when there is no terminal to ask on.",
         "--json: one JSON result on stdout, with each step and its exit status.",
       ] },
