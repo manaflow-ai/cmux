@@ -1406,8 +1406,12 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         # literal, behind CI_GATE_SKIP_FLEET, ahead of the exact selector passes; anything else still fails.
         self.assertEqual(runner_label_errors(GATE_TRUSTED_RUNNER_EXPRESSION), [])
         self.assertEqual(runner_label_errors(GATE_CLA_TRUSTED_RUNNER_EXPRESSION), [])
-        for refused in (GATE_TRUSTED_RUNNER_EXPRESSION.replace(GATE_JIT_LABEL, "cmux-fleet-linux-x64"),
-                        GATE_TRUSTED_RUNNER_EXPRESSION.replace(GATE_JIT_LABEL, "cmux-gcp-lane-x64"),
+        # cmux-fleet-linux-x64 is also a one-job VM deleted after the job, so with a Blacksmith-only selector after
+        # it this check (where a secret may land) accepts it. That it is not the gate's label is
+        # tests/test_ci_required_gate_label.py's to refuse (its bad operands include it).
+        self.assertEqual(runner_label_errors(
+            GATE_TRUSTED_RUNNER_EXPRESSION.replace(GATE_JIT_LABEL, "cmux-fleet-linux-x64")), [])
+        for refused in (GATE_TRUSTED_RUNNER_EXPRESSION.replace(GATE_JIT_LABEL, "cmux-gcp-lane-x64"),
                         GATE_TRUSTED_RUNNER_EXPRESSION.replace("'" + GATE_JIT_LABEL + "'", "vars.GATE_RUNNER"),
                         GATE_JIT_LABEL):
             with self.subTest(runs_on=refused):
