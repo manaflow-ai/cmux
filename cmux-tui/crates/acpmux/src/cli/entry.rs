@@ -300,7 +300,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 .with_target(false);
             // A logging thread only queues its line: a log output that takes no bytes (a full
             // pipe, a stalled disk) never stops the daemon (`log_sink.rs`).
-            match crate::log_sink::Sink::start(std::io::stdout()) {
+            // Under systemd, each line also goes to a bounded `daemon.log` in the home, so a
+            // daemon whose journal lines were dropped still leaves its evidence (`log_keep.rs`).
+            let out = crate::log_keep::Tee {
+                out: std::io::stdout(),
+                kept: crate::log_keep::Kept::for_service(&crate::config::home()),
+            };
+            match crate::log_sink::Sink::start(out) {
                 Ok(sink) => {
                     sink.install();
                     logs.with_writer(sink).init();
@@ -386,13 +392,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             })
             .await
         }
-        Some(Command::UniichatAgent { url, home, whole_prompt }) => {
-            crate::cli::uniichat_agent::run(crate::cli::uniichat_agent::Options {
-                url,
-                home,
-                whole_prompt,
-            })
-            .await
+        Some(Command::UniichatAgent { action, url, home, whole_prompt }) => {
+            let options = crate::cli::uniichat_agent::Options { url, home, whole_prompt };
+            if action.as_deref() == Some("login") {
+                crate::cli::uniichat_login::run(options).await
+            } else {
+                crate::cli::uniichat_agent::run(options).await
+            }
         }
         Some(Command::Stdio { model, preset, effort, policy }) => {
             let (harness, model) = match model {
