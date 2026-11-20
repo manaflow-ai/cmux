@@ -1022,9 +1022,11 @@ export const SubagentTray = memo(function SubagentTray({
     const key = itemKey(item);
     const isOpen = expanded.has(key);
     const toggleThis = () => toggleLine(key);
-    // hatOpen.experiment.ts: `row` and `rolodex` open what a line stands for on its click; `row` keeps
-    // the details behind the chevron, its own button; `rolodex` shows them in a card on hover.
-    const opensRow = openLook === "row" || openLook === "rolodex";
+    // hatOpen.experiment.ts: `row` opens what every line stands for on its click and keeps the details
+    // behind the chevron, its own button. `rolodex` previews every line in a card on hover; a subagent's
+    // line opens it as today, and a command's or a chat's still expands in place, since its output, link
+    // and Open chat do not fit a hover card.
+    const opensRow = openLook === "row";
     const detailsButton = (can: boolean) =>
       openLook === "row" && can ? { open: isOpen, label: t("message.details"), onToggle: toggleThis } : undefined;
     const peek = openLook === "rolodex" ? "acpmux-hat-peek" : undefined;
@@ -1223,8 +1225,10 @@ export const SubagentTray = memo(function SubagentTray({
             peek && (
               <SubagentCardBody
                 name={item.session.title}
-                status={SESSION_STATUS[item.session.state]}
-                state={t(STATUS_LABEL[SESSION_STATUS[item.session.state]])}
+                status={sessionRetrying ? "running" : SESSION_STATUS[item.session.state]}
+                state={
+                  sessionRetrying ? retryLabel(t, sessionRetrying) : t(STATUS_LABEL[SESSION_STATUS[item.session.state]])
+                }
                 latest={item.session.doing}
               />
             )

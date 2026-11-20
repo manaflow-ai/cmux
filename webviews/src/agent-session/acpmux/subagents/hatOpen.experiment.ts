@@ -21,7 +21,7 @@ export const hatOpenLook = defineExperiment({
     rolodex: {
       label: "Hover Rolodex",
       description:
-        "Pointing at a line flips a card up over it with the subagent's whole task, state and latest step; running the pointer down the list flips from card to card. A click on any line opens it.",
+        "Pointing at a line flips a card up over it with its whole task, state and latest step; running the pointer down the list flips from card to card. A click on a subagent opens it; a command or a chat still expands in place for its output and Open chat.",
     },
     row: {
       label: "Row opens, chevron details",

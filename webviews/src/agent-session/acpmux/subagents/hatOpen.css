@@ -51,13 +51,29 @@
 .acpmux-running-tray .acpmux-agent-line__disclose[aria-expanded="true"] > svg {
   rotate: 90deg;
 }
-/* A narrow line takes two rows: the button sits on the controls row with Stop. */
+/* A narrow line takes two rows: the button sits on the controls row with Stop. A line with a second
+   line of progress does so from 400px, as subagents.css moves its other controls; every line from
+   260px. */
+@container running-tray (max-width: 400px) {
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__disclose-slot {
+    top: auto;
+    bottom: 0;
+    height: var(--ui-row-height, 28px);
+  }
+}
 @container running-tray (max-width: 260px) {
   .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__disclose-slot {
     top: auto;
     bottom: 0;
     height: var(--ui-row-height, 28px);
   }
+}
+/* The details button lights itself, never the line around it, as Resume does (subagents.css). */
+.acpmux-running-tray
+  .acpmux-agent-line:has(> .acpmux-agent-line__button:enabled):has(
+    .acpmux-agent-line__disclose-slot > .acpmux-agent-line__disclose:hover
+  ):hover {
+  background: transparent;
 }
 
 /* ---------- `rolodex`: a card flips up over the line under the pointer ---------- */

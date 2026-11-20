@@ -133,7 +133,7 @@ export default agentPaneEntry({
       experiments: pins("today"),
     },
     "rolodex-line": {
-      note: "Hover Rolodex: the line under the pointer flips a card up with its whole task, state and latest step; a click on the line opens it.",
+      note: "Hover Rolodex: the line under the pointer flips a card up with its whole task, state and latest step; a click on a subagent opens it.",
       play: thumbed,
       snapshot,
       experiments: pins("rolodex"),
