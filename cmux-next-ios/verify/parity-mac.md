@@ -858,3 +858,6 @@ or the relay. States here are from the live run in this batch's proof report. Ri
 | Phone tab: rotate, appearance, software keyboard, volume, app switcher | — | blocked (#13742) | The simulator stream takes `button` home and lock only (`cmux-mobile-host/src/surface.rs` `BUTTONS`; the Mac's `SimulatorSurfaceServer` maps only those). Each needs a new stream input in the mobile host and the Mac's surface server. The phone's own keyboard toggle (typing into the simulator) is already in the accessory bar. |
 
 | Pre-claim spare login receipt from the Mac Keychain (`CloudSpareWarm`, Rust `spare_warm`) | — | — | not from a phone | Reuses the Mac-owned credential transfer; the phone cannot read the Mac Keychain or initiate local credential-copy commands (SECURITY.md, Remote CLI relay). No new phone operation. |
+
+| Mac ACP inspector Timing tab (recorded message-to-agent delay and session trace) | — | — | not from a phone | Local Mac pane diagnostic chrome, alongside that pane's Wire and Session logs; no phone operation or remote permission is added. The phone keeps its own native chat view. |
+| Settings > Advanced > Check Configuration | — | — | not from a phone | Reads the Mac's local settings snapshot and file diagnostics. The phone relay cannot read local Settings (SECURITY.md, local-state analysis); this uses the existing Mac-only Settings page. |

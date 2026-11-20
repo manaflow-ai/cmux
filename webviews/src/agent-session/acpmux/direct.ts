@@ -15188,6 +15188,10 @@ export class AcpmuxDirectClient {
   async audit(params: Record<string, unknown> = {}): Promise<unknown> {
     return this.request("_acpmux/audit", params, 15_000);
   }
+  /// Recorded turn timings for the inspector; no read until its Timing tab opens.
+  async inspectorHistory(sessionId: string): Promise<import("./InspectorTiming").InspectorHistory> {
+    return this.request("_acpmux/history", { sessionId, limit: 100 }, 15_000);
+  }
   /// The chat's effective prompt context for the Context screen (`_acpmux/context`, acpmux
   /// context_inventory.rs): what cmux adds in full, the harness's own parts as counts.
   async contextInventory(sessionId = this.actingSessionId): Promise<unknown> {

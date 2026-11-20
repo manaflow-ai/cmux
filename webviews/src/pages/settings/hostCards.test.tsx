@@ -293,6 +293,31 @@ test("Terminal shows the Ghostty facts; Advanced shows the file and every proble
   page.unmount();
 });
 
+test("Configuration check rereads owner diagnostics without changing settings", async () => {
+  const page = await renderPage({ path: "/settings/advanced", mock: { diagnostics: [] } });
+  page.provider.diagnostics = [{ path: "agent.example", message: "Unknown setting" }];
+  const before = runs(page, "cmux.settings.snapshot").length;
+  await act(async () => page.container.querySelector<HTMLButtonElement>("[data-config-check] button")!.click());
+  await settle();
+  expect(runs(page, "cmux.settings.snapshot").length).toBe(before + 1);
+  expect(page.container.querySelector("[data-config-check]")!.textContent).toContain("Unknown setting");
+  expect(runs(page, "cmux.settings.set")).toHaveLength(0);
+  page.unmount();
+});
+
+test("Configuration check cannot report a clean result when the owner is unavailable", async () => {
+  const page = await renderPage({
+    path: "/settings/advanced",
+    mock: { failing: { "cmux.settings.snapshot": "unavailable" } },
+  });
+  await act(async () => page.container.querySelector<HTMLButtonElement>("[data-config-check] button")!.click());
+  await settle();
+  const checker = page.container.querySelector("[data-config-check]")!;
+  expect(checker.querySelector('[role="alert"]')!.textContent).toContain("failed");
+  expect(checker.textContent).not.toContain("No problems");
+  page.unmount();
+});
+
 test("Advanced names the loaded settings file and shows one Reload Configuration", async () => {
   const page = await renderPage({
     path: "/settings/advanced",
