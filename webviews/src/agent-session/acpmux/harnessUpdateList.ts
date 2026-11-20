@@ -8,6 +8,7 @@
 // Restart Chat, and Skip This Version). Any other agent updates in place through the host's
 // `harness.update {id}`; nothing of its runs here, so no restart follows.
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { agentKey } from "../shared/agentKey";
 import { type HarnessHealth, skipped, type UpdateOffer } from "./harnessHealthNoticeModel";
 
 /// One agent CLI with an update, as a menu row shows it.
@@ -74,7 +75,9 @@ export function answerFor(batch: Promise<unknown>, id: string): Promise<unknown>
 /// The list for the menus: the chat's own offer first, then every other outdated agent.
 /// `native` is the host's `harness.update {id}` -> `{ok, version?, error?}` (or `{ids}` ->
 /// `{results}`); `onUpdated` (stable, as `native` is) reads the health rows again once one
-/// finished, so its row leaves for good.
+/// finished, so its row leaves for good. `offered` says whether the model menus offer a harness:
+/// one they do not (acpmux's hidden `cmux` router fallback, which runs Claude Code's own `claude`)
+/// is not listed. Two rows of one brand ("opencode", "opencode-v2") never share a name.
 export function useHarnessUpdateList({
   rows,
   offer,
@@ -82,11 +85,13 @@ export function useHarnessUpdateList({
   nameFor,
   native,
   onUpdated,
+  offered = () => true,
 }: {
   rows: readonly unknown[];
   offer: UpdateOffer | undefined;
   own: string | undefined;
   nameFor(id: string): string;
+  offered?: (id: string) => boolean;
   native(method: string, params: Record<string, unknown>): Promise<unknown>;
   onUpdated(): void;
 }): HarnessUpdates | undefined {
@@ -125,6 +130,7 @@ export function useHarnessUpdateList({
       });
     for (const health of outdatedHarnesses(rows, skipped(), own ?? offer?.harness)) {
       const id = health.id;
+      if (!offered(id)) continue;
       const latest = health.latest ?? "";
       // A row's progress holds only for the version it was started for.
       const state = progress[id]?.latest === latest ? progress[id] : undefined;
@@ -140,8 +146,8 @@ export function useHarnessUpdateList({
         updateWith: (reply) => start(id, latest, reply),
       });
     }
-    return out;
-  }, [rows, offer, own, progress, nameFor, start]);
+    return distinctNames(out);
+  }, [rows, offer, own, progress, nameFor, start, offered]);
   return useMemo(() => {
     if (list.length === 0) return undefined;
     const updateAll = () => {
@@ -156,4 +162,19 @@ export function useHarnessUpdateList({
     };
     return { rows: list, updateAll };
   }, [list, native]);
+}
+
+/// The rows with each name once: a row whose name another shares is named with what its id adds to
+/// its brand, as the model picker's rail names it ("opencode-v2" is "OpenCode (v2)"), else its id.
+function distinctNames(rows: HarnessUpdateRow[]): HarnessUpdateRow[] {
+  const count = new Map<string, number>();
+  for (const row of rows) count.set(row.agent, (count.get(row.agent) ?? 0) + 1);
+  return rows.map((row) => {
+    if ((count.get(row.agent) ?? 0) < 2) return row;
+    const base = agentKey(row.harness) ?? "";
+    const suffix = row.harness.toLowerCase().startsWith(base)
+      ? row.harness.slice(base.length).replace(/^[-_\s]+/, "")
+      : row.harness;
+    return suffix ? { ...row, agent: `${row.agent} (${suffix})` } : row;
+  });
 }
