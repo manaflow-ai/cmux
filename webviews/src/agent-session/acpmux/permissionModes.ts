@@ -71,3 +71,16 @@ function sameValues(values: readonly string[], ids: readonly string[]): boolean 
   const set = new Set(values);
   return set.size === new Set(ids).size && ids.every((id) => set.has(id));
 }
+
+/// The agent's `modes` with the mode the chat runs now. acpmux's session row (`_acpmux/session_changed`,
+/// SessionSummary) names a mode change only as its top-level `currentModeId` and carries no `modes`; the
+/// page merges that row into the summary, so `modes.currentModeId` is the one the last detail read
+/// named. The row's id is the newer one: /plan, the + menu's Plan row, Toggle Plan Mode and a mode
+/// another window or the agent set reach the chips with it.
+export function liveModes<M extends { currentModeId?: unknown }>(
+  modes: M | undefined,
+  currentModeId: unknown,
+): M | undefined {
+  if (!modes || typeof modes !== "object" || typeof currentModeId !== "string" || !currentModeId) return modes;
+  return modes.currentModeId === currentModeId ? modes : { ...modes, currentModeId };
+}
