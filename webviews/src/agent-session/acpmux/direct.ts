@@ -3126,7 +3126,7 @@ export class AcpmuxDirectClient {
   /// The newest snapshot reason that arrived while this page was hidden. Hidden pages keep
   /// reducing only the state they need for an eventual wake, and publish one snapshot on return.
   private hiddenEmit?: string;
-  /// `isWorking` as the last snapshot said it. Kept for the visible turn transition checks.
+  /// Latest observed `isWorking`, also while hidden: completion accounting must not require a draw.
   private drawnWorking = false;
   private drawnWorkingSession?: string;
   /// The event just reduced only grew the streaming reply's or thought's text (`emitInFrame`).
@@ -6245,8 +6245,8 @@ export class AcpmuxDirectClient {
     }
     if (this.listChangedWhileHidden && pageShown() && !this.closed) {
       this.listChangedWhileHidden = false;
-      // Hidden notices were deliberately not reduced into the list. Read from its last cursor
-      // once on return so the next visible list includes those changes, even on a live socket.
+      // Hidden notices were deliberately not reduced into the list. Refresh once on return so
+      // the next visible list includes those changes, even on a live socket.
       void this.refreshSessions().catch(() => this.rereadSessionsLater());
       this.emitInFrame("session changed");
     }
@@ -7924,6 +7924,7 @@ export class AcpmuxDirectClient {
     // hidden turn can finish and be shown without losing its state.
     if (!pageShown() && session?.sessionId && session.sessionId !== this.selectedSessionId) {
       this.listChangedWhileHidden = true;
+      this.sessionPages.invalidate();
       return;
     }
     // A change older than the list the row came with is in that row already (acpmux hub/row_log.rs).
@@ -8476,6 +8477,7 @@ export class AcpmuxDirectClient {
     // A hidden page has no frame to draw. Hold the reason and let visibility's first frame publish
     // the latest state; no 50 ms timer or frame callback should wake the renderer in the meantime.
     if (!pageShown()) {
+      this.observeWorking();
       this.hiddenEmit = connection;
       this.frameSnapshot = undefined;
       if (this.hiddenDraw !== undefined) {
@@ -11190,11 +11192,19 @@ export class AcpmuxDirectClient {
     // reason; showChanged() emits once after the page is visible again. This covers the direct
     // emit callers as well as emitInFrame(), so no hidden page runs snapshot construction work.
     if (!pageShown()) {
+      this.observeWorking();
       this.hiddenEmit = connection;
       return;
     }
     this.hiddenEmit = undefined;
     acpmuxPerf.timed("client.emit", () => this.emitNow(connection));
+  }
+
+  /// Count turn boundaries without constructing a snapshot, including cycles entirely hidden.
+  private observeWorking(working = this.workingNow()): void {
+    if (this.drawnWorking && !working && this.drawnWorkingSession === this.selectedSessionId) this.turnsEnded += 1;
+    this.drawnWorking = working;
+    this.drawnWorkingSession = this.selectedSessionId;
   }
 
   /// The session list as the snapshot's entries, the same array while `this.sessions` is.
@@ -11400,9 +11410,7 @@ export class AcpmuxDirectClient {
     const summary = this.summary;
     const limits = subsessionLimits(summary?.subsessionLimits);
     const working = this.workingNow(summary);
-    if (this.drawnWorking && !working && this.drawnWorkingSession === this.selectedSessionId) this.turnsEnded += 1;
-    this.drawnWorking = working;
-    this.drawnWorkingSession = this.selectedSessionId;
+    this.observeWorking(working);
     // A chat no longer working has no Stop pending, even when no turn event said the turn ended.
     if (!working && this.replayThrough === undefined) this.stoppingEnded();
     const effort = (summary?.configOptions ?? []).find(

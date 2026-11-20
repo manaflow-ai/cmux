@@ -404,6 +404,29 @@ test("a hidden pane draws its chat's turns and new replies, not its reply's text
   }
 });
 
+test("an entirely hidden turn preserves completion when both visible snapshots are idle", async () => {
+  const { socket, client, snapshots, latest } = await openPane();
+  try {
+    record(socket, 401, "turn_end");
+    flushFrames();
+    const ended = latest().turnsEnded;
+    const before = snapshots();
+    expect(latest().isWorking).toBe(false);
+    setVisibility("hidden");
+    record(socket, 402, "turn_started");
+    record(socket, 403, "turn_end");
+    flushFrames();
+    expect(snapshots()).toBe(before);
+    setVisibility("visible");
+    flushFrames();
+    expect(latest().isWorking).toBe(false);
+    expect(latest().turnsEnded).toBe(ended + 1);
+  } finally {
+    client.close();
+    setVisibility("visible");
+  }
+});
+
 // Hidden updates schedule no frames; a visible return schedules one, and closing a hidden client
 // leaves no pending callback behind.
 test("a hidden pane asks for one frame at a time and cancels it on close", async () => {
@@ -452,9 +475,8 @@ test("a hidden pane asks for one frame at a time and cancels it on close", async
     setVisibility("visible");
     expect(asked).toBe(1);
     flushFrames();
-    // The hidden page did not publish the intermediate turn boundaries; the next visible snapshot
-    // is current, but its aggregate end counter does not reconstruct those hidden frames.
-    expect(latest.turnsEnded - ended).toBe(0);
+    // All completion boundaries survive without publishing intermediate snapshots.
+    expect(latest.turnsEnded - ended).toBe(10);
     client.close();
     expect(cancelled).toBe(0);
   } finally {
