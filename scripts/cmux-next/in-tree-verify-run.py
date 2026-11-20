@@ -4,8 +4,8 @@
 Runs each part with the step's --app and --tag, in its own folder under --out, and writes --json:
 {parts: {name: {cmd, exit, seconds, report}}, host, macos}. Always exits 0 (each part's exit is in the JSON).
 
-  cef-intree      cef-layer-verify.py --mode intree --input debug (C3, C2 page_views, C17 select/context rows)
-  cef-off         cef-layer-verify.py --mode off --input debug (C20: today's path with the switch off)
+  cef-intree      cef-layer-verify.py --mode intree --input cua (--cef-input debug for debug.mouse) (C3, C2 page_views, C17 select/context rows)
+  cef-off         cef-layer-verify.py --mode off --input cua (C20: today's path with the switch off)
   overlay-on      overlay-live-check.py --in-tree on (C2, C10)
   overlay-off     overlay-live-check.py --in-tree off (C20)
   live-on         in-tree-live-checks.py --in-tree on (C2 census, C7 focus steal, C9 shortcuts, C16 prompts)
@@ -35,14 +35,10 @@ REPORT = value("--json") or os.path.join(OUT, "report.json")
 PARTS = (value("--parts") or "cef-intree,overlay-on,live-on,prompts,cef-off,overlay-off,live-off").split(",")
 os.makedirs(OUT, exist_ok=True)
 
-# overlay-live-check.py finds the app in DerivedData by tag; a cached step app lives elsewhere: link it there for the run.
-derived = os.path.expanduser(f"~/Library/Developer/Xcode/DerivedData/cmux-{TAG}/Build/Products/Debug")
-link = os.path.join(derived, f"cmux DEV {TAG}.app")
-made_link = False
-if APP and not os.path.exists(link):
-    os.makedirs(derived, exist_ok=True)
-    os.symlink(os.path.abspath(APP), link)
-    made_link = True
+# cef-layer-verify's input: cua (the host's CuaDriver daemon posts real events and takes the screen images with its
+# own Screen Recording grant). With `debug`, debug.mouse goes into the cmux window only (never a page window, so the
+# OFF rows mean nothing) and screencapture writes no file without the step's own grant (step 9d6f7f59).
+CEF_INPUT = value("--cef-input", "cua")
 
 
 def part(name):
@@ -51,10 +47,10 @@ def part(name):
     env = dict(os.environ)
     report = None
     if name in ("cef-intree", "cef-off"):
-        cmd = ["cef-layer-verify.py", "--app", APP, "--tag", TAG, "--out", folder, "--input", "debug",
+        cmd = ["cef-layer-verify.py", "--app", APP, "--tag", TAG, "--out", folder, "--input", CEF_INPUT,
                "--mode", "intree" if name == "cef-intree" else "off"]
     elif name in ("overlay-on", "overlay-off"):
-        cmd = ["overlay-live-check.py", "--tag", TAG, "--out", folder, "--in-tree", name.split("-")[1]]
+        cmd = ["overlay-live-check.py", "--tag", TAG, "--app", APP, "--out", folder, "--in-tree", name.split("-")[1]]
     elif name in ("live-on", "live-off"):
         report = os.path.join(folder, "in-tree-live.json")
         cmd = ["in-tree-live-checks.py", "--app", APP, "--tag", TAG, "--out", folder, "--json", report,
@@ -96,7 +92,6 @@ try:
         with open(REPORT, "w") as f:
             json.dump(results, f, indent=1, default=str)
 finally:
-    if made_link:
-        os.unlink(link)
+    pass
 print("IN-TREE-VERIFY " + json.dumps({k: v.get("exit") for k, v in results["parts"].items()}), flush=True)
 sys.exit(0)
