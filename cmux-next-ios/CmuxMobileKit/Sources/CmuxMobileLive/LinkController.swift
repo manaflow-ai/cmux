@@ -81,6 +81,18 @@ public final class LinkController {
     /// running while the device sleeps.
     @ObservationIgnored private var parkedAt: ContinuousClock.Instant?
     @ObservationIgnored private var quickProbe = false
+    /// What the timers did, for tests that move a test clock: how many heartbeat tasks were
+    /// started and how many have begun running, how many times the heartbeat went to sleep and for
+    /// how long the last time, and how many probes started and the last one's timeout. Counters
+    /// only; nothing reads them to decide.
+    @ObservationIgnored private(set) var heartbeatStarts = 0
+    @ObservationIgnored private(set) var heartbeatsBegun = 0
+    @ObservationIgnored private(set) var heartbeatSleeps = 0
+    @ObservationIgnored private(set) var lastHeartbeatWait: Duration = .zero
+    @ObservationIgnored private(set) var probeStarts = 0
+    @ObservationIgnored private(set) var lastProbeTimeout: Duration = .zero
+    /// A probe is out and its result not yet handled.
+    var isProbing: Bool { probeTask != nil }
     @ObservationIgnored public var onLink: (@MainActor ((any MacLink)?) -> Void)?
     /// Every phase change and every drop of a live link, for the connectivity incident detector.
     @ObservationIgnored public var onSignal: (@MainActor (LinkSignal) -> Void)?
@@ -425,6 +437,8 @@ public final class LinkController {
         // No probe while the park is being asked for (see `park`).
         guard let link, phase.isConnected, generation == machine.generation, probeTask == nil, parkTask == nil else { return }
         let clock = clock
+        probeStarts += 1
+        lastProbeTimeout = timeout
         probeTask = Task { [weak self] in
             // The link's probe: the pong, or any frame from the Mac within the
             // timeout (a pong behind a busy queue on a slow relay is not a dead
@@ -504,9 +518,13 @@ public final class LinkController {
         let interval = machine.isBackgrounded
             ? (beat.isOn ? KeepaliveBeat.period : Self.backgroundHeartbeat)
             : Self.heartbeat
+        heartbeatStarts += 1
         heartbeatTask = Task { [weak self] in
+            self?.heartbeatsBegun += 1
             var wait = beat.delay(toNextBeatOf: interval) ?? interval
             while !Task.isCancelled {
+                self?.heartbeatSleeps += 1
+                self?.lastHeartbeatWait = wait
                 do { try await clock.sleep(for: wait) } catch { return }
                 guard !Task.isCancelled, let self, generation == self.machine.generation, self.phase.isConnected else { return }
                 if let toBeat = beat.delay(toNextBeatOf: interval) {

@@ -89,6 +89,10 @@ class FakeAsc:
                 self.bundles[pk]["name"] = attrs["name"]
                 return 201, {"data": {"id": pk, "attributes": self.bundles[pk]}}
             if method == "GET" and parts[:2] == ["v1", "bundleIds"] and parts[3] == "bundleIdCapabilities":
+                # App Store Connect refuses paging on this relationship
+                # (PARAMETER_ERROR.ILLEGAL, "The parameter 'limit' can not be used with this request").
+                if "limit" in query:
+                    return 400, {"errors": [{"status": "400", "code": "PARAMETER_ERROR.ILLEGAL"}]}
                 rows = [{"id": f"{parts[2]}_{c}", "attributes": {"capabilityType": c}} for c in sorted(self.capabilities[parts[2]])]
                 return 200, {"data": rows}
             if method == "POST" and path == "/v1/bundleIdCapabilities":
