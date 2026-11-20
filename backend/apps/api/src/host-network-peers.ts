@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import type { Principal, RowReader } from "@cmux/ownership"
 import type { Host } from "@cmux/protocol"
 import type { TeamState } from "./domains/team.ts"
-import { can, hostOf, listHosts } from "./domains/team-members.ts"
+import { can, hostOf, listAllHosts } from "./domains/team-members.ts"
 import { serverPlacementActive } from "./domains/team-servers.ts"
 import { teamAuthorityVersion } from "./domains/team-authority.ts"
 import { currentPolicy } from "./domains/team-policy.ts"
@@ -19,7 +19,7 @@ export const pointOf = (identity: NetworkIdentity | null): string | null => { tr
 export const networkHosts = (d: PeerDeps): NetworkHost[] | null => {
   const found: NetworkHost[] = []; let after: string | undefined
   for (let page = 0; page < 32; page++) {
-    const value = listHosts(d.state(), d.rows, after, 128)
+    const value = listAllHosts(d.state(), d.rows, after, 128)
     found.push(...value.items)
     if (!value.next) return found
     after = value.next

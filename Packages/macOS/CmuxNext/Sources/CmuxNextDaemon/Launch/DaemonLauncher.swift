@@ -208,9 +208,14 @@ public struct DaemonLauncher: Sendable {
     /// writes, as the app's own daemon does. Also the
     /// R-DAEMON-STATE input lane switch from the app's launch knobs (``DaemonDiagnosticKnobs``):
     /// the Chief owner follows the same rules as the app's own daemon, so its off switch must reach it too.
-    static func chiefEnvironment(_ base: [String: String]) -> [String: String] {
+    ///
+    /// `CMUX_BUILD_SPACE` is kept: it is this build's cloud data space (cmux-tui `cmux-build-space`), not an
+    /// identity that would make the owner another build's, and without it a dev build's Chief (its conversations,
+    /// automations and hands) would reach nightly's cloud data. A dev build's own Chief home
+    /// (``ChiefHome``) makes the owner this build's alone, so no other build or space shares it.
+    public static func chiefEnvironment(_ base: [String: String]) -> [String: String] {
         let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL", "CMUX_TUI_CHIEF_TOOLS_SOCKET",
-                    "CMUX_TUI_CHIEF_BRAINS"]
+                    "CMUX_TUI_CHIEF_BRAINS", buildSpaceKey]
         var environment = base.filter { kept.contains($0.key) }
         // The same absolute path the app's terminals and daemon get (``SettingsFileOverride``).
         let home = base["HOME"].map { URL(fileURLWithPath: $0, isDirectory: true) }
@@ -226,6 +231,9 @@ public struct DaemonLauncher: Sendable {
         }
         return environment
     }
+
+    /// The variable that carries a build's cloud data space to its Rust children (cmux-tui `cmux-build-space`).
+    public static let buildSpaceKey = "CMUX_BUILD_SPACE"
 
     /// The app launcher's `server ensure` environment: the login
     /// environment `cache` has now (`LoginEnvironmentCache.immediate()`:
