@@ -255,6 +255,19 @@ impl TcpStack {
         }
     }
 
+    /// Start tracking a connection the stack just admitted (accepted or
+    /// dialed). One admitted while held is held like the others (a late
+    /// input lane's SYN can arrive after the park): no keepalive, no
+    /// retransmission, and the hold's timeout instead of its user timeout.
+    pub(crate) fn admit(&mut self, conn: Conn) {
+        if let Some(hold) = self.hold {
+            let socket = self.sockets.get_mut::<tcp::Socket>(conn.handle);
+            apply_hold(socket, Some(hold));
+            socket.set_retransmit_paused(true);
+        }
+        self.conns.push(conn);
+    }
+
     /// The hold in force ([`TcpStack::set_hold`]).
     pub(crate) fn hold(&self) -> Option<Duration> {
         self.hold
@@ -427,7 +440,7 @@ impl TcpStack {
         }
         let handle = self.sockets.add(socket);
         let (conn, stream) = self.bridge(handle, local, remote, peer);
-        self.conns.push(Conn { pending_stream: Some((Handoff::Connect(reply), stream)), ..conn });
+        self.admit(Conn { pending_stream: Some((Handoff::Connect(reply), stream)), ..conn });
     }
 
     pub(crate) fn begin_listen(&mut self, port: u16) -> Result<mpsc::Receiver<Accepted>, WgError> {
