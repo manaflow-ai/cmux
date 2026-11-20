@@ -5,9 +5,6 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { teardownDom } from "../../../../test/support/domTeardown";
-import { newTabHost } from "../newTabModel";
-import { clockTime, msToNextMinute, readClockStyle } from "./clockModel";
-import { NewTabClock } from "./NewTabClock";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
 const globals = globalThis as Record<string, unknown>;
@@ -22,6 +19,10 @@ const replacements = {
 };
 const saved = Object.keys(replacements).map((key) => [key, key in globals, globals[key]] as const);
 Object.assign(globals, replacements);
+// src/ loads after the DOM is in place (test/import-order-lint.test.ts).
+const { newTabHost } = await import("../newTabModel");
+const { clockTime, msToNextMinute, readClockStyle } = await import("./clockModel");
+const { NewTabClock } = await import("./NewTabClock");
 afterAll(async () => {
   await teardownDom(saved, { window: dom.window, scope: globals });
 });
