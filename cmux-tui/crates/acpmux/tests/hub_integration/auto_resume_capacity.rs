@@ -4,6 +4,30 @@
 //! "API Error: 503 no non-exhausted claude accounts available" and sat failed.
 use super::*;
 
+#[tokio::test]
+async fn repeated_capacity_errors_exhaust_one_backed_off_retry_chain() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![50, 100]);
+    let id = new_session(&mut c, "capacity-bounded").await;
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "cap-fail-three: build it"}], "_meta": {"acpmux": {"promptId": "p-cap-bounded"}}}),
+    )
+    .await
+    .unwrap_err();
+    until(&hub, &id, |k| k.iter().any(|k| k == "auto_resume_exhausted")).await;
+    let scheduled = records(&hub, &id, "auto_resume_scheduled");
+    assert_eq!(scheduled.len(), 2);
+    assert!(scheduled[1]["delayMs"].as_u64().unwrap() > scheduled[0]["delayMs"].as_u64().unwrap());
+    let exhausted = records(&hub, &id, "auto_resume_exhausted");
+    assert_eq!(exhausted.len(), 1);
+    assert_eq!(exhausted[0]["reason"], "capacity");
+    assert_eq!(exhausted[0]["attempts"], 2);
+    assert_eq!(records(&hub, &id, "user_message").len(), 3);
+    assert_eq!(row(&hub, &id)["retry"], Value::Null);
+    assert_eq!(row(&hub, &id)["lastTurn"]["status"], "failed");
+}
+
 /// The records of one kind in a session, oldest first.
 fn records(hub: &Hub, id: &str, kind: &str) -> Vec<Value> {
     hub.events(id, 0, 10_000)

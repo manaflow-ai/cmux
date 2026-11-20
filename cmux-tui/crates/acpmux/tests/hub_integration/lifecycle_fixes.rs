@@ -2,6 +2,36 @@
 //! probe errors and the idle harness exit.
 use super::*;
 
+/// A temporary failure to load an existing conversation must not replace it with a new
+/// conversation. ACP adapters often put the useful cause in data.details.
+#[tokio::test]
+async fn capacity_during_resume_keeps_the_conversation_and_reports_the_cause_once() {
+    let cause = "Selected model is at capacity.";
+    let env = BTreeMap::from([("FAKE_LOAD_ERROR".to_owned(), cause.to_owned())]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let id = new_session(&mut c, "resume-capacity").await;
+    let session = hub.resolve(&id).unwrap();
+    let original = session.meta().agent_session_id;
+    hub.detach_child(&session).await;
+    let error = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "continue"}]}),
+        )
+        .await
+        .expect_err("a capacity error cannot start a replacement conversation");
+    assert!(error.contains(cause), "{error}");
+    assert_eq!(session.meta().agent_session_id, original);
+    let events = hub.events(&id, 0, 10_000).unwrap();
+    assert_eq!(events.iter().filter(|e| e.kind == "resume_failed").count(), 1);
+    assert_eq!(events.iter().filter(|e| e.kind == "turn_result").count(), 1);
+    assert_eq!(
+        events.iter().filter(|e| e.dir == "out" && e.kind == method::SESSION_NEW).count(),
+        1
+    );
+    assert_eq!(hub.session_summary(&session)["retry"], Value::Null);
+}
+
 /// A prompt that arrives while another caller is still loading the
 /// session's respawned agent waits for the load: the agent is not handed
 /// out before `session/load` answered (it would answer "Session not found",
