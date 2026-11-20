@@ -1267,12 +1267,15 @@ async fn read_loop<R>(
         if !matches!(frame.kind, FrameType::Ping | FrameType::Pong) {
             inner.received_traffic();
         }
-        // A park ends when the peer is back: on the Mac its first ping (the
-        // phone may still send channel data in the moments before the OS
-        // suspends it), on a resuming phone the first frame from the Mac.
+        // A park ends when the peer is back: on the Mac its first ping or
+        // app request (channel data here, a new channel below: a phone running
+        // a notification action in the background is awake and waits for the
+        // answer), on a resuming phone the first frame from the Mac.
         let park = *inner.park.borrow();
         match (park, inner.role) {
-            (Park::Parked { .. }, Role::Mac) if frame.kind == FrameType::Ping => inner.unpark(),
+            (Park::Parked { .. }, Role::Mac) if matches!(frame.kind, FrameType::Ping | FrameType::Data) => {
+                inner.unpark();
+            }
             (Park::Resuming, _) => inner.unpark(),
             (Park::Parked { .. } | Park::Off, _) => {}
         }
@@ -1326,6 +1329,10 @@ async fn read_loop<R>(
                         _ => refuse(&inner, stream, frame.channel, "bad_request", "hold_ms must be positive"),
                     }
                     continue;
+                }
+                // Any other new channel is an app request: the phone is awake.
+                if inner.role == Role::Mac {
+                    inner.unpark();
                 }
                 // Replies go back on the stream the open came on, at the
                 // priority of the lane the peer asked for.

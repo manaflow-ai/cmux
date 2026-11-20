@@ -424,8 +424,12 @@ and the phone redials on return as before. While parked:
 - The app's heartbeat, foreground and presence probes are suspended: a
   ping ends the park.
 
-The park ends on the Mac at the phone's first ping. On the phone it ends at
-the first frame from the Mac after `resume`. On return within the hold
+The park ends on the Mac at the phone's first ping, channel data or new
+channel (other than `_link.park`): a phone that sends a request (a
+notification action run in the background) is awake and waits for the
+answer. The phone parks no link a call is using, and a request it runs in
+the background resumes its link for the request, then parks it again. On
+the phone the park ends at the first frame from the Mac after `resume`. On return within the hold
 (less a 30 s margin, on the clock that runs while the device sleeps), the
 phone moves the tunnel onto a fresh socket, as for a network change, and
 probes once with a 1.5 s timeout. If the probe fails, the phone redials. If
