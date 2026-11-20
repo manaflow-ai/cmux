@@ -478,7 +478,7 @@ fn host_fits(host: &str) -> bool {
 
 /// An `https://` URL with a host, of at most [`MAX_NOTICE_URL_BYTES`], with no whitespace,
 /// control or format mark in it.
-fn https_url(url: &str) -> bool {
+pub(crate) fn https_url(url: &str) -> bool {
     let Some(rest) = url.strip_prefix("https://") else { return false };
     let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
     url.len() <= MAX_NOTICE_URL_BYTES

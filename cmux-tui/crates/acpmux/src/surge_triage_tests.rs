@@ -8,11 +8,23 @@ fn held(id: &str, thread: &str, class: &str, text: &str) -> Held {
         from: format!("host/{thread}"),
         class: class.into(),
         text: text.into(),
+        source_url: None,
     }
 }
 
 fn batch_of(list: Vec<Held>) -> Batch {
     batches("coord", list).remove(0)
+}
+
+#[test]
+fn linked_notice_keeps_its_source_through_triage_and_recovery() {
+    let url = "https://github.com/example/project/pull/17";
+    let original = json!({"surgeHeld":true,"promptId":"original","threadId":"topic:pr/example/project/17",
+        "text":"review requested","_meta":{"provenance":{"notice":{"links":[{"url":url}]}}}});
+    let batch = batch_of(vec![held_from_inbox(&original).unwrap()]);
+    let decisions = decide(&batch, Some("1 this"), &Owners::default());
+    let record = triaged_record(&batch, &decisions, Some("digest"));
+    assert!(digest("receiver", &record_lines(&record)).unwrap().contains(url));
 }
 
 fn owners(pairs: &[(&str, &str)]) -> Owners {

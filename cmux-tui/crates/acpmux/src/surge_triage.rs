@@ -61,6 +61,8 @@ pub struct Held {
     /// `block`, `question`, `result` or `fyi` (`prompt_class::PromptClass`).
     pub class: String,
     pub text: String,
+    #[serde(default)]
+    pub source_url: Option<String>,
 }
 
 impl Held {
@@ -82,6 +84,17 @@ pub fn held_from_inbox(msg: &Value) -> Option<Held> {
         from: s("from"),
         class: msg.get("class").and_then(Value::as_str).unwrap_or("fyi").to_owned(),
         text: s("text"),
+        source_url: msg
+            .pointer("/_meta/provenance/notice/links")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|link| link.get("url").and_then(Value::as_str))
+            .chain(msg["text"].as_str().unwrap_or_default().split_whitespace().map(|word| {
+                word.trim_matches(|c| matches!(c, '<' | '>' | '(' | ')' | '[' | ']' | ','))
+            }))
+            .find(|url| crate::prompt_provenance::https_url(url))
+            .map(str::to_owned),
     };
     (!held.prompt_id.is_empty() && !held.thread_id.is_empty()).then_some(held)
 }
@@ -319,6 +332,7 @@ pub fn triaged_record(batch: &Batch, decided: &[Decision], digest: Option<&str>)
                 "category": d.category, "decidedBy": d.decided_by,
                 "from": m.map(|m| cut(&m.from, 64)).unwrap_or_default(),
                 "label": m.map(|m| preview(&m.text)).unwrap_or_default(),
+                "sourceUrl": m.and_then(|m| m.source_url.as_deref()),
             });
             if let Some(o) = &d.owner {
                 v["owner"] = json!(o);
@@ -341,6 +355,8 @@ pub struct Line {
     pub from: String,
     #[serde(default)]
     pub label: String,
+    #[serde(default)]
+    pub source_url: Option<String>,
     #[serde(default)]
     pub owner: Option<String>,
 }
@@ -394,6 +410,9 @@ fn render(head: String, session: &str, lines: &[&Line], read_link: bool) -> Stri
             list.len(),
             senders.join(", "),
         );
+        if let Some(url) = list.iter().rev().find_map(|l| l.source_url.as_deref()) {
+            line.push_str(&format!("  {url}\n"));
+        }
         if read_link {
             // The whole thread id, quoted: the link must name it exactly.
             line.push_str(&format!(
