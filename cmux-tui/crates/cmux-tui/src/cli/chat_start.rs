@@ -61,6 +61,8 @@ const TAKES_VALUE: &[&str] = &[
     "--agent",
     "--harness",
     "--model",
+    "--effort",
+    "--mode",
     "--cwd",
     "--from-folder",
     "--repo",
@@ -110,7 +112,8 @@ const LIST_VMS: &str = "run `cmux vm ls` for your VMs, or use --on vm:new";
 
 pub(super) const USAGE: &str = "\
 usage: cmux chat [--on TARGET] [--environment ENV] [--harness HARNESS] [--model MODEL]
-                 [--cwd DIR] [--from-folder DIR] [--repo URL] [--name NAME]
+                 [--effort EFFORT] [--mode MODE]
+                 [--cwd DIR | --from-folder DIR | --no-folder] [--repo URL] [--name NAME]
                  [--attach FILE]... [-w] [--timeout DURATION] [--json] [[--prompt] TEXT]
 
 Starts an agent chat, right here unless --on names another target:
@@ -147,12 +150,18 @@ Starts an agent chat, right here unless --on names another target:
                      to the chat first. A missing or unreadable file starts nothing
                      and exits non-zero (attach.not_found, not_a_file, unreadable)
   --model MODEL      The agent's model (here or on a Cloud machine)
+  --effort EFFORT    Its thinking effort: low, medium, high, xhigh, max (what the
+                     harness offers), as the composer's effort picker sets it
+  --mode MODE        The permission mode it starts in (plan, acceptEdits, ...);
+                     the agent's acpmux decides whether it may
   --cwd DIR          The chat's folder (absolute); for a Cloud chat, a folder on the VM
   --from-folder DIR  A Cloud chat in a copy of DIR, a folder on this Mac (`.` is this
                      one): copied as New Cloud chat copies it, .env files, keys and
                      credentials left out and named. Without it a Cloud chat starts in a
                      new empty folder on the VM
-  --repo URL         A chat here in a clone of URL: OWNER/NAME on GitHub or any https
+  --no-folder        A Cloud chat with no folder, as the composer's No folder: a new
+                     folder of its own on the VM (~/chats/<chat>), nothing copied;
+                     not with --cwd, --from-folder or --repo  --repo URL         A chat here in a clone of URL: OWNER/NAME on GitHub or any https
                      git URL (GitLab's too), @REF for a branch, tag or commit. Cloned
                      with your git into ~/cmux/repos/HOST/OWNER/NAME, or --cwd DIR;
                      a clone of it already there is used as it is
@@ -173,6 +182,10 @@ EXAMPLES
   cmux chat --on vm:new --prompt 'Summarize README.md' --wait --json
   cmux chat --on vm:new --from-folder . --prompt 'Run the tests' --wait
   cmux chat --on cloud --environment staging-db --prompt 'Run the migrations' --wait
+  cmux chat --on cloud --no-folder --harness codex --effort high --prompt 'What is 1+1?' -w
+  cmux chat --on cloud --from-folder . --model claude-sonnet-5-5 --effort max -p 'Run the tests'
+  cmux agents chat new --on cloud --harness claude --effort low -- 'What is 1+1?'
+                                            (the same start, by agents chat new's name)
   cmux chat --on vm:dev --cwd /home/cmux/work --prompt 'Run the tests' --json
 
 With --wait the answer has session_id, workspace_id, tab_id and reply, here
@@ -196,6 +209,13 @@ pub(super) struct Start {
     pub on: Option<String>,
     pub agent: Option<String>,
     pub model: Option<String>,
+    /// `--effort`: the agent's thinking effort (the composer's effort picker), here and in Cloud.
+    pub effort: Option<String>,
+    /// `--mode`: the harness permission mode the chat starts in, here and in Cloud.
+    pub mode: Option<String>,
+    /// `--no-folder`: a Cloud chat in a fresh folder of its own on the VM, said outright (the
+    /// composer's No folder); refused with any folder, and for a chat that is not in Cloud.
+    pub no_folder: bool,
     pub cwd: Option<String>,
     /// `--from-folder DIR`: a Cloud chat in a copy of this Mac's DIR (`cloud start-chat
     /// --from-folder`); a chat here refuses it.
@@ -301,6 +321,9 @@ pub(super) fn parse_with(
         on: None,
         agent: None,
         model: None,
+        effort: None,
+        mode: None,
+        no_folder: false,
         cwd: None,
         from_folder: None,
         repo: None,
@@ -363,6 +386,11 @@ pub(super) fn parse_with(
             }
             "--agent" | "--harness" => start.agent = Some(value()?),
             "--model" => start.model = Some(value()?),
+            "--effort" => {
+                start.effort = Some(cloud_start_chat::setting_word("--effort", &value()?)?);
+            }
+            "--mode" => start.mode = Some(cloud_start_chat::setting_word("--mode", &value()?)?),
+            "--no-folder" => start.no_folder = true,
             "--cwd" => start.cwd = Some(value()?),
             "--from-folder" => {
                 if start.from_folder.is_some() {
@@ -392,6 +420,11 @@ pub(super) fn parse_with(
             _ => return Err(UsageError::new(format!("unexpected argument {word:?}"))),
         }
         index += 1;
+    }
+    if start.no_folder
+        && (start.cwd.is_some() || start.from_folder.is_some() || start.repo.is_some())
+    {
+        return Err(UsageError::new(NO_FOLDER_WITH_FOLDER));
     }
     start.on = pick_target(start.on.take(), env_target, setting);
     if start.on.as_deref() == Some("vm:") {
@@ -874,9 +907,13 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
     if route == Route::Here && start.from_folder.is_some() {
         return usage_failure(&UsageError::new(FROM_FOLDER_CLOUD_ONLY), global.output);
     }
+    if start.no_folder && !matches!(route, Route::Cloud(_)) {
+        return usage_failure(&UsageError::new(NO_FOLDER_CLOUD_ONLY), global.output);
+    }
     if matches!(route, Route::Cloud(_))
         && start.from_folder.is_none()
         && start.cwd.is_none()
+        && !start.no_folder
         && global.output == OutputMode::Human
     {
         eprintln!("{EMPTY_CLOUD_FOLDER}");
@@ -959,6 +996,13 @@ enum Failure {
     Usage(UsageError),
     Repo(Value),
 }
+
+const NO_FOLDER_WITH_FOLDER: &str = "--no-folder starts a Cloud chat in a fresh folder of its own; \
+     not with --cwd, --from-folder or --repo";
+
+const NO_FOLDER_CLOUD_ONLY: &str = "--no-folder is a Cloud chat's: a fresh folder of its own on \
+     the VM; a chat here or on another machine runs in a folder there (--cwd DIR), so add --on \
+     cloud";
 
 const FROM_FOLDER_CLOUD_ONLY: &str = "--from-folder copies a folder to a Cloud chat's VM; a chat \
      here runs in its own folder: give --cwd DIR, or add --on vm:new";
@@ -1178,6 +1222,8 @@ fn new_words(start: &Start, prompt: Option<String>) -> Result<Vec<String>, Usage
     for (flag, value) in [
         ("--harness", &start.agent),
         ("--model", &start.model),
+        ("--effort", &start.effort),
+        ("--mode", &start.mode),
         ("--cwd", &start.cwd),
         ("--name", &start.name),
     ] {
@@ -1197,8 +1243,8 @@ fn new_words(start: &Start, prompt: Option<String>) -> Result<Vec<String>, Usage
 pub(super) fn cloud_words(start: &Start, machine: &Machine) -> Result<Vec<String>, UsageError> {
     if start.name.is_some() {
         return Err(UsageError::new(
-            "--name names a chat here; a Cloud chat takes --agent, --model, --cwd, \
-             --from-folder and --prompt",
+            "--name names a chat here; a Cloud chat takes --harness, --model, --effort, \
+             --mode, --cwd, --from-folder, --no-folder and --prompt",
         ));
     }
     // Refused, never dropped: a Cloud chat's first prompt is text only (`cloud start-chat`).
@@ -1221,6 +1267,8 @@ pub(super) fn cloud_words(start: &Start, machine: &Machine) -> Result<Vec<String
         ("--agent", &start.agent),
         // The machine's agent starts on it (`cloud start-session --model`).
         ("--model", &start.model),
+        ("--effort", &start.effort),
+        ("--mode", &start.mode),
         ("--cwd", &start.cwd),
         ("--from-folder", &start.from_folder),
         ("--environment", &start.environment),
@@ -1235,6 +1283,9 @@ pub(super) fn cloud_words(start: &Start, machine: &Machine) -> Result<Vec<String
     }
     if start.allow_large {
         words.push("--allow-large".to_owned());
+    }
+    if start.no_folder {
+        words.push("--no-folder".to_owned());
     }
     Ok(words)
 }

@@ -193,7 +193,10 @@ public final class CornerFlushChrome: NSView {
     static func topInset(of root: NSView) -> CGFloat? {
         guard CornerFlush.current.isOn, DesignSettings.shared.tabBarPosition != .bottom, let window = root.window,
               let lights = WindowTitlebar.trafficLightsFrame(in: window) else { return nil }
-        let centerFromTop = root.bounds.maxY - root.convert(lights, from: nil).midY
+        // The top row's one line (``WindowTitlebar/topRowLine(in:look:)``, from the density's tokens) where the window has one,
+        // never the lights' frame of the moment: AppKit puts them back at its own place when it lays its titlebar out again,
+        // and a card read from there moved the tabs with them. A standard titlebar keeps the lights' own line.
+        let centerFromTop = WindowTitlebar.topRowLine(in: window)?.centerY ?? root.bounds.maxY - root.convert(lights, from: nil).midY
         let scale = window.backingScaleFactor
         let chrome = PaneChromeMetrics.current
         let pillCenter = chrome.panePadding + chrome.pillTop(scale: scale) + Metrics.tabHeight / 2
