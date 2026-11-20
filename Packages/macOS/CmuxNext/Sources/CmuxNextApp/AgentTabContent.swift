@@ -33,7 +33,7 @@ struct AgentTabContent {
             drawLastPage(key, until: nil)
             return nil
         }
-        guard let view = services.agentTabs.view(for: key, machine: pane.daemon.machineID) else {
+        guard let view = services.agentTabs.view(for: key, machine: pane.daemon.machineID, leaving: pane.stripModel.selectedID?.rawValue == key ? pane : nil) else { // the pane leaves the tab that it shows only for its selected tab (a hover load leaves nothing)
             return services.agentTabs.notice(for: key, machine: pane.daemon.machineID).map { TabContent.notice($0) }
         }
         // Set on each show, so a tab moved to another pane opens files there.
