@@ -78,6 +78,7 @@ jobs:
       - name: Input key (shadow receipt)
         id: key
         if: steps.base.outputs.projects != ''
+        continue-on-error: true
         env:
           PROJECTS: ${{ steps.base.outputs.projects }}
         run: python3 scripts/ci/receipt_input_key.py key react-doctor --units "$PROJECTS" --output "$GITHUB_OUTPUT"
@@ -94,6 +95,7 @@ jobs:
 
       - name: Would skip (shadow)
         if: steps.key.outputs.input_key != ''
+        continue-on-error: true
         env:
           INPUT_KEY: ${{ steps.key.outputs.input_key }}
           HIT: ${{ steps.receipt.outputs.cache-hit == 'true' }}
@@ -136,6 +138,7 @@ jobs:
 
       - name: Record the receipt (shadow)
         if: success() && steps.key.outputs.input_key != '' && steps.receipt.outputs.cache-hit != 'true'
+        continue-on-error: true
         env:
           INPUT_KEY: ${{ steps.key.outputs.input_key }}
           BASE: ${{ steps.base.outputs.base }}
