@@ -254,7 +254,9 @@ if [[ "$SIGN_MODE" == "all" && "$IDENTITY" != "-" && ! -d "$COMPUTER_USE_HELPER"
 fi
 
 if [[ -d "$COMPUTER_USE_HELPER" ]]; then
-  helper_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$COMPUTER_USE_HELPER/Contents/Info.plist" 2>/dev/null || true)"
+  helper_plist="$COMPUTER_USE_HELPER/Contents/Info.plist"
+  [[ -f "$helper_plist" ]] || { echo "error: missing $helper_plist" >&2; exit 1; }
+  helper_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$helper_plist")"
   [[ "$helper_id" == com.cmuxterm.cua ]] || {
     echo "error: Computer Use helper has bundle id '$helper_id', expected com.cmuxterm.cua" >&2
     exit 1
