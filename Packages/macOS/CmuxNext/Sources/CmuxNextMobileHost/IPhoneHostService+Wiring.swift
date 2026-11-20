@@ -119,6 +119,8 @@ extension IPhoneHostService {
             surfaceHosts: surfaceHosts,
             cloudLinks: cloudLinks ?? { MobileHostCloudLinks() },
             pairingSeed: IPhonePairingSeed.fromEnvironment(processEnvironment),
+            devAutoApprove: IPhoneDevAutoApprove.fromLaunch(environment: processEnvironment),
+            macDevTag: IPhoneDevAutoApprove.macDevTag(),
             chief: chief
         )
     }

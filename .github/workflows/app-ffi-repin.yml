@@ -30,7 +30,10 @@ jobs:
     name: open the re-pin pull request
     if: github.ref == 'refs/heads/feat-cmux-next'
     environment: ffi-release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    # The release's LINUX ROUTE (app-ffi-release.yml): the nightly lane's reserved label first, attempts 1 and 2.
+    # On vars.LINUX_RUNNER this job waited behind all PR CI on a saturated Blacksmith pool (run 44645693256, 40 min
+    # pending, 2026-11-20) while the published release cmux-app-ffi-789a832a sat unpinned.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     # actions: write only for the failure step's dispatch of app-ffi-repin.yml; the re-pin script reads runs and
     # jobs with this token (READ_TOKEN) and writes nothing with it.
