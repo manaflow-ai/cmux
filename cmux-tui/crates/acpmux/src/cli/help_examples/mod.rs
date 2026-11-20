@@ -55,10 +55,10 @@ pub(crate) fn attach(command: Command, front_door: bool) -> Command {
 /// Replace command invocations in authored help, before clap wraps or colors them.
 /// Leave executable paths, protocol names and prose about the daemon alone.
 fn front_door_text(help: Option<&StyledStr>) -> Option<String> {
-    static COMMAND: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"(?m)(^[ \t]*(?:sudo )?|`|\| )acpmux ([\w-]+)").unwrap());
+    static COMMAND: LazyLock<Option<Regex>> =
+        LazyLock::new(|| Regex::new(r"(?m)(^[ \t]*(?:sudo )?|`|\| )acpmux ([\w-]+)").ok());
     let text = help?.to_string();
-    match COMMAND.replace_all(&text, |m: &Captures<'_>| {
+    match COMMAND.as_ref()?.replace_all(&text, |m: &Captures<'_>| {
         // `agent inbox` and `agent list` already name app commands.
         let verb = match &m[2] {
             "inbox" => "team-inbox",
@@ -81,6 +81,10 @@ fn attach_at(mut command: Command, path: &mut Vec<String>, front_door: bool) -> 
         command = command.after_help(text);
     }
     if front_door {
+        // clap uses the canonical name in Usage, including for nested subcommands.
+        if path.len() == 1 && path[0] == "inbox" {
+            command = command.alias(None).name("team-inbox");
+        }
         if let Some(text) = front_door_text(command.get_after_help()) {
             command = command.after_help(text);
         }

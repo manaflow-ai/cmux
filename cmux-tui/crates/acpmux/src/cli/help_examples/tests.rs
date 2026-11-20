@@ -191,6 +191,13 @@ fn colliding_front_door_commands_keep_their_engine_meaning() {
         Some("cmux agent team-inbox read msg-123\ncmux agent ls --all")
     );
     assert_eq!(Cli::command().find_subcommand("team-inbox").unwrap().get_name(), "inbox");
+    let grammar = attach(Cli::command(), true).bin_name("cmux agent");
+    let help = grammar
+        .try_get_matches_from(["cmux agent", "team-inbox", "read", "--help"])
+        .unwrap_err()
+        .to_string();
+    assert!(help.contains("cmux agent team-inbox read"), "{help}");
+    assert!(!help.contains("cmux agent inbox"), "{help}");
 }
 
 #[test]

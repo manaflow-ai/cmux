@@ -1084,7 +1084,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     }
                 }
                 if let Some(next) = value.get("next").and_then(Value::as_u64) {
-                    println!("More: acpmux inbox --before {next}");
+                    let program = crate::cli::entry::program();
+                    let verb = if program == "cmux agent" { "team-inbox" } else { "inbox" };
+                    println!("More: {program} {verb} --before {next}");
                 }
             } else if method == method::MUX_TEAM_READ {
                 println!(

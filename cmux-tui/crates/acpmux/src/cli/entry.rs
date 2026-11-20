@@ -212,21 +212,24 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     let exec_alias = argv.get(at).map(|a| a == "exec").unwrap_or(false);
     // clap keeps command names as `&'static str`; one per process.
     let name = PROGRAM.get_or_init(|| invocation.display_name.clone()).as_str();
-    let show_front_door = name == "cmux agent"
-        && argv
-            .iter()
-            .skip(1)
-            .take_while(|arg| *arg != "--")
-            .any(|arg| arg == "--help" || arg == "-h" || arg == "help");
-    let mut grammar = crate::cli::help_examples::attach(Cli::command(), show_front_door)
-        .name(name)
-        .bin_name(name);
+    let build_grammar = |front_door| {
+        crate::cli::help_examples::attach(Cli::command(), front_door).name(name).bin_name(name)
+    };
+    let mut grammar = build_grammar(false);
     let json_out = argv.iter().take_while(|a| *a != "--").any(|a| a == "--json");
     let matches = match grammar.try_get_matches_from_mut(argv.clone()) {
         Ok(matches) => matches,
         // A flag another command takes says which, and what this one does instead; a root word
         // a command group takes names that command; under --json any other is the envelope.
         Err(e) => {
+            // Only help and errors need front-door spellings. Normal calls use the
+            // unchanged engine grammar, including its canonical variant names.
+            let e = if name == "cmux agent" {
+                grammar = build_grammar(true);
+                grammar.try_get_matches_from_mut(argv.clone()).err().unwrap_or(e)
+            } else {
+                e
+            };
             let refusal = crate::cli::unknown_flag::explain(&e, &grammar, &argv, at, name)
                 .or_else(|| crate::cli::unknown_command::explain(&e, &grammar, &argv, at, name))
                 .or_else(|| {
