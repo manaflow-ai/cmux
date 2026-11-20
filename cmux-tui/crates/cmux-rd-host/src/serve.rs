@@ -74,6 +74,9 @@ struct Setup {
     /// Linux: `x11` or `portal` (else `--capture`, else the session type decides).
     #[serde(default)]
     capture: Option<String>,
+    /// The person sharing turned clipboard text sync on for this session (default off).
+    #[serde(default)]
+    clipboard: bool,
 }
 
 #[derive(Deserialize)]
@@ -86,9 +89,15 @@ struct Later {
 
 /// Prints one line for the app (`AppLine`, the type the app's line reader reads back).
 fn say(line: AppLine) {
-    let mut out = io::stdout().lock();
-    let _ = writeln!(out, "{}", line.to_json());
-    let _ = out.flush();
+    let _ = write_line(&mut io::stdout().lock(), &line);
+}
+
+/// One app line on `out`, then a flush: the app reads stdout through a pipe, where nothing
+/// else flushes it, so each line must reach the pipe whole before the next stage waits on
+/// the app (cmuxterm-hq#13721: the answer waits for every candidate line).
+fn write_line(out: &mut impl Write, line: &AppLine) -> io::Result<()> {
+    writeln!(out, "{}", line.to_json())?;
+    out.flush()
 }
 
 pub(crate) fn hex(bytes: &[u8]) -> String {
@@ -438,6 +447,12 @@ fn serve_session(
     if crate::desktop::reports_cursor() {
         host_caps.push(cmux_rd_core::service::caps::CURSOR);
     }
+    // Clipboard text only when the app's setup turned it on and this host has a clipboard it
+    // can watch (macOS). A `view` scope session still never applies or sends one: it never
+    // holds control (clipboard.rs).
+    if crate::clipboard::offered(setup.clipboard) {
+        host_caps.push(cmux_rd_core::service::caps::CLIPBOARD_TEXT);
+    }
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,
         Err(refusal) => {
@@ -527,6 +542,56 @@ fn serve_session(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clipboard_sync_is_off_unless_the_setup_turns_it_on() {
+        let base = r#"{"session":"s","peer_key":"00","viewer":{"user":"u","install":"i"},"scope":"control"}"#;
+        let off: Setup = serde_json::from_str(base).expect("setup");
+        assert!(!off.clipboard);
+        let on = r#"{"session":"s","peer_key":"00","viewer":{"user":"u","install":"i"},"scope":"control","clipboard":true}"#;
+        let on: Setup = serde_json::from_str(on).expect("setup");
+        assert!(on.clipboard);
+    }
+
+    /// A writer that keeps what reached it only at a flush, as a pipe's reader sees it.
+    #[derive(Default)]
+    struct Piped {
+        pending: Vec<u8>,
+        flushed: Vec<u8>,
+    }
+
+    impl Write for Piped {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.pending.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.flushed.append(&mut self.pending);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn every_app_line_reaches_the_pipe_whole_and_flushed() {
+        let mut out = Piped::default();
+        let lines = [
+            AppLine { displays: Some(vec![(1920, 1080)]), current: Some(0), ..AppLine::default() },
+            AppLine { key: Some("ab".repeat(32)), ..AppLine::default() },
+            AppLine { candidate: Some("host 192.168.1.4:51000".into()), ..AppLine::default() },
+            AppLine { candidates_done: true, ..AppLine::default() },
+        ];
+        for (i, line) in lines.iter().enumerate() {
+            write_line(&mut out, line).unwrap();
+            // Nothing waits in a buffer: the reader has every line so far, each ended by one newline.
+            assert!(out.pending.is_empty());
+            let read: Vec<&[u8]> =
+                out.flushed.split(|b| *b == b'\n').filter(|l| !l.is_empty()).collect();
+            assert_eq!(read.len(), i + 1);
+            assert_eq!(AppLine::decode(read[i]).as_ref(), Some(line));
+        }
+        assert_eq!(out.flushed.last(), Some(&b'\n'));
+    }
 
     #[test]
     fn portal_sessions_control_only_with_a_remote_desktop_grant() {

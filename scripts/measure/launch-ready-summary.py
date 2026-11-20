@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""launch-ready.sh's summary: per side LR-MEDIAN, LR-REOPENED, LR-USABLE and LR-SURFACE, and LR-SURFACE-DIFF when an
-A/B's arms first showed different surfaces.
+"""launch-ready.sh's summary: per side LR-MEDIAN, LR-REOPENED, LR-USABLE and LR-SURFACE, LR-KEYS with --keys 1, and
+LR-SURFACE-DIFF when an A/B's arms first showed different surfaces.
 
   launch-ready-summary.py RUNS_JSONL [--state kept|bare] [--case update] [--daemon cold] [--snapshot unknown|foreign]
-                          [--front home|tab]
+                          [--front home|tab] [--keys 1]
 
 The launch reopens exactly where the person was, Home included (Leo, 2026-11-18: "fresh startup opening home is obv
 fine but if it's not first time and the user was on a workspace and a tab, obv just take them there"; "ofc reopening
@@ -15,10 +15,16 @@ home if they were prev on home is fine"). Each case's expectation is one entry o
   foreign  snapshot=foreign: no foreign windows drawn (no launch_snapshot_shown), then this home's own last front
   unknown  snapshot=unknown: the snapshot's front workspace no longer exists in the daemon, so Home
 front=home|tab seeds the priming launch's front; every measured launch is then judged against that front.
+keys=1 (--keys 1): LR-KEYS SIDE MEDIAN N/M, the side's median first_key_ms (the first key Home's box kept, ms from
+process start) over the measured launches whose sent message held a key, and how many of the M measured launches sent one.
 A front's compare key: Home when Home is in front (`home`, or topPage "home", or the focused tab's page "home-dock"),
 else (workspace, tab): the front window's shown workspace key and its focused pane's selected tab id.
-Prints an LR-FAIL row per launch that did not land where it should. A launch whose launch before left no readable
-front cannot be judged against it: LR-SKIP, outside N/M, not an LR-FAIL. The stress3 seed quits the app itself, so its
+kept, cold and foreign judge every launch after the priming one (or the stress3 seed), the preruns included, against
+that launch's front; a prerun that changed it fails the arm. With that front unreadable the arm is not judged
+(LR-REOPENED SIDE not-judged: ...), never compared with the launch before instead.
+Prints an LR-FAIL row per launch that did not land where it should, and LR-SAME-FRONT: ok only when every arm was
+judged and none failed, else invalid with the arms that were not judged or failed. In case=update, a launch whose
+launch before left no readable front cannot be judged against it: LR-SKIP, outside N/M, not an LR-FAIL. The stress3 seed quits the app itself, so its
 probe reads no front; --out DIR reads the one the seed wrote just before (DIR/seed-SIDE.front.json).
 """
 import argparse
@@ -108,6 +114,21 @@ def judge(row, expect, prev):
     return "opened " + json.dumps(front, sort_keys=True) + " after " + json.dumps(prev, sort_keys=True)
 
 
+# The cases whose every launch must show the priming launch's front (or the stress3 seed's); case=update's old copy
+# sets the front its new copy must reopen, so it keeps comparing with the launch before.
+PRIME_ANCHORED = ("kept", "cold", "foreign")
+# The launches between the priming one and a measured one: the full-settle preruns (prerun=) and case=update's old copy.
+PRERUNS = ("full", "old")
+
+
+def judge_against_anchor(row, expect, anchor, anchor_drew_home):
+    """judge() against the priming launch's front; when that front is Home, Home's page must draw too."""
+    reason = judge(row, expect, anchor)
+    if reason is None and is_home(anchor) and anchor_drew_home and "home.first_page" not in (row.get("marks") or {}):
+        return "Home in front but Home's page did not draw (home.first_page), as the priming launch's did"
+    return reason and reason + " (judged against the priming launch's front)"
+
+
 def fill_seed_fronts(rows, out):
     """The stress3 seed quits the app itself, so its probe read no front; the seed wrote the one it left just before."""
     for r in rows:
@@ -117,7 +138,7 @@ def fill_seed_fronts(rows, out):
                 r["front"] = json.load(handle)
 
 
-def summarize(rows, case="kept", seeded=""):
+def summarize(rows, case="kept", seeded="", keys=False):
     """Prints the summary; returns the lines' data: {side: {"failed": [...], "surface": first}}."""
     expect, result = EXPECT[case], {}
     print("LR-CASE", case, f"expect={expect}" + (f" front={seeded}" if seeded else ""), flush=True)
@@ -135,18 +156,43 @@ def summarize(rows, case="kept", seeded=""):
         for name in sorted(names, key=lambda n: statistics.median([r["marks"][n] for r in done if n in r["marks"]])):
             med[name] = round(statistics.median([r["marks"][name] for r in done if name in r["marks"]]), 1)
         failed, prev, prev_label, measured, usable, anchor, skipped = [], None, None, 0, 0, None, 0
+        drifted, anchor_drew_home, not_judged = [], False, None
         if seeded:  # front=: the priming launch's front is the front every measured launch must reopen
             prime = next((r for r in own if r["label"] == "prime"), {})
             anchor = prime.get("front")
+            anchor_drew_home = "home.first_page" in (prime.get("marks") or {})
             if not anchor or "error" in anchor or key(anchor)[0] != ("home" if seeded == "home" else "tab"):
                 print("LR-FAIL", side, "prime", f"front={seeded} not seeded: front " + json.dumps(anchor, sort_keys=True), flush=True)
                 failed.append("prime")
+        # kept, cold, foreign: nothing between launches moves the front, so every launch after the priming one (or the
+        # stress3 seed, which sets its own) must show that front: the preruns too, which used to be skipped while still
+        # moving `prev`, so a change at prime -> full1 read as N/N reopened (cmux#44491's lost Home front). A launch
+        # that changed it fails the arm even when a later one changes it back. With that front unreadable the arm is
+        # not judged at all: comparing with the launch before instead is the same blind spot.
+        anchored = not seeded and case in PRIME_ANCHORED
         for r in own:
+            if anchored and r["label"] in ("prime", "seed"):
+                front = r.get("front")
+                if not front or "error" in front:
+                    not_judged = f"{r['label']} front unreadable: " + str((front or {}).get("error") or "none read")
+                    anchor = None
+                else:
+                    anchor, not_judged = front, None
+                anchor_drew_home = "home.first_page" in (r.get("marks") or {})
+            # A seeded run (front=) judges its preruns against the seeded front the same way: a prerun that moved the
+            # front and a measured launch that moved it back read 1/1 and LR-SAME-FRONT ok before.
+            elif (anchored or seeded) and anchor is not None and r["label"].startswith(PRERUNS):
+                reason = judge_against_anchor(r, expect, anchor, anchor_drew_home)
+                if reason:
+                    print("LR-FAIL", side, r["label"], reason, flush=True)
+                    drifted.append(r["label"])
             if r["label"].startswith("run"):
                 measured += 1
                 usable += "window_usable" in (r.get("marks") or {})
                 front, before = r.get("front"), None if case == "fresh" else (anchor if seeded else prev)
-                if (expect != "home" and not seeded and not r.get("cross_arm") and front and "error" not in front
+                if anchored:
+                    reason = None if not_judged else judge_against_anchor(r, expect, anchor, anchor_drew_home)
+                elif (expect != "home" and not seeded and not r.get("cross_arm") and front and "error" not in front
                         and (not before or "error" in before)):
                     skipped, reason = skipped + 1, None
                     print("LR-SKIP", side, r["label"], f"{prev_label or 'the launch before'} left no readable front:",
@@ -160,6 +206,11 @@ def summarize(rows, case="kept", seeded=""):
         runs = [r for r in own if r["label"].startswith("run")]
         reopened = measured - sum(1 for label in failed if label != "prime")
         med["reopened"] = f"{reopened - skipped}/{measured - skipped}" + (f" ({skipped} skipped)" if skipped else "")
+        if drifted:  # the arm fails: a prerun left the prime's front, whatever the measured launches read
+            med["reopened"] += " (front changed at " + ",".join(drifted) + ")"
+            failed.extend(drifted)
+        if not_judged:
+            med["reopened"] = "not-judged: " + not_judged
         med["usable"] = f"{usable}/{measured}"
         surfaces = Counter(first_surface(r) for r in runs)
         first = surfaces.most_common(1)[0][0] if surfaces else "none"
@@ -168,13 +219,39 @@ def summarize(rows, case="kept", seeded=""):
         print("LR-MEDIAN", side, json.dumps(med), flush=True)
         print("LR-REOPENED", side, med["reopened"], f"case={case}", flush=True)
         print("LR-USABLE", side, med["usable"], flush=True)
+        if keys:
+            firsts = [r["first_key_ms"] for r in runs if r.get("first_key_ms") is not None]
+            landed = sum(1 for r in runs if (r.get("keys_landed") or 0) > 0)
+            median = round(statistics.median(firsts), 1) if firsts else None
+            print("LR-KEYS", side, median, f"{landed}/{len(runs)}", flush=True)
         mix = ",".join(f"{k}:{v}" for k, v in sorted(surfaces.items()))
         print("LR-SURFACE", side, f"first={first} home_page_drawn={drawn}/{measured} mix={mix}", flush=True)
-        result[side] = {"failed": failed, "surface": first}
+        # layout=1: what moved after the first frame, per measured launch (moved_pt, changes) and its median and highest.
+        laid = [r["layout"] for r in runs if r.get("layout")]
+        if laid:
+            frames = {"n": len(laid)}
+            for part in ("window", "sidebar"):
+                seen = [l[part] for l in laid if l[part].get("first") is not None]
+                moved, changes = [s["moved_pt"] for s in seen], [s["changes"] for s in seen]
+                frames[part] = {"n": len(seen), "moved_pt": moved, "changes": changes,
+                                "median_moved_pt": round(statistics.median(moved), 1) if moved else None,
+                                "max_moved_pt": max(moved) if moved else None,
+                                "median_changes": statistics.median(changes) if changes else None,
+                                "launches_that_moved": f"{sum(1 for m in moved if m > 0)}/{len(seen)}"}
+            print("LR-FRAMES", side, json.dumps(frames), flush=True)
+        result[side] = {"failed": failed, "surface": first, "judged": not not_judged}
     # An A/B whose arms first showed different surfaces times different work: not like for like.
     firsts = {side: data["surface"] for side, data in result.items()}
     if len(set(firsts.values())) > 1:
         print("LR-SURFACE-DIFF", " ".join(f"{s} first={f}" for s, f in firsts.items()) + ": not like for like", flush=True)
+    # Whether this run may be quoted as "every launch reopened the same front": every arm judged and none failed.
+    unjudged = [s for s, data in result.items() if not data["judged"]]
+    moved = [s for s, data in result.items() if data["judged"] and data["failed"]]
+    if unjudged or moved:
+        print("LR-SAME-FRONT invalid: " + "; ".join([f"{s} not judged" for s in unjudged] +
+                                                    [f"{s} failed {','.join(result[s]['failed'])}" for s in moved]), flush=True)
+    else:
+        print("LR-SAME-FRONT ok: " + ", ".join(result), flush=True)
     return result
 
 
@@ -186,12 +263,13 @@ def main(argv=None):
     parser.add_argument("--daemon", default="", choices=["", "warm", "cold"])
     parser.add_argument("--snapshot", default="own", choices=["own", "unknown", "foreign"])
     parser.add_argument("--front", default="", choices=["", "home", "tab"])
+    parser.add_argument("--keys", default="0", choices=["0", "1"])
     parser.add_argument("--out", default="", help="the step's output folder (the stress3 seed's front file)")
     args = parser.parse_args(argv)
     rows = [json.loads(line) for line in open(args.runs) if line.strip()]
     if args.out:
         fill_seed_fronts(rows, args.out)
-    summarize(rows, case_name(args.state, args.case, args.daemon, args.snapshot), args.front)
+    summarize(rows, case_name(args.state, args.case, args.daemon, args.snapshot), args.front, args.keys == "1")
     return 0
 
 
