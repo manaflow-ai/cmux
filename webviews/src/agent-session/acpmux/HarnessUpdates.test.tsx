@@ -91,19 +91,21 @@ function List(props: {
   native(method: string, params: Record<string, unknown>): Promise<unknown>;
   onUpdated(): void;
   closed(): void;
+  offered?: (id: string) => boolean;
 }) {
   const updates = useHarnessUpdateList({
     rows: props.rows,
     offer: props.offer,
     own: props.offer?.harness,
     nameFor: agentDisplayName,
+    ...(props.offered ? { offered: props.offered } : {}),
     native: props.native,
     onUpdated: props.onUpdated,
   });
   return updates ? <HarnessUpdatesSection updates={updates} onOwnUpdate={props.closed} /> : null;
 }
 
-async function mount(rows: unknown[], offer?: UpdateOffer) {
+async function mount(rows: unknown[], offer?: UpdateOffer, offered?: (id: string) => boolean) {
   const container = installDom();
   const calls: Call[] = [];
   const log = { updated: 0, closed: 0 };
@@ -116,7 +118,14 @@ async function mount(rows: unknown[], offer?: UpdateOffer) {
     act(async () => {
       root ??= createRoot(container);
       root.render(
-        <List rows={next} offer={offer} native={native} onUpdated={() => log.updated++} closed={() => log.closed++} />,
+        <List
+          rows={next}
+          offer={offer}
+          native={native}
+          onUpdated={() => log.updated++}
+          closed={() => log.closed++}
+          {...(offered ? { offered } : {})}
+        />,
       );
     });
   await draw(rows);
@@ -211,4 +220,22 @@ test("one outdated agent has no Update all; a version skipped in this profile is
   localStorage.setItem(SKIPPED, JSON.stringify({ codex: "0.167.2" }));
   await view.draw([codex, opencode]);
   expect(view.names()).toEqual(["opencode"]);
+});
+
+// Lawrence 2026-11-19 (clip "CleanShot 2026-11-19 at 3.37.01 PM"): the list read "Cmux 2.1.325 →
+// 2.1.329" with Claude's mark, and "OpenCode" twice. The first is acpmux's `cmux` profile, Claude
+// Code's hidden fallback to the cmux model router (it runs the same `claude`): no menu offers it, so
+// the list does not either. The second is `opencode-v2`, its own install, named as the rail names
+// it: "OpenCode (v2)".
+test("a harness the menus do not offer is not listed, and two rows never share a name", async () => {
+  const view = await mount(
+    [outdated("cmux", "2.1.325", "2.1.329"), opencode, outdated("opencode-v2", "0.0.0-next", "1.19.6"), codex],
+    undefined,
+    (id) => id !== "cmux",
+  );
+  expect(view.names()).toEqual(["opencode", "opencode-v2", "codex"]);
+  const label = (id: string) => view.rowOf(id)!.querySelector(".acpmux-harness-update-name")?.textContent;
+  expect(label("opencode")).toBe("OpenCode");
+  expect(label("opencode-v2")).toBe("OpenCode (v2)");
+  expect(label("codex")).toBe("Codex");
 });
