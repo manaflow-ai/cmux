@@ -1347,25 +1347,28 @@ async fn an_unjoined_first_circuit_fails_at_the_first_join_timeout() {
         lane_policy: LanePolicy::Isolated,
         routing: BTreeMap::new(),
     };
-    let open = |generation: u64, first_join: bool| async move {
-        let (address, server) = allocate_but_never_join().await;
-        let provider = RelayProvider::new(config.clone()).unwrap();
-        let provider = if first_join {
-            provider.with_first_join_timeout(Duration::from_millis(300))
-        } else {
-            provider
-        };
-        let group = provider.connect(request(address)).await.unwrap();
-        let started = Instant::now();
-        let error = group
-            .open(LinkRequest { lane: Lane::Interactive, generation })
-            .await
-            .err()
-            .expect("an unjoined circuit fails");
-        let waited = started.elapsed();
-        let _ = group.close().await;
-        server.abort();
-        (error, waited)
+    let open = |generation: u64, first_join: bool| {
+        let config = config.clone();
+        async move {
+            let (address, server) = allocate_but_never_join().await;
+            let provider = RelayProvider::new(config).unwrap();
+            let provider = if first_join {
+                provider.with_first_join_timeout(Duration::from_millis(300))
+            } else {
+                provider
+            };
+            let group = provider.connect(request(address)).await.unwrap();
+            let started = Instant::now();
+            let error = group
+                .open(LinkRequest { lane: Lane::Interactive, generation })
+                .await
+                .err()
+                .expect("an unjoined circuit fails");
+            let waited = started.elapsed();
+            let _ = group.close().await;
+            server.abort();
+            (error, waited)
+        }
     };
 
     let (error, waited) = open(0, true).await;
