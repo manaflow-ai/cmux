@@ -1,0 +1,130 @@
+{
+ "title": "Glass sidebar experiment: the default look (experiment off), over a terminal of full-width color bands, light and dark",
+ "launch_args": [
+  "--showcase"
+ ],
+ "settings": {
+  "experiments": {
+   "glassSidebarExtension": false
+  }
+ },
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3
+  },
+  {
+   "title": "Showcase rows: workspaces, an agent chat, unread notifications",
+   "rpc": {
+    "method": "debug.showcase.seed",
+    "params": {
+     "focus": true,
+     "dense": true
+    }
+   },
+   "wait": 4,
+   "optional": "the showcase fixture is DEBUG only"
+  },
+  {
+   "title": "Workspace glass-sidebar-before",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "glass-sidebar-before"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "Show it",
+   "cmux": [
+    "workspace",
+    "name:glass-sidebar-before",
+    "focus"
+   ],
+   "wait": 1.5
+  },
+  {
+   "title": "Full-width rainbow bands from the pane's leading edge, so what extends under the sidebar shows; the prompt names no host",
+   "cmux": [
+    "workspace",
+    "name:glass-sidebar-before",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "terminal",
+    "current",
+    "write",
+    "--text",
+    "PS1='$ '; clear; c=$(tput cols); for n in 196 202 208 214 220 226 190 154 118 82 46 48 50 51 45 39 33 27 21 57 93 129 165 201 199 197; do printf '\\033[48;5;%dm%*s\\033[0m\\n' $n $c ''; done\r"
+   ],
+   "wait": 2.5,
+   "daemon": true
+  },
+  {
+   "title": "System light",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "light"
+    }
+   },
+   "wait": 2
+  },
+  {
+   "title": "The workspace",
+   "cmux": [
+    "workspace",
+    "name:glass-sidebar-before",
+    "focus"
+   ],
+   "wait": 1.5
+  },
+  {
+   "title": "the default look (experiment off) (light)",
+   "rpc": {
+    "method": "debug.window_snapshot",
+    "params": {
+     "kind": "main",
+     "path": "{collect}"
+    }
+   },
+   "wait": 0.3,
+   "collect": "glass-sidebar-before-light.png"
+  },
+  {
+   "title": "System dark",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "dark"
+    }
+   },
+   "wait": 2
+  },
+  {
+   "title": "The workspace",
+   "cmux": [
+    "workspace",
+    "name:glass-sidebar-before",
+    "focus"
+   ],
+   "wait": 1.5
+  },
+  {
+   "title": "the default look (experiment off) (dark)",
+   "rpc": {
+    "method": "debug.window_snapshot",
+    "params": {
+     "kind": "main",
+     "path": "{collect}"
+    }
+   },
+   "wait": 0.3,
+   "collect": "glass-sidebar-before-dark.png"
+  }
+ ]
+}

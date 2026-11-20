@@ -71,6 +71,18 @@ public final class SidebarContainerView: NSView {
     }
     /// Called when ``isFloatOverlay`` changes.
     public var onFloatOverlayChange: ((Bool) -> Void)?
+    /// The glass sidebar experiment's docked card (`experiments.glassSidebarExtension`, ``GlassSidebarLook``): the
+    /// docked sidebar takes the float's glass card, inset by ``glassDockedInset`` (0: flush, square). The window sets
+    /// it; off (the default) leaves the sidebar exactly as before.
+    public var glassDocked = false {
+        didSet { if glassDocked != oldValue { applyFloatLook(); apply() } }
+    }
+    /// The docked glass card's inset from the window's edges.
+    public var glassDockedInset: CGFloat = 0 {
+        didSet { if glassDockedInset != oldValue, glassDocked { applyFloatLook(); apply() } }
+    }
+    /// The panel draws the glass card: floating, or docked under the glass sidebar experiment.
+    var showsCardLook: Bool { isFloatOverlay || glassDocked }
     /// ``floatCornerRadius``'s storage (`SidebarContainerView+Float`).
     var floatCornerRadiusValue: CGFloat = 0
     /// Casts the floating card's shadow, under the panel in the clip.
@@ -271,8 +283,8 @@ public final class SidebarContainerView: NSView {
     /// overlay surface, or the sidebar's dim over the window's backdrop (`SidebarStyle.surfaceDim`).
     func applySurfaceFill() {
         let fill = performWithTheme { (Palette.surfaceOverride(.sidebar) ?? railOverlayFill ?? SidebarStyle.surfaceDim)?.cgColor }
-        // Floating, the card is the panel (inset from the window edges); the clip stays clear.
-        clip.layer?.backgroundColor = isFloatOverlay ? nil : fill
+        // Floating (or docked glass), the card is the panel (inset from the window edges); the clip stays clear.
+        clip.layer?.backgroundColor = showsCardLook ? nil : fill
     }
 
     // MARK: Public API

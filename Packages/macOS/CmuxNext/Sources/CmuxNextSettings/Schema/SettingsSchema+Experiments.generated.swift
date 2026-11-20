@@ -5,6 +5,9 @@ extension CmuxConfigSnapshot {
     /// `experiments.glassToolbarGroups`: Taste prototype: the agent chat header's buttons draw as round glass buttons, related actions share one glass capsule, with a search chip and shortcut keycaps (webviews useExperimentSwitch("glassToolbarGroups")). Off by default; off keeps today's header.
     public nonisolated static let glassToolbarGroupsPath = ["experiments", "glassToolbarGroups"]
     public nonisolated static let glassToolbarGroupsDefault = false
+    /// `experiments.glassSidebarExtension`: Taste build (2026-11-19): the sidebar is an inset glass panel, the active pane's content extends blurred under it, and the top-left controls float as glass over full-bleed panes. Off by default; nothing changes while off.
+    public nonisolated static let glassSidebarExtensionPath = ["experiments", "glassSidebarExtension"]
+    public nonisolated static let glassSidebarExtensionDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -22,6 +25,16 @@ nonisolated enum ExperimentsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.glassToolbarGroupsDefault),
                 keywords: ["experiments", "experimental", "prototype", "glass", "toolbar", "header", "buttons", "capsule", "keycaps"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.glassSidebarExtensionPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.glassSidebarExtension", "Glass Sidebar"),
+                help: SettingsText.keyed("settings.experiments.glassSidebarExtension.help", "The sidebar floats as glass and the open pane shows through under it."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.glassSidebarExtensionDefault),
+                keywords: ["glass", "sidebar", "blur", "translucent", "liquid", "experiment", "background extension", "toolbar"]
             ),
         ]
     }
