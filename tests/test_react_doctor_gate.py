@@ -99,9 +99,15 @@ class GateTest(unittest.TestCase):
 
     def test_by_default_a_failed_scan_is_a_warning(self):
         self.write("webviews", {"ok": False, "reactDetected": False, "error": "boom", "diagnostics": []})
-        code, out = self.run_lenient()
+        # Off Actions output (CI sets GITHUB_ACTIONS, which turns the line into a ::warning annotation).
+        with mock.patch.object(gate, "GITHUB", False):
+            code, out = self.run_lenient()
         self.assertEqual(code, 0, out)
         self.assertIn("warning: webviews", out)
+        with mock.patch.object(gate, "GITHUB", True):
+            code, out = self.run_lenient()
+        self.assertEqual(code, 0, out)
+        self.assertIn("::warning title=React Doctor::webviews", out)
 
     def test_routing(self):
         self.assertEqual(gate.select_projects(["webviews/src/x.tsx", "README.md"]), ["webviews"])
