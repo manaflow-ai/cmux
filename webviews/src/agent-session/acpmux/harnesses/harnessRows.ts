@@ -4,25 +4,39 @@
 import { type HarnessHealth, needsLogin } from "../harnessHealthNoticeModel";
 import type { AcpmuxSnapshot } from "../model";
 import type { PickerCatalog } from "../modelCatalogData";
+import { withNetworkRetry } from "./installRetry";
 
 export type HarnessStatus = "ready" | "signIn" | "unavailable" | "notInstalled" | "checking";
 
 /// npm where this machine has it (an npm setup keeps its channel), else the vendor's own installer,
-/// which needs no Node. Bash ships with macOS; pipefail preserves a failed download's exit
-/// status even when the installer reading the empty pipe exits successfully. The explicit shell
-/// also works when the user's login shell is fish.
-const npmOrNative = (npmPackage: string, native: string) =>
-  // l10n-allow: a shell command Install runs, never shown as text
-  `/bin/bash -o pipefail -c 'if command -v npm >/dev/null 2>&1; then npm install -g ${npmPackage}; else ${native}; fi'`;
+/// which needs no Node. Bash ships with macOS; pipefail (``withNetworkRetry``) preserves a failed
+/// download's exit status even when the installer reading the empty pipe exits successfully. The
+/// explicit shell also works when the user's login shell is fish. A network that drops during the
+/// install is waited for, and the install runs again by itself (first-run finding 6); `probe` is
+/// the server whose answer means the network is back.
+const npmOrNative = (npmPackage: string, native: string, probe: string) =>
+  withNetworkRetry(
+    // l10n-allow: a shell command Install runs, never shown as text
+    `if command -v npm >/dev/null 2>&1; then npm install -g ${npmPackage}; else ${native}; fi`,
+    { probeUrl: probe },
+  );
 
 /// The command that installs a harness's CLI, run in place by Install (the rest open their setup
 /// page). Keyed by the acpmux harness id.
 export const INSTALL_COMMANDS: Readonly<Record<string, string>> = {
-  claude: npmOrNative("@anthropic-ai/claude-code", "curl -fsSL https://claude.ai/install.sh | bash"),
+  claude: npmOrNative(
+    "@anthropic-ai/claude-code",
+    "curl -fsSL https://claude.ai/install.sh | bash",
+    "https://claude.ai",
+  ),
   // No tty here: never ask to start Codex or to remove another install.
-  codex: npmOrNative("@openai/codex", "curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh"),
-  opencode: npmOrNative("opencode-ai", "curl -fsSL https://opencode.ai/install | bash"),
-  gemini: npmOrNative("@google/gemini-cli", "brew install gemini-cli"),
+  codex: npmOrNative(
+    "@openai/codex",
+    "curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh",
+    "https://chatgpt.com",
+  ),
+  opencode: npmOrNative("opencode-ai", "curl -fsSL https://opencode.ai/install | bash", "https://opencode.ai"),
+  gemini: npmOrNative("@google/gemini-cli", "brew install gemini-cli", "https://registry.npmjs.org"),
 };
 
 export type HarnessRow = {
