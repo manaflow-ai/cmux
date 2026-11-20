@@ -146,7 +146,7 @@ mod tests {
     #[test]
     fn text_has_session_host_utc_time_role_and_one_line_preview() {
         let mut answer = json!({"hits": [{
-            "session": "peer/s-1", "host": "peer", "at": 1_735_689_600_000,
+            "session": "peer/s-1", "host": "peer", "at": 1_735_689_600_000_i64,
             "role": "assistant", "snippet": "first line\nsecond line"
         }]});
         answer["hits"][0]["time"] = json!(utc_time(&answer["hits"][0]));
