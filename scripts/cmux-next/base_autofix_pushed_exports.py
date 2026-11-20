@@ -608,7 +608,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--pr", required=True, type=int, help="the pull request's number")
     p.add_argument("--actions", choices=("true", "false"), required=True, help="the action exports are wanted")
     p.add_argument("--settings", choices=("true", "false"), required=True, help="the settings exports are wanted")
-    p.add_argument("--wait", type=float, default=7200, help="seconds to wait for the run's generated-files job")
+    p.add_argument("--wait", type=float, default=2700, help="seconds to wait for the run's generated-files job")
     p.add_argument("--poll", type=float, default=120)
     p.add_argument("--first-run-grace", type=float, default=180)
     p.add_argument("--skip", default="", help="a reason not to look (switched off)")

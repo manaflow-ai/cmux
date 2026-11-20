@@ -16,6 +16,7 @@ import http.server
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -942,6 +943,42 @@ class PrAutofixTakesTheGeneratedFilesPack(unittest.TestCase):
         hit = self.lookup(api)
         self.assertEqual(hit["hit"], "true")
         self.assertEqual(hit["waited"], "240")
+
+    def test_the_workflow_wait_falls_back_before_its_installation_token_expires(self):
+        job = PR_AUTOFIX["jobs"]["generated-exports"]
+        lookup = next(s for s in job["steps"] if s.get("id") == "lookup")
+        wait = float(re.search(r"--wait (\d+)", lookup["run"]).group(1))
+        self.assertLess(wait, int(lookup["timeout-minutes"]) * 60)
+        self.assertLess(int(lookup["timeout-minutes"]) * 60, 3600)
+        api = FakePrApi(runs=[pr_run(5)], jobs={5: [generated_job("queued")]}, wait=wait)
+        requests_after_expiry = []
+        listing = FakePrApi.json
+
+        def expiring(fake, path):
+            if fake.now >= 3600:
+                requests_after_expiry.append(path)
+                raise px.Miss("HTTP 401: installation token expired")
+            return listing(fake, path)
+
+        with mock.patch.object(FakePrApi, "json", expiring), self.assertRaises(px.Miss):
+            self.lookup(api)
+        self.assertFalse(requests_after_expiry)
+        self.assertLess(api.now, 3600)
+
+    def test_the_shorter_wait_still_reuses_a_pack_after_twenty_three_minutes(self):
+        job = PR_AUTOFIX["jobs"]["generated-exports"]
+        lookup = next(s for s in job["steps"] if s.get("id") == "lookup")
+        wait = float(re.search(r"--wait (\d+)", lookup["run"]).group(1))
+        api = FakePrApi(runs=[pr_run(5)], jobs={5: [generated_job("queued")]}, wait=wait,
+                        blobs={50: pack_zip(MERGE_TREE, 5, MERGE)})
+
+        def upload(fake):
+            if fake.now >= 1380:
+                fake.jobs[5] = [generated_job("in_progress", uploaded=True)]
+                fake.artifacts[5] = [pr_artifact(5, 50)]
+        api.on_sleep = upload
+        self.assertEqual(self.lookup(api)["hit"], "true")
+        self.assertEqual(api.now, 1380)
 
     def test_a_failed_read_does_not_end_the_wait(self):
         api = self.done_api(pack_zip(MERGE_TREE, 5, MERGE))
