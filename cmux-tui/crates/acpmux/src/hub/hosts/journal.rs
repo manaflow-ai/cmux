@@ -146,6 +146,7 @@ impl Hub {
     /// Scan the log for the work in flight under host `incarnation`. Agent
     /// requests, answers and permission records count only within this
     /// incarnation: every harness restarts its own request ids.
+    #[cfg(test)]
     pub(in crate::hub) fn open_work(&self, session: &Session, incarnation: &str) -> OpenWork {
         self.fold_open_work(session, incarnation, Fold::Resume { settled: None }).0
     }
