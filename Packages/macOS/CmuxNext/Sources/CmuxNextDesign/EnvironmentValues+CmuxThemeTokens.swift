@@ -5,7 +5,15 @@ extension EnvironmentValues {
     /// The theme tokens of the AppKit scope a SwiftUI subtree is hosted in, for styles that draw
     /// theme colors (``CmuxDialogButtonStyle``); nil until the host sets them, when such a style
     /// draws in the app theme (`ThemeTokens.unresolved`).
-    @Entry public var cmuxThemeTokens: ThemeTokens?
+    public var cmuxThemeTokens: ThemeTokens? {
+        get { self[CmuxThemeTokensKey.self] }
+        set { self[CmuxThemeTokensKey.self] = newValue }
+    }
+}
+
+/// The key of ``SwiftUICore/EnvironmentValues/cmuxThemeTokens``: none until a host sets them.
+private struct CmuxThemeTokensKey: EnvironmentKey {
+    static let defaultValue: ThemeTokens? = nil
 }
 
 extension View {
