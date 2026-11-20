@@ -165,6 +165,40 @@ test.each(["minimal", "default"] as const)("%s home offers creation only as matc
   expect(creates).toEqual([]);
 });
 
+// Lucas 2026-11-20: a hovered row and the arrow keys' row lit up at once. The pointer moves the one selection.
+test("the pointer and the arrow keys move one selection in the suggestions", async () => {
+  await act(async () => root!.render(<NewTabScreen {...firstRunProps} snapshot={noChat()} />));
+  const field = await typePrompt("ls");
+  const rows = () => [...document.querySelectorAll<HTMLElement>(".nt-popover .nt-row")];
+  const selected = () => rows().flatMap((row, index) => (row.classList.contains("is-selected") ? [index] : []));
+  const last = rows().length - 1;
+  expect(last).toBeGreaterThanOrEqual(1);
+  expect(selected()).toEqual([0]);
+  const move = (index: number, screenY: number) =>
+    act(async () => {
+      rows()[index]!.dispatchEvent(new dom!.window.MouseEvent("mousemove", { bubbles: true, screenX: 40, screenY }));
+    });
+  // WebKit's mousemove when the list opens or scrolls under a still pointer: the first move only records the spot.
+  await move(last, 100);
+  expect(selected(), "a first move does not take the selection").toEqual([0]);
+  await move(last, 101);
+  expect(selected(), "the hovered row is the selection").toEqual([last]);
+  expect(rows()[last]!.getAttribute("aria-selected")).toBe("true");
+  await press(field, "ArrowUp");
+  expect(selected(), "the arrow keys go on from the hovered row").toEqual([last - 1]);
+  // The same spot after the list scrolls under a still pointer keeps the keys' row.
+  await move(last, 101);
+  expect(selected(), "a still pointer does not take the selection back").toEqual([last - 1]);
+  await move(last, 102);
+  expect(selected(), "a moved pointer does").toEqual([last]);
+  // Closed and opened again under a pointer that moved while it was closed: its first move only records the spot.
+  await typePrompt("");
+  await typePrompt("ls");
+  const before = selected();
+  await move(before[0] === 0 ? last : 0, 300);
+  expect(selected(), "a reopened list keeps its selection on the first move").toEqual(before);
+});
+
 test.each(["terminal", "browser", "chat"] as const)(
   "Enter on %s with staged attachments runs the creation command",
   async (kind) => {
@@ -2130,6 +2164,39 @@ test("a page that has focus already reports its field ready at once, and only on
   expect(ready).toEqual(["cmd-t-1", "cmd-t-2"]);
 });
 
+// Lawrence 2026-11-19: "i did cmd n and started typing and it didnt have focus". On the cmux23 bench, typing
+// "hello world 123" at once after Cmd-N left "llo world 123", "lo world 123" or "ello world 123": every key reached the
+// field, but a token change after the readiness (an adopt that takes the next token in place, a context update with no
+// token) ran the field's show-focus again, and it selected all the text typed so far. The next key replaced it.
+test.each([
+  ["a context update with no token", undefined],
+  ["an adopt with the next token", "cmd-n-2"],
+] as const)("keys typed after the readiness stay when %s comes", async (_, next) => {
+  Object.defineProperty(dom!.window.document, "hasFocus", { configurable: true, value: () => true });
+  const render = (token: string | undefined) =>
+    act(async () => {
+      root!.render(
+        <NewTabScreen
+          snapshot={noChat()}
+          inputToken={token}
+          onInputReady={() => {}}
+          onAsk={() => {}}
+          onOpen={() => {}}
+          onSearch={() => {}}
+          onShell={() => {}}
+          onJump={() => {}}
+          onOpenSession={() => {}}
+          onShowAll={() => {}}
+        />,
+      );
+    });
+  await render("cmd-n-1");
+  const field = await typePrompt("he");
+  await render(next);
+  await act(async () => field.acpmuxMarkdownField!.insertText("llo"));
+  expect(promptValue(), "the token change selected the typed text, and the next keys replaced it").toBe("hello");
+});
+
 test("Return runs a typed shell command in a terminal; Cmd-Return still asks the agent", async () => {
   const shells: string[] = [];
   const asks: unknown[][] = [];
@@ -2153,4 +2220,31 @@ test("Return runs a typed shell command in a terminal; Cmd-Return still asks the
   await press(field, "Enter", { metaKey: true });
   expect(shells).toEqual(["git status"]);
   expect(asks.map((ask) => ask[1])).toEqual(["git status"]);
+});
+
+// Lawrence 2026-11-19 (New Tab typing lag): a key in the New Tab field renders what the key changed, never the
+// composer chips (the agent and model pickers, the folder and machine chips, each with its own menus): on cmux21
+// they rendered again on every key, about 2 ms of page work a key, because the screen handed them new props each render.
+test("a key in the New Tab field renders the chips no more", async () => {
+  const renders: Record<string, unknown>[] = [];
+  const Counted = (chipProps: Record<string, unknown>) => {
+    renders.push(chipProps);
+    return <span className="counted-chips" />;
+  };
+  await act(async () => root!.render(<NewTabScreen {...firstRunProps} snapshot={noChat()} chips={Counted} />));
+  const field = await typePrompt("a");
+  const before = renders.length;
+  for (const text of ["ab", "abc", "abcd", "abcde"]) {
+    field.acpmuxMarkdownField!.writeText(text, text.length, text.length);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  }
+  const changed = renders.slice(before).map((now, index) => {
+    const last = renders[before + index - 1] ?? {};
+    return Object.keys({ ...last, ...now }).filter((key) => last[key] !== now[key]);
+  });
+  expect(promptValue()).toBe("abcde");
+  expect(
+    renders.length - before,
+    `chips rendered again for 4 keys, props that changed: ${JSON.stringify(changed)}`,
+  ).toBe(0);
 });

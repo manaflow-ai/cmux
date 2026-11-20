@@ -420,6 +420,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `agent-session-btw`: the composer's `/btw` on a Cloud chat, as acpmux's inline
     /// `_acpmux/btw` on the tab's own session (owner only).
     case agentSessionBtw = "agent-session-btw-v1"
+    /// `max_bytes` on `agent-session-attach` and `-events`: a chat page's byte budget, passed to
+    /// that machine's acpmux. Without it a page gets acpmux's 1 MiB default (hq#14027).
+    case agentSessionPageBytes = "agent-session-page-bytes-v1"
     /// Page tabs on the store: the `page` source of a conversation tab (App Store, Settings,
     /// Debug Settings), so they move and split like any tab (cmux-tui/spec/commands.md).
     case pageTabs = "page-tabs-v1"
@@ -595,6 +598,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// reports already-gone ids as `gone_ids` and skips a tab that left before the commit
     /// (`WorkspaceClose.close` sends every workspace of a daemon in one request then).
     case layoutBulkBare = "layout-bulk-bare-v1"
+    /// `browser_import.read`: the daemon reads another browser's bookmarks, history, tabs, search
+    /// engine and extensions for the browser import (`BrowserImportClient`, the cmux-browser-import crate).
+    case browserImport = "browser-import-v1"
     /// The one-time move from classic cmux: `classic_import.*` (`ClassicImportClient`).
     case classicImport = "classic-import-v1"
     /// `diff.comments.send`: the session host hands a diff tab's review comments to an acpmux
@@ -645,7 +651,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .agentSessionFork, .agentSessionSide, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
              .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionStartPermissionMode, .agentSessionStartMode, .agentSessionTrustVMKind, .agentSessionFolders,
-             .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionLoginMachine, .agentSessionContext, .agentSessionBtw, .agentSessionSteer, .agentSessionQueueDecision, .agentSessionMember, .pageTabs, .pageTabRoute, .appScreens,
+             .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionLoginMachine, .agentSessionContext, .agentSessionBtw, .agentSessionPageBytes, .agentSessionSteer, .agentSessionQueueDecision, .agentSessionMember, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
              .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,
              .pageCredential, .scopedPageCredential, .wsListen, .wsListenOrigins, .personalMixedOrder,
@@ -658,7 +664,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation, .appProviderChanged,
              .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare,
-             .classicImport, .diffCommentsSend, .gitFingerprint, .layoutSizesBatch:
+             .browserImport, .classicImport, .diffCommentsSend, .gitFingerprint, .layoutSizesBatch:
             return .optional
         }
     }

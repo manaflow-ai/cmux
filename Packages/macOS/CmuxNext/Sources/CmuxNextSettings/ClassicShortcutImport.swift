@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 public import Foundation
 
 /// Shortcuts a person recorded in classic cmux's Settings. Classic kept them
@@ -92,7 +93,9 @@ extension SettingsController {
     @discardableResult
     public func importClassicShortcuts(marker: UserDefaults, bundleIdentifier: String? = Bundle.main.bundleIdentifier)
         async throws -> Bool {
-        let others = ClassicShortcutImport.domains.filter { $0 != bundleIdentifier }.compactMap { UserDefaults(suiteName: $0) }
+        // A DEV build never derives its settings from another build's preferences (BuildStatePaths): its own only.
+        let others = BuildIdentity(bundleID: bundleIdentifier, bundledTag: nil).isolatesSharedState ? []
+            : ClassicShortcutImport.domains.filter { $0 != bundleIdentifier }.compactMap { UserDefaults(suiteName: $0) }
         return try await importClassicShortcuts(from: [marker] + others, marker: marker)
     }
 
