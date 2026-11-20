@@ -877,7 +877,8 @@ while True:
                                                if k.startswith(("DISABLE_PROMPT_CACHING", "ENABLE_PROMPT_CACHING_1H"))
                                                or k == "FORCE_PROMPT_CACHING_5M"},
                                "turnScoped": {k: os.environ[k] for k in ("SUBROUTER_SESSION_KEY", "CODEX_PROMPT_CACHE_KEY",
-                                                                         "OPTCHAT_TURN_SEAL", "OPTCHAT_SUBAGENT", "AI_AGENT")
+                                                                         "OPTCHAT_TURN_SEAL", "OPTCHAT_SUBAGENT", "AI_AGENT",
+                                                                         "CMUX_AGENT_TOOLS_ANSWER")
                                               if k in os.environ},
                                "customHeaders": os.environ.get("ANTHROPIC_CUSTOM_HEADERS")})
             send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,

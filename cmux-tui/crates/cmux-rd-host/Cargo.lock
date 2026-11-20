@@ -539,9 +539,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-file-lock"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-hub-host"
 version = "0.1.0"
 dependencies = [
+ "cmux-file-lock",
  "cmux-process",
  "hpke",
  "libc",
@@ -583,6 +588,7 @@ dependencies = [
  "cc",
  "cmux-codecs",
  "cmux-encode",
+ "cmux-file-lock",
  "cmux-hub-host",
  "cmux-process",
  "cmux-rd-core",
