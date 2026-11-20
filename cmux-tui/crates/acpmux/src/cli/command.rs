@@ -132,6 +132,9 @@ pub enum Command {
     Continue(crate::cli::handoff::ContinueArgs),
     /// Retry a session's failed last turn now, in the same session (a waiting retry fires).
     Retry(crate::cli::retry::RetryArgs),
+    /// Park a failed turn's automatic retry without stopping its process.
+    #[command(hide = true)]
+    ParkRetry(crate::cli::retry::ParkRetryArgs),
     /// One turn per turn: prompt preview, status, tools, tokens, wall time, and how much of it
     /// went to getting the prompt to the agent (START) and to the model's first output (MODEL).
     History {
@@ -983,6 +986,8 @@ pub enum SecretCmd {
 
 #[derive(Subcommand)]
 pub enum SessionCmd {
+    /// Park a failed turn's automatic retry at its observed revision, without stopping it.
+    ParkRetry(crate::cli::retry::ParkRetryArgs),
     /// Queue a new session on a mesh host; prints a receipt, not completed execution.
     Start(crate::cli::mesh_control::StartArgs),
     /// Read one mesh lifecycle receipt without waiting.
@@ -1495,6 +1500,7 @@ pub fn flatten(c: Command) -> Command {
         Command::Session(sc) => match sc {
             SessionCmd::Info { session, fields } => Command::Info { session, fields },
             SessionCmd::Cancel { session } => Command::Cancel { session },
+            SessionCmd::ParkRetry(args) => Command::ParkRetry(args),
             SessionCmd::Stop { session, purge, mesh, condition } if !mesh.mesh => {
                 Command::Kill { session, purge, condition }
             }

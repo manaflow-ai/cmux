@@ -73,6 +73,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_PROMPT_WITHDRAW,
     // So is a chat's inbox drained (`hub/inbox_digest.rs`).
     method::MUX_INBOX_DIGEST,
+    // Conditional retry park belongs only to the daemon owning the observed revision.
+    method::MUX_PARK_RETRY,
     // A registration is for the caller's own session on this daemon (`hub/register.rs`): its
     // NAME is the name to take, never a peer session to forward to, and its token stays here.
     method::MUX_REGISTER,

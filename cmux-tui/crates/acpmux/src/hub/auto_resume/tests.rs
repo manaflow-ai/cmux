@@ -93,6 +93,95 @@ fn retry_chat() -> (Arc<Hub>, Arc<Session>) {
     (hub, session)
 }
 
+fn waiting_for_park(hub: &Hub, session: &Session) -> Value {
+    let last = json!({"promptId":"workflow","turnId":"workflow-turn","status":"failed",
+        "errorText":"HTTP 503 no non-exhausted claude accounts"});
+    hub.append(session, "mux", "turn_result", last.clone());
+    session.meta.lock().unwrap().last_turn = Some(last.clone());
+    session.auto_resume.lock().replace(Mark::Waiting {
+        turn: "workflow-turn".into(),
+        retry: Some(retry("workflow-turn")),
+        _wake: Wake(Arc::new(Notify::new())),
+    });
+    last
+}
+
+#[tokio::test]
+async fn park_retry_fences_timer_preserves_failure_and_survives_recovery() {
+    let (hub, session) = retry_chat();
+    let last = waiting_for_park(&hub, &session);
+    hub.set_status(&session, SessionStatus::Idle);
+    let revision = Hub::revision(&session);
+    let cancels = session.cancels.load(std::sync::atomic::Ordering::SeqCst);
+    let result = hub.park_retry(&session, revision).unwrap();
+    assert!(result.parked);
+    assert_eq!(result.session_id, session.id);
+    assert!(result.revision > revision);
+    assert_eq!(session.meta().last_turn, Some(last));
+    assert_eq!(session.cancels.load(std::sync::atomic::Ordering::SeqCst), cancels);
+    assert!(hub.fire_pending(&session, "workflow-turn").is_err());
+    let events = hub.store.events(&session.id, 0, 100).unwrap();
+    assert!(
+        events
+            .iter()
+            .any(|e| e.kind == "auto_resume_stopped" && e.msg["turnId"] == "workflow-turn")
+    );
+    assert!(!events.iter().any(|e| matches!(e.kind.as_str(), "stopping" | "stopped")));
+    // The persisted boundary stops restoration even after the in-memory mark is gone.
+    session.auto_resume.lock().take();
+    session.auto_resume_restored.store(false, std::sync::atomic::Ordering::SeqCst);
+    hub.restore_auto_resume(&session);
+    assert!(!hub.continuation_pending(&session));
+}
+
+#[test]
+fn park_retry_refuses_moved_revision_and_running_or_firing_work_without_mutation() {
+    let (hub, session) = retry_chat();
+    waiting_for_park(&hub, &session);
+    let revision = Hub::revision(&session);
+    let check = |expected| {
+        let before = hub.store.events(&session.id, 0, 100).unwrap().len();
+        assert!(hub.park_retry(&session, expected).is_err());
+        assert_eq!(hub.store.events(&session.id, 0, 100).unwrap().len(), before);
+    };
+    check(revision.saturating_sub(1));
+    let lease = session.turn_lock.try_lock().unwrap();
+    check(revision);
+    drop(lease);
+    *session.turn.lock().unwrap() = Some(TurnInfo::prompted(
+        "person",
+        "do this",
+        "person-turn",
+        "person-prompt",
+        Control::Local,
+    ));
+    check(revision);
+    assert_eq!(session.turn().unwrap().prompt_id, "person-prompt");
+    session.turn.lock().unwrap().take();
+    for mark in [
+        Mark::Firing("workflow-turn".into()),
+        Mark::Ending("workflow-turn".into()),
+        Mark::Stopping("workflow-turn".into()),
+    ] {
+        session.auto_resume.lock().replace(mark);
+        check(revision);
+    }
+}
+
+#[tokio::test]
+async fn park_retry_keeps_rate_limit_queue_held_after_reset_and_restore() {
+    let (hub, session) = retry_chat();
+    waiting_for_park(&hub, &session);
+    hub.hold_for_rate_limit(&session, "workflow-turn", crate::store::now_ms() + 60_000, true);
+    hub.park_retry(&session, Hub::revision(&session)).unwrap();
+    assert!(session.rate_hold.parked().is_some());
+    hub.lift_rate_hold(&session, "reset");
+    assert!(Hub::rate_held(&session));
+    assert!(hub.fire_pending(&session, "workflow-turn").is_err());
+    let events = hub.store.events(&session.id, 0, 100).unwrap();
+    assert!(events.iter().any(|e| e.kind == "rate_limit_parked" && e.msg["why"] == "handoff"));
+}
+
 #[tokio::test]
 async fn exact_prompt_stop_fences_waiting_and_late_retry_without_touching_person() {
     let (hub, session) = retry_chat();

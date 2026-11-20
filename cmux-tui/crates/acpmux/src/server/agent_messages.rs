@@ -41,6 +41,20 @@ pub(super) async fn handle(
     m: &str,
     params: &Value,
 ) -> Result<Value, RpcError> {
+    if m == method::MUX_PARK_RETRY {
+        if conn.origin != Origin::Local {
+            return Err(RpcError::invalid_params(
+                "retry park is accepted only over the local unix socket",
+            ));
+        }
+        let request: crate::protocol::session::ParkRetryParams =
+            serde_json::from_value(params.clone())
+                .map_err(|e| RpcError::invalid_params(format!("invalid retry park: {e}")))?;
+        let s = hub.resolve(session_key(params)?)?;
+        hub.session_log(&s).await;
+        return serde_json::to_value(hub.park_retry(&s, request.expect_revision)?)
+            .map_err(|e| RpcError::internal(e.to_string()));
+    }
     if m == method::MUX_RETRY {
         return retry(hub, conn, params).await;
     }

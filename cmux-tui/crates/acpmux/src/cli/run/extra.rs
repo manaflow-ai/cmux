@@ -269,6 +269,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             Ok(())
         }
         Command::Retry(args) => crate::cli::retry::run(args, json_out).await,
+        Command::ParkRetry(args) => crate::cli::retry::park(args, json_out).await,
         Command::Register { name, code } => {
             let client = connect(true).await?;
             let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());

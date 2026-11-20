@@ -22,6 +22,35 @@ pub struct RetryArgs {
     pub subagent: Option<String>,
 }
 
+#[derive(clap::Args)]
+pub struct ParkRetryArgs {
+    /// A session owned by this machine, by stable id, name, or local/ID.
+    pub session: String,
+    /// The lastSeq read from the session; refuse if it has changed.
+    #[arg(long)]
+    pub expect_revision: u64,
+}
+
+pub async fn park(args: ParkRetryArgs, json_out: bool) -> Result<()> {
+    let client = connect(true).await?;
+    let id = control_id(&client, &args.session).await?;
+    // A distinct method fails closed on older daemons: never fall back to Cancel or Stop.
+    let result = client
+        .request(
+            method::MUX_PARK_RETRY,
+            json!({
+                "sessionId": id, "expectRevision": args.expect_revision
+            }),
+        )
+        .await?;
+    if json_out {
+        print_json(&result);
+    } else {
+        println!("retry parked: {}", result["sessionId"].as_str().unwrap_or("?"));
+    }
+    Ok(())
+}
+
 pub async fn run(args: RetryArgs, json_out: bool) -> Result<()> {
     let client = connect(true).await?;
     let id = control_id(&client, &args.session).await?;

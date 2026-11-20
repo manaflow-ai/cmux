@@ -844,6 +844,24 @@ pub struct RetryParams {
     pub subagent_id: Option<String>,
 }
 
+/// Local-only atomic retry park before handing a failed session's work off.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
+pub struct ParkRetryParams {
+    pub session_id: String,
+    /// Session lastSeq observed by the caller; required even if no retry currently waits.
+    pub expect_revision: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ParkRetryResult {
+    pub session_id: String,
+    pub revision: u64,
+    pub parked: bool,
+}
+
 /// What `_acpmux/retry` sent: the prompt `promptId` (for the chat's turn `P~resume-n`, the next
 /// attempt of the failed prompt; for a subagent `subagent-retry-<tool>-<attempt>-<ms>`) and the turn
 /// it started.

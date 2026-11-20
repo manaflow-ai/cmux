@@ -398,6 +398,11 @@ async fn check_inner(
     if m == method::MUX_INBOX_DIGEST {
         return Err(crate::hub::Hub::inbox_digest_origin_refused());
     }
+    if m == method::MUX_PARK_RETRY {
+        return Err(RpcError::invalid_params(
+            "retry park is accepted only over the local unix socket",
+        ));
+    }
     // A paused agent pair is the person's to resume, on this machine (`hub/agent_pairs.rs`).
     if (m == method::MUX_AGENT_PAIR_RESUME || m == method::MUX_AGENT_HOLD) && origin.web_class() {
         return Err(RpcError::invalid_params(

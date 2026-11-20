@@ -103,6 +103,7 @@ pub(super) fn set_after_finish_replaced_check(hook: Box<dyn FnOnce()>) {
     AFTER_FINISH_REPLACED_CHECK.with(|slot| *slot.borrow_mut() = Some(hook));
 }
 
+mod park_retry;
 /// `_acpmux/retry`: a failed turn retried on demand.
 pub(crate) mod retry_turn;
 

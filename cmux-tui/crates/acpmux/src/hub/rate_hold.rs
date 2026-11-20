@@ -423,6 +423,26 @@ impl Hub {
         );
     }
 
+    /// Retry handoff owns the retry and append locks. Persist the park before changing the
+    /// hold, so a receipt is safe across daemon restarts as well as this timer's next wake.
+    pub(super) fn park_retry_hold_locked(&self, session: &Session) -> Result<(), RpcError> {
+        let mut s = session.rate_hold.lock();
+        if s.until.is_none() && s.parked.is_none() && s.strikes == 0 {
+            return Ok(());
+        }
+        self.persist_retry_park_boundary_locked(
+            session,
+            "rate_limit_parked",
+            json!({"turnId": s.turn, "strikes": s.strikes, "noticed": false, "why": "handoff"}),
+        )?;
+        s.continuation = false;
+        s.parked = Some(now_ms());
+        s.until = Some(u64::MAX);
+        drop(s);
+        session.rate_hold.changed.notify_waiters();
+        Ok(())
+    }
+
     /// The one line a parked chat sends the session it reports to (its lane's parent, else the
     /// session that started it). None to tell: the record and the row say it.
     fn tell_rate_park(

@@ -240,6 +240,7 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "agent-hold-v1", wire: &[method::MUX_AGENT_HOLD] },
     // Retry a chat's failed last turn now: the Retry button (`hub/auto_resume/retry_turn.rs`).
     Capability { id: "turn-retry-v1", wire: &[method::MUX_RETRY] },
+    Capability { id: "retry-park-v1", wire: &[method::MUX_PARK_RETRY] },
     // The sudo card (`hub/elevation.rs`): `elevation_request` / `elevation_decision` records, and
     // an approver-signed `secret_submit` that answers one. A phone asks for those kinds only
     // under this id, since an older peer refuses an attach with more than 8 kinds.
