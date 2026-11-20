@@ -1,10 +1,10 @@
-//! `acpmux bg start|list|output|stop`: the command-line spelling of the
+//! `acpmux bg start|list`: the command-line spelling of the
 //! session-owned background task RPCs used by the acpmux MCP server.
 //!
 //! The daemon remains the authority for caller identity and task ownership.
 //! This client only supplies the current session id, so a command run from an
-//! agent keeps the same checks as `bg_start`, `bg_list`, `bg_output` and
-//! `bg_stop` in `acpmux_mcp_bg.rs`.
+//! agent keeps the same checks as `bg_start` and `bg_list` in
+//! `acpmux_mcp_bg.rs`.
 
 use anyhow::{Result, anyhow};
 use clap::Subcommand;

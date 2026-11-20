@@ -9,11 +9,14 @@ use std::process::Stdio;
 
 use super::command::AppOpenArgs;
 
-pub async fn run(args: AppOpenArgs, tab: bool) -> Result<()> {
+pub async fn run(args: AppOpenArgs, tab: bool, json_out: bool) -> Result<()> {
     let binary = std::env::var_os("CMUX_BIN")
         .filter(|path| !path.is_empty())
         .unwrap_or_else(|| "cmux".into());
     let mut command = tokio::process::Command::new(binary);
+    if json_out {
+        command.arg("--json");
+    }
     command
         .arg("agent")
         .arg(if tab { "open-tab" } else { "open" })

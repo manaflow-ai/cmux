@@ -56,7 +56,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
     })?;
     match cmd {
         Command::Dispatch(args) => dispatch(connect(true).await?, args, json_out).await,
-        Command::Bg(cmd) => crate::cli::bg::run(&connect(true).await?, cmd, json_out).await,
+        Command::Bg(cmd) => {
+            let client = connect(true).await?;
+            crate::cli::bg::run(client.as_ref(), cmd, json_out).await
+        }
         Command::Notices { session, thread, mark_read } => {
             let session = session
                 .or_else(|| std::env::var(crate::acpmux_mcp::SESSION_ENV).ok())
@@ -66,8 +69,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         "notices needs a session, or ACPMUX_SESSION_ID inside an agent session",
                     )
                 })?;
+            let client = connect(true).await?;
             crate::cli::session_inbox::run(
-                &connect(true).await?,
+                client.as_ref(),
                 &session,
                 thread.as_deref(),
                 mark_read,
@@ -75,8 +79,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             )
             .await
         }
-        Command::Open(args) => crate::cli::app_bridge::run(args, false).await,
-        Command::OpenTab(args) => crate::cli::app_bridge::run(args, true).await,
+        Command::Open(args) => crate::cli::app_bridge::run(args, false, json_out).await,
+        Command::OpenTab(args) => crate::cli::app_bridge::run(args, true, json_out).await,
         Command::Briefs(cmd) => briefs(connect(true).await?, cmd, json_out).await,
         Command::Wait {
             sessions,
